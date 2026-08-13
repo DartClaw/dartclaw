@@ -33,6 +33,9 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 6. **Pipeline:** embed-on-write with graceful keyword-only degradation when the embedder is unavailable (loud log + visible unembedded counter, never a hard error); content-hash + embedder-fingerprint incremental re-embedding; heading-scored code-fence-safe chunker as the single chunking owner. Index stays derived + rebuildable (ADR-002).
 7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking – QMD's own benchmark shows plain hybrid fusion carries the measurable gain on keyword-friendly corpora; the excluded stages cost two resident GGUF models. The typed sub-query fusion seam keeps the door open; the future path is on-demand reranking via DartClaw's existing LLM harnesses.
 8. **QMD retirement:** `search.backend: qmd` gets a deprecation warning at Phase B GA; `QmdManager`/`QmdSearchBackend`/factory branch and docs are removed one milestone later.
+
+The schedule is exact: 0.24 keeps QMD fully supported and assigns it no canonical-memory authority; 0.25 Phase B emits
+the deprecation warning; the following milestone removes the implementation.
 9. **Packaging (owner-accepted 2026-07-25):** one default binary, all-in – no build flavor for the search native assets (jointly resolved with ADR-045 Open Questions #3 for `postgres`).
 
 ## Consequences

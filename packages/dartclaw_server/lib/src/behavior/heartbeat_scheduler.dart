@@ -5,7 +5,6 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'memory_consolidator.dart';
 import '../workspace/workspace_git_sync.dart';
 
 /// Periodically processes HEARTBEAT.md in isolated sessions.
@@ -20,8 +19,6 @@ class HeartbeatScheduler implements Reconfigurable {
   final String workspaceDir;
   final Future<void> Function(String sessionKey, String message) _dispatch;
   final WorkspaceGitSync? _gitSync;
-  final int memoryConsolidationThreshold;
-  final MemoryConsolidator? _consolidator;
 
   Timer? _timer;
 
@@ -30,12 +27,9 @@ class HeartbeatScheduler implements Reconfigurable {
     required this.workspaceDir,
     required Future<void> Function(String sessionKey, String message) dispatch,
     WorkspaceGitSync? gitSync,
-    MemoryConsolidator? consolidator,
-    this.memoryConsolidationThreshold = 32 * 1024,
   }) : _interval = interval,
        _dispatch = dispatch,
-       _gitSync = gitSync,
-       _consolidator = consolidator;
+       _gitSync = gitSync;
 
   Duration get interval => _interval;
 
@@ -100,15 +94,6 @@ class HeartbeatScheduler implements Reconfigurable {
       } catch (e, st) {
         _log.severe('Heartbeat dispatch failed', e, st);
       }
-
-      // Memory consolidation: if MEMORY.md exceeds threshold, dispatch cleanup turn
-      await (_consolidator ??
-              MemoryConsolidator(
-                workspaceDir: workspaceDir,
-                dispatch: _dispatch,
-                threshold: memoryConsolidationThreshold,
-              ))
-          .runIfNeeded();
     } finally {
       await _syncWorkspace();
     }

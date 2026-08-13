@@ -179,11 +179,14 @@ GatewayPrincipal principal({
   String providerId = 'claude',
   String profile = 'workspace',
   String? logicalAgentId,
+  String? taskId,
 }) => GatewayPrincipal(
   sessionId: sessionId,
   providerId: providerId,
   policy: ExecutionPolicy.container(profile),
+  sourceSessionId: sessionId,
   logicalAgentId: logicalAgentId,
+  taskId: taskId,
 );
 
 /// An MCP tool that records the fact the host implementation actually ran.

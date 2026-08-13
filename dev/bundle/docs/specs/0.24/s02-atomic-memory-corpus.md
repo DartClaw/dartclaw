@@ -38,53 +38,53 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] A selected corpus snapshot stops at its supplied file and byte budgets without reading omitted documents**
+- [x] **S01 [OC01] [TI01] A selected corpus snapshot stops at its supplied file and byte budgets without reading omitted documents**
   - **Given** an already reconciled 80-byte index and two requested 120-byte topic documents at collection revision `12`
   - **When** a caller requests the index followed by both topics, once with a two-document/1-KiB limit and once with a three-document/250-byte limit
   - **Then** each snapshot contains the complete index and first topic at revision `12`, reports the second topic under the correct document-count or aggregate-byte limit, and its file-read trace proves the omitted file was not opened or allocated during snapshot assembly
 
-- [ ] **S02 [OC02,OC03] [TI02] A multi-document canonical change commits as one revision**
+- [x] **S02 [OC02,OC03] [TI02] A multi-document canonical change commits as one revision**
   - **Given** a validated revision-`12` corpus with an index, topic `preferences`, and an archive, plus a change set that revises the index and topic while leaving the archive untouched
   - **When** the authority applies the change set with expected collection revision `12`
   - **Then** the complete new index and topic become visible together at revision `13`, the archive is byte-identical, the committed fingerprint matches the full canonical union, and the revision advanced once regardless of the number of changed files
 
-- [ ] **S03 [OC02] [TI02] One invalid resulting document rejects the whole change set before staging**
+- [x] **S03 [OC02] [TI02] One invalid resulting document rejects the whole change set before staging**
   - **Given** collection revision `13` and a two-document change set whose index is valid but whose topic duplicates a canonical entry ID already present in the archive
   - **When** the authority validates and applies the change set with expected revision `13`
   - **Then** it reports the cross-document validation failure, stages or replaces no file, invokes no derived-index work, and leaves every canonical byte, fingerprint, and revision unchanged
 
-- [ ] **S04 [OC02,OC03,OC04] [TI02,TI04] Two cooperating mutations from one snapshot cannot both commit**
+- [x] **S04 [OC02,OC03,OC04] [TI02,TI04] Two cooperating mutations from one snapshot cannot both commit**
   - **Given** a curation-style change and a maintenance change both captured from revision `13`, with controlled barriers making them contend on the same resolved workspace through real-path and symlink aliases
   - **When** both submit with expected revision `13`
   - **Then** one complete change commits at revision `14`, the other returns a stale-revision result carrying current revision `14`, no content from the rejected change is visible, and neither operation overlaps the other's canonical critical section
 
-- [ ] **S05 [OC03] [TI02,TI03] An injected I/O failure at each pre-commit transition restores the prior corpus**
+- [x] **S05 [OC03] [TI02,TI03] An injected I/O failure at each pre-commit transition restores the prior corpus**
   - **Given** revision `14`, a change affecting three canonical documents, and a table-driven fault injector targeting each stage write, backup transition, and target replacement before the revision-bearing `MEMORY.md` commit marker
   - **When** each fault is exercised independently
   - **Then** the operation returns failure only after recovering the complete revision-`14` corpus, leaves the committed fingerprint and derived index untouched, and a retry without the fault commits exactly once at revision `15`
 
-- [ ] **S06 [OC03] [TI03] Restart recovery exposes either the complete old revision or the complete committed revision, never a mixture**
+- [x] **S06 [OC03] [TI03] Restart recovery exposes either the complete old revision or the complete committed revision, never a mixture**
   - **Given** a revision-`15` multi-document change and simulated process death after each target replacement, immediately before the revision-bearing commit marker, immediately after it, and before transaction cleanup
   - **When** a fresh authority opens the workspace and recovers before serving a snapshot or mutation
   - **Then** pre-marker deaths restore the complete revision-`15` corpus, post-marker deaths finish the complete revision-`16` corpus and its fingerprint state, and every case removes or safely retains recognizable recovery artifacts without inventing another revision
 
-- [ ] **S07 [OC01,OC03] [TI01,TI03] Supported stopped-runtime topic, runtime-learning, and observation changes advance the host-owned revision before CAS resumes**
+- [x] **S07 [OC01,OC03] [TI01,TI03] Supported stopped-runtime topic, runtime-learning, and observation changes advance the host-owned revision before CAS resumes**
   - **Given** clean committed revision `16`, then independently a manual topic edit, a manual runtime-learning edit, a dated observation-partition edit, and deletion of a dated observation partition while DartClaw is stopped and no transaction journal exists
   - **When** the authority reopens the workspace for each case
   - **Then** it detects the full-corpus fingerprint mismatch, validates the complete resulting S01 corpus, advances the `MEMORY.md` collection revision once to `17` under the shared lock, records the reconciled fingerprint, reports the changed or removed canonical role and locator for later index reconciliation, and rejects a subsequent mutation still expecting revision `16`; an invalid edit instead leaves bytes and revision untouched and reports recovery-required
 
-- [ ] **S08 [OC01,OC02,OC03] [TI01,TI02] A fresh workspace bootstraps at revision `1` and a missing fingerprint sidecar adopts the current corpus**
+- [x] **S08 [OC01,OC02,OC03] [TI01,TI02] A fresh workspace bootstraps at revision `1` and a missing fingerprint sidecar adopts the current corpus**
   - **Given** independently a resolved workspace holding no canonical corpus, no committed-fingerprint sidecar and no transaction journal; a valid committed revision-`17` corpus whose fingerprint sidecar has been deleted; and that same revision-`17` corpus with a present sidecar recording a different fingerprint
   - **When** a fresh authority opens each workspace and then serves a snapshot
   - **Then** the empty workspace holds one minted collection UUID at collection revision `1` committed as the initial canonical state, the sidecar-less corpus keeps every canonical byte at revision `17` with its recomputed fingerprint recorded and no changed-role report, neither of those cases reports a fingerprint mismatch, and only the present-and-differing sidecar takes the stopped-edit reconciliation path
 
 ## Structural Criteria
 
-- [ ] `MEMORY.md` metadata remains the only collection-revision source of truth; the committed fingerprint sidecar and transaction artifacts are coordination state, not a second content or revision authority.
-- [ ] Canonical Markdown remains authoritative and `search.db` remains derived; post-commit index failure cannot roll back a canonical revision.
-- [ ] `dartclaw_core` remains SQLite-free, and no new package, database, daemon, scheduler, provider abstraction, QMD responsibility, or runtime dependency is introduced.
-- [ ] All production canonical-file reads and writes that require coherent index/topic/archive/observation/runtime-learning/deletion-audit state cross the same normalized workspace authority, and the runtime-learning and deletion-audit roles participate in the committed fingerprint, collection revision, and corpus validation exactly like the other canonical roles; `errors.md`, wiki, and temporal-KG writes remain outside this corpus contract.
-- [ ] Core public exports and affected package `AGENTS.md` files describe the implemented authority accurately without pre-empting S04/S05 tool semantics or S08 index-health policy.
+- [x] `MEMORY.md` metadata remains the only collection-revision source of truth; the committed fingerprint sidecar and transaction artifacts are coordination state, not a second content or revision authority.
+- [x] Canonical Markdown remains authoritative and `search.db` remains derived; post-commit index failure cannot roll back a canonical revision.
+- [x] `dartclaw_core` remains SQLite-free, and no new package, database, daemon, scheduler, provider abstraction, QMD responsibility, or runtime dependency is introduced.
+- [x] All production canonical-file reads and writes that require coherent index/topic/archive/observation/runtime-learning/deletion-audit state cross the same normalized workspace authority, and the runtime-learning and deletion-audit roles participate in the committed fingerprint, collection revision, and corpus validation exactly like the other canonical roles; `errors.md`, wiki, and temporal-KG writes remain outside this corpus contract.
+- [x] Core public exports and affected package `AGENTS.md` files describe the implemented authority accurately without pre-empting S04/S05 tool semantics or S08 index-health policy.
 
 ## Scope & Boundaries
 
@@ -147,19 +147,19 @@ test   | packages/dartclaw_storage/test/memory/memory_pruner_test.dart#source wr
 
 ### Implementation Tasks
 
-- [ ] **TI01** Corpus snapshots are bounded and carry one reconciled collection revision
+- [x] **TI01** Corpus snapshots are bounded and carry one reconciled collection revision
   - Build the core authority on S01's codec/validator/inventory, one resolved-workspace lock, a streamed committed fingerprint, explicit snapshot limits, fresh-workspace bootstrap that mints the collection UUID at collection revision `1`, adopt-current handling of an absent fingerprint sidecar, and stopped-edit revision reconciliation; export only the shared cross-package contract.
   - **Verify**: Layer-2 temp-workspace tests prove S01, S07, and S08, including unopened omitted files; fresh-workspace bootstrap at collection revision `1` and adopt-current for an absent fingerprint sidecar with no revision advance; exactly one external-change revision advance for a topic edit, runtime-learning edit, dated-observation edit, and dated-observation deletion; changed/removed role and locator reporting; explicit invalid-edit state; stale-CAS rejection after reconciliation; and no SQLite/server/storage dependency in core.
 
-- [ ] **TI02** Canonical mutations are all-or-nothing CAS commits
+- [x] **TI02** Canonical mutations are all-or-nothing CAS commits
   - Validate the complete resulting S01 corpus and every bound before writing, then stage and commit all changed canonical documents through one transaction whose last canonical marker is revision-bearing `MEMORY.md`; consume TI01's reconciled revision/fingerprint state.
   - **Verify**: Controlled component tests prove S02–S05 plus S08's initial-commit leg: exactly one revision advance for a multi-file change, no staging for invalid output, one winner under same-revision contention, unchanged bytes/fingerprint/index on every injected pre-marker failure, a successful single-advance retry, and a fresh workspace whose minted initial canonical state is published by this same staged transaction with revision-bearing `MEMORY.md` written last and no second revision advance.
 
-- [ ] **TI03** Interrupted corpus commits recover before any reader or writer proceeds
+- [x] **TI03** Interrupted corpus commits recover before any reader or writer proceeds
   - Make the transaction journal, stages, backups, marker, and fingerprint finalization idempotently recoverable; use TI02's commit order and TI01's fingerprint comparison without introducing an independent revision source.
   - **Verify**: A process-reopen fault matrix proves S05–S07 at every real transition: old-complete before the marker, new-complete after it, no mixed snapshot, no invented revision, recognizable artifact cleanup, and valid versus invalid stopped-edit behavior.
 
-- [ ] **TI04** All canonical writers use the shared corpus authority
+- [x] **TI04** All canonical writers use the shared corpus authority
   - Delegate active-memory/daily-observation, runtime-learning, and prune/archive coherent reads and canonical changes through TI01–TI03; keep derived index replacement post-commit, drain accepted work on shutdown, and synchronize affected barrels and package rules. Serialization, lock, queue, shutdown, and atomic-write delegation lands here for every listed writer; canonical rendering and validation apply only to a corpus that has passed S03's migration preflight, and a pre-migration corpus keeps its current byte output unchanged.
   - **Verify**: Core/storage/server integration tests prove S04 across real-path/symlink instances, queued shutdown preserves acknowledged writes and rejects later work, index failure preserves the committed revision, scans find no bypassing canonical replacement, package/API checks prove the stated boundaries, and focused memory/lock/atomic/queue suites remain green. The existing memory, lock, atomic-write, and queue suites stay green unmodified over a pre-migration corpus and are the parity evidence that delegation preserved byte output; canonical-rendering and validation assertions bind only to a migration-preflighted corpus.
 
@@ -329,3 +329,12 @@ Affected surface: Technical Overview (authority-open paragraph – fingerprint s
 Decision: The S01 inventory this authority streams and fingerprints is the union of both S01 member classes – the codec-rendered canonical documents, including the deletion-audit document, and the verbatim members preserving opaque legacy bytes under `memory/legacy/` – so the committed fingerprint covers preserved legacy content and a stopped-runtime edit to it is detectable drift.
 Rationale: Owner-ratified preflight resolution consuming S01's two-class inventory – S03's preserved opaque content sits outside the validator but inside the fingerprint, which only holds if this story's fingerprint scope is the union rather than the canonical-document class alone; a canonical-only scope would make the ratified drift detection non-existent.
 Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), item 44 verbatim-inventory-member (consequence of item 9 opaque-content-placement); the Technical Overview authority-open paragraph already states the union scope and its drift consequence; therefore this note carries zero `Old:`/`New:` pairs.
+
+#### DECISION NOTE: bounded-manifest-corpus-authority
+
+Decision-Key: bounded-manifest-corpus-authority
+Altitude: fis-local
+Affected surface: Expected Outcomes OC01–OC04; crash recovery; stopped-runtime reconciliation; derived-index projection
+Decision: The authority persists and authenticates a semantic member manifest containing path, role, length, digest, record ownership, and status facts. Ordinary reads and mutations select only exact paths or record owners and admit at most 1,000 regular bodies and 64 MiB in aggregate before allocation. Startup, offline rebuild, missing-sidecar adoption, and recovery may traverse successive independently bounded body batches, but publish no reconciled revision, fingerprint, or healthy derived-index evidence until a fresh complete-union authentication succeeds. Sparse commits derive their target fingerprint and global ID/audit invariants from selected replacements plus unopened authenticated manifest members, preserving unopened bytes exactly.
+Rationale: An aggregate observation history can legitimately exceed one request budget. Treating that budget as a corpus-size ceiling makes a new daily observation or one-entry apply unavailable precisely as history grows; materializing the union instead defeats the safety boundary. A semantic manifest provides the smallest common seam for bounded selection, global invariants, recovery, and streamed rebuild without introducing another authoritative store.
+Evidence: 2026-08-12 implementation review of the corpus authority, apply/capture/prune consumers, and startup/offline index reconciliation; regression tests cover exact/plus-one request budgets, more than 1,000 observation partitions, semantic sidecar tampering, selected-body authentication, and complete-union authentication before healthy publication.

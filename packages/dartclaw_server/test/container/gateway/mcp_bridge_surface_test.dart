@@ -10,6 +10,14 @@ const _canonicals = {
   'brave_search': CanonicalTool.webSearch,
   'web_fetch': CanonicalTool.webFetch,
   'sessions_spawn': CanonicalTool.sessionsSpawn,
+  'memory_apply': CanonicalTool.memoryApply,
+  'memory_observe': CanonicalTool.memoryObserve,
+};
+
+const _toolResponse = {
+  'content': [
+    {'type': 'text', 'text': 'ok'},
+  ],
 };
 
 void main() {
@@ -126,6 +134,204 @@ void main() {
       );
     });
   });
+
+  group('bridged memory provenance', () {
+    test('memory writes receive only principal-derived session, task, and agent identity', () async {
+      final contexts = <String, MemoryCaptureContext>{};
+      final registry = McpProtocolHandler()
+        ..registerTool(
+          MemoryApplyTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async {
+              contexts['apply'] = context;
+              return _toolResponse;
+            },
+          ),
+        )
+        ..registerTool(
+          MemoryObserveTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async {
+              contexts['observe'] = context;
+              return _toolResponse;
+            },
+          ),
+        );
+      final surface = _surface(registry, {
+        'memory_apply',
+        'memory_observe',
+      }, caller: principal(sessionId: 'session-42', taskId: 'task-42', logicalAgentId: 'memory-agent'));
+
+      expect(
+        (await _call(
+          surface,
+          'memory_apply',
+          arguments: {
+            'expectedRevision': 1,
+            'operations': [
+              {'kind': 'add', 'correlationId': 'c1', 'topic': 'preferences', 'content': 'Use metric units'},
+            ],
+          },
+        ))['result'],
+        isNotNull,
+      );
+      expect(
+        (await _call(
+          surface,
+          'memory_observe',
+          arguments: {'text': 'Prefers metric units', 'role': 'observation'},
+        ))['result'],
+        isNotNull,
+      );
+
+      for (final context in contexts.values) {
+        expect(context.originKind?.name, 'turn');
+        expect(context.sourceLocator, 'task:task-42');
+        expect(context.sourceEvent, startsWith('mcp-call:'));
+        expect(context.caller, 'memory-agent');
+        expect(context.sessionRef, 'session-42');
+      }
+      expect(contexts.keys, unorderedEquals(['apply', 'observe']));
+      expect(contexts['apply']!.sourceEvent, isNot(contexts['observe']!.sourceEvent));
+    });
+
+    test('primary, logical-agent, and task calls record only identity the host really owns', () async {
+      final contexts = <MemoryCaptureContext>[];
+      final registry = McpProtocolHandler()
+        ..registerTool(
+          MemoryObserveTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async {
+              contexts.add(context);
+              return _toolResponse;
+            },
+          ),
+        );
+      final cases = <({GatewayPrincipal principal, String locator, String caller, String? session})>[
+        (
+          principal: const GatewayPrincipal(
+            sessionId: 'primary',
+            providerId: 'claude',
+            policy: ExecutionPolicy.container('workspace'),
+          ),
+          locator: 'authority:primary',
+          caller: 'mcp-bridge:memory_observe',
+          session: null,
+        ),
+        (
+          principal: principal(sessionId: 'logical-session', logicalAgentId: 'researcher'),
+          locator: 'session:logical-session',
+          caller: 'researcher',
+          session: 'logical-session',
+        ),
+        (
+          principal: principal(sessionId: 'task-session', taskId: 'task-7'),
+          locator: 'task:task-7',
+          caller: 'mcp-bridge:memory_observe',
+          session: 'task-session',
+        ),
+      ];
+
+      for (final item in cases) {
+        final surface = _surface(registry, {'memory_observe'}, caller: item.principal);
+        await _call(surface, 'memory_observe', arguments: {'text': item.locator, 'role': 'observation'});
+        final context = contexts.last;
+        expect(context.sourceLocator, item.locator);
+        expect(context.sourceEvent, startsWith('mcp-call:${item.principal.sessionId}:'));
+        expect(context.caller, item.caller);
+        expect(context.sessionRef, item.session);
+      }
+
+      expect(contexts.map((context) => context.sourceEvent).toSet(), hasLength(cases.length));
+    });
+
+    test('caller arguments cannot forge memory provenance', () async {
+      var handlerCalls = 0;
+      final registry = McpProtocolHandler()
+        ..registerTool(
+          MemoryObserveTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async {
+              handlerCalls++;
+              return _toolResponse;
+            },
+          ),
+        );
+      final surface = _surface(registry, {
+        'memory_observe',
+      }, caller: principal(sessionId: 'real-session', taskId: 'real-task', logicalAgentId: 'real-agent'));
+
+      final response = await _call(
+        surface,
+        'memory_observe',
+        arguments: {
+          'text': 'Injected claim',
+          'role': 'observation',
+          'sessionId': 'forged-session',
+          'taskId': 'forged-task',
+          'agentId': 'forged-agent',
+          'provenance': {'source': 'forged'},
+        },
+      );
+
+      expect(response['error'], isNotNull);
+      expect(handlerCalls, 0);
+    });
+
+    test('rejects a bridged memory call when its transport supplies no caller authority', () async {
+      final registry = McpProtocolHandler()
+        ..registerTool(
+          MemoryObserveTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async => _toolResponse,
+          ),
+        );
+      final surface = _surface(
+        registry,
+        {'memory_observe'},
+        caller: const GatewayPrincipal(
+          sessionId: ' ',
+          providerId: 'claude',
+          policy: ExecutionPolicy.container('workspace'),
+        ),
+      );
+      final response = await _call(surface, 'memory_observe', arguments: {'text': 'no context', 'role': 'observation'});
+
+      expect((response['result'] as Map<String, Object?>)['isError'], isTrue);
+    });
+
+    test('a failed authority call cannot leak its context into another authority', () async {
+      final contexts = <MemoryCaptureContext>[];
+      final registry = McpProtocolHandler()
+        ..registerTool(
+          MemoryObserveTool(
+            handler: (_) async => _toolResponse,
+            contextualHandler: (args, context) async {
+              contexts.add(context);
+              if (args['text'] == 'fail') throw StateError('expected failure');
+              return _toolResponse;
+            },
+          ),
+        );
+      final first = _surface(registry, {
+        'memory_observe',
+      }, caller: principal(sessionId: 'first-session', taskId: 'first-task'));
+      final second = _surface(registry, {
+        'memory_observe',
+      }, caller: principal(sessionId: 'second-session', taskId: 'second-task'));
+
+      expect(
+        (await _call(first, 'memory_observe', arguments: {'text': 'fail', 'role': 'observation'}))['result'],
+        isNotNull,
+      );
+      await _call(second, 'memory_observe', arguments: {'text': 'succeed', 'role': 'observation'});
+
+      expect(contexts, hasLength(2));
+      expect(contexts.last.sourceLocator, 'task:second-task');
+      expect(contexts.last.sourceEvent, startsWith('mcp-call:'));
+      expect(contexts.last.sessionRef, 'second-session');
+    });
+  });
 }
 
 McpBridgeSurface _surface(
@@ -133,9 +339,10 @@ McpBridgeSurface _surface(
   Set<String> allowed, {
   void Function(String toolName)? onDenied,
   int maxRequestBytes = 1024 * 1024,
+  GatewayPrincipal? caller,
 }) => McpBridgeSurface(
   handler: registry,
-  principal: principal(logicalAgentId: 'search-agent'),
+  principal: caller ?? principal(logicalAgentId: 'search-agent'),
   allowedCanonicalTools: allowed,
   toolCanonicals: _canonicals,
   onDenied: onDenied == null ? null : (_, toolName) => onDenied(toolName),
@@ -156,11 +363,15 @@ Future<List<String>> _listTools(McpBridgeSurface surface) async {
   return [for (final tool in tools) (tool as Map<String, Object?>)['name'] as String];
 }
 
-Future<Map<String, Object?>> _call(McpBridgeSurface surface, String toolName) => _exchange(surface, {
+Future<Map<String, Object?>> _call(
+  McpBridgeSurface surface,
+  String toolName, {
+  Map<String, Object?> arguments = const {},
+}) => _exchange(surface, {
   'jsonrpc': '2.0',
   'id': 2,
   'method': 'tools/call',
-  'params': {'name': toolName, 'arguments': <String, Object?>{}},
+  'params': {'name': toolName, 'arguments': arguments},
 });
 
 Future<Map<String, Object?>> _exchange(McpBridgeSurface surface, Map<String, Object?> request) async {

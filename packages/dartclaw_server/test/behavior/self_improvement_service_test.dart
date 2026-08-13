@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_server/src/behavior/self_improvement_service.dart';
 import 'package:test/test.dart';
 
@@ -84,6 +86,21 @@ void main() {
   });
 
   group('appendLearning', () {
+    test('shared authority bootstraps canonical learning while owned service stays legacy', () async {
+      final sharedDir = Directory('${tmpDir.path}/shared')..createSync();
+      final authority = MemoryCorpusService(workspaceDir: sharedDir.path);
+      final shared = SelfImprovementService(workspaceDir: sharedDir.path, corpusService: authority);
+      addTearDown(shared.dispose);
+      addTearDown(authority.close);
+
+      await shared.appendLearning(text: 'Canonical first learning');
+      await service.appendLearning(text: 'Legacy first learning');
+
+      expect(File('${sharedDir.path}/MEMORY.md').readAsStringSync(), startsWith('# DartClaw Canonical Memory\n'));
+      expect(File('${sharedDir.path}/learnings.md').readAsStringSync(), startsWith('# DartClaw Canonical Memory\n'));
+      expect(await service.readLearnings(), startsWith('- ['));
+    });
+
     test('creates learnings.md with formatted entry', () async {
       await service.appendLearning(text: 'Always validate input before parsing');
 
@@ -98,6 +115,33 @@ void main() {
 
       final content = await service.readLearnings();
       expect('- ['.allMatches(content).length, equals(2));
+    });
+
+    test('mutates canonical learnings through the corpus revision authority', () async {
+      final corpus = CanonicalMemoryCorpus(
+        index: MemoryIndexDocument(
+          metadata: MemoryCollectionMetadata(collectionId: '268d8d96-cfad-42cf-80ab-195b647d11f7', revision: 4),
+        ),
+      );
+      for (final member in corpus.byteInventory().entries) {
+        File('${tmpDir.path}/${member.key}').writeAsBytesSync(member.value);
+      }
+
+      await service.appendLearning(text: 'Canonical runtime learning', timestamp: DateTime.utc(2026, 8, 11, 12));
+
+      final index = const MemoryMarkdownCodec().parse(File('${tmpDir.path}/MEMORY.md').readAsStringSync());
+      final learnings = const MemoryMarkdownCodec().parse(File('${tmpDir.path}/learnings.md').readAsStringSync());
+      expect(index, isA<MemoryIndexDocument>().having((document) => document.metadata.revision, 'revision', 5));
+      expect(
+        learnings,
+        isA<MemoryLearningDocument>().having((document) => document.entries.map((entry) => entry.content), 'contents', [
+          'Canonical runtime learning',
+        ]),
+      );
+      expect(
+        utf8.decode(corpus.byteInventory()['MEMORY.md']!),
+        isNot(File('${tmpDir.path}/MEMORY.md').readAsStringSync()),
+      );
     });
 
     test('continuation-encodes multiline text without forging entries', () async {
@@ -208,6 +252,38 @@ void main() {
       expect(content, contains('Learning 2'));
       expect(content, contains('Learning 3'));
       expect(content, contains('Learning 4'));
+    });
+
+    test('canonical learning append survives clock ties and rollback without changing timestamps', () async {
+      final corpus = MemoryCorpusService(workspaceDir: tmpDir.path);
+      await corpus.readCorpus();
+      addTearDown(corpus.close);
+      final ids = [
+        '00000000-0000-4000-8000-000000000003',
+        '00000000-0000-4000-8000-000000000002',
+        '00000000-0000-4000-8000-000000000001',
+      ].iterator;
+      final small = SelfImprovementService(
+        workspaceDir: tmpDir.path,
+        maxEntries: 2,
+        corpusService: corpus,
+        createId: () {
+          ids.moveNext();
+          return ids.current;
+        },
+      );
+      addTearDown(small.dispose);
+      final at = DateTime.utc(2026, 8, 12, 10);
+      final rolledBack = at.subtract(const Duration(hours: 1));
+
+      await small.appendLearning(text: 'Old tie', timestamp: at);
+      await small.appendLearning(text: 'Middle tie', timestamp: at);
+      await small.appendLearning(text: 'New tie', timestamp: rolledBack);
+
+      final retained = (await corpus.readCorpus()).learnings!.entries;
+      expect(retained.map((entry) => entry.content), ['Middle tie', 'New tie']);
+      expect(retained.map((entry) => entry.created), [at, rolledBack]);
+      expect(retained.map((entry) => entry.updated), [at, rolledBack]);
     });
 
     test('caps canonical learnings without deleting manually authored content', () async {

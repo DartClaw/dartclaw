@@ -11,8 +11,13 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
     AGENTS.md        # Safety rules (injected after user content)
     USER.md          # Structured user context and relevance preferences
     TOOLS.md         # Environment notes (SSH hosts, API endpoints)
-    MEMORY.md        # Persistent knowledge (agent-maintained)
-    MEMORY.archive.md # Pruned persistent knowledge
+    MEMORY.md        # Bounded canonical index
+    memory/topics/
+      <topic>.md     # Canonical topic documents
+    memory/YYYY-MM-DD.md # Canonical observation partitions
+    MEMORY.archive.md # Canonical archive
+    MEMORY.audit.md  # Content-free deletion audit (not indexed)
+    learnings.md     # Canonical learning role (newest 50)
     ONBOARDING.md    # Temporary first-run personalization sentinel
     wiki/
       README.md      # Wiki conventions and provenance guidance
@@ -31,8 +36,8 @@ This view focuses on the workspace behavior files. The instance directory also h
 
 ## Behavior Files
 
-Replace-mode providers re-read these files every turn. Claude and Codex receive them when the server starts, so restart
-the server to apply changes to those providers.
+Replace-mode providers re-read these files every turn. Claude and Codex also receive fresh scoped composition each turn;
+primary turns include the current bounded canonical index projection without requiring a server restart.
 
 ### SOUL.md -- Agent Identity
 Defines who the agent is. The agent can update this file.
@@ -97,37 +102,52 @@ Human-maintained reference for the agent about the local environment.
 ```
 
 ### MEMORY.md -- Persistent Knowledge
-Agent-maintained. The agent writes here via `memory_save` tool. Structured as timestamped entries grouped by category.
+Agent-maintained bounded canonical index. Detailed curated entries live in `memory/topics/<topic>.md`; `memory_apply`
+requires the current collection revision and atomically commits one wholly valid add/revise/merge/remove change set.
 
 ```markdown
-## preferences
-- [2026-02-25 14:30] User prefers Dart over Python for CLI tools
-- [2026-02-25 15:00] Project uses shelf for HTTP, not dart_frog
+# DartClaw Canonical Memory
+Format-Version: 1
+Role: index
+Collection-ID: 9a56ad9e-573c-45a4-901f-4fc073a20f84
+Collection-Revision: 7
 
-## project
-- [2026-02-25 16:00] Main API endpoint is /api/sessions
+## Record
+ID: e907c4e7-0c55-43c0-95cd-ebf41c4f6721
+Revision: 3
+Topic: "preferences"
+Summary: "Prefers concise answers"
+Updated: 2026-08-11T13:30:00.000Z
+Priority: 0
+Locator: e907c4e7-0c55-43c0-95cd-ebf41c4f6721
 ```
 
-Multi-line saves indent every continuation line by two spaces, including blank paragraph separators, so the complete
-entry round-trips through parsing, pruning, and index rebuilds. Legacy unindented continuation prose remains opaque and
-is preserved in place; indent known legacy body lines if they should become part of the preceding indexed entry.
+Canonical entries carry stable IDs, entry revisions, timestamps, topics, and host-bound provenance. Archived entries
+retain identity and remain searchable. Removal deletes entry content and appends its ID, time, host provenance, and the
+caller's unfiltered verbatim reason to the canonical audit. The host never copies entry content into the record, though
+the reason may independently quote it. DartClaw serializes apply, observation, learning, and pruning writes. Stop
+DartClaw before manually changing any canonical memory document: `MEMORY.md`, `memory/topics/*.md`,
+`MEMORY.archive.md`, `MEMORY.audit.md`, `learnings.md`, or `memory/YYYY-MM-DD.md`. External processes do not
+participate in the runtime write lock.
 
-Memory consolidation runs during heartbeat if MEMORY.md exceeds 32KB – the agent deduplicates and reorganizes entries.
-Recognized old entries are moved to `MEMORY.archive.md` under their original category. Both files are canonical inputs
-to `dartclaw rebuild-index`. DartClaw serializes runtime memory saves, learning saves, and pruning. Stop DartClaw before
-editing `MEMORY.md`, `MEMORY.archive.md`, or `learnings.md` manually, or before running `dartclaw rebuild-index`;
-external processes do not participate in the runtime write lock.
+Before editing or deleting canonical memory, copy the files you intend to change to a backup outside the workspace.
+To remove raw observations, delete the relevant stopped-runtime `memory/YYYY-MM-DD.md` partition, or edit it while
+preserving the canonical Markdown format. Do not edit `.dartclaw-memory-corpus.json`; it is derived coordination state.
+On restart, DartClaw authenticates the remaining corpus, advances the collection revision once for supported external
+changes, and reconciles the search index before reporting healthy. Invalid canonical Markdown fails closed without
+replacing the last healthy index: restore the backup, restart, and run `dartclaw rebuild-index` while DartClaw remains
+stopped if index health is still degraded.
 
 ### wiki/ -- Synthesized Knowledge
 Use `wiki/` for durable, source-backed pages that organize knowledge from memory, user-provided documents, and explicit
-sources. `MEMORY.md` remains the chronological memory stream; `wiki/` pages are curated summaries and references.
+sources. Canonical personal memory records user context and experience; `wiki/` pages are curated summaries and references.
 Treat the inbox as a curated source queue for bounded corpora such as a project, meeting set, or product spec set, not
 as a firehose for unrelated material.
 
 ### ONBOARDING.md -- Personalization Sentinel
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Human conversations in web chat and configured messaging
 channels receive the onboarding instructions until the agent calls `onboarding_complete`, the user defers, or the
-sentinel expires. Task, cron, logical-agent, advisor, and evaluator turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
+sentinel expires. Task, cron, logical-agent, and advisor turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
 write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes. Ordinary init also uses draft mode when
 either `USER.md` or `SOUL.md` already exists; direct writes are allowed only when init created both fresh stubs.
 
@@ -147,33 +167,36 @@ curated stores are updated only by their listed agent or job path:
 
 | Store | Written by | When |
 |-------|-----------|------|
-| `MEMORY.md` | Agent, via the `memory_save` tool | An explicit request, the opt-in built-in `memory.journal` job ([Daily Memory Journal](recipes/02-daily-memory-journal.md)), a custom scheduled job, or an automatic pre-compaction flush that asks the agent to preserve durable facts. |
-| `learnings.md` | Agent, via `memory_save` with `category='learning'` | An explicit learning save; entries are capped at 50 and remain searchable after `dartclaw rebuild-index`. |
-| MEMORY.md consolidation | Agent consolidation turn | Heartbeat, when `MEMORY.md` exceeds `memory.max_bytes` (default 32KB) |
-| `MEMORY.md` pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving recognized entries older than `memory.pruning.archive_after_days` under their original category while preserving unrecognized content in place |
+| `MEMORY.md` topics and archive | Agent, via `memory_apply` | Explicit curation using the current collection and entry revisions. Journals and automatic capture do not bypass this CAS path. |
+| Canonical observations | Agent, via `memory_observe` with `role='observation'` | Daily journals, pre-compaction capture, and other non-authoritative runtime observations. |
+| Canonical learnings | Agent, via `memory_observe` with `role='learning'` | Explicit runtime learning capture; retained entries are capped at 50 and remain searchable after `dartclaw rebuild-index`. |
+| `MEMORY.audit.md` | Host, inside the same `memory_apply` transaction as a removal | Codec-rendered content-free deletion evidence. It is validated, fingerprinted, and advances the collection revision, but is never projected into search. |
+| Canonical topic pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving old topic entries and removing exact replays in one corpus transaction, then regenerating the bounded index |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` – see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
 | Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` – see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
-| `memory/YYYY-MM-DD.md` | DartClaw, after tool-using main, Web, or channel turns | Daily activity logs for human-facing conversations – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded. Each record retains bounded copies of the persisted user prompt, normalized tool-input fields, and response summary after pattern-based secret redaction; explicit markers identify truncated fields. Records are capped at 512 KiB and each daily file at 8 MiB; visible markers identify truncated records or removed oldest records. The logs are not part of canonical memory or the default FTS5 `search.db`; opt-in QMD indexes workspace Markdown, including these logs. |
+| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe` and qualifying human-facing turn capture | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and default FTS5 projection; opt-in QMD also indexes workspace Markdown. |
 
 Host-side memory APIs and maintenance reject canonical workspace text files larger than 64 MiB. Daily logs use the
 tighter 8 MiB per-file limit before reading existing content.
+Memory status reports exact or lower-bound observation coverage, including exact known omission/failure counts and
+bounded failed or first-omitted locators when a traversal or parse cannot cover every daily log.
 
 Redaction is best effort, not a confidential-data classifier: values that do not match built-in or configured patterns
 can remain in daily logs. `memory/` is tracked by workspace Git unless the operator adds an ignore rule. Treat a
 configured `origin` as a trusted backup destination, or disable Git sync/ignore `memory/` when that persistence boundary
 is inappropriate.
 
-A fresh instance looks healthy while its knowledge layer is still empty: the inbox job logs successful runs over an empty `inbox/`, and `memory_search` (which covers canonical memory and `wiki/`) returns nothing without error. To see what has actually accumulated, open the Knowledge Hub (`/knowledge`) or the Memory dashboard (`/memory`). `dartclaw rebuild-index` reporting that no canonical memory file exists means nothing has called `memory_save` yet.
+A fresh instance looks healthy while its knowledge layer is still empty: the inbox job logs successful runs over an empty `inbox/`, and `memory_search` (which covers canonical memory and `wiki/`) returns nothing without error. To see what has actually accumulated, open the Knowledge Hub (`/knowledge`) or the Memory dashboard (`/memory`). `dartclaw rebuild-index` reporting that no canonical corpus exists means no memory write has committed yet.
 
 ## System Prompt Assembly Order
 
-The system prompt is assembled in this order:
+Primary turns assemble fresh bounded context in this order:
 
 1. **SOUL.md**
 2. **USER.md** (wrapped in `## User Context`)
 3. **TOOLS.md** (wrapped in `## Environment Notes`)
-4. **errors.md** and **learnings.md**
-5. **MEMORY.md** (truncated if over limit)
+4. **errors.md**
+5. **Bounded canonical memory index projection** (priority/recency ordered; bulk learnings and topic bodies stay on demand)
 6. **ONBOARDING.md** (human conversational turns only, when fresh)
 7. **AGENTS.md** (safety rules -- appended after behavior content)
 

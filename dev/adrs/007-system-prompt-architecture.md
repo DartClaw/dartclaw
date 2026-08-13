@@ -23,7 +23,7 @@ Additionally, future harnesses (PiHarness, DirectApiHarness) will have no built-
 
 - `--append-system-prompt` is a **CLI spawn-time flag only**. Not available as a per-turn JSONL field (confirmed via Python Agent SDK source: per-turn stdin payload only accepts `type`, `message`, `parent_tool_use_id`, `session_id`).
 - GitHub issue [#4523](https://github.com/anthropics/claude-code/issues/4523) reports `--append-system-prompt` may inject as a user message rather than API-level system prompt. Worth monitoring; content still reaches the model.
-- MEMORY.md access already available via MCP tools (`memory_read`, `memory_search`, `memory_save`) registered in `McpToolRegistry`.
+- Canonical memory access is available through `memory_read`, `memory_search`, `memory_apply`, and `memory_observe` registered in `McpToolRegistry`.
 
 ### Predecessor Analysis
 

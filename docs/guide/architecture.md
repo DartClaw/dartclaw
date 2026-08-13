@@ -110,7 +110,7 @@ DartClaw is organized as a Dart pub workspace with twelve packages plus a CLI ap
 ```
 packages/
   dartclaw_models/       Zero dependencies. Shared data types such as Session,
-                         Message, MemoryChunk, SessionKey, Task, and Goal.
+                         Message, MemorySearchResult, SessionKey, Task, and Goal.
 
   dartclaw_security/     Guard framework, concrete guards, content
                          classification, redaction, and guard audit primitives.
@@ -177,23 +177,31 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ├── projects/
 │   └── <projectId>/                  # Git repository clones
 └── workspace/
-    ├── MEMORY.md                     # Long-term memory
+    ├── MEMORY.md                     # Bounded canonical index
+    ├── memory/topics/<topic>.md      # Canonical topic documents
+    ├── MEMORY.archive.md             # Canonical archive
+    ├── MEMORY.audit.md               # Content-free deletion audit (not indexed)
+    ├── .dartclaw-memory-corpus.json   # Derived authenticated member manifest
     ├── errors.md                     # Auto-populated error log
-    ├── learnings.md                  # Agent-written insights
+    ├── learnings.md                  # Canonical learning role (newest 50)
     ├── SOUL.md, USER.md, TOOLS.md    # Behavior files (identity, profile, env)
-    └── memory/
-        └── YYYY-MM-DD.md            # Daily turn logs
+    └── memory/YYYY-MM-DD.md          # Canonical observation partitions
 ```
 
 Mutable files use atomic writes (temp file + rename) to prevent corruption on crash. Services with concurrent callers
-serialize writes via Dart `StreamController` queues; canonical memory saves, learning saves, pruning, and their index
-updates also share a workspace write lock.
+serialize writes via Dart `StreamController` queues. Personal-memory apply, observation, learning, and pruning writes
+share one corpus authority and workspace lock; derived-index reconciliation follows canonical success.
+
+The corpus manifest is coordination state, not memory content. It authenticates canonical member identity, role,
+length, digest, and record IDs so targeted reads and sparse writes preserve unopened documents. Startup authenticates
+the complete canonical union in bounded batches before it reports the derived index healthy. If the manifest is missing,
+DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fails closed before index publication.
 
 ### SQLite
 
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | FTS5-indexed memory chunks (BM25 ranking) | No — derived from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md`, rebuildable via `dartclaw rebuild-index` |
+| `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
 | `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 | `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
@@ -207,7 +215,7 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-When the agent calls `memory_save`, text is appended to `MEMORY.md` – or to `learnings.md` for the `learning` category – stripped of markdown, split into paragraph-sized chunks, and inserted into the FTS5 index. `memory_search` queries the index and returns BM25-ranked results. A nightly `MemoryPruner` archives entries older than 90 days and removes exact duplicates to keep the index focused.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors.
 
 For more detail on memory configuration, see the [Search guide](search.md).
 
@@ -236,7 +244,7 @@ TurnRunner (per-harness)
     ├── SSE streaming to web UI
     ├── Message persistence (NDJSON append)
     ├── Usage tracking (token attribution)
-    └── Self-improvement (errors.md / learnings.md on failure)
+    └── Self-improvement (errors.md log + canonical learning capture)
 ```
 
 Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
@@ -396,7 +404,8 @@ Built-in MCP tools:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_save` / `memory_search` | Persistent memory with FTS5 search |
+| `memory_apply` / `memory_observe` | Curated personal-memory and capture writes |
+| `memory_search` / `memory_read` | Read-only indexed retrieval and canonical reads |
 | `sessions_spawn` | Creates a configured logical-agent conversation and returns its handle after the first turn |
 | `sessions_send` | Continues the logical-agent conversation identified by that handle |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |

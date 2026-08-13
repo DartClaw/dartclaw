@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:dartclaw_config/dartclaw_config.dart'
     show ClaudeProviderOptions, HistoryConfig, PlatformCapabilities, UnsupportedCapabilityError;
 import '../container/container_executor.dart';
+import '../memory/memory_apply_schema.dart';
 import '../storage/atomic_write.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
@@ -21,10 +22,13 @@ import 'claude_protocol.dart';
 import 'canonical_tool.dart';
 import 'conversation_history.dart';
 import 'harness_config.dart';
+import 'harness_turn_context.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'tool_policy.dart';
+
+part 'claude_code_harness_mcp.dart';
 
 List<String> _buildClaudeArgs({
   String? model,
@@ -61,7 +65,7 @@ List<String> _buildClaudeArgs({
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends BaseHarness {
+class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, dynamic> providerOptions;
@@ -78,15 +82,21 @@ class ClaudeCodeHarness extends BaseHarness {
   final PlatformCapabilities platformCapabilities;
 
   /// Memory handlers exposed through the SDK fallback when no HTTP MCP server is configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
+  final ContextualMemoryToolHandler? onContextualMemoryApply;
+  final ContextualMemoryToolHandler? onContextualMemoryObserve;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
   /// Called with the native tool name and reason when Claude denies tool use.
   final void Function(String toolName, String? reason)? onPermissionDenied;
 
-  /// Called with the session ID and trigger before compaction.
-  void Function(String sessionId, String trigger)? onCompactionStarting;
+  /// Called with the host session ID and trigger before compaction.
+  ///
+  /// The hook acknowledgement waits for this callback to settle. A callback
+  /// failure is logged but does not prevent Claude from compacting.
+  FutureOr<void> Function(String sessionId, String trigger)? onCompactionStarting;
 
   /// Called with the trigger and pre-compaction token count at the boundary.
   void Function(String trigger, int? preTokens)? onCompactionCompleted;
@@ -123,7 +133,10 @@ class ClaudeCodeHarness extends BaseHarness {
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
-    this.onMemorySave,
+    this.onMemoryApply,
+    this.onMemoryObserve,
+    this.onContextualMemoryApply,
+    this.onContextualMemoryObserve,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -742,10 +755,11 @@ class ClaudeCodeHarness extends BaseHarness {
   }
 
   Map<String, dynamic> _buildMemorySdkMcpServers() {
-    final save = onMemorySave;
+    final apply = onMemoryApply;
+    final observe = onMemoryObserve;
     final search = onMemorySearch;
     final read = onMemoryRead;
-    if (save == null || search == null || read == null) return {};
+    if (apply == null || observe == null || search == null || read == null) return {};
 
     return {
       'sdkMcpServers': {
@@ -753,15 +767,33 @@ class ClaudeCodeHarness extends BaseHarness {
           'type': 'sdk_mcp_server',
           'tools': [
             {
-              'name': 'memory_save',
-              'description': 'Save a fact, preference, or piece of knowledge to persistent memory.',
+              'name': 'memory_observe',
+              'description': 'Record a non-authoritative observation or runtime learning.',
               'input_schema': {
                 'type': 'object',
                 'properties': {
-                  'text': {'type': 'string', 'description': 'The text to save'},
-                  'category': {'type': 'string', 'description': 'Category (e.g. preferences, project)'},
+                  'text': {'type': 'string', 'maxLength': 65536, 'description': 'The text to record'},
+                  'role': {
+                    'type': 'string',
+                    'enum': ['observation', 'learning'],
+                    'description': 'Canonical capture role',
+                  },
                 },
-                'required': ['text'],
+                'required': ['text', 'role'],
+                'additionalProperties': false,
+              },
+            },
+            {
+              'name': 'memory_apply',
+              'description': 'Atomically add, revise, merge, or remove curated personal memory.',
+              'input_schema': {
+                'type': 'object',
+                'properties': {
+                  'expectedRevision': {'type': 'integer', 'minimum': 1},
+                  'operations': {'type': 'array', 'minItems': 1, 'items': memoryApplyOperationSchema},
+                },
+                'required': ['expectedRevision', 'operations'],
+                'additionalProperties': false,
               },
             },
             {
@@ -780,12 +812,53 @@ class ClaudeCodeHarness extends BaseHarness {
                   },
                 },
                 'required': ['query'],
+                'additionalProperties': false,
               },
             },
             {
               'name': 'memory_read',
-              'description': 'Read the full contents of MEMORY.md.',
-              'input_schema': {'type': 'object', 'properties': <String, dynamic>{}},
+              'description': 'Read canonical memory or a native knowledge source by stable selector.',
+              'input_schema': {
+                'type': 'object',
+                'properties': {
+                  'locator': {'type': 'string', 'description': 'Stable locator returned by memory_search'},
+                  'role': {
+                    'type': 'string',
+                    'enum': ['topic', 'archive'],
+                    'description': 'Topic-bearing canonical role',
+                  },
+                  'topic': {'type': 'string', 'description': 'Canonical topic slug'},
+                  'limit': {
+                    'type': 'integer',
+                    'description': 'Number of records (1-50, default 5)',
+                    'default': 5,
+                    'minimum': 1,
+                    'maximum': 50,
+                  },
+                },
+                'oneOf': [
+                  {
+                    'required': ['locator'],
+                    'not': {
+                      'anyOf': [
+                        {
+                          'required': ['role'],
+                        },
+                        {
+                          'required': ['topic'],
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'required': ['role', 'topic'],
+                    'not': {
+                      'required': ['locator'],
+                    },
+                  },
+                ],
+                'additionalProperties': false,
+              },
             },
           ],
         },
@@ -827,7 +900,7 @@ class ClaudeCodeHarness extends BaseHarness {
         break;
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
-        _handleControlRequest(requestId, subtype, data);
+        unawaited(_handleControlRequest(requestId, subtype, data));
 
       case proto.TurnComplete(
         :final stopReason,
@@ -900,7 +973,7 @@ class ClaudeCodeHarness extends BaseHarness {
     }
   }
 
-  void _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) {
+  Future<void> _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) async {
     switch (subtype) {
       case 'can_use_tool':
         final skipNativePermissions = _nativePermissionsSkipped;
@@ -919,7 +992,11 @@ class ClaudeCodeHarness extends BaseHarness {
         return;
 
       case 'hook_callback':
-        _handleHookCallback(requestId, data);
+        await _handleHookCallback(requestId, data);
+        return;
+
+      case 'mcp_message':
+        await _handleMcpMessage(requestId, data);
         return;
 
       default:
@@ -928,7 +1005,9 @@ class ClaudeCodeHarness extends BaseHarness {
     }
   }
 
-  void _handleHookCallback(String requestId, Map<String, dynamic> data) {
+  void _writeSdkMcpLine(Map<String, dynamic> message) => writeJsonLine(message);
+
+  Future<void> _handleHookCallback(String requestId, Map<String, dynamic> data) async {
     final hookInput = data['input'];
     if (hookInput is! Map<String, dynamic>) {
       _denyHook(requestId);
@@ -942,7 +1021,7 @@ class ClaudeCodeHarness extends BaseHarness {
         _denyHook(requestId);
         return;
       }
-      _handlePreCompactCallback(requestId, hookInput);
+      await _handlePreCompactCallback(requestId, hookInput);
       return;
     }
 
@@ -984,11 +1063,11 @@ class ClaudeCodeHarness extends BaseHarness {
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false));
   }
 
-  void _handlePreCompactCallback(String requestId, Map<String, dynamic>? hookInput) {
-    final sessionId = hookInput?['session_id'] as String? ?? _sessionId ?? '';
+  Future<void> _handlePreCompactCallback(String requestId, Map<String, dynamic>? hookInput) async {
+    final sessionId = _activeTurnSessionId ?? hookInput?['session_id'] as String? ?? _sessionId ?? '';
     final trigger = hookInput?['trigger'] as String? ?? 'auto';
     try {
-      onCompactionStarting?.call(sessionId, trigger);
+      await onCompactionStarting?.call(sessionId, trigger);
     } catch (error, stackTrace) {
       _log.warning('Claude PreCompact observer failed for $requestId: $error', error, stackTrace);
     }

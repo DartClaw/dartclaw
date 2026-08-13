@@ -62,7 +62,7 @@ void main() {
         containerManager: containerManager,
         guardChain: guardChain,
         auditLogger: auditLogger,
-        onMemorySave: (payload) async => {'saved': payload},
+        onMemoryApply: (payload) async => {'applied': payload},
         onMemorySearch: (payload) async => {'searched': payload},
         onMemoryRead: (payload) async => {'read': payload},
       );
@@ -80,7 +80,7 @@ void main() {
       expect(claude.guardChain, same(guardChain));
       expect(claude.auditLogger, same(auditLogger));
       expect(claude.providerOptions, isEmpty);
-      expect(claude.onMemorySave, isNotNull);
+      expect(claude.onMemoryApply, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
       expect(claude.onMemoryRead, isNotNull);
     });

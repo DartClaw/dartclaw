@@ -238,6 +238,7 @@ class WorkflowCliRunner {
         sessionId: sessionId ?? taskId ?? 'workflow-one-shot',
         providerId: provider,
         policy: policy,
+        sourceSessionId: sessionId,
         taskId: taskId,
       ),
       allowedMcpTools: resolveGrant(allowedTools),

@@ -30,6 +30,7 @@ final class GatewayPrincipal {
     required this.sessionId,
     required this.providerId,
     required this.policy,
+    this.sourceSessionId,
     this.logicalAgentId,
     this.taskId,
   });
@@ -39,6 +40,10 @@ final class GatewayPrincipal {
 
   /// The effective policy; container profile included.
   final ExecutionPolicy policy;
+
+  /// Real source session known to the host, when [sessionId] is not merely an
+  /// execution-authority key such as the primary lane or a workflow fallback.
+  final String? sourceSessionId;
 
   final String? logicalAgentId;
   final String? taskId;

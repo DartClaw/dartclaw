@@ -59,9 +59,15 @@ Content is truncated to 50KB before classification.
 
 ## Memory Search
 
-Memory search combines the FTS5 index over `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` with a separately merged
+Memory search combines the rebuildable FTS5 projection of canonical topic, archive, observation, and learning roles with a separately merged
 file lookup over synthesized `wiki/` pages. For when those stores actually get written – and why a fresh instance returns
 no results – see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
+
+One wiki request reads at most 1,000 regular files and 64 MiB of admitted body bytes. Each source is accepted through
+64 MiB. Search ranks every admitted candidate before returning the best 50; an exhausted scan or bad wiki file is
+reported as wiki-layer degradation without discarding healthy memory results.
+Search responses include structured `degradations` with the reason, affected locator when known, observed and limit
+values, and omitted count.
 
 ### FTS5 (Default)
 
@@ -90,13 +96,11 @@ search:
 | `standard` | Lexical + vector | ~200ms |
 | `deep` | Full query + reranking | 5-8s |
 
-If QMD becomes unreachable, DartClaw falls back to FTS5 silently.
+If QMD becomes unreachable or a query fails, DartClaw falls back to FTS5 and reports `qmd` in the degraded layers.
 
 If startup reports that the existing `memory` collection uses the legacy `*.md` mask, run
 `qmd --index index collection remove memory`, then restart DartClaw. Startup recreates the collection with `**/*.md`.
 
-### Memory Consolidation
+### Memory Curation
 
-During heartbeat, if MEMORY.md exceeds 32KB, the agent runs a consolidation turn to deduplicate and reorganize entries.
-
-Memory journaling fills MEMORY.md from daily turn logs; consolidation deduplicates it after it exceeds the size cap.
+Memory curation is explicit. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.

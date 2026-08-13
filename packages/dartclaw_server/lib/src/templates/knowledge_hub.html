@@ -54,13 +54,13 @@
         <article tl:each="item : ${items}" class="card knowledge-result-body">
           <div class="knowledge-result-head">
             <span class="layer-badge" tl:classappend="${item.layerClass}" tl:text="${item.layerLabel}">WIKI</span>
-            <h2 class="knowledge-result-title">
+            <h2 tl:if="${item.sourceResolved}" class="knowledge-result-title">
               <a tl:attr="href=${item.sourceHref}" tl:text="${item.title}">Source title</a>
             </h2>
           </div>
           <p class="knowledge-result-snippet" tl:text="${item.snippet}">Snippet</p>
           <div class="knowledge-result-meta">
-            <a class="source-link" tl:attr="href=${item.sourceHref}" tl:text="${item.sourceLabel}">Source</a>
+            <a tl:if="${item.sourceResolved}" class="source-link" tl:attr="href=${item.sourceHref}" tl:text="${item.sourceLabel}">Source</a>
             <tl:block tl:utext="${item.attributionHtml}"><!-- attribution --></tl:block>
           </div>
         </article>

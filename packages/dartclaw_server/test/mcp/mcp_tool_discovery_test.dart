@@ -70,7 +70,8 @@ void main() {
 
     test('tools/list includes memory, sessions, and web_fetch tools', () async {
       for (final name in [
-        'memory_save',
+        'memory_apply',
+        'memory_observe',
         'memory_search',
         'memory_read',
         'sessions_spawn',
@@ -84,9 +85,17 @@ void main() {
       final names = tools.map((t) => t['name']).toSet();
       expect(
         names,
-        containsAll(['memory_save', 'memory_search', 'memory_read', 'sessions_spawn', 'sessions_send', 'web_fetch']),
+        containsAll([
+          'memory_apply',
+          'memory_observe',
+          'memory_search',
+          'memory_read',
+          'sessions_spawn',
+          'sessions_send',
+          'web_fetch',
+        ]),
       );
-      expect(tools, hasLength(6));
+      expect(tools, hasLength(7));
     });
 
     test('tools/list includes search tools when registered', () async {

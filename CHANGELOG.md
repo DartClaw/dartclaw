@@ -11,14 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Atomic canonical memory corpus** – bounded revision-consistent snapshots, compare-and-swap multi-file commits, restart recovery, stopped-runtime edit reconciliation, and one shared writer authority protect canonical memory from lost or mixed updates.
+- **Lossless memory migration** – startup converts recognized preview memory, archive, daily activity, and learnings into canonical roles, preserves opaque Markdown and an exact prior snapshot, and completes before derived indexes open.
+- **Guarded memory capture and retrieval** – `memory_observe`, `memory_search`, and bounded selector-based `memory_read` preserve canonical role, provenance, revision, and locator identity across FTS5, QMD fallback, and native wiki sources.
+- **Converged search and citations** – MCP, Knowledge Hub, and Context Research now share owner-scoped natural-language retrieval, one request-level wiki composition pass, explicit partial degradation, stable canonical/native locators, and live source resolution.
 - **Durable logical-agent conversations** – `sessions_spawn` creates a hidden, provider-pinned session from `agent.agents`; `sessions_send` continues the returned handle with persisted history, persona/model/effort/profile settings, content guarding, and provider-neutral continuity.
-- **Opt-in memory journal** – `memory.journal.enabled` registers a scheduled `memory-journal` job that distills daily logs into `MEMORY.md` through a closed `file_read` + `memory_save` policy. The feature remains off by default.
+- **Opt-in memory journal** – `memory.journal.enabled` registers a scheduled `memory-journal` job that classifies daily-log items through a closed `file_read` + `memory_observe` policy. The feature remains off by default.
 - **On-demand prompt jobs** – configured prompt jobs can be started through `dartclaw jobs run`, `POST /api/scheduling/jobs/<name>/run`, or the Scheduling page without altering pause state or timer cadence.
 - **Host-mediated provider and MCP access for containers** – a containerized execution reaches its model provider and its approved host tools only through per-authority framed `docker exec` pipes served by the host gateway. Containers keep `network:none`, carry no reusable credential, and every pipe is revoked when its authority is released. This replaces the credential proxy and its in-container socat bridge.
 - **Codex container parity** – `codex` runs on either execution boundary with the same mediation as `claude`: the image ships a checksum-verified pinned binary, each turn gets an auth-clean generated home so no saved bearer is forwarded, and scoped MCP is granted without a shared operator token.
 
 ### Changed
 
+- **Leaner memory architecture** – production wiring now shares one memory handler authority, metadata-only reads use the authenticated manifest directly, index parity and file-containment checks have one implementation, and canonical learning construction is no longer duplicated. The core LOC ratchet is lowered from 20 500 to 20 350.
 - **Background execution uses one bounded authority** – the fixed serialized primary lane serves main user/channel turns, while `providers.<id>.pool_size` is the hard per-provider capacity shared by tasks, cron/system/advisor work, logical agents, and workflow one-shots. Healthy compatible workers may be reused, but cached processes and containers no longer determine capacity.
 - **Human onboarding is transport-independent** – fresh onboarding applies to Web UI and configured messaging-channel conversations while remaining excluded from tasks, scheduled work, workflows, evaluators, advisors, and logical agents.
 - **Provider identity is canonicalized** – provider IDs are trimmed and lowercased across configuration and routing; blank IDs and normalization collisions fail clearly.
@@ -30,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **MEMORY.md maintenance preserves authored content** – pruning removes only parsed entries selected for archival or deduplication, while titles, prose, separators, plain bullets, and other opaque content remain in place. Multi-paragraph `memory_save` entries now use parser-safe indented continuations and round-trip through pruning and index rebuilds.
+- **Atomic personal-memory curation** – `memory_apply` replaces the append-only save path with collection-revision CAS across add, revise, merge, and remove operations. Canonical Markdown and deletion audit commit together; exact no-ops do not advance revision, and derived-index failures are reported separately. `memory_observe` remains the write path for observations and bounded learnings.
 - **Recurring cron jobs wait for their scheduled boundary** – an early timer callback is re-armed for the remaining delay, preventing the same cron occurrence from firing twice.
 - **Daily activity logs contain human-facing turns only** – main, Web, and channel sessions may write tool-using turn summaries; heartbeat, scheduled, task, logical-agent, and archived sessions are excluded. Logged prompts, bounded tool details, and response summaries use explicit resource ceilings and secret redaction instead of tiny display-oriented snippets.
 - **Agent-authored learnings are tracked by default** – generated workspace `.gitignore` rules retain `errors.md` as runtime noise but no longer exclude the capped `learnings.md` knowledge file.
@@ -47,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Host Claude login mounted into containers (breaking)** – `~/.claude.json` is no longer bind-mounted into agent containers; no host login material crosses the boundary. Containerized Claude is mediated by the host adapter, which needs a host-held API key, so an OAuth/setup-token-only host warns at startup and refuses each containerized Claude turn. **Migration:** set `ANTHROPIC_API_KEY`, or give the affected agents and task types `execution: host`.
+- **Unused preview memory APIs (breaking)** – the test-only `MemoryFileService.appendMemory`, `readMemory`, `lastMemorySize`, and `parseMemoryFile` compatibility surface and the no-op `MemoryPruner.removeDuplicates` API are removed. Runtime writes continue through canonical observe/apply/daily-log authorities.
 - **Preview delegation surfaces (breaking)** – `delegate_to_agent`, `delegation.*`, `SessionDelegate`, `SubagentLimits`, delegation config exports, and provider-native agent registration are removed. Use `sessions_spawn` and handle-based `sessions_send`.
 - **Legacy capacity and observability surfaces (breaking)** – `tasks.max_concurrent` and `HarnessPool` are replaced by provider `pool_size` and `ExecutionCoordinator`; CLI `agents`, `/api/agents`, SSE `agent_state`, and agent observer/events become `runners`, `/api/runners`, `runner_state`, and runner equivalents.
 - **Obsolete `AgentDefinition` controls (breaking, SDK)** – per-agent spawn/concurrency/session-store fields, arbitrary initialize-payload extras, and `toInitializePayload()` are removed; logical agents use shared worker capacity and host-owned orchestration.
@@ -59,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refined Phosphor Aurora Web UI** – the design canon now provides clearer depth and typography, reusable form/tab/dialog primitives, responsive containment, and locally served browser dependencies across the complete UI.
 - **Persistent session navigation** – New Chat reuses only a truly empty draft, while a stable System section keeps runtime and administration destinations reachable without displacing conversations.
 - **Native typing indicators for Signal and WhatsApp** – queued agent turns now show typing state in DMs and groups and attempt to clear it before delivery. Signal refreshes the indicator before its 15-second expiry, and bounded typing failures never prevent the turn or response.
-- **Knowledge-layer documentation from field feedback** – the workspace guide documents each store's single write path (`memory_save`, inbox → wiki/KG, daily turn logs) and how to recognize an empty knowledge layer, and the personal-assistant recipe adds a memory-before-web retrieval-precedence rule to its `AGENTS.md`.
+- **Coherent memory tool contract** – current guides, recipes, provider policy, and direct-SDK/MCP surfaces use `memory_apply`, `memory_observe`, `memory_search`, and `memory_read`. Automatic threshold consolidation and the legacy save tool are removed.
 
 ### Changed
 

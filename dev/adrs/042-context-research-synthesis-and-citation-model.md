@@ -42,6 +42,13 @@ Synthesis runs through an injected background-turn seam. Production wiring dispa
 
 ## Consequences
 
+## Amendment (2026-08-12) – converged search and locator contract
+
+`context_research`, the Knowledge Hub, MCP memory search, and direct search share one request-level composition owner.
+Callers pass trimmed natural language; the FTS5 adapter owns MATCH encoding. Personal-memory citations use stable entry
+UUID locators and revisions, while wiki/KG retain native locators and provenance. Native wiki wins over a duplicate QMD
+copy, and failure of one layer is reported without discarding healthy results.
+
 ### Positive
 
 - Agents get one compact MCP result instead of coordinating multiple raw retrieval tools.

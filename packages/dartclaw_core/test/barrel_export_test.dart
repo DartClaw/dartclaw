@@ -89,11 +89,11 @@ void main() {
       );
       expect(msg.role, 'user');
 
-      final chunk = MemoryChunk(id: 1, textContent: 'fact', source: 'test', createdAt: DateTime.now());
-      expect(chunk.textContent, 'fact');
-
       const result = MemorySearchResult(text: 'fact', source: 'test', score: 0.9);
       expect(result.score, 0.9);
+      const outcome = MemorySearchOutcome(results: [result], degradedLayers: ['qmd']);
+      expect(outcome.single, result);
+      expect(SearchResultLayer.values, [SearchResultLayer.memory, SearchResultLayer.wiki]);
 
       final task = Task(
         id: 'task-1',
@@ -127,6 +127,11 @@ void main() {
       );
       expect(goal.title, 'Ship 0.8');
       expect(GoalRepository, isNotNull);
+
+      final metadata = MemoryCollectionMetadata(collectionId: '9a56ad9e-573c-45a4-901f-4fc073a20f84', revision: 1);
+      final corpus = CanonicalMemoryCorpus(index: MemoryIndexDocument(metadata: metadata));
+      const MemoryCorpusValidator().validate(corpus);
+      expect(const MemoryMarkdownCodec().parse(const MemoryMarkdownCodec().render(corpus.index)), corpus.index);
     });
 
     test('SessionKey constructable', () {

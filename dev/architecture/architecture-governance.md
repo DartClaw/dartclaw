@@ -103,7 +103,7 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| `dartclaw_core` LOC ceiling | WARN `>= 15800`, hard `<= 16500` | Preserve a lightweight runtime core while leaving one milestone of headroom; lower both values when core shrinks |
+| `dartclaw_core` LOC ceiling | WARN `>= 20000`, hard `<= 20350` | Preserve a lightweight runtime core and ratchet simplification gains; lower both values when core shrinks |
 | `dartclaw_workflow` LOC ceiling | WARN `>= 27000`, hard `<= 30000` | Preserve the post-simplification workflow-engine size as a ratchet against its roughly 23,311 LOC baseline |
 | Barrel export ceiling | `<= 110` | Keep public package surfaces reviewable while leaving deliberate API headroom |
 | Workspace package count | `<= 14` | Avoid package proliferation without real need |

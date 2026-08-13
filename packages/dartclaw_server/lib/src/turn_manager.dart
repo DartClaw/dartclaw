@@ -58,8 +58,11 @@ class TurnContext {
 
   /// Prompt scope controlling which workspace behavior files are included.
   ///
-  /// When null, [PromptScope.interactive] is used as the default.
+  /// Null is fail-closed and receives restricted prompt treatment.
   final PromptScope? promptScope;
+
+  /// Whether this turn may include a fresh onboarding section.
+  final bool isHumanInput;
 
   /// Optional tool allowlist enforced only for this active turn.
   final List<String>? allowedTools;
@@ -80,6 +83,7 @@ class TurnContext {
     this.maxTurns,
     this.behaviorOverride,
     this.promptScope,
+    this.isHumanInput = false,
     this.allowedTools,
     this.readOnly = false,
   });

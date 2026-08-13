@@ -1,6 +1,6 @@
 # dartclaw_models
 
-Core data types for the DartClaw agent runtime - sessions, messages, memory chunks.
+Core data types for the DartClaw agent runtime – sessions, messages, and search results.
 
 `dartclaw_models` is the smallest package in the workspace: pure Dart value
 types with zero runtime dependencies. Use it when you only need shared session,
@@ -54,7 +54,7 @@ void main() {
 - `Session` and `SessionType`: top-level conversation metadata.
 - `Message`: persisted message content with role, cursor, and timestamp.
 - `SessionKey`: deterministic session identifiers for web, DM, group, cron, and task scopes.
-- `MemoryChunk` and `MemorySearchResult`: common types used by memory search services.
+- `MemorySearchResult` and `MemorySearchOutcome`: typed ranked results and degradation evidence from memory search.
 
 ## When to Use This Package
 

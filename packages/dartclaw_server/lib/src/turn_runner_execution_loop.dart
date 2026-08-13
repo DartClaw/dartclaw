@@ -138,6 +138,16 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         _runtimeWaits[sessionId] = runtimeWait;
         late final Map<String, dynamic> result;
         try {
+          if (_worker case final HarnessTurnContextSink sink) {
+            sink.setTurnContext(
+              HarnessTurnContext(
+                sessionId: sessionId,
+                turnId: turnId,
+                source: source,
+                agentName: turnCtx?.agentName ?? 'main',
+              ),
+            );
+          }
           result = await _worker.turn(
             sessionId: sessionId,
             agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
@@ -150,6 +160,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             resume: resume,
           );
         } finally {
+          if (_worker case final HarnessTurnContextSink sink) sink.setTurnContext(null);
           _postProviderTurns.add(turnId);
           runtimeWait.dispose();
           runtimeWait = null;

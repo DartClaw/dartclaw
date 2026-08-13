@@ -1,4 +1,5 @@
 import 'package:test/test.dart';
+import 'package:dartclaw_config/dartclaw_config.dart' show MemoryConfig;
 
 import 'support/load_config.dart';
 
@@ -38,6 +39,29 @@ void main() {
     test('no deprecation warning when using nested memory.max_bytes', () {
       final config = loadYaml('memory:\n  max_bytes: 65536\n');
       expect(config.warnings, isNot(anyElement(contains('memory_max_bytes'))));
+    });
+
+    for (final entry in <(String, String)>[
+      ('memory:\n  max_bytes: 0\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: -1\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: 1.5\n', 'memory.max_bytes'),
+      ('memory:\n  max_bytes: invalid\n', 'memory.max_bytes'),
+      ('memory_max_bytes: 0\n', 'memory.max_bytes'),
+      ('memory:\n  pruning:\n    archive_after_days: 0\n', 'memory.pruning.archive_after_days'),
+      ('memory:\n  pruning:\n    archive_after_days: -1\n', 'memory.pruning.archive_after_days'),
+      ('memory:\n  pruning:\n    archive_after_days: 1.5\n', 'memory.pruning.archive_after_days'),
+    ]) {
+      test('rejects present-invalid positive integer ${entry.$2}: ${entry.$1.trim()}', () {
+        expect(
+          () => loadYaml(entry.$1),
+          throwsA(isA<FormatException>().having((error) => error.message, 'message', contains(entry.$2))),
+        );
+      });
+    }
+
+    test('typed construction rejects non-positive memory integers', () {
+      expect(() => MemoryConfig(maxBytes: 0), throwsArgumentError);
+      expect(() => MemoryConfig(archiveAfterDays: -1), throwsArgumentError);
     });
 
     test('memory.pruning CLI overrides take precedence over YAML', () {

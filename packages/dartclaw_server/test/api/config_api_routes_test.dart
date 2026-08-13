@@ -52,7 +52,13 @@ workspace:
   });
 
   /// Creates a test router with injected dependencies.
-  Router createRouter({DartclawConfig? config, RuntimeConfig? runtime, EventBus? eventBus}) {
+  Router createRouter({
+    DartclawConfig? config,
+    RuntimeConfig? runtime,
+    EventBus? eventBus,
+    ScheduleService? scheduleService,
+    Future<Map<String, dynamic>> Function()? memoryStatusReader,
+  }) {
     final cfg = config ?? const DartclawConfig.defaults();
     final rc =
         runtime ??
@@ -75,6 +81,8 @@ workspace:
       runtimeConfig: rc,
       dataDir: dataDir,
       eventBus: bus,
+      scheduleService: scheduleService,
+      memoryStatusReader: memoryStatusReader,
     );
   }
 
@@ -133,6 +141,16 @@ channels:
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
     final jobsYaml = jobs
         .map((j) {
+          if (j['type'] == 'task') {
+            final task = j['task'] as Map<String, dynamic>;
+            return '  - id: ${j['id']}\n'
+                '    type: task\n'
+                '    schedule: "${j['schedule']}"\n'
+                '    task:\n'
+                '      title: "${task['title']}"\n'
+                '      description: "${task['description']}"\n'
+                '      type: ${task['type']}';
+          }
           return '  - name: ${j['name']}\n'
               '    schedule: "${j['schedule']}"\n'
               '    prompt: "${j['prompt']}"\n'
@@ -257,6 +275,39 @@ github:
   });
 
   group('GET /api/scheduling/jobs', () {
+    test('merges immutable system actions into list and show', () async {
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(
+        scheduleService: schedule,
+        memoryStatusReader: () async => {
+          'curation': {
+            'state': 'succeeded',
+            'committedRevision': 43,
+            'changedIds': ['A', 'B'],
+            'noOpIds': ['C'],
+          },
+          'index': {'state': 'degraded', 'canonicalRevision': 43},
+        },
+      );
+
+      final list = await api(router).expectJsonList('GET', '/api/scheduling/jobs');
+      final action = list.single as Map<String, dynamic>;
+      expect(action, containsPair('name', memoryCurationActionId));
+      expect(action, containsPair('type', 'system_action'));
+      expect(action, containsPair('schedule', 'on demand'));
+      expect(action, containsPair('mutable', false));
+      expect(action['lifecycle'], containsPair('committedRevision', 43));
+      expect(action['index'], containsPair('state', 'degraded'));
+      final shown = await api(router).expectJsonObject('GET', '/api/scheduling/jobs/$memoryCurationActionId');
+      expect(shown['runnable'], true);
+      schedule.stop();
+    });
+
     test('returns jobs from the current YAML config', () async {
       writeJobsToYaml([
         {'name': 'daily-summary', 'schedule': '0 8 * * *', 'prompt': 'Summarize', 'delivery': 'announce'},
@@ -602,6 +653,113 @@ channels:
   });
 
   group('Job CRUD', () {
+    test('reserved system action rejects create before config or restart state changes', () async {
+      final before = File(configPath).readAsStringSync();
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+
+      final code = await api(router).expectJsonErrorCode(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': memoryCurationActionId, 'schedule': '0 7 * * *', 'prompt': 'shadow', 'delivery': 'none'},
+        status: 409,
+      );
+
+      expect(code, 'RESERVED_SYSTEM_ACTION');
+      expect(File(configPath).readAsStringSync(), before);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), isFalse);
+      schedule.stop();
+    });
+
+    test('reserved system action rejects edit and delete as immutable', () async {
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+
+      expect(
+        await api(router).expectJsonErrorCode(
+          'PUT',
+          '/api/scheduling/jobs/$memoryCurationActionId',
+          json: {'schedule': '0 8 * * *'},
+          status: 409,
+        ),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/jobs/$memoryCurationActionId', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      schedule.stop();
+    });
+
+    test('complete proposed job set rejects a pre-existing reserved collision before unrelated writes', () async {
+      writeJobsToYaml([
+        {'name': memoryCurationActionId, 'schedule': '0 1 * * *', 'prompt': 'external collision', 'delivery': 'none'},
+        {'name': 'harmless', 'schedule': '0 2 * * *', 'prompt': 'safe', 'delivery': 'none'},
+        {
+          'id': 'harmless-task',
+          'type': 'task',
+          'schedule': '0 4 * * *',
+          'task': {'title': 'safe', 'description': 'safe', 'type': 'code'},
+        },
+      ]);
+      final schedule = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: SessionService(baseDir: p.join(tempDir.path, 'sessions')),
+        jobs: const [],
+        systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+      )..start();
+      final router = createRouter(scheduleService: schedule);
+      final before = File(configPath).readAsBytesSync();
+      final liveBefore = schedule.entries.map((entry) => entry.id).toList();
+
+      expect(
+        await api(router).expectJsonErrorCode('GET', '/api/scheduling/jobs', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('GET', '/api/scheduling/jobs/$memoryCurationActionId', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+
+      expect(
+        await api(router).expectJsonErrorCode(
+          'POST',
+          '/api/scheduling/jobs',
+          json: {'name': 'unrelated', 'schedule': '0 3 * * *', 'prompt': 'safe', 'delivery': 'none'},
+          status: 409,
+        ),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(
+          router,
+        ).expectJsonErrorCode('PUT', '/api/scheduling/jobs/harmless', json: {'prompt': 'still safe'}, status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/jobs/harmless', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(
+        await api(router).expectJsonErrorCode('DELETE', '/api/scheduling/tasks/harmless-task', status: 409),
+        'RESERVED_SYSTEM_ACTION',
+      );
+      expect(File(configPath).readAsBytesSync(), before);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), isFalse);
+      expect(schedule.entries.map((entry) => entry.id), liveBefore);
+      schedule.stop();
+    });
+
     test('POST creates a new job', () async {
       final router = createRouter();
       final json = await api(router).expectJsonObject(

@@ -20,7 +20,7 @@ Common issues when running DartClaw as a personal assistant or automation platfo
 ### Job fires but produces no output
 
 1. **Check `delivery` mode**: `delivery: none` means output goes to logs only, not to any session or channel
-2. **Check the prompt**: If your prompt says "skip if empty" and the input files (MEMORY.md, errors.md) are empty, the agent may do nothing. Check the cron session in the web UI sidebar
+2. **Check the prompt**: If your prompt says "skip if empty" and its memory search plus input files such as `errors.md` return nothing, the agent may do nothing. Check the cron session in the web UI sidebar
 3. **Model availability**: If the configured model is unavailable or the API key is invalid, the turn will fail silently. Check logs for API errors
 
 ### Job fires but `announce` doesn't reach my phone
@@ -32,24 +32,18 @@ If/when announce routing is implemented:
 2. **Check channel health**: WhatsApp requires the GOWA sidecar to be running and paired. Signal requires `signal-cli` to be running and an account to be linked. Google Chat uses webhooks (no sidecar)
 3. **Check logs**: Look for "announce" or "delivery" in the logs to see where the result was routed
 
-## Memory & Consolidation
+## Memory
 
-### MEMORY.md keeps growing / consolidation not running
+### A personal-memory curation request is rejected
 
-1. **Is heartbeat enabled?** Memory consolidation only runs during heartbeat cycles:
-   ```yaml
-   scheduling:
-     heartbeat:
-       enabled: true
-       interval_minutes: 60
-   ```
-2. **Check `memory.max_bytes`**: Consolidation only triggers when MEMORY.md exceeds this threshold. Default is 32KB (`32768`). If you set it very high, consolidation may never trigger
-3. **Is heartbeat firing?** Check logs for `HeartbeatScheduler` entries. If heartbeat is enabled but not firing, check that the server has been running long enough for the interval to elapse
+1. Read the current collection revision and target entry revisions with `memory_read` or `memory_search`.
+2. Retry `memory_apply` with those revisions and a wholly valid operation set. One malformed, overlapping, missing, or stale target rejects the entire set.
+3. If canonical commit succeeded but the index is degraded, keep the returned collection revision and run index recovery or `dartclaw rebuild-index` rather than replaying the mutation.
 
 ### Memory search returns nothing
 
 1. **Has the search index been built?** Run `dartclaw rebuild-index` to rebuild the FTS5 index
-2. **Are entries being saved?** Check MEMORY.md directly -- does it contain the entries you expect?
+2. **Are entries being saved?** Use `memory_search` and `memory_read`, or inspect the Memory dashboard at `/memory`, to confirm the expected canonical entries exist
 3. **Search backend**: FTS5 uses keyword matching. If you're searching for concepts rather than exact words, consider enabling QMD hybrid search (`search.backend: qmd`)
 
 ## Git Sync

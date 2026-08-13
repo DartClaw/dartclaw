@@ -128,21 +128,17 @@ Cron uses 5-field format: `minute hour day-of-month month day-of-week`
 
 Replace the test interval with your target cron expression and set the log level back to `INFO`.
 
-## Memory Consolidation
+## Memory Capture and Curation
 
-MEMORY.md is the agent's persistent knowledge base, written via the `memory_save` tool. When MEMORY.md exceeds 32KB (configurable via `memory.max_bytes`), consolidation runs during the next heartbeat cycle -- the agent deduplicates and reorganizes entries automatically.
+Use `memory_observe` for journal observations and runtime learnings. Use `memory_apply` only for explicit personal-memory curation: read the current collection and entry revisions, then submit one atomic add/revise/merge/remove change set with unique correlation IDs. Stale or invalid sets do not partially apply, and exact no-ops do not advance the collection revision.
 
-Key points:
-- `memory_save` appends new entries; consolidation merges duplicates
-- Consolidation only runs during heartbeat (not during regular sessions)
-- Entries are structured as timestamped items grouped by category
-- Git sync (if enabled) commits workspace changes after heartbeat
+Heartbeat does not automatically consolidate or rewrite personal memory. Git sync may still commit workspace changes after heartbeat.
 
 **Note on config layout**: `memory.max_bytes` and memory pruning settings are both nested under `memory:`:
 
 ```yaml
 memory:
-  max_bytes: 65536          # consolidation threshold for MEMORY.md
+  max_bytes: 65536          # memory included in composed agent context
   pruning:                  # automated memory entry pruning (archive old entries)
     enabled: true
     archive_after_days: 90
@@ -211,15 +207,15 @@ DartClaw has two independent scheduling mechanisms. They serve different purpose
 | | Heartbeat | Cron Jobs |
 |---|---|---|
 | **Input** | Processes `HEARTBEAT.md` checklist | Runs a specific prompt from `dartclaw.yaml` |
-| **Purpose** | Ongoing maintenance (memory consolidation, git sync, checklist review) | Time-of-day tasks with unique prompts (briefings, reports, scans) |
+| **Purpose** | Ongoing maintenance (git sync, checklist review) | Time-of-day tasks with unique prompts (briefings, reports, scans) |
 | **Schedule** | Fixed interval (`interval_minutes`) | Cron expression or interval per job |
-| **Memory consolidation** | Triggers automatically when MEMORY.md exceeds cap | Does not trigger consolidation |
+| **Memory writes** | Only when the checklist explicitly invokes a role-appropriate tool | Only when the job prompt explicitly invokes a role-appropriate tool |
 | **Git sync** | Attempts to commit on every timer cycle | Changes are picked up by the next heartbeat cycle |
 | **Delivery** | Results logged only | Configurable: `none`, `announce`, `webhook` |
 | **Session** | New isolated session each run | Same session reused per job ID (history accumulates) |
 
 **When to use which:**
-- Use **heartbeat** for the "background maintenance loop" -- memory housekeeping, git sync, and recurring checks that don't need specific delivery
+- Use **heartbeat** for the "background maintenance loop" -- git sync and recurring checks that don't need specific delivery
 - Use **cron jobs** for "things that happen at specific times" -- morning briefings, daily journals, weekly reviews, knowledge scans
 
 They can (and typically do) run together. Heartbeat handles the plumbing; cron jobs handle the content.
@@ -231,7 +227,7 @@ Once your assistant is running, use these built-in tools to verify it's working:
 ### Web UI dashboards
 
 - **Health Dashboard** (`/health-dashboard`) -- server uptime, guard audit log (recent blocks), system status. Check here first if something seems wrong
-- **Memory Dashboard** (`/memory`) -- MEMORY.md size vs budget, entry counts, pruner history, search index status. Useful for verifying that journaling and knowledge inbox jobs are actually writing entries
+- **Memory Dashboard** (`/memory`) -- canonical role counts, bounded prompt-index usage, observation coverage, curation lifecycle, and search index status. Use it to verify journal observations and curated topic entries without treating the index file as the data body
 - **Task Dashboard** (`/tasks`) -- active and completed tasks, review queue. Shows task execution status if you're using the task system
 - **Settings** (`/settings`) -- channel connection status, guard configuration, scheduling job list. Verify channels are connected and jobs are registered
 
@@ -247,7 +243,7 @@ logging:
 Key log patterns to look for:
 - `CronScheduler` -- job firing events
 - `HeartbeatScheduler` -- heartbeat cycle events
-- `MemoryConsolidation` -- consolidation triggers
+- `memory_apply` / `memory_observe` -- explicit memory writes
 - `GitSync` -- commit and push events
 - `announce` -- delivery routing decisions
 
@@ -264,7 +260,7 @@ The `/tasks` page shows a harness overview section with real-time runner status.
 Add a simple self-check to your HEARTBEAT.md:
 
 ```markdown
-- [ ] Verify MEMORY.md has been updated in the last 24 hours
+- [ ] Verify the Memory dashboard shows recent observation coverage and a successful journal lifecycle
 - [ ] Check that the most recent cron session completed successfully
 - [ ] Review error counts in errors.md
 ```

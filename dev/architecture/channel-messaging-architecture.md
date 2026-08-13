@@ -229,8 +229,8 @@ The full inbound flow from raw platform event to agent turn:
 
 6. **ChannelManager routing** -- Finds the owning channel via `ownsJid()`, derives a session key from `SessionScopeConfig`, and delegates to `ChannelTaskBridge` if wired.
 
-Human channel turns use `PromptScope.conversational`, so fresh onboarding can apply independently of transport. Tasks,
-scheduled work, workflows, evaluators, advisors, and logical-agent turns use non-conversational scopes and never receive it.
+Human channel turns use `PromptScope.primary`; the separate human-input flag makes fresh onboarding eligible independently of transport. Tasks,
+scheduled work, workflows, advisors, and logical-agent turns use non-conversational scopes and never receive it.
 
 7. **ChannelTaskBridge** -- Evaluates the message against reserved commands, thread bindings, rate limits, review commands, and task triggers. Returns `true` if consumed.
 

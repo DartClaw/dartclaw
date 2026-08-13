@@ -278,7 +278,10 @@ void main() {
     test('maps exact own MCP tools while unknown and third-party tools stay generic', () {
       final adapter = CodexProtocolAdapter(
         ownMcpToolCanonicals: const {
-          'memory_save': CanonicalTool.memorySave,
+          'memory_apply': CanonicalTool.memoryApply,
+          'memory_observe': CanonicalTool.memoryObserve,
+          'memory_search': CanonicalTool.memorySearch,
+          'memory_read': CanonicalTool.memoryRead,
           'sessions_spawn': CanonicalTool.sessionsSpawn,
         },
       );
@@ -300,10 +303,13 @@ void main() {
               )!
               as ToolUse;
 
-      expect(parse('dartclaw', 'memory_save').name, 'memory_save');
+      expect(parse('dartclaw', 'memory_apply').name, 'memory_apply');
+      expect(parse('dartclaw', 'memory_observe').name, 'memory_observe');
+      expect(parse('dartclaw', 'memory_search').name, 'memory_search');
+      expect(parse('dartclaw', 'memory_read').name, 'memory_read');
       expect(parse('dartclaw', 'sessions_spawn').name, 'sessions_spawn');
       expect(parse('dartclaw', 'unknown').name, 'mcp_call');
-      expect(parse('third_party', 'memory_save').name, 'mcp_call');
+      expect(parse('third_party', 'memory_apply').name, 'mcp_call');
     });
 
     test('returns null for unknown and edge-case tool names', () {

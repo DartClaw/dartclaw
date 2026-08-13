@@ -24,7 +24,15 @@ class _StubSearchBackend implements SearchBackend {
   Future<void> indexAfterWrite() async {}
 
   @override
-  Future<List<MemorySearchResult>> search(String query, {int limit = 10, String userId = 'owner'}) async => [];
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async => const MemorySearchOutcome(results: []);
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
 }
 
 LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
@@ -49,18 +57,8 @@ void main() {
       );
     }
 
-    ContextResearchTool contextResearchTool() => ContextResearchTool(
-      memorySearch: _StubSearchBackend(),
-      kg: kg,
-      wikiSearch: WikiSearchSource(workspaceDir: '/tmp'),
-      synthesizer: (_) async => '{}',
-    );
-
-    test('MemorySaveTool', () => expectCompliant(MemorySaveTool(handler: (args) async => {})));
-
-    test('MemorySearchTool', () => expectCompliant(MemorySearchTool(handler: (args) async => {})));
-
-    test('MemoryReadTool', () => expectCompliant(MemoryReadTool(handler: (args) async => {})));
+    ContextResearchTool contextResearchTool() =>
+        ContextResearchTool(memorySearch: _StubSearchBackend(), kg: kg, synthesizer: (_) async => '{}');
 
     test('OnboardingCompleteTool', () => expectCompliant(OnboardingCompleteTool(workspaceDir: '/tmp')));
 
@@ -88,7 +86,7 @@ void main() {
 
     test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
-        MemorySaveTool(handler: (args) async => {}),
+        MemoryApplyTool(handler: (args) async => {}),
         MemorySearchTool(handler: (args) async => {}),
         MemoryReadTool(handler: (args) async => {}),
         OnboardingCompleteTool(workspaceDir: '/tmp'),

@@ -80,7 +80,7 @@ Future<void> _disposeWiringResult(WiringResult result, LogService logService) as
 
 DartclawConfig _schedulingConfig(
   Directory dataDir, {
-  MemoryConfig memory = const MemoryConfig(),
+  MemoryConfig memory = const MemoryConfig.defaults(),
   SchedulingConfig scheduling = const SchedulingConfig(),
 }) => DartclawConfig(
   agent: const AgentConfig(provider: 'claude'),
@@ -331,8 +331,14 @@ steps:
     worker.completeSuccess({'stop_reason': 'end_turn', 'input_tokens': 1, 'output_tokens': 1, 'model': 'test'});
     await run;
 
-    final memory = File(p.join(config.workspaceDir, 'MEMORY.md')).readAsStringSync();
-    expect(memory, contains('DartClaw release notes synthesized into durable knowledge'));
+    final observationFiles = Directory(p.join(config.workspaceDir, 'memory'))
+        .listSync(followLinks: false)
+        .whereType<File>()
+        .where((file) => RegExp(r'\d{4}-\d{2}-\d{2}\.md$').hasMatch(file.path));
+    expect(
+      observationFiles.map((file) => file.readAsStringSync()).join('\n'),
+      contains('DartClaw release notes synthesized into durable knowledge'),
+    );
     expect(File(p.join(config.workspaceDir, 'wiki', 'release-notes.md')).existsSync(), isTrue);
     expect(File(p.join(config.workspaceDir, 'processed', 'release-notes.md')).existsSync(), isTrue);
   }, tags: ['slow']);
@@ -345,7 +351,7 @@ steps:
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(authMode: 'none'),
-      memory: const MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'),
+      memory: MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'),
       server: ServerConfig(
         dataDir: tempDir.path,
         staticDir: _staticDirPath,
@@ -364,7 +370,7 @@ steps:
     expect(journal.cronExpression!.hours, {6});
     expect(journal.prompt, MemoryJournal.prompt);
     expect(journal.deliveryMode, DeliveryMode.none);
-    expect(journal.allowedTools, ['file_read', 'memory_save']);
+    expect(journal.allowedTools, ['file_read', 'memory_observe']);
 
     final response = await result.server.handler(Request('GET', Uri.parse('http://localhost/scheduling')));
     final html = await response.readAsString();
@@ -372,6 +378,38 @@ steps:
     expect(html, contains('memory-journal'));
     expect(html, contains('data-job-name="memory-journal"'));
     expect(html, contains('SYSTEM'));
+  }, tags: ['slow']);
+
+  test('service wiring always registers memory curation as a run-only immutable action', () async {
+    final result = await wiringFor(_schedulingConfig(tempDir)).wire();
+    addTearDown(() => _disposeWiringResult(result, logService));
+
+    final action = result.scheduleService!.entries.singleWhere((entry) => entry.id == memoryCurationActionId);
+    expect(action.kind, SchedulingEntryKind.systemAction);
+    expect(action.runnable, isTrue);
+    expect(action.mutable, isFalse);
+    expect(result.scheduleService!.jobsForTesting.map((job) => job.id), isNot(contains(memoryCurationActionId)));
+
+    final list = await result.server.handler(Request('GET', Uri.parse('http://localhost/api/scheduling/jobs')));
+    final entries = jsonDecode(await list.readAsString()) as List<dynamic>;
+    expect(
+      entries.whereType<Map<String, dynamic>>().singleWhere((entry) => entry['name'] == memoryCurationActionId)['type'],
+      'system_action',
+    );
+
+    final page = await result.server.handler(Request('GET', Uri.parse('http://localhost/scheduling')));
+    final html = await page.readAsString();
+    expect(html, contains('data-job-name="$memoryCurationActionId"'));
+
+    await ConfigWriter(configPath: configFile.path).updateFields({
+      'scheduling.jobs': [
+        {'name': memoryCurationActionId, 'schedule': '0 1 * * *', 'prompt': 'external collision'},
+      ],
+    });
+    final before = configFile.readAsBytesSync();
+    final conflictedPage = await result.server.handler(Request('GET', Uri.parse('http://localhost/scheduling')));
+    expect(conflictedPage.statusCode, 409);
+    expect(configFile.readAsBytesSync(), before);
   }, tags: ['slow']);
 
   for (final searchEnabled in [true, false]) {
@@ -392,7 +430,10 @@ steps:
         'sessions_spawn',
         'sessions_send',
         'web_fetch',
-        'memory_save',
+        'memory_apply',
+        'memory_observe',
+        'memory_search',
+        'memory_read',
         if (searchEnabled) 'brave_search',
       };
       final runtimeConfigs = factoryConfigs.where((config) => config.guardChain != null);
@@ -404,11 +445,8 @@ steps:
   }
 
   test('authenticated run-now executes the production memory journal with its exact tool policy', () async {
-    final config =
-        _schedulingConfig(
-          tempDir,
-          memory: const MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'),
-        ).copyWith(
+    final config = _schedulingConfig(tempDir, memory: MemoryConfig(journalEnabled: true, journalSchedule: '0 6 * * *'))
+        .copyWith(
           gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
         );
     final factoryConfigs = <HarnessFactoryConfig>[];
@@ -433,7 +471,8 @@ steps:
     expect(worker.lastMessages, [
       {'role': 'user', 'content': MemoryJournal.prompt},
     ]);
-    expect(result.server.mcpHandler.toolNames, contains('memory_save'));
+    expect(result.server.mcpHandler.toolNames, contains('memory_apply'));
+    expect(result.server.mcpHandler.toolNames, contains('memory_observe'));
 
     final sessionId = worker.lastSessionId!;
     final guardChains = factoryConfigs.map((config) => config.guardChain).nonNulls.toList();
@@ -443,7 +482,8 @@ steps:
     expect(shellVerdicts.where((verdict) => verdict.isBlock), hasLength(1));
     final guardChain = guardChains[shellVerdicts.indexWhere((verdict) => verdict.isBlock)];
     expect((await guardChain.evaluateBeforeToolCall('file_read', {}, sessionId: sessionId)).isBlock, isFalse);
-    expect((await guardChain.evaluateBeforeToolCall('memory_save', {}, sessionId: sessionId)).isBlock, isFalse);
+    expect((await guardChain.evaluateBeforeToolCall('memory_observe', {}, sessionId: sessionId)).isBlock, isFalse);
+    expect((await guardChain.evaluateBeforeToolCall('memory_apply', {}, sessionId: sessionId)).isBlock, isTrue);
 
     worker.emit(DeltaEvent('Journal complete'));
     worker.completeSuccess({'stop_reason': 'end_turn'});
@@ -474,7 +514,7 @@ steps:
     test('service wiring rejects a memory journal $identityKey collision', () async {
       final config = _schedulingConfig(
         tempDir,
-        memory: const MemoryConfig(journalEnabled: true),
+        memory: MemoryConfig(journalEnabled: true),
         scheduling: SchedulingConfig(
           jobs: [
             {

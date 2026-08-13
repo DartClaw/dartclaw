@@ -481,7 +481,7 @@ void main() {
       await appendTurns.waitForOutcome('s1', turnId);
     });
 
-    test('append-strategy conversational turn receives onboarding prompt', () async {
+    test('append-strategy primary human turn receives onboarding prompt', () async {
       final workspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
       File(p.join(workspace.path, 'ONBOARDING.md')).writeAsStringSync('ONBOARDING PERSONA');
       final appendWorker = AppendStrategyWorker();
@@ -491,9 +491,14 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: workspace.path),
       );
 
-      final turnId = await appendTurns.startTurn('s1', [
-        {'role': 'user', 'content': 'hello'},
-      ], promptScope: PromptScope.conversational);
+      final turnId = await appendTurns.startTurn(
+        's1',
+        [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        isHumanInput: true,
+        promptScope: PromptScope.primary,
+      );
       await appendWorker.turnInvoked;
       expect(appendWorker.lastSystemPrompt, contains('ONBOARDING PERSONA'));
 
@@ -501,7 +506,7 @@ void main() {
       await appendTurns.waitForOutcome('s1', turnId);
     });
 
-    test('append-strategy harness receives empty systemPrompt', () async {
+    test('append-strategy harness receives an explicit restricted prompt when scope is omitted', () async {
       final appendWorker = AppendStrategyWorker();
       final appendTurns = TurnManager(
         messages: messages,
@@ -513,7 +518,9 @@ void main() {
         {'role': 'user', 'content': 'hello'},
       ]);
       await appendWorker.turnInvoked;
-      expect(appendWorker.lastSystemPrompt, isEmpty);
+      expect(appendWorker.lastSystemPrompt, isNotEmpty);
+      expect(appendWorker.lastSystemPrompt, contains('memory_read'));
+      expect(appendWorker.lastSystemPrompt, isNot(contains('Collection revision:')));
 
       appendWorker.completeSuccess();
       await appendTurns.waitForOutcome('s1', turnId);

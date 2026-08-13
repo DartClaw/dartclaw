@@ -40,8 +40,6 @@ part 'turn_runner_memory.dart';
 class TurnRunner implements core.TurnRunner {
   static final _log = Logger('TurnRunner');
   static const _uuid = Uuid();
-  static const _memoryWarnBytes = 50 * 1024;
-
   static String? _harnessAgentId(String? agentName) => agentName == null || agentName == 'main' ? null : agentName;
 
   final AgentHarness _worker;
@@ -272,6 +270,7 @@ class TurnRunner implements core.TurnRunner {
         maxTurns: maxTurns,
         taskId: taskId,
         behaviorOverride: behaviorOverride,
+        isHumanInput: isHumanInput,
         allowedTools: allowedTools,
         readOnly: readOnly,
         promptScope: promptScope,
@@ -323,6 +322,7 @@ class TurnRunner implements core.TurnRunner {
     maxTurns: maxTurns,
     taskId: taskId,
     behaviorOverride: behaviorOverride,
+    isHumanInput: isHumanInput,
     allowedTools: allowedTools,
     readOnly: readOnly,
     promptScope: promptScope,
@@ -339,6 +339,7 @@ class TurnRunner implements core.TurnRunner {
     required int? maxTurns,
     required String? taskId,
     required BehaviorFileService? behaviorOverride,
+    required bool isHumanInput,
     required List<String>? allowedTools,
     required bool readOnly,
     required PromptScope? promptScope,
@@ -358,6 +359,7 @@ class TurnRunner implements core.TurnRunner {
       maxTurns: maxTurns,
       taskId: taskId,
       behaviorOverride: behaviorOverride,
+      isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
       promptScope: promptScope,

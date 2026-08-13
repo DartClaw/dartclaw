@@ -665,7 +665,13 @@ class ServiceWiring {
       final messages = [
         {'role': 'user', 'content': feedback},
       ];
-      await ctx._serverRef.turns.startTurn(session.id, messages, source: 'push-back');
+      await ctx._serverRef.turns.startTurn(
+        session.id,
+        messages,
+        source: 'push-back',
+        isHumanInput: true,
+        promptScope: PromptScope.primary,
+      );
     }
 
     return (lifecycleManager, pushBackFeedback);
@@ -685,6 +691,8 @@ class ServiceWiring {
       channel: channel,
       security: security,
       sseBroadcast: harness.sseBroadcast,
+      memoryHandlers: harness.memoryHandlers,
+      behavior: harness.behavior,
       configNotifier: ctx.configNotifier,
     );
     await scheduling.wire(

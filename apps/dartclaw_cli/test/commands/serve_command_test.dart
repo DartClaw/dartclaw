@@ -645,7 +645,7 @@ channels:
       expect(kvContents.containsKey('session_cost:session-a'), isTrue);
     });
 
-    test('search database open failure prints clear startup error', () async {
+    test('search database open failure boots degraded and reports search unavailable', () async {
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
@@ -655,6 +655,7 @@ channels:
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => throw FileSystemException('open failed'),
+        serveFn: (handler, address, port) async => throw SocketException('stop after degraded boot'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),
@@ -664,9 +665,17 @@ channels:
 
       final logs = await _captureExpectedServeLogs(
         () => _expectExit(localRunner, code: 1),
-        expectedSevereSubstrings: const ['Cannot open search database'],
+        expectedSevereSubstrings: const ['Cannot open search database', 'Cannot bind to localhost:3333'],
       );
-      expect(logs.any((r) => r.level == Level.SEVERE && r.message.contains('Cannot open search database')), isTrue);
+      expect(
+        logs.any(
+          (record) =>
+              record.level == Level.SEVERE &&
+              record.message.contains('Cannot open search database') &&
+              record.message.contains('booting with search unavailable'),
+        ),
+        isTrue,
+      );
     });
 
     test('task database open failure prints clear startup error', () async {

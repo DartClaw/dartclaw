@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show SearchBackend;
 
 import '../storage/memory_service.dart';
+import 'composed_search_backend.dart';
 import 'fts5_search_backend.dart';
 import 'qmd_manager.dart';
 import 'qmd_search_backend.dart';
@@ -15,16 +16,18 @@ SearchBackend createSearchBackend({
   String? workspaceDir,
 }) {
   final wikiSearch = workspaceDir == null ? null : WikiSearchSource(workspaceDir: workspaceDir);
-  final fts5 = Fts5SearchBackend(memoryService: memoryService, wikiSearch: wikiSearch);
+  final fts5 = Fts5SearchBackend(memoryService: memoryService);
 
+  late final SearchBackend personal;
   if (backend == 'qmd' && qmdManager != null) {
-    return QmdSearchBackend(
+    personal = QmdSearchBackend(
       manager: qmdManager,
       fallback: fts5,
       defaultDepth: SearchDepth.fromString(defaultDepth),
-      wikiSearch: wikiSearch,
     );
+  } else {
+    personal = fts5;
   }
 
-  return fts5;
+  return wikiSearch == null ? personal : ComposedSearchBackend(personal: personal, wiki: wikiSearch);
 }

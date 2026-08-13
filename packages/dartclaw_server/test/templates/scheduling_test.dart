@@ -39,6 +39,51 @@ void main() {
       expect(html, contains('SYSTEM'));
     });
 
+    test('renders curation lifecycle and live index as independent semantic states', () {
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        jobs: [
+          {
+            'name': 'memory-curation',
+            'type': 'system_action',
+            'runnable': true,
+            'lifecycle': {'state': 'conflicted'},
+            'index': {'state': 'rebuilding'},
+          },
+        ],
+        systemJobNames: ['memory-curation'],
+      );
+
+      expect(html, contains('status-dot--attention'));
+      expect(html, contains('>conflicted</span>'));
+      expect(html, contains('· index'));
+      expect(html, contains('status-dot--live'));
+      expect(html, contains('>rebuilding</span>'));
+      expect(html, isNot(contains('click->dc-scheduling#editJob')));
+      expect(html, isNot(contains('click->dc-scheduling#confirmDeleteJob')));
+    });
+
+    test('keeps the running system action visible but disabled', () {
+      final html = schedulingTemplate(
+        sidebarData: emptySidebar,
+        navItems: emptyNavItems,
+        jobs: [
+          {
+            'name': 'memory-curation',
+            'type': 'system_action',
+            'runnable': true,
+            'lifecycle': {'state': 'running'},
+          },
+        ],
+        systemJobNames: ['memory-curation'],
+      );
+
+      expect(html, contains('title="Already running" aria-label="Already running"'));
+      expect(html, contains('disabled="" aria-disabled="true"'));
+      expect(html, isNot(contains('click->dc-scheduling#runJob')));
+    });
+
     test('renders action buttons for user jobs', () {
       final html = schedulingTemplate(
         sidebarData: emptySidebar,

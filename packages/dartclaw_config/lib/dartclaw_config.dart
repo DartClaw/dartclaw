@@ -97,4 +97,4 @@ export 'src/prompt_scope.dart' show PromptScope;
 export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
 export 'src/string_util.dart' show truncate;
 export 'src/dynamic_reader.dart' show normalizeDynamicMap;
-export 'src/search_backend.dart' show SearchBackend;
+export 'src/search_backend.dart' show SearchBackend, SearchResultLayer;

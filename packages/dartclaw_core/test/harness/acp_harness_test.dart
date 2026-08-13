@@ -28,6 +28,62 @@ void main() {
     await turnFuture;
   });
 
+  test('ACP fresh sessions receive the current scoped revision after DartClaw base instructions', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final prompts = <String>[];
+    final requestCounts = <String, int>{};
+    Future<Map<String, dynamic>> nextRequest(String method) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (DateTime.now().isBefore(deadline)) {
+        final requests = process.capturedStdinJson.where((message) => message['method'] == method).toList();
+        final requestCount = requestCounts[method] ?? 0;
+        if (requests.length > requestCount) {
+          requestCounts[method] = requestCount + 1;
+          return requests.last;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      fail('Timed out waiting for ACP request $method');
+    }
+
+    for (final revision in [41, 42]) {
+      final turnFuture = harness.turn(
+        sessionId: 'primary',
+        messages: [
+          {'role': 'user', 'content': 'question $revision'},
+        ],
+        systemPrompt: 'SAFE DARTCLAW BASE\n\nCollection revision: $revision',
+      );
+      final sessionRequest = await nextRequest('session/new');
+      process.emitLine({
+        'jsonrpc': '2.0',
+        'id': sessionRequest['id'],
+        'result': {'sessionId': 'acp-primary-$revision'},
+      });
+      final request = await nextRequest('session/prompt');
+      prompts.add((request['params'] as Map<String, dynamic>)['prompt'] as String);
+      process.emitLine({
+        'jsonrpc': '2.0',
+        'id': request['id'],
+        'result': {'text': 'answer'},
+      });
+      final closeRequest = await nextRequest('session/close');
+      process.emitLine({'jsonrpc': '2.0', 'id': closeRequest['id'], 'result': {}});
+      await turnFuture;
+    }
+
+    expect(prompts[0], startsWith('SAFE DARTCLAW BASE\n\nCollection revision: 41\n\nquestion 41'));
+    expect(prompts[1], startsWith('SAFE DARTCLAW BASE\n\nCollection revision: 42\n\nquestion 42'));
+    expect(prompts[1], isNot(contains('Collection revision: 41')));
+  });
+
   test('ACP replays persisted history into each fresh provider session', () async {
     final process = FakeAcpProcess();
     final harness = _harnessFor(process);

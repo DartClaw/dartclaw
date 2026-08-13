@@ -12,6 +12,7 @@ final class KnowledgeHubItemView {
   final String snippet;
   final String sourceHref;
   final String sourceLabel;
+  final bool sourceResolved;
   final String attributionHtml;
 
   const KnowledgeHubItemView({
@@ -21,6 +22,7 @@ final class KnowledgeHubItemView {
     required this.snippet,
     required this.sourceHref,
     required this.sourceLabel,
+    required this.sourceResolved,
     required this.attributionHtml,
   });
 }
@@ -53,6 +55,7 @@ String knowledgeHubTemplate({
           'snippet': item.snippet,
           'sourceHref': item.sourceHref,
           'sourceLabel': item.sourceLabel,
+          'sourceResolved': item.sourceResolved,
           'attributionHtml': item.attributionHtml,
         },
     ],

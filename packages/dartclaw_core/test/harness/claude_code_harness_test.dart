@@ -813,6 +813,61 @@ void main() {
         expect(spawns[1], containsAllInOrder(['--effort', 'high']));
       });
 
+      test('primary memory revision change restarts once with the full scoped append prompt', () async {
+        final spawns = <List<String>>[];
+        const revision41 = 'SAFE STATIC CONTENT\n\nCollection revision: 41';
+        const revision42 = 'SAFE STATIC CONTENT\n\nCollection revision: 42';
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessConfig(appendSystemPrompt: revision41),
+          processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'primary',
+          messages: const [
+            {'role': 'user', 'content': 'first'},
+          ],
+          systemPrompt: revision41,
+        );
+        await h.turn(
+          sessionId: 'primary',
+          messages: const [
+            {'role': 'user', 'content': 'second'},
+          ],
+          systemPrompt: revision42,
+        );
+        expect(spawns, hasLength(2));
+        expect(spawns[1], containsAllInOrder(['--append-system-prompt', revision42]));
+        expect(spawns[1], isNot(contains(revision41)));
+      });
+
+      test('explicit non-primary prompt displaces configured primary memory', () async {
+        final spawns = <List<String>>[];
+        const primaryPrompt = 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42';
+        const restrictedPrompt = 'SAFE RESTRICTED CONTENT';
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessConfig(appendSystemPrompt: primaryPrompt),
+          processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        await h.turn(
+          sessionId: 'restricted',
+          messages: const [
+            {'role': 'user', 'content': 'background work'},
+          ],
+          systemPrompt: restrictedPrompt,
+        );
+
+        expect(spawns, hasLength(2));
+        expect(spawns[1], containsAllInOrder(['--append-system-prompt', restrictedPrompt]));
+        expect(spawns[1], isNot(contains('PRIVATE MEMORY SENTINEL')));
+        expect(spawns[1], isNot(contains('Collection revision: 42')));
+      });
+
       test('JSONL payload omits system_prompt for append-strategy harness', () async {
         late CapturingFakeProcess fake;
 
@@ -1332,6 +1387,47 @@ void main() {
     // ----- PreCompact hook + CompactBoundary ----------------------------------
 
     group('PreCompact hook callback', () {
+      test('waits for asynchronous observation before acknowledging compaction', () async {
+        final observerStarted = Completer<void>();
+        final observerSettled = Completer<void>();
+        final fake = makeCapturingClaudeProcess();
+        final h = buildClaudeHarness(processFactory: capturingInitFactory(process: fake));
+        h.onCompactionStarting = (_, _) async {
+          observerStarted.complete();
+          await observerSettled.future;
+        };
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'req-observe-before-ack',
+            'request': {
+              'subtype': 'hook_callback',
+              'input': {'hook_event_name': 'PreCompact', 'session_id': 'provider-session', 'trigger': 'auto'},
+            },
+          }),
+        );
+
+        await observerStarted.future;
+        expect(
+          fake.capturedStdinJson.where(
+            (message) => (message['response'] as Map?)?['request_id'] == 'req-observe-before-ack',
+          ),
+          isEmpty,
+        );
+
+        observerSettled.complete();
+        await pumpEventQueue();
+        expect(
+          fake.capturedStdinJson.where(
+            (message) => (message['response'] as Map?)?['request_id'] == 'req-observe-before-ack',
+          ),
+          hasLength(1),
+        );
+      });
+
       test('PreCompact hook callback invokes onCompactionStarting with sessionId and trigger', () async {
         String? capturedSessionId;
         String? capturedTrigger;
@@ -1474,7 +1570,8 @@ void main() {
           commandProbe: defaultClaudeCommandProbe,
           delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-          onMemorySave: memoryHandler,
+          onMemoryApply: memoryHandler,
+          onMemoryObserve: memoryHandler,
           onMemorySearch: memoryHandler,
           onMemoryRead: memoryHandler,
         );
@@ -1495,6 +1592,22 @@ void main() {
         expect(limit, containsPair('type', 'integer'));
         expect(limit, containsPair('minimum', 1));
         expect(limit, containsPair('maximum', 50));
+        expect(schema['additionalProperties'], isFalse);
+
+        final observe = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_observe');
+        final observeSchema = observe['input_schema'] as Map<String, dynamic>;
+        expect(observeSchema['required'], ['text', 'role']);
+        expect(observeSchema['additionalProperties'], isFalse);
+
+        final read = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_read');
+        final readSchema = read['input_schema'] as Map<String, dynamic>;
+        expect(readSchema['oneOf'], hasLength(2));
+        expect(readSchema['additionalProperties'], isFalse);
+
+        final apply = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_apply');
+        final applySchema = apply['input_schema'] as Map<String, dynamic>;
+        expect(applySchema['additionalProperties'], isFalse);
+        expect((applySchema['properties'] as Map<String, dynamic>)['operations'], containsPair('minItems', 1));
       });
     });
 

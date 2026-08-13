@@ -445,7 +445,7 @@ PostToolUse hooks always respond with `allow` (audit-only). The response is logg
 
 **PermissionDenied** hooks are also audit-only. They fire when Claude itself refuses a tool at its native permission layer; DartClaw turns them into `ToolPermissionDeniedEvent` on the EventBus and records them through the guard-audit subscriber.
 
-**PreCompact** hooks are non-blocking lifecycle notifications. DartClaw responds with `allow`, emits `CompactionStartingEvent`, and uses the signal to suppress heuristic pre-compaction flush logic for harnesses that support it.
+**PreCompact** hooks are bounded capture boundaries. While a host turn is active, DartClaw reads a small persisted message tail, redacts and UTF-8 caps it, attempts to store it as a canonical observation with host-bound provenance, then responds with `allow` exactly once and emits `CompactionStartingEvent`. Capture failure is logged and fails open only after the attempt settles, so compaction cannot deadlock. Harnesses with this deterministic boundary suppress heuristic pre-compaction flush logic.
 
 ### 4.7 MCP Messages (sdkMcpServers fallback)
 
@@ -464,7 +464,7 @@ When the internal HTTP MCP server is not configured (chat mode without `serve` c
       "jsonrpc": "2.0",
       "id": 1,
       "method": "tools/call",
-      "params": { "name": "memory_save", "arguments": { "text": "User prefers dark mode" } }
+      "params": { "name": "memory_observe", "arguments": { "text": "User prefers dark mode", "role": "observation" } }
     }
   }
 }
@@ -482,7 +482,12 @@ When the internal HTTP MCP server is not configured (chat mode without `serve` c
       "mcp_response": {
         "jsonrpc": "2.0",
         "id": 1,
-        "result": { "content": [{ "type": "text", "text": "Saved to memory." }] }
+        "result": {
+          "content": [{
+            "type": "text",
+            "text": "{\"locator\":\"1166a7c8-2e4d-4c0c-bbf1-3aa5258b6019\",\"role\":\"observation\",\"entryRevision\":1,\"collectionRevision\":42,\"indexState\":\"current\"}"
+          }]
+        }
       }
     }
   }
@@ -927,9 +932,10 @@ The bearer header is omitted only for an authentication-disabled loopback deploy
 
 | Tool | Implementation | Registration | Description |
 |---|---|---|---|
-| `memory_save` | `MemorySaveTool` | always | Persist facts to MEMORY.md + search index |
-| `memory_search` | `MemorySearchTool` | always | FTS5 full-text search over memory chunks |
-| `memory_read` | `MemoryReadTool` | always | Read full MEMORY.md contents |
+| `memory_apply` | `MemoryApplyTool` | always | Atomically curate personal memory with collection CAS |
+| `memory_observe` | `MemoryObserveTool` | always | Capture observations or bounded learnings |
+| `memory_search` | `MemorySearchTool` | always | Natural-language search over canonical entries and native wiki sources |
+| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, with collection revision |
 | `kg_add` | `KgAddTool` | always | Add a source-linked temporal fact to the knowledge graph |
 | `kg_query` | `KgQueryTool` | always | Query temporal knowledge-graph facts by entity/predicate (+ optional `as_of`) |
 | `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |

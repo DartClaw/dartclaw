@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
+import 'config_validator.dart';
+
 final _log = Logger('ConfigWriter');
 
 class _WriteOp {
@@ -49,6 +51,15 @@ class ConfigWriter {
   /// Throws [StateError] if backup creation fails.
   Future<void> updateFields(Map<String, dynamic> updates) {
     if (updates.isEmpty) return Future.value();
+
+    final memoryUpdates = {
+      for (final entry in updates.entries)
+        if (entry.key == 'memory.max_bytes' || entry.key == 'memory.pruning.archive_after_days') entry.key: entry.value,
+    };
+    final errors = const ConfigValidator().validate(memoryUpdates);
+    if (errors.isNotEmpty) {
+      throw ArgumentError(errors.map((error) => error.message).join('; '));
+    }
 
     final op = _WriteOp(() => _doUpdate(updates));
     _queue.add(op);

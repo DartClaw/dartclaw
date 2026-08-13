@@ -40,6 +40,6 @@ void main() {
     final turn = turns.startedTurns.single;
     expect(turn.source, 'channel');
     expect(turn.isHumanInput, isTrue);
-    expect(turn.promptScope, PromptScope.conversational);
+    expect(turn.promptScope, PromptScope.primary);
   });
 }

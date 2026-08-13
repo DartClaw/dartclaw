@@ -145,6 +145,41 @@ void main() {
       service.stop();
     });
 
+    test('failed system action keeps overlap locked so a second request cannot report started', () async {
+      var blocked = false;
+      final service = ScheduleService(
+        turns: FakeTurnManager(),
+        sessions: _FakeSessionService(),
+        jobs: const [],
+        systemActions: [
+          SystemAction(
+            id: memoryCurationActionId,
+            description: 'Curate memory',
+            isBlocked: () => blocked,
+            run: () async {
+              blocked = true;
+              throw StateError('terminal persistence failed');
+            },
+          ),
+        ],
+      )..start();
+      final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
+
+      await client.expectResponse('POST', '/api/scheduling/jobs/$memoryCurationActionId/run', status: 202);
+      await pumpEventQueue();
+      service
+        ..stop()
+        ..start();
+      final body = await client.expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs/$memoryCurationActionId/run',
+        status: 409,
+      );
+
+      expect((body['error'] as Map)['code'], 'CONFLICT');
+      service.stop();
+    });
+
     test('returns NOT_FOUND with restart guidance for an unknown job', () async {
       final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: [])..start();
       final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);

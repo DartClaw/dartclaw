@@ -71,7 +71,7 @@ void main() {
     });
 
     test('Claude tool discovery requires matching raw and canonical identities', () async {
-      guard.allowedTools = ['memory_save'];
+      guard.allowedTools = ['memory_apply'];
 
       final rawMismatch = await guard.evaluate(
         _ctx(hookPoint: 'beforeToolCall', toolName: 'shell', rawProviderToolName: 'ToolSearch'),
@@ -224,6 +224,17 @@ void main() {
         )).isPass,
         isTrue,
       );
+    });
+
+    test('read-only policy blocks memory writes but permits retrieval', () async {
+      guard.readOnly = true;
+
+      for (final tool in ['memory_apply', 'memory_observe']) {
+        expect((await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: tool))).isBlock, isTrue);
+      }
+      for (final tool in ['memory_search', 'memory_read']) {
+        expect((await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: tool))).isPass, isTrue);
+      }
     });
 
     test('guard name and category', () {

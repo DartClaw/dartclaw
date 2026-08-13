@@ -5,7 +5,9 @@ void main() {
   test('journal prompt pins the full selective untrusted-log contract', () {
     const prompt = MemoryJournal.prompt;
 
-    expect(prompt, contains('memory_save'));
+    expect(prompt, contains('memory_observe'));
+    expect(prompt, contains('role learning'));
+    expect(prompt, contains('role observation'));
     expect(prompt, contains('memory/YYYY-MM-DD.md'));
     expect(prompt, contains("using today's date"));
     expect(prompt, contains('MEMORY.md'));

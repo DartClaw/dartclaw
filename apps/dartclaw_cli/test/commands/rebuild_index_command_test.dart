@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
@@ -21,20 +22,35 @@ void main() {
   });
 
   Future<void> runCommand(DartclawConfig config) async {
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDbInMemory()),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
     await runner.run(['rebuild-index']);
   }
 
-  test('prints message when MEMORY.md is missing', () async {
+  test('bootstraps and rebuilds an empty canonical corpus', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
     expect(output, hasLength(3));
     expect(output.first, contains('must remain stopped'));
-    expect(output[1], contains('No MEMORY.md, MEMORY.archive.md, or learnings.md found'));
+    expect(output[1], contains('Memory preflight: alreadyCurrent'));
     expect(output.last, contains('Rebuilt index: 0 entries'));
+  });
+
+  test('--json emits only the machine-readable reconciled outcome', () async {
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      warnings: const ['legacy setting ignored'],
+    );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+
+    await runner.run(['rebuild-index', '--json']);
+
+    expect(output, hasLength(1));
+    expect(jsonDecode(output.single), {
+      'canonicalRevision': 1,
+      'indexedRows': 0,
+      'health': 'healthy',
+      'unchanged': false,
+    });
   });
 
   test('missing canonical files clear stale index rows', () async {
@@ -42,18 +58,21 @@ void main() {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final seededDb = openSearchDb(dbPath);
-    MemoryService(seededDb).insertChunk(text: 'stale searchable row', source: 'memory_save');
+    MemoryService(seededDb);
+    seededDb.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
+      'stale searchable row',
+      'legacy-memory',
+      DateTime(2026).toIso8601String(),
+      'legacy-memory',
+    ]);
     seededDb.close();
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
     expect(MemoryService(db).search('stale'), isEmpty);
-    expect(output[1], contains('No MEMORY.md, MEMORY.archive.md, or learnings.md found'));
+    expect(output[1], contains('Memory preflight: alreadyCurrent'));
     db.close();
   });
 
@@ -62,7 +81,7 @@ void main() {
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
-    expect(output, hasLength(2));
+    expect(output, hasLength(3));
     expect(output.last, contains('Rebuilt index: 0 entries'));
   });
 
@@ -71,7 +90,7 @@ void main() {
     File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('## general\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
-    expect(output, hasLength(2));
+    expect(output, hasLength(3));
     expect(output.last, contains('Rebuilt index: 0 entries'));
   });
 
@@ -90,13 +109,10 @@ void main() {
 
     // Use file-based DB so we can reopen after command closes it
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
     await runner.run(['rebuild-index']);
 
-    expect(output, hasLength(2));
+    expect(output, hasLength(3));
     expect(output.last, contains('Rebuilt index: 3 entries'));
 
     // Verify entries were actually indexed by reopening the DB
@@ -121,13 +137,10 @@ void main() {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
 
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
     await runner.run(['rebuild-index']);
 
-    expect(output, hasLength(2));
+    expect(output, hasLength(3));
     expect(output.last, contains('Rebuilt index: 2 entries'));
 
     // Verify multiline content is preserved in search index
@@ -144,7 +157,7 @@ void main() {
     final entryText = '**Durable heading**\n\n$longTail';
     final expectedRows = MemoryService.indexRows(
       text: entryText,
-      source: 'memory_save',
+      source: 'legacy-memory',
       category: 'project',
       createdAt: DateTime(2026, 2, 23, 10),
     );
@@ -154,18 +167,15 @@ void main() {
     ).writeAsStringSync('## project\n- [2026-02-23 10:00] **Durable heading**\n  \n  $longTail\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
-    final rows = db.select('SELECT text, source, category, created_at FROM memory_chunks ORDER BY id');
+    final rows = db.select('SELECT text, source, category, created_at, locator FROM memory_chunks ORDER BY id');
     expect(rows.map((row) => row['text']), expectedRows.map((row) => row.text));
-    expect(rows.every((row) => row['source'] == 'memory_save' && row['category'] == 'project'), isTrue);
-    expect(rows.map((row) => row['created_at']).toSet(), {DateTime(2026, 2, 23, 10).toIso8601String()});
+    expect(rows.every((row) => row['source'] == row['locator'] && row['category'] == 'project'), isTrue);
+    expect(rows.map((row) => row['created_at']).toSet(), {DateTime(2026, 2, 23, 10).toUtc().toIso8601String()});
     expect(output.last, contains('Rebuilt index: ${expectedRows.length} entries'));
     db.close();
   });
@@ -180,10 +190,7 @@ void main() {
     ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
@@ -191,8 +198,8 @@ void main() {
     final memory = MemoryService(db);
     final current = memory.search('Current searchable').single;
     final archived = memory.search('Archived searchable').single;
-    expect((current.source, current.category), ('memory_save', 'preferences'));
-    expect((archived.source, archived.category), ('archive', 'project'));
+    expect((current.role, current.source == current.locator, current.category), ('topic', true, 'preferences'));
+    expect((archived.role, archived.source == archived.locator, archived.category), ('archive', true, 'project'));
     expect(output.last, contains('Rebuilt index: 2 entries'));
     db.close();
   });
@@ -207,19 +214,16 @@ void main() {
     ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
     final recent = MemoryService(db).listRecent();
-    expect(recent.map((result) => result.source), ['memory_save', 'archive']);
+    expect(recent.map((result) => result.role), ['topic', 'archive']);
     expect(db.select('SELECT created_at FROM memory_chunks ORDER BY created_at DESC').map((row) => row['created_at']), [
-      DateTime(2026, 2, 23, 10).toIso8601String(),
-      DateTime(2025, 1, 10, 9).toIso8601String(),
+      DateTime(2026, 2, 23, 10).toUtc().toIso8601String(),
+      DateTime(2025, 1, 10, 9).toUtc().toIso8601String(),
     ]);
     db.close();
   });
@@ -229,32 +233,26 @@ void main() {
     File(p.join(wsDir.path, 'learnings.md')).writeAsStringSync('- [2026-02-23 10:00] **Validate** rebuild recovery\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
     final learning = MemoryService(db).search('Validate').single;
     expect(
-      (learning.text, learning.source, learning.category),
-      ('Validate rebuild recovery', 'memory_save', 'learning'),
+      (learning.text, learning.role, learning.source == learning.locator, learning.category),
+      ('Validate rebuild recovery', 'learning', true, null),
     );
     expect(output.last, contains('Rebuilt index: 1 entries'));
     db.close();
   });
 
-  test('rebuild gives undated entries a stable oldest timestamp', () async {
+  test('rebuild preserves a stable source timestamp', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('## general\n- [unknown] Undated fact\n');
+    File(p.join(wsDir.path, 'MEMORY.md')).writeAsStringSync('## general\n- [2025-01-01 00:00] Dated fact\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
     final firstDb = openSearchDb(dbPath);
@@ -277,16 +275,13 @@ void main() {
     ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archive-only recovery fact\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
     final result = MemoryService(db).search('recovery').single;
-    expect((result.source, result.category), ('archive', 'project'));
+    expect((result.role, result.source == result.locator, result.category), ('archive', true, 'project'));
     db.close();
   });
 
@@ -296,12 +291,15 @@ void main() {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final seededDb = openSearchDb(dbPath);
-    MemoryService(seededDb).insertChunk(text: 'stale searchable row', source: 'archive');
+    MemoryService(seededDb);
+    seededDb.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
+      'stale searchable row',
+      'archive',
+      DateTime(2026).toIso8601String(),
+      'archive',
+    ]);
     seededDb.close();
-    final runner = DartclawRunner()
-      ..addCommand(
-        RebuildIndexCommand(config: config, writeLine: output.add, searchDbFactory: (_) => openSearchDb(dbPath)),
-      );
+    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
 
@@ -318,7 +316,7 @@ void main() {
     Link(p.join(wsDir.path, 'MEMORY.archive.md')).createSync(external.path);
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
 
-    await expectLater(runCommand(config), throwsA(isA<FileSystemException>()));
+    await expectLater(runCommand(config), throwsA(isA<MemoryPreflightException>()));
 
     expect(external.readAsStringSync(), contains('External fact'));
   }, skip: Platform.isWindows);

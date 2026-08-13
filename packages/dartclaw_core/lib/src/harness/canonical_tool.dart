@@ -24,8 +24,17 @@ enum CanonicalTool {
   /// Web search operations.
   webSearch('web_search'),
 
-  /// Persistent memory writes.
-  memorySave('memory_save'),
+  /// Curated personal-memory writes.
+  memoryApply('memory_apply'),
+
+  /// Non-authoritative memory capture.
+  memoryObserve('memory_observe'),
+
+  /// Memory and knowledge search.
+  memorySearch('memory_search'),
+
+  /// Bounded memory and knowledge read.
+  memoryRead('memory_read'),
 
   /// Create a new logical-agent session.
   sessionsSpawn('sessions_spawn'),

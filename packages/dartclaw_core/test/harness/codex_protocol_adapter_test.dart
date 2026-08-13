@@ -188,7 +188,7 @@ void main() {
               'type': 'mcpToolCall',
               'id': 'mcp-current',
               'server': 'dartclaw',
-              'tool': 'memory_save',
+              'tool': 'memory_apply',
               'arguments': {'content': 'fact'},
             },
           },
@@ -658,7 +658,7 @@ void main() {
             'mode': 'form',
             '_meta': {
               'codex_approval_kind': 'mcp_tool_call',
-              'tool_name': 'memory_save',
+              'tool_name': 'memory_apply',
               'tool_params': {'content': 'fact'},
             },
             'message': 'Allow memory write?',
@@ -673,7 +673,7 @@ void main() {
       expect(request.data['tool_use_id'], 'req-mcp');
       expect(request.data['tool_input'], {
         'server': 'dartclaw',
-        'tool': 'memory_save',
+        'tool': 'memory_apply',
         'arguments': {'content': 'fact'},
       });
     });
@@ -688,7 +688,7 @@ void main() {
               'type': 'mcpToolCall',
               'id': 'mcp-started',
               'server': 'dartclaw',
-              'tool': 'memory_save',
+              'tool': 'memory_apply',
               'arguments': {'content': 'fact'},
             },
           },
@@ -704,7 +704,7 @@ void main() {
             'mode': 'form',
             '_meta': {
               'codex_approval_kind': 'mcp_tool_call',
-              'tool_name': 'memory_save',
+              'tool_name': 'memory_apply',
               'tool_params': {'content': 'fact'},
             },
             'message': 'Allow?',
@@ -715,7 +715,7 @@ void main() {
 
       expect((msg! as ControlRequest).data['tool_input'], {
         'server': 'external-memory',
-        'tool': 'memory_save',
+        'tool': 'memory_apply',
         'arguments': {'content': 'fact'},
       });
     });
@@ -1114,7 +1114,7 @@ void main() {
                   'method': 'mcpServer/elicitation/request',
                   'params': {
                     'serverName': 'dartclaw',
-                    '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_save'},
+                    '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_apply'},
                   },
                 }),
               )!
@@ -1172,7 +1172,7 @@ void main() {
             'params': {
               'serverName': 'dartclaw',
               'mode': 'form',
-              '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_save'},
+              '_meta': {'codex_approval_kind': 'mcp_tool_call', 'tool_name': 'memory_apply'},
               'message': 'Allow?',
               'requestedSchema': {'type': 'object'},
             },

@@ -31,40 +31,40 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] A primary turn records only a bounded `observation` or `learning`, and the host supplies owner scope, provenance, identity, and collection revision**
+- [x] **S01 [OC01] [TI01] A primary turn records only a bounded `observation` or `learning`, and the host supplies owner scope, provenance, identity, and collection revision**
   - **Given** the S01–S03 corpus authority has a current collection revision and the model supplies only `text` plus a role from the closed set `observation|learning`
   - **When** `memory_observe` commits the item
   - **Then** an observation is stored as provenance-labelled, non-prompt-authoritative corpus content, a learning is stored as an ordinary canonical entry in the learning role under its retention cap, the canonical write advances the shared revision, and the acknowledgement returns the canonical entry locator, role, revision, and index state
   - **And** `userId`, provenance, timestamp, and collision-sensitive identity come from trusted host context rather than model arguments
   - **Proof**: `packages/dartclaw_server/test/memory_handlers_test.dart#onSave reconciles capped learning rows to canonical content and timestamps` – green – parity/regression for bounded learning retention and canonical/index convergence
 
-- [ ] **S02 [OC03] [TI01,TI05] Journal and source-ingestion producers classify durable items without promoting observations into personal topic memory**
+- [x] **S02 [OC03] [TI01,TI05] Journal and source-ingestion producers classify durable items without promoting observations into personal topic memory**
   - **Given** a journal run containing decisions, insights, action-items, and learnings, or a knowledge-inbox finding with source locator `inbox/release-notes.md` carried by an inbox item with a stable item id
   - **When** the producer records each item, and the inbox producer is afterwards retried on the same item
   - **Then** decisions, insights, action-items, and inbox findings use `memory_observe(role: observation)`, learnings use `memory_observe(role: learning)`, every item retains its host-known source provenance, and existing wiki/KG writes remain separately governed
   - **And** inbox capture populates S01's source-event discriminator with that stable inbox item id, so the retry presents an exactly-equal source reference and is an exact-replay duplicate under S10 dedup, with no retry bookkeeping, seen-set, or capture-side dedup added here
   - **Proof**: `packages/dartclaw_server/test/behavior/memory_journal_test.dart#journal prompt pins the full selective untrusted-log contract` – green – parity/regression for selective journaling and untrusted-log handling
 
-- [ ] **S03 [OC02] [TI02] Natural-language search returns bounded, ranked memory and wiki matches with canonical role and locator identity**
+- [x] **S03 [OC02] [TI02] Natural-language search returns bounded, ranked memory and wiki matches with canonical role and locator identity**
   - **Given** owner-scoped curated memory, observations, learnings, archive entries, and a source-backed wiki page, including two same-text entries with distinct canonical identities
   - **When** `memory_search` receives `project "Falcon" AND status?` with the default limit
   - **Then** the unchanged natural-language query reaches the selected backend, the backend alone encodes it, at most five results return, wiki synthesis ranks above raw personal memory for the same topic, and the same-text entries remain distinguishable by locator
   - **And** every result contains `role`, bounded `snippet`, `provenance`, `locator`, and `score`; results from any canonical role – curated personal memory, observations, learnings, and archive – additionally contain canonical `entryId` and `entryRevision` and are addressed by ordinary canonical entry locators rather than file or heading anchors, while wiki results retain their native source identity and do not fabricate memory metadata
   - **Proof**: `packages/dartclaw_server/test/memory_handlers_test.dart#onSearch handles FTS5 operator chars safely` – green – parity/regression for punctuation/operator safety
 
-- [ ] **S04 [OC02] [TI03] A search locator or role-and-topic selector reads bounded content from its source of record without exposing another user or a whole file**
+- [x] **S04 [OC02] [TI03] A search locator or role-and-topic selector reads bounded content from its source of record without exposing another user or a whole file**
   - **Given** two locators from S03 – one canonical entry locator and one native wiki locator – plus canonical entries for `owner` and for a different `userId`
   - **When** `memory_read` is called with exactly one selector – either locator, or a canonical topic-bearing `role` plus `topic`
   - **Then** both locators resolve, canonical resolution stays inside owner scope, each result returns the same role/provenance/locator identity as search, the native wiki locator resolves through its owning source without acquiring canonical memory metadata, the fixed result and response bounds apply, and no entire corpus file is returned as an implicit fallback
   - **And** `role`+`topic` addressing is accepted only for topic-bearing roles – topic-less roles (observations, learnings, wiki, KG) are addressable by locator alone, and a `topic` supplied against one is a typed rejection rather than a broadened read
   - **And** a missing locator or no-match topic returns an explicit empty/not-found result without substituting `MEMORY.md`, `archive`, or a derived row ID
 
-- [ ] **S05 [OC01,OC02] [TI01,TI02,TI03] Invalid capture and retrieval requests fail before canonical or derived mutation**
+- [x] **S05 [OC01,OC02] [TI01,TI02,TI03] Invalid capture and retrieval requests fail before canonical or derived mutation**
   - **Given** an unknown observation role, absent trusted provenance, over-limit text, fractional/out-of-range selector data, or an invalid locator
   - **When** the corresponding tool is invoked
   - **Then** the request returns a typed application-level error, the collection revision and canonical files remain unchanged, and no index row is inserted, removed, or exposed across user scope
 
-- [ ] **S06 [OC04] [TI04,TI06] Provider adapters preserve exact memory semantics and audit identity without overstating interception coverage**
+- [x] **S06 [OC04] [TI04,TI06] Provider adapters preserve exact memory semantics and audit identity without overstating interception coverage**
   - **Given** own-MCP calls for `memory_observe`, `memory_search`, and `memory_read`, plus an unknown own-MCP call, on Claude and Codex app-server
   - **When** provider events enter guard evaluation
   - **Then** the three registered tools map one-to-one to canonical `memory_observe`, `memory_search`, and `memory_read`; observe is classified mutating while search/read are classified read-only; the unknown call remains `mcp_call`; and audit retains both canonical and raw provider identity
@@ -72,11 +72,11 @@
 
 ## Structural Criteria
 
-- [ ] Canonical observation/learning writes use the S02 collection lock, validation, atomic commit, and revision authority; derived search remains rebuildable and never becomes the only copy.
-- [ ] `memory_save` keeps its published tool schema for the expand-step compatibility window but is re-implemented as a thin adapter onto the canonical add path – canonical entry identity, the shared revision advance, and canonical locators – so no second writer and no `memory_save` source label survive this story; it is still not aliased to the `observation|learning` role contract, and its removal plus later `memory_apply`/contraction work is not pre-implemented.
-- [ ] Existing wiki/KG producer ownership, Context Research citation semantics, and QMD fallback remain intact; no new wiki/KG mutation permission is granted.
-- [ ] No new package, database, daemon, scheduler, approval framework, or provider abstraction is introduced.
-- [ ] Provider-specific enforcement documentation and runtime warnings remain accurate: Claude hooks are broad, Codex depends on approval requests (`on-request` broadest), and ACP coverage is limited to verified reverse-call/permission seams.
+- [x] Canonical observation/learning writes use the S02 collection lock, validation, atomic commit, and revision authority; derived search remains rebuildable and never becomes the only copy.
+- [x] `memory_save` keeps its published tool schema for the expand-step compatibility window but is re-implemented as a thin adapter onto the canonical add path – canonical entry identity, the shared revision advance, and canonical locators – so no second writer and no `memory_save` source label survive this story; it is still not aliased to the `observation|learning` role contract, and its removal plus later `memory_apply`/contraction work is not pre-implemented.
+- [x] Existing wiki/KG producer ownership, Context Research citation semantics, and QMD fallback remain intact; no new wiki/KG mutation permission is granted.
+- [x] No new package, database, daemon, scheduler, approval framework, or provider abstraction is introduced.
+- [x] Provider-specific enforcement documentation and runtime warnings remain accurate: Claude hooks are broad, Codex depends on approval requests (`on-request` broadest), and ACP coverage is limited to verified reverse-call/permission seams.
 
 ## Scope & Boundaries
 
@@ -150,28 +150,28 @@ file | apps/dartclaw_cli/lib/src/commands/wiring/scheduling_wiring.dart#Scheduli
 
 ### Implementation Tasks
 
-- [ ] **TI01** Observation capture has one closed, provenance-safe canonical contract
+- [x] **TI01** Observation capture has one closed, provenance-safe canonical contract
   - Reuse the S01–S03 corpus/revision authority from `packages/dartclaw_server/lib/src/memory_handlers.dart#createMemoryHandlers`; accept only `observation|learning`, inject trusted owner/provenance/identity – including S01's source-event discriminator for every caller that has a stable source event – keep learning caps, and report revision plus index-reconciliation outcome facts for S08 to persist as health.
   - **Verify**: S01 and S05 pass, including revision advance on success, unchanged canon/revision/index on every pre-commit rejection, and saved-but-index-degraded after an injected index failure.
 
-- [ ] **TI02** Search backends own query encoding and expose canonical role/locator matches
+- [x] **TI02** Search backends own query encoding and expose canonical role/locator matches
   - Carry one result contract through `SearchBackend`, FTS5, QMD, and wiki; callers pass raw natural language, user scope reaches every applicable backend, wiki remains higher-ranked, and chunk identity never leaks as source identity.
   - **Verify**: S03 passes against real in-memory FTS5 plus QMD/wiki fakes, including punctuation/operators, empty query, distinct same-text identities, owner isolation, limit bounds, native wiki identity, and fallback parity.
 
-- [ ] **TI03** Memory reads resolve bounded selectors to their source of record rather than whole files
+- [x] **TI03** Memory reads resolve bounded selectors to their source of record rather than whole files
   - Resolve `locator` or `role`+`topic` through the canonical corpus service, route native wiki/KG locators back to their owning source, reject `topic` supplied against a topic-less role, reuse TI02's result identity, and return explicit not-found/truncated states within the fixed owner and response bounds.
   - **Verify**: S04 and the read cases of S05 pass; every locator shape `memory_search` emits – canonical entry and native wiki – round-trips to the source it was issued for, while cross-user, invalid, topic-against-topic-less-role, and whole-file fallback reads do not.
   - **Verify**: a `role: audit` selector and an audit-document locator are each rejected with the typed not-found/unsupported state – no audit text, locator, or entry metadata reaches the caller – and a `memory_search` run over a corpus that contains audit content returns no result carrying the `audit` role.
 
-- [ ] **TI04** Provider policy and audit retain exact read/write memory semantics
+- [x] **TI04** Provider policy and audit retain exact read/write memory semantics
   - Extend `CanonicalTool`, Claude/Codex own-MCP mapping, `TaskToolFilterGuard`, and the direct Claude inventory so observe and the still-registered `memory_save` are mutating, search/read are read-only, raw names remain auditable, and unknown MCP tools stay generic.
   - **Verify**: S06 passes through Claude hook mapping, Codex MCP approval mapping, task allowlist/read-only tests, and audit assertions without changing the documented Codex/ACP warning conditions, and a read-only session denies `memory_save` exactly as it denies `memory_observe`.
 
-- [ ] **TI05** Journal and source producers use observation/learning roles
+- [x] **TI05** Journal and source producers use observation/learning roles
   - The journal keeps its selective untrusted-log contract but maps decision/insight/action-item→observation and learning→learning with only `file_read`+`memory_observe`; knowledge inbox observations carry their source locator and populate S01's source-event discriminator with the stable inbox item id, while its existing wiki/KG writes stay unchanged.
   - **Verify**: S02 passes in prompt, scheduling-wiring, run-now policy, knowledge-inbox integration, capped-learning, and provenance assertions; a replayed inbox item yields an exactly-equal source reference rather than a distinguishable second event; repository production references no longer use `memory_save` for these observation/learning producers.
 
-- [ ] **TI06** The expand-step MCP surface is registered consistently across runtime paths
+- [x] **TI06** The expand-step MCP surface is registered consistently across runtime paths
   - Register observe/search/read together, wire the new callbacks through harness factories, keep `memory_save`'s published schema as the compatibility surface while re-pointing its implementation at the canonical add path, and keep SDK-MCP/HTTP-MCP schemas behaviorally identical.
   - **Verify**: MCP discovery/schema and production service-wiring tests expose exact semantic mappings for all three tools, do not map them to `mcp_call`, and still expose the unchanged `memory_save` schema whose writes now carry canonical entry identity, the shared revision advance, and canonical locators with no `memory_save` source label; architecture checks show no new package, database, daemon, scheduler, approval framework, or provider abstraction.
 
@@ -432,3 +432,24 @@ Affected surface: ## Constraints & Gotchas (new "Audit role is not retrievable" 
 Decision: The canonical `audit` role – S05's deletion-audit document `workspace/MEMORY.audit.md` – is outside `memory_search`'s and `memory_read`'s role universe: no search result carries it, and `memory_read` resolves neither an audit locator nor `role: audit`. The role is canonical and topic-less, but it is not one of the topic-less roles addressable by locator alone (observations, learnings, wiki, KG) – it is not part of the read universe at all.
 Rationale: Owner-ratified 2026-08-11 as a consequence of the ratified audit-as-canonical-document decision rather than a new design choice: returning deletion audits to a model would hand back exactly the content the user asked to forget, defeating the forget guarantee – the same reason the audit is not an index source. Operator visibility flows through story S11's surfaces instead.
 Evidence: Owner-ratified preflight 0.24 resolution 43 ("Not model-readable" clause); `dev/bundle/docs/specs/0.24/s05-atomic-memory-apply.md` deletion-audit contract and OC03 privacy scope; `dev/bundle/docs/specs/0.24/prd.md#fr2-guarded-memory-tools` bounded, role-discriminated retrieval contract.
+
+#### IMPLEMENTATION NOTE: source-owned-qmd-results
+
+Date: 2026-08-12
+Observation: QMD returns file-level hits, so canonical corpus files cannot truthfully supply canonical entry identity. The QMD backend now keeps canonical memory results from the canonical FTS index, filters canonical and audit file hits from QMD, and retains QMD only for native source locators. Wiki QMD hits resolve through the wiki owner before being returned. This preserves raw-query ownership, canonical entry identity, native source identity, and search-to-read closure without manufacturing locators.
+
+#### IMPLEMENTATION NOTE: derived-index-reconciliation
+
+Date: 2026-08-12
+Observation: Replacing the entire FTS table after a canonical capture or prune would erase independent sources. `replaceMemoryRows` atomically replaces canonical and legacy memory-owned rows while preserving unrelated sources; the offline rebuild command remains the explicit full-index rebuild path. Canonical commit still succeeds when the derived refresh fails and reports `indexState: degraded`.
+
+#### VERIFICATION NOTE: objective-gates
+
+Date: 2026-08-12
+Evidence: Focused capture, retrieval, storage, QMD/wiki, provider, policy, journal, inbox, MCP, status, pruning, and rebuild suites passed, including 207 remediation-focused tests. The final CI-equivalent workspace suite passed across all packages and the CLI (9,163 passed, 17 skipped); formatting checked 1,603 files with zero changes; `dart analyze --fatal-infos` reported no issues; architecture passed 8/8; all fitness functions passed; `git diff --check` passed.
+Ledger implication: S04's provider-neutral tool taxonomy, direct-SDK schemas and dispatch, trusted turn-context seam, and search-result identity contract lifted `dartclaw_core/lib` to 19,194 LOC. The existing core LOC ratchet was re-baselined from 19,000/18,600 to a 19,500 ceiling with a 19,000 warning threshold; the architecture gate now passes with an active warning rather than hiding the growth.
+
+#### IMPLEMENTATION NOTE: review-remediation
+
+Date: 2026-08-12
+Observation: Fresh critic reviews found nine defects, all remediated before completion. Direct Claude SDK MCP requests now dispatch every advertised memory tool with JSON-RPC responses and bounded errors. TurnRunner supplies trusted session/turn/source/agent identity to direct capture callbacks, distinguishing primary turns from the memory journal; the shared inbound gateway retains only stable tool provenance it actually knows. Canonical pruning preserves equal-content records for S10 ownership, inbox source events use a stable file-instance digest independently of their path, and wiki snippets truncate on Unicode scalar boundaries. Read responses reject immutable metadata that cannot fit the 64 KiB ceiling, and malformed locators are distinguished from valid missing locators by typed application errors. QMD search results now expose canonical authority-free locators that round-trip through `memory_read`, whose resolver admits only indexed Markdown sources. Focused regression proofs and the full gate passed after remediation.

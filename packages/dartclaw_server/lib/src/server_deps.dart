@@ -118,6 +118,8 @@ class ServerObservabilityDeps {
   final MemoryStatusService? memoryStatusService;
   final MemoryPruner? memoryPruner;
   final MemoryService? memoryService;
+  final SearchBackend? searchBackend;
+  final MemoryCorpusService? memoryCorpus;
   final HeartbeatScheduler? heartbeat;
   final ScheduleService? scheduleService;
   final WorkspaceGitSync? gitSync;
@@ -131,6 +133,8 @@ class ServerObservabilityDeps {
     required this.memoryStatusService,
     required this.memoryPruner,
     required this.memoryService,
+    required this.searchBackend,
+    required this.memoryCorpus,
     required this.heartbeat,
     required this.scheduleService,
     required this.gitSync,
@@ -214,6 +218,8 @@ void registerServerSystemPages(
     configWriter: configWriter,
     memoryStatusServiceGetter: () => server._observability.memoryStatusService,
     memoryServiceGetter: () => server._observability.memoryService,
+    searchBackendGetter: () => server._observability.searchBackend,
+    memoryCorpusGetter: () => server._observability.memoryCorpus,
     kgServiceGetter: () => server._web.kgService,
     contentGuardDisplay: contentGuardDisplay,
     heartbeatDisplay: heartbeatDisplay,

@@ -735,7 +735,7 @@ mcp_servers:
     expect(factoryCalls, 0);
   });
 
-  test('ServiceWiring closes the outbound MCP pool during shutdown extras', () async {
+  test('ServiceWiring closes shared lifecycle services during shutdown extras', () async {
     final transport = _FakeOutboundTransport(
       tools: const [
         {'name': 'lookup'},
@@ -762,6 +762,10 @@ mcp_servers:
     await result.shutdownExtras();
 
     expect(transport.closeCount, 1);
+    expect(
+      () => result.selfImprovement.appendLearning(text: 'rejected after shared corpus shutdown'),
+      throwsStateError,
+    );
   });
 
   test('ServiceWiring wires AlertRouter into the production EventBus', () async {

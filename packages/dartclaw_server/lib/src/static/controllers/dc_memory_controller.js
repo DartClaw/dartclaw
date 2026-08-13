@@ -182,6 +182,37 @@ export default class DcMemoryController extends Stimulus.Controller {
     }
   }
 
+  async curateMemory(event) {
+    const button = event?.currentTarget;
+    if (!button) return;
+    const result = this.element.querySelector('[data-memory-curation-result]');
+    button.disabled = true;
+    button.textContent = 'Starting…';
+    try {
+      const response = await fetch('/api/scheduling/jobs/memory-curation/run' + this.apiQs, { method: 'POST' });
+      if (response.status === 409) {
+        button.textContent = 'Curation running…';
+        if (result) result.textContent = 'Memory curation is already running.';
+        return;
+      }
+      if (!response.ok) throw new Error('Memory curation request failed');
+      button.textContent = 'Curation running…';
+      if (result) result.textContent = 'Memory curation started.';
+      const content = document.getElementById('memory-content');
+      if (content) {
+        htmx.ajax('GET', '/memory/content' + this.apiQs, {
+          target: '#memory-content',
+          swap: 'innerHTML',
+          select: '#memory-inner',
+        });
+      }
+    } catch (_) {
+      button.disabled = false;
+      button.textContent = 'Curate now';
+      if (result) result.textContent = 'Memory curation could not be started.';
+    }
+  }
+
   resetPruneButton(button) {
     this.setPruneState(button, 'Prune Now', 'btn-danger');
   }

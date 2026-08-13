@@ -23,6 +23,8 @@ Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
 }
 
+const _memoryMcpTools = {'memory_apply', 'memory_observe', 'memory_search', 'memory_read'};
+
 /// A deployment whose container profiles are available without a container
 /// runtime, recording the host-tool grant every authority is created with.
 ///
@@ -224,7 +226,7 @@ void main() {
     await wireAll();
 
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
-    expect(grant.allowedMcpTools, {'web_search', 'web_fetch', 'memory_save'});
+    expect(grant.allowedMcpTools, {'web_search', 'web_fetch', ..._memoryMcpTools});
     expect(
       grant.allowedMcpTools,
       isNot(anyOf(contains('sessions_spawn'), contains('sessions_send'))),
@@ -254,7 +256,7 @@ void main() {
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
     expect(
       grant.allowedMcpTools,
-      {'web_fetch', 'memory_save'},
+      {'web_fetch', ..._memoryMcpTools},
       reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant',
     );
   });
@@ -293,7 +295,7 @@ void main() {
     await wireAll();
 
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
-    expect(grant.allowedMcpTools, {'web_fetch', 'memory_save'});
+    expect(grant.allowedMcpTools, {'web_fetch', ..._memoryMcpTools});
     expect(
       recordedConfigs.first.harnessConfig.disallowedTools,
       containsAll(['WebFetch', 'WebSearch']),

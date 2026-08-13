@@ -84,7 +84,8 @@ export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLif
 export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, PairingCode;
 
 // Harness interfaces
-export 'src/harness/agent_harness.dart' show AgentHarness, PromptStrategy;
+export 'src/harness/agent_harness.dart'
+    show AgentHarness, ContextualMemoryToolHandler, HarnessTurnContext, HarnessTurnContextSink, PromptStrategy;
 export 'src/harness/acp_client.dart' show AcpClient, AcpPromptResult;
 export 'src/harness/acp_errors.dart' show AcpHarnessErrorCode, AcpHarnessException;
 export 'src/harness/acp_harness.dart' show AcpHarness;
@@ -159,8 +160,47 @@ export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResu
 export 'package:dartclaw_security/dartclaw_security.dart';
 
 export 'src/memory/memory_file_service.dart' show MemoryFileService;
+export 'src/memory/memory_resource_limits.dart' show MemoryResourceLimits, MemoryResourceLimitException;
 export 'src/memory/memory_entry.dart' show MemoryEntry;
 export 'src/memory/memory_entry_parser.dart' show parseMemoryEntries;
+export 'src/memory/canonical_memory.dart'
+    show
+        canonicalMemoryFormatVersion,
+        validateMemoryTopic,
+        MemoryRole,
+        MemoryOriginKind,
+        MemorySourceRef,
+        MemoryCollectionMetadata,
+        CanonicalMemoryEntry,
+        CanonicalMemoryLearning,
+        MemoryIndexEntry,
+        MemoryObservation,
+        MemoryDeletionAudit;
+export 'src/memory/memory_documents.dart'
+    show
+        CanonicalMemoryDocument,
+        MemoryIndexDocument,
+        MemoryTopicDocument,
+        MemoryArchiveDocument,
+        MemoryObservationDocument,
+        MemoryLearningDocument,
+        MemoryAuditDocument;
+export 'src/memory/memory_markdown_codec.dart' show MemoryMarkdownCodec;
+export 'src/memory/memory_corpus.dart'
+    show VerbatimMemoryMember, CanonicalMemoryCorpus, MemoryCorpusValidationException, MemoryCorpusValidator;
+export 'src/memory/memory_apply_schema.dart' show memoryApplyOperationSchema;
+export 'src/memory/memory_corpus_service.dart'
+    show
+        MemorySnapshotOmissionReason,
+        MemoryCorpusSnapshot,
+        MemoryCorpusSelection,
+        MemoryCorpusManifest,
+        MemoryCorpusStatusSnapshot,
+        MemoryCorpusChange,
+        MemoryCorpusFileMutation,
+        MemoryCorpusMutation,
+        MemoryCorpusSimulatedCrash,
+        MemoryCorpusService;
 
 export 'src/container/container_executor.dart'
     show
@@ -191,7 +231,8 @@ export 'package:dartclaw_config/dartclaw_config.dart'
         canonicalizePathWithExistingAncestors,
         truncate,
         normalizeDynamicMap,
-        SearchBackend;
+        SearchBackend,
+        SearchResultLayer;
 
 // Agents
 export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;

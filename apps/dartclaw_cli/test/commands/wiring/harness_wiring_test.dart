@@ -191,7 +191,7 @@ void main() {
     bool journalEnabled = false,
   }) {
     config = config.copyWith(
-      memory: journalEnabled ? const MemoryConfig(journalEnabled: true) : config.memory,
+      memory: journalEnabled ? MemoryConfig(journalEnabled: true) : config.memory,
       agent: AgentConfig(
         provider: providerId,
         definitions: [
@@ -259,7 +259,7 @@ void main() {
     expect(primaryPrompt, contains('Tool prompt'));
     expect(primaryPrompt, contains('## Agent prompt'));
     expect(primaryPrompt, contains('## Recent error'));
-    expect(primaryPrompt, contains('## Recent learning'));
+    expect(primaryPrompt, isNot(contains('Recent learning')));
     expect(primaryPrompt, contains('memory_read tool'));
 
     expect(taskPrompt, contains('Soul prompt'));

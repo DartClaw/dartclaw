@@ -11,6 +11,7 @@ class FakeWorkerService implements AgentHarness {
   Completer<void> _turnInvoked = Completer<void>();
   bool cancelCalled = false;
   int turnCalls = 0;
+  String? lastSystemPrompt;
 
   /// Resolves when the next [turn] call arrives (after composeSystemPrompt completes).
   Future<void> get turnInvoked => _turnInvoked.future;
@@ -62,6 +63,7 @@ class FakeWorkerService implements AgentHarness {
     int? maxTurns,
   }) {
     turnCalls++;
+    lastSystemPrompt = systemPrompt;
     _turnCompleter = Completer<Map<String, dynamic>>();
     if (!_turnInvoked.isCompleted) _turnInvoked.complete();
     return _turnCompleter!.future;

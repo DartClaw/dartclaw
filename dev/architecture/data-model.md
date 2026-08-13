@@ -11,7 +11,7 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 **Files are the source of truth. SQLite is a derived index or relational model.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search index → SQLite FTS5 (derived from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md`, rebuildable via `dartclaw rebuild-index`)
+- Search index → SQLite FTS5 (derived from validated searchable canonical roles, rebuildable via `dartclaw rebuild-index`)
 - Tasks, goals, artifacts, turn traces, task events → SQLite (authoritative — relational queries on status/type/goal)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
@@ -45,10 +45,13 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 │       ├── meta.json                 # [JSON]   Session metadata
 │       └── messages.ndjson           # [NDJSON] Conversation transcript (append-only)
 ├── workspace/
-│   ├── MEMORY.md                     # [MD]     Active long-term memory (source of truth for search.db)
-│   ├── MEMORY.archive.md             # [MD]     Archived long-term memory (source of truth for search.db)
+│   ├── MEMORY.md                     # [MD]     Bounded canonical index
+│   ├── memory/topics/                # [MD]     Canonical topic documents
+│   ├── MEMORY.archive.md             # [MD]     Canonical archive
+│   ├── MEMORY.audit.md               # [MD]     Content-free deletion audit (never indexed)
+│   ├── .dartclaw-memory-corpus.json   # [JSON]   Derived authenticated member manifest
 │   ├── errors.md                     # [MD]     Auto-populated error log (capped 50)
-│   ├── learnings.md                  # [MD]     Agent-written insights (capped 50; source of truth for search.db)
+│   ├── learnings.md                  # [MD]     Canonical learning role (newest 50)
 │   ├── memory/
 │   │   └── YYYY-MM-DD.md            # [MD]     Daily turn logs
 │   ├── SOUL.md                       # [MD]     Identity/values (read-only by runtime)
@@ -71,14 +74,19 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 | **Relational queries** | `search.db`, `tasks.db`, `state.db` | SQLite prepared statements | WAL (`tasks.db`, `state.db`), single-thread (`search.db`) |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, OAuth store, projects) |
-| **Structured text** | `MEMORY.md`, `errors.md`, `learnings.md`, daily logs | Temp file → rename or append | Write queue (memory, errors) |
+| **Structured text** | Canonical memory documents, `errors.md`, daily logs | Temp file → rename or append | Shared corpus lock/write queue |
 | **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
 | **Append-only SQLite** | `task_events` (in `tasks.db`) | Synchronous insert | `TaskEventService` (WAL) |
 
-Daily turn-log records are byte-bounded at 512 KiB. A date partition retains at most 8 MiB, dropping oldest complete
-records first and leaving an explicit marker. This bounds the queued atomic read-modify-write path.
-Host-side reads of canonical workspace text files fail closed above 64 MiB; daily-log appends apply their tighter 8 MiB
-limit before allocating existing content.
+Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
+exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
+files fail closed above 64 MiB. Recursive memory/wiki requests admit at most 1,000 regular files and 64 MiB of body bytes.
+
+`.dartclaw-memory-corpus.json` is non-authoritative coordination state. It records the authenticated identity, role,
+length, digest, and record IDs of each canonical member so ordinary reads and sparse writes can select only relevant
+documents while preserving unopened members. Startup authenticates the complete corpus in bounded batches before
+publishing the manifest or healthy derived-index state. A missing manifest is rebuilt from canonical Markdown; a
+semantic mismatch triggers stopped-edit reconciliation or fails closed before index publication.
 
 ---
 
@@ -322,21 +330,25 @@ Goal
 
 **Storage**: `tasks.db` → `goals` table
 
-### Memory Chunk (Search Index)
+### Derived Memory Index Row
 
 ```
-MemoryChunk
+MemoryIndexRow
 ├── id: int (autoincrement)
 ├── text: String
-├── source: String (e.g., "memory_save", "archive")
+├── source: String (stable canonical locator, e.g. "topic/preferences/<entry-id>")
 ├── category: String?
 ├── createdAt: DateTime
 └── userId: String (default: "owner")
 ```
 
 **Storage**: `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table)
-**Source of truth**: `workspace/MEMORY.md`, `workspace/MEMORY.archive.md`, and `workspace/learnings.md`
-**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically deletes and repopulates from all three canonical files, preserving source entry timestamps; undated entries sort oldest
+**Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
+and deletion audit. Only searchable topic, archive, observation, and learning entries project into `search.db`;
+`MEMORY.audit.md` is content-free operational evidence and is never indexed.
+**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically recreates the projection while preserving stable
+entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild reads authenticated
+corpus selections in bounded batches and publishes a healthy sibling index only after complete-union validation.
 
 ### Thread Binding
 
@@ -703,7 +715,7 @@ WorkflowSummary                              # discovery projection, not persist
                                                    └──────────────┘
 
 ┌──────────────────────────────┐  derived from  ┌───────────────────┐
-│ MEMORY.md + archive + learnings│──────────────►│ MemoryChunk (FTS5)│
+│ Canonical searchable roles      │──────────────►│ MemoryIndexRow (FTS5)│
 └──────────────────────────────┘  (rebuildable) └───────────────────┘
 ```
 
@@ -717,7 +729,7 @@ WorkflowSummary                              # discovery projection, not persist
 | `TaskArtifact.taskId` | `Task.id` | Foreign key | **Yes** — `ON DELETE CASCADE` |
 | `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
 | `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
-| `MemoryChunk` | `MEMORY.md`, `MEMORY.archive.md`, `learnings.md` | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
+| `MemoryIndexRow` | Canonical topic, archive, observation, and learning entries | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
 | `ThreadBinding.taskId` | `Task.id` | String ID reference | **No** — reconciled on startup (stale bindings pruned) |
 
 ### Lifecycle Dependencies
@@ -738,7 +750,7 @@ WorkflowSummary                              # discovery projection, not persist
 ## Package Ownership
 
 ```
-dartclaw_models     (zero deps)         Session, Message, MemoryChunk, SessionKey,
+dartclaw_models     (zero deps)         Session, Message, MemorySearchResult, SessionKey,
                                         TaskType, channel/agent/container config models
      ▲
      │
@@ -809,7 +821,7 @@ Services with concurrent callers serialize writes via `StreamController`:
 |---------|-----------|---------|
 | `MessageService` | `StreamController` | Prevent concurrent NDJSON appends |
 | `KvService` | `StreamController<_WriteOp>` | Prevent concurrent kv.json rewrites |
-| `MemoryFileService` / `MemoryPruner` | `StreamController<_WriteOp>` + shared workspace lock | Serialize canonical memory writes, pruning, and their derived-index updates |
+| `MemoryCorpusService` / `MemoryPruner` | Bounded write queue + shared workspace lock | Serialize canonical memory mutations, pruning, and derived-index updates |
 | `ConfigWriter` | `StreamController<_WriteOp>` | Prevent concurrent YAML rewrites |
 | `SelfImprovementService` | `StreamController<_WriteOp>` + shared workspace lock for learnings | Serialize errors/learnings writes; keep capped learnings and their derived-index rows coherent with pruning |
 
@@ -832,9 +844,9 @@ Append-only logs that must not block the caller:
 | `usage.jsonl` | Rename to `.1` when >10MB | On write |
 | `errors.md` | Keep newest N entries (default: 50) | On write |
 | `learnings.md` | Keep newest N entries (default: 50) | On write |
-| `MEMORY.md` | Pruner archives recognized entries >90d and deduplicates them; opaque content stays in place | Nightly cron (`MemoryPruner`) |
+| Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
-| `search.db` | Full rebuild from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` | Manual (`dartclaw rebuild-index`) |
+| `search.db` | Full rebuild from searchable canonical roles | Manual (`dartclaw rebuild-index`) |
 
 ---
 
@@ -860,10 +872,10 @@ sqlite3 ~/.dartclaw/tasks.db "PRAGMA wal_checkpoint(TRUNCATE);"
 
 | Scenario | Recovery |
 |----------|---------|
-| `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from `MEMORY.md`, `MEMORY.archive.md`, and `learnings.md` |
+| `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from the validated canonical corpus |
 | `tasks.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | `state.db` corrupted/deleted | Loss of active-turn crash recovery only. In-flight sessions may miss a recovery banner, but durable message/task data remains intact. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
 | `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |
 | `kv.json` corrupted | Loss of daily usage aggregates. Recoverable from `usage.jsonl` re-aggregation. |
-| `MEMORY.md` deleted | Long-term memory lost. Daily logs (`memory/`) may partially reconstruct. |
+| Canonical memory member deleted | Corpus validation/reconciliation reports the missing member; restore the validated canonical topic, archive, observation, learning, or audit member from workspace Git or another trusted backup before rebuilding the derived index. `MEMORY.md` alone is only the bounded index, not the complete knowledge body. |

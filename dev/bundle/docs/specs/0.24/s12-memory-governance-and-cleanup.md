@@ -78,7 +78,7 @@ search, and stewardship work can extend without inheriting obsolete or contradic
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Reference-proven dead memory surface is absent while live contracts remain usable**
+- [x] **S01 [OC01] [TI01] Reference-proven dead memory surface is absent while live contracts remain usable**
   - **Given** stories S01–S11 have landed and a production-reference census covers package barrels, declarations,
     callers, tests, package guidance, and accepted 0.25 seams, counting as a production consumer only a reference from
     `packages/*/lib/` – including `dartclaw_testing/lib/`, which ships to users – or from `apps/*/lib/`, and never a
@@ -91,7 +91,7 @@ search, and stewardship work can extend without inheriting obsolete or contradic
     removal is an un-export from the package barrel or a relocation into `lib/src/` plus deletion of the now-dead code
     – never a deleted repository file, test, or history entry used to clear the census
 
-- [ ] **S02 [OC02] [TI02] Memory fitness rejects each prohibited architecture without rejecting the canonical one**
+- [x] **S02 [OC02] [TI02] Memory fitness rejects each prohibited architecture without rejecting the canonical one**
   - **Given** isolated static-scan negative fixtures for an automatic curation dispatch, a system action entering
     timer/retry/YAML mutation, a locator constructed with a generic `memory_save`/`archive` source instead of a canonical
     entry locator, FTS query encoding in a caller, and a re-exported retired placeholder; plus three classes proven by
@@ -104,14 +104,14 @@ search, and stewardship work can extend without inheriting obsolete or contradic
     behavioral suite fails for its own class, and the canonical architecture delivered by stories S05/S07/S09 passes
     without an allowlist, runtime dependency, or full semantic duplicate of behavioral tests
 
-- [ ] **S03 [OC02,OC03] [TI02,TI04] Context Research performs one wiki traversal and documentation names one owner**
+- [x] **S03 [OC02,OC03] [TI02,TI04] Context Research performs one wiki traversal and documentation names one owner**
   - **Given** one Context Research request whose personal backend and explicit wiki source can both return the same
     source-backed page, plus a counting wiki retriever
   - **When** the assembled story S07 retrieval path produces its citation packet
   - **Then** the wiki source is traversed exactly once, wiki precedence and native provenance remain intact, healthy
     personal results survive wiki failure, and architecture/user docs describe that same single-owner flow
 
-- [ ] **S04 [OC03] [TI03,TI04] Normative documents describe one code-backed 0.24 memory lifecycle**
+- [x] **S04 [OC03] [TI03,TI04] Normative documents describe one code-backed 0.24 memory lifecycle**
   - **Given** the implemented corpus, tools, prompt, curation, limits, status, and rebuild behavior from stories S01–S11
   - **When** a contributor or operator follows the current ADR index, architecture references, package guidance,
     workspace/search/configuration/architecture/CLI guides, and memory-related recipes
@@ -126,7 +126,7 @@ search, and stewardship work can extend without inheriting obsolete or contradic
     the same canonical transaction as the removal – and as a content-free operational record that the derived index
     never projects, so it is not searchable memory content
 
-- [ ] **S05 [OC04] [TI03,TI05] Later-release documentation preserves exact ownership without acting early**
+- [x] **S05 [OC04] [TI03,TI05] Later-release documentation preserves exact ownership without acting early**
   - **Given** a 0.24 deployment using FTS5 or the current opt-in QMD backend
   - **When** current decisions, roadmap, architecture, search, configuration, and recovery guidance are inspected
   - **Then** QMD remains usable and gains no canonical-memory semantics in 0.24, 0.25 Phase B owns its deprecation,
@@ -134,7 +134,7 @@ search, and stewardship work can extend without inheriting obsolete or contradic
   - **And** 0.25 must preserve 0.24 identity/provenance/query/index-health semantics, while 0.27 owns autonomous
     stewardship and guarded wiki/KG writes without gaining a generic file-replacement tool
 
-- [ ] **S06 [OC01,OC02,OC03,OC04] [TI01,TI02,TI03,TI04,TI05] Final governance closes every review item without new machinery**
+- [x] **S06 [OC01,OC02,OC03,OC04] [TI01,TI02,TI03,TI04,TI05] Final governance closes every review item without new machinery**
   - **Given** the final implementation diff and the architecture-review coverage inventory
   - **When** focused contracts, full workspace validation, fitness, analyzer/barrel checks, and normative-reference scans run
   - **Then** every review item maps to a passing behavior/fitness proof or its explicit 0.25/0.27/removal-milestone owner,
@@ -143,11 +143,11 @@ search, and stewardship work can extend without inheriting obsolete or contradic
 
 ## Structural Criteria
 
-- [ ] S12 does not recreate the work of prerequisite stories S05 (tool/consolidator migration), S07 (retrieval
+- [x] S12 does not recreate the work of prerequisite stories S05 (tool/consolidator migration), S07 (retrieval
   composition), S10 (limit handling), S09 (system-action seam), or S11 (operator projection); it removes dead residue,
   adds governance backstops, and repairs only remaining integration contradictions after consuming their tests and
   contracts.
-- [ ] A public memory symbol remains only with a non-test production consumer; a binding accepted later-release
+- [x] A public memory symbol remains only with a non-test production consumer; a binding accepted later-release
   contract justifies retention only when that contract also has a concrete production consumer, never on its own.
   Test-only use, documentation, and historical references do not justify public surface. A production
   consumer is a reference from `packages/*/lib/` – including `dartclaw_testing/lib/`, which ships to users – or from
@@ -155,21 +155,21 @@ search, and stewardship work can extend without inheriting obsolete or contradic
   surface. "Removal" means un-exporting the symbol from its package barrel or moving it into `lib/src/`, plus
   deleting genuinely dead code – it never means deleting repository files, tests, or history to clear the census;
   only tests whose sole subject is the deleted dead code follow it out.
-- [ ] Fitness is narrow and semantic enough to prevent the named regression: no broad prose lint, no historical rewrite,
+- [x] Fitness is narrow and semantic enough to prevent the named regression: no broad prose lint, no historical rewrite,
   no allowlist for the new zero-baseline rules, and no brittle exact file/line counts. Generated Dart output is excluded
   by rule – `*.g.dart` and the `lib/src/generated/` embedded-asset libraries are git-ignored build products, absent from
   a clean checkout, and never scanned. Any current-prose scan is bounded to the normative document set named below; no
   other path is scanned for operational prose.
-- [ ] Reserved system-action identity is governed as one invariant: startup and config create/edit reject configured-job
+- [x] Reserved system-action identity is governed as one invariant: startup and config create/edit reject configured-job
   collisions before scheduling/list-show-run publication or mutation, with no precedence, shadowing, renaming, alias, or compatibility exception.
-- [ ] Canonical Markdown remains authoritative; derived databases contain no irrecoverable memory and can be rebuilt
+- [x] Canonical Markdown remains authoritative; derived databases contain no irrecoverable memory and can be rebuilt
   without changing stable source identity.
-- [ ] Fixed resource ceilings remain inclusive constants exactly as
+- [x] Fixed resource ceilings remain inclusive constants exactly as
   `dev/bundle/docs/specs/0.24/s10-memory-resource-boundaries.md#fixed-resource-contract` states them: 64 MiB canonical
   source, 8 MiB observation partition, 1,000 regular files and 64 MiB aggregate per recursive request, best 50 results,
   256 parsed records per migration batch, 100 diagnostics and 64 KiB per migration report, 65,536 characters per
   `memory_observe` input, 64 KiB per `memory_read` response, and the observation usage warning beginning at 64 MiB.
-- [ ] Current normative docs are `README.md`, `docs/`, `dev/architecture/`, `dev/state/DECISIONS.md`,
+- [x] Current normative docs are `README.md`, `docs/`, `dev/architecture/`, `dev/state/DECISIONS.md`,
   `dev/state/ROADMAP.md`, `dev/state/UBIQUITOUS_LANGUAGE.md`, and package/app `AGENTS.md`; `CHANGELOG.md`, superseded
   decisions, and this planning bundle may retain clearly historical migration names without advertising them as current
   behavior.
@@ -264,7 +264,7 @@ file | packages/dartclaw_testing/test/fitness/fitness_smoke_test.dart#main | Exi
 
 ### Implementation Tasks
 
-- [ ] **TI01** The public and runtime memory surface contains only consumed contracts
+- [x] **TI01** The public and runtime memory surface contains only consumed contracts
   - Remove the four reference-proven placeholders and any superseded legacy identity helper left production-unconsumed
     after stories S01–S11; tighten barrels/tests/current package docs without moving the accepted search contract
     between packages.
@@ -275,7 +275,7 @@ file | packages/dartclaw_testing/test/fitness/fitness_smoke_test.dart#main | Exi
     scenario S01; every retained public memory symbol has a named production consumer under `packages/*/lib/` or
     `apps/*/lib/`, and no removed symbol remains outside history.
 
-- [ ] **TI02** Settled memory seams have cheap continuous regression guards
+- [x] **TI02** Settled memory seams have cheap continuous regression guards
   - Extend the existing fitness suite with focused zero-baseline scans for automatic curation/consolidation, system
     actions entering timer/retry/YAML mutation, generic locators, caller-side FTS encoding, and retired
     placeholders/current operational prose; consume story S09's behavioral tests for reserved-ID collisions and
@@ -288,7 +288,7 @@ file | packages/dartclaw_testing/test/fitness/fitness_smoke_test.dart#main | Exi
     create/edit reject collisions before publication/mutation with no winner or compatibility path, scenario S03's
     counting-retriever integration proves one traversal, and the full fitness suite stays within its cheap gate.
 
-- [ ] **TI03** Accepted decisions describe the implemented corpus and exact release lineage
+- [x] **TI03** Accepted decisions describe the implemented corpus and exact release lineage
   - Amend the ADRs listed in the ownership constraint plus `dev/state/DECISIONS.md`: bounded index/topic corpus,
     identity/revision/provenance, prompt and mutation authority, stable locators, wiki/KG boundary, derived index health,
     0.25 preservation duties, and exact QMD timing must agree with final code; verify story S05's ADR-007/016
@@ -298,7 +298,7 @@ file | packages/dartclaw_testing/test/fitness/fitness_smoke_test.dart#main | Exi
   - **Verify**: A decision-link/status audit and code/test cross-check prove scenarios S04–S05 with no contradictory
     current ADR, no lost supersession lineage, and no new ADR or premature QMD deprecation/removal.
 
-- [ ] **TI04** Contributor and user references teach one recoverable memory model
+- [x] **TI04** Contributor and user references teach one recoverable memory model
   - Audit final code first, then correct only residual drift across the normative surfaces in Structural Criteria:
     architecture/package roles plus workspace, search, configuration, architecture, CLI/recovery, and memory recipes must
     use the stories S01–S11 vocabulary, reserved collision-free system-action list/show/run contract, status schema,
@@ -318,7 +318,7 @@ file | packages/dartclaw_testing/test/fitness/fitness_smoke_test.dart#main | Exi
     Criteria normative set; every behavioral claim is tied to a production symbol or passing test, and old
     tool/consolidation prose remains only in explicit history.
 
-- [ ] **TI05** Future owners can extend memory without redefining 0.24
+- [x] **TI05** Future owners can extend memory without redefining 0.24
   - Synchronize `dev/state/ROADMAP.md` and affected handoff sections so 0.25 preserves canonical identity, provenance,
     natural-query input, locators, corpus, index-health/rebuild semantics, and 0.27 reuses observe/apply/CAS for governed
     autonomy and guarded knowledge writes; map every review fitness item to its current test/gate or named later owner.
@@ -532,3 +532,19 @@ New:
     identity, revision, validation, and fingerprint participation, canonical Markdown at `workspace/learnings.md`,
     newest-50 retention cap unchanged.
 ```
+
+### Run: 2026-08-12 07:08 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+
+- Treated the 227-path dirty worktree as the explicitly assigned integrated S01–S11 baseline and preserved it.
+- Classified production consumption strictly under `packages/*/lib/` and `apps/*/lib/`; removed four additional
+  public row helpers found test/example-only by the same ratified census rule.
+
+#### COMPLETION EVIDENCE
+
+- Named and derivative dead-surface census is zero across production, tests, examples, and current normative docs.
+- Static fitness fixtures and production/doc scans pass without allowlists; S07/S09 behavioral suites remain the
+  semantic authority for traversal, reserved identity, publication, mutation, and precedence.
+- CI-equivalent workspace validation, formatter, analyzer, architecture, fitness, and focused S12 suites pass.
+- No implementation/spec divergence occurred, so no S12 reconciliation ledger was created.

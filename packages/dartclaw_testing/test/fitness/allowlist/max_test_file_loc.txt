@@ -13,15 +13,15 @@
 
 packages/dartclaw_workflow/test/workflow/foreach_iteration_runner_test.dart  # 2583 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/workflow_service_test.dart  # 2208 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
-packages/dartclaw_server/test/turn_runner_test.dart  # 2234 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_server/test/turn_runner_test.dart  # 2275 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/task/task_executor_workflow_oneshot_test.dart  # 2059 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/api/session_routes_test.dart  # 2037 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
-packages/dartclaw_core/test/harness/claude_code_harness_test.dart  # 1957 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_core/test/harness/claude_code_harness_test.dart  # 2070 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/workflow_definition_parser_test.dart  # 1908 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/map_step_execution_test.dart  # 1676 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/context_extractor_test.dart  # 1662 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/executor_sequential_test.dart  # 1553 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/built_in_workflow_contracts_test.dart  # 1432 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/task/workflow_cli_runner_test.dart  # 1424 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
-packages/dartclaw_server/test/api/config_api_routes_test.dart  # 1336 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_server/test/api/config_api_routes_test.dart  # 1494 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/workflow_definition_test.dart  # 1333 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md

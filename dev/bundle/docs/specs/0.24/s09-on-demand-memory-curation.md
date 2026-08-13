@@ -34,41 +34,41 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02] [TI01,TI02,TI03,TI04] One explicit curation request commits a wholly valid mixed proposal and reports exact IDs**
+- [x] **S01 [OC01,OC02] [TI01,TI02,TI03,TI04] One explicit curation request commits a wholly valid mixed proposal and reports exact IDs**
   - **Given** collection revision `41`, a bounded index, current topic entries A–E, and provenance-labelled observations O1–O3
   - **When** the operator runs the existing `memory-curation` run-now action, the host snapshots revision `41`, and one proposal-only model turn returns valid add, revise, merge, remove, and exact-no-op operations referencing only included sources
   - **Then** the host applies the complete proposal once through S05's mutation authority, advances the collection to revision `42`, and reports `succeeded` with the host-generated add ID plus exact changed IDs and exact-no-op E
   - **And** the model invokes no mutation/file/job capability and cannot report commit success independently of the host result
   - **Proof**: `packages/dartclaw_server/test/knowledge/knowledge_inbox_service_test.dart#S01 stable file runs a cron extraction turn and becomes durable synthesized knowledge` – green – parity/regression for one isolated, read-only, no-tools structured-output turn
 
-- [ ] **S02 [OC01] [TI01,TI02] Oversized candidate state produces one explicit bounded, provenance-safe proposal context**
+- [x] **S02 [OC01] [TI01,TI02] Oversized candidate state produces one explicit bounded, provenance-safe proposal context**
   - **Given** an index, topic corpus, and observation corpus that each exceed their curation limits, including newer high-priority entries before older trailing entries
   - **When** an explicit curation run assembles its proposal context
   - **Then** the index is the S06 projection capped at 150 rendered lines and `memory.max_bytes`, topic candidates are limited to 50 entries and 64 KiB, and newest uncurated observations – those recorded after the lifecycle record's persisted last-success time, or every observation when no successful run has ever completed – are limited to 50 entries and 64 KiB
   - **And** selection is deterministic by index priority/recency then canonical identity, omitted documents are not opened or encoded, and the snapshot records included IDs/revisions/provenance plus truncation/coverage state
 
-- [ ] **S03 [OC02] [TI03,TI04] Post-commit index failure reports durable curation success as degraded**
+- [x] **S03 [OC02] [TI03,TI04] Post-commit index failure reports durable curation success as degraded**
   - **Given** a wholly valid current-revision proposal and an injected derived-index failure after canonical replacement succeeds
   - **When** the host applies the proposal
   - **Then** curation reports `succeeded` with the committed revision and exact changed/no-op IDs, exposes degraded index state plus its repair action, keeps the canonical change durable, and does not claim healthy convergence
 
-- [ ] **S04 [OC02] [TI02,TI03,TI04] One invalid operation rejects the entire proposal with no changed IDs**
+- [x] **S04 [OC02] [TI02,TI03,TI04] One invalid operation rejects the entire proposal with no changed IDs**
   - **Given** a byte-for-byte snapshot of canonical memory, revision, deletion audit, and index rows
   - **When** the model returns one structurally parseable proposal containing a valid add plus an unsupported kind, an omitted source reference, and a target not present in the bounded snapshot
   - **Then** curation reports `failed`, each operation receives its precise validation reason or a not-applied-because-proposal-rejected reason, changed/no-op ID lists are empty, and every captured canonical/index/audit value remains unchanged
 
-- [ ] **S05 [OC02] [TI02,TI04] Confirmed pre-apply turn failures – malformed, timed-out, failed, or cancelled – are retryable no-ops**
+- [x] **S05 [OC02] [TI02,TI04] Confirmed pre-apply turn failures – malformed, timed-out, failed, or cancelled – are retryable no-ops**
   - **Given** an explicit curation run with a valid bounded snapshot
   - **When** its single model turn times out, fails, is cancelled, emits no payload, emits multiple payloads, or returns malformed/unknown structured fields
   - **Then** curation reports `failed` with a bounded reason, never calls the apply authority, changes no canonical/index/audit state, and starts no retry until another explicit operator request
   - **And** that no-state-changed guarantee is scoped to these confirmed pre-apply no-op failures; a startup-settled interrupted run whose canonical commit state cannot be determined instead reports `failed` carrying the indeterminate-commit disclosure and asserts nothing about canonical state
 
-- [ ] **S06 [OC02] [TI03,TI04] A concurrent memory commit makes the curation proposal conflict without partial effect**
+- [x] **S06 [OC02] [TI03,TI04] A concurrent memory commit makes the curation proposal conflict without partial effect**
   - **Given** curation snapshots collection revision `51` and another valid writer commits revision `52` before proposal application
   - **When** the host submits the wholly valid curation proposal with snapshot revision `51`
   - **Then** curation reports `conflicted` with current revision `52`, empty changed/no-op IDs, no curation effect, and guidance to rerun explicitly from a fresh snapshot
 
-- [ ] **S07 [OC02,OC03] [TI03,TI04,TI05] The reserved system action is unambiguous, read-only, non-recursive, and the only curation dispatch path**
+- [x] **S07 [OC02,OC03] [TI03,TI04,TI05] The reserved system action is unambiguous, read-only, non-recursive, and the only curation dispatch path**
   - **Given** one configured scheduled job, the registered `memory-curation` system action, a memory corpus large enough that the retired consolidator threshold would previously have fired, an enabled heartbeat checklist, and one curation run blocked inside its model turn
   - **When** API/CLI/Web list and show scheduling entries, an operator runs curation, heartbeat and the ordinary job complete, the model attempts any tool call, and a second operator requests curation
   - **Then** list/show merge the ordinary job and immutable system-action descriptor, only the shared run endpoint starts curation, the second request reports already running, and the proposal turn's tool call is blocked
@@ -80,7 +80,7 @@
   - **And** no system-action-wins, configured-job-wins, alias, rename, shadow, or compatibility behavior resolves the collision
   - **Proof**: `packages/dartclaw_server/test/scheduling/schedule_service_test.dart#on-demand run delivers through the configured mode` – green – parity/regression for the existing run-now job/session/delivery path
 
-- [ ] **S08 [OC02] [TI04] Startup settlement of an interrupted run discloses its indeterminate commit state**
+- [x] **S08 [OC02] [TI04] Startup settlement of an interrupted run discloses its indeterminate commit state**
   - **Given** a persisted `running` curation lifecycle record left by a process that exited mid-run, naming snapshot revision `61`, plus a current collection revision the record never observed and a persisted last-success time
   - **When** the runtime restarts and settles that record before any operator reads it
   - **Then** the record settles to `failed` carrying an explicit indeterminate-commit disclosure naming both the snapshot revision `61` and the collection revision current at settlement, and it claims nothing about canonical, index, or audit state it never verified
@@ -88,14 +88,14 @@
 
 ## Structural Criteria
 
-- [ ] Curation calls the same S05 validation, collection-CAS, canonical commit, deletion-audit, and post-commit index authority as `memory_apply`; it creates no second writer, lock, queue, revision, or operation schema.
-- [ ] The proposal turn uses one isolated cron session, one model turn, read-only mode, the established no-tools guard behavior, and delimiter-safe untrusted-data framing; host owner scope and expected revision never come from model output.
-- [ ] The curation lifecycle has exactly `running`, `succeeded`, `conflicted`, and `failed` states. One atomically persisted, bounded action record survives restart and carries start/completion/last-success time, snapshot/current/committed revision, changed/no-op IDs, operation reasons, and S05 degradation facts. It holds no S08 index-health or recovery state – S08 stays the sole owner of durable index health, and S11 joins live S08 health at read time rather than reading a curation-held copy.
-- [ ] `ScheduleService` owns one immutable host-callback `SystemAction` registration seam. It merges system actions into read-only list/show and routes them through `runJobNow` plus the existing `_running` overlap guard, but never passes them to timers, pause/resume, `_executeWithRetry`, delivery, or scheduling YAML mutation.
-- [ ] Registered `SystemAction` IDs are reserved. Startup and scheduling-config create/edit validate the complete configured-job ID set against them before timer setup, config/restart-pending writes, or list/show/run publication; any intersection is a typed validation failure, never a precedence or compatibility rule.
-- [ ] `memory-curation` is the only registered memory system action and owns no schedule, timer, automatic retry, heartbeat hook, post-job hook, or autonomous policy. Its descriptor and persisted lifecycle are exposed through exactly one service boundary that S11 later consumes for its API/CLI/Web presentation; S09 adds no presentation surface of its own and no second read path.
-- [ ] Production Dart, exports, wiring, prompts, and current architecture docs contain no `MemoryConsolidator`, threshold consolidator, heartbeat consolidator, or successful-job consolidator path after S05; S09 adds only the explicit workflow and regression proof.
-- [ ] Curation writes only guarded personal memory through S05; raw observations remain provenance sources, and wiki/KG write contracts remain unchanged.
+- [x] Curation calls the same S05 validation, collection-CAS, canonical commit, deletion-audit, and post-commit index authority as `memory_apply`; it creates no second writer, lock, queue, revision, or operation schema.
+- [x] The proposal turn uses one isolated cron session, one model turn, read-only mode, the established no-tools guard behavior, and delimiter-safe untrusted-data framing; host owner scope and expected revision never come from model output.
+- [x] The curation lifecycle has exactly `running`, `succeeded`, `conflicted`, and `failed` states. One atomically persisted, bounded action record survives restart and carries start/completion/last-success time, snapshot/current/committed revision, changed/no-op IDs, operation reasons, and S05 degradation facts. It holds no S08 index-health or recovery state – S08 stays the sole owner of durable index health, and S11 joins live S08 health at read time rather than reading a curation-held copy.
+- [x] `ScheduleService` owns one immutable host-callback `SystemAction` registration seam. It merges system actions into read-only list/show and routes them through `runJobNow` plus the existing `_running` overlap guard, but never passes them to timers, pause/resume, `_executeWithRetry`, delivery, or scheduling YAML mutation.
+- [x] Registered `SystemAction` IDs are reserved. Startup and scheduling-config create/edit validate the complete configured-job ID set against them before timer setup, config/restart-pending writes, or list/show/run publication; any intersection is a typed validation failure, never a precedence or compatibility rule.
+- [x] `memory-curation` is the only registered memory system action and owns no schedule, timer, automatic retry, heartbeat hook, post-job hook, or autonomous policy. Its descriptor and persisted lifecycle are exposed through exactly one service boundary that S11 later consumes for its API/CLI/Web presentation; S09 adds no presentation surface of its own and no second read path.
+- [x] Production Dart, exports, wiring, prompts, and current architecture docs contain no `MemoryConsolidator`, threshold consolidator, heartbeat consolidator, or successful-job consolidator path after S05; S09 adds only the explicit workflow and regression proof.
+- [x] Curation writes only guarded personal memory through S05; raw observations remain provenance sources, and wiki/KG write contracts remain unchanged.
 
 ## Scope & Boundaries
 
@@ -159,24 +159,24 @@ file | packages/dartclaw_server/lib/src/turn_manager.dart#TurnManager.startTurn 
 
 ### Implementation Tasks
 
-- [ ] **TI01** Each curation run receives one coherent bounded candidate snapshot
+- [x] **TI01** Each curation run receives one coherent bounded candidate snapshot
   - Consume S02's coherent corpus snapshot/candidate seam and S06's bounded index renderer; include one collection revision, deterministic current personal entries and observations, stable IDs/revisions/provenance, and explicit truncation without opening omitted content. S05 is the later apply authority, not the snapshot source.
   - **Verify**: Boundary and limit-plus-one tests prove S01–S02, including exact index/entry/observation caps, priority/recency selection, coherent revision, unopened omitted sources, and bounded opaque-provenance handling.
 
-- [ ] **TI02** The curation model can emit only one structured proposal
+- [x] **TI02** The curation model can emit only one structured proposal
   - Follow `KnowledgeInboxService._runExtractionTurn`: use an isolated cron session, `maxTurns: 1`, read-only plus no-tools policy, preserved base instructions, and delimiter-safe framing; accept exactly one closed proposal and no model-supplied owner/revision/success state.
   - **Verify**: Turn/policy/parser tests prove S01–S02 and S04–S05 across valid output, hostile snapshot text, tool attempts, missing/duplicate/malformed payloads, timeout, failure, and cancellation while asserting the apply authority is untouched on every rejection.
 
-- [ ] **TI03** The host is the sole curation commit authority
+- [x] **TI03** The host is the sole curation commit authority
   - Submit TI02 operations and TI01's host-held revision through S05's shared service; preserve its whole-set validation, exact changed/no-op accounting, CAS conflict, canonical failure, and committed-but-index-degraded results without a curation-specific writer.
   - **Verify**: Temp-corpus component/fault tests prove S01 and S03–S07 through exact canonical bytes, revisions, deletion audit, index rows, per-operation reasons, current conflict revision, and degraded recovery signal.
 
-- [ ] **TI04** One small ScheduleService system-action seam makes run-now executable and inspectable
+- [x] **TI04** One small ScheduleService system-action seam makes run-now executable and inspectable
   - Add an immutable `SystemAction` descriptor/host callback beside, not inside, `ScheduledJob`. Reserve every registered action ID; reject startup composition and config create/edit proposals whose complete configured-job set intersects it before scheduling, config/restart-pending writes, or publication. Merge collision-free jobs/actions for read-only list/show, resolve both through `ScheduleService.runJobNow` and the shared overlap set, and route the callback around timers, pause/resume, `_executeWithRetry`, delivery, automatic retry, and YAML mutation.
   - Register `memory-curation` through that seam and atomically persist its single bounded `running|succeeded|conflicted|failed` lifecycle/result record through the existing file-backed `KvService` rather than a new store or generic job-history system. Interrupted persisted `running` settles to bounded `failed` recovery state on startup; it never resumes automatically. When the interrupted run's canonical commit state cannot be determined, that settlement carries an explicit indeterminate-commit disclosure naming the snapshot revision and the collection revision current at settlement, so the record discloses the uncertainty instead of claiming an unchanged corpus it never verified. The persisted last-success time advances only on a confirmed `succeeded` result – failed, conflicted, and settled-interrupted records leave it untouched.
   - **Verify**: Schedule, route, persistence-reopen, and assembled API/CLI/Web contract tests prove scenario S07 – startup rejects a colliding YAML ID before timers or list/show/run publication; config create and edit reject a reserved ID before YAML/restart-pending changes while preserving the prior live projection; collision-free list/show/run remains merged; and no precedence/compatibility path exists. The same tests prove scenario S07's immutable write rejection, already-running rejection, zero timers/reschedule/retry/delivery/YAML writes, and one curation callback per accepted explicit request; scenarios S01 and S03–S06 through all four exact lifecycle payloads; and scenario S08 through interrupted-run settlement carrying the indeterminate-commit disclosure with both revisions and leaving last-success unadvanced.
 
-- [ ] **TI05** Explicit run-now remains the only curation dispatch path
+- [x] **TI05** Explicit run-now remains the only curation dispatch path
   - Consume S05's consolidator removal; retain normal heartbeat checklist/workspace sync and ordinary scheduled-job execution/delivery while adding no threshold, heartbeat, successful-job, apply-result, or curation-completion hook.
   - **Verify**: Assembled-wiring tests prove S07 for a corpus large enough that the retired consolidator threshold would previously have fired, heartbeat, successful prompt/callback jobs, and recursive model output, and assert zero `runJobNow` invocations and zero curation-callback dispatches while no run is in flight so the overlap guard cannot mask a rogue dispatch; a production/current-doc reference scan finds no consolidator class/export/prompt/session key or automatic dispatch wiring.
 
@@ -186,6 +186,17 @@ file | packages/dartclaw_server/lib/src/turn_manager.dart#TurnManager.startTurn 
 - [TI02] Reuse the knowledge-inbox fake-turn/parser pattern, but assert curation's stricter single-payload schema and untrusted snapshot framing. Drive timeout/cancellation deterministically through fake outcomes, never wall-clock sleeps.
 - [TI03,TI04] Coordinate the concurrent writer and running-overlap cases with `Completer` barriers. Table-drive lifecycle mapping and exact result fields through the service boundary consumed by S11. Use separate startup-YAML, config-create, and config-edit collision fixtures and assert validation occurs before timers, publication, file writes, and restart-pending markers.
 - [TI05] Keep behavioral heartbeat/schedule tests as the primary proof; use repository scans only as an absence/fitness backstop and exclude immutable historical/upstream requirement provenance explicitly.
+
+### Implementation Evidence
+
+- Bounded candidate selection: `MemoryCorpusService.curationSnapshot` reads the index by prefix, selects topic documents by canonical priority/recency order and observation documents newest-first, and stats every candidate before opening it. Read-observer coverage proves documents rejected by aggregate caps remain unopened.
+- Proposal and commit: `MemoryCurationService` frames untrusted JSON, enforces one payload/turn with read-only no-tools policy, rejects tool attempts and out-of-snapshot references, and delegates the whole operation set to `MemoryApplyService` with host-owned revision, owner, and provenance.
+- Lifecycle and scheduling: one KV record carries the four states, exact affected/no-op IDs, operation reasons, revisions, index degradation, repair guidance, and interrupted-run disclosure. `SystemAction` shares only list/show/run overlap with scheduled jobs; collision and immutable mutation tests cover startup and config boundaries.
+- Verification: focused core/server/API tests passed; assembled CLI wiring registered only the immutable action descriptor. Workspace format, analyze, fitness, and test gates are recorded by the execution report.
+
+#### AUTO_MODE implementation judgment
+
+The core candidate seam admits whole canonical documents only when their stat size fits the remaining aggregate budget, then selects records from those admitted documents. This preserves the binding no-open/no-encode rule for omitted documents without adding a new partial canonical parser or a second corpus authority; a large single document may therefore be reported truncated even when some records inside it could theoretically fit.
 
 ## Implementation Observations
 

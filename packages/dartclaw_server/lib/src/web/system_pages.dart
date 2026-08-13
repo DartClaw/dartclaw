@@ -36,6 +36,8 @@ void registerSystemDashboardPages(
   ConfigWriter? configWriter,
   MemoryStatusService? Function()? memoryStatusServiceGetter,
   MemoryService? Function()? memoryServiceGetter,
+  SearchBackend? Function()? searchBackendGetter,
+  MemoryCorpusService? Function()? memoryCorpusGetter,
   TemporalKnowledgeGraphService? Function()? kgServiceGetter,
   ContentGuardDisplayParams contentGuardDisplay = const ContentGuardDisplayParams(),
   HeartbeatDisplayParams heartbeatDisplay = const HeartbeatDisplayParams(),
@@ -83,9 +85,19 @@ void registerSystemDashboardPages(
       hubGetter: () {
         final workspaceDir = workspaceDisplay.path;
         final memory = memoryServiceGetter?.call();
+        final searchBackend = searchBackendGetter?.call();
+        final memoryCorpus = memoryCorpusGetter?.call();
         final kg = kgServiceGetter?.call();
-        if (workspaceDir == null || memory == null || kg == null) return null;
-        return knowledgeHubServiceForWorkspace(workspaceDir: workspaceDir, memory: memory, kg: kg);
+        if (workspaceDir == null || memory == null || searchBackend == null || memoryCorpus == null || kg == null) {
+          return null;
+        }
+        return knowledgeHubServiceForWorkspace(
+          workspaceDir: workspaceDir,
+          memory: memory,
+          searchBackend: searchBackend,
+          memoryCorpus: memoryCorpus,
+          kg: kg,
+        );
       },
     ),
   );
@@ -95,6 +107,7 @@ void registerSystemDashboardPages(
       SchedulingPage(
         runtimeConfigGetter: runtimeConfigGetter,
         configWriter: configWriter,
+        memoryStatusServiceGetter: memoryStatusServiceGetter,
         heartbeatDisplay: heartbeatDisplay,
         schedulingDisplay: schedulingDisplay,
       ),

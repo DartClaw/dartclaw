@@ -69,14 +69,14 @@ These are inclusive safety constants. They are not new configuration keys and ar
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Replay identity is evaluated at prune time over the complete normalized tuple**
+- [x] **S01 [OC01] [TI01] Replay identity is evaluated at prune time over the complete normalized tuple**
   - **Given** topic entry E at revision `12` with role `topic`, canonical topic `project-falcon`, content `Project  Falcon\nlaunched`, and provenance `{origin: user-turn, locator: session/sess-7, caller: chat, session: sess-7, sourceEventId: turn-42/message-3}`, and a later entry R whose content is `  Project Falcon launched  ` and whose every other identity component equals E's
   - **When** pruning evaluates the corpus – the sole site that compares replay identity, because the apply path adds without dedup and every add receives a host-generated changed ID
   - **Then** normalization trims outer whitespace and replaces every internal whitespace run matched by `RegExp(r'\s+')` with one ASCII space, comparison remains case-sensitive, and E and R are recognized as one exact-replay duplicate set whose collapse scenario S07 governs
   - **But when** the corpus instead holds a candidate that differs from E in a single tuple component – content `project falcon launched`, whose only difference is letter case
   - **Then** the tuple does not match, the candidate is not collapsed into E, both entries keep their IDs/revisions/bytes, the collection revision does not advance, and no index write occurs
 
-- [ ] **S02 [OC01] [TI01] Equal or semantically similar content from a distinct or absent source event remains distinct**
+- [x] **S02 [OC01] [TI01] Equal or semantically similar content from a distinct or absent source event remains distinct**
   - **Given** E from scenario S01 plus otherwise identical candidates that change, one at a time, the role, canonical topic, provenance origin/locator/caller/session, or `sourceEventId`, and a candidate that paraphrases E
   - **When** prune-time exact-replay evaluation compares those candidates – apply never evaluates duplicates, because story S05 settles that an add always receives a host-generated changed ID
   - **Then** none is exact-deduplicated against E, deterministic ordering retains each distinct entry, and semantic equivalence is left exclusively to explicit model curation
@@ -84,7 +84,7 @@ These are inclusive safety constants. They are not new configuration keys and ar
   - **And given** instead a pair of MIGRATED entries whose role, canonical topic, and normalized content are equal and whose provenance carries `migration` origin with no source-event discriminator and no caller/session reference
   - **Then** story S01's absence rule – equality requires both sides present and equal – makes those references unequal, so the pair is not an exact-replay duplicate set: both entries keep their IDs, revisions, and bytes, no deletion audit is written, the collection revision does not advance, and no index write occurs
 
-- [ ] **S03 [OC02,OC03] [TI02] Archive capacity is preflighted before the sole atomic corpus commit**
+- [x] **S03 [OC02,OC03] [TI02] Archive capacity is preflighted before the sole atomic corpus commit**
   - **Given** an active entry selected for archive and snapshots of active bytes, archive bytes, collection revision, and derived-index rows
   - **When** the complete prospective archive is exactly 64 MiB
   - **Then** one story S02 commit may move the entry, advance the revision once, and update the derived index only after canonical success
@@ -93,7 +93,7 @@ These are inclusive safety constants. They are not new configuration keys and ar
   - **And when** faults strike the real commit transition after staging, after the first canonical replacement, and after the canonical commit marker but before index convergence
   - **Then** recovery exposes one complete old or new canonical revision, never a split active/archive state; only the post-commit index fault reports committed canonical state with story S08 degraded/rebuild guidance
 
-- [ ] **S04 [OC02] [TI03] Direct and recursive readers enforce file, count, aggregate, and output boundaries before body allocation**
+- [x] **S04 [OC02] [TI03] Direct and recursive readers enforce file, count, aggregate, and output boundaries before body allocation**
   - **Given** canonical topic, archive, learning, observation, and wiki sources at exactly 64 MiB and matching sources at 64 MiB+1 byte
   - **When** each direct reader validates them
   - **Then** exact-limit sources are eligible, limit-plus-one sources are rejected or skipped before body allocation, and the result identifies role, locator, observed bytes, 64 MiB limit, and degraded/partial coverage
@@ -104,14 +104,14 @@ These are inclusive safety constants. They are not new configuration keys and ar
   - **Then** that work is not body-read, traversal stops at the breached ceiling, and the outcome reports the exhausted limit, processed files/bytes/results, and omitted count when knowable
   - **And** an unreadable or oversized wiki file degrades only the wiki layer and does not discard accepted healthy results or fail other retrieval layers
 
-- [ ] **S05 [OC04] [TI04] Configurable memory integers are validated identically through every path**
+- [x] **S05 [OC04] [TI04] Configurable memory integers are validated identically through every path**
   - **Given** `memory.max_bytes` with default 32 KiB and `memory.pruning.archive_after_days` with default 90 days
   - **When** either is supplied as `1`, its existing default, `0`, `-1`, a fraction, wrong type, or a numeric representation outside the accepted integer domain through nested startup YAML, legacy `memory_max_bytes`, API/CLI config-set write, and direct typed runtime service construction
   - **Then** positive integers are accepted identically, every invalid value returns the same field-specific positive-integer/range error, config-set leaves the file byte-for-byte unchanged, and startup/runtime construction does not silently clamp or fall back
   - **And** defaults apply only when a field is absent, never when it is present but invalid
   - **And** canonical/partition/recursive/result/warning constants are absent from writable config metadata and attempts to write invented keys are rejected as unknown
 
-- [ ] **S06 [OC02,OC05] [TI05] Raw observations stop at partition limits and expose truthful aggregate usage without deletion**
+- [x] **S06 [OC02,OC05] [TI05] Raw observations stop at partition limits and expose truthful aggregate usage without deletion**
   - **Given** a dated raw-observation partition exactly at 8 MiB, older partitions, and snapshots of every raw file
   - **When** another accepted-size story S04 observation would make the current partition 8 MiB+1 byte
   - **Then** the append is rejected before mutation with current/projected/limit bytes; no oldest record or partition is trimmed, rotated away, or deleted
@@ -122,7 +122,7 @@ These are inclusive safety constants. They are not new configuration keys and ar
   - **Then** status reports degraded/incomplete lower-bound usage, scanned versus omitted/failed coverage, known oldest/newest bounds, and the warning whenever known usage has reached 64 MiB instead of `0` or a fabricated exact total
   - **And** status inspection itself never deletes or rewrites observations; user deletion remains explicit and is documented by story S12
 
-- [ ] **S07 [OC01] [TI01] A prune-time duplicate set collapses to its earliest-created record with one audited removal each**
+- [x] **S07 [OC01] [TI01] A prune-time duplicate set collapses to its earliest-created record with one audited removal each**
   - **Given** three canonical entries whose complete normalized identity tuples are equal – same role, same canonical topic, same content after trim and whitespace-run collapse, and the same provenance source-event identity – recorded at distinct creation times, plus snapshots of the collection revision and the derived-index rows
   - **When** pruning evaluates the corpus and collapses that duplicate set
   - **Then** the earliest-created record survives with its ID, content, and provenance unchanged, the two later duplicates are removed, and survivor selection is deterministic and independent of file or scan order
@@ -131,16 +131,16 @@ These are inclusive safety constants. They are not new configuration keys and ar
 
 ## Structural Criteria
 
-- [ ] Exact replay identity is the tuple `(canonical role, canonical topic-or-absence, case-sensitive whitespace-normalized content, complete provenance source-event identity)`; semantic similarity, equal text alone, timestamp, and generated ID are excluded. Dedup is evaluated at prune time only; a matched duplicate set keeps its earliest-created record, and each removal is written through story S05's content-free deletion audit inside the same canonical transaction.
-- [ ] Pruning and archive mutation call story S02's one corpus service, lock, revision, preflight, atomic commit, recovery, and derived-index outcome seam; no direct multi-file writer or second transaction protocol remains.
-- [ ] Fixed constants have one existing-layer definition reused by topic/archive/learning/observation/wiki consumers where semantics match; S10 introduces no configurable ceiling fields, generic quota framework, package, database, daemon, scheduler, or QMD integration.
-- [ ] Every body read is preceded by regular-file/type/file-byte/count/aggregate admission; counters use UTF-8 bytes, inclusive limits, deterministic canonical ordering, and overflow-safe arithmetic. The 64 MiB per-request aggregate meters body reads only, so a stat-derived size admits and sizes a file without consuming it; the 1,000-file ceiling bounds total stat cost.
-- [ ] Result ceilings are separate from scan ceilings: 50 is an output top-K ceiling applied only after every candidate admitted by the 1,000-file/64-MiB scan budget reaches the final comparator; only scan-budget exhaustion stops traversal, and errors or exhausted scan budgets report degraded coverage rather than healthy emptiness.
-- [ ] Story S03 alone implements and behavior-tests migration's maximum 256 parsed records per in-memory batch, one final atomic corpus commit, and 100-diagnostic/64-KiB UTF-8 report with total/omitted counts; S10 only verifies that delivered contract as a fitness dependency.
-- [ ] Numeric validation is authoritative for nested YAML, legacy YAML, overrides, API/CLI writes, and runtime constructors; zero, negative, malformed, fractional, and out-of-domain values never default, clamp, or persist.
-- [ ] Observation status distinguishes exact from lower-bound/incomplete aggregate usage, warns at known usage `>= 64 MiB`, and preserves all raw files. Current drop-oldest-at-8-MiB behavior is removed, not retained behind a fallback.
-- [ ] Wiki traversal/lint/search use the same fixed wiki boundaries and isolate bad files; wiki/KG write scope and story S07 query semantics remain unchanged.
-- [ ] QMD experiments, semantic deduplication, autonomous curation, automatic raw retention/deletion policy, and story S08 index rebuild/repair implementation remain absent from this story.
+- [x] Exact replay identity is the tuple `(canonical role, canonical topic-or-absence, case-sensitive whitespace-normalized content, complete provenance source-event identity)`; semantic similarity, equal text alone, timestamp, and generated ID are excluded. Dedup is evaluated at prune time only; a matched duplicate set keeps its earliest-created record, and each removal is written through story S05's content-free deletion audit inside the same canonical transaction.
+- [x] Pruning and archive mutation call story S02's one corpus service, lock, revision, preflight, atomic commit, recovery, and derived-index outcome seam; no direct multi-file writer or second transaction protocol remains.
+- [x] Fixed constants have one existing-layer definition reused by topic/archive/learning/observation/wiki consumers where semantics match; S10 introduces no configurable ceiling fields, generic quota framework, package, database, daemon, scheduler, or QMD integration.
+- [x] Every body read is preceded by regular-file/type/file-byte/count/aggregate admission; counters use UTF-8 bytes, inclusive limits, deterministic canonical ordering, and overflow-safe arithmetic. The 64 MiB per-request aggregate meters body reads only, so a stat-derived size admits and sizes a file without consuming it; the 1,000-file ceiling bounds total stat cost.
+- [x] Result ceilings are separate from scan ceilings: 50 is an output top-K ceiling applied only after every candidate admitted by the 1,000-file/64-MiB scan budget reaches the final comparator; only scan-budget exhaustion stops traversal, and errors or exhausted scan budgets report degraded coverage rather than healthy emptiness.
+- [x] Story S03 alone implements and behavior-tests migration's maximum 256 parsed records per in-memory batch, one final atomic corpus commit, and 100-diagnostic/64-KiB UTF-8 report with total/omitted counts; S10 only verifies that delivered contract as a fitness dependency.
+- [x] Numeric validation is authoritative for nested YAML, legacy YAML, overrides, API/CLI writes, and runtime constructors; zero, negative, malformed, fractional, and out-of-domain values never default, clamp, or persist.
+- [x] Observation status distinguishes exact from lower-bound/incomplete aggregate usage, warns at known usage `>= 64 MiB`, and preserves all raw files. Current drop-oldest-at-8-MiB behavior is removed, not retained behind a fallback.
+- [x] Wiki traversal/lint/search use the same fixed wiki boundaries and isolate bad files; wiki/KG write scope and story S07 query semantics remain unchanged.
+- [x] QMD experiments, semantic deduplication, autonomous curation, automatic raw retention/deletion policy, and story S08 index rebuild/repair implementation remain absent from this story.
 
 ## Scope & Boundaries
 
@@ -210,27 +210,27 @@ file | packages/dartclaw_server/lib/src/memory/workspace_file_reader.dart#Worksp
 
 ### Implementation Tasks
 
-- [ ] **TI01** Exact replay identity preserves every distinct memory event
+- [x] **TI01** Exact replay identity preserves every distinct memory event
   - Replace text-only pruning identity with the normalized role/topic/content/provenance-event tuple, routed through the canonical story S01/S05 identity and no-op result seams; keep selection/order deterministic when entries are distinct. Dedup is prune-time only – add no duplicate check to the apply path. A matched duplicate set keeps its earliest-created record, and each removed duplicate is retired through story S05's content-free deletion-audit contract inside the same canonical transaction.
   - **Verify**: Table-driven unit and real-corpus component tests prove scenarios S01–S02 for every tuple component, whitespace boundaries, case difference, paraphrase, same-event replay, a migrated pair whose absent source-event discriminator and absent caller/session keep it uncollapsed, stable IDs/revisions, and absence of canonical/index writes on an exact no-op; companion cases prove scenario S07 by asserting that a prune-time collapse keeps the earliest-created record and writes one content-free deletion-audit entry per removed duplicate in the same canonical transaction, and that the apply path never dedups an add.
 
-- [ ] **TI02** Archive admission and commit are bounded and atomic
+- [x] **TI02** Archive admission and commit are bounded and atomic
   - Render and byte-check the complete prospective archive against 64 MiB before staging, then delegate the active/archive revision to story S02's one lock/commit/recovery authority and preserve story S08 post-commit index-degradation semantics.
   - **Verify**: Temp-corpus exact-limit/64-MiB-plus-one tests plus real-transition failure hooks prove scenario S03 by comparing active/archive bytes, revision/marker, and index rows before recovery and after retry.
 
-- [ ] **TI03** Every direct and recursive memory reader spends one fixed request budget
+- [x] **TI03** Every direct and recursive memory reader spends one fixed request budget
   - Apply the 64 MiB direct-source, 1,000 regular-file, 64 MiB aggregate, and best-50 output constants to topic/archive/learning/observation/wiki consumers, including wiki search/lint and status traversal, with deterministic scan order, stat-before-read admission, overflow-safe counters, full ranking of scan-admitted candidates, and typed partial/degraded outcomes.
   - **Verify**: Instrumented temp files and read spies prove scenario S04 at each exact boundary and limit+1, including no body read after scan-budget exhaustion, isolated unreadable/oversized wiki files, a highest-ranked late-path match retained in the best 50, stable ordering, output truncation, and other-layer continuity.
 
-- [ ] **TI04** Existing numeric memory settings have one positive validation contract
+- [x] **TI04** Existing numeric memory settings have one positive validation contract
   - Make nested/legacy parsing, overrides, config-set/API persistence, and runtime service construction share authoritative validation for `memory.max_bytes` and archive age; reject present-invalid values before persisted or operational side effects and keep fixed ceilings out of config metadata.
   - **Verify**: One parameterized matrix drives every field/path in scenario S05 through `1`, default, zero, negative, fractional, wrong-type, out-of-domain, and absent cases while asserting identical errors, unchanged config bytes on rejection, and unknown-key rejection for invented ceiling fields.
 
-- [ ] **TI05** Raw observation growth is visible and never automatically destructive
+- [x] **TI05** Raw observation growth is visible and never automatically destructive
   - Preserve story S04's observe input ceiling, change 8 MiB partition overflow to preflight rejection, and report bounded aggregate bytes, oldest/newest coverage, exact versus lower-bound completeness, failures/omissions, and the `>= 64 MiB` warning through the existing status model.
   - **Verify**: Partition exact/limit-plus-one, aggregate warning-minus-one/exact/plus-one – the plus-one case asserting EXACT coverage with the warning active – unreadable/malformed file, and traversal-budget component tests prove scenario S06 with byte-for-byte raw-file snapshots and no deletion/rewrite of existing records.
 
-- [ ] **TI06** Resource-boundary fitness prevents alternate unbounded paths
+- [x] **TI06** Resource-boundary fitness prevents alternate unbounded paths
   - Cover the assembled production graph and all recursive consumers named in this FIS; ensure story S02/config/status contracts are used, consume story S03's shipped migration limits as a read-only dependency, and leave no direct archive transaction, drop-oldest fallback, configurable ceiling, QMD integration, quota framework, automatic retention path, or duplicate migration enforcement.
   - **Verify**: Focused production reference/constructor tests plus a scoped repository scan prove every Structural Criterion; rerun story S03's owned migration boundary suites without adding S10 fixtures or editing `StorageWiring`; run the affected package suites, analyzer, formatter gate, and CI-equivalent gate required by `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`.
 
@@ -479,3 +479,12 @@ New:
 ```text
   - Apply the 64 MiB direct-source, 1,000 regular-file, 64 MiB aggregate, and best-50 output constants to topic/archive/learning/observation/wiki consumers, including wiki search/lint and status traversal, with deterministic scan order, stat-before-read admission, overflow-safe counters, full ranking of scan-admitted candidates, and typed partial/degraded outcomes.
 ```
+
+#### DECISION NOTE: request-budget-not-corpus-cap
+
+Decision-Key: request-budget-not-corpus-cap
+Altitude: fis-local
+Affected surface: Fixed Resource Contract; recursive admission; canonical observation writers; startup and offline reconciliation
+Decision: The 1,000-file and 64 MiB aggregate ceilings bound one ordinary recursive or direct body-read request, not the lifetime size of the canonical corpus. Observation partitions beyond either aggregate remain valid and must not block a current-partition append, record-scoped apply, topic/archive/audit pruning, manifest-only revision lookup, targeted read, or citation resolution. Full startup and offline reconciliation may consume successive batches, each independently within the same ceilings, and must authenticate the complete union before publishing derived health.
+Rationale: Per-partition limits bound individual observations, while the aggregate request limit protects allocation. Conflating it with a durable-corpus cap makes retention an accidental availability boundary and forces unrelated historical bodies into ordinary operations.
+Evidence: 2026-08-12 implementation review and boundary regressions covering exact 1,000/64 MiB admission, plus-one rejection before the omitted body read, more than 1,000 unrelated observation partitions remaining unopened during apply/capture, streamed index parity, and final complete-union authentication.

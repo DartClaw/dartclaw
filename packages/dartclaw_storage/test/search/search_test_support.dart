@@ -13,7 +13,7 @@ class FakeQmdManager extends QmdManager {
   List<Map<String, dynamic>>? nextQueryResult;
   bool shouldThrow = false;
 
-  FakeQmdManager({this.fakeRunning = true})
+  FakeQmdManager({this.fakeRunning = true, super.workspaceDir})
     : super(
         commandRunner: (exe, args, {workingDirectory}) async {
           return ProcessResult(0, 0, '', '');

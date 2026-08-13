@@ -1079,7 +1079,7 @@ void main() {
         ),
       );
 
-      expect(turns.lastPromptScope, PromptScope.conversational);
+      expect(turns.lastPromptScope, PromptScope.primary);
     });
   });
 

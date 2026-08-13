@@ -6,6 +6,7 @@ import 'package:dartclaw_cli/src/commands/jobs/jobs_create_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_delete_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_list_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_run_command.dart';
+import 'package:dartclaw_cli/src/commands/jobs/jobs_show_command.dart';
 import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
 import 'package:test/test.dart';
 
@@ -119,6 +120,81 @@ void main() {
       await runner.run(['list', '--json']);
 
       expect(jsonDecode(output.single), jobs);
+    });
+
+    test('list presents the system action persisted lifecycle', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(200, [
+            {
+              'id': 'memory-curation',
+              'type': 'system_action',
+              'schedule': 'on demand',
+              'lifecycle': {'state': 'succeeded'},
+            },
+          ]),
+        ],
+      );
+      final output = <String>[];
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(
+          JobsListCommand(
+            apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+            writeLine: output.add,
+          ),
+        );
+
+      await runner.run(['list']);
+
+      expect(output.last, contains('system_action (succeeded)'));
+      expect(output.last, contains('on demand'));
+      expect(output.last, isNot(contains('<invalid>')));
+    });
+
+    test('show joins bounded terminal-safe lifecycle and live index evidence', () async {
+      final action = 'Stop DartClaw\u0007 then ${List.filled(600, 'x').join()}';
+      final payload = {
+        'id': 'memory-curation',
+        'type': 'system_action',
+        'lifecycle': {
+          'state': 'conflicted',
+          'committedRevision': 43,
+          'currentRevision': 44,
+          'changedIds': ['A\u001b', 'B'],
+          'operationReasons': {'C': 'invalid\u0007 operation'},
+          'failureReason': 'proposal\u001b rejected',
+          'action': action,
+        },
+        'index': {'state': 'degraded', 'action': action},
+      };
+      final transport = FakeApiTransport(sendResponses: [jsonResponse(200, payload), jsonResponse(200, payload)]);
+      final output = <String>[];
+      final command = JobsShowCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['show', 'memory-curation']);
+
+      expect(
+        output,
+        containsAll([
+          'lifecycle: conflicted',
+          'currentRevision: 44',
+          'committedRevision: 43',
+          'changedIds: A , B',
+          'operationReason C: invalid  operation',
+          'reason: proposal  rejected',
+          'index: degraded',
+        ]),
+      );
+      expect(output, everyElement(allOf(isNot(contains('\u0007')), isNot(contains('\u001b')))));
+      expect(output.map((line) => line.length), everyElement(lessThanOrEqualTo(513)));
+
+      output.clear();
+      await runner.run(['show', 'memory-curation', '--json']);
+      expect(jsonDecode(output.single), payload);
     });
 
     test('create validates cron expressions locally', () {

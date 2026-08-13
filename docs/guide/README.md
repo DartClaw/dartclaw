@@ -27,7 +27,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 |-------|---------------|
 | [Agents](agents.md) | Providers (Claude, Codex, ACP), logical-agent sessions, worker capacity, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
-| [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, memory consolidation |
+| [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, explicit memory curation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |
 | [Governance](governance.md) | Admin senders, rate limits, daily token budgets, loop detection, and the `/stop` / `/pause` / `/resume` emergency controls |
 | [Workflows](workflows.md) | Writing custom workflows, progressive refinement, trigger surfaces (chat, web forms, GitHub PR webhook), YAML field reference, built-in workflows |
@@ -51,7 +51,7 @@ Ready-to-use workflow recipes with copy-pasteable configs:
 |-------|-------------|
 | [**Personal Assistant**](recipes/00-personal-assistant.md) | Turnkey setup: briefings + journaling + research + reflection |
 | [Morning Briefing](recipes/01-morning-briefing.md) | Daily news/weather delivery |
-| [Daily Memory Journal](recipes/02-daily-memory-journal.md) | End-of-day knowledge consolidation |
+| [Daily Memory Journal](recipes/02-daily-memory-journal.md) | End-of-day observation capture |
 | [Scheduled Task Queue](recipes/03-scheduled-task-queue.md) | Multi-job automation pipeline |
 | [Knowledge Inbox](recipes/04-knowledge-inbox.md) | Automated web monitoring |
 | [Contact/CRM Tracker](recipes/05-contact-crm-tracker.md) | WhatsApp/Signal contact management |

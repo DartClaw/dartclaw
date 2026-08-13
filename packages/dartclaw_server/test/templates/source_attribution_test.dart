@@ -31,6 +31,26 @@ void main() {
       expect(html, isNot(contains('<script>')));
     });
 
+    test('renders each canonical memory role distinctly', () async {
+      for (final role in const {
+        'topic': 'Curated',
+        'archive': 'Archive',
+        'observation': 'Observation',
+        'learning': 'Learning',
+      }.entries) {
+        final locator = '$role-source';
+        final html = await sourceAttributionFragment(
+          sourceRef: SourceRef(layer: CitationLayer.memory, locator: locator, label: locator, role: role.key),
+          marker: 1,
+          resolver: _MapResolver({
+            CitationLayer.memory: {locator},
+          }),
+        );
+
+        expect(html, contains(role.value), reason: role.key);
+      }
+    });
+
     // TI03: a host row that already prints the layer badge must not get a
     // second one inline; the popover keeps its own copy either way.
     test('showLayerBadge: false drops the inline badge and keeps the popover badge', () async {

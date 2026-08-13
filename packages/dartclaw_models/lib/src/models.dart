@@ -198,35 +198,11 @@ class Message {
   );
 }
 
-/// A chunk of text stored in the FTS5 memory index for semantic search.
-class MemoryChunk {
-  /// SQLite row identifier for this chunk.
-  final int id;
-
-  /// Indexed text content used for lexical and semantic search.
-  final String textContent;
-
-  /// Source label describing where this chunk came from.
-  final String source;
-
-  /// Optional category used for grouping or filtering results.
-  final String? category;
-
-  /// When this chunk was created in storage.
-  final DateTime createdAt;
-
-  /// Creates an immutable memory chunk snapshot.
-  const MemoryChunk({
-    required this.id,
-    required this.textContent,
-    required this.source,
-    this.category,
-    required this.createdAt,
-  });
-}
-
 /// A ranked result from a memory search query.
 class MemorySearchResult {
+  /// Maximum Unicode scalar count exposed by [snippet].
+  static const maxSnippetCharacters = 240;
+
   /// Text snippet returned by the search backend.
   final String text;
 
@@ -239,6 +215,143 @@ class MemorySearchResult {
   /// Backend-specific relevance score for ranking matches.
   final double score;
 
+  /// Canonical memory role, or the native source role for non-canonical results.
+  final String role;
+
+  /// Host-labelled source provenance suitable for tool responses.
+  final String provenance;
+
+  /// Stable source-of-record locator used by `memory_read`.
+  final String locator;
+
+  /// Canonical entry identity, omitted for native sources such as wiki pages.
+  final String? entryId;
+
+  /// Canonical entry revision, omitted for native sources such as wiki pages.
+  final int? entryRevision;
+
   /// Creates an immutable memory search result value.
-  const MemorySearchResult({required this.text, required this.source, this.category, required this.score});
+  const MemorySearchResult({
+    required this.text,
+    required this.source,
+    this.category,
+    required this.score,
+    this.role = 'memory',
+    this.provenance = 'unknown',
+    String? locator,
+    this.entryId,
+    this.entryRevision,
+  }) : locator = locator ?? source;
+
+  /// Creates a result backed by one canonical entry identity.
+  factory MemorySearchResult.canonical({
+    required String text,
+    required String source,
+    String? category,
+    required double score,
+    required String role,
+    required String provenance,
+    required String locator,
+    required String entryId,
+    required int entryRevision,
+  }) {
+    if (!const {'topic', 'archive', 'observation', 'learning'}.contains(role)) {
+      throw ArgumentError.value(role, 'role', 'must be a canonical searchable role');
+    }
+    if (locator != entryId || !_canonicalMemoryId.hasMatch(locator)) {
+      throw ArgumentError.value(locator, 'locator', 'must equal the canonical entry UUID');
+    }
+    if (entryRevision < 1) throw ArgumentError.value(entryRevision, 'entryRevision', 'must be positive');
+    return MemorySearchResult(
+      text: text,
+      source: source,
+      category: category,
+      score: score,
+      role: role,
+      provenance: provenance,
+      locator: locator,
+      entryId: entryId,
+      entryRevision: entryRevision,
+    );
+  }
+
+  /// Bounded result text returned by a search backend.
+  String get snippet {
+    final codePoints = text.runes.take(maxSnippetCharacters + 1).toList(growable: false);
+    return codePoints.length <= maxSnippetCharacters
+        ? text
+        : String.fromCharCodes(codePoints.take(maxSnippetCharacters));
+  }
+
+  /// Builds the role-discriminated retrieval record exposed by memory tools.
+  Map<String, Object?> toRetrievalJson() => {
+    'role': role,
+    'snippet': snippet,
+    'provenance': provenance,
+    'locator': locator,
+    'score': score,
+    if (entryId != null) 'entryId': entryId,
+    if (entryRevision != null) 'entryRevision': entryRevision,
+  };
+}
+
+final _canonicalMemoryId = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
+
+/// Explains one bounded retrieval omission or failure without discarding healthy results.
+final class MemorySearchDegradation {
+  /// Creates structured degradation evidence for one retrieval layer.
+  const MemorySearchDegradation({
+    required this.layer,
+    required this.reason,
+    this.locator,
+    this.observed,
+    this.limit,
+    this.omittedCount = 0,
+  });
+
+  /// Retrieval layer whose coverage degraded.
+  final String layer;
+
+  /// Stable machine-readable failure or exhaustion reason.
+  final String reason;
+
+  /// Affected source locator, when known.
+  final String? locator;
+
+  /// Actual count or byte size, when known.
+  final int? observed;
+
+  /// Inclusive count or byte ceiling, when applicable.
+  final int? limit;
+
+  /// Known omitted sources; zero means the exact count is unavailable.
+  final int omittedCount;
+
+  /// Serializes the bounded failure evidence for tool and API responses.
+  Map<String, Object?> toJson() => {
+    'layer': layer,
+    'reason': reason,
+    if (locator != null) 'locator': locator,
+    if (observed != null) 'observed': observed,
+    if (limit != null) 'limit': limit,
+    'omittedCount': omittedCount,
+  };
+}
+
+/// Results and constituent degradation from one memory search request.
+final class MemorySearchOutcome extends Iterable<MemorySearchResult> {
+  /// Ranked results returned by the selected search path.
+  final List<MemorySearchResult> results;
+
+  /// Retrieval constituents that failed while other results survived.
+  final List<String> degradedLayers;
+
+  /// Structured reasons and limits for partial retrieval coverage.
+  final List<MemorySearchDegradation> degradations;
+
+  /// Creates one search outcome.
+  const MemorySearchOutcome({required this.results, this.degradedLayers = const [], this.degradations = const []});
+
+  @override
+  Iterator<MemorySearchResult> get iterator => results.iterator;
 }

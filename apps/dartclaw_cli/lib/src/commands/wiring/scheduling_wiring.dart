@@ -12,7 +12,7 @@ import 'storage_wiring.dart';
 /// Constructs and exposes scheduling-layer services.
 ///
 /// Owns scheduled job list, memory pruner, session maintenance, scheduled task
-/// runner, heartbeat scheduler, memory consolidator, workspace git sync,
+/// runner, heartbeat scheduler, workspace git sync,
 /// delivery service, and the schedule service.
 ///
 /// Also owns the [displayJobs] and [systemJobNames] lists consumed by the
@@ -26,12 +26,16 @@ class SchedulingWiring {
     required ChannelWiring channel,
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
+    required MemoryHandlers memoryHandlers,
+    BehaviorFileService? behavior,
     ConfigNotifier? configNotifier,
   }) : _eventBus = eventBus,
        _storage = storage,
        _channel = channel,
        _security = security,
        _sseBroadcast = sseBroadcast,
+       _memoryHandlers = memoryHandlers,
+       _behavior = behavior,
        _configNotifier = configNotifier;
 
   final DartclawConfig config;
@@ -40,6 +44,8 @@ class SchedulingWiring {
   final ChannelWiring _channel;
   final SecurityWiring _security;
   final SseBroadcast _sseBroadcast;
+  final MemoryHandlers _memoryHandlers;
+  final BehaviorFileService? _behavior;
   final ConfigNotifier? _configNotifier;
 
   static final _log = Logger('SchedulingWiring');
@@ -48,8 +54,8 @@ class SchedulingWiring {
   HeartbeatScheduler? _heartbeat;
   WorkspaceGitSync? _gitSync;
   MemoryPruner? _memoryPruner;
-  MemoryConsolidator? _memoryConsolidator;
   MemoryStatusService? _memoryStatusService;
+  MemoryCurationService? _memoryCurationService;
   late RuntimeConfig _runtimeConfig;
   late ConfigChangeSubscriber _configChangeSubscriber;
   late List<Map<String, dynamic>> _displayJobs;
@@ -62,6 +68,7 @@ class SchedulingWiring {
   WorkspaceGitSync? get gitSync => _gitSync;
   MemoryPruner? get memoryPruner => _memoryPruner;
   MemoryStatusService? get memoryStatusService => _memoryStatusService;
+  MemoryCurationService? get memoryCurationService => _memoryCurationService;
   RuntimeConfig get runtimeConfig => _runtimeConfig;
   ConfigChangeSubscriber get configChangeSubscriber => _configChangeSubscriber;
   List<Map<String, dynamic>> get displayJobs => _displayJobs;
@@ -84,10 +91,40 @@ class SchedulingWiring {
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
     final memory = _storage.memory;
-    final memoryHandlers = createMemoryHandlers(
-      memory: memory,
-      memoryFile: _storage.memoryFile,
-      searchBackend: _storage.searchBackend,
+    final curation = _memoryCurationService = MemoryCurationService(
+      turns: turns,
+      sessions: sessions,
+      kv: kvService,
+      applyService: _memoryHandlers.applyService,
+      workerProviderId: config.agent.provider,
+      readCurrentRevision: () async => (await _storage.memoryCorpus.manifest()).collectionRevision,
+      readSnapshot: (observationsAfter) async {
+        final snapshot = await _storage.memoryCorpus.curationSnapshot(
+          maxIndexBytes: config.memory.maxBytes,
+          observationsAfter: observationsAfter,
+        );
+        return MemoryCurationInput(
+          collectionRevision: snapshot.collectionRevision,
+          indexProjection: renderMemoryCurationIndex(snapshot.index, config.memory.maxBytes),
+          entries: snapshot.entries,
+          observations: snapshot.observations,
+          entriesTruncated: snapshot.entriesTruncated,
+          observationsTruncated: snapshot.observationsTruncated,
+        );
+      },
+    );
+    await curation.settleInterruptedRun();
+    final systemActions = [
+      SystemAction(
+        id: memoryCurationActionId,
+        description: 'Curate personal memory from a bounded current snapshot',
+        run: curation.run,
+        isBlocked: () => curation.hasUnresolvedRun,
+      ),
+    ];
+    validateReservedSystemActionIds(
+      config.scheduling.jobs.map((job) => job['id'] ?? job['name']),
+      systemActions.map((action) => action.id),
     );
 
     // Mutable display list for scheduling UI. Starts as a copy of raw config
@@ -96,7 +133,18 @@ class SchedulingWiring {
         .where((j) => (j['type'] as String?) != 'task')
         .map((j) => Map<String, dynamic>.of(j))
         .toList();
-    _systemJobNames = <String>['heartbeat'];
+    _displayJobs.addAll([
+      for (final action in systemActions)
+        {
+          'name': action.id,
+          'type': 'system_action',
+          'schedule': 'on demand',
+          'delivery': 'none',
+          'status': 'active',
+          'runnable': true,
+        },
+    ]);
+    _systemJobNames = <String>['heartbeat', ...systemActions.map((action) => action.id)];
 
     // Parse user-configured non-task scheduled jobs.
     _scheduledJobs = <ScheduledJob>[];
@@ -119,7 +167,7 @@ class SchedulingWiring {
           scheduleType: ScheduleType.cron,
           cronExpression: journalCron,
           deliveryMode: DeliveryMode.none,
-          allowedTools: const ['file_read', 'memory_save'],
+          allowedTools: const ['file_read', 'memory_observe'],
         ),
       );
       _displayJobs.add({
@@ -139,6 +187,7 @@ class SchedulingWiring {
         workspaceDir: config.workspaceDir,
         memoryService: memory,
         archiveAfterDays: config.memory.archiveAfterDays,
+        corpusService: _storage.memoryCorpus,
       );
       _scheduledJobs.add(
         ScheduledJob(
@@ -175,7 +224,7 @@ class SchedulingWiring {
     if (inboxConfig.enabled) {
       final knowledgeInbox = KnowledgeInboxService(
         workspaceDir: config.workspaceDir,
-        onMemorySave: memoryHandlers.onSave,
+        onMemoryObserve: _memoryHandlers.observe,
         wiki: wiki,
         turns: turns,
         sessions: sessions,
@@ -209,7 +258,7 @@ class SchedulingWiring {
           scheduleType: ScheduleType.interval,
           intervalMinutes: wikiLintConfig.intervalMinutes,
           deliveryMode: _knowledgeDeliveryMode(wikiLintConfig.deliveryMode),
-          onExecute: () async => wiki.lint(kg: _storage.kg).summary(),
+          onExecute: () async => (await wiki.lint(kg: _storage.kg)).summary(),
         ),
       );
       _displayJobs.add({
@@ -317,14 +366,8 @@ class SchedulingWiring {
       );
     }
 
-    _memoryConsolidator = MemoryConsolidator(
-      workspaceDir: config.workspaceDir,
-      dispatch: dispatchSystemTurn,
-      threshold: config.memory.maxBytes,
-    );
-
-    // Start cron scheduler if there are any jobs.
-    if (_scheduledJobs.isNotEmpty) {
+    // The scheduler also owns run-only system actions when no timed jobs exist.
+    if (_scheduledJobs.isNotEmpty || systemActions.isNotEmpty) {
       final channelManager = _channel.channelManager;
       final deliveryChannelManager =
           channelManager ??
@@ -341,8 +384,8 @@ class SchedulingWiring {
         turns: turns,
         sessions: sessions,
         jobs: _scheduledJobs,
+        systemActions: systemActions,
         delivery: deliveryService,
-        consolidator: _memoryConsolidator!,
         eventBus: _eventBus,
         workerProviderId: config.agent.provider,
         workerPolicy: backgroundPolicy,
@@ -367,7 +410,6 @@ class SchedulingWiring {
         workspaceDir: config.workspaceDir,
         dispatch: dispatchSystemTurn,
         gitSync: _gitSync,
-        consolidator: _memoryConsolidator!,
       );
       _heartbeat!.start();
       _log.info('Heartbeat scheduler started (${config.scheduling.heartbeatIntervalMinutes}m interval)');
@@ -378,9 +420,23 @@ class SchedulingWiring {
       workspaceDir: config.workspaceDir,
       config: config,
       kvService: kvService,
-      searchIndexCounter: (source) {
-        final result = _storage.searchDb.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE source = ?', [source]);
+      searchIndexCounter: (role) {
+        final result = _storage.searchDb.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE role = ?', [role]);
         return result.first['cnt'] as int;
+      },
+      indexHealthReader: () async {
+        final manifest = await _storage.memoryCorpus.manifest();
+        return _storage.indexHealth.read(
+          canonicalRevision: manifest.collectionRevision,
+          canonicalFingerprint: manifest.fingerprint,
+        );
+      },
+      corpusStatusReader: _storage.memoryCorpus.statusSnapshot,
+      promptMemoryStatusReader: _behavior?.promptMemoryProjection,
+      curationStatusReader: () => readMemoryCurationRecord(kvService),
+      wikiSourceCounter: () async {
+        final scan = await WikiSearchSource(workspaceDir: config.workspaceDir).listScan();
+        return scan.degraded ? null : scan.results.length;
       },
       scheduleService: _scheduleService,
     );
@@ -435,7 +491,13 @@ class SchedulingWiring {
     );
     final userMsg = <String, dynamic>{'role': 'user', 'content': message};
     final srv = serverRef();
-    final turnId = await srv.turns.startTurn(session.id, [userMsg], source: source, agentName: agentName ?? 'main');
+    final turnId = await srv.turns.startTurn(
+      session.id,
+      [userMsg],
+      source: source,
+      agentName: agentName ?? 'main',
+      promptScope: PromptScope.task,
+    );
     return (sessionId: session.id, turnId: turnId);
   }
 

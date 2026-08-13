@@ -28,32 +28,58 @@ class _MemoryFenceTracker {
 }
 
 /// Parses category headers, timestamped entries, and indented continuations.
-/// Unrecognized timestamps produce undated entries.
-List<MemoryEntry> parseMemoryEntries(String content) {
-  final lines = content.split('\n');
+///
+/// Unrecognized timestamps produce undated entries. When [onBatch] is supplied,
+/// entries are visited without being retained and the returned list is empty.
+List<MemoryEntry> parseMemoryEntries(
+  String content, {
+  int batchSize = 256,
+  void Function(List<MemoryEntry> entries)? onBatch,
+}) {
   final entries = <MemoryEntry>[];
+  _parseMemoryEntryBatches(content, batchSize: batchSize, onBatch: onBatch ?? entries.addAll);
+  return entries;
+}
+
+void _parseMemoryEntryBatches(
+  String content, {
+  required int batchSize,
+  required void Function(List<MemoryEntry> entries) onBatch,
+}) {
+  if (batchSize < 1) throw ArgumentError.value(batchSize, 'batchSize', 'must be positive');
+  final lines = content.split('\n');
+  final batch = <MemoryEntry>[];
   var currentCategory = 'general';
+  var currentCategoryWasDefaulted = true;
   final blockLines = <String>[];
   DateTime? currentTimestamp;
   StringBuffer? currentText;
   int? currentSourceStart;
   final pendingBlankLines = <String>[];
   final fences = _MemoryFenceTracker();
+  void flushBatch() {
+    if (batch.isEmpty) return;
+    onBatch(List.unmodifiable(batch));
+    batch.clear();
+  }
+
   void flushEntry() {
     if (currentText != null && blockLines.isNotEmpty) {
       final rawBlock = blockLines.join('\n');
       final rawText = currentText.toString().trim();
       if (rawText.isNotEmpty) {
-        entries.add(
+        batch.add(
           MemoryEntry(
             timestamp: currentTimestamp,
             category: currentCategory,
+            categoryWasDefaulted: currentCategoryWasDefaulted,
             rawText: rawText,
             rawBlock: rawBlock,
             sourceStart: currentSourceStart,
             sourceEnd: currentSourceStart == null ? null : currentSourceStart! + rawBlock.length,
           ),
         );
+        if (batch.length == batchSize) flushBatch();
       }
     }
     blockLines.clear();
@@ -75,6 +101,7 @@ List<MemoryEntry> parseMemoryEntries(String content) {
     if (line.startsWith('## ')) {
       flushEntry();
       currentCategory = line.substring(3).trim();
+      currentCategoryWasDefaulted = false;
       continue;
     }
     if (line.startsWith('- [')) {
@@ -112,7 +139,7 @@ List<MemoryEntry> parseMemoryEntries(String content) {
     flushEntry();
   }
   flushEntry();
-  return entries;
+  flushBatch();
 }
 
 /// Finds a safe insertion point for [category], ignoring fenced headings.

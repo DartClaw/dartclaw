@@ -1,22 +1,27 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:path/path.dart' as p;
 
 import 'config_loader.dart';
 
 class RebuildIndexCommand extends Command<void> {
   final DartclawConfig? _config;
   final void Function(String)? _writeLine;
-  final SearchDbFactory _searchDbFactory;
+  final CanonicalIndexReconciler? _indexReconciler;
 
-  RebuildIndexCommand({DartclawConfig? config, void Function(String)? writeLine, SearchDbFactory? searchDbFactory})
-    : _config = config,
-      _writeLine = writeLine,
-      _searchDbFactory = searchDbFactory ?? openSearchDb;
+  RebuildIndexCommand({
+    DartclawConfig? config,
+    void Function(String)? writeLine,
+    CanonicalIndexReconciler? indexReconciler,
+  }) : _config = config,
+       _writeLine = writeLine,
+       _indexReconciler = indexReconciler {
+    argParser.addFlag('json', negatable: false, help: 'Output the rebuild result as JSON');
+  }
 
   @override
   String get name => 'rebuild-index';
@@ -28,51 +33,61 @@ class RebuildIndexCommand extends Command<void> {
   Future<void> run() async {
     final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
     final write = _writeLine ?? stdout.writeln;
+    final json = argResults?['json'] as bool? ?? false;
 
-    for (final w in config.warnings) {
-      write('WARNING: $w');
+    if (!json) {
+      for (final w in config.warnings) {
+        write('WARNING: $w');
+      }
     }
-    write('WARNING: DartClaw must remain stopped until rebuild-index completes.');
+    if (!json) write('WARNING: DartClaw must remain stopped until rebuild-index completes.');
 
-    final memoryPath = p.join(config.workspaceDir, 'MEMORY.md');
-    final archivePath = p.join(config.workspaceDir, 'MEMORY.archive.md');
-    final learningsPath = p.join(config.workspaceDir, 'learnings.md');
-    final memoryEntries = _readEntries(memoryPath);
-    final archiveEntries = _readEntries(archivePath);
-    final learningEntries = _readEntries(learningsPath);
-    if (![memoryPath, archivePath, learningsPath].any((path) => File(path).existsSync())) {
-      write('No MEMORY.md, MEMORY.archive.md, or learnings.md found in ${config.workspaceDir}');
-    }
-
-    final db = _searchDbFactory(config.searchDbPath);
+    final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     try {
-      final memory = MemoryService(db);
-      final rows = [
-        ..._indexRows(memoryEntries, source: 'memory_save'),
-        ..._indexRows(archiveEntries, source: 'archive'),
-        ..._indexRows(learningEntries, source: 'memory_save', category: 'learning'),
-      ];
-      memory.rebuildIndex(rows);
-      final total = rows.length;
-      write('Rebuilt index: $total entries from MEMORY.md, MEMORY.archive.md, and learnings.md');
-    } finally {
-      db.close();
-    }
-  }
+      final preflight = await LegacyMemoryMigrator(
+        workspaceDir: config.workspaceDir,
+        corpusService: corpusService,
+      ).preflight();
+      if (!json) write(preflight.render());
+      final manifest = await corpusService.manifest();
+      final health = IndexHealthStore(workspaceDir: config.workspaceDir);
+      final reconciler =
+          _indexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: health);
+      Stream<List<MemoryIndexRow>> rows() async* {
+        for (final path in manifest.paths) {
+          if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
+          final selection = await corpusService.selectPaths([path]);
+          if (selection.collectionRevision != manifest.collectionRevision ||
+              selection.fingerprint != manifest.fingerprint) {
+            throw StateError('Canonical memory changed during index reconciliation');
+          }
+          yield MemoryService.canonicalIndexRows(selection.corpus);
+        }
+      }
 
-  List<MemoryEntry> _readEntries(String path) {
-    final content = MemoryFileService.readRegularFile(File(path));
-    return content == null ? const [] : parseMemoryEntries(content);
-  }
-
-  Iterable<MemoryIndexRow> _indexRows(List<MemoryEntry> entries, {required String source, String? category}) sync* {
-    for (final entry in entries) {
-      yield* MemoryService.indexRows(
-        text: entry.rawText,
-        source: source,
-        category: category ?? entry.category,
-        createdAt: entry.timestamp,
+      final result = await reconciler.reconcileBatched(
+        rowBatches: rows,
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        authenticateComplete: () => corpusService.authenticate(manifest),
       );
+      if (json) {
+        write(
+          jsonEncode({
+            'canonicalRevision': result.revision,
+            'indexedRows': result.rowCount,
+            'health': result.health.state.name,
+            'unchanged': false,
+          }),
+        );
+      } else {
+        write(
+          'Rebuilt index: ${result.rowCount} entries at collection revision ${result.revision}; '
+          'health=${result.health.state.name}',
+        );
+      }
+    } finally {
+      await corpusService.close();
     }
   }
 }

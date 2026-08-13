@@ -46,6 +46,10 @@ dartclaw serve --port 3333
 dartclaw status
 ```
 
+Reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
+canonical role counts, exact observation usage and warning, and derived-index state. Missing or unreadable evidence is
+shown as `unknown`, never as zero or healthy.
+
 ## Runners
 
 Runner output is derived from active execution leases plus healthy cached workers. IDs identify observed runtime runners,
@@ -279,12 +283,15 @@ dartclaw token rotate
 
 ```bash
 dartclaw rebuild-index
+dartclaw rebuild-index --json
 ```
 
-Rebuilds the FTS5 memory index from the canonical `workspace/MEMORY.md`, `workspace/MEMORY.archive.md`, and
-`workspace/learnings.md` files. Archived entries retain the `archive` source; active and learning entries use
-`memory_save`. Source entry timestamps determine recent ordering; undated entries sort oldest. Stop DartClaw before
-running the command and leave it stopped until rebuilding completes; the command does not coordinate with a live server.
+Rebuilds the FTS5 memory index from the canonical memory corpus. Active topics, archive, observations, and learnings
+retain stable role-aware locators and canonical entry identities. Source entry timestamps determine recent ordering;
+undated entries sort oldest. The command builds and completely validates a fresh sibling before replacing `search.db`;
+failure preserves the prior index and records degraded health with a retry action. Its result reports the canonical
+revision, row count, and health. Stop DartClaw before running the command and leave it stopped until rebuilding completes;
+the command does not coordinate with a live server.
 
 ## Traces
 

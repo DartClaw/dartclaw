@@ -20,6 +20,8 @@ DartclawServerBuilder _buildServerBuilderPreServer(
     ..behavior = harness.behavior
     ..memoryFile = storage.memoryFile
     ..memoryService = storage.memory
+    ..searchBackend = storage.searchBackend
+    ..memoryCorpus = storage.memoryCorpus
     ..kgService = storage.kg
     ..guardChain = security.guardChain
     ..kv = storage.kvService

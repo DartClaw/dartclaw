@@ -74,6 +74,11 @@ The interface has three main areas:
 - **Attribution**: The shared source-attribution component keeps wiki pages, KG facts, memory entries, and inbox sources traceable
 - **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
 
+**Memory lifecycle**
+- **Inspect**: `/memory` separates canonical roles, raw observations, the bounded prompt index, and rebuildable search rows
+- **Curate**: **Curate now** uses the same immutable `memory-curation` run-now action as Scheduling and `dartclaw jobs run`
+- **Recover**: Degraded index states keep canonical success intact and point to the stopped-runtime `dartclaw rebuild-index` path
+
 **Temporal KG Timeline**
 - **Open**: Select **Timeline** within **Knowledge**, or open `/knowledge/timeline` directly
 - **As-of view**: Add `as_of=<ISO-8601 timestamp>` to inspect the graph at a point in time, for example `/knowledge/timeline?as_of=2026-01-01T00:00:00Z`
@@ -379,7 +384,11 @@ DELETE /api/scheduling/jobs/:name
 GET /api/memory/status
 ```
 
-Returns memory overview: file sizes, entry counts, pruner status.
+Returns the operator projection: `collection`, `promptIndex`, `observations`, `index`, and optional `curation` objects.
+Counts are nullable when evidence is unavailable. Observation `usageKind` is `exact`, `lowerBound`, or `unknown`, while
+its warning is `none`, `active`, or `unknown`. Curation is absent only before the first run; corrupt lifecycle evidence
+is returned as unknown. The warning is informational – status never deletes observations or blocks writes by aggregate
+usage alone.
 
 #### Read memory file
 
@@ -680,11 +689,12 @@ These tools are available to the agent during conversations. They're exposed via
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `memory_save` | `text` (required, up to 65,536 characters), `category` (optional, up to 64 characters) | Save text to persistent memory. Categories: general, preferences, facts, etc. |
-| `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search memory using FTS5 full-text search. Out-of-range integers that reach the runtime are clamped. Returns ranked results. |
-| `memory_read` | – | Read the full contents of MEMORY.md |
+| `memory_apply` | `expectedRevision`, nonempty `operations` array | Atomically add, revise, merge, or remove curated personal entries. Every operation supplies a unique `correlationId`; revise/merge/remove use entry revisions. |
+| `memory_observe` | `text`, `role` (`observation` or `learning`) | Capture non-authoritative observations or bounded runtime learnings. |
+| `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search canonical memory and sourced knowledge using the configured backend's natural-language query path. Non-integer or out-of-range limits are rejected. Returns ranked results with explicit degraded-layer metadata. |
+| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical source using a stable search locator or topic selector. |
 
-The agent decides when to use these tools based on the conversation context. Memory persists across sessions.
+`memory_apply` is personal-memory-only and uses the collection revision returned by canonical reads/search results. A valid changed request commits once; an exact no-op does not advance revision. Results report canonical and derived-index outcomes separately. Removal audit records contain the entry ID, time, host provenance, and the caller's unfiltered verbatim reason. The host never copies entry content into the record, though the caller's reason may independently quote it.
 
 ## Temporal Knowledge Graph MCP Tools
 

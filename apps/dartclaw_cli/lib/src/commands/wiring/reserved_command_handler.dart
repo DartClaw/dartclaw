@@ -284,7 +284,13 @@ class ReservedCommandHandler {
         final messages = [
           {'role': 'user', 'content': text},
         ];
-        await turns.startTurn(session.id, messages, source: 'pause-queue', isHumanInput: true);
+        await turns.startTurn(
+          session.id,
+          messages,
+          source: 'pause-queue',
+          isHumanInput: true,
+          promptScope: PromptScope.primary,
+        );
       } catch (e, st) {
         _log.warning('Failed to deliver paused messages for session $sessionKey', e, st);
       }

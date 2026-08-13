@@ -33,8 +33,26 @@ import 'dart:io';
 // isolation work put execution-mode policy into the session/turn runtime
 // (core-owned per the two-axis policy in ADR-012); the prior cap had ~26 lines
 // of headroom left. Usage at bump: 16509. See CHANGELOG [Unreleased].
-const _coreLocCeiling = 17200;
-const _coreLocWarnThreshold = 16600;
+// 2026-08-11: raised for the canonical memory value, Markdown codec, and corpus
+// validation primitives. These are core-owned, SQLite-free contracts consumed
+// across the memory implementation; moving them would invert package ownership.
+// 2026-08-11: raised for the atomic canonical-corpus authority. Snapshot,
+// compare-and-swap, journal recovery, and stopped-edit reconciliation must share
+// the core-owned codec/validator and stay SQLite-free.
+// 2026-08-12: raised for the provider-neutral memory tool taxonomy, direct-SDK
+// schemas, and search-result identity contract. These are shared core seams;
+// provider/server-local copies would create semantic drift.
+// 2026-08-12: raised for bounded canonical-corpus inventory and snapshot reads,
+// including resource admission before body allocation. These remain core-owned
+// because every storage and server consumer must share one corpus authority.
+// 2026-08-13: lowered after retiring unused memory adapters and simplifying the
+// canonical authority. The reduced ceiling preserves the recovered headroom.
+// 2026-08-13: integrated execution isolation with canonical memory at 21003
+// lines. Both are provider-neutral core contracts; the tight combined ratchet
+// preserves the memory simplification rather than inheriting either branch's
+// standalone allowance.
+const _coreLocCeiling = 21050;
+const _coreLocWarnThreshold = 20700;
 // Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
 // at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
 // engine growth; the warn threshold fires before the cap so growth is planned or

@@ -38,6 +38,16 @@ void main() {
     return File('${tempDir.path}/MEMORY.archive.md').readAsStringSync();
   }
 
+  void seed({required String text, required String source, String? category, DateTime? createdAt}) {
+    db.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
+      text,
+      source,
+      category,
+      (createdAt ?? DateTime(2026)).toIso8601String(),
+      source,
+    ]);
+  }
+
   bool archiveExists() {
     return File('${tempDir.path}/MEMORY.archive.md').existsSync();
   }
@@ -112,161 +122,27 @@ void main() {
     });
   });
 
-  group('removeDuplicates', () {
-    test('removes exact duplicate entries keeping newest', () {
-      final entries = [
-        MemoryEntry(
-          timestamp: DateTime(2026, 1, 15),
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- [2026-01-15 00:00] User likes Dart',
-        ),
-        MemoryEntry(
-          timestamp: DateTime(2026, 3, 20),
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- [2026-03-20 00:00] User likes Dart',
-        ),
-      ];
-
-      final result = pruner.removeDuplicates(entries);
-      expect(result, hasLength(1));
-      expect(result[0].timestamp, DateTime(2026, 3, 20));
-    });
-
-    test('keeps entries with different text', () {
-      final entries = [
-        MemoryEntry(
-          timestamp: DateTime(2026, 1, 15),
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- [2026-01-15 00:00] User likes Dart',
-        ),
-        MemoryEntry(
-          timestamp: DateTime(2026, 3, 20),
-          category: 'general',
-          rawText: 'User likes Python',
-          rawBlock: '- [2026-03-20 00:00] User likes Python',
-        ),
-      ];
-
-      final result = pruner.removeDuplicates(entries);
-      expect(result, hasLength(2));
-    });
-
-    test('undated entries are never deduplicated against dated or undated entries', () {
-      final entries = [
-        MemoryEntry(
-          timestamp: DateTime(2026, 3, 20),
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- [2026-03-20 00:00] User likes Dart',
-        ),
-        MemoryEntry.undated(category: 'general', rawText: 'User likes Dart', rawBlock: '- User likes Dart'),
-        MemoryEntry.undated(category: 'general', rawText: 'User likes Dart', rawBlock: '- User likes Dart'),
-      ];
-
-      final result = pruner.removeDuplicates(entries);
-      expect(result, hasLength(3));
-      expect(result.where((entry) => entry.timestamp == null), hasLength(2));
-    });
-
-    test('normalization collapses whitespace for comparison', () {
-      final entries = [
-        MemoryEntry(
-          timestamp: DateTime(2026, 1, 15),
-          category: 'general',
-          rawText: 'User  likes   Dart',
-          rawBlock: '- [2026-01-15 00:00] User  likes   Dart',
-        ),
-        MemoryEntry(
-          timestamp: DateTime(2026, 3, 20),
-          category: 'general',
-          rawText: 'User likes Dart',
-          rawBlock: '- [2026-03-20 00:00] User likes Dart',
-        ),
-      ];
-
-      final result = pruner.removeDuplicates(entries);
-      expect(result, hasLength(1));
-    });
-  });
-
-  group('partitionByAge', () {
-    test('old entries go to archive list', () {
-      final old = MemoryEntry(
-        timestamp: DateTime.now().subtract(const Duration(days: 120)),
-        category: 'general',
-        rawText: 'Old entry',
-        rawBlock: '- [old] Old entry',
-      );
-      final recent = MemoryEntry(
-        timestamp: DateTime.now().subtract(const Duration(days: 10)),
-        category: 'general',
-        rawText: 'Recent entry',
-        rawBlock: '- [recent] Recent entry',
-      );
-
-      final (:keep, :archive) = pruner.partitionByAge([old, recent], 90);
-      expect(keep, hasLength(1));
-      expect(keep[0].rawText, 'Recent entry');
-      expect(archive, hasLength(1));
-      expect(archive[0].rawText, 'Old entry');
-    });
-
-    test('undated entries always stay in keep list', () {
-      final undated = MemoryEntry.undated(category: 'general', rawText: 'Undated entry', rawBlock: '- Undated entry');
-
-      final (:keep, :archive) = pruner.partitionByAge([undated], 90);
-      expect(keep, hasLength(1));
-      expect(archive, isEmpty);
-    });
-
-    test('entries just inside threshold stay (not archived)', () {
-      // Use 89 days ago — clearly inside the 90-day window
-      final justInside = MemoryEntry(
-        timestamp: DateTime.now().subtract(const Duration(days: 89)),
-        category: 'general',
-        rawText: 'Boundary entry',
-        rawBlock: '- [boundary] Boundary entry',
-      );
-
-      final (:keep, :archive) = pruner.partitionByAge([justInside], 90);
-      expect(keep, hasLength(1));
-      expect(archive, isEmpty);
-    });
-  });
-
-  group('reconstructMemoryMd', () {
-    test('groups entries by category with headers', () {
-      final entries = [
-        MemoryEntry(
-          timestamp: DateTime(2026, 1, 15),
-          category: 'preferences',
-          rawText: 'Likes Dart',
-          rawBlock: '- [2026-01-15 00:00] Likes Dart',
-        ),
-        MemoryEntry(
-          timestamp: DateTime(2026, 2, 20),
-          category: 'workflow',
-          rawText: 'Uses vim',
-          rawBlock: '- [2026-02-20 00:00] Uses vim',
-        ),
-      ];
-
-      final result = pruner.reconstructMemoryMd(entries);
-      expect(result, contains('## preferences'));
-      expect(result, contains('## workflow'));
-      expect(result, contains('Likes Dart'));
-      expect(result, contains('Uses vim'));
-    });
-
-    test('returns empty string for empty list', () {
-      expect(pruner.reconstructMemoryMd([]), '');
-    });
-  });
-
   group('prune() integration', () {
+    test('shared authority bootstraps canonical pruning while owned pruner stays legacy', () async {
+      final sharedDir = Directory('${tempDir.path}/shared')..createSync();
+      final sharedDb = sqlite3.openInMemory();
+      addTearDown(sharedDb.close);
+      final authority = MemoryCorpusService(workspaceDir: sharedDir.path);
+      final shared = MemoryPruner(
+        workspaceDir: sharedDir.path,
+        memoryService: MemoryService(sharedDb),
+        corpusService: authority,
+      );
+
+      await shared.prune();
+      writeMemory('## general\n');
+      await pruner.prune();
+
+      expect(File('${sharedDir.path}/MEMORY.md').readAsStringSync(), startsWith('# DartClaw Canonical Memory\n'));
+      expect(readMemory(), '## general\n');
+      await authority.close();
+    });
+
     test('no-op when MEMORY.md does not exist', () async {
       final result = await pruner.prune();
       expect(result.entriesArchived, 0);
@@ -278,10 +154,9 @@ void main() {
       final removedWorkspace = Directory('${tempDir.path}/removed')..createSync();
       final removedPruner = MemoryPruner(workspaceDir: removedWorkspace.path, memoryService: memoryService);
       await removedPruner.prune();
-      memoryService
-        ..insertChunk(text: 'Stale active fact', source: 'memory_save')
-        ..insertChunk(text: 'Stale archived fact', source: 'archive')
-        ..insertChunk(text: 'Unrelated indexed fact', source: 'wiki');
+      seed(text: 'Stale active fact', source: 'legacy-memory');
+      seed(text: 'Stale archived fact', source: 'archive');
+      seed(text: 'Unrelated indexed fact', source: 'wiki');
       removedWorkspace.deleteSync();
 
       await removedPruner.prune();
@@ -295,15 +170,15 @@ void main() {
         '${tempDir.path}/MEMORY.archive.md',
       ).writeAsStringSync('## project\n- [2025-01-10 09:00] Canonical archived fact\n');
       File('${tempDir.path}/learnings.md').writeAsStringSync('- [2026-08-10 10:00] Canonical learning fact\n');
-      memoryService.insertChunk(text: 'Stale active fact', source: 'memory_save');
+      seed(text: 'Stale active fact', source: 'legacy-memory');
 
       await pruner.prune();
 
       expect(File('${tempDir.path}/MEMORY.md').existsSync(), isFalse);
       expect(memoryService.search('"Stale"'), isEmpty);
-      expect(memoryService.search('"archived"').single.source, 'archive');
+      expect(memoryService.search('"archived"').single.source, 'legacy-archive');
       final learning = memoryService.search('"learning"').single;
-      expect(learning.source, 'memory_save');
+      expect(learning.source, 'legacy-learning');
       expect(learning.category, 'learning');
     });
 
@@ -334,7 +209,7 @@ void main() {
       expect(result.finalSizeBytes, utf8.encode(content).length);
     });
 
-    test('archives old entries and removes duplicates', () async {
+    test('archives old entries and preserves legacy duplicate text', () async {
       final oldDate = DateTime.now().subtract(const Duration(days: 120));
       final recentDate = DateTime.now().subtract(const Duration(days: 5));
       final oldStr =
@@ -353,8 +228,8 @@ void main() {
 
       final result = await pruner.prune();
       expect(result.entriesArchived, 1);
-      expect(result.duplicatesRemoved, 1);
-      expect(result.entriesRemaining, 1);
+      expect(result.duplicatesRemoved, 0);
+      expect(result.entriesRemaining, 2);
 
       final remaining = readMemory();
       expect(remaining, contains('Recent entry to keep'));
@@ -431,10 +306,10 @@ void main() {
 
       final result = await pruner.prune();
 
-      expect(result.entriesArchived, 1);
-      expect(result.duplicatesRemoved, 1);
+      expect(result.entriesArchived, 2);
+      expect(result.duplicatesRemoved, 0);
       expect(readMemory(), '# Examples\r\n```markdown\r\n$entry\r\n```\r\n## general\r\n');
-      expect(entry.allMatches(readArchive()), hasLength(1));
+      expect(entry.allMatches(readArchive()), hasLength(2));
     });
 
     test('archived entries indexed in FTS5', () async {
@@ -452,7 +327,7 @@ void main() {
 
       final results = memoryService.search('searchable');
       expect(results, hasLength(1));
-      expect(results[0].source, 'archive');
+      expect(results[0].source, 'legacy-archive');
     });
 
     test('archive index uses canonical normalized rows and source timestamp', () async {
@@ -464,7 +339,7 @@ void main() {
       final longTail = List.generate(90, (index) => 'segment$index').join(' ');
       final expected = MemoryService.indexRows(
         text: '**Archived heading**\n\n$longTail',
-        source: 'archive',
+        source: 'legacy-archive',
         category: 'project',
         createdAt: timestamp,
       );
@@ -474,7 +349,7 @@ void main() {
 
       final rows = db.select('SELECT text, source, category, created_at FROM memory_chunks ORDER BY id');
       expect(rows.map((row) => row['text']), expected.map((row) => row.text));
-      expect(rows.every((row) => row['source'] == 'archive' && row['category'] == 'project'), isTrue);
+      expect(rows.every((row) => row['source'] == 'legacy-archive' && row['category'] == 'project'), isTrue);
       expect(rows.map((row) => row['created_at']).toSet(), {timestamp.toIso8601String()});
     });
 
@@ -495,39 +370,37 @@ void main() {
       for (final entry in parseMemoryEntries(source)) {
         for (final row in MemoryService.indexRows(
           text: entry.rawText,
-          source: 'memory_save',
+          source: 'legacy-memory',
           category: entry.category,
           createdAt: entry.timestamp,
         )) {
-          memoryService.insertChunk(
-            text: row.text,
-            source: row.source,
-            category: row.category,
-            createdAt: row.createdAt,
-          );
+          seed(text: row.text, source: row.source, category: row.category, createdAt: row.createdAt);
         }
       }
       final learning = parseMemoryEntries(learnings).single;
       final learningRow = MemoryService.indexRows(
         text: learning.rawText,
-        source: 'memory_save',
+        source: 'legacy-learning',
         category: 'learning',
         createdAt: learning.timestamp,
       ).single;
-      memoryService.insertChunk(
+      seed(
         text: learningRow.text,
         source: learningRow.source,
         category: learningRow.category,
         createdAt: learningRow.createdAt,
       );
-      memoryService.insertChunk(text: 'Independent source fact', source: 'other');
+      seed(text: 'Independent source fact', source: 'other');
 
       await pruner.prune();
 
       expect(memoryService.search('"Archived"'), hasLength(1));
-      expect(memoryService.search('"Archived"').single.source, 'archive');
-      expect(memoryService.search('"Recent"'), hasLength(1));
-      expect(memoryService.search('"Recent"').single.source, 'memory_save');
+      expect(memoryService.search('"Archived"').single.source, 'legacy-archive');
+      expect(memoryService.search('"Recent"'), hasLength(2));
+      expect(
+        memoryService.search('"Recent"'),
+        everyElement(isA<MemorySearchResult>().having((row) => row.source, 'source', 'legacy-memory')),
+      );
       expect(memoryService.search('"Retained"'), hasLength(1));
       expect(memoryService.search('"Retained"').single.category, 'learning');
       expect(memoryService.search('"Independent"'), hasLength(1));
@@ -538,13 +411,13 @@ void main() {
       const archive = '## general\n- [2025-01-10 09:00] Crash-recovered archive fact\n';
       writeMemory(active);
       File('${tempDir.path}/MEMORY.archive.md').writeAsStringSync(archive);
-      memoryService.insertChunk(
+      seed(
         text: 'Crash-recovered archive fact',
-        source: 'memory_save',
+        source: 'legacy-archive',
         category: 'general',
         createdAt: DateTime(2025, 1, 10, 9),
       );
-      memoryService.insertChunk(text: 'Stale deleted fact', source: 'memory_save', category: 'general');
+      seed(text: 'Stale deleted fact', source: 'legacy-memory', category: 'general');
 
       await pruner.prune();
 
@@ -555,14 +428,14 @@ void main() {
         for (final entry in parseMemoryEntries(active))
           ...MemoryService.indexRows(
             text: entry.rawText,
-            source: 'memory_save',
+            source: 'legacy-memory',
             category: entry.category,
             createdAt: entry.timestamp,
           ),
         for (final entry in parseMemoryEntries(archive))
           ...MemoryService.indexRows(
             text: entry.rawText,
-            source: 'archive',
+            source: 'legacy-archive',
             category: entry.category,
             createdAt: entry.timestamp,
           ),
@@ -571,7 +444,7 @@ void main() {
       expect(_indexRows(db), unorderedEquals(_indexRows(rebuiltDb)));
     });
 
-    test('all entries recent means no archival, only deduplication', () async {
+    test('all recent legacy entries remain distinct', () async {
       final recent = DateTime.now().subtract(const Duration(days: 5));
       final recentStr =
           '${recent.year}-${recent.month.toString().padLeft(2, '0')}-${recent.day.toString().padLeft(2, '0')} '
@@ -586,8 +459,8 @@ void main() {
 
       final result = await pruner.prune();
       expect(result.entriesArchived, 0);
-      expect(result.duplicatesRemoved, 1);
-      expect(result.entriesRemaining, 2);
+      expect(result.duplicatesRemoved, 0);
+      expect(result.entriesRemaining, 3);
       expect(archiveExists(), isFalse);
     });
 
@@ -622,7 +495,7 @@ void main() {
 
       await pruner.prune();
 
-      expect(readMemory(), '## general\n- [$recentStr] Entry\n');
+      expect(readMemory(), '## general\n- [$recentStr] Entry\n- [$recentStr] Entry\n');
       expect(tempDir.listSync().where((entry) => entry.path.endsWith('.tmp')), isEmpty);
     });
 
@@ -736,6 +609,195 @@ void main() {
       expect(readMemory(), '## general\n');
       expect(entry.allMatches(readArchive()), hasLength(1));
       expect(memoryService.search('Index'), hasLength(1));
+    });
+
+    test('canonical prune remains committed when derived index reconciliation fails', () async {
+      final old = DateTime.now().toUtc().subtract(const Duration(days: 120));
+      CanonicalMemoryEntry detail(String id, String content) => CanonicalMemoryEntry(
+        id: id,
+        revision: 1,
+        topic: 'general',
+        summary: content,
+        content: content,
+        created: old,
+        updated: old,
+        provenance: MemorySourceRef(sourceLocator: 'test'),
+      );
+      final entries = [
+        detail('6fda91a3-f1b4-46c2-acd6-5bb4d13c13b9', 'Durable canonical prune'),
+        detail('2277cbfe-f704-46eb-ac2f-08ca4a7ad620', 'Durable   canonical\nprune'),
+        detail('c402a342-18be-4810-9887-cf4654c845fd', 'durable canonical prune'),
+      ];
+      final corpus = CanonicalMemoryCorpus(
+        index: MemoryIndexDocument(
+          metadata: MemoryCollectionMetadata(collectionId: '07f35d89-16c1-4864-8385-7b0ed720479a', revision: 8),
+          entries: [
+            for (final entry in entries)
+              MemoryIndexEntry(
+                id: entry.id,
+                revision: entry.revision,
+                topic: entry.topic,
+                summary: entry.summary,
+                updated: entry.updated,
+              ),
+          ],
+        ),
+        topics: [MemoryTopicDocument(topic: 'general', entries: entries)],
+        archive: MemoryArchiveDocument(),
+      );
+      for (final member in corpus.byteInventory().entries) {
+        final file = File('${tempDir.path}/${member.key}');
+        file.parent.createSync(recursive: true);
+        file.writeAsBytesSync(member.value);
+      }
+      memoryService = _FailingMemoryService(db);
+      final authority = MemoryCorpusService(workspaceDir: tempDir.path);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+
+      final result = await pruner.prune();
+      expect(result.entriesArchived, 3);
+
+      final snapshot = await authority.snapshot(
+        paths: const ['MEMORY.md', 'MEMORY.archive.md', 'memory/topics/general.md'],
+        maxDocuments: 3,
+        maxBytes: 1024 * 1024,
+      );
+      expect(snapshot.collectionRevision, 9);
+      expect(snapshot.documents, isNot(contains('memory/topics/general.md')));
+      final archive = const MemoryMarkdownCodec().parse(utf8.decode(snapshot.documents['MEMORY.archive.md']!));
+      expect(archive, isA<MemoryArchiveDocument>().having((document) => document.entries.length, 'all records', 3));
+      expect(memoryService.search('Durable'), hasLength(3));
+      await authority.close();
+    });
+
+    test('canonical prune preserves equal content with distinct identity and provenance', () async {
+      final recent = DateTime.now().toUtc().subtract(const Duration(days: 2));
+      CanonicalMemoryEntry detail({required String id, required String topic, required String event}) =>
+          CanonicalMemoryEntry(
+            id: id,
+            revision: 1,
+            topic: topic,
+            summary: 'Shared fact',
+            content: 'The same remembered content.',
+            created: recent,
+            updated: recent,
+            provenance: MemorySourceRef(
+              originKind: MemoryOriginKind.turn,
+              sourceLocator: 'session/example',
+              sourceEvent: event,
+              caller: 'assistant',
+              sessionRef: 'example',
+            ),
+          );
+      final entries = [
+        detail(id: '6fda91a3-f1b4-46c2-acd6-5bb4d13c13b9', topic: 'preferences', event: 'message-1'),
+        detail(id: '2277cbfe-f704-46eb-ac2f-08ca4a7ad620', topic: 'workflow', event: 'message-2'),
+      ];
+      final corpus = CanonicalMemoryCorpus(
+        index: MemoryIndexDocument(
+          metadata: MemoryCollectionMetadata(collectionId: '07f35d89-16c1-4864-8385-7b0ed720479a', revision: 1),
+          entries: [
+            for (final entry in entries)
+              MemoryIndexEntry(
+                id: entry.id,
+                revision: entry.revision,
+                topic: entry.topic,
+                summary: entry.summary,
+                updated: entry.updated,
+              ),
+          ],
+        ),
+        topics: [
+          MemoryTopicDocument(topic: 'preferences', entries: [entries.first]),
+          MemoryTopicDocument(topic: 'workflow', entries: [entries.last]),
+        ],
+      );
+      for (final member in corpus.byteInventory().entries) {
+        final file = File('${tempDir.path}/${member.key}');
+        file.parent.createSync(recursive: true);
+        file.writeAsBytesSync(member.value);
+      }
+      final authority = MemoryCorpusService(workspaceDir: tempDir.path);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+
+      final result = await pruner.prune();
+      final after = await authority.readCorpus();
+
+      expect(result.duplicatesRemoved, 0);
+      expect(
+        after.topics.expand((topic) => topic.entries).map((entry) => entry.id),
+        unorderedEquals(entries.map((entry) => entry.id)),
+      );
+      await authority.close();
+    });
+
+    test('canonical prune keeps earliest exact replay and audits each collapsed entry', () async {
+      final now = DateTime.now().toUtc().subtract(const Duration(days: 2));
+      final provenance = MemorySourceRef(
+        originKind: MemoryOriginKind.turn,
+        sourceLocator: 'session/example',
+        sourceEvent: 'turn-42/message-3',
+        caller: 'chat',
+        sessionRef: 'example',
+      );
+      final entries = [
+        for (var index = 0; index < 3; index++)
+          CanonicalMemoryEntry(
+            id: [
+              '6fda91a3-f1b4-46c2-acd6-5bb4d13c13b9',
+              '2277cbfe-f704-46eb-ac2f-08ca4a7ad620',
+              'c402a342-18be-4810-9887-cf4654c845fd',
+            ][index],
+            revision: 1,
+            topic: 'preferences',
+            summary: 'Shared fact',
+            content: index == 1 ? '  The  same\n fact. ' : 'The same fact.',
+            created: now.add(Duration(minutes: index)),
+            updated: now.add(Duration(minutes: index)),
+            provenance: provenance,
+          ),
+      ];
+      final corpus = CanonicalMemoryCorpus(
+        index: MemoryIndexDocument(
+          metadata: MemoryCollectionMetadata(collectionId: '07f35d89-16c1-4864-8385-7b0ed720479a', revision: 1),
+          entries: [
+            for (final entry in entries)
+              MemoryIndexEntry(
+                id: entry.id,
+                revision: 1,
+                topic: entry.topic,
+                summary: entry.summary,
+                updated: entry.updated,
+              ),
+          ],
+        ),
+        topics: [MemoryTopicDocument(topic: 'preferences', entries: entries)],
+      );
+      for (final member in corpus.byteInventory().entries) {
+        final file = File('${tempDir.path}/${member.key}');
+        file.parent.createSync(recursive: true);
+        file.writeAsBytesSync(member.value);
+      }
+      final authority = MemoryCorpusService(workspaceDir: tempDir.path);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+
+      final result = await pruner.prune();
+      final after = await authority.readCorpus();
+
+      expect(result.duplicatesRemoved, 2);
+      expect(after.index.metadata.revision, 2);
+      expect(after.topics.single.entries.single.id, entries.first.id);
+      expect(
+        after.audit!.records.map((record) => record.entryId),
+        unorderedEquals(entries.skip(1).map((entry) => entry.id)),
+      );
+      expect(
+        after.audit!.records,
+        everyElement(
+          isA<MemoryDeletionAudit>().having((record) => record.reason, 'reason', isNot(contains('same fact'))),
+        ),
+      );
+      await authority.close();
     });
 
     test('prune waits for the canonical memory write lock', () async {
@@ -911,12 +973,12 @@ final class _FailingMemoryService extends MemoryService {
   _FailingMemoryService(super.db);
 
   @override
-  void replaceSourceRows(Iterable<MemoryIndexRow> rows, {required Set<String> sources, String userId = 'owner'}) {
+  void replaceMemoryRows(Iterable<MemoryIndexRow> rows, {String userId = 'owner'}) {
     if (failNextReplacement) {
       failNextReplacement = false;
       throw StateError('injected index failure');
     }
-    super.replaceSourceRows(rows, sources: sources, userId: userId);
+    super.replaceMemoryRows(rows, userId: userId);
   }
 }
 

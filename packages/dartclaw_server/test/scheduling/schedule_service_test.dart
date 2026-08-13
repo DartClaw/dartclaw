@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
@@ -186,9 +185,6 @@ void main() {
     late _ConfigurableTurnManager turns;
     late _FakeSessionService sessions;
     late ScheduledJob intervalJob;
-    late Directory tempDir;
-    late List<(String, String)> consolidations;
-    late MemoryConsolidator consolidator;
 
     setUp(() {
       turns = _ConfigurableTurnManager();
@@ -199,20 +195,6 @@ void main() {
         'schedule': {'type': 'interval', 'minutes': 60},
         'delivery': 'none',
       });
-      tempDir = Directory.systemTemp.createTempSync('schedule_service_test_');
-      File('${tempDir.path}/MEMORY.md').writeAsStringSync('x' * 64);
-      consolidations = <(String, String)>[];
-      consolidator = MemoryConsolidator(
-        workspaceDir: tempDir.path,
-        threshold: 16,
-        dispatch: (sessionKey, message) async => consolidations.add((sessionKey, message)),
-      );
-    });
-
-    tearDown(() {
-      if (tempDir.existsSync()) {
-        tempDir.deleteSync(recursive: true);
-      }
     });
 
     test('executeJobForTesting runs the job and records execution', () async {
@@ -229,13 +211,13 @@ void main() {
         prompt: 'Run safely',
         scheduleType: ScheduleType.interval,
         intervalMinutes: 60,
-        allowedTools: const ['file_read', 'memory_save'],
+        allowedTools: const ['file_read', 'memory_apply'],
       );
       final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
 
       await service.executeJobForTesting(job);
 
-      expect(turns.lastAllowedTools, ['file_read', 'memory_save']);
+      expect(turns.lastAllowedTools, ['file_read', 'memory_apply']);
     });
 
     test('prompt job without a runtime policy forwards null', () async {
@@ -711,28 +693,6 @@ void main() {
       service.stop();
     });
 
-    test('successful job triggers consolidation', () async {
-      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], consolidator: consolidator);
-      service.start();
-
-      await service.executeJobForTesting(intervalJob);
-
-      expect(consolidations, hasLength(1));
-      expect(consolidations.single.$1, startsWith('agent:main:consolidation:'));
-      service.stop();
-    });
-
-    test('failed job does not trigger consolidation', () async {
-      turns.returnFailedOutcome = true;
-      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [], consolidator: consolidator);
-      service.start();
-
-      await service.executeJobForTesting(intervalJob);
-
-      expect(consolidations, isEmpty);
-      service.stop();
-    });
-
     test('model and effort from job are passed through to startTurn', () async {
       final jobWithOverrides = ScheduledJob.fromConfig({
         'id': 'override-job',
@@ -755,6 +715,65 @@ void main() {
   });
 
   group('ScheduleService', () {
+    test('system action shares run overlap but receives no timer, retry, delivery, or session', () async {
+      final started = Completer<void>();
+      final release = Completer<void>();
+      var calls = 0;
+      var timers = 0;
+      final turns = _ConfigurableTurnManager();
+      final sessions = _FakeSessionService();
+      final service = ScheduleService(
+        turns: turns,
+        sessions: sessions,
+        jobs: const [],
+        systemActions: [
+          SystemAction(
+            id: memoryCurationActionId,
+            description: 'Curate memory',
+            run: () async {
+              calls++;
+              started.complete();
+              await release.future;
+            },
+          ),
+        ],
+        timerFactory: (duration, callback) {
+          timers++;
+          return _ManualTimer(duration, callback);
+        },
+      )..start();
+
+      expect(service.entries.single.kind, SchedulingEntryKind.systemAction);
+      expect(service.entries.single.mutable, isFalse);
+      expect(service.runJobNow(memoryCurationActionId), RunScheduledJobResult.started);
+      await started.future;
+      expect(service.runJobNow(memoryCurationActionId), RunScheduledJobResult.alreadyRunning);
+      expect(calls, 1);
+      expect(timers, 0);
+      expect(turns.startTurnCallCount, 0);
+      release.complete();
+      await pumpEventQueue();
+      service.stop();
+    });
+
+    test('configured job collision with a system action fails before start', () {
+      final job = ScheduledJob.fromConfig({
+        'id': memoryCurationActionId,
+        'prompt': 'shadow action',
+        'schedule': {'type': 'interval', 'minutes': 60},
+      });
+
+      expect(
+        () => ScheduleService(
+          turns: FakeTurnManager(),
+          sessions: _FakeSessionService(),
+          jobs: [job],
+          systemActions: [SystemAction(id: memoryCurationActionId, description: 'Curate memory', run: () async {})],
+        ),
+        throwsA(isA<ReservedSystemActionIdException>()),
+      );
+    });
+
     test('stop cancels all timers without error', () {
       // We can't easily unit-test timer firing without a TurnManager,
       // but we can verify start/stop lifecycle doesn't throw

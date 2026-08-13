@@ -15,7 +15,7 @@ const _workspacePromptFiles = {
   'TOOLS.md': 'Tool prompt',
   'AGENTS.md': '## Agent prompt',
   'errors.md': '## Recent error',
-  'learnings.md': '## Recent learning',
+  'learnings.md': '- [2026-08-10 10:00] Recent learning\n',
 };
 
 void writeWorkspacePromptFiles(String workspaceDir) {

@@ -7,6 +7,7 @@ export 'citation_packet.dart'
         CitationPacket,
         CitationSourceResolver,
         CitationSourceIndexResolver;
+export 'live_citation_source_resolver.dart' show LiveCitationSourceResolver;
 export 'context_research_tool.dart'
     show
         ContextResearchTool,
@@ -19,7 +20,7 @@ export 'kg_tools.dart'
     show KgAddTool, KgQueryTool, KgTimelineTool, KgInvalidateTool, KgContradictionsTool, KgGuardEvaluator;
 export 'mcp_router.dart' show mcpRoute;
 export 'mcp_server.dart' show McpProtocolHandler;
-export 'memory_tools.dart' show MemoryHandler, MemorySaveTool, MemorySearchTool, MemoryReadTool;
+export 'memory_tools.dart' show MemoryHandler, MemoryObserveTool, MemoryApplyTool, MemorySearchTool, MemoryReadTool;
 export 'onboarding_complete_tool.dart' show OnboardingCompleteTool;
 export 'outbound/outbound_mcp_client.dart' show OutboundMcpClient, toToolResult;
 export 'outbound/outbound_mcp_errors.dart' show OutboundMcpException;

@@ -10,6 +10,29 @@ enum PromptStrategy {
   append,
 }
 
+/// Host-owned identity for the turn currently executing in a harness.
+final class HarnessTurnContext {
+  const HarnessTurnContext({
+    required this.sessionId,
+    required this.turnId,
+    required this.source,
+    required this.agentName,
+  });
+
+  final String sessionId;
+  final String turnId;
+  final String? source;
+  final String agentName;
+}
+
+/// Receives trusted host turn identity before provider execution begins.
+abstract interface class HarnessTurnContextSink {
+  void setTurnContext(HarnessTurnContext? context);
+}
+
+typedef ContextualMemoryToolHandler =
+    Future<Map<String, dynamic>> Function(Map<String, dynamic> arguments, HarnessTurnContext context);
+
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).
 ///

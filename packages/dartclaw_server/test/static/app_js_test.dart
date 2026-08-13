@@ -454,7 +454,7 @@ void main() {
         '${baseDir.replaceFirst('/static', '/templates')}/scheduling.html',
       ).readAsStringSync();
       expect(RegExp(r'class="btn-icon-sm').hasMatch(schedulingHtml), isFalse);
-      expect(RegExp(r'class="btn btn-icon-sm').allMatches(schedulingHtml), hasLength(6));
+      expect(RegExp(r'class="btn btn-icon-sm').allMatches(schedulingHtml), hasLength(7));
       // Anchors get no floor from the bare `button` rule, so they are named as
       // one intent-based list. The three class-name lists this replaced each
       // missed the tab and pager anchors, which is how those shipped at 28px.

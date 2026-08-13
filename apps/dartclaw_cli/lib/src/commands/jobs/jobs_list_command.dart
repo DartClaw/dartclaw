@@ -28,10 +28,12 @@ class JobsListCommand extends ConnectedCommand {
       final id = (job['id'] ?? job['name'])?.toString() ?? '';
       final schedule = _formatSchedule(job['schedule']);
       final type = job['type']?.toString() ?? 'prompt';
+      final lifecycle = job['lifecycle'];
+      final state = lifecycle is Map ? lifecycle['state']?.toString() : null;
       writeLine(
         '  ${truncate(id, 20).padRight(20)}  '
         '${truncate(schedule, 16).padRight(16)}  '
-        '$type',
+        '$type${state == null ? '' : ' ($state)'}',
       );
     }
   });

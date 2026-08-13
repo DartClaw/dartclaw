@@ -60,13 +60,13 @@ class _KnowledgeInboxWorker implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final TavilySearchTool searchTool;
   final WebFetchTool fetchTool;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>) onMemorySave;
+  final MemoryObserveWithContext onMemoryObserve;
 
   int turnCallCount = 0;
   int savedFindings = 0;
   int blockedFindings = 0;
 
-  _KnowledgeInboxWorker({required this.searchTool, required this.fetchTool, required this.onMemorySave});
+  _KnowledgeInboxWorker({required this.searchTool, required this.fetchTool, required this.onMemoryObserve});
 
   @override
   bool get supportsCostReporting => true;
@@ -146,7 +146,16 @@ class _KnowledgeInboxWorker implements AgentHarness {
       final body = (fetchResult as ToolResultText).content;
       final compact = body.replaceAll(RegExp(r'\s+'), ' ').trim();
       final summary = compact.length <= 120 ? compact : compact.substring(0, 120);
-      await onMemorySave({'text': '[$title] $summary ($url)', 'category': 'knowledge-inbox'});
+      await onMemoryObserve(
+        {'text': '[$title] $summary ($url)', 'role': 'observation'},
+        MemoryCaptureContext(
+          originKind: MemoryOriginKind.inbox,
+          sourceLocator: url,
+          sourceEvent: url,
+          caller: 'knowledge-inbox',
+          sessionRef: sessionId,
+        ),
+      );
       savedFindings++;
       _eventsCtrl.add(DeltaEvent('Saved finding: $title\n'));
     }
@@ -233,7 +242,7 @@ void main() {
         failOpenOnClassification: false,
         ssrfProtectionEnabled: false, // allow localhost in tests — SSRF protection blocks loopback by default
       ),
-      onMemorySave: memoryHandlers.onSave,
+      onMemoryObserve: memoryHandlers.observe,
     );
 
     final guardChain = GuardChain(
@@ -290,10 +299,12 @@ void main() {
     expect(worker.savedFindings, 1);
     expect(worker.blockedFindings, 1);
 
-    final memoryMd = await memoryFile.readMemory();
-    expect(memoryMd, contains('## knowledge-inbox'));
-    expect(memoryMd, contains('Dart 4 roadmap'));
-    expect(memoryMd.toLowerCase(), isNot(contains('ignore all previous instructions')));
+    final observations = (await memoryFile.corpusService.readCorpus()).observations;
+    expect(observations.single.observations.single.content, contains('Dart 4 roadmap'));
+    expect(
+      observations.single.observations.single.content.toLowerCase(),
+      isNot(contains('ignore all previous instructions')),
+    );
 
     final indexed = await searchBackend.search('Dart', limit: 5);
     expect(indexed, isNotEmpty);

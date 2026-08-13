@@ -120,8 +120,8 @@ void main() {
 
       test('journal settings participate in equality', () {
         const defaults = MemoryConfig.defaults();
-        const enabled = MemoryConfig(journalEnabled: true);
-        const rescheduled = MemoryConfig(journalSchedule: '0 6 * * *');
+        final enabled = MemoryConfig(journalEnabled: true);
+        final rescheduled = MemoryConfig(journalSchedule: '0 6 * * *');
 
         expect(defaults, isNot(equals(enabled)));
         expect(defaults, isNot(equals(rescheduled)));
@@ -160,8 +160,8 @@ void main() {
 
     group('MemoryConfig', () {
       test('equal instances match', () {
-        const a = MemoryConfig(maxBytes: 64 * 1024);
-        const b = MemoryConfig(maxBytes: 64 * 1024);
+        final a = MemoryConfig(maxBytes: 64 * 1024);
+        final b = MemoryConfig(maxBytes: 64 * 1024);
         expect(a, equals(b));
       });
     });

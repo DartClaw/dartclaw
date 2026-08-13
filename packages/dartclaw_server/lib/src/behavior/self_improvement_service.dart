@@ -1,10 +1,25 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show MemoryFileService, RepoLock, parseMemoryEntries, secureWriteFileSync;
+    show
+        CanonicalMemoryCorpus,
+        CanonicalMemoryLearning,
+        MemoryCorpusChange,
+        MemoryCorpusFileMutation,
+        MemoryCorpusMutation,
+        MemoryCorpusService,
+        MemoryFileService,
+        MemoryLearningDocument,
+        MemoryMarkdownCodec,
+        MemoryRole,
+        MemorySourceRef,
+        parseMemoryEntries,
+        secureWriteFileSync;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
 class _WriteOp {
   final Future<void> Function() run;
@@ -15,20 +30,29 @@ class _WriteOp {
 /// Manages `errors.md` and `learnings.md` in the workspace.
 ///
 /// `errors.md` is auto-populated on turn failures, guard blocks, and crashes.
-/// `learnings.md` is written via `memory_save` with `category='learning'`.
+/// `learnings.md` is written through the canonical learning capture role.
 /// Both are capped at [maxEntries] entries (oldest trimmed on write).
 class SelfImprovementService {
   static final _log = Logger('SelfImprovementService');
-  static final _workspaceMemoryLock = RepoLock();
 
   final String workspaceDir;
   final int maxEntries;
+  final MemoryCorpusService _corpusService;
+  final bool _ownsCorpusService;
+  final String Function() _createId;
   String? _resolvedWorkspaceDir;
 
   final _queue = StreamController<_WriteOp>();
   late final StreamSubscription<void> _queueSub;
 
-  SelfImprovementService({required this.workspaceDir, this.maxEntries = 50}) {
+  SelfImprovementService({
+    required this.workspaceDir,
+    this.maxEntries = 50,
+    MemoryCorpusService? corpusService,
+    String Function()? createId,
+  }) : _corpusService = corpusService ?? MemoryCorpusService(workspaceDir: workspaceDir),
+       _ownsCorpusService = corpusService == null,
+       _createId = createId ?? const Uuid().v4 {
     _queueSub = _queue.stream.asyncMap((op) => op.run()).listen((_) {});
   }
 
@@ -72,18 +96,79 @@ class SelfImprovementService {
     DateTime? timestamp,
     FutureOr<void> Function(String retainedContent)? afterWrite,
   }) {
-    return _enqueue(() {
-      final workspace = _workspaceRoot(create: true)!;
-      final lockPath = p.join(workspace, 'MEMORY.md');
-      return _workspaceMemoryLock.acquire(lockPath, () async {
-        final writtenAt = timestamp ?? DateTime.now();
-        final formattedTimestamp = writtenAt.toIso8601String().substring(0, 16).replaceFirst('T', ' ');
-        final entry = '- [$formattedTimestamp] ${_encodeContinuations(text)}\n';
+    if (!_ownsCorpusService) return _appendCanonicalLearning(text, timestamp, afterWrite);
+    return _corpusService
+        .updateFiles<String>(
+          paths: const ['learnings.md'],
+          prepare: (files) {
+            final writtenAt = timestamp ?? DateTime.now();
+            final formattedTimestamp = writtenAt.toIso8601String().substring(0, 16).replaceFirst('T', ' ');
+            final entry = '- [$formattedTimestamp] ${_encodeContinuations(text)}\n';
+            final bytes = files['learnings.md'];
+            final retained = _appendCappedLearnings(bytes == null ? '' : utf8.decode(bytes), entry, maxEntries);
+            return MemoryCorpusFileMutation(value: retained, writes: {'learnings.md': utf8.encode(retained)});
+          },
+          prepareCanonical: (corpus) => _canonicalLearningMutation(corpus, text, timestamp),
+          bootstrapCanonical: !_ownsCorpusService,
+          afterCommit: afterWrite,
+        )
+        .then<void>((_) {});
+  }
 
-        final retained = await _appendCapped(p.join(workspace, 'learnings.md'), entry, '- [');
-        if (afterWrite != null) await afterWrite(retained);
-      });
-    });
+  Future<void> _appendCanonicalLearning(
+    String text,
+    DateTime? timestamp,
+    FutureOr<void> Function(String retainedContent)? afterWrite,
+  ) async {
+    while (true) {
+      final manifest = await _corpusService.manifest();
+      final result = await _corpusService.changeSelected<String>(
+        expectedRevision: manifest.collectionRevision,
+        include: (role, _) => role == MemoryRole.learning,
+        prepare: (corpus) {
+          final mutation = _canonicalLearningMutation(corpus, text, timestamp);
+          return MemoryCorpusChange(value: mutation.value, replacement: mutation.corpus);
+        },
+        afterCommit: (retained, _) => afterWrite?.call(retained),
+      );
+      if (!result.wasStale) return;
+    }
+  }
+
+  MemoryCorpusMutation<String> _canonicalLearningMutation(
+    CanonicalMemoryCorpus corpus,
+    String text,
+    DateTime? timestamp,
+  ) {
+    final writtenAt = (timestamp ?? DateTime.now()).toUtc();
+    final content = text.trim();
+    final prior = corpus.learnings?.entries ?? const <CanonicalMemoryLearning>[];
+    final newEntry = CanonicalMemoryLearning(
+      id: _createId(),
+      revision: 1,
+      summary: content.split('\n').first,
+      content: content,
+      created: writtenAt,
+      updated: writtenAt,
+      provenance: MemorySourceRef(sourceLocator: 'runtime-learning'),
+    );
+    final existingLimit = maxEntries - 1;
+    final retained = maxEntries <= 0
+        ? const <CanonicalMemoryLearning>[]
+        : [...prior.skip(prior.length > existingLimit ? prior.length - existingLimit : 0), newEntry];
+    final document = MemoryLearningDocument(entries: retained);
+    return MemoryCorpusMutation(
+      value: const MemoryMarkdownCodec().render(document),
+      corpus: CanonicalMemoryCorpus(
+        index: corpus.index,
+        topics: corpus.topics,
+        archive: corpus.archive,
+        observations: corpus.observations,
+        learnings: document,
+        audit: corpus.audit,
+        verbatimMembers: corpus.verbatimMembers,
+      ),
+    );
   }
 
   /// Returns errors.md contents, or empty string if missing.
@@ -238,5 +323,6 @@ class SelfImprovementService {
   Future<void> dispose() async {
     await _queue.close();
     await _queueSub.cancel();
+    if (_ownsCorpusService) await _corpusService.close();
   }
 }

@@ -5,9 +5,9 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
-import '../behavior/memory_consolidator.dart';
 import 'delivery.dart';
 import 'scheduled_job.dart';
+import 'system_action.dart';
 
 final _log = Logger('ScheduleService');
 
@@ -42,7 +42,7 @@ class ScheduleTurnFailureException implements Exception {
       : 'ScheduleTurnFailureException: $message';
 }
 
-/// Result of attempting to start a configured prompt job immediately.
+/// Result of attempting to start a runnable scheduling entry immediately.
 enum RunScheduledJobResult { started, alreadyRunning, notFound }
 
 /// Manages time-based job execution: cron, interval, and one-time schedules.
@@ -54,8 +54,8 @@ class ScheduleService implements Reconfigurable {
   final TurnManager _turns;
   final SessionService _sessions;
   final List<ScheduledJob> _jobs;
+  final Map<String, SystemAction> _systemActions;
   final DeliveryService _delivery;
-  final MemoryConsolidator? _consolidator;
   final String? _workerProviderId;
   final ExecutionPolicy? _workerPolicy;
   final Timer Function(Duration duration, void Function() callback) _timerFactory;
@@ -71,8 +71,8 @@ class ScheduleService implements Reconfigurable {
     required TurnManager turns,
     required SessionService sessions,
     required List<ScheduledJob> jobs,
+    List<SystemAction> systemActions = const [],
     DeliveryService? delivery,
-    MemoryConsolidator? consolidator,
     EventBus? eventBus,
     String? workerProviderId,
     ExecutionPolicy? workerPolicy,
@@ -80,9 +80,9 @@ class ScheduleService implements Reconfigurable {
     DateTime Function()? now,
   }) : _turns = turns,
        _sessions = sessions,
-       _jobs = jobs,
+       _jobs = List.unmodifiable(jobs),
+       _systemActions = _validatedSystemActions(jobs, systemActions),
        _delivery = delivery ?? _defaultDeliveryService(sessions),
-       _consolidator = consolidator,
        _eventBus = eventBus,
        _workerProviderId = workerProviderId,
        _workerPolicy = workerPolicy,
@@ -147,6 +147,18 @@ class ScheduleService implements Reconfigurable {
   RunScheduledJobResult runJobNow(String id) {
     if (!_started) return RunScheduledJobResult.notFound;
 
+    final action = _systemActions[id];
+    if (action != null) {
+      if (action.isBlocked?.call() ?? false) return RunScheduledJobResult.alreadyRunning;
+      if (!_running.add(id)) return RunScheduledJobResult.alreadyRunning;
+      unawaited(
+        _executeSystemAction(action).catchError((Object error, StackTrace stackTrace) {
+          _log.severe('System action "$id" failed unexpectedly', error, stackTrace);
+        }),
+      );
+      return RunScheduledJobResult.started;
+    }
+
     ScheduledJob? job;
     for (final candidate in _jobs) {
       if (candidate.id == id && candidate.onExecute == null) {
@@ -163,6 +175,12 @@ class ScheduleService implements Reconfigurable {
       }),
     );
     return RunScheduledJobResult.started;
+  }
+
+  Future<void> _executeSystemAction(SystemAction action) async {
+    _log.info('System action "${action.id}": executing on demand');
+    await action.run();
+    _running.remove(action.id);
   }
 
   Future<void> _executeNow(ScheduledJob job) async {
@@ -270,7 +288,6 @@ class ScheduleService implements Reconfigurable {
       try {
         final result = await _runJobTurn(job);
         await _delivery.deliver(mode: job.deliveryMode, jobId: job.id, result: result, webhookUrl: job.webhookUrl);
-        await _consolidator?.runIfNeeded();
         _log.info('Job "${job.id}": completed (attempt $attempt/$maxAttempts)');
         return;
       } catch (e) {
@@ -322,6 +339,7 @@ class ScheduleService implements Reconfigurable {
       model: job.model,
       effort: job.effort,
       allowedTools: job.allowedTools,
+      promptScope: PromptScope.task,
     );
     final outcome = await _turns.waitForOutcome(session.id, turnId);
 
@@ -346,6 +364,14 @@ class ScheduleService implements Reconfigurable {
   // Exposed for wiring tests that need to assert composition-root jobs.
   List<ScheduledJob> get jobsForTesting => List.unmodifiable(_jobs);
 
+  /// Collision-free read model consumed by scheduling presentation surfaces.
+  List<SchedulingEntry> get entries => List.unmodifiable([
+    for (final job in _jobs)
+      SchedulingEntry(id: job.id, kind: SchedulingEntryKind.job, runnable: job.onExecute == null, mutable: true),
+    for (final action in _systemActions.values)
+      SchedulingEntry(id: action.id, kind: SchedulingEntryKind.systemAction, runnable: true, mutable: false),
+  ]);
+
   void _reschedule(ScheduledJob job, {DateTime? completedCronBoundary}) {
     if (!_started || _paused.contains(job.id)) return;
 
@@ -358,4 +384,17 @@ class ScheduleService implements Reconfigurable {
 
     _scheduleNext(job, completedCronBoundary: completedCronBoundary);
   }
+}
+
+Map<String, SystemAction> _validatedSystemActions(List<ScheduledJob> jobs, List<SystemAction> actions) {
+  final byId = <String, SystemAction>{};
+  for (final action in actions) {
+    if (action.id.trim().isEmpty) throw ArgumentError.value(action.id, 'systemActions', 'ID must not be blank');
+    if (byId.containsKey(action.id)) {
+      throw ArgumentError.value(action.id, 'systemActions', 'duplicate system-action ID');
+    }
+    byId[action.id] = action;
+  }
+  validateReservedSystemActionIds(jobs.map((job) => job.id), byId.keys);
+  return Map.unmodifiable(byId);
 }

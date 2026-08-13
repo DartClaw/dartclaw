@@ -2,12 +2,12 @@
 
 ## Overview
 
-Drop source files into a watched folder and let DartClaw extract durable knowledge from them automatically. Each file is processed through a bounded cron-session extraction turn that produces synthesized memory entries, a wiki page with provenance frontmatter, and temporal knowledge-graph facts. The original file moves to `processed/` on success or `quarantine/` after exhausting retries.
+Drop source files into a watched folder and let DartClaw extract durable knowledge from them automatically. Each file is processed through a bounded cron-session extraction turn that produces synthesized memory observations, a wiki page with provenance frontmatter, and temporal knowledge-graph facts. The original file moves to `processed/` on success or `quarantine/` after exhausting retries.
 
 ## Features Used
 
 - [Knowledge inbox config](../configuration.md#full-config-reference) -- `knowledge.inbox.*` controls the drop folder, size limit, scan interval, retry/quarantine, and delivery
-- [Memory](../workspace.md) -- synthesized findings are saved as memory entries with `category='knowledge-inbox'`
+- [Memory](../workspace.md) -- synthesized findings are captured through `memory_observe` with `role='observation'` and host-bound inbox provenance
 - [Wiki](../workspace.md) -- each processed file produces a wiki page under `<data_dir>/workspace/wiki/` with source-provenance frontmatter
 - [Temporal KG](../workspace.md) -- extracted entity/predicate/value facts are stored in the knowledge graph (when enabled)
 - [Wiki lint](../configuration.md#full-config-reference) -- the optional `knowledge.wiki_lint` job audits the wiki for stale pages, missing links, and provenance gaps
@@ -74,7 +74,7 @@ inbox/my-notes.md
   │     └── fail → skipped/ (terminal)
   │
   ├── extraction turn (bounded cron session, 1 turn, no tools)
-  │     ├── memory findings  →  memory entries (category: knowledge-inbox)
+  │     ├── memory findings  →  memory observations (role: observation)
   │     ├── wiki page        →  workspace/wiki/<slug>.md  (provenance frontmatter)
   │     └── KG facts         →  temporal knowledge graph (if KG is enabled)
   │
@@ -92,7 +92,7 @@ Each file gets its own bounded cron session (visible in the web UI sidebar under
 
 The extraction turn produces a structured JSON payload with three sections:
 
-- **`memory_findings`** – one or more synthesized summaries, each saved as a memory entry prefixed with `Synthesized inbox finding from inbox/<filename>:`
+- **`memory_findings`** – one or more synthesized summaries, each captured as an observation prefixed with `Synthesized inbox finding from inbox/<filename>:`
 - **`wiki_page`** – a slug, title, body, and confidence level (`high` / `medium` / `low`) written to `workspace/wiki/<slug>.md` with YAML frontmatter recording provenance, sources, confidence, and timestamps
 - **`facts`** – temporal entity/predicate/value triples with ISO-8601 `valid_from` (required) and optional `valid_to`, inserted into the KG; conflicting facts are surfaced in the run report and excluded from the insert
 
@@ -151,12 +151,12 @@ Both `knowledge.inbox` and `knowledge.wiki_lint` support:
 - Confirm the extraction turn produced a non-empty `wiki_page.body` – an empty body is a quarantine signal.
 - Check the run summary in the cron session (web UI sidebar) for contradiction or validation details.
 
-**No memory entries saved**
+**No memory observations captured**
 - If the extraction returned findings but none are visible in memory search, check that `memory.enabled` is not set to `false` in your config.
 
 ## Gotchas & Limitations
 
 - **No real-time watch**: Processing is periodic, not inotify-based. Files dropped between scans are picked up on the next interval tick.
-- **No exactly-once guarantee**: If the server crashes mid-write after some findings are committed, the file is reprocessed on the next run. Duplicate memory entries may result.
+- **No exactly-once guarantee**: If the server crashes mid-write after some findings are committed, the file is reprocessed on the next run. Duplicate observations may result.
 - **KG requires storage package**: Temporal KG storage is optional. When the KG is not wired (e.g. in minimal deployments), `facts` from the extraction are ignored without error.
 - **`announce` delivery**: Posts a run summary (processed/skipped/quarantine counts) to the active session or channel. It does not push individual memory findings – query memory or the wiki directly to review extracted content.

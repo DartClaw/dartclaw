@@ -65,7 +65,7 @@ contract before any derived index can observe or publish mixed-format state.
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01] [TI01] Recognized content enters its canonical role without semantic rewriting**
+- [x] **S01 [OC01] [TI01] Recognized content enters its canonical role without semantic rewriting**
   - **Given** legacy `MEMORY.md` contains a categorized dated memory, `MEMORY.archive.md` contains a dated cold-memory
     entry, `memory/YYYY-MM-DD.md` contains a recognized daily activity record, and `learnings.md` contains a runtime learning
   - **When** the first upgraded startup runs the canonical corpus preflight
@@ -83,7 +83,7 @@ contract before any derived index can observe or publish mixed-format state.
   - **Proof**: `packages/dartclaw_server/test/turn_runner_test.dart#daily logs retain complete human turns and exclude every system session type`
     – green – parity/regression
 
-- [ ] **S02 [OC01,OC02] [TI01] Opaque bytes survive beside migrated recognized entries**
+- [x] **S02 [OC01,OC02] [TI01] Opaque bytes survive beside migrated recognized entries**
   - **Given** each legacy source contains recognized entries adjacent to CRLF text, fenced examples, malformed headings,
     undated blocks, or other opaque valid UTF-8 Markdown
   - **When** migration classifies only content the retained legacy parser contract recognizes and that is representable
@@ -97,7 +97,7 @@ contract before any derived index can observe or publish mixed-format state.
   - **Proof**: `packages/dartclaw_storage/test/memory/memory_pruner_test.dart#preserves fenced examples and CRLF while removing adjacent parsed entries`
     – green – parity/regression
 
-- [ ] **S03 [OC03] [TI02] A completed migration is a byte-stable no-op on every rerun**
+- [x] **S03 [OC03] [TI02] A completed migration is a byte-stable no-op on every rerun**
   - **Given** migration previously committed a valid canonical corpus and retained its recoverable legacy snapshot
   - **When** startup preflight runs again without external edits
   - **Then** canonical files, backup bytes, entry identities, and collection revision remain unchanged
@@ -106,13 +106,13 @@ contract before any derived index can observe or publish mixed-format state.
     halts with the workspace unchanged and reports the snapshot path plus the instruction to inspect and delete it
     before retrying, never restoring, rotating, or archiving it automatically
 
-- [ ] **S04 [OC03,OC04] [TI02,TI03] A supported stopped-runtime edit reconciles before indexing**
+- [x] **S04 [OC03,OC04] [TI02,TI03] A supported stopped-runtime edit reconciles before indexing**
   - **Given** a user makes a supported current-format canonical Markdown edit while DartClaw is stopped
   - **When** the next startup preflight validates the corpus
   - **Then** S02 reconciles the edit and advances the collection revision exactly once without semantic rewriting
   - **And** the reconciled revision and report are available before any derived-index factory or QMD activation runs
 
-- [ ] **S05 [OC02,OC03,OC04] [TI02,TI03] Interrupted migration exposes neither loss nor mixed canonical state**
+- [x] **S05 [OC02,OC03,OC04] [TI02,TI03] Interrupted migration exposes neither loss nor mixed canonical state**
   - **Given** fault injection terminates or fails migration during snapshot creation, staging, validation, or any
     canonical commit transition
   - **When** the operator inspects the reported recovery path or restarts DartClaw
@@ -122,7 +122,7 @@ contract before any derived index can observe or publish mixed-format state.
   - **Proof**: `packages/dartclaw_storage/test/memory/memory_pruner_test.dart#source write failure retries without duplicate archive or index entries`
     – green – parity/regression
 
-- [ ] **S06 [OC02,OC03,OC04] [TI02,TI03] Unreadable input fails closed before canonical or index mutation**
+- [x] **S06 [OC02,OC03,OC04] [TI02,TI03] Unreadable input fails closed before canonical or index mutation**
   - **Given** a legacy source is invalid UTF-8, non-regular, over the applicable S02/read ceiling, or current-format
     metadata is invalid
   - **When** startup preflight attempts validation
@@ -131,14 +131,14 @@ contract before any derived index can observe or publish mixed-format state.
   - **And** the bounded report identifies the source, failing stage, enforced limit or validation error, and recovery
     action before startup aborts without opening FTS5, activating QMD, or starting harness/server traffic
 
-- [ ] **S07 [OC04] [TI03] Successful startup publishes its migration report before derived indexing**
+- [x] **S07 [OC04] [TI03] Successful startup publishes its migration report before derived indexing**
   - **Given** injectable FTS5 and QMD startup boundaries observe the workspace and captured startup messages
   - **When** storage wiring starts against a legacy or externally edited corpus
   - **Then** each boundary sees only the validated current-format corpus and reconciled collection revision
   - **And** the operator-readable migrated, reconciled, or already-current report was emitted before the first boundary
     may run
 
-- [ ] **S08 [OC03,OC04,OC05] [TI01,TI02,TI03] Migration batches records without publishing partial corpus state or an unbounded report**
+- [x] **S08 [OC03,OC04,OC05] [TI01,TI02,TI03] Migration batches records without publishing partial corpus state or an unbounded report**
   - **Given** boundary fixtures with 256 and 257 parsed legacy records, plus diagnostics at 100 and 101 entries and
     rendered diagnostic output at 64 KiB and 64 KiB+1 byte
   - **When** canonical preflight migrates and reports each fixture
@@ -150,15 +150,15 @@ contract before any derived index can observe or publish mixed-format state.
 
 ## Structural Criteria
 
-- [ ] Canonical files plus the retained pre-migration snapshot are sufficient for recovery; no migration-only content is
+- [x] Canonical files plus the retained pre-migration snapshot are sufficient for recovery; no migration-only content is
   authoritative solely in `search.db` or another derived store.
-- [ ] Migration uses S01's codec and S02's lock/revision/commit/recovery authority; it introduces no second parser,
+- [x] Migration uses S01's codec and S02's lock/revision/commit/recovery authority; it introduces no second parser,
   workspace lock, migration ledger database, or bespoke multi-file rollback path.
-- [ ] A workspace with an existing corpus and no supported external edit remains byte- and revision-stable across
+- [x] A workspace with an existing corpus and no supported external edit remains byte- and revision-stable across
   preflight reruns; minting the canonical skeleton for a workspace that has none is S02's bootstrap, not S03's.
-- [ ] Migration holds at most 256 parsed records per in-memory batch, commits the complete resulting corpus once, and
+- [x] Migration holds at most 256 parsed records per in-memory batch, commits the complete resulting corpus once, and
   caps diagnostics at 100 entries and 64 KiB UTF-8 with total/returned/omitted counts.
-- [ ] The story adds no package, database, daemon, scheduler, approval flow, migration config toggle, `memory_save`
+- [x] The story adds no package, database, daemon, scheduler, approval flow, migration config toggle, `memory_save`
   compatibility alias, or 0.25/0.27 abstraction.
 
 ## Scope & Boundaries
@@ -270,7 +270,7 @@ test   | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Exist
 
 ### Implementation Tasks
 
-- [ ] **TI01** Legacy corpus content has canonical, lossless role mapping
+- [x] **TI01** Legacy corpus content has canonical, lossless role mapping
   - Consume S01's `MemoryMarkdownCodec`, `MemoryCorpusValidator`, closed `MemoryRole`, `MemoryObservation`,
     `CanonicalMemoryEntry`, `CanonicalMemoryLearning`, `MemoryIndexEntry`, and `MemorySourceRef` through S02's corpus
     service; use current parser/pruner fixtures only as legacy recognition and opaque-byte parity references; process at
@@ -289,7 +289,7 @@ test   | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Exist
     ignores and the corpus fingerprint covers, per-source opaque reporting, 256/257-record batching, and recovery
     without a derived DB.
 
-- [ ] **TI02** Migration retries and interruptions preserve one recoverable prior state
+- [x] **TI02** Migration retries and interruptions preserve one recoverable prior state
   - Use S02's commit/recovery transitions for the complete staged corpus and one no-clobber exact legacy snapshot;
     perform one final atomic corpus commit and return a migrated/already-current/reconciled/failed report capped at 100
     diagnostics and 64 KiB UTF-8 with total/returned/omitted counts.
@@ -301,14 +301,14 @@ test   | apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart | Exist
     commit/revision advance for multi-batch migration, a fingerprint-mismatched snapshot halting with an unchanged
     workspace and an inspect-and-delete instruction, and exact 100/101-diagnostic and 64-KiB/64-KiB+1 report boundaries.
 
-- [ ] **TI03** Storage startup exposes only a current canonical corpus to derived indexes
+- [x] **TI03** Storage startup exposes only a current canonical corpus to derived indexes
   - Gate `StorageWiring.wire()` at its FTS5 factory and QMD activation boundaries on TI01/TI02 preflight success; emit the
     bounded result first and abort on failure rather than continuing with stale rows.
   - **Verify**: S04/S06–S08 component tests prove supported stopped-runtime edits reconcile once, bounded success/report
     precede both index boundaries, failure invokes neither boundary nor harness/server traffic, and an already-current
     workspace with an existing corpus stays byte- and revision-stable.
 
-- [ ] **TI04** Migration stays inside existing corpus and startup boundaries
+- [x] **TI04** Migration stays inside existing corpus and startup boundaries
   - Keep implementation in the S01/S02 owning packages plus existing CLI storage wiring; do not add a migration framework,
     alternate authority, config switch, new store, or later-release behavior.
   - **Verify**: architecture/package gates and the final diff show no new package, DB, daemon, scheduler, approval flow,
@@ -687,3 +687,8 @@ Affected surface: ## Implementation Tasks TI01 (migration slug bullet – over-l
 Decision: Migration truncates a slugified legacy category longer than S01's 64-character topic ceiling at 64 characters, trims any trailing hyphen the cut leaves behind, and merges a slug that collides after truncation exactly like any other slug collision; truncation is a migration-only affordance and never a runtime normalization, because S01's runtime contract rejects an over-length topic instead.
 Rationale: Owner-ratified preflight resolution – truncate-and-merge keeps every migrated entry inside structured memory (consistent with routing parser-defaulted `general` to topic `general`) rather than failing or quarantining a legacy category for its length, and reuses the already-ratified collision-merge rule instead of inventing a second disambiguation mechanism.
 Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), item 42 topic-slug-length-overflow, applying item 2's slug-collision merging; TI01's slug bullet already states it – "Truncate a slugified legacy category longer than S01's 64-character topic ceiling at 64 characters and trim any resulting trailing hyphen; a truncation that lands on an existing slug merges like any other slug collision. Truncation is a migration-only affordance – S01's runtime topic contract rejects an over-length topic rather than normalizing it."; therefore this note carries zero `Old:`/`New:` pairs.
+
+#### IMPLEMENTATION NOTE: final-verification
+
+- The initial S03 implementation review failed and was superseded by an AUTO_MODE retry. That retry remediated all seven original findings plus four fresh-review findings, then received a fresh inline quick-review verdict of GREEN with 11 guardrails checked and zero findings.
+- Current integrated-tree verification at 2026-08-12 06:25 CEST: migration suite 22 passed with one intentional fixed-zone child skip; CLI preflight/recovery suite 8 passed; fatal-info analysis clean; architecture 8/8; fitness 31/31; `git diff --check` clean.

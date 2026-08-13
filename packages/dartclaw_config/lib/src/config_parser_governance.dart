@@ -21,6 +21,20 @@ int _parseInt(String key, String? cliValue, Object? yamlValue, int defaultValue,
   return defaultValue;
 }
 
+int _parsePositiveInt(String key, String? overrideValue, Object? yamlValue, int defaultValue) {
+  final value = overrideValue ?? yamlValue;
+  if (value == null) return defaultValue;
+  final parsed = switch (value) {
+    int integer => integer,
+    String text => int.tryParse(text),
+    _ => null,
+  };
+  if (parsed == null || parsed <= 0) {
+    throw FormatException('$key must be a positive integer.');
+  }
+  return parsed;
+}
+
 bool _parseBool(String key, String? cliValue, Object? yamlValue, bool defaultValue, List<String> warns) {
   if (cliValue != null) {
     if (cliValue == 'true') return true;

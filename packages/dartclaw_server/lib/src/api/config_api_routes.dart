@@ -18,6 +18,7 @@ import '../restart_service.dart';
 import '../runtime_config.dart';
 import '../scheduling/cron_parser.dart';
 import '../scheduling/schedule_service.dart';
+import '../scheduling/system_action.dart';
 import 'allowlist_validator.dart';
 import 'api_helpers.dart';
 import 'guard_editor_service.dart';
@@ -25,6 +26,59 @@ import 'sse_broadcast.dart';
 
 final _log = Logger('ConfigApiRoutes');
 const _maxConfigJsonBodyBytes = 128 * 1024;
+
+Iterable<SchedulingEntry> _systemActions(ScheduleService? service) =>
+    service?.entries.where((entry) => entry.kind == SchedulingEntryKind.systemAction) ?? const [];
+
+Future<List<Map<String, Object?>>> _systemActionJson(
+  ScheduleService? service,
+  Future<Map<String, dynamic>> Function()? memoryStatusReader,
+) async {
+  final status = await _readMemoryStatus(memoryStatusReader);
+  return _systemActions(service).map((entry) => _systemActionEntryJson(entry, status)).toList(growable: false);
+}
+
+SchedulingEntry? _findSystemAction(ScheduleService? service, String id) {
+  for (final entry in _systemActions(service)) {
+    if (entry.id == id) return entry;
+  }
+  return null;
+}
+
+Map<String, Object?> _systemActionEntryJson(SchedulingEntry entry, Map<String, dynamic>? memoryStatus) => {
+  'id': entry.id,
+  'name': entry.id,
+  'type': 'system_action',
+  'schedule': 'on demand',
+  'runnable': entry.runnable,
+  'mutable': entry.mutable,
+  if (entry.id == 'memory-curation') ...{'lifecycle': memoryStatus?['curation'], 'index': memoryStatus?['index']},
+};
+
+Future<Map<String, dynamic>?> _readMemoryStatus(Future<Map<String, dynamic>> Function()? reader) async {
+  try {
+    return await reader?.call();
+  } on Object {
+    return {
+      'curation': const {
+        'state': 'unknown',
+        'reason': 'Memory lifecycle status is unavailable.',
+        'action': 'Inspect the Memory dashboard before running curation.',
+      },
+      'index': const {'state': 'unknown'},
+    };
+  }
+}
+
+Response? _reservedActionResponse(ScheduleService? service, Iterable<Object?> candidateIds) {
+  final reserved = _systemActions(service).map((entry) => entry.id).toSet();
+  try {
+    validateReservedSystemActionIds(candidateIds, reserved);
+    return null;
+  } on ReservedSystemActionIdException catch (error) {
+    return errorResponse(409, 'RESERVED_SYSTEM_ACTION', error.toString());
+  }
+}
 
 /// Config read/write API endpoints.
 ///
@@ -40,6 +94,7 @@ Router configApiRoutes({
   RestartService? restartService,
   SseBroadcast? sseBroadcast,
   ScheduleService? scheduleService,
+  Future<Map<String, dynamic>> Function()? memoryStatusReader,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
   GoogleChatChannel? googleChatChannel,
@@ -81,7 +136,9 @@ Router configApiRoutes({
   router.get('/api/scheduling/jobs', (Request request) async {
     try {
       final jobs = await writer.readSchedulingJobs();
-      return jsonResponse(200, jobs);
+      final collision = _reservedActionResponse(scheduleService, jobs.map((job) => job['id'] ?? job['name']));
+      if (collision != null) return collision;
+      return jsonResponse(200, [...jobs, ...await _systemActionJson(scheduleService, memoryStatusReader)]);
     } catch (e) {
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to read scheduled jobs: $e');
     }
@@ -92,6 +149,12 @@ Router configApiRoutes({
     final name = decodePathSegment(rawName);
     try {
       final jobs = await writer.readSchedulingJobs();
+      final collision = _reservedActionResponse(scheduleService, jobs.map((job) => job['id'] ?? job['name']));
+      if (collision != null) return collision;
+      final action = _findSystemAction(scheduleService, name);
+      if (action != null) {
+        return jsonResponse(200, _systemActionEntryJson(action, await _readMemoryStatus(memoryStatusReader)));
+      }
       final job = jobs.firstWhere(
         (entry) => entry['name'] == name || entry['id'] == name,
         orElse: () => const <String, dynamic>{},
@@ -342,6 +405,8 @@ Router configApiRoutes({
     if (name is! String || name.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"name" is required and must be a non-empty string');
     }
+    final reserved = _reservedActionResponse(scheduleService, [name]);
+    if (reserved != null) return reserved;
     if (schedule is! String || schedule.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"schedule" is required and must be a non-empty string');
     }
@@ -407,6 +472,8 @@ Router configApiRoutes({
 
     // Build updated array and write
     final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);
@@ -417,6 +484,8 @@ Router configApiRoutes({
   // PUT /api/scheduling/jobs/<name> — update existing job
   router.put('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
     final name = decodePathSegment(rawName);
+    final immutable = _reservedActionResponse(scheduleService, [name]);
+    if (immutable != null) return immutable;
     final parsedBody = await _parseJsonBody(
       request,
       requiredMessage: 'Request body must be a non-empty JSON object',
@@ -480,6 +549,8 @@ Router configApiRoutes({
     for (final entry in body.entries) {
       if (entry.key != 'name') job[entry.key] = entry.value;
     }
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);
@@ -490,6 +561,8 @@ Router configApiRoutes({
   // DELETE /api/scheduling/jobs/<name>
   router.delete('/api/scheduling/jobs/<name>', (Request request, String rawName) async {
     final name = decodePathSegment(rawName);
+    final immutable = _reservedActionResponse(scheduleService, [name]);
+    if (immutable != null) return immutable;
     // Read fresh from YAML (not startup snapshot) to avoid overwrite races.
     final currentJobs = await writer.readSchedulingJobs();
     final idx = currentJobs.indexWhere((j) => j['name'] == name || j['id'] == name);
@@ -499,6 +572,8 @@ Router configApiRoutes({
 
     final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
     updatedJobs.removeAt(idx);
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);
@@ -527,6 +602,8 @@ Router configApiRoutes({
     if (id is! String || id.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"id" is required and must be a non-empty string');
     }
+    final reserved = _reservedActionResponse(scheduleService, [id]);
+    if (reserved != null) return reserved;
     if (schedule is! String || schedule.trim().isEmpty) {
       return errorResponse(400, 'INVALID_INPUT', '"schedule" is required and must be a non-empty string');
     }
@@ -569,6 +646,8 @@ Router configApiRoutes({
     };
 
     final updatedJobs = [...currentJobs.map((j) => Map<String, dynamic>.from(j)), newJob];
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);
@@ -579,6 +658,8 @@ Router configApiRoutes({
   // PUT /api/scheduling/tasks/<id> — update existing scheduled task
   router.put('/api/scheduling/tasks/<id>', (Request request, String rawId) async {
     final id = decodePathSegment(rawId);
+    final immutable = _reservedActionResponse(scheduleService, [id]);
+    if (immutable != null) return immutable;
     final parsedBody = await _parseJsonBody(
       request,
       requiredMessage: 'Request body must be a non-empty JSON object',
@@ -622,6 +703,8 @@ Router configApiRoutes({
     }
     if (body.containsKey('autoStart')) taskMap['auto_start'] = body['autoStart'];
     job['task'] = taskMap;
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);
@@ -632,6 +715,8 @@ Router configApiRoutes({
   // DELETE /api/scheduling/tasks/<id>
   router.delete('/api/scheduling/tasks/<id>', (Request request, String rawId) async {
     final id = decodePathSegment(rawId);
+    final immutable = _reservedActionResponse(scheduleService, [id]);
+    if (immutable != null) return immutable;
     final currentJobs = await writer.readSchedulingJobs();
     final idx = currentJobs.indexWhere((j) => j['type'] == 'task' && (j['id'] == id || j['name'] == id));
     if (idx == -1) {
@@ -640,6 +725,8 @@ Router configApiRoutes({
 
     final updatedJobs = currentJobs.map((j) => Map<String, dynamic>.from(j)).toList();
     updatedJobs.removeAt(idx);
+    final collision = _reservedActionResponse(scheduleService, updatedJobs.map((job) => job['id'] ?? job['name']));
+    if (collision != null) return collision;
 
     return _writeConfigOrError(() => writer.updateFields({'scheduling.jobs': updatedJobs}), () {
       writeRestartPending(dataDir, ['scheduling.jobs']);

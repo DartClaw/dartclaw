@@ -18,7 +18,7 @@ Codex web search because it remains outside host interception.
 
 ### 0.25 — Pluggable Database Backend & Multi-Language Search
 
-ADR-045 (Accepted 2026-07-24; schema strategy amended 2026-07-30): `DatabaseBackend` abstraction + current-schema bootstrap/compatibility gate (SQLite-only refactor first; no versioned migration runner during pre-alpha), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. Native hybrid search including `pgvector` follows in Phase B under ADR-050. Backend track, parallel to the UI track.
+ADR-045 (Accepted 2026-07-24; schema strategy amended 2026-07-30): `DatabaseBackend` abstraction + current-schema bootstrap/compatibility gate (SQLite-only refactor first; no versioned migration runner during pre-alpha), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. Native hybrid search including `pgvector` follows in Phase B under ADR-050. It must preserve 0.24 canonical identity, revisions, provenance, natural-language query input, stable locators, corpus authority, and index-health/rebuild semantics. QMD remains supported through 0.24, is deprecated in Phase B, and is removed in the following milestone. Backend track, parallel to the UI track.
 
 ### 0.26 — Chat & Session Experience
 
@@ -30,7 +30,8 @@ milestone builds on (added 2026-07-25).
 ### 0.27 — Knowledge Interop & Steward
 
 Guarded knowledge writes, the deferred validation/dogfooding/steward loop, OKF bundle interop, and governed idle-time
-memory curation. Reuses the 0.24 journal and on-demand job surfaces and follows the 0.25 storage/search seams. Phase A
+memory curation. Reuses 0.24's observe/apply/CAS authority and on-demand action surfaces for governed autonomy and
+guarded wiki/KG writes; it does not gain a generic file-replacement tool. It follows the 0.25 storage/search seams. Phase A
 also owns caller-aware MCP dispatch context, exact logical-agent-turn cancellation, and an opt-in pinned-provider matrix for
 the guard-interception capabilities this milestone relies on.
 

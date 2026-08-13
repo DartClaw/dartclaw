@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
+import 'package:dartclaw_core/src/harness/agent_harness.dart' show HarnessTurnContext;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:dartclaw_server/src/container/gateway/gateway_models.dart' show mcpBridgePort;
@@ -374,7 +375,8 @@ void main() {
         environment: {'ANTHROPIC_API_KEY': _hostApiKeySentinel},
         harnessConfig: const HarnessConfig(),
         containerManager: containerManager,
-        onMemorySave: (payload) async => {'saved': payload},
+        onMemoryApply: (payload) async => {'applied': payload},
+        onMemoryObserve: (payload) async => {'observed': payload},
         onMemorySearch: (payload) async => {'searched': payload},
         onMemoryRead: (payload) async => {'read': payload},
       );
@@ -489,7 +491,8 @@ void main() {
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        onMemorySave: (args) async => {'status': 'ok'},
+        onMemoryApply: (args) async => {'status': 'ok'},
+        onMemoryObserve: (args) async => {'status': 'ok'},
         onMemorySearch: (args) async => {'results': []},
         onMemoryRead: (args) async => {'content': ''},
         harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3000/mcp', mcpGatewayToken: 'test-token'),
@@ -518,7 +521,8 @@ void main() {
         commandProbe: _defaultProbe,
         delayFactory: _noOpDelay,
         environment: {'ANTHROPIC_API_KEY': 'sk-test'},
-        onMemorySave: (args) async => {'status': 'ok'},
+        onMemoryApply: (args) async => {'status': 'ok'},
+        onMemoryObserve: (args) async => {'status': 'ok'},
         onMemorySearch: (args) async => {'results': []},
         onMemoryRead: (args) async => {'content': ''},
         harnessConfig: const HarnessConfig(),
@@ -540,6 +544,242 @@ void main() {
       final memoryServer = sdkMcpServers['dartclaw'] as Map<String, dynamic>;
       expect(memoryServer['type'], equals('sdk_mcp_server'));
 
+      await harness.dispose();
+    });
+  });
+
+  group('SDK MCP dispatch', () {
+    test('dispatches every advertised memory tool and returns MCP results', () async {
+      final fake = _bufferedCapturingFakeProcess();
+      final calls = <(String, Map<String, dynamic>)>[];
+      final allCalled = Completer<void>();
+      Future<Map<String, dynamic>> handle(String name, Map<String, dynamic> args) async {
+        calls.add((name, args));
+        if (calls.length == 4) allCalled.complete();
+        return {
+          'content': [
+            {'type': 'text', 'text': name},
+          ],
+        };
+      }
+
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        onMemoryApply: (args) => handle('memory_apply', args),
+        onMemoryObserve: (args) => handle('memory_observe', args),
+        onMemorySearch: (args) => handle('memory_search', args),
+        onMemoryRead: (args) => handle('memory_read', args),
+      );
+      await harness.start();
+      harness.setTurnContext(
+        const HarnessTurnContext(sessionId: 'session-1', turnId: 'turn-1', source: 'web', agentName: 'main'),
+      );
+
+      for (final (index, name) in ['memory_apply', 'memory_observe', 'memory_search', 'memory_read'].indexed) {
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'mcp-$index',
+            'request': {
+              'subtype': 'mcp_message',
+              'server_name': 'dartclaw',
+              'message': {
+                'jsonrpc': '2.0',
+                'id': index,
+                'method': 'tools/call',
+                'params': {
+                  'name': name,
+                  'arguments': {'value': index},
+                },
+              },
+            },
+          }),
+        );
+      }
+      await allCalled.future;
+      await pumpEventQueue();
+
+      expect(calls.map((call) => call.$1), ['memory_apply', 'memory_observe', 'memory_search', 'memory_read']);
+      final responses = fake.capturedStdinJson.where((message) => message['type'] == 'control_response').toList();
+      expect(responses, hasLength(4));
+      for (var index = 0; index < responses.length; index++) {
+        final envelope = responses[index]['response'] as Map<String, dynamic>;
+        final body = envelope['response'] as Map<String, dynamic>;
+        final mcp = body['mcp_response'] as Map<String, dynamic>;
+        expect(envelope['request_id'], 'mcp-$index');
+        expect(mcp['id'], index);
+        expect(mcp['result'], isA<Map<String, dynamic>>());
+      }
+      await harness.dispose();
+    });
+
+    test('passes trusted active turn context to capture callbacks', () async {
+      final fake = _bufferedCapturingFakeProcess();
+      HarnessTurnContext? received;
+      final called = Completer<void>();
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        onMemoryApply: (_) async => throw StateError('context callback should win'),
+        onContextualMemoryApply: (args, context) async {
+          received = context;
+          called.complete();
+          return const {};
+        },
+        onMemoryObserve: (_) async => const {},
+        onMemorySearch: (_) async => const {},
+        onMemoryRead: (_) async => const {},
+      );
+      await harness.start();
+      harness.setTurnContext(
+        const HarnessTurnContext(
+          sessionId: 'session-7',
+          turnId: 'turn-9',
+          source: 'cron',
+          agentName: 'cron:memory-journal',
+        ),
+      );
+
+      fake.emitStdout(
+        jsonEncode({
+          'type': 'control_request',
+          'request_id': 'contextual',
+          'request': {
+            'subtype': 'mcp_message',
+            'server_name': 'dartclaw',
+            'message': {
+              'jsonrpc': '2.0',
+              'id': 1,
+              'method': 'tools/call',
+              'params': {
+                'name': 'memory_apply',
+                'arguments': {'text': 'remember'},
+              },
+            },
+          },
+        }),
+      );
+      await called.future;
+
+      expect(received?.sessionId, 'session-7');
+      expect(received?.turnId, 'turn-9');
+      expect(received?.source, 'cron');
+      expect(received?.agentName, 'cron:memory-journal');
+      await harness.dispose();
+    });
+
+    test('rejects contextual memory writes without an active turn context', () async {
+      final fake = _bufferedCapturingFakeProcess();
+      var called = false;
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        onMemoryApply: (_) async {
+          called = true;
+          return const {};
+        },
+        onContextualMemoryApply: (_, _) async {
+          called = true;
+          return const {};
+        },
+        onMemoryObserve: (_) async => const {},
+        onMemorySearch: (_) async => const {},
+        onMemoryRead: (_) async => const {},
+      );
+      await harness.start();
+
+      fake.emitStdout(
+        jsonEncode({
+          'type': 'control_request',
+          'request_id': 'out-of-turn',
+          'request': {
+            'subtype': 'mcp_message',
+            'server_name': 'dartclaw',
+            'message': {
+              'jsonrpc': '2.0',
+              'id': 1,
+              'method': 'tools/call',
+              'params': {'name': 'memory_apply', 'arguments': <String, dynamic>{}},
+            },
+          },
+        }),
+      );
+      await pumpEventQueue();
+
+      final response = fake.capturedStdinJson.lastWhere((message) => message['type'] == 'control_response');
+      final envelope = response['response'] as Map<String, dynamic>;
+      final body = envelope['response'] as Map<String, dynamic>;
+      final mcp = body['mcp_response'] as Map<String, dynamic>;
+      expect((mcp['error'] as Map<String, dynamic>)['code'], -32603);
+      expect(called, isFalse);
+      await harness.dispose();
+    });
+
+    test('returns JSON-RPC errors for unknown, malformed, and rejected calls', () async {
+      final fake = _bufferedCapturingFakeProcess();
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        onMemoryApply: (_) async => throw ArgumentError('rejected'),
+        onMemoryObserve: (_) async => const {},
+        onMemorySearch: (_) async => const {},
+        onMemoryRead: (_) async => const {},
+      );
+      await harness.start();
+
+      Map<String, dynamic> request(String requestId, Object? message) => {
+        'type': 'control_request',
+        'request_id': requestId,
+        'request': {'subtype': 'mcp_message', 'server_name': 'dartclaw', 'message': message},
+      };
+      fake.emitStdout(
+        jsonEncode(
+          request('unknown', {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {'name': 'unknown', 'arguments': <String, dynamic>{}},
+          }),
+        ),
+      );
+      fake.emitStdout(jsonEncode(request('malformed', 'not-an-object')));
+      fake.emitStdout(
+        jsonEncode(
+          request('rejected', {
+            'jsonrpc': '2.0',
+            'id': 3,
+            'method': 'tools/call',
+            'params': {
+              'name': 'memory_apply',
+              'arguments': {'text': 'bad'},
+            },
+          }),
+        ),
+      );
+      await pumpEventQueue();
+
+      final responses = fake.capturedStdinJson.where((message) => message['type'] == 'control_response').toList();
+      expect(responses, hasLength(3));
+      final codes = responses.map((response) {
+        final envelope = response['response'] as Map<String, dynamic>;
+        final body = envelope['response'] as Map<String, dynamic>;
+        final mcp = body['mcp_response'] as Map<String, dynamic>;
+        return (mcp['error'] as Map<String, dynamic>)['code'];
+      });
+      expect(codes, [-32601, -32600, -32602]);
       await harness.dispose();
     });
   });

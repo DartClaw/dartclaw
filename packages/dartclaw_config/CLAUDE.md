@@ -3,6 +3,7 @@
 **Role**: Owns the full config lifecycle — typed section classes composed into `DartclawConfig`, YAML parsing (`config_parser.dart` + the `config_parser_*.dart` domain `part` files), `ConfigValidator`, atomic `ConfigWriter`, `ConfigNotifier`/`ConfigDelta`/`Reconfigurable` hot-reload, `ConfigMeta`/`FieldMeta` registry, `CredentialRegistry`, `ProviderValidator`, the immutable platform capability policy, and the extension parser registration system. Re-exports all of `dartclaw_models` from its barrel.
 
 ## Boundaries
+- `SearchBackend.search` accepts trimmed natural language plus host-bound owner scope and an optional pre-top-K layer constraint, then returns `MemorySearchOutcome`; adapters own backend syntax and additive degradation labels.
 - Runtime deps: `collection`, `meta`, `path`, `yaml`, `yaml_edit`, `logging`, plus `dartclaw_models` and `dartclaw_security`. Do not add `dart:io` networking, `shelf`, `sqlite3`, or any channel/server package. This package must stay importable by `dartclaw_core` and the channel packages (which register parsers at import time — see below).
 - Channel-specific config classes (`WhatsAppConfig`, `SignalConfig`, `GoogleChatConfig`) live in their own packages and register via `DartclawConfig.registerChannelConfigParser(...)`. Do **not** import channel packages here.
 - Server-only concerns (`ConfigSerializer`, `ConfigChangeSubscriber`, `ScopeReconciler`) belong in `dartclaw_server`. Don't pull them down into this package.
@@ -10,11 +11,13 @@
 ## Conventions
 - Every section class is immutable, has a `const FooConfig.defaults()` constructor, overrides `==`/`hashCode` (driven by `ConfigNotifier` delta detection), and lives in its own file under `lib/src/`. New sections also: add a field on `DartclawConfig`, a parser in `config_parser.dart`, a `_knownKeys` entry, and an export with explicit `show`.
 - Every writable field needs a `FieldMeta` entry in `ConfigMeta.fields` keyed by snake_case `yamlPath`, with the camelCase `jsonKey` mirror. Mutability tier (`live` / `reloadable` / `restart` / `readonly`) drives API routing — pick deliberately.
-- `PromptScope.conversational` is the transport-neutral onboarding scope selected by web and configured messaging channels; scheduled, task, logical-agent, restricted, and evaluator turns must not select it.
+- `PromptScope.primary` is the only personal-memory scope. Web and configured messaging channels select it; `isHumanInput` independently controls onboarding eligibility. Scheduled, task, logical-agent, restricted, and scope-less turns receive no personal prompt memory.
 - `providers.<id>.pool_size` is the only worker-capacity setting. Workers are shared by background tasks and logical-agent sessions; `TaskConfig` does not own execution capacity.
 - Provider IDs are trimmed/lowercased at parse time; provider/ACP map normalization collisions are rejected with a configuration warning, and typed lookups use the same canonical identity.
 - Removed preview keys (`delegation`, `tasks.max_concurrent`) remain parser-recognized only to emit migration warnings. They create no runtime config or capacity boundary.
-- `MemoryConfig` keeps journal and pruning as distinct flattened runtime fields. `memory.journal` is opt-in; pruning remains enabled by default.
+- `MemoryConfig` keeps journal and pruning as distinct flattened runtime fields. `memory.journal` is opt-in; pruning
+  remains enabled by default. `memory.max_bytes` and `memory.pruning.archive_after_days` are positive integers at load,
+  persisted-write, and direct-construction boundaries.
 - All YAML mutations go through `ConfigWriter` (write-queue + `.bak` + atomic temp+rename). Don't write YAML with `File.writeAsString`. Reads in `ConfigWriter` are intentionally fresh per write — don't add caching.
 - API keys never appear in `dartclaw.yaml`. `CredentialsConfig` holds named entries (typically env-var refs); `CredentialRegistry` resolves at runtime.
 

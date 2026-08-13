@@ -14,6 +14,9 @@ import 'security_wiring.dart';
 /// usage tracker, health service, context management, logical-agent sessions, behavior
 /// service, self-improvement, SSE broadcast, and auth state.
 class HarnessWiring {
+  static const _preCompactObservationMaxBytes = 32 * 1024;
+  static const _preCompactMessageCount = 12;
+
   HarnessWiring({
     required this.config,
     required String dataDir,
@@ -77,12 +80,7 @@ class HarnessWiring {
   late ResultTrimmer _resultTrimmer;
   late SessionLockManager _lockManager;
   late SessionResetService _resetService;
-  late ({
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  })
-  _memoryHandlers;
+  late MemoryHandlers _memoryHandlers;
   BudgetEnforcer? _budgetEnforcer;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
@@ -108,12 +106,7 @@ class HarnessWiring {
   ExplorationSummarizer get explorationSummarizer => _explorationSummarizer;
   SessionLockManager get lockManager => _lockManager;
   SessionResetService get resetService => _resetService;
-  ({
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSave,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
-    Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
-  })
-  get memoryHandlers => _memoryHandlers;
+  MemoryHandlers get memoryHandlers => _memoryHandlers;
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   Set<String> get continuityProviders => _harnessFactory.probeContinuityProviders();
@@ -128,25 +121,30 @@ class HarnessWiring {
       workspaceDir: config.workspaceDir,
       projectDir: p.join(Directory.current.path, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
+      memoryCorpus: _storage.memoryCorpus,
       onboardingExpiryDays: config.onboarding.expiryDays,
       compactInstructions: config.context.compactInstructions,
       identifierPreservation: config.context.identifierPreservation,
       identifierInstructions: config.context.identifierInstructions,
     );
-    final staticPrompt = await _behavior.composeStaticPrompt();
+    final staticPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.primary);
 
-    _selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir);
+    _selfImprovement = SelfImprovementService(workspaceDir: config.workspaceDir, corpusService: _storage.memoryCorpus);
 
     _memoryHandlers = createMemoryHandlers(
       memory: _storage.memory,
       memoryFile: _storage.memoryFile,
+      corpusService: _storage.memoryCorpus,
       searchBackend: _storage.searchBackend,
       selfImprovement: _selfImprovement,
     );
 
     final semanticMcpTools = <McpTool>[
       WebFetchTool(classifier: _security.contentClassifier, failOpenOnClassification: _security.contentGuardFailOpen),
-      MemorySaveTool(handler: _memoryHandlers.onSave),
+      MemoryApplyTool(handler: _memoryHandlers.onApply, contextualHandler: _memoryHandlers.apply),
+      MemoryObserveTool(handler: _memoryHandlers.onObserve, contextualHandler: _memoryHandlers.observe),
+      MemorySearchTool(handler: _memoryHandlers.onSearch),
+      MemoryReadTool(handler: _memoryHandlers.onRead),
     ];
     for (final entry in config.search.providers.entries) {
       if (!entry.value.enabled || entry.value.apiKey.isEmpty) continue;
@@ -177,7 +175,10 @@ class HarnessWiring {
         tool.name: switch (tool.name) {
           'web_fetch' => CanonicalTool.webFetch,
           'brave_search' || 'tavily_search' => CanonicalTool.webSearch,
-          'memory_save' => CanonicalTool.memorySave,
+          'memory_apply' => CanonicalTool.memoryApply,
+          'memory_observe' => CanonicalTool.memoryObserve,
+          'memory_search' => CanonicalTool.memorySearch,
+          'memory_read' => CanonicalTool.memoryRead,
           _ => throw StateError('Missing canonical mapping for own MCP tool: ${tool.name}'),
         },
     });
@@ -453,6 +454,7 @@ class HarnessWiring {
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
           systemPromptOverride: persona,
           workerPolicy: sessionPolicy,
+          promptScope: PromptScope.task,
         );
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
@@ -605,6 +607,7 @@ class HarnessWiring {
                 sessionId: request.sessionId,
                 providerId: request.providerId,
                 policy: request.policy,
+                sourceSessionId: request.sessionId,
                 logicalAgentId: request.logicalAgentId,
                 taskId: request.taskId,
               ),
@@ -840,7 +843,12 @@ class HarnessWiring {
     cwd: Directory.current.path,
     executable: executable,
     turnTimeout: Duration(seconds: config.server.workerTimeout),
-    onMemorySave: _memoryHandlers.onSave,
+    onMemoryApply: _memoryHandlers.onApply,
+    onMemoryObserve: _memoryHandlers.onObserve,
+    onContextualMemoryApply: (arguments, context) =>
+        _memoryHandlers.apply(arguments, _memoryCaptureContext('memory_apply', context)),
+    onContextualMemoryObserve: (arguments, context) =>
+        _memoryHandlers.observe(arguments, _memoryCaptureContext('memory_observe', context)),
     onMemorySearch: _memoryHandlers.onSearch,
     onMemoryRead: _memoryHandlers.onRead,
     onPermissionDenied: (toolName, reason) {
@@ -856,6 +864,17 @@ class HarnessWiring {
     acpReverseCallAudit: _auditAcpReverseCall,
     environment: environment,
   );
+
+  MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {
+    final isJournal = context.source == 'cron' && context.agentName == 'cron:memory-journal';
+    return MemoryCaptureContext(
+      originKind: isJournal ? MemoryOriginKind.journal : MemoryOriginKind.turn,
+      sourceLocator: isJournal ? 'memory-journal' : 'session:${context.sessionId}',
+      sourceEvent: 'turn:${context.turnId}',
+      caller: context.agentName == 'main' ? toolName : context.agentName,
+      sessionRef: context.sessionId,
+    );
+  }
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
     final hasToolPolicy =
@@ -926,8 +945,12 @@ class HarnessWiring {
   /// compaction callback fields.
   void _wireCompactionCallbacks(AgentHarness harness) {
     if (harness is! ClaudeCodeHarness) return;
-    harness.onCompactionStarting = (sessionId, trigger) {
-      _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
+    harness.onCompactionStarting = (sessionId, trigger) async {
+      try {
+        await _capturePreCompactObservation(sessionId, trigger);
+      } finally {
+        _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
+      }
     };
     harness.onCompactionCompleted = (trigger, preTokens) {
       final sessionId = harness.sessionId ?? '';
@@ -940,6 +963,27 @@ class HarnessWiring {
         ),
       );
     };
+  }
+
+  Future<void> _capturePreCompactObservation(String sessionId, String trigger) async {
+    final messages = await _storage.messages.getMessagesTail(sessionId, count: _preCompactMessageCount);
+    if (messages.isEmpty) return;
+    final triggerLabel = trigger == 'manual' ? 'manual' : 'auto';
+    final tail = messages.map((message) => '[${message.role}] ${_messageRedactor.redact(message.content)}').join('\n');
+    final text = truncateUtf8Bytes(
+      'Pre-compaction conversation context ($triggerLabel):\n$tail',
+      _preCompactObservationMaxBytes,
+    );
+    await _memoryHandlers.observe(
+      {'text': text, 'role': 'observation'},
+      MemoryCaptureContext(
+        originKind: MemoryOriginKind.turn,
+        sourceLocator: 'session:$sessionId',
+        sourceEvent: 'pre-compact:${messages.last.id}',
+        caller: 'claude:PreCompact',
+        sessionRef: sessionId,
+      ),
+    );
   }
 }
 

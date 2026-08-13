@@ -58,7 +58,11 @@ WiringResult _assembleWiringResult(
         await project.dispose();
         await advisorSubscriber?.dispose();
       } finally {
-        await outboundMcpPool?.close();
+        try {
+          await storage.memoryCorpus.close();
+        } finally {
+          await outboundMcpPool?.close();
+        }
       }
     },
   );

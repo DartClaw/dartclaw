@@ -65,7 +65,7 @@ void main() {
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
-        ownMcpToolCanonicals: const {'memory_save': CanonicalTool.memorySave},
+        ownMcpToolCanonicals: const {'memory_apply': CanonicalTool.memoryApply},
       );
       addTearDown(() async => harness.dispose());
       await startHarness(harness, fake);
@@ -115,7 +115,7 @@ void main() {
           'mode': 'form',
           '_meta': {
             'codex_approval_kind': 'mcp_tool_call',
-            'tool_name': 'memory_save',
+            'tool_name': 'memory_apply',
             'tool_params': {'content': 'fact'},
           },
           'message': 'Allow memory write?',
@@ -126,7 +126,7 @@ void main() {
       await turnFuture;
       await Future<void>.delayed(Duration.zero);
 
-      expect(guard.contexts.map((context) => context.toolName), ['shell', 'file_edit', 'memory_save']);
+      expect(guard.contexts.map((context) => context.toolName), ['shell', 'file_edit', 'memory_apply']);
       expect(guard.contexts.map((context) => context.rawProviderToolName), [
         'command_execution',
         'file_change',
@@ -343,7 +343,7 @@ void main() {
         ownMcpToolCanonicals: const {
           'web_fetch': CanonicalTool.webFetch,
           'brave_search': CanonicalTool.webSearch,
-          'memory_save': CanonicalTool.memorySave,
+          'memory_apply': CanonicalTool.memoryApply,
         },
       );
       addTearDown(() async => harness.dispose());
@@ -363,7 +363,7 @@ void main() {
       final requests = [
         ('fetch', 'dartclaw', 'web_fetch', <String, dynamic>{'url': 'https://github.com'}),
         ('search', 'dartclaw', 'brave_search', <String, dynamic>{'query': 'Dart'}),
-        ('memory', 'dartclaw', 'memory_save', <String, dynamic>{'content': 'fact'}),
+        ('memory', 'dartclaw', 'memory_apply', <String, dynamic>{'expectedRevision': 1, 'operations': []}),
         ('unknown-own', 'dartclaw', 'unknown', <String, dynamic>{}),
         ('third-party', 'github', 'search', <String, dynamic>{}),
       ];
@@ -384,7 +384,7 @@ void main() {
       expect(guard.contexts.map((context) => context.toolName), [
         'web_fetch',
         'web_search',
-        'memory_save',
+        'memory_apply',
         'mcp_call',
         'mcp_call',
       ]);

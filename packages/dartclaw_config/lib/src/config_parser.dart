@@ -1087,9 +1087,14 @@ MemoryConfig _parseMemory(
   }
 
   if (nestedMaxBytes != null) {
-    maxBytes = _parseInt('memory.max_bytes', cli['memory_max_bytes'], nestedMaxBytes, defaults.maxBytes, warns);
+    maxBytes = _parsePositiveInt('memory.max_bytes', cli['memory_max_bytes'], nestedMaxBytes, defaults.maxBytes);
   } else {
-    maxBytes = _parseInt('memory_max_bytes', cli['memory_max_bytes'], legacyTopLevelMaxBytes, defaults.maxBytes, warns);
+    maxBytes = _parsePositiveInt(
+      'memory.max_bytes',
+      cli['memory_max_bytes'],
+      legacyTopLevelMaxBytes,
+      defaults.maxBytes,
+    );
   }
 
   final pruningMap = pruningRaw is Map ? pruningRaw : null;
@@ -1100,12 +1105,11 @@ MemoryConfig _parseMemory(
     pruningEnabled,
     warns,
   );
-  archiveAfterDays = _parseInt(
+  archiveAfterDays = _parsePositiveInt(
     'memory.pruning.archive_after_days',
     cli['memory_pruning_archive_after_days'],
     pruningMap?['archive_after_days'],
     defaults.archiveAfterDays,
-    warns,
   );
   if (cli['memory_pruning_schedule'] case final cliSchedule?) {
     pruningSchedule = cliSchedule;

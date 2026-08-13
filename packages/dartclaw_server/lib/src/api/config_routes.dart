@@ -88,6 +88,10 @@ Router configRoutes({
       return errorResponse(404, 'NOT_AVAILABLE', 'Schedule service not configured');
     }
 
+    if (scheduleService.entries.any((entry) => entry.id == name && !entry.mutable)) {
+      return errorResponse(409, 'RESERVED_SYSTEM_ACTION', 'System action "$name" is immutable');
+    }
+
     // Find job in configured jobs list
     final jobExists = scheduledJobs.any((j) => j['name'] == name);
     if (!jobExists) {

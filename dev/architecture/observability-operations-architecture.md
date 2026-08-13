@@ -571,7 +571,7 @@ Source: `packages/dartclaw_core/lib/src/events/compaction_events.dart`
 
 ### SelfImprovementService
 
-Manages `errors.md` and `learnings.md` in the workspace directory. Both files are capped at `maxEntries` (default: 50) entries, with oldest entries trimmed on write. Uses a `StreamController`-based write queue for serialized, non-blocking file access.
+Manages the separate `errors.md` runtime log and canonical learning entries. Each retains at most `maxEntries` (default: 50) writes, evicting the earliest retained insertion rather than rewriting capture timestamps. Error writes use the local serialized queue; canonical learnings commit through the shared memory-corpus authority and remain available through `memory_search` and `memory_read`.
 
 **errors.md**: Auto-populated on turn failures, guard blocks, and crashes. Format:
 ```markdown
@@ -581,18 +581,15 @@ Manages `errors.md` and `learnings.md` in the workspace directory. Both files ar
 - Resolution: Pattern added to blocked paths
 ```
 
-**learnings.md**: Written via `memory_save` MCP tool with `category='learning'`. Format:
-```markdown
-- [2026-04-11 10:30] Always check file permissions before atomic rename
-```
+**Canonical learnings**: Written via `memory_observe` with `role='learning'`, bounded to the retained set, and included in the corpus transaction and derived-index lifecycle.
 
-Atomic writes via temp file + rename pattern.
+Writes use the workspace authority's atomic transaction protocol.
 
 Source: `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart`
 
 ### BehaviorFileService
 
-Manages the suite of agent behavior prompt files: `SOUL.md` (identity), `AGENTS.md`/`CLAUDE.md` (harness-specific instructions), `USER.md` (preferences), `TOOLS.md` (tool guidance), `MEMORY.md` (persisted memory), `HEARTBEAT.md` (periodic check-in). Composes the full system prompt per scope with compact instructions and identifier preservation.
+Manages behavior prompt files: `SOUL.md` (identity), `AGENTS.md`/`CLAUDE.md` (harness-specific instructions), `USER.md` (preferences), `TOOLS.md` (tool guidance), and `HEARTBEAT.md` (periodic check-in). It composes each scope's prompt with compact instructions and identifier preservation; primary turns additionally receive the fresh bounded canonical memory index projection.
 
 Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 
@@ -604,7 +601,7 @@ Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
 Periodic agent check-ins via `HEARTBEAT.md`. Each cycle:
 1. Reads `HEARTBEAT.md` from workspace
 2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`) through provider worker capacity, never the primary-interactive lane
-3. After a dispatched checklist, optionally triggers `MemoryConsolidator` if `MEMORY.md` exceeds threshold (default: 32KB)
+3. Completes the dispatched checklist without an automatic memory-curation turn; curation starts only through the explicit `memory-curation` system action
 4. Independently attempts workspace sync via `WorkspaceGitSync`, including when the checklist is missing or empty
 
 Implements `Reconfigurable` -- watches `scheduling.*` for interval changes. Restarts timer if interval changes while running.
@@ -614,6 +611,8 @@ Source: `packages/dartclaw_server/lib/src/behavior/heartbeat_scheduler.dart`
 ### ScheduleService
 
 Manages cron, interval, and one-time job execution. Each job runs in an isolated session (`SessionKey.cronSession`). Single-shot `Timer` + reschedule pattern handles variable intervals. Features: overlap prevention, retry logic (`retryAttempts` + `retryDelaySeconds`), per-job pause/resume, delivery modes (none/channel/webhook/SSE), and an on-demand prompt-job seam that reuses execution policy without changing timers or pause state. Fires `ScheduledJobFailedEvent` after all retries exhausted. Reconfigurable (job list changes require restart).
+
+Run-only `SystemAction` descriptors share read-only list/show, run-now routing, and overlap protection with jobs. They are immutable and receive no timer, pause, retry, delivery, or YAML representation. `memory-curation` is the sole memory action: one bounded snapshot, one isolated read-only/no-tools proposal turn, then the existing atomic memory-apply authority. Its bounded KV lifecycle settles to `running`, `succeeded`, `conflicted`, or `failed`; interrupted `running` state settles at startup with explicit indeterminate-commit disclosure. Heartbeat, corpus size, scheduled-job completion, apply completion, and curation completion never dispatch it.
 
 Cron, system, advisor, and on-demand scheduled turns acquire provider worker leases. They never compete with user/channel turns for the fixed primary-interactive lane. Workflow-owned one-shots are reported through capacity-only leases.
 

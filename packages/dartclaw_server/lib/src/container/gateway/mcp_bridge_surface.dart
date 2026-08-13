@@ -26,7 +26,19 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
          toolCanonicals: toolCanonicals,
          onDenied: onDenied,
        ) {
-    _scoped = handler.scopedTo(_policy);
+    final authorityId = principal.sessionId.trim();
+    final sourceSessionId = principal.sourceSessionId?.trim();
+    _scoped = handler.scopedTo(
+      _policy,
+      callerIdentity: authorityId.isEmpty
+          ? null
+          : McpCallerIdentity(
+              authorityId: authorityId,
+              sessionId: sourceSessionId == null || sourceSessionId.isEmpty ? null : sourceSessionId,
+              taskId: principal.taskId?.trim().isEmpty ?? true ? null : principal.taskId!.trim(),
+              agentId: principal.logicalAgentId?.trim().isEmpty ?? true ? null : principal.logicalAgentId!.trim(),
+            ),
+    );
   }
 
   final GatewayPrincipal principal;

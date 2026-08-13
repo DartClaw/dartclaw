@@ -458,6 +458,7 @@ class DartclawServer {
         restartService: _core.restartService,
         sseBroadcast: _observability.sseBroadcast,
         scheduleService: _observability.scheduleService,
+        memoryStatusReader: _observability.memoryStatusService?.getStatus,
         whatsAppChannel: _channels.whatsAppChannel,
         signalChannel: _channels.signalChannel,
         googleChatChannel: _channels.googleChatWebhookHandler?.channel,

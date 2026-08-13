@@ -119,6 +119,8 @@ class DartclawServerBuilder {
   MemoryStatusService? memoryStatusService;
   MemoryPruner? memoryPruner;
   MemoryService? memoryService;
+  SearchBackend? searchBackend;
+  MemoryCorpusService? memoryCorpus;
   TemporalKnowledgeGraphService? kgService;
   ConfigWriter? configWriter;
   DartclawConfig? config;
@@ -295,6 +297,8 @@ class DartclawServerBuilder {
         memoryStatusService: memoryStatusService,
         memoryPruner: memoryPruner,
         memoryService: memoryService,
+        searchBackend: searchBackend,
+        memoryCorpus: memoryCorpus,
         heartbeat: heartbeat,
         scheduleService: scheduleService,
         gitSync: gitSync,

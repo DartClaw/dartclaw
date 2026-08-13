@@ -12,14 +12,11 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
   ChannelWiring channel, {
   OutboundMcpTransportFactory? outboundMcpTransportFactory,
 }) async {
-  final handlers = harness.memoryHandlers;
   server.registerTool(SessionsSpawnTool(sessions: harness.logicalAgentSessions));
   server.registerTool(SessionsSendTool(sessions: harness.logicalAgentSessions));
   for (final tool in harness.semanticMcpTools) {
     server.registerTool(tool);
   }
-  server.registerTool(MemorySearchTool(handler: handlers.onSearch));
-  server.registerTool(MemoryReadTool(handler: handlers.onRead));
   final auditLogger = security.auditLogger;
   // Register onboarding_complete only when onboarding is active at startup.
   // The single global MCP surface is shared with task/cron/channel agents;
@@ -47,7 +44,12 @@ Future<(AdvisorSubscriber?, OutboundMcpPool?)> _registerMcpTools(
     ContextResearchTool(
       memorySearch: storage.searchBackend,
       kg: storage.kg,
-      wikiSearch: WikiSearchSource(workspaceDir: config.workspaceDir),
+      sourceResolver: LiveCitationSourceResolver(
+        corpus: storage.memoryCorpus,
+        wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+        kg: storage.kg,
+        inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+      ),
       synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(

@@ -91,6 +91,10 @@ class TaskToolFilterGuard extends Guard {
       return GuardVerdict.block('Tool "$toolName" is not allowed while this task is read-only');
     }
 
+    if (toolName == 'memory_apply' || toolName == 'memory_observe') {
+      return GuardVerdict.block('Tool "$toolName" is not allowed while this task is read-only');
+    }
+
     if (toolName != 'shell') return null;
     final command = toolInput?['command'];
     if (command is! String || command.trim().isEmpty) return null;

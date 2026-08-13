@@ -74,6 +74,15 @@ class _ObservingSessionLockManager extends SessionLockManager {
   }
 }
 
+class _ContextAwareHarness extends FakeAgentHarness implements HarnessTurnContextSink {
+  final contexts = <HarnessTurnContext?>[];
+
+  @override
+  void setTurnContext(HarnessTurnContext? context) {
+    contexts.add(context);
+  }
+}
+
 class _TurnMonitorFakeTime {
   static final _initialTime = DateTime(2026);
   final _async = FakeAsync(initialTime: _initialTime);
@@ -191,6 +200,38 @@ void main() {
     expect(outcome.status, TurnStatus.completed);
     expect(outcome.responseText, 'Hello from runner!');
     expect(runner.isActive(session.id), isFalse);
+  });
+
+  test('sets trusted harness turn context for provider execution and clears it afterward', () async {
+    final contextWorker = _ContextAwareHarness();
+    final contextRunner = _buildRunner(
+      harness: contextWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    scheduleTurnCompletion(contextWorker, responseText: 'journaled');
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await contextRunner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'journal'},
+      ],
+      source: 'cron',
+      agentName: 'cron:memory-journal',
+    );
+    await contextRunner.waitForOutcome(session.id, turnId);
+
+    expect(contextWorker.contexts, hasLength(2));
+    expect(contextWorker.contexts.first?.sessionId, session.id);
+    expect(contextWorker.contexts.first?.turnId, turnId);
+    expect(contextWorker.contexts.first?.source, 'cron');
+    expect(contextWorker.contexts.first?.agentName, 'cron:memory-journal');
+    expect(contextWorker.contexts.last, isNull);
+    await contextWorker.dispose();
   });
 
   test('redacts response assignments without dropping trailing instructions', () async {

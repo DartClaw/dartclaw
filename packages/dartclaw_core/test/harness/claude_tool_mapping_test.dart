@@ -31,7 +31,10 @@ void main() {
         ownMcpToolCanonicals: const {
           'web_fetch': CanonicalTool.webFetch,
           'brave_search': CanonicalTool.webSearch,
-          'memory_save': CanonicalTool.memorySave,
+          'memory_apply': CanonicalTool.memoryApply,
+          'memory_observe': CanonicalTool.memoryObserve,
+          'memory_search': CanonicalTool.memorySearch,
+          'memory_read': CanonicalTool.memoryRead,
           'sessions_spawn': CanonicalTool.sessionsSpawn,
           'sessions_send': CanonicalTool.sessionsSend,
         },
@@ -41,7 +44,10 @@ void main() {
       expect(adapter.mapToolName('WebSearch'), CanonicalTool.webSearch);
       expect(adapter.mapToolName('mcp__dartclaw__web_fetch'), CanonicalTool.webFetch);
       expect(adapter.mapToolName('mcp__dartclaw__brave_search'), CanonicalTool.webSearch);
-      expect(adapter.mapToolName('mcp__dartclaw__memory_save'), CanonicalTool.memorySave);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_apply'), CanonicalTool.memoryApply);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_observe'), CanonicalTool.memoryObserve);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_search'), CanonicalTool.memorySearch);
+      expect(adapter.mapToolName('mcp__dartclaw__memory_read'), CanonicalTool.memoryRead);
       expect(adapter.mapToolName('mcp__dartclaw__sessions_spawn'), CanonicalTool.sessionsSpawn);
       expect(adapter.mapToolName('mcp__dartclaw__sessions_send'), CanonicalTool.sessionsSend);
       expect(adapter.mapToolName('mcp__dartclaw__unknown'), CanonicalTool.mcpCall);

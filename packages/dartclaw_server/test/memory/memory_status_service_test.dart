@@ -3,6 +3,15 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_server/src/memory/memory_status_service.dart'
+    show
+        IndexHealthReader,
+        MemoryCorpusStatusReader,
+        MemoryCurationStatusReader,
+        PromptMemoryStatusReader,
+        SearchIndexCounter,
+        WikiSourceCounter;
+import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -43,18 +52,158 @@ void main() {
   MemoryStatusService makeService({
     DartclawConfig? config,
     SearchIndexCounter? searchIndexCounter,
+    IndexHealthReader? indexHealthReader,
     ScheduleService? scheduleService,
+    MemoryCorpusStatusReader? corpusStatusReader,
+    PromptMemoryStatusReader? promptMemoryStatusReader,
+    MemoryCurationStatusReader? curationStatusReader,
+    WikiSourceCounter? wikiSourceCounter,
   }) {
     return MemoryStatusService(
       workspaceDir: workspaceDir,
       config: config ?? makeConfig(),
       kvService: kvService,
       searchIndexCounter: searchIndexCounter,
+      indexHealthReader: indexHealthReader,
+      corpusStatusReader: corpusStatusReader,
+      promptMemoryStatusReader: promptMemoryStatusReader,
+      curationStatusReader: curationStatusReader,
+      wikiSourceCounter: wikiSourceCounter,
       scheduleService: scheduleService,
     );
   }
 
   group('getStatus', () {
+    test('returns the five authoritative lifecycle objects without conflating roles', () async {
+      final service = makeService(
+        corpusStatusReader: () async => MemoryCorpusStatusSnapshot(
+          collectionRevision: 42,
+          collectionFingerprint: 'f42',
+          curatedEntryCount: 12,
+          topicCount: 3,
+          archiveEntryCount: 4,
+          observationEntryCount: 7,
+          learningEntryCount: 2,
+          observationUsageBytes: 20,
+          observationOldest: DateTime.utc(2026, 8, 1),
+          observationNewest: DateTime.utc(2026, 8, 12),
+          opaqueLegacyLocators: const ['memory/legacy/opaque.md'],
+          migrationState: 'migrated',
+          migrationSnapshotPath: '/workspace/.dartclaw-memory-migration-snapshot',
+          migrationAction: 'Inspect the retained snapshot before removing it manually.',
+        ),
+        promptMemoryStatusReader: () async => const MemoryPromptProjection(
+          text: 'bounded',
+          usedBytes: 20 * 1024,
+          budgetBytes: 32 * 1024,
+          usedLines: 101,
+          lineBudget: 150,
+          omittedEntries: 2,
+          truncated: true,
+        ),
+        searchIndexCounter: (role) => role == 'archive' ? 4 : 8,
+        wikiSourceCounter: () async => 5,
+        indexHealthReader: () async => IndexHealthEvidence(
+          state: IndexHealthState.healthy,
+          canonicalRevision: 42,
+          canonicalFingerprint: 'f42',
+          indexRevision: 42,
+          indexFingerprint: 'f42',
+          validatedAt: DateTime.utc(2026, 8, 12),
+        ),
+      );
+
+      final status = await service.getStatus();
+      expect(status.keys, containsAll(['collection', 'promptIndex', 'observations', 'index']));
+      expect(status, isNot(contains('curation')));
+      expect(status['collection'], containsPair('revision', 42));
+      expect(status['collection'], containsPair('learningEntryCount', 2));
+      expect(status['promptIndex'], containsPair('usedLines', 101));
+      expect(status['index'], containsPair('derivedChunkCount', 28));
+      expect(status['index'], containsPair('wikiSourceCount', 5));
+    });
+
+    test('degraded index does not publish stale derived rows as current', () async {
+      final status = await makeService(
+        searchIndexCounter: (_) => 9,
+        indexHealthReader: () async => IndexHealthEvidence(
+          state: IndexHealthState.degraded,
+          canonicalRevision: 42,
+          canonicalFingerprint: 'current',
+          indexRevision: 41,
+          indexFingerprint: 'stale',
+          failureStage: 'validation',
+          reason: 'revision mismatch',
+          action: 'Stop DartClaw, then rebuild.',
+        ),
+      ).getStatus();
+
+      expect(status['index'], containsPair('state', 'degraded'));
+      expect(status['index'], containsPair('derivedChunkCount', isNull));
+      expect(status['index'], containsPair('failureStage', 'validation'));
+    });
+
+    test('corrupt curation evidence is unknown rather than absent', () async {
+      final status = await makeService(
+        curationStatusReader: () async => throw const FormatException('bad lifecycle'),
+      ).getStatus();
+
+      expect(status['curation'], containsPair('state', 'unknown'));
+      expect(status['curation'], containsPair('action', contains('Preserve')));
+    });
+
+    test('curation projection omits frozen index fields and retains actionable failure evidence', () async {
+      final record = MemoryCurationRecord(
+        state: MemoryCurationState.failed,
+        runId: 'run-1',
+        startedAt: DateTime.utc(2026, 8, 12),
+        completedAt: DateTime.utc(2026, 8, 12, 0, 1),
+        currentRevision: 43,
+        operationReasons: const {'A': 'invalid proposal'},
+        failureReason: 'proposal rejected',
+        indexOutcome: 'degraded',
+        indexFailureReason: 'stale copied failure',
+        indexRepairAction: 'stale copied action',
+      );
+
+      final curation = (await makeService(curationStatusReader: () async => record).getStatus())['curation'] as Map;
+
+      expect(curation, containsPair('currentRevision', 43));
+      expect(curation, containsPair('operationReasons', {'A': 'invalid proposal'}));
+      expect(curation, containsPair('failureReason', 'proposal rejected'));
+      expect(curation.keys, isNot(containsAll(['indexOutcome', 'indexFailureReason', 'indexRepairAction'])));
+    });
+
+    test('unreadable observation evidence is unknown rather than a false zero', () async {
+      File(p.join(workspaceDir, 'memory')).writeAsStringSync('not a directory');
+
+      final observations = (await makeService().getStatus())['observations'] as Map<String, dynamic>;
+
+      expect(observations['usageBytes'], isNull);
+      expect(observations['usageKind'], 'unknown');
+      expect(observations['warning'], 'unknown');
+      expect(observations['reason'], isNotNull);
+    });
+
+    for (final source in [
+      (name: 'MEMORY.md', field: 'memoryMd', role: 'index'),
+      (name: 'MEMORY.archive.md', field: 'archiveMd', role: 'archive'),
+      (name: 'learnings.md', field: 'learningsMd', role: 'learning'),
+    ]) {
+      test('oversized ${source.role} status preserves known bytes and typed limit evidence', () async {
+        final file = File(p.join(workspaceDir, source.name));
+        final handle = file.openSync(mode: FileMode.write);
+        handle.truncateSync(MemoryResourceLimits.sourceBytes + 1);
+        handle.closeSync();
+
+        final status = (await makeService().getStatus())[source.field] as Map<String, dynamic>;
+
+        expect(status['sizeBytes'], MemoryResourceLimits.sourceBytes + 1);
+        expect(status['coverage'], 'lowerBound');
+        expect(status['failure'], allOf(contains(source.role), contains('${MemoryResourceLimits.sourceBytes + 1}')));
+      });
+    }
+
     test('returns complete status with all files present', () async {
       // Create MEMORY.md with entries
       File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('''
@@ -86,11 +235,11 @@ Another error
 - [2026-03-01 10:00] Learning one
 ''');
 
-      final countedSources = <String>[];
+      final countedRoles = <String>[];
       final service = makeService(
-        searchIndexCounter: (source) {
-          countedSources.add(source);
-          return source == 'memory_save' ? 3 : 2;
+        searchIndexCounter: (role) {
+          countedRoles.add(role);
+          return role == 'archive' ? 2 : 1;
         },
       );
       final status = await service.getStatus();
@@ -123,7 +272,7 @@ Another error
       final search = status['search'] as Map<String, dynamic>;
       expect(search['indexEntries'], 3);
       expect(search['indexArchived'], 2);
-      expect(countedSources, ['memory_save', 'archive']);
+      expect(countedRoles, ['topic', 'observation', 'learning', 'archive']);
 
       // pruner
       final pruner = status['pruner'] as Map<String, dynamic>;
@@ -300,23 +449,116 @@ Another error
 
   group('search status', () {
     test('search index counts from callback', () async {
-      final service = makeService(searchIndexCounter: (source) => source == 'memory_save' ? 100 : 50);
+      final service = makeService(
+        searchIndexCounter: (role) => switch (role) {
+          'topic' => 40,
+          'observation' || 'learning' => 30,
+          _ => 50,
+        },
+      );
       final status = await service.getStatus();
       final search = status['search'] as Map<String, dynamic>;
       expect(search['indexEntries'], 100);
       expect(search['indexArchived'], 50);
     });
 
-    test('null counter returns zeros', () async {
+    test('null counter returns unavailable counts', () async {
       final service = makeService();
       final status = await service.getStatus();
       final search = status['search'] as Map<String, dynamic>;
+      expect(search['health'], 'unknown');
+      expect(search['indexEntries'], isNull);
+      expect(search['indexArchived'], isNull);
+    });
+
+    test('validated empty index reports healthy numeric zero', () async {
+      final service = makeService(
+        searchIndexCounter: (_) => 0,
+        indexHealthReader: () async => IndexHealthEvidence(
+          state: IndexHealthState.healthy,
+          canonicalRevision: 9,
+          canonicalFingerprint: 'fingerprint-9',
+          indexRevision: 9,
+          indexFingerprint: 'fingerprint-9',
+          validatedAt: DateTime.utc(2026, 8, 12),
+        ),
+      );
+
+      final search = (await service.getStatus())['search'] as Map<String, dynamic>;
+
+      expect(search['health'], 'healthy');
       expect(search['indexEntries'], 0);
       expect(search['indexArchived'], 0);
+      expect(search['canonicalRevision'], 9);
+      expect(search['indexRevision'], 9);
+      expect(search['reason'], isNull);
+      expect(search['action'], isNull);
     });
+
+    for (final state in IndexHealthState.values) {
+      test('serializes ${state.name} health without deriving a fallback state', () async {
+        final service = makeService(
+          searchIndexCounter: (_) => throw StateError('count unavailable'),
+          indexHealthReader: () async => IndexHealthEvidence(
+            state: state,
+            canonicalRevision: 10,
+            canonicalFingerprint: 'fingerprint-10',
+            failureStage: state == IndexHealthState.healthy ? null : 'validation',
+            reason: state == IndexHealthState.healthy ? null : 'sentinel failure',
+            action: state == IndexHealthState.healthy ? null : 'rebuild',
+          ),
+        );
+
+        final search = (await service.getStatus())['search'] as Map<String, dynamic>;
+
+        expect(search['health'], state.name);
+        expect(search['indexEntries'], isNull);
+        expect(search['indexArchived'], isNull);
+      });
+    }
   });
 
   group('daily logs', () {
+    test('reports lower-bound usage when the fixed file ceiling is exceeded', () async {
+      final dir = Directory(p.join(workspaceDir, 'memory'))..createSync();
+      for (var index = MemoryResourceLimits.recursiveFiles + 4; index >= 0; index--) {
+        final date = DateTime.utc(2020, 1, 1).add(Duration(days: index)).toIso8601String().substring(0, 10);
+        File(p.join(dir.path, '$date.md')).writeAsStringSync('## 00:00 — Observation\n');
+      }
+
+      final status = await makeService().getStatus();
+      final dailyLogs = status['dailyLogs'] as Map<String, dynamic>;
+      final observations = status['observations'] as Map<String, dynamic>;
+
+      expect(dailyLogs['fileCount'], MemoryResourceLimits.recursiveFiles);
+      expect(dailyLogs['coverage'], 'lowerBound');
+      expect(dailyLogs['omittedFiles'], 5);
+      expect(dailyLogs['omittedLocators'], ['memory/2022-09-27.md']);
+      expect(dailyLogs['failedLocators'], isEmpty);
+      expect(observations['usageKind'], 'lowerBound');
+      expect(observations['warning'], 'unknown');
+    });
+
+    test('reports exact aggregate bytes and warns at the inclusive threshold', () async {
+      final dir = Directory(p.join(workspaceDir, 'memory'))..createSync();
+      for (var day = 1; day <= 8; day++) {
+        final file = File(p.join(dir.path, '2026-01-${day.toString().padLeft(2, '0')}.md'));
+        final handle = file.openSync(mode: FileMode.write);
+        handle.writeFromSync(utf8.encode('## 00:00 — Observation\n'));
+        handle.truncateSync(MemoryResourceLimits.observationPartitionBytes);
+        handle.closeSync();
+      }
+
+      final status = await makeService().getStatus();
+      final dailyLogs = status['dailyLogs'] as Map<String, dynamic>;
+      final observations = status['observations'] as Map<String, dynamic>;
+
+      expect(dailyLogs['totalSizeBytes'], MemoryResourceLimits.observationUsageWarningBytes);
+      expect(dailyLogs['usageWarning'], isTrue);
+      expect(dailyLogs['coverage'], 'exact');
+      expect(observations['usageKind'], 'exact');
+      expect(observations['warning'], 'active');
+    });
     test('enumerates daily log files', () async {
       final logDir = Directory(p.join(workspaceDir, 'memory'));
       logDir.createSync(recursive: true);
@@ -341,13 +583,12 @@ Another error
       expect((recent[0] as Map)['entries'], 2);
     });
 
-    test('reads content only for the newest seven among many daily logs', () async {
+    test('validates the bounded set while returning only the newest seven logs', () async {
       final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
       for (var year = 1000; year < 1200; year++) {
         final file = File(p.join(logDir.path, '$year-01-01.md'));
         if (year < 1193) {
-          file.writeAsStringSync('old');
-          expect(Process.runSync('chmod', ['000', file.path]).exitCode, 0);
+          file.writeAsStringSync('# DartClaw Canonical Memory\nmalformed');
         } else {
           file.writeAsStringSync('## 10:00 — "Recent"\n');
         }
@@ -369,7 +610,46 @@ Another error
         '1193-01-01',
       ]);
       expect(recent, everyElement(containsPair('entries', 1)));
-    }, skip: Platform.isWindows);
+      expect(dailyLogs['coverage'], 'lowerBound');
+    });
+
+    test('reports lower-bound coverage for a malformed older canonical partition', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
+      File(p.join(logDir.path, '2020-01-01.md')).writeAsStringSync('# DartClaw Canonical Memory\nmalformed');
+      for (var day = 1; day <= 8; day++) {
+        File(
+          p.join(logDir.path, '2026-01-${day.toString().padLeft(2, '0')}.md'),
+        ).writeAsStringSync('## 10:00 — "Recent"\n');
+      }
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['coverage'], 'lowerBound');
+      expect(dailyLogs['failedFiles'], 1);
+      expect(dailyLogs['failedLocators'], ['memory/2020-01-01.md']);
+      expect((dailyLogs['recent'] as List).map((entry) => (entry as Map)['date']), isNot(contains('2020-01-01')));
+    });
+
+    test('malformed bodies consume the aggregate read budget', () async {
+      final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
+      for (var day = 1; day <= 9; day++) {
+        final file = File(p.join(logDir.path, '2026-02-${day.toString().padLeft(2, '0')}.md'));
+        final handle = file.openSync(mode: FileMode.write);
+        handle.writeFromSync(utf8.encode('# DartClaw Canonical Memory\nmalformed'));
+        handle.truncateSync(MemoryResourceLimits.observationPartitionBytes);
+        handle.closeSync();
+      }
+
+      final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;
+
+      expect(dailyLogs['failedFiles'], 8);
+      expect(dailyLogs['omittedFiles'], 1);
+      expect(dailyLogs['failedLocators'], [
+        for (var day = 1; day <= 8; day++) 'memory/2026-02-${day.toString().padLeft(2, '0')}.md',
+      ]);
+      expect(dailyLogs['omittedLocators'], ['memory/2026-02-09.md']);
+      expect(dailyLogs['coverage'], 'lowerBound');
+    });
 
     test('counts the complete oversized recent log while retaining full size', () async {
       final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);

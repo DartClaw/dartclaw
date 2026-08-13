@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show MemoryOriginKind, MemoryResourceLimits;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager, SessionService, TurnOutcome, TurnStatus;
@@ -11,6 +12,7 @@ import 'package:test/test.dart';
 void main() {
   late Directory workspace;
   late List<Map<String, dynamic>> saved;
+  late List<MemoryCaptureContext> captureContexts;
   late KnowledgeInboxService service;
   late SessionService sessions;
   late FakeTurnManager turns;
@@ -20,6 +22,7 @@ void main() {
   setUp(() {
     workspace = Directory.systemTemp.createTempSync('dartclaw_knowledge_inbox_service_test_');
     saved = <Map<String, dynamic>>[];
+    captureContexts = <MemoryCaptureContext>[];
     sessions = SessionService(baseDir: p.join(workspace.path, 'sessions'));
     kgDb = sqlite3.openInMemory();
     kg = TemporalKnowledgeGraphService(kgDb);
@@ -46,8 +49,9 @@ void main() {
           throw StateError('forced ingestion failure');
         }
       },
-      onMemorySave: (args) async {
+      onMemoryObserve: (args, context) async {
         saved.add(args);
+        captureContexts.add(context);
         return {
           'content': [
             {'type': 'text', 'text': 'saved'},
@@ -83,6 +87,11 @@ void main() {
     expect(saved.single['text'], contains('Synthesized inbox finding from inbox/dart-roadmap.md'));
     expect(saved.single['text'], contains('Dart roadmap now emphasizes package governance'));
     expect(saved.single['text'], isNot(contains('Verbatim source sentence that must not be stored')));
+    expect(captureContexts.single.originKind, MemoryOriginKind.inbox);
+    expect(captureContexts.single.sourceLocator, 'inbox/dart-roadmap.md');
+    expect(captureContexts.first.sourceEvent, startsWith('sha256:'));
+    expect(captureContexts.single.caller, 'knowledge-inbox');
+    expect(captureContexts.single.sessionRef, 'knowledge-inbox');
     expect(File(p.join(workspace.path, 'processed', 'dart-roadmap.md')).existsSync(), isTrue);
     final wiki = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md')).readAsStringSync();
     expect(wiki, contains('provenance: llm-authored'));
@@ -90,6 +99,36 @@ void main() {
     expect(wiki, contains('last_updated_by: "cron:knowledge-inbox"'));
     expect(kg.query(entity: 'Dart SDK', predicate: 'roadmap').single.source, 'inbox/dart-roadmap.md');
     expect(report.summary, contains('processed files: dart-roadmap.md'));
+  });
+
+  test('same inbox path with a later identical item receives a distinct source event', () async {
+    service = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: turns,
+      sessions: sessions,
+      kg: kg,
+      maxBytes: 4096,
+      retryAttempts: 1,
+      stabilityWindow: const Duration(milliseconds: 20),
+      onMemoryObserve: (args, context) async {
+        captureContexts.add(context);
+        return const {};
+      },
+    );
+    final inbox = Directory(p.join(workspace.path, 'inbox'))..createSync(recursive: true);
+    final item = File(p.join(inbox.path, 'reused.md'))..writeAsStringSync('Same source body.');
+    item.setLastModifiedSync(DateTime.utc(2026, 5, 1));
+
+    await service.runOnce(requireStable: false);
+    File(p.join(workspace.path, 'processed', 'reused.md')).deleteSync();
+    item.writeAsStringSync('Same source body.');
+    item.setLastModifiedSync(DateTime.utc(2026, 5, 2));
+    await service.runOnce(requireStable: false);
+
+    expect(captureContexts, hasLength(2));
+    expect(captureContexts.map((context) => context.sourceLocator).toSet(), {'inbox/reused.md'});
+    expect(captureContexts.map((context) => context.sourceEvent).toSet(), hasLength(2));
   });
 
   test('read-only list applies result, scan, and preview bounds before reading file bodies', () async {
@@ -106,6 +145,38 @@ void main() {
 
     expect(items, hasLength(1));
     expect(items.single.snippet.length, lessThanOrEqualTo(12));
+  });
+
+  test('inbox retry reuses the exact capture source identity', () async {
+    var calls = 0;
+    service = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: turns,
+      sessions: sessions,
+      kg: kg,
+      maxBytes: 4096,
+      retryAttempts: 1,
+      stabilityWindow: const Duration(milliseconds: 20),
+      onMemoryObserve: (args, context) async {
+        captureContexts.add(context);
+        if (calls++ == 0) throw StateError('injected post-capture failure');
+        return const {};
+      },
+    );
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'retry.md')).writeAsStringSync('Retryable source body.');
+
+    final report = await service.runOnce(requireStable: false);
+
+    expect(report.processed, ['retry.md']);
+    expect(captureContexts, hasLength(2));
+    expect(captureContexts.map((context) => context.originKind).toSet(), {MemoryOriginKind.inbox});
+    expect(captureContexts.map((context) => context.sourceLocator).toSet(), {'inbox/retry.md'});
+    expect(captureContexts.map((context) => context.sourceEvent).toSet(), hasLength(1));
+    expect(captureContexts.first.sourceEvent, startsWith('sha256:'));
+    expect(captureContexts.map((context) => context.caller).toSet(), {'knowledge-inbox'});
+    expect(captureContexts.map((context) => context.sessionRef).toSet(), {'knowledge-inbox'});
   });
 
   test('read-only list tolerates preview caps that split UTF-8 characters', () async {
@@ -212,8 +283,9 @@ void main() {
       retryAttempts: 1,
       stabilityWindow: const Duration(milliseconds: 20),
       now: () => DateTime.utc(2026, 5),
-      onMemorySave: (args) async {
+      onMemoryObserve: (args, context) async {
         saved.add(args);
+        captureContexts.add(context);
         return const {};
       },
     );
@@ -259,7 +331,7 @@ Celebrity gossip should be excluded.
       maxBytes: 80,
       stabilityWindow: const Duration(milliseconds: 20),
       now: () => DateTime.utc(2026, 5),
-      onMemorySave: (args) async {
+      onMemoryObserve: (args, context) async {
         saved.add(args);
         return const {};
       },
@@ -300,17 +372,44 @@ Celebrity gossip should be excluded.
     expect(recentFile.existsSync(), isTrue);
   });
 
-  test('S07 wiki lint reports categorized provenance and link findings without mutating pages', () {
+  test('S07 wiki lint reports categorized provenance and link findings without mutating pages', () async {
     final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
     final page = File(p.join(workspace.path, 'wiki', 'broken.md'))
       ..writeAsStringSync('# Broken\n\n[Missing](missing.md)\n');
     final before = page.readAsStringSync();
 
-    final report = wiki.lint();
+    final report = await wiki.lint();
 
     expect(report.provenanceInconsistencies.join('\n'), contains('broken.md: missing YAML frontmatter'));
     expect(report.summary(), contains('provenance-inconsistency=1 [broken.md: missing YAML frontmatter]'));
     expect(page.readAsStringSync(), before);
+  });
+
+  test('wiki lint stops at the fixed file ceiling and reports degraded coverage', () async {
+    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
+    for (var index = 0; index < MemoryResourceLimits.recursiveFiles; index++) {
+      File(p.join(wiki.wikiDir.path, 'page-${index.toString().padLeft(4, '0')}.md')).writeAsStringSync('# Page\n');
+    }
+
+    final report = await wiki.lint();
+
+    expect(report.processedFiles, MemoryResourceLimits.recursiveFiles);
+    expect(report.degraded, isTrue);
+    expect(report.degradations.single.reason, 'fileLimit');
+    expect(report.summary(), contains('"reason":"fileLimit"'));
+  });
+
+  test('wiki lint charges a malformed body and preserves known failure context', () async {
+    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
+    File(p.join(wiki.wikiDir.path, 'broken.md')).writeAsBytesSync([0xff]);
+
+    final report = await wiki.lint();
+
+    final failure = report.degradations.singleWhere((item) => item.reason == 'readFailure');
+    expect(report.processedBytes, greaterThanOrEqualTo(1));
+    expect(failure.locator, 'broken.md');
+    expect(failure.observed, greaterThanOrEqualTo(1));
+    expect(failure.limit, MemoryResourceLimits.recursiveBodyBytes);
   });
 
   test('wiki writes constrain model-controlled slug and confidence frontmatter', () async {
@@ -354,20 +453,20 @@ related: []
 # Invalid
 ''');
 
-    expect(wiki.lint().provenanceInconsistencies, contains('invalid-confidence.md: invalid confidence'));
+    expect((await wiki.lint()).provenanceInconsistencies, contains('invalid-confidence.md: invalid confidence'));
   });
 
-  test('S06 wiki bootstrap emits provenance frontmatter', () {
+  test('S06 wiki bootstrap emits provenance frontmatter', () async {
     final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
 
     final readme = File(p.join(wiki.wikiDir.path, 'README.md')).readAsStringSync();
 
     expect(readme, startsWith('---\nprovenance: human-authored'));
     expect(readme, contains('sources:\n  - "workspace-bootstrap"'));
-    expect(wiki.lint().provenanceInconsistencies, isEmpty);
+    expect((await wiki.lint()).provenanceInconsistencies, isEmpty);
   });
 
-  test('S07 wiki lint includes KG contradiction pre-screen category', () {
+  test('S07 wiki lint includes KG contradiction pre-screen category', () async {
     final db = sqlite3.openInMemory();
     addTearDown(db.close);
     final kg = TemporalKnowledgeGraphService(db);
@@ -386,7 +485,7 @@ related: []
       source: 'inbox/dart.md',
     );
 
-    final report = WikiPageStore(workspaceDir: workspace.path).lint(kg: kg);
+    final report = await WikiPageStore(workspaceDir: workspace.path).lint(kg: kg);
 
     expect(report.contradictions.single, contains('dart sdk.channel'));
   });
@@ -402,7 +501,7 @@ related: []
       retryAttempts: 1,
       stabilityWindow: const Duration(milliseconds: 20),
       now: () => DateTime.utc(2026, 5),
-      onMemorySave: (args) async {
+      onMemoryObserve: (args, context) async {
         saved.add(args);
         return const {};
       },
@@ -643,7 +742,7 @@ related: []
       now: DateTime.utc(2026, 3),
     );
 
-    final report = wiki.lint(now: DateTime.utc(2026, 5), staleAfterDays: 30);
+    final report = await wiki.lint(now: DateTime.utc(2026, 5), staleAfterDays: 30);
 
     expect(report.stalePages, contains('old.md'));
   });

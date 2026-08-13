@@ -14,25 +14,16 @@ extension TurnRunnerExecution on TurnRunner {
     }
 
     final effectiveBehavior = turnContext?.behaviorOverride ?? _behavior;
-    final scope = turnContext?.promptScope ?? PromptScope.interactive;
+    final scope = turnContext?.promptScope ?? PromptScope.restricted;
 
     if (_worker.promptStrategy == PromptStrategy.append) {
-      if (scope == PromptScope.conversational && effectiveBehavior.hasFreshOnboardingSentinel(logStale: true)) {
-        return effectiveBehavior.composeStaticPrompt(scope: scope);
-      }
-      return '';
+      return effectiveBehavior.composeStaticPrompt(scope: scope, includeOnboarding: turnContext?.isHumanInput ?? false);
     }
 
-    final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(scope: scope);
-    final memFile = _memoryFile;
-    if (memFile != null) {
-      await memFile.readMemory();
-      if (memFile.lastMemorySize > TurnRunner._memoryWarnBytes) {
-        TurnRunner._log.warning(
-          'MEMORY.md is ${memFile.lastMemorySize} bytes (>${TurnRunner._memoryWarnBytes ~/ 1024}KB) – consider pruning',
-        );
-      }
-    }
+    final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(
+      scope: scope,
+      includeOnboarding: turnContext?.isHumanInput ?? false,
+    );
 
     final agentsContent = await effectiveBehavior.composeAppendPrompt(scope: scope);
     if (agentsContent.isEmpty) return behaviorPrompt;

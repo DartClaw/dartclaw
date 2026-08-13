@@ -7,11 +7,14 @@ void main() async {
   final memory = MemoryService(db);
   final backend = Fts5SearchBackend(memoryService: memory);
 
-  memory.insertChunk(
-    text: 'DartClaw uses a hardened Dart runtime for agent orchestration.',
-    source: 'README.md',
-    category: 'architecture',
-  );
+  memory.rebuildIndex([
+    MemoryIndexRow(
+      text: 'DartClaw uses a hardened Dart runtime for agent orchestration.',
+      source: 'README.md',
+      category: 'architecture',
+      createdAt: DateTime.now(),
+    ),
+  ]);
 
   final hits = await backend.search('hardened runtime');
   print('Memory hits: ${hits.length}');
@@ -19,5 +22,5 @@ void main() async {
     print('Top hit: ${hits.first.text}');
   }
 
-  memory.close();
+  db.close();
 }

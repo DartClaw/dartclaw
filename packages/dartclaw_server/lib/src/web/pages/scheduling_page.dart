@@ -3,6 +3,7 @@ import 'package:shelf/shelf.dart';
 
 import '../../params/display_params.dart';
 import '../../runtime_config.dart';
+import '../../memory/memory_status_service.dart';
 import '../../templates/scheduling.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
@@ -12,12 +13,14 @@ class SchedulingPage extends DashboardPage {
   SchedulingPage({
     this.runtimeConfigGetter,
     this.configWriter,
+    this.memoryStatusServiceGetter,
     this.heartbeatDisplay = const HeartbeatDisplayParams(),
     this.schedulingDisplay = const SchedulingDisplayParams(),
   });
 
   final RuntimeConfig? Function()? runtimeConfigGetter;
   final ConfigWriter? configWriter;
+  final MemoryStatusService? Function()? memoryStatusServiceGetter;
   final HeartbeatDisplayParams heartbeatDisplay;
   final SchedulingDisplayParams schedulingDisplay;
 
@@ -37,17 +40,28 @@ class SchedulingPage extends DashboardPage {
   Future<Response> handler(Request request, PageContext context) async {
     final sidebarData = await context.sidebar.build();
     final liveHeartbeat = runtimeConfigGetter?.call()?.heartbeatEnabled ?? heartbeatDisplay.enabled;
+    final systemActionNames = schedulingDisplay.jobs
+        .where((job) => job['type'] == 'system_action')
+        .map((job) => job['id'] ?? job['name'])
+        .whereType<String>()
+        .toSet();
 
-    final liveJobs = configWriter != null
-        ? [
-            ...(await configWriter!.readSchedulingJobs()).where(
-              (job) => !schedulingDisplay.systemJobNames.contains(job['id'] ?? job['name']),
-            ),
-            ...schedulingDisplay.jobs.where(
-              (job) => schedulingDisplay.systemJobNames.contains(job['id'] ?? job['name']),
-            ),
-          ]
+    var liveJobs = configWriter != null
+        ? await _liveJobs(configWriter!, schedulingDisplay, systemActionNames)
         : schedulingDisplay.jobs;
+    if (liveJobs == null) {
+      return Response(409, body: 'A configured scheduled job conflicts with a reserved system action.');
+    }
+    final memoryStatus = await memoryStatusServiceGetter?.call()?.getStatus();
+    if (memoryStatus != null) {
+      liveJobs = [
+        for (final job in liveJobs)
+          if ((job['id'] ?? job['name']) == 'memory-curation')
+            {...job, 'lifecycle': memoryStatus['curation'], 'index': memoryStatus['index']}
+          else
+            job,
+      ];
+    }
 
     final page = schedulingTemplate(
       sidebarData: sidebarData,
@@ -63,4 +77,17 @@ class SchedulingPage extends DashboardPage {
 
     return Response.ok(page, headers: htmlHeaders);
   }
+}
+
+Future<List<Map<String, dynamic>>?> _liveJobs(
+  ConfigWriter writer,
+  SchedulingDisplayParams display,
+  Set<String> systemActionNames,
+) async {
+  final configured = await writer.readSchedulingJobs();
+  if (configured.any((job) => systemActionNames.contains(job['id'] ?? job['name']))) return null;
+  return [
+    ...configured.where((job) => !display.systemJobNames.contains(job['id'] ?? job['name'])),
+    ...display.jobs.where((job) => display.systemJobNames.contains(job['id'] ?? job['name'])),
+  ];
 }

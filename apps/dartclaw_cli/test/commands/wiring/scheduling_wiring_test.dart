@@ -6,7 +6,7 @@ void main() {
   group('memory journal config validation', () {
     test('disabled journal leaves colliding user jobs unchanged', () {
       final config = DartclawConfig(
-        memory: const MemoryConfig(journalEnabled: false),
+        memory: MemoryConfig(journalEnabled: false),
         scheduling: SchedulingConfig(
           jobs: [
             {
@@ -24,7 +24,7 @@ void main() {
     for (final identityKey in ['id', 'name']) {
       test('enabled journal rejects a user $identityKey collision before wiring', () {
         final config = DartclawConfig(
-          memory: const MemoryConfig(journalEnabled: true),
+          memory: MemoryConfig(journalEnabled: true),
           scheduling: SchedulingConfig(
             jobs: [
               {
@@ -50,7 +50,7 @@ void main() {
     }
 
     test('enabled journal rejects an invalid cron with the standard parser error', () {
-      const config = DartclawConfig(memory: MemoryConfig(journalEnabled: true, journalSchedule: 'not-a-cron'));
+      final config = DartclawConfig(memory: MemoryConfig(journalEnabled: true, journalSchedule: 'not-a-cron'));
 
       expect(() => validateMemoryJournalConfig(config), throwsFormatException);
       expect(() => CronExpression.parse('not-a-cron'), throwsFormatException);

@@ -89,7 +89,7 @@ final class ContextResearchMetrics {
 final class ContextResearchTool implements McpTool {
   final SearchBackend _memorySearch;
   final TemporalKnowledgeGraphService _kg;
-  final WikiSearchSource _wikiSearch;
+  final CitationSourceResolver? _sourceResolver;
   final ContextResearchSynthesizer _synthesizer;
   final ContextResearchMetricsSink? _metricsSink;
   final int _maxQueryLength;
@@ -100,15 +100,15 @@ final class ContextResearchTool implements McpTool {
   ContextResearchTool({
     required SearchBackend memorySearch,
     required TemporalKnowledgeGraphService kg,
-    required WikiSearchSource wikiSearch,
     required ContextResearchSynthesizer synthesizer,
+    CitationSourceResolver? sourceResolver,
     ContextResearchMetricsSink? metricsSink,
     int maxQueryLength = 500,
     int candidateLimit = 8,
     int defaultTokenBudget = 1200,
   }) : _memorySearch = memorySearch,
        _kg = kg,
-       _wikiSearch = wikiSearch,
+       _sourceResolver = sourceResolver,
        _synthesizer = synthesizer,
        _metricsSink = metricsSink,
        _maxQueryLength = maxQueryLength,
@@ -239,16 +239,7 @@ final class ContextResearchTool implements McpTool {
   }
 
   Future<_RetrievalResult> _retrieve(String query) async {
-    final memoryFuture = _captureLayer(CitationLayer.memory, () async {
-      final results = await _memorySearch.search(query, limit: _candidateLimit);
-      return results.map((result) {
-        final layer = result.source.startsWith('wiki/') ? CitationLayer.wiki : CitationLayer.memory;
-        return ContextResearchCandidate(
-          text: result.text,
-          sourceRef: SourceRef(layer: layer, locator: result.source, label: result.category ?? result.source),
-        );
-      }).toList();
-    });
+    final memoryFuture = _retrieveMemory(query);
     final kgFuture = _captureLayer(CitationLayer.kg, () async {
       final facts = <KnowledgeFact>[];
       for (final entity in _kgEntities(query)) {
@@ -258,25 +249,11 @@ final class ContextResearchTool implements McpTool {
       return facts.map((fact) {
         return ContextResearchCandidate(
           text: '${fact.entity} ${fact.predicate} ${fact.value}',
-          sourceRef: SourceRef(layer: CitationLayer.kg, locator: fact.id.toString(), label: fact.source),
+          sourceRef: SourceRef(layer: CitationLayer.kg, locator: fact.id.toString(), label: fact.source, role: 'kg'),
         );
       }).toList();
     });
-    final wikiFuture = _captureLayer(CitationLayer.wiki, () async {
-      final results = await _wikiSearch.search(query, limit: _candidateLimit);
-      return results.map((result) {
-        return ContextResearchCandidate(
-          text: result.text,
-          sourceRef: SourceRef(
-            layer: CitationLayer.wiki,
-            locator: result.source,
-            label: result.category ?? result.source,
-          ),
-        );
-      }).toList();
-    });
-
-    final layers = await Future.wait([memoryFuture, kgFuture, wikiFuture]);
+    final layers = await Future.wait([memoryFuture, kgFuture]);
     final degradedLayers = <String>[];
     final candidates = <ContextResearchCandidate>[];
     for (final layer in layers) {
@@ -285,12 +262,54 @@ final class ContextResearchTool implements McpTool {
     }
 
     final deduped = _dedupe(candidates).take(_candidateLimit * 3).toList();
-    final resolver = CitationSourceIndexResolver(
-      wikiLocators: deduped.where((c) => c.sourceRef.layer == CitationLayer.wiki).map((c) => c.sourceRef.locator),
-      memoryLocators: deduped.where((c) => c.sourceRef.layer == CitationLayer.memory).map((c) => c.sourceRef.locator),
-      kgFactExists: _kg.factExists,
-    );
+    final resolver =
+        _sourceResolver ??
+        CitationSourceIndexResolver(
+          wikiLocators: deduped.where((c) => c.sourceRef.layer == CitationLayer.wiki).map((c) => c.sourceRef.locator),
+          memoryLocators: deduped
+              .where((c) => c.sourceRef.layer == CitationLayer.memory)
+              .map((c) => c.sourceRef.locator),
+          kgFactExists: _kg.factExists,
+        );
     return _RetrievalResult(candidates: deduped, degradedLayers: degradedLayers, resolver: resolver);
+  }
+
+  Future<_LayerResult> _retrieveMemory(String query) async {
+    try {
+      final outcome = await _memorySearch.search(query, limit: _candidateLimit, userId: 'owner');
+      final candidates = <ContextResearchCandidate>[];
+      var rejectedRole = false;
+      for (final result in outcome.results) {
+        final layer = switch (result.role) {
+          'topic' || 'archive' || 'observation' || 'learning' || 'memory' => CitationLayer.memory,
+          'wiki' => CitationLayer.wiki,
+          'knowledge-inbox' => CitationLayer.inbox,
+          'kg' => CitationLayer.kg,
+          _ => null,
+        };
+        if (layer == null) {
+          rejectedRole = true;
+          continue;
+        }
+        candidates.add(
+          ContextResearchCandidate(
+            text: result.text,
+            sourceRef: SourceRef(
+              layer: layer,
+              locator: result.locator,
+              label: result.category ?? result.locator,
+              role: result.role,
+            ),
+          ),
+        );
+      }
+      return _LayerResult(
+        candidates: candidates,
+        degradedLayers: [...outcome.degradedLayers, if (rejectedRole) 'memory'],
+      );
+    } on Object {
+      return const _LayerResult(candidates: [], degradedLayers: ['memory']);
+    }
   }
 
   Future<_LayerResult> _captureLayer(
@@ -323,6 +342,9 @@ final class ContextResearchTool implements McpTool {
         degradedLayers: degradedLayers,
       );
     }
+    final candidatesByIdentity = {
+      for (final candidate in fallbackCandidates) _sourceIdentity(candidate.sourceRef): candidate.sourceRef,
+    };
     return _withResolvedStatements(
       CitationPacket(
         statements: packet.statements,
@@ -335,16 +357,22 @@ final class ContextResearchTool implements McpTool {
         noSourcesFound: packet.noSourcesFound,
       ),
       resolver,
+      candidatesByIdentity,
     );
   }
 
-  Future<CitationPacket> _withResolvedStatements(CitationPacket packet, CitationSourceResolver resolver) async {
+  Future<CitationPacket> _withResolvedStatements(
+    CitationPacket packet,
+    CitationSourceResolver resolver,
+    Map<String, SourceRef> candidatesByIdentity,
+  ) async {
     final statements = <CitationStatement>[];
     for (final statement in packet.statements) {
       final resolvedRefs = <SourceRef>[];
       for (final ref in statement.sourceRefs) {
-        if (await resolver.resolves(ref)) {
-          resolvedRefs.add(ref);
+        final candidate = candidatesByIdentity[_sourceIdentity(ref)];
+        if (candidate != null && await resolver.resolves(candidate)) {
+          resolvedRefs.add(candidate);
         }
       }
       statements.add(
@@ -358,6 +386,8 @@ final class ContextResearchTool implements McpTool {
       noSourcesFound: packet.noSourcesFound,
     );
   }
+
+  String _sourceIdentity(SourceRef ref) => '${ref.layer.wireName}\u0000${ref.role ?? ''}\u0000${ref.locator}';
 
   _BudgetResult _truncateToBudget(CitationPacket packet, int tokenBudget) {
     var retained = packet.statements;
@@ -388,7 +418,8 @@ final class ContextResearchTool implements McpTool {
     final seen = <String>{};
     final deduped = <ContextResearchCandidate>[];
     for (final candidate in candidates) {
-      final key = '${candidate.sourceRef.layer.wireName}:${candidate.sourceRef.locator}:${candidate.text}';
+      final key =
+          '${candidate.sourceRef.layer.wireName}:${candidate.sourceRef.role}:${candidate.sourceRef.locator}:${candidate.text}';
       if (seen.add(key)) deduped.add(candidate);
     }
     return deduped;
@@ -398,7 +429,7 @@ final class ContextResearchTool implements McpTool {
     final seen = <String>{};
     final sourceList = <SourceRef>[];
     for (final ref in refs) {
-      final key = '${ref.layer.wireName}:${ref.locator}';
+      final key = '${ref.layer.wireName}:${ref.role}:${ref.locator}';
       if (seen.add(key)) sourceList.add(ref);
     }
     return sourceList;

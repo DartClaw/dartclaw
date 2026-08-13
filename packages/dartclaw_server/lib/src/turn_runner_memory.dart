@@ -2,8 +2,8 @@ part of 'turn_runner.dart';
 
 const _flushPrompt =
     'You are approaching your context limit. Before context compression '
-    'occurs, save any important information from this conversation to MEMORY.md using the '
-    'memory_save tool. Focus on:\n'
+    'occurs, record important information from this conversation with memory_observe '
+    "using role='observation'. Focus on:\n"
     '1. Key facts, decisions, or preferences mentioned by the user\n'
     '2. Important context about ongoing tasks\n'
     '3. Any information that would be lost during compression\n\n'

@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-13 08:48 CEST
+Last Updated: 2026-08-13 14:25 CEST
 
 ## Current Phase
 
@@ -13,9 +13,7 @@ Last Updated: 2026-08-13 08:48 CEST
 
 ## Current Focus
 
-- Execute the supplemental 0.24 Memory Model plan from `dev/bundle/docs/specs/0.24/`, beginning with the canonical corpus.
-- Execute the provider-neutral isolation plan from `dev/bundle/docs/specs/0.24-execution-isolation/`; the 0.24 tag remains
-  blocked until its host/container, credential, capability, and conformance stories pass.
+- Run standard 0.24 release-preparation gates after integrating the completed Memory Model and execution-isolation plans.
 - Continue paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
 
 ## Active Stories
@@ -24,6 +22,9 @@ Last Updated: 2026-08-13 08:48 CEST
 
 ## Recently Completed
 
+- **0.24 Memory Model plan** (2026-08-12): S01–S12 delivered the canonical corpus, atomic mutation and migration,
+  bounded prompt/retrieval/resource paths, search/index recovery, explicit curation, lifecycle visibility, and governance.
+  Plan-level gap remediation converged at 10/10 functionality, completeness, and wiring with full workspace gates green.
 - **Production-feedback convergence** (2026-08-11): all SecondBrain findings were verified or explicitly closed,
   actionable review findings were remediated, full workspace gates passed, and a fresh whole-changeset review returned
   Ready with no surviving notable issue.

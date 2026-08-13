@@ -34,27 +34,27 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC03] [TI01,TI02,TI03] A populated and an empty canonical corpus round-trip without identity or metadata loss**
+- [x] **S01 [OC01,OC03] [TI01,TI02,TI03] A populated and an empty canonical corpus round-trip without identity or metadata loss**
   - **Given** collection ID `9a56ad9e-573c-45a4-901f-4fc073a20f84` at revision `7`, and active entry ID `e907c4e7-0c55-43c0-95cd-ebf41c4f6721` at revision `3` with topic `preferences`, UTC timestamps, summary, Markdown detail, and a user-turn provenance reference, and separately an empty corpus – the same collection metadata with an empty active index and no topic, archive, observation, or learning documents
   - **When** the collection index and topic document are rendered, parsed, and rendered again, and the empty corpus is rendered, parsed, and validated
   - **Then** every semantic field is equal after parsing, the second render is byte-identical canonical Markdown, the collection and entry revisions remain distinct positive integers, and the personal-memory locator is exactly the entry ID; the empty corpus round-trips to an equal empty value with its collection ID and revision intact and validates as consistent rather than being reported as missing or inconsistent
 
-- [ ] **S02 [OC01,OC03] [TI01,TI02,TI03] Active-to-archive movement preserves identity while revision state remains internally consistent**
+- [x] **S02 [OC01,OC03] [TI01,TI02,TI03] Active-to-archive movement preserves identity while revision state remains internally consistent**
   - **Given** two valid corpus values describing the same entry before and after an archive transition, with the entry revision advancing from `3` to `4` and the collection revision advancing from `7` to `8`
   - **When** both values pass validation and their topic/index/archive documents are round-tripped
   - **Then** the entry ID and locator are unchanged, the later value exists only in the archive role, the active index no longer points to it, and no derived chunk or file position becomes a second identity
 
-- [ ] **S03 [OC02,OC03] [TI01,TI02,TI03] Observation, learning, personal-memory, wiki, and KG roles cannot collapse into one authority**
+- [x] **S03 [OC02,OC03] [TI01,TI02,TI03] Observation, learning, personal-memory, wiki, and KG roles cannot collapse into one authority**
   - **Given** an imperative journal observation, a curated personal preference, a runtime learning, a wiki path, and a temporal-KG fact ID
   - **When** their canonical roles, provenance references, documents, and locators are represented
   - **Then** only the curated personal entry is eligible for the prompt index, the observation remains in its observation document, the runtime learning is a canonical learning-role entry with its own stable entry ID, revision, and validation, addressed by that entry ID rather than a file-plus-heading anchor, and is never index-eligible by role, and wiki/KG references keep their native path/fact-ID locators without copying their sourced claim into personal topic memory
 
-- [ ] **S04 [OC01,OC02] [TI01,TI03] Invalid or ambiguous canonical metadata fails explicitly**
+- [x] **S04 [OC01,OC02] [TI01,TI03] Invalid or ambiguous canonical metadata fails explicitly**
   - **Given** fixtures containing, respectively, a blank or non-canonical entry ID, revision `0`, missing provenance, an unsupported format version, an invalid topic (blank, uppercase, whitespace-bearing, and longer than 64 characters), inconsistent timestamps (a non-UTC value, `created` after `updated`, and an index row whose update time disagrees with its detail document), duplicate entry IDs across active/archive documents, a dangling index pointer, an active entry present in a topic document but absent from the active index, and an index/detail topic or revision mismatch
   - **When** each fixture is parsed or validated
   - **Then** the exact invalid field or cross-document inconsistency is reported and no value is silently defaulted, reclassified, or partially accepted
 
-- [ ] **S05 [OC01,OC02] [TI02,TI03] Existing opaque and fenced Markdown remains untouched by the new canonical seam**
+- [x] **S05 [OC01,OC02] [TI02,TI03] Existing opaque and fenced Markdown remains untouched by the new canonical seam**
   - **Given** a legacy `MEMORY.md` containing a hand-written preamble, fenced timestamp-shaped examples, unrecognized bullets, and one recognized entry
   - **When** existing legacy parsing or pruning runs alongside the new canonical model
   - **Then** opaque bytes remain in place, fenced examples do not become entries, and the recognized source block still maps to its exact offsets for S03 migration
@@ -62,12 +62,12 @@
 
 ## Structural Criteria
 
-- [ ] Canonical collection metadata, active index entries, topic details, archived entries, observations, runtime learnings, and deletion audits are representable in plain Markdown; no canonical fact exists only in `search.db` or another derived store.
-- [ ] The corpus seam exposes a deterministic relative-path-to-bytes inventory with two member classes: canonical documents – index, topic, archive, observation, learning, and audit – whose inventory value is exactly that document's rendered canonical Markdown and which the validator parses, and verbatim members – preserved opaque legacy files under `memory/legacy/` – whose inventory value is exactly the preserved original bytes and which the canonical validator never parses. The same corpus value always yields the same relative paths in the same order across both classes, and S02 fingerprints their union.
-- [ ] `dartclaw_core` remains SQLite-free and owns the domain values, pure codec, and validation contract without importing storage or server packages.
-- [ ] No new package, database, daemon, scheduler, provider abstraction, or runtime dependency is introduced.
-- [ ] The current `MemoryEntry` source-offset parser contract remains available for lossless S03 migration; S01 does not silently reinterpret opaque legacy content as canonical.
-- [ ] Personal-memory serialization does not write `wiki/` or temporal-KG state and does not redefine their native source identities.
+- [x] Canonical collection metadata, active index entries, topic details, archived entries, observations, runtime learnings, and deletion audits are representable in plain Markdown; no canonical fact exists only in `search.db` or another derived store.
+- [x] The corpus seam exposes a deterministic relative-path-to-bytes inventory with two member classes: canonical documents – index, topic, archive, observation, learning, and audit – whose inventory value is exactly that document's rendered canonical Markdown and which the validator parses, and verbatim members – preserved opaque legacy files under `memory/legacy/` – whose inventory value is exactly the preserved original bytes and which the canonical validator never parses. The same corpus value always yields the same relative paths in the same order across both classes, and S02 fingerprints their union.
+- [x] `dartclaw_core` remains SQLite-free and owns the domain values, pure codec, and validation contract without importing storage or server packages.
+- [x] No new package, database, daemon, scheduler, provider abstraction, or runtime dependency is introduced.
+- [x] The current `MemoryEntry` source-offset parser contract remains available for lossless S03 migration; S01 does not silently reinterpret opaque legacy content as canonical.
+- [x] Personal-memory serialization does not write `wiki/` or temporal-KG state and does not redefine their native source identities.
 
 ## Scope & Boundaries
 
@@ -123,7 +123,7 @@ file   | packages/dartclaw_storage/lib/src/knowledge/temporal_knowledge_graph_se
 
 ### Implementation Tasks
 
-- [ ] **TI01** Canonical memory identities, roles, revisions, provenance, and document values have one validated core contract
+- [x] **TI01** Canonical memory identities, roles, revisions, provenance, and document values have one validated core contract
   - Define the lean immutable values under `packages/dartclaw_core/lib/src/memory/`, including `CanonicalMemoryEntry`, `MemoryIndexEntry`, `MemoryObservation`, `CanonicalMemoryLearning`, `MemoryRole`, `MemoryOriginKind`, `MemorySourceRef`, collection metadata, and canonical locator derivation for both personal and learning entries; reject non-canonical IDs, nonpositive revisions, invalid topics, missing provenance, and inconsistent timestamps.
   - `MemoryOriginKind` is a closed enum with exactly `turn`, `journal`, `inbox`, `curation`, and `migration`; an unknown kind is rejected rather than mapped to a fallback, and provenance for a manual stopped-runtime edit carries no origin kind.
   - A valid topic is a lowercase slug matching `[a-z0-9]+(-[a-z0-9]+)*`, at most 64 characters, used verbatim as the topic document file name; blank and non-conforming topics are rejected, never normalized on the fly – a new runtime topic longer than 64 characters is rejected, never truncated. S03 slugifies legacy categories at migration time (lowercase, whitespace runs to a single hyphen, other characters dropped, repeated hyphens collapsed, leading/trailing hyphens trimmed), truncates a resulting slug longer than 64 characters at 64 characters and trims a trailing hyphen the cut leaves behind, and merges slug collisions – including collisions truncation creates – into one topic. Truncation is a migration-only affordance and never a runtime normalization.
@@ -131,11 +131,11 @@ file   | packages/dartclaw_storage/lib/src/knowledge/temporal_knowledge_graph_se
   - `MemorySourceRef` carries an optional source-event discriminator alongside the origin kind and source locator: session id plus message index for `turn`, journal entry id for `journal`, inbox item id for `inbox`, curation run id for `curation`, and absent for `migration`. Equality over optional provenance components follows the absence rule in Constraints & Gotchas.
   - **Verify**: Focused table-driven tests accept the complete S01 fixture and reject every S04 field failure while proving collection revision, entry revision, role, source locator, source-event discriminator, and caller/session provenance survive value construction unchanged, and proving two provenance references compare equal only when every optional component is present on both sides and equal.
 
-- [ ] **TI02** Canonical memory documents have a deterministic, versioned Markdown representation
+- [x] **TI02** Canonical memory documents have a deterministic, versioned Markdown representation
   - Implement a pure `MemoryMarkdownCodec` for collection/index, topic, archive, observation, learning, and audit documents, following `parseMemoryEntries` only for fence/source-span lessons; canonical output uses stable relative paths, field/entry order, escaping, LF endings, and final newline without performing file I/O or legacy migration.
   - **Verify**: Golden and seeded round-trip tests prove S01–S03: parse(render(value)) equals the value, render(parse(canonical Markdown)) is byte-identical, Markdown bodies containing Unicode, headings, lists, links, and fences survive, an empty active index and empty topic/archive/observation/learning/audit documents round-trip to equal empty values with byte-identical output, archived identity stays stable, and observations, learnings, and audit records cannot appear in the active index by role alone.
 
-- [ ] **TI03** A validated corpus exposes one unambiguous canonical identity and byte inventory to every later slice
+- [x] **TI03** A validated corpus exposes one unambiguous canonical identity and byte inventory to every later slice
   - Add `MemoryCorpusValidator` over decoded index/topic/archive/observation/learning/audit documents, expose the deterministic relative-path-to-bytes inventory S02 consumes for stopped-runtime drift detection – canonical documents holding the codec's rendered Markdown plus verbatim members holding the preserved original bytes of opaque legacy files under `memory/legacy/`, which the validator never parses – export the new seam explicitly from `dartclaw_core.dart`, and keep the existing legacy `MemoryEntry`/parser surface intact for S03.
   - **Verify**: Corpus tests reject duplicate active/archive IDs, dangling index rows, an active entry present in a topic document but absent from the index, inconsistent timestamps, topic/revision/locator mismatches, and unsupported formats, and accept an empty corpus as consistent; inventory tests prove the path-to-bytes inventory exists and is deterministic – repeated calls, and an equal corpus assembled in a different insertion order, yield the identical ordered relative-path set over both member classes – and that every canonical-document inventory value is byte-equal to the codec's rendered canonical Markdown for that document while every verbatim member's value is byte-equal to its preserved original bytes and is never parsed by the validator; the public-barrel smoke plus current core memory parser/file and storage pruner suites remain green, including exact opaque-content/source-offset preservation, and package checks confirm no SQLite/storage/server dependency entered core.
 
@@ -147,6 +147,12 @@ file   | packages/dartclaw_storage/lib/src/knowledge/temporal_knowledge_graph_se
 ## Implementation Observations
 
 > _Managed by exec-spec post-implementation – append-only. Tag semantics: see the AndThen FIS mutability contract. Spec authors leave this section empty._
+
+### Run: 2026-08-11 18:14 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- The pre-existing `dartclaw_core` LOC baseline was 16,474 against a 16,500 hard cap, leaving no feasible room for this core-owned canonical-memory contract. The required gate fix raised the ratchet to 18,000 with a 17,300 warning threshold; the final architecture gate passed at 17,372 lines.
 
 #### DECISION NOTE: origin-kind-vocabulary
 Decision-Key: origin-kind-vocabulary
@@ -388,3 +394,9 @@ Affected surface: ## Structural Criteria (inventory criterion – two member cla
 Decision: The corpus inventory has TWO member classes under one deterministic ordering – (a) canonical documents (index, topic, archive, observation, learning, audit) whose inventory value is byte-equal to the codec's rendered canonical Markdown and which the validator parses, and (b) verbatim members (preserved opaque legacy files under `memory/legacy/`) whose inventory value is byte-equal to the PRESERVED ORIGINAL bytes and which the canonical validator never parses. Fingerprint membership is the union of (a) and (b), and TI03's Verify asserts the correct byte-equality per class rather than codec-render equality for every member.
 Rationale: Owner-ratified preflight resolution and a direct consequence of S03's ratified opaque-content placement – preserved legacy bytes can never equal a codec render, so a single-class inventory criterion made "outside the validator, inside the fingerprint" structurally impossible and left stopped-runtime edits to preserved legacy content undetectable as drift.
 Evidence: Preflight 0.24 ratified resolutions (owner-approved 2026-08-11), item 44 verbatim-inventory-member (consequence of item 9 opaque-content-placement; consumed by S02/S03); the inventory Structural Criterion, the Technical Overview inventory sentence, and TI03's scope and Verify already state both classes and the per-class byte-equality; therefore this note carries zero `Old:`/`New:` pairs.
+
+### Run: 2026-08-11 18:25 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- Quick-review remediation added the missing public contracts and moved the warning threshold to 17,600, preserving useful headroom below the 18,000 hard cap. The final architecture gate passed at 17,457 lines.

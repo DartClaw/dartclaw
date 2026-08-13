@@ -7,7 +7,7 @@ A lightweight contact management system built on messaging channels. The agent r
 ## Features Used
 
 - [Channels](../whatsapp.md) -- receives messages from contacts via DM allowlist (WhatsApp, [Signal](../signal.md), or [Google Chat](../google-chat.md))
-- [MEMORY.md](../workspace.md) -- stores structured contact data and action items
+- [Canonical memory](../workspace.md) -- stores structured contact data and action items in topic entries
 - [Memory search](../search.md) -- retrieves contact history and pending items on demand
 - [Input sanitizer](../security.md) -- filters inbound messages for safety
 - [Outbound redaction](../security.md) -- redacts any secrets in responses
@@ -81,10 +81,10 @@ When processing a message:
 4. Summarize the conversation topic
 
 ## Storage Format
-Save contact data using memory_save with structured entries:
-- category='contacts' for contact info updates
-- category='action-items' for tasks and follow-ups
-- category='notes' for general conversation summaries
+Curate contact data using `memory_apply`:
+- read the current collection and target entry revisions first
+- use topic `contacts` for contact information, `action-items` for follow-ups, and `notes` for summaries
+- submit one atomic change set with a unique correlation ID per operation
 
 Always include the sender name and date in saved entries.
 
@@ -120,10 +120,11 @@ scheduling:
     - id: crm-daily-summary
       prompt: >
         Review today's contact interactions and pending action items:
-        1. Search memory for entries from today with category='action-items'
+        1. Search memory for today's action items using a semantic query
         2. List any overdue or upcoming deadlines
         3. Summarize key conversations
-        Save a daily summary to memory with category='daily-crm-summary'
+        Read the current collection revision, then add the daily summary through
+        memory_apply under topic 'daily-crm-summary'.
       schedule:
         type: cron
         expression: "0 18 * * 1-5"
@@ -137,7 +138,7 @@ scheduling:
 3. **Input sanitizer** filters the message for safety
 4. **Agent reads behavior files** -- SOUL.md for CRM instructions, USER.md for contact directory
 5. **Agent extracts information** -- action items, deadlines, contact updates
-6. **Data saved to memory** via memory_save with appropriate category (contacts, action-items, notes)
+6. **Data curated atomically** via `memory_apply` under the appropriate topic (contacts, action-items, notes)
 7. **Agent responds** with brief confirmation of what was recorded
 8. **User queries later** via web UI: "What action items do I have with Alice?" or "Summarize last week's conversations"
 9. **Agent searches memory** and returns structured results
@@ -154,7 +155,7 @@ scheduling:
 
 ## Gotchas & Limitations
 
-- **Not a real CRM**: Data is stored as structured text in MEMORY.md, not a relational database. Complex queries (e.g., "all contacts in London with overdue tasks") may produce approximate results
+- **Not a real CRM**: Data is stored as canonical topic entries, not a relational database. Complex queries (e.g., "all contacts in London with overdue tasks") may produce approximate results
 - **Channel must be connected**: Messages are only received when the channel sidecar (GOWA for WhatsApp, signal-cli for Signal) is running and paired. Google Chat uses webhooks (no sidecar). Check connection status at `/settings` in the web UI
 - **No media extraction**: The agent processes text messages only. Images, voice notes, and documents are not parsed
 - **Session maintenance recommended**: Active contact tracking accumulates many sessions. Configure `sessions.maintenance` to auto-prune old sessions -- see [Common Patterns](_common-patterns.md#session-maintenance)

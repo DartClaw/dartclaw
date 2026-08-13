@@ -4,6 +4,20 @@ import 'package:test/test.dart';
 
 void main() {
   group('parseMemoryEntries', () {
+    test('visits large inputs in bounded batches without retaining entries', () {
+      final content = List.generate(257, (index) => '- [2026-08-10 10:00] Entry $index').join('\n');
+      final batchSizes = <int>[];
+
+      final retained = parseMemoryEntries(
+        content,
+        batchSize: 256,
+        onBatch: (entries) => batchSizes.add(entries.length),
+      );
+
+      expect(retained, isEmpty);
+      expect(batchSizes, [256, 1]);
+    });
+
     test('parses basic entries with timestamps', () {
       final entries = parseMemoryEntries('''
 ## general
@@ -29,6 +43,19 @@ void main() {
       expect(entries, hasLength(2));
       expect(entries[0].category, 'general');
       expect(entries[1].category, 'debugging');
+    });
+
+    test('distinguishes parser-defaulted categories from explicit headings', () {
+      final entries = parseMemoryEntries(
+        '- [2026-01-01 09:00] Defaulted\n'
+        '## general\n'
+        '- [2026-01-01 10:00] Explicit general\n'
+        '## !!!\n'
+        '- [2026-01-01 11:00] Explicit empty slug\n',
+      );
+
+      expect(entries.map((entry) => entry.category), ['general', 'general', '!!!']);
+      expect(entries.map((entry) => entry.categoryWasDefaulted), [true, false, false]);
     });
 
     test('handles undated entries', () {

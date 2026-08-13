@@ -48,21 +48,21 @@ Already know what you want? Pick a specific recipe:
 |---|------|---------------|------------|
 | 0 | [**Personal Assistant**](00-personal-assistant.md) | Combines 1+2+4+7 into turnkey setup | Low |
 | 1 | [Morning Briefing](01-morning-briefing.md) | Cron scheduling, MEMORY.md, WhatsApp/Signal/Google Chat delivery, search agent | Low |
-| 2 | [Daily Memory Journal](02-daily-memory-journal.md) | Cron scheduling, HEARTBEAT.md, memory consolidation, git sync | Low |
+| 2 | [Daily Memory Journal](02-daily-memory-journal.md) | Cron scheduling, observation capture, git sync | Low |
 | 3 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple cron/interval jobs, HEARTBEAT.md, delivery modes, task system | Low |
-| 4 | [Knowledge Inbox](04-knowledge-inbox.md) | Search agent, content-guard, memory_save, cron scheduling | Medium |
-| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat DM allowlist, memory_save, memory search | Medium |
+| 4 | [Knowledge Inbox](04-knowledge-inbox.md) | Search agent, content guard, observation capture, cron scheduling | Medium |
+| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat DM allowlist, atomic memory curation, memory search | Medium |
 | 6 | [Research Assistant](06-research-assistant.md) | Search agent (tool policy cascade), memory, web UI | Medium |
-| 7 | [Nightly Reflection](07-nightly-reflection.md) | Cron scheduling, errors.md, learnings.md, memory_save | Low |
+| 7 | [Nightly Reflection](07-nightly-reflection.md) | Cron scheduling, errors, learning capture, memory curation | Low |
 | 8 | [Crowd Coding](08-crowd-coding.md) | Google Chat Spaces, task triggers, governance, thread binding, emergency controls | Medium |
 
 ## Shared Patterns
 
-See [Common Patterns](_common-patterns.md) for reusable templates, cron testing guides, heartbeat vs cron comparison, monitoring guidance, and memory consolidation details shared across recipes.
+See [Common Patterns](_common-patterns.md) for reusable templates, cron testing guides, heartbeat vs cron comparison, monitoring guidance, and memory routing shared across recipes.
 
 ## Troubleshooting
 
-See [Troubleshooting](_troubleshooting.md) for common issues: jobs not firing, announce not delivering, memory not consolidating, channel problems, and cost optimization.
+See [Troubleshooting](_troubleshooting.md) for common issues: jobs not firing, announce not delivering, memory conflicts, channel problems, and cost optimization.
 
 ## Further Reading
 

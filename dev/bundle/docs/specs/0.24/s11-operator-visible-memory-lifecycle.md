@@ -51,38 +51,38 @@
 
 ## Acceptance Scenarios
 
-- [ ] **S01 [OC01,OC02,OC04] [TI01,TI02,TI03,TI06] A healthy non-empty corpus exposes canonical roles, revision, budgets, and derived state without conflation**
+- [x] **S01 [OC01,OC02,OC04] [TI01,TI02,TI03,TI06] A healthy non-empty corpus exposes canonical roles, revision, budgets, and derived state without conflation**
   - **Given** collection revision `42` has 12 curated entries across 3 topics, 4 archived entries, 7 observations, 2 learnings, 5 wiki sources, and 28 derived chunks, and the knowledge layer additionally holds 3 knowledge-graph facts and 1 knowledge-inbox item; prompt rendering uses 101 of 150 lines and 20 KiB of its 32 KiB budget
   - **When** the status API, Memory dashboard, and Knowledge Hub render the current state
   - **Then** curated entries, topics, archive, observations, learnings, wiki sources, and derived chunks have distinct labels and counts; revision `42` and both prompt budgets are visible; derived chunks are labelled as rebuildable index data rather than memory
   - **And** each Knowledge result uses its S07 canonical role and locator, so curated, archive, observation, and learning results carry distinct labels and none inherits the curated-memory label, while the wiki, KG, and inbox results keep their own labels and native source provenance and locators
   - **Proof**: `packages/dartclaw_server/test/memory/memory_status_service_test.dart#getStatus returns complete status with all files present` – green – parity/regression for the existing status aggregation seam
 
-- [ ] **S02 [OC01,OC02,OC04] [TI01,TI02,TI03,TI06] Valid empty, zero-result, and unavailable states remain different**
+- [x] **S02 [OC01,OC02,OC04] [TI01,TI02,TI03,TI06] Valid empty, zero-result, and unavailable states remain different**
   - **Given** one fixture is a validated empty canonical union with a healthy empty index, another is a healthy non-empty corpus whose query has no matches, and a third cannot establish collection or count evidence
   - **When** API, Memory, and Knowledge surfaces present each fixture
   - **Then** the first shows a canonical empty-state explanation with exact zero counts, the second shows `No results` without saying memory is empty, and the third shows `unknown` or degraded coverage with nullable counts, reason, and safe action rather than zeros or healthy state
   - **Proof**: `packages/dartclaw_server/test/templates/knowledge_surfaces_test.dart#knowledge hub empty state` – green – parity/regression for distinct layer and query empty states
 
-- [ ] **S03 [OC02,OC04] [TI01,TI02,TI06] Observation usage is exact only when complete and warns without deleting**
+- [x] **S03 [OC02,OC04] [TI01,TI02,TI06] Observation usage is exact only when complete and warns without deleting**
   - **Given** bounded status scans whose known observation usage is 64 MiB minus one with complete coverage, exactly 64 MiB with complete coverage, below 64 MiB with work omitted after the 1,000-file or 64 MiB request ceiling, and at or above 64 MiB with work omitted
   - **When** status is serialized and rendered
   - **Then** complete coverage reports an exact byte total and `warning` `none` below the threshold, exact known usage at the threshold reports `warning` `active`, and incomplete coverage reports a lower bound with scanned/omitted/failed files plus known oldest/newest times
   - **And** an incomplete lower bound below the warning threshold reports `warning` `unknown` rather than `none`, an incomplete lower bound at or above the threshold reports `warning` `active` because the bound alone already proves the threshold is met, no state claims full coverage, and no status action deletes or rewrites observations
 
-- [ ] **S04 [OC02,OC03,OC04] [TI01,TI02,TI05,TI06] A committed memory change with failed indexing is successful but visibly degraded**
+- [x] **S04 [OC02,OC03,OC04] [TI01,TI02,TI05,TI06] A committed memory change with failed indexing is successful but visibly degraded**
   - **Given** revision `42` commits durably and its derived-index reconciliation fails after canonical replacement
   - **When** the tool response, persisted status API, Memory dashboard, and later `dartclaw status` CLI inspection are observed
   - **Then** each names canonical revision `42` as committed, index state as `degraded`, the failing stage and bounded reason, and the offline repair action; none rolls back the memory, calls the change failed, or reports search healthy
   - **And** repair guidance says DartClaw must be stopped before `dartclaw rebuild-index`, whose success output includes reconciled revision, indexed-row outcome, and resulting health
 
-- [ ] **S05 [OC02,OC04] [TI01,TI02,TI05,TI06] Active reconciliation is rebuilding and stopped-edit recovery cannot appear healthy early**
+- [x] **S05 [OC02,OC04] [TI01,TI02,TI05,TI06] Active reconciliation is rebuilding and stopped-edit recovery cannot appear healthy early**
   - **Given** a supported stopped-runtime edit has advanced the canonical revision and reconciliation is blocked after fresh-sibling population but before validation and swap
   - **When** Memory/API status is read during the barrier and again after successful settlement
   - **Then** the first view shows `rebuilding`, current canonical revision, last validated index revision/time, and working text without labelling the old index current; the second becomes healthy only after complete parity validation
   - **And** a failed or interrupted attempt settles degraded or unknown with recovery guidance rather than remaining falsely rebuilding
 
-- [ ] **S06 [OC03,OC04] [TI01,TI02,TI04,TI06] Existing run-now surfaces show curation running and durable success**
+- [x] **S06 [OC03,OC04] [TI01,TI02,TI04,TI06] Existing run-now surfaces show curation running and durable success**
   - **Given** S09 has validated collision-free configured and reserved action IDs, API/CLI/Web list/show merge configured jobs with the immutable `memory-curation` system action, and no curation has run
   - **When** an operator starts it from the Memory dashboard, Scheduling page, or `dartclaw jobs run memory-curation`, and the one S09 proposal turn later commits changed IDs A and B plus exact-no-op ID C at revision `43`
   - **Then** all triggers call the same existing run endpoint, a concurrent start returns already running, status changes from no prior run to `running` and then `succeeded`, and terminal API/CLI/Web output shows committed revision `43`, A/B, C, last-success time, and index health joined live from S08 rather than stored in the curation record
@@ -90,13 +90,13 @@
   - **And** a colliding startup job or config create/edit request is rejected before any duplicate row, show result, or run target appears; the UI and CLI never choose or imply a precedence winner
   - **Proof**: `apps/dartclaw_cli/test/commands/jobs/jobs_commands_test.dart#run starts a job and prints observation guidance` – green – parity/regression for the connected job run command and endpoint
 
-- [ ] **S07 [OC03,OC04] [TI01,TI02,TI04,TI06] Conflict and failure are actionable terminal no-effect states**
+- [x] **S07 [OC03,OC04] [TI01,TI02,TI04,TI06] Conflict and failure are actionable terminal no-effect states**
   - **Given** one curation proposal conflicts with current revision `52`, and another is rejected with per-operation validation reasons before apply
   - **When** the job, status API, Memory dashboard, Scheduling page, and jobs CLI present the results
   - **Then** the conflict is `conflicted` with current revision `52`, empty changed/no-op IDs, and explicit rerun guidance; the rejection is `failed` with empty changed/no-op IDs and bounded operation reasons
   - **And** conflicted uses the canonical attention treatment plus text, failed uses static error, neither implies partial success, and untrusted model content is never rendered or printed as raw HTML/control text
 
-- [ ] **S08 [OC01,OC02] [TI01,TI02,TI05] Migration outcome is presented with its snapshot and opaque residue rather than as silent success**
+- [x] **S08 [OC01,OC02] [TI01,TI02,TI05] Migration outcome is presented with its snapshot and opaque residue rather than as silent success**
   - **Given** one fixture where S03 has migrated a legacy workspace, retaining its no-clobber pre-migration snapshot and copying 3 opaque legacy sources verbatim under `memory/legacy/`, and another fixture whose workspace never required migration
   - **When** the status API, Memory dashboard, and local `dartclaw status` present the `collection` object
   - **Then** the first shows S03's reported migration state, the retained snapshot location, the opaque-legacy count with its locators, and S03's next action; opaque bytes are never rendered inline, never counted as curated entries, and never presented as a canonical role
@@ -104,14 +104,14 @@
 
 ## Structural Criteria
 
-- [ ] `GET /api/memory/status` is the single machine-readable operator projection; Memory, job, and connected CLI presentations consume the same S06–S10 state rather than rescanning canonical/wiki files or deriving health independently. Local-only `dartclaw status` runs with the server stopped, so it reads the persisted S02 collection metadata and S08 health record directly instead of the API, and is equally forbidden from rescanning canonical/wiki files or computing its own health verdict.
-- [ ] Status numeric fields are nullable when unavailable; zero is emitted only when complete evidence proves zero. Observation usage explicitly distinguishes `exact`, `lowerBound`, and `unknown`, and `warning` carries the same explicitness with `none` (evidence proves the threshold is not met), `active` (an exact total or a lower bound has reached the threshold), and `unknown` (a lower bound below the threshold decides nothing) – never a bare boolean. The same evidence discipline governs whole objects, not only numbers: an object is omitted only when its absence is proven, never when reading its record failed.
-- [ ] Curation has no invented idle lifecycle state: before the first run its result is absent; once started, its state is exactly `running`, `succeeded`, `conflicted`, or `failed` as supplied by S09. An unreadable or corrupt S09 record is therefore presented as unknown curation evidence with its reason and safe action – never as never-ran and never as a fabricated terminal state.
-- [ ] API, CLI, Scheduling, and Memory presentations read S09's same merged system-action descriptor and persisted lifecycle; S11 adds no action registry, lifecycle store, run endpoint, or inferred terminal state.
-- [ ] Presentations receive only S09's collision-free projection. A reserved-ID startup/config mutation failure uses existing validation/error surfaces and never renders, lists, shows, or runs an ambiguous entry or compatibility alias.
-- [ ] Operator reasons and actions are bounded host-classified text. Web output uses escaped Trellis text/attributes; CLI output applies its existing terminal-text safety before printing any model-derived reason.
-- [ ] Existing Memory, Knowledge, Scheduling, jobs, status API, and offline rebuild surfaces remain the complete administration surface; no page family, command family, SSE stream, store, database, package, daemon, scheduler, or QMD-specific health path is added.
-- [ ] Status presentation uses canonical components/tokens, never color alone: `live` means active work, `attention` means operator action required, `success` and `error` are terminal, `warning` is degraded/unknown, and `idle` is neutral absence.
+- [x] `GET /api/memory/status` is the single machine-readable operator projection; Memory, job, and connected CLI presentations consume the same S06–S10 state rather than rescanning canonical/wiki files or deriving health independently. Local-only `dartclaw status` runs with the server stopped, so it reads the persisted S02 collection metadata and S08 health record directly instead of the API, and is equally forbidden from rescanning canonical/wiki files or computing its own health verdict.
+- [x] Status numeric fields are nullable when unavailable; zero is emitted only when complete evidence proves zero. Observation usage explicitly distinguishes `exact`, `lowerBound`, and `unknown`, and `warning` carries the same explicitness with `none` (evidence proves the threshold is not met), `active` (an exact total or a lower bound has reached the threshold), and `unknown` (a lower bound below the threshold decides nothing) – never a bare boolean. The same evidence discipline governs whole objects, not only numbers: an object is omitted only when its absence is proven, never when reading its record failed.
+- [x] Curation has no invented idle lifecycle state: before the first run its result is absent; once started, its state is exactly `running`, `succeeded`, `conflicted`, or `failed` as supplied by S09. An unreadable or corrupt S09 record is therefore presented as unknown curation evidence with its reason and safe action – never as never-ran and never as a fabricated terminal state.
+- [x] API, CLI, Scheduling, and Memory presentations read S09's same merged system-action descriptor and persisted lifecycle; S11 adds no action registry, lifecycle store, run endpoint, or inferred terminal state.
+- [x] Presentations receive only S09's collision-free projection. A reserved-ID startup/config mutation failure uses existing validation/error surfaces and never renders, lists, shows, or runs an ambiguous entry or compatibility alias.
+- [x] Operator reasons and actions are bounded host-classified text. Web output uses escaped Trellis text/attributes; CLI output applies its existing terminal-text safety before printing any model-derived reason.
+- [x] Existing Memory, Knowledge, Scheduling, jobs, status API, and offline rebuild surfaces remain the complete administration surface; no page family, command family, SSE stream, store, database, package, daemon, scheduler, or QMD-specific health path is added.
+- [x] Status presentation uses canonical components/tokens, never color alone: `live` means active work, `attention` means operator action required, `success` and `error` are terminal, `warning` is degraded/unknown, and `idle` is neutral absence.
 
 ## Scope & Boundaries
 
@@ -189,28 +189,28 @@ test | apps/dartclaw_cli/test/commands/status_command_test.dart#existing data di
 
 ### Implementation Tasks
 
-- [ ] **TI01** One truthful operator status contract covers the complete memory lifecycle
+- [x] **TI01** One truthful operator status contract covers the complete memory lifecycle
   - Compose S03 and S06–S10 results in `MemoryStatusService.getStatus`; serialize the five Technical Overview objects through `GET /api/memory/status`, preserving nullable evidence, exact/lower-bound coverage, independent health, and bounded reasons/actions.
   - **Verify**: Service and route matrices prove S01–S08 for complete/empty/unknown corpus, prompt truncation, observation warning-minus-one/exact/partial-below/partial-at-or-above, all four index states, absent plus all four curation states plus an unreadable/corrupt curation record reported as unknown rather than never-ran, migration state with snapshot and opaque residue, and restart persistence without false zeros.
 
-- [ ] **TI02** The Memory dashboard explains corpus roles, budgets, lifecycle, and recovery
+- [x] **TI02** The Memory dashboard explains corpus roles, budgets, lifecycle, and recovery
   - Extend the existing polled status region and current component vocabulary; keep file previews static, route Curate now through the existing job run endpoint, and show revision, prompt dual-budget use, observation lower bounds, last successes, bounded results, and repair/rerun actions.
   - **Verify**: Render/controller/API tests prove S01–S08, including exact empty copy, at-least usage wording, nullable metrics, running-button overlap, changed/no-op IDs, conflict/no-effect copy, committed-but-degraded copy, migration snapshot/opaque-residue copy, escaped dynamic values, and stable file-tab state across polling.
 
-- [ ] **TI03** Knowledge results preserve role and provenance instead of displaying every search row as memory
+- [x] **TI03** Knowledge results preserve role and provenance instead of displaying every search row as memory
   - Consume S07 role metadata in the existing Hub item view: curated, archive, observation, learning, wiki, KG, and inbox labels remain distinct; canonical roles – learning included, since 0.24 makes learnings canonical rather than a native file source – link through canonical entry locators, wiki/KG/inbox retain their native locators, and derived chunk IDs never become visible source identity.
   - **Verify**: Hub service/template tests prove S01–S02 across each role, same-text/different-source results, native wiki attribution, layer failure versus zero results, escaped labels/locators, and unchanged read-only/filter behavior.
 
-- [ ] **TI04** Existing Scheduling and jobs surfaces control and inspect the same curation action
+- [x] **TI04** Existing Scheduling and jobs surfaces control and inspect the same curation action
   - Consume S09's merged descriptor/lifecycle contract and present `memory-curation` as a runnable, non-editable, non-scheduled system action in existing list/show/run API, Scheduling, Memory, and jobs CLI surfaces; expose persisted S09 lifecycle/result fields, curation-specific next-action copy, and index health joined from the live S08 state that TI01's `index` object exposes – never a health value read from the S09 record – without adding another endpoint, registry, store, or run authority.
   - **Verify**: API/template/CLI component tests prove S06–S07 for collision-free merged list/show/run, first run, restart-visible last result, running overlap, success, conflict, failure, JSON parity, bounded human output, explicit create/edit/delete/toggle rejection or absence, no YAML/schedule/timer/retry controls, and exactly one S09 dispatch per accepted run. Startup-YAML and config create/edit collision fixtures prove no ambiguous row/show/run target or precedence copy is rendered and rejected mutations preserve the prior valid view.
 
-- [ ] **TI05** Recovery guidance points to the existing safe operation
+- [x] **TI05** Recovery guidance points to the existing safe operation
   - Render S03 backup/opaque guidance and S08 state-specific reason/action consistently; keep `dartclaw rebuild-index` offline, and make its human/JSON result report canonical revision, indexed-row outcome, health, and unchanged-state failure.
   - Extend the existing `dartclaw status` command with memory corpus and index-health lines – canonical role counts, collection revision, index state, and observation usage/warning – read from the persisted S02 collection metadata and S08 health record so the lines stay truthful with the server stopped. No `memory` CLI command family is added.
   - **Verify**: Status, CLI, and template tests prove S04–S05 for deleted/corrupt/degraded index, stopped edit, failed rebuild, successful rebuild, and the explicit stop-runtime precondition without online repair, and prove S08 for migration backup/snapshot presentation, opaque content, and the not-applicable case. `dartclaw status` tests additionally prove the committed-but-degraded reading, nullable/unknown evidence, and the observation warning, and that the existing data-directory, session-count, and harness lines still render.
 
-- [ ] **TI06** Every memory lifecycle state is accessible and visually coherent
+- [x] **TI06** Every memory lifecycle state is accessible and visually coherent
   - Use canonical status indicators, cards, banners, empty state, meters, tables, focus behavior, and responsive shells; all state and action meaning has text and ARIA semantics independent of hue/motion.
   - **Verify**: Template/accessibility assertions plus project visual validation cover empty, running, succeeded, degraded, unknown, rebuilding, conflicted, and failed states at 1280 px and 375 px with no console errors; repeat succeeded, degraded, and conflicted semantic treatments in light theme and confirm design tokens/computed state styles, focus, disabled action, wrapping, and reduced-motion behavior.
 
@@ -358,3 +358,21 @@ New:
 ```
   - Consume S09's merged descriptor/lifecycle contract and present `memory-curation` as a runnable, non-editable, non-scheduled system action in existing list/show/run API, Scheduling, Memory, and jobs CLI surfaces; expose persisted S09 lifecycle/result fields, curation-specific next-action copy, and index health joined from the live S08 state that TI01's `index` object exposes – never a health value read from the S09 record – without adding another endpoint, registry, store, or run authority.
 ```
+
+#### [implementation] Typed producer snapshots preserve prerequisite ownership
+
+- The corpus sidecar now persists a coherent `MemoryCorpusStatusSnapshot`, and the existing prompt composer exposes its exact bounded projection metrics. `MemoryStatusService` composes those with S08 health, S09 lifecycle, bounded observation coverage, and native wiki scan evidence rather than reopening canonical or wiki content in presentation code.
+- Local `dartclaw status` reads only the persisted corpus snapshot and S08 health record, preserving its stopped-runtime contract without adding another command family.
+
+#### [implementation] Existing operator surfaces share one action and live status
+
+- Memory, Scheduling, jobs API/CLI, and the 30-second Memory fragment consume the immutable S09 `memory-curation` descriptor and existing run endpoint. Curation and index states remain independent; file-reader tabs remain outside the polled fragment.
+- Human CLI output bounds and removes terminal control text; JSON output preserves the server payload. Trellis renders all dynamic lifecycle evidence through escaped text/attribute bindings.
+
+#### [verification] Objective and visual gates
+
+- The CI-equivalent gate passed after critic remediation: enforced dependency locks, embedded assets, whole-tree format, fatal analysis, every workspace package/app suite, architecture 8/8, fitness 31/31, whitespace, and worktree inspection. Package totals included core 1308 (3 skipped), workflow 1992 (8 skipped), storage 321 (1 skipped), server 3458 (3 skipped), and CLI 719 (2 skipped).
+- Critic remediation made canonical Knowledge roles visible, removed stale/false-zero index presentation from the legacy Search card, and isolated corrupt disposable index evidence from valid offline corpus status. Focused role, degraded/rebuilding/unknown, and corrupt-record proofs cover those boundaries.
+- A brand-new fresh-context quick review checked 26 guardrail groups and returned GREEN with zero Fix or Note findings. No S11 reconciliation ledger was required.
+- The production visual profile passed at 1280 px and 375 px in dark and light themes across absent, running, succeeded, conflicted, failed, degraded, rebuilding, and unknown states. Browser console/errors were empty, the WCAG A/AA audit reported zero violations, no horizontal overflow occurred, reduced-motion suppressed live animation, and the running action was disabled with explicit ARIA state.
+- No code-to-FIS drift was introduced; no S11 reconciliation ledger was required.

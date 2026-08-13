@@ -65,8 +65,17 @@ class HarnessFactoryConfig {
   /// Optional audit sink for ACP reverse-call handler decisions and lifecycle calls.
   final AcpReverseCallAuditSink? acpReverseCallAudit;
 
-  /// Memory save callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySave;
+  /// Memory apply callback used when the internal MCP server is not configured.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
+
+  /// Memory observation callback used when the internal MCP server is not configured.
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
+
+  /// Context-aware memory apply callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryApply;
+
+  /// Context-aware memory observation callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryObserve;
 
   /// Memory search callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
@@ -99,7 +108,10 @@ class HarnessFactoryConfig {
     this.ownMcpToolCanonicals = const {},
     this.acpPermissionDecision,
     this.acpReverseCallAudit,
-    this.onMemorySave,
+    this.onMemoryApply,
+    this.onMemoryObserve,
+    this.onContextualMemoryApply,
+    this.onContextualMemoryObserve,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -247,7 +259,10 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     cwd: config.cwd,
     turnTimeout: config.turnTimeout,
     providerOptions: config.providerOptions,
-    onMemorySave: config.onMemorySave,
+    onMemoryApply: config.onMemoryApply,
+    onMemoryObserve: config.onMemoryObserve,
+    onContextualMemoryApply: config.onContextualMemoryApply,
+    onContextualMemoryObserve: config.onContextualMemoryObserve,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
     onPermissionDenied: config.onPermissionDenied,

@@ -38,7 +38,7 @@ Iterable<Map<String, dynamic>> _responses(CapturingFakeProcess process, String r
 void main() {
   test('PreCompact observer failure still acknowledges this and the next callback exactly once', () async {
     final (harness, process) = await _startHarness();
-    harness.onCompactionStarting = (_, _) => throw StateError('observer failed');
+    harness.onCompactionStarting = (_, _) async => throw StateError('observer failed');
 
     _emitHook(process, 'compact-fail', {'hook_event_name': 'PreCompact', 'session_id': 's1', 'trigger': 'auto'});
     _emitHook(process, 'compact-next', {'hook_event_name': 'PreCompact', 'session_id': 's1', 'trigger': 'manual'});

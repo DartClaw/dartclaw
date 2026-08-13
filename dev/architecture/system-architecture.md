@@ -469,9 +469,10 @@ The config API now partitions fields into three mutability classes:
 
 In 0.16, this powers hot-reload for context settings, scheduling services, alert routing config, guard-chain rebuilds, queue/lock tuning, and other runtime-owned services. Server socket bindings (`server.port`, `server.host`, `server.data_dir`) remain explicitly non-reloadable and are excluded from `ConfigDelta`.
 
-Replace-mode providers re-read behavior files (`SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`,
-`HEARTBEAT.md`) each turn. Claude and Codex receive append-mode behavior content when the server starts and require a
-restart for changes.
+Every turn receives an authoritative prompt for its scope. Replace-mode providers recompose current behavior files and,
+for primary turns, a fresh bounded canonical-memory index projection. Append-mode providers receive scoped static
+behavior plus the same fresh bounded projection through the turn prompt; topic bodies remain available on demand through
+`memory_search` and `memory_read`.
 
 **Package**: `dartclaw_core` (live config notifier, delta, runtime-facing interfaces), `dartclaw_config` (typed config model, metadata, validator, writer), `dartclaw_server` (API routes), `dartclaw_cli` (reload triggers)
 
@@ -576,7 +577,7 @@ The shipped alert classification model covers guard blocks, container crashes, n
 #### Memory & Search
 
 ```
-MEMORY.md + MEMORY.archive.md + learnings.md ──(sources of truth)──► search.db (FTS5 index, rebuildable)
+canonical topic + archive + observation + learning roles ──► search.db (FTS5 projection, rebuildable)
 ```
 
 Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
@@ -584,15 +585,15 @@ union that `dartclaw rebuild-index` restores.
 
 | Component | File | Role |
 |-----------|------|------|
-| `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Read/write MEMORY.md with queued atomic writes |
-| `SelfImprovementService` | `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures, route `learnings.md` via memory_save |
+| `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
+| `SelfImprovementService` | `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
 | `MemoryPruner` | `packages/dartclaw_storage/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
 | `MemoryService` | `packages/dartclaw_storage/lib/src/storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
 | `SearchDb` | `packages/dartclaw_storage/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
 | `Fts5SearchBackend` | `packages/dartclaw_storage/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
 | `QmdSearchBackend` | `packages/dartclaw_storage/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
 
-Memory MCP tools (`memory_save`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
+Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
 #### Context Research Synthesis
 
@@ -667,7 +668,7 @@ Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP serve
 |-----------|------|------|
 | `McpProtocolHandler` | `mcp/mcp_server.dart` | MCP protocol handling, tool registration |
 | `McpRouter` | `mcp/mcp_router.dart` | Shelf route adapter for MCP HTTP transport |
-| `MemoryTools` | `mcp/memory_tools.dart` | `memory_save`, `memory_search`, `memory_read` |
+| `MemoryTools` | `mcp/memory_tools.dart` | `memory_apply`, `memory_observe`, `memory_search`, `memory_read` |
 | `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured logical-agent conversation (sync) |
 | `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a logical-agent conversation (sync) |
 | `WebFetchTool` | `mcp/web_fetch_tool.dart` | SSRF-hardened fetch with inline ContentGuard scanning |
@@ -721,7 +722,7 @@ The `dartclaw` umbrella package re-exports `dartclaw_core`, `dartclaw_storage`, 
 
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
-| `dartclaw_models` | `Session`, `Message`, `MemoryChunk`, `SessionKey`, `Task`, `Goal`, `TaskStatus`, `Project`, `ToolCallRecord`, `TaskEvent`, `TaskEventKind` | Zero dependencies — shareable everywhere |
+| `dartclaw_models` | `Session`, `Message`, `MemorySearchResult`, `SessionKey`, `Task`, `Goal`, `TaskStatus`, `Project`, `ToolCallRecord`, `TaskEvent`, `TaskEventKind` | Zero dependencies — shareable everywhere |
 | `dartclaw_security` | `Guard`, `GuardChain`, concrete guards, content classification interfaces, message redaction, guard audit primitives | Isolated security surface — no EventBus or server wiring |
 | `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file-based services (`SessionService`, `MessageService`, `KvService`, `MemoryFileService`), `EventBus`, workflow/task seams | **No sqlite3, no config parsing, no container orchestration** — shareable with future Flutter app |
 | `dartclaw_config` | `DartclawConfig`, typed config sections, `ConfigMeta`, `ConfigValidator`, `ConfigWriter` | Config loading/authoring isolated below core |

@@ -679,7 +679,7 @@ Future<String> dispatchChannelTurn({
     isHumanInput: true,
     model: model,
     effort: effort,
-    promptScope: PromptScope.conversational,
+    promptScope: PromptScope.primary,
   );
   final outcome = await turns.waitForOutcome(session.id, turnId);
   return outcome.responseText ?? '';

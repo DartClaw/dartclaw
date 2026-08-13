@@ -235,7 +235,10 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `file_edit` | `Edit` | `file_change` with `kind=update` or `kind=modify` (app-server) | In-place file modification; Codex exec does not currently split this out |
 | `web_fetch` | `WebFetch`; own MCP `mcp__dartclaw__web_fetch` | own MCP `{server: dartclaw, tool: web_fetch}` | HTTP/web retrieval |
 | `web_search` | `WebSearch`; own MCP `mcp__dartclaw__brave_search` or `mcp__dartclaw__tavily_search` when registered | `web_search`; own MCP `{server: dartclaw, tool: brave_search|tavily_search}` when registered | Web search |
-| `memory_save` | own MCP `mcp__dartclaw__memory_save` | own MCP `{server: dartclaw, tool: memory_save}` | Persistent memory writes |
+| `memory_apply` | own MCP `mcp__dartclaw__memory_apply` | own MCP `{server: dartclaw, tool: memory_apply}` | Curated personal-memory writes |
+| `memory_observe` | own MCP `mcp__dartclaw__memory_observe` | own MCP `{server: dartclaw, tool: memory_observe}` | Observation and learning writes |
+| `memory_search` | own MCP `mcp__dartclaw__memory_search` | own MCP `{server: dartclaw, tool: memory_search}` | Read-only memory search |
+| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Read-only canonical source access |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
 ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`

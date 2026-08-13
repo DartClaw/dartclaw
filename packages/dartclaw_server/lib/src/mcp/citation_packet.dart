@@ -38,18 +38,27 @@ final class SourceRef {
   /// Human-readable label shown to agents or UI renderers.
   final String label;
 
+  /// Role that owns [locator] when the layer contains multiple source roles.
+  final String? role;
+
   /// Creates a source reference.
-  const SourceRef({required this.layer, required this.locator, required this.label});
+  const SourceRef({required this.layer, required this.locator, required this.label, this.role});
 
   /// Hydrates a source reference from JSON.
   factory SourceRef.fromJson(Map<String, dynamic> json) => SourceRef(
     layer: CitationLayer.fromWire(json['layer'] as String),
     locator: json['locator'] as String,
     label: json['label'] as String,
+    role: json['role'] as String?,
   );
 
   /// Converts this reference to the shared JSON wire shape.
-  Map<String, dynamic> toJson() => {'layer': layer.wireName, 'locator': locator, 'label': label};
+  Map<String, dynamic> toJson() => {
+    'layer': layer.wireName,
+    'locator': locator,
+    'label': label,
+    if (role != null) 'role': role,
+  };
 }
 
 /// Synthesized statement with one or more source references.

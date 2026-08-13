@@ -2,8 +2,8 @@
 
 SQLite3-backed storage services for DartClaw.
 
-`dartclaw_storage` adds the default persistence layer for DartClaw: memory
-chunk storage, FTS5 search, optional QMD hybrid search, task and goal
+`dartclaw_storage` adds the default persistence layer for DartClaw: a derived
+FTS5 memory index, optional QMD hybrid search, task and goal
 repositories, and memory pruning. It depends on `dartclaw_core` for the
 runtime-facing interfaces and models.
 
@@ -27,25 +27,15 @@ Future<void> main() async {
   final db = openSearchDbInMemory();
   final memory = MemoryService(db);
   final search = Fts5SearchBackend(memoryService: memory);
-
-  try {
-    memory.insertChunk(
-      text: 'Rotate access tokens every 90 days.',
-      source: 'runbook.md',
-      category: 'security',
-    );
-
-    final results = await search.search('rotate tokens');
-    print(results.first.text);
-  } finally {
-    memory.close();
-  }
+  final results = await search.search('rotate tokens');
+  print(results.results);
+  db.close();
 }
 ```
 
 ## Key Types
 
-- `MemoryService`: low-level SQLite-backed chunk storage and FTS search access.
+- `MemoryService`: low-level rebuildable FTS projection and search access.
 - `Fts5SearchBackend` and `QmdSearchBackend`: concrete `SearchBackend` implementations.
 - `createSearchBackend`, `SearchDbFactory`, `openSearchDb`: helpers for opening and choosing search backends.
 - `SqliteTaskRepository` and `SqliteGoalRepository`: SQLite-backed task persistence.

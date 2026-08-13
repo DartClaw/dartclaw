@@ -69,11 +69,13 @@ class TaskWiring {
     required StorageWiring storage,
     ProjectWiring? project,
     ContainerAuthorityProvider? containerAuthorities,
+    Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver,
   }) : _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
        _project = project,
-       _containerAuthorities = containerAuthorities;
+       _containerAuthorities = containerAuthorities,
+       _bridgedMcpToolsResolver = bridgedMcpToolsResolver;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -81,6 +83,11 @@ class TaskWiring {
   final StorageWiring _storage;
   final ProjectWiring? _project;
   final ContainerAuthorityProvider? _containerAuthorities;
+
+  /// Derives a containerized workflow step's bridged-MCP grant. Owned by
+  /// `HarnessWiring`; injected here so the workflow runner uses the single
+  /// grant authority rather than a divergent local copy.
+  final Set<String> Function(List<String>? allowedTools)? _bridgedMcpToolsResolver;
 
   static final _log = Logger('TaskWiring');
 
@@ -208,6 +215,7 @@ class TaskWiring {
           ),
       },
       containerAuthorities: _containerAuthorities,
+      bridgedMcpToolsResolver: _bridgedMcpToolsResolver,
       executionInventory: ProviderExecutionInventory.of(
         providerIds: workflowProviderIds,
         acpProviderIds: config.harness.acp.agents.keys.toSet(),

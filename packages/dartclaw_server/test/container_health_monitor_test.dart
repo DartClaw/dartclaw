@@ -15,12 +15,11 @@ ContainerManager _makeManager({required String profileId, required bool Function
     generatedStateDir: '/tmp/dartclaw-state-$profileId',
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
     runCommand: (executable, arguments) async {
-      // Respond to `docker inspect --format {{.State.Running}} <name>`
+      // Respond to `docker inspect --format {{.State.Running}} <name>`.
+      // A crashed container is stopped-but-present (exit 0, "false") — an
+      // unambiguous not-running that never conflates with a daemon error.
       if (arguments.contains('inspect')) {
-        if (isRunning()) {
-          return ProcessResult(0, 0, 'true\n', '');
-        }
-        return ProcessResult(0, 1, '', 'not running');
+        return ProcessResult(0, 0, isRunning() ? 'true\n' : 'false\n', '');
       }
       return ProcessResult(0, 0, '', '');
     },
@@ -177,6 +176,68 @@ void main() {
       // Attribution travels with the event: without it the subscriber can only
       // guess from the profile and fails every task that shares it.
       expect(events.single.taskId, 'research-task-a');
+
+      await eventBus.dispose();
+    });
+
+    test('a daemon-connection inspect error is not a crash', () async {
+      // exit 1 with a daemon-connection stderr — indistinguishable from a dead
+      // container by exit code alone, but it proves nothing, so no crash fires.
+      final manager = ContainerManager(
+        config: ContainerConfig(enabled: true, image: 'test:latest'),
+        containerName: 'test-daemon-blip',
+        profileId: 'workspace',
+        workspaceMounts: [],
+        generatedStateDir: '/tmp/dartclaw-state-daemon-blip',
+        runCommand: (executable, arguments) async => arguments.contains('inspect')
+            ? ProcessResult(0, 1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.')
+            : ProcessResult(0, 0, '', ''),
+      );
+      final eventBus = EventBus();
+      final events = <ContainerCrashedEvent>[];
+      eventBus.on<ContainerCrashedEvent>().listen(events.add);
+
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager, taskId: 'task-a');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await monitor.stop();
+
+      expect(events, isEmpty);
+
+      await eventBus.dispose();
+    });
+
+    test('a removed container (no such object) still fires a crash', () async {
+      var removed = false;
+      final manager = ContainerManager(
+        config: ContainerConfig(enabled: true, image: 'test:latest'),
+        containerName: 'test-removed',
+        profileId: 'workspace',
+        workspaceMounts: [],
+        generatedStateDir: '/tmp/dartclaw-state-removed',
+        runCommand: (executable, arguments) async {
+          if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
+          return removed
+              ? ProcessResult(0, 1, '', 'Error: No such object: test-removed')
+              : ProcessResult(0, 0, 'true\n', '');
+        },
+      );
+      final eventBus = EventBus();
+      final events = <ContainerCrashedEvent>[];
+      eventBus.on<ContainerCrashedEvent>().listen(events.add);
+
+      final monitor = ContainerHealthMonitor(eventBus: eventBus, interval: const Duration(milliseconds: 50))
+        ..start()
+        ..watch(manager.containerName, manager, taskId: 'task-b');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(events, isEmpty);
+
+      removed = true;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await monitor.stop();
+
+      expect(events.single.taskId, 'task-b');
 
       await eventBus.dispose();
     });

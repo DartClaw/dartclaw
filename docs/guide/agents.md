@@ -128,6 +128,8 @@ The execution coordinator is the single post-governance capacity authority. It o
 
 Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle worker may be retained and reused only when its provider and security profile match; the exact prior session is preferred. Reuse is optional and owns no conversation state – durable DartClaw sessions do. Each live container execution owns a dedicated container destroyed on release, so container workers are never reused; the number of security profiles or containers still does not consume or enlarge worker lease capacity.
 
+If the primary agent runs in a container (an opt-in posture; the default keeps the primary on the host) and that container is lost — `docker rm`, an OOM kill, or a daemon restart — the primary lane cannot recover on its own: restart the service to recover. A distinct critical signal names this case separately from a per-task container crash.
+
 Migration note: `web_search` is now distinct from `web_fetch`. Policies that intended to permit both must list both; naming only `web_fetch` no longer permits search.
 
 The experimental `delegate_to_agent` tool and `delegation:` configuration were removed. Move agent definitions to `agent.agents` and use `sessions_spawn`; use the returned handle with `sessions_send` for follow-ups. `tasks.max_concurrent` was also removed – configure the shared capacity with `providers.<id>.pool_size`.

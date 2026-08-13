@@ -40,6 +40,38 @@ void main() {
 
       expect(() => encodeBridgeFrame(frame, limits: limits), throwsA(isA<BridgeProtocolException>()));
     });
+
+    test('round-trips metadata at the uint16 field ceiling (0xffff bytes)', () {
+      // jsonEncode({'k': 'a' * n}) is `{"k":"` + n + `"}` = n + 8 bytes.
+      final frame = BridgeFrame(type: BridgeFrameType.requestStart, metadata: {'k': 'a' * (0xffff - 8)});
+      final encodedMetaLen = utf8.encode(jsonEncode(frame.metadata)).length;
+      expect(encodedMetaLen, 0xffff);
+
+      final decoded = BridgeFrameReader().addChunk(encodeBridgeFrame(frame));
+
+      expect(decoded, hasLength(1));
+      expect(decoded.single.metadata, frame.metadata);
+    });
+
+    test('rejects metadata one byte past the uint16 field rather than wrapping it to zero', () {
+      // Exactly 0x10000 encoded metadata bytes: the pre-fix `> maxMetadataBytes`
+      // check passed at the old 65536 cap and setUint16 wrapped the length to 0,
+      // decoding as an empty-metadata frame with the bytes reinterpreted as body.
+      final frame = BridgeFrame(type: BridgeFrameType.requestStart, metadata: {'k': 'a' * (0x10000 - 8)});
+      expect(utf8.encode(jsonEncode(frame.metadata)), hasLength(0x10000));
+
+      expect(
+        () => encodeBridgeFrame(frame),
+        throwsA(isA<BridgeProtocolException>().having((e) => e.message, 'message', contains('metadata exceeds'))),
+      );
+    });
+
+    test('rejects metadata past the uint16 field even when a custom limit permits more', () {
+      const limits = BridgeLimits(maxMetadataBytes: 1 << 17);
+      final frame = BridgeFrame(type: BridgeFrameType.requestStart, metadata: {'k': 'a' * (0x10000 - 8)});
+
+      expect(() => encodeBridgeFrame(frame, limits: limits), throwsA(isA<BridgeProtocolException>()));
+    });
   });
 
   group('BridgeFrameReader', () {

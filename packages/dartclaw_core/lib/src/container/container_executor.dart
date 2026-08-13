@@ -6,6 +6,22 @@ const containerClaudeExecutable = '/home/dartclaw/.local/bin/claude';
 /// Path to the Codex binary inside the container image.
 const containerCodexExecutable = '/home/dartclaw/.local/bin/codex';
 
+/// Container mount point for this authority's per-authority generated-state
+/// directory — the one writable location a containerized client has.
+///
+/// The image rootfs is mounted read-only, so a client that writes its config or
+/// session state under the default `$HOME` (`/home/dartclaw`) fails on a
+/// read-only filesystem. Claude is pointed here via `CLAUDE_CONFIG_DIR`; Codex
+/// nests its `CODEX_HOME` under the same mount.
+const containerGeneratedStatePath = '/home/dartclaw/.dartclaw';
+
+/// `uid:gid` the image's `dartclaw` user runs as (`docker/Dockerfile`:
+/// `useradd -u 1000`). Every container process is this user, so host-side
+/// directories and files bind-mounted in that the container must read or write
+/// have to be owned by it — on native Linux bind-mount ownership passes through
+/// verbatim, with no Docker Desktop uid remapping to paper over a mismatch.
+const containerImageUidGid = '1000:1000';
+
 /// Minimal container execution seam consumed by core harnesses.
 abstract interface class ContainerExecutor {
   String get profileId;

@@ -57,6 +57,10 @@ class HarnessWiring {
   final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
       Map<TurnRunner, ContainerAuthorityLease>.identity();
   ContainerAuthorityLease? _primaryContainer;
+
+  /// The primary authority's container name, captured on acquisition so a crash
+  /// event can be attributed to the primary lane specifically.
+  String? _primaryContainerName;
   late HarnessConfig _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
@@ -355,6 +359,18 @@ class HarnessWiring {
     // resolved per runner inside TurnRunner from that harness's capability.
     // CompactionCompletedEvent advances the shared cycle counter for dedup.
     _eventBus.on<CompactionCompletedEvent>().listen((_) => _contextMonitor.onCompactionCompleted());
+    // The primary agent's container is a single-use authority: once it dies its
+    // bridges are gone and nothing re-acquires it (auto-recovery is deliberately
+    // deferred). Emit a distinct, operator-actionable signal — separate from the
+    // per-task crash handling — naming the primary lane and the only recovery.
+    _eventBus.on<ContainerCrashedEvent>().listen((event) {
+      if (_primaryContainerName != null && event.containerName == _primaryContainerName) {
+        _log.severe(
+          'The primary agent\'s container (${event.containerName}) was lost; the chat cannot recover on its own. '
+          'Restart the service to recover.',
+        );
+      }
+    });
     _resultTrimmer = ResultTrimmer(maxBytes: config.context.maxResultBytes);
     _explorationSummarizer = ExplorationSummarizer(
       trimmer: _resultTrimmer,
@@ -674,7 +690,9 @@ class HarnessWiring {
       GatewayPrincipal(sessionId: _primaryAuthoritySessionId, providerId: providerId, policy: _primaryPolicy),
       allowedMcpTools: allowedMcpTools,
     );
-    return _primaryContainer!.container;
+    final container = _primaryContainer!.container;
+    if (container is ContainerManager) _primaryContainerName = container.containerName;
+    return container;
   }
 
   /// The primary lane has no session of its own; its authority is still one
@@ -692,6 +710,15 @@ class HarnessWiring {
   Set<String>? _requestedToolPolicy({String? agentId, List<String>? allowedTools}) =>
       (agentId == null ? null : _agentMap[agentId])?.allowedTools ?? allowedTools?.toSet();
 
+  /// The bridged-MCP grant for a workflow one-shot step, derived by the one
+  /// owner of the deny set and the servable set.
+  ///
+  /// A workflow step carries no agent definition, so its grant comes from the
+  /// step's own tool policy — the same derivation background worker tasks use
+  /// (deny subtraction + servable intersection). Injected into the workflow
+  /// runner so the workflow lane never re-derives a divergent, unguarded grant.
+  Set<String> workflowBridgedMcpTools(List<String>? allowedTools) => _bridgedMcpToolsFor(allowedTools: allowedTools);
+
   Set<String> _bridgedMcpToolsFor({String? agentId, List<String>? allowedTools}) {
     final definition = agentId == null ? null : _agentMap[agentId];
     final requested = _requestedToolPolicy(agentId: agentId, allowedTools: allowedTools);
@@ -702,8 +729,18 @@ class HarnessWiring {
       for (final tool in CanonicalTool.values)
         if (tool != CanonicalTool.mcpCall) tool.stableName,
     };
-    final denied = {...?definition?.deniedTools, ...config.agent.disallowedTools};
-    final granted = requested.where(canonicalNames.contains).toSet().difference(denied);
+    // Both sides carry provider-native or canonical spellings; normalize to
+    // canonical stable names first so a native-spelled allow entry is not
+    // silently dropped and a native-spelled deny is not silently ignored.
+    final denied = {
+      ...?definition?.deniedTools,
+      ...config.agent.disallowedTools,
+    }.map(ToolPolicyCascade.normalizeEntry).toSet();
+    final granted = requested
+        .map(ToolPolicyCascade.normalizeEntry)
+        .where(canonicalNames.contains)
+        .toSet()
+        .difference(denied);
     return _servableGrant(granted, subject: agentId == null ? 'This deployment' : 'Agent "$agentId"');
   }
 
@@ -716,7 +753,9 @@ class HarnessWiring {
   /// container needs to keep working.
   Set<String> _primaryBridgedMcpTools() {
     final semantic = {for (final tool in _semanticMcpTools) ?_ownMcpToolCanonicals[tool.name]?.stableName};
-    return semantic.difference(config.agent.disallowedTools.toSet());
+    // Normalize provider-native deny spellings (`WebSearch`) to canonical names
+    // (`web_search`) so the operator's global deny actually subtracts.
+    return semantic.difference(config.agent.disallowedTools.map(ToolPolicyCascade.normalizeEntry).toSet());
   }
 
   /// Drops grants no registered host tool can serve, naming each one once.

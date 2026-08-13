@@ -1,18 +1,21 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:logging/logging.dart';
 
 import '../container/container_dispatcher.dart';
 import '../execution_policy_resolver.dart';
+import 'task_budget_policy.dart';
 import 'task_service.dart';
 
 /// Fails running tasks whose execution profile crashed.
 class ContainerTaskFailureSubscriber {
-  static final _log = Logger('ContainerTaskFailureSubscriber');
-
   final TaskService _tasks;
   final ExecutionPolicyResolver? _policyResolver;
+
+  /// Routes a crash through the same retry/settlement logic the executor uses,
+  /// so a container crash re-queues within `maxRetries` instead of terminally
+  /// failing and racing the executor as a second settlement owner.
+  late final TaskFailureHandler _failureHandler = TaskFailureHandler(tasks: _tasks);
   StreamSubscription<ContainerCrashedEvent>? _subscription;
 
   ContainerTaskFailureSubscriber({required TaskService tasks, ExecutionPolicyResolver? policyResolver})
@@ -34,17 +37,10 @@ class ContainerTaskFailureSubscriber {
     final runningTasks = await _tasks.list(status: TaskStatus.running);
     for (final task in runningTasks) {
       if (!_affectedBy(task, event)) continue;
-      try {
-        // TaskService.transition() fires TaskStatusChangedEvent automatically.
-        await _tasks.transition(
-          task.id,
-          TaskStatus.failed,
-          configJson: _withErrorSummary(task.configJson, event.error),
-          trigger: 'system',
-        );
-      } on StateError catch (error, stackTrace) {
-        _log.warning('Failed to transition task ${task.id} after container crash', error, stackTrace);
-      }
+      // markFailedOrRetry re-reads the task and no-ops when it is already
+      // terminal, so it consults retries and does not clobber a settlement the
+      // executor may have just made for a crash that raced a completing turn.
+      await _failureHandler.markFailedOrRetry(task, errorSummary: event.error);
     }
   }
 
@@ -65,36 +61,5 @@ class ContainerTaskFailureSubscriber {
     final resolver = _policyResolver;
     if (resolver != null) return false;
     return resolveProfile(task.type) == event.profileId;
-  }
-
-  Map<String, dynamic> _withErrorSummary(Map<String, dynamic> configJson, String error) =>
-      Map<String, dynamic>.from(configJson)..['errorSummary'] = _sanitizeErrorSummary(error);
-
-  String _sanitizeErrorSummary(String message) {
-    final firstLine = message
-        .split('\n')
-        .map((line) => line.trim())
-        .firstWhere((line) => line.isNotEmpty, orElse: () => 'Execution profile crashed');
-    var normalized = firstLine;
-    for (final prefix in const [
-      'Exception: ',
-      'StateError: ',
-      'Bad state: ',
-      'ArgumentError: ',
-      'Invalid argument(s): ',
-    ]) {
-      if (normalized.startsWith(prefix)) {
-        normalized = normalized.substring(prefix.length).trim();
-        break;
-      }
-    }
-    normalized = normalized.replaceFirst(RegExp(r'[.]+$'), '').trim();
-    if (normalized.isEmpty) {
-      normalized = 'Execution profile crashed';
-    }
-    if (normalized.length <= 200) {
-      return normalized;
-    }
-    return '${normalized.substring(0, 197).trimRight()}...';
   }
 }

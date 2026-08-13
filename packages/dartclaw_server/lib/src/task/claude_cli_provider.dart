@@ -9,10 +9,11 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ContainerExecutor,
         WorkflowCliTurnProgressEvent,
         chmodOwnerOnlySync,
-        claudeHardeningEnvVars,
+        claudeContainerHardeningEnvVars,
         containerClaudeExecutable,
         containerClaudePlaceholderApiKey,
         containerExecutableRuns,
+        containerGeneratedStatePath,
         intValue,
         stringValue;
 import 'package:logging/logging.dart';
@@ -59,11 +60,15 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
     final env = container == null
         ? <String, String>{...req.providerConfig.environment, ...?req.extraEnvironment, ...command.spawnEnvOverride}
         : <String, String>{
-            ...claudeHardeningEnvVars,
+            ...claudeContainerHardeningEnvVars,
             // Satisfies the CLI's local auth gate only; the host adapter
             // replaces it with the real credential. Without any key the client
             // refuses before it ever reaches the provider bridge.
             'ANTHROPIC_API_KEY': containerClaudePlaceholderApiKey,
+            // The image rootfs is read-only, so the default `$HOME/.claude`
+            // config location is unwritable; point the CLI at the writable
+            // generated-state mount, which is destroyed with the container.
+            'CLAUDE_CONFIG_DIR': containerGeneratedStatePath,
             if (container.profileId == SecurityProfile.restricted.id) 'CLAUDE_CODE_SIMPLE': '1',
             ...containerExtraEnvironment(req.extraEnvironment, container),
             ...command.spawnEnvOverride,

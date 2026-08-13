@@ -258,7 +258,7 @@ class ServiceWiring {
     // 3. Harness
     final harness = await _wireHarness(ctx, storage, security);
     // 4. Tasks (pre-server)
-    final task = await _wirePreServerTasks(ctx, storage, project, security);
+    final task = await _wirePreServerTasks(ctx, storage, project, security, harness);
     // 5. Channels
     final channel = await _wireChannels(ctx, storage, task, harness);
     final alertRouter = _wireAlertRouter(ctx, storage, channel);
@@ -425,6 +425,7 @@ class ServiceWiring {
     StorageWiring storage,
     ProjectWiring project,
     SecurityWiring security,
+    HarnessWiring harness,
   ) async {
     final task = TaskWiring(
       config: config,
@@ -433,6 +434,10 @@ class ServiceWiring {
       storage: storage,
       project: project,
       containerAuthorities: security.containersEnabled ? security.acquireContainerAuthority : null,
+      // The workflow lane's grant is derived by the one owner (HarnessWiring),
+      // paired with container mediation so a containerized step's bridge grant
+      // gets the same deny/servable treatment as every other execution.
+      bridgedMcpToolsResolver: security.containersEnabled ? harness.workflowBridgedMcpTools : null,
     );
     await task.wirePreServer();
     return task;

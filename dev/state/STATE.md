@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-12 06:10 CEST
+Last Updated: 2026-08-13 08:48 CEST
 
 ## Current Phase
 
@@ -33,10 +33,12 @@ Last Updated: 2026-08-12 06:10 CEST
 
 ## Blockers
 
-- 0.24 execution-isolation: post-remediation gap re-review FAIL (report
-  `0.24-execution-isolation-gap-review-claude-2026-08-12-2.md`) – 3 new HIGHs introduced by remediation (primary
-  container single-use bricking; /artifacts uid on Linux; disallowed_tools canonical mismatch); one-pass rule reached,
-  human decision required.
+- 0.24 execution-isolation: all 9 release-gating HIGH gates from the council mixed review
+  (`0.24-execution-isolation-mixed-review-claude-2026-08-12.md`) are remediated and the four open decisions are
+  ratified (ADR-052 accepted; fatal YAML parse; documented uid-1000/rootless posture; container scrub opt-out) —
+  nothing committed yet. Remaining before the tag: full G-HIGH-6 conformance coverage (a mediated provider *turn* and a
+  container-side *write* in the parity suite, run green on the Linux VM as root and uid 1201, plus Docker Desktop), then
+  the CI-equivalent gate and commit.
 
 ## Recent Decisions
 

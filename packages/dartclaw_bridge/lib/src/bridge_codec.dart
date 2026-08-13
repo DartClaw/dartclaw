@@ -13,7 +13,9 @@ Uint8List encodeBridgeFrame(BridgeFrame frame, {BridgeLimits limits = BridgeLimi
     throw BridgeProtocolException('request ID out of range: ${frame.requestId}');
   }
   final metadataBytes = frame.metadata.isEmpty ? const <int>[] : utf8.encode(jsonEncode(frame.metadata));
-  if (metadataBytes.length > limits.maxMetadataBytes) {
+  // 0xffff is the uint16 metadata-length field's capacity; exceeding it would
+  // wrap the field and decode as a corrupt frame rather than being rejected.
+  if (metadataBytes.length > limits.maxMetadataBytes || metadataBytes.length > 0xffff) {
     throw BridgeProtocolException('metadata exceeds ${limits.maxMetadataBytes} bytes');
   }
   if (frame.body.length > limits.maxBodyChunkBytes) {

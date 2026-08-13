@@ -92,6 +92,7 @@ Internal development docs for working on DartClaw itself (as opposed to using it
 | Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | Before writing templates |
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | Before writing tests |
 | Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | Before/after modifying code |
+| Parallels Linux agent VM | `dev/guidelines/PARALLELS_LINUX_AGENT_VM.md` | Before provisioning, cloning, or customizing the Ubuntu desktop agent VM |
 
 
 ---
@@ -217,6 +218,12 @@ Spawns `dart language-server` – diagnostics, hover, goToDefinition, findRefere
 On macOS hosts with Parallels Desktop, use `dev/tools/parallels_windows.sh` for Windows VM commands, PowerShell scripts,
 snapshots, and captures. Prefer signed-in-user execution; use the explicit `*-system` commands only when elevation is
 required. See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` for usage and prerequisites.
+
+### Parallels Linux Agent VM
+
+Use `dev/guidelines/PARALLELS_LINUX_AGENT_VM.md` to provision or customize the Ubuntu 24 ARM64 agent desktop. It is the
+source of truth for Wayland, SSH, Cua Driver, host-sharing restrictions, optional Docker conformance, snapshots, cloning,
+and end-to-end verification. Use `dev/tools/parallels_linux.sh` only for its tested runtime operations, not provisioning.
 
 ### Visual Validation & UI Testing
 

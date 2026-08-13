@@ -325,8 +325,8 @@ final class ExecutionCoordinator {
           ),
         );
       } else {
-        await _disposeWorker(runner, active.request);
-        quarantine = !runner.harness.isRootProcessTerminationConfirmed;
+        final teardownConfirmed = await _disposeWorker(runner, active.request);
+        quarantine = !teardownConfirmed || !runner.harness.isRootProcessTerminationConfirmed;
       }
     }
 

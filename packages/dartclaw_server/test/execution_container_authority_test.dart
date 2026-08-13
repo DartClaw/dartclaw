@@ -151,6 +151,22 @@ void main() {
       expect(fixture.hookPolicies, [const ExecutionPolicy.container('restricted')]);
     });
 
+    test('a failed container destroy quarantines the slot rather than returning capacity', () async {
+      final fixture = _Fixture(capacities: const {'claude': 2}, destroyThrows: true);
+      addTearDown(fixture.dispose);
+
+      final lease = await fixture.acquire('session-a', const ExecutionPolicy.container('workspace'));
+      expect(fixture.coordinator.snapshot.availableWorkers, 1);
+      await lease.release();
+
+      // The harness confirmed its own termination, but `docker rm -f` threw, so
+      // the container may still be alive: the slot must be quarantined, never
+      // handed to a fresh authority over a live orphan.
+      final snapshot = fixture.coordinator.snapshot;
+      expect(snapshot.quarantinedWorkers, 1);
+      expect(snapshot.availableWorkers, 1, reason: 'the possibly-orphaned slot is not returned to capacity');
+    });
+
     test('provider capacity totals are unchanged by container teardown', () async {
       final fixture = _Fixture(capacities: const {'claude': 2});
       addTearDown(fixture.dispose);
@@ -172,7 +188,7 @@ void main() {
 /// Coordinator wired with recording release hooks and a recording container
 /// destroyer, so teardown ordering is observable.
 class _Fixture {
-  _Fixture({required Map<String, int> capacities}) {
+  _Fixture({required Map<String, int> capacities, bool destroyThrows = false}) {
     coordinator = ExecutionCoordinator(
       providerCapacities: capacities,
       admitExecution: (_) async {},
@@ -198,6 +214,7 @@ class _Fixture {
         order.add('destroy');
         destroyed.add(context.runner);
         activeWorkersDuringDestroy = coordinator.snapshot.activeWorkers;
+        if (destroyThrows) throw StateError('docker rm -f failed');
       },
     );
   }

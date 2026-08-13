@@ -188,6 +188,10 @@ This is a `systemd --user` unit — no root or system administrator needed. Enab
 loginctl enable-linger $USER   # allow user units to run without active session
 ```
 
+If container isolation is enabled and the unit runs as a user other than uid 1000, the container's mounted state
+directories need a uid alignment the service cannot perform unprivileged — grant `CAP_CHOWN` or use rootless/
+userns-remapped Docker. See [File Ownership on Native Linux](security.md#file-ownership-on-native-linux).
+
 ## Egress Firewall
 
 Restrict outbound network access to only required services:

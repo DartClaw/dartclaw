@@ -237,6 +237,53 @@ void main() {
     );
   });
 
+  test('a provider-native-spelled global deny still subtracts from the primary bridged grant', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        execution: ExecutionMode.container,
+        // `WebSearch` is the spelling the harness --disallowedTools flag needs;
+        // the grant is derived from canonical names, so it must normalize before
+        // subtracting or the operator's deny silently does nothing.
+        disallowedTools: ['WebSearch'],
+      ),
+    );
+
+    await wireAll();
+
+    final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
+    expect(
+      grant.allowedMcpTools,
+      {'web_fetch', 'memory_save'},
+      reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant',
+    );
+  });
+
+  test('a provider-native-spelled task allow-list still grants the canonical bridged tool', () async {
+    await wireAll();
+
+    final lease = await harnessWiring!.executions.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('restricted'),
+        sessionId: 'native-allow-session',
+        admission: ExecutionAdmission.failFast,
+        taskId: 'native-allow-task',
+        // Provider-native spelling; the host guard chain normalizes it, so the
+        // bridged grant must too or the allow-list collapses to an empty grant.
+        allowedTools: const ['WebFetch'],
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    expect(
+      security!.grants.singleWhere((entry) => entry.taskId == 'native-allow-task').allowedMcpTools,
+      {'web_fetch'},
+      reason: 'a native-spelled allow of WebFetch must resolve to the canonical web_fetch grant, not nothing',
+    );
+  });
+
   test('a containerized primary granted no bridged search still loses its native search', () async {
     config = config.copyWith(
       agent: const AgentConfig(provider: 'claude', execution: ExecutionMode.container),
@@ -336,6 +383,49 @@ void main() {
       security!.grants.singleWhere((entry) => entry.sessionId == 'agent-session').allowedMcpTools,
       {'web_fetch'},
       reason: 'an unservable canonical is dropped rather than granted against nothing',
+    );
+  });
+
+  test('the workflow one-shot grant resolver subtracts the deployment-wide deny', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(provider: 'claude', disallowedTools: ['web_fetch']),
+    );
+
+    await wireAll();
+
+    expect(
+      harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']),
+      {'web_search'},
+      reason: 'agent.disallowed_tools must bound a containerized workflow step — pre-fix it subtracted nothing',
+    );
+  });
+
+  test('the workflow one-shot grant resolver normalizes a native-spelled deny before subtracting', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(provider: 'claude', disallowedTools: ['WebFetch']),
+    );
+
+    await wireAll();
+
+    expect(
+      harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']),
+      {'web_search'},
+      reason: 'a native-spelled global deny of WebFetch must remove the canonical web_fetch grant',
+    );
+  });
+
+  test('the workflow one-shot grant resolver drops an unservable grant so no MCP bridge is falsely declared', () async {
+    // No search providers configured, so web_search is unservable. Pre-fix the
+    // workflow site intersected nothing, silently declaring an MCP bridge that
+    // denies everything.
+    config = config.copyWith(search: const SearchConfig());
+
+    await wireAll();
+
+    expect(
+      harnessWiring!.workflowBridgedMcpTools(const ['web_search']),
+      isEmpty,
+      reason: 'an unservable canonical must not become a grant (empty grant → hasMcpBridge false)',
     );
   });
 }

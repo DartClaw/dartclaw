@@ -8,23 +8,43 @@ final _log = Logger('ClaudeProtocol');
 /// Shared between [ClaudeCodeHarness] and [ClaudeBinaryClassifier].
 const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
 
-/// Security-hardening env vars applied to every Claude harness spawn.
+/// Security-hardening env vars applied to every *host* (direct-spawn) Claude
+/// harness launch. Containerized spawns use [claudeContainerHardeningEnvVars].
 ///
-/// Used by both the direct-spawn path (host environment map) and the
-/// containerized-spawn path (`ContainerManager.exec(env:)`).
-///
-/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` also makes the claude CLI force
-/// `--permission-mode default`, printing a benign stderr notice ("Permission
-/// mode forced to default"). That is compatible with every DartClaw spawn
-/// path: workflow one-shot tasks carry their tool policy as `--settings`
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` makes the claude CLI scrub the env it
+/// hands to child processes, so an allowlisted child cannot read the host
+/// `ANTHROPIC_API_KEY`. The CLI also treats it as a broader hardening signal:
+/// it forces `--permission-mode default`, printing a benign stderr notice
+/// ("Permission mode forced to default"). That is compatible with every host
+/// spawn path: workflow one-shot tasks carry their tool policy as `--settings`
 /// permission rules, which default mode enforces identically in headless
 /// runs (non-allowed tools are denied, never prompted), and the long-lived
 /// harness fields permission requests over the control protocol. The notice
 /// is operational noise, not a failure cause — verified live 2026-07-07
 /// (allowed tools run, denied tools deny, skills invoke, structured output
-/// completes, with the var set).
+/// completes, with the var set). Full-access (`approval: never`) one-shots
+/// opt out with an explicit `=0` (see `ClaudeCliProvider`), because the
+/// forced default mode would neutralize their bypass posture.
 const claudeHardeningEnvVars = <String, String>{
   'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
+  'DISABLE_AUTOUPDATER': '1',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+};
+
+/// Env vars for containerized Claude spawns — [claudeHardeningEnvVars] with
+/// the subprocess env-scrub explicitly disabled.
+///
+/// The scrub buys nothing inside the container boundary: a containerized
+/// spawn starts from this minimal set (never the host environment), and the
+/// only `ANTHROPIC_API_KEY` present is the non-credential placeholder
+/// [containerClaudePlaceholderApiKey] — there is no host secret to scrub.
+/// Worse, the current claude CLI reads `=1` as a demand for host-sandbox
+/// tooling (bubblewrap) that cannot start under the container's own hardening
+/// (`--cap-drop ALL`, `no-new-privileges`). Tool enforcement for containerized
+/// spawns is the guard chain plus the host gateway, never Claude's permission
+/// mode. The explicit `0` wins over any image-level default.
+const claudeContainerHardeningEnvVars = <String, String>{
+  'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '0',
   'DISABLE_AUTOUPDATER': '1',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
 };

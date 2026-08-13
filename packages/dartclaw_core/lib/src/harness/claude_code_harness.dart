@@ -493,11 +493,15 @@ class ClaudeCodeHarness extends BaseHarness {
       // outside the boundary. `ANTHROPIC_BASE_URL` is set on the container
       // itself and points only at this authority's provider bridge.
       final containerEnv = <String, String>{
-        ...claudeHardeningEnvVars,
+        ...claudeContainerHardeningEnvVars,
         // Satisfies the CLI's local auth gate only; the host adapter replaces
         // it with the real credential. Without any key the client refuses
         // before it ever reaches the provider bridge.
         'ANTHROPIC_API_KEY': containerClaudePlaceholderApiKey,
+        // The image rootfs is read-only, so the default `$HOME/.claude` config
+        // location is unwritable; point the CLI at the writable generated-state
+        // mount instead, which is destroyed with the container.
+        'CLAUDE_CONFIG_DIR': containerGeneratedStatePath,
         if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
       };
       process = await cm.exec(

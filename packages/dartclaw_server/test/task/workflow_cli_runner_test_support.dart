@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, ContainerExecutor, EventBus;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         ContainerAuthorityLease,
@@ -78,8 +78,24 @@ WorkflowCliProcessStarter codexStub({
   };
 }
 
-/// Leases [container] for every container-policy turn, recording releases so a
-/// test can prove the authority does not outlive the turn.
+/// Canonical-name grant filter mirroring the deleted package-level derivation.
+///
+/// The real deny/servable derivation is owned by `HarnessWiring` and tested
+/// there; container runners here inject this so [WorkflowCliRunner] does not
+/// fail closed for lack of a resolver. Records the acquire when a test needs to
+/// assert the step leased exactly one container.
+Set<String> testBridgedMcpTools(List<String>? allowedTools) {
+  if (allowedTools == null || allowedTools.isEmpty) return const {};
+  final canonicalNames = {
+    for (final tool in CanonicalTool.values)
+      if (tool != CanonicalTool.mcpCall) tool.stableName,
+  };
+  return allowedTools.map((tool) => tool.trim()).where(canonicalNames.contains).toSet();
+}
+
+/// Leases [container] once per step, recording each acquire (via
+/// [grantedMcpTools]) and each [released] so a test can prove one container is
+/// held for the whole step and released exactly once.
 ContainerAuthorityProvider fakeContainerAuthorities(
   ContainerExecutor container, {
   List<String>? released,
@@ -115,12 +131,14 @@ WorkflowCliRunner claudeRunner({
   ContainerExecutor? container,
   EventBus? eventBus,
   List<Set<String>>? grantedMcpTools,
+  Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver,
 }) {
   return WorkflowCliRunner(
     providers: {'claude': WorkflowCliProviderConfig(executable: 'claude', options: options)},
     containerAuthorities: container == null
         ? null
         : fakeContainerAuthorities(container, grantedMcpTools: grantedMcpTools),
+    bridgedMcpToolsResolver: container == null ? null : (bridgedMcpToolsResolver ?? testBridgedMcpTools),
     eventBus: eventBus,
     processStarter: processStarter,
   );
@@ -132,12 +150,14 @@ WorkflowCliRunner codexRunner({
   ContainerExecutor? container,
   EventBus? eventBus,
   List<Set<String>>? grantedMcpTools,
+  Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver,
 }) {
   return WorkflowCliRunner(
     providers: {'codex': WorkflowCliProviderConfig(executable: 'codex', options: options)},
     containerAuthorities: container == null
         ? null
         : fakeContainerAuthorities(container, grantedMcpTools: grantedMcpTools),
+    bridgedMcpToolsResolver: container == null ? null : (bridgedMcpToolsResolver ?? testBridgedMcpTools),
     eventBus: eventBus,
     processStarter: processStarter,
   );

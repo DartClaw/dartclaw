@@ -104,6 +104,23 @@ Container isolation is unavailable on native Windows even when Docker is install
 owner-only generated state require POSIX facilities, so `container.enabled: true` fails closed and directs the operator
 to a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
 
+### File Ownership on Native Linux
+
+The container image runs its agent process as uid 1000, and on native Linux Docker, bind-mount file ownership passes
+through verbatim. DartClaw aligns the per-execution host directories it mounts (generated state, artifacts) to uid 1000
+with a best-effort `chown` — a no-op when the service already runs as uid 1000 (the default first user on most
+distributions). This is the standard bind-mount uid-mismatch constraint every containerized tool shares, not a
+DartClaw-specific one; Docker Desktop on macOS/Windows masks it entirely through its own uid remapping.
+
+Running the service as a **dedicated non-1000 user** (for example a `dartclaw` system account) therefore needs one of:
+
+- **root or `CAP_CHOWN`** for the service process, so the alignment `chown` succeeds, or
+- **rootless / userns-remapped Docker**, where the daemon maps container uid 1000 into the service user's subordinate
+  uid range — this works with zero extra privileges and is the recommended unprivileged posture.
+
+Without either, containerized executions fail on their mounted state and artifact directories. The alignment is
+best-effort by design (a failed `chown` is logged, never fatal) so uid-remapped daemons are unaffected.
+
 ### Pragmatic Mode
 
 Without container isolation, guards serve as the primary security boundary. This is suitable for personal use on a
@@ -156,8 +173,10 @@ Container (network:none)                          Host
 
 1. Each live container authority gets its own container and its own bridge processes. Nothing is shared between
    executions, and nothing survives one.
-2. The only host object in the container is the **read-only** `dartclaw-bridge` executable. There is no socket mount,
-   no published port, and no network attachment.
+2. The host objects the mediation path adds are the **read-only** `dartclaw-bridge` executable, a writable per-authority
+   generated-state directory mounted at `/home/dartclaw/.dartclaw` (the container's home for generated client
+   configuration, deleted with the authority), and – only for an execution that writes durable artifacts – a writable
+   host-owned directory mounted at `/artifacts`. There is no socket mount, no published port, and no network attachment.
 3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
    pipe the host opened. It chooses no destination and holds no credential.
 4. On the host, the adapter bound to that pipe pins the upstream origin, drops any client-supplied credential header,

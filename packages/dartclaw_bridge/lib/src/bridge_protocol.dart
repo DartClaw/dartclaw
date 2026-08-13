@@ -79,7 +79,10 @@ enum BridgeFrameType {
 /// these caps also bound peak memory per pipe.
 final class BridgeLimits {
   const BridgeLimits({
-    this.maxMetadataBytes = 64 * 1024,
+    // The metadata length travels in a uint16 header field, so 0xffff is the
+    // hard ceiling: a larger value would wrap on encode and decode as a corrupt
+    // frame instead of being rejected.
+    this.maxMetadataBytes = 0xffff,
     this.maxBodyChunkBytes = 256 * 1024,
     this.maxRequestBytes = 8 * 1024 * 1024,
     this.maxResponseBytes = 64 * 1024 * 1024,

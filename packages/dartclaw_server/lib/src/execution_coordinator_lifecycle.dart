@@ -4,8 +4,13 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
   /// Tears a worker down in the order the isolation boundary requires:
   /// harness termination, authority revocation, container destruction. Callers
   /// return capacity only after this completes.
-  Future<void> _disposeWorker(TurnRunner runner, ExecutionRequest request) async {
+  ///
+  /// Returns `false` when a container revocation or destroy hook threw, so the
+  /// container may still be alive: the caller must quarantine the slot rather
+  /// than admit a fresh authority over a live orphan.
+  Future<bool> _disposeWorker(TurnRunner runner, ExecutionRequest request) async {
     await _stopAndDisposeHarness(runner.harness, 'worker');
+    var teardownConfirmed = true;
     if (runner.executionPolicy.isContainer) {
       final context = ExecutionReleaseContext(request: request, runner: runner);
       for (final hook in _releaseHooks) {
@@ -14,18 +19,21 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
         } catch (error, stackTrace) {
           // Destroying the container is the stronger revocation, so a failed
           // hook must not prevent it — but it is a security-relevant failure.
+          teardownConfirmed = false;
           ExecutionCoordinator._log.severe('Execution release hook failed', error, stackTrace);
         }
       }
       try {
         await _destroyContainerAuthority?.call(context);
       } catch (error, stackTrace) {
+        teardownConfirmed = false;
         ExecutionCoordinator._log.severe('Failed to destroy container authority', error, stackTrace);
       }
     }
     _emit(ExecutionEventKind.disposed, request, ExecutionLane.worker, runner: runner);
     runner.setOutcomeObserver(null);
     _runnerIds.remove(runner);
+    return teardownConfirmed;
   }
 
   Future<void> _stopAndDisposeHarness(AgentHarness harness, String role) async {
@@ -47,8 +55,8 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
     ExecutionLane lane,
     WorkerCapacityPermit permit,
   ) async {
-    await _disposeWorker(runner, request);
-    if (runner.harness.isRootProcessTerminationConfirmed) return false;
+    final teardownConfirmed = await _disposeWorker(runner, request);
+    if (teardownConfirmed && runner.harness.isRootProcessTerminationConfirmed) return false;
     permit.quarantine();
     _emit(ExecutionEventKind.quarantined, request, lane, runner: runner);
     return true;

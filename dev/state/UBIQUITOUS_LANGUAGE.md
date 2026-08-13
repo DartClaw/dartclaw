@@ -10,10 +10,12 @@
 |------|-----------|-------------------|-----------------|
 | Turn | Single round of agent reasoning, tool execution, and response generation. Atomic work unit | iteration, cycle, pass | Server orchestration |
 | Worker | Agent subprocess executing turns. Lifecycle: `idle`, `busy`, `crashed`, `stopped` | agent process, execution context | Server execution |
-| Harness | Bridge between Dart host and native LLM binary. Implements protocol parsing, lifecycle, stream translation. Abstract: `AgentHarness`; concrete: `ClaudeCodeHarness`, `CodexHarness` | bridge, connector, wrapper | Execution coordinator |
+| Harness | Bridge between Dart host and native LLM binary. Implements protocol parsing, lifecycle, stream translation. Abstract: `AgentHarness`; concrete: `ClaudeCodeHarness`, `CodexHarness` | connector, wrapper (not "bridge" as a name – the Container Bridge / `dartclaw_bridge` owns that term) | Execution coordinator |
 | Execution Coordinator | Post-governance execution authority. Owns one serialized primary lane plus hard per-provider worker lease capacity, lazy worker construction, compatible reuse, and lease-derived snapshots | pool coordinator | Server orchestration |
 | Execution Lease | Temporary admission to the primary lane, a provider worker, or capacity-only workflow execution. Releasing it returns capacity and may cache a healthy compatible worker | worker slot | Server orchestration |
 | Execution Fingerprint | Provider, security profile, and runtime configuration identity required for safe worker reuse | pool key | Server orchestration |
+| Execution Policy | Two-axis per-execution decision: **location** (host or container), chosen by `agent.execution` / `agent.agents.<id>.execution` / `tasks.execution.<task-type>` independently of the **security profile** (`workspace`/`restricted`). One resolver owns precedence; an unrunnable provider/location combination is refused before the turn, never downgraded to host | execution mode, isolation mode, container flag | Execution coordinator |
+| Principal | The single trust identity a Container Authority is bound to – a standing agent (primary lane, logical-agent session) or a one-shot job (task, workflow step). A container never crosses principals; there is no shared-across-principals scope | trust principal, owner, tenant | Execution coordinator / security |
 | Provider | LLM provider (claude, codex). Determines harness implementation and credentials | model, backend, endpoint | Configuration |
 | Logical Agent | Named execution profile under `agent.agents`: prompt, provider, model/effort overrides, and tool policy. Started with `sessions_spawn` and continued with `sessions_send` | subagent, native agent | Agent orchestration |
 | Logical-Agent Session | Durable hidden session created for one Logical Agent. Pinned to its provider and security profile, then continued only by the handle returned from `sessions_spawn` | delegated conversation, provider thread | Agent orchestration |
@@ -56,14 +58,17 @@
 | Guard Verdict | Sealed outcome: `GuardPass` (allow), `GuardWarn` (log + allow), `GuardBlock` (deny) | decision, outcome, result | Security |
 | Guard Audit | Persistent NDJSON log of all guard verdicts. Rotated daily with retention cleanup | guard log, security audit | Audit |
 | Canonical Tool Taxonomy | DartClaw-standardized tool names across providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `mcp_call` | tool names, tool mapping | Multi-provider |
-| Credential Proxy | Unix socket-based credential injection. API keys never in container env or JSONL | credential injection, secret proxy | Security |
-| Container Isolation | Docker per-task sandbox: `network:none`, `cap-drop=ALL`, read-only rootfs | sandboxing | Security |
+| Credential Proxy (removed 0.24) | Retired term. The Unix-socket credential-injection proxy was removed in 0.24 and replaced by the host-gateway model: the Host Gateway holds credentials host-side and injects them per upstream, reached only through the per-authority framed Container Bridge (`dartclaw_bridge`). No socket-based credential injection remains | – use Host Gateway / Container Bridge | Security / container isolation |
+| Container Isolation | Per-authority Docker sandbox: `network:none`, `cap-drop=ALL`, read-only rootfs, `no-new-privileges`. Each Container Authority owns one single-use container whose only path off `network:none` is its per-authority framed Container Bridge to the Host Gateway | sandboxing | Security / container isolation |
+| Container Authority | A live grant of one dedicated container to exactly one Principal, owning that container, its per-authority bridge pipes, and its generated-state directory. Never cached or shared; disposal revokes the pipes, deletes generated state, and destroys the container before capacity returns (ADR-012) | container lease, container slot | Security / container isolation |
+| Host Gateway | Host-side component (`HostGateway`) that registers each live Container Authority and serves its framed `docker exec` pipes to the provider adapters and MCP router. Pins each upstream, injects host-held credentials, and is the container's only path off `network:none`. Replaces the 0.24-removed credential proxy | credential proxy, provider proxy, gateway | Security / container isolation |
+| Container Bridge (`dartclaw_bridge`) | Read-only Dart executable that runs inside the agent container on loopback and forwards bounded, framed provider/MCP traffic to the Host Gateway over the host-opened `docker exec -i` pipe. Chooses no destination and holds no credential; shipped host-side and mounted read-only at create (ADR-051). In-container binary name `dartclaw-bridge` | socat bridge, in-container proxy, credential proxy | Security / container isolation |
 
 ## Channels & Messaging
 
 | Term | Definition | Avoid (synonyms) | Bounded Context |
 |------|-----------|-------------------|-----------------|
-| Channel | Integration point for external messaging platforms. Abstract: `Channel`; concrete: `WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel` | integration, connector, gateway | Channels |
+| Channel | Integration point for external messaging platforms. Abstract: `Channel`; concrete: `WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel` | integration, connector (not "gateway" as a name – the Host Gateway owns that term) | Channels |
 | Channel Message | Normalized inbound DTO from any channel | inbound message, channel event | Channels |
 | Sender Attribution | Identity tracking: `Task.createdBy`, `TaskOrigin.senderDisplayName/senderId` | creator tracking | Channels |
 | Thread Binding | Maps `(channelType, threadId)` to `(taskId, sessionKey)`. Routes thread replies to task session. Auto-unbinds on completion | thread mapping, routing entry | Channels |
@@ -169,7 +174,7 @@
 | Worker | Execution Coordinator | Lazily created agent subprocess executing leased background turns | General | Not used for Dart isolates |
 | Provider | Agent Runtime | LLM provider (claude, codex) | Google Chat | Google Cloud service account |
 | Guard | Security | Policy evaluator in defense chain | UI | Not used |
-| Bridge | Protocol | Harness-to-host event translation | Channels | `ChannelTaskBridge` (channel-to-task routing) |
+| Bridge | Container execution | Container Bridge / `dartclaw_bridge` – the read-only in-container executable forwarding framed provider/MCP traffic to the Host Gateway over the `docker exec -i` pipe | Protocol / Channels | `BridgeEvent` harness-to-host event translation; `ChannelTaskBridge` channel-to-task routing |
 | Drain | Workflow git | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Emergency Control | Informal use in `/resume (drain queue)` describing message-queue replay |
 | Type | Workflow steps | Step type — workflow dispatch kind: `agent`, `bash`, `approval`, `foreach`, `loop`, `aggregate-reviews` (see `WorkflowTaskType`) | DartClaw runtime | Task type — broader vocabulary for queued tasks (coding, research, writing, analysis, automation, custom) |
 | Verification | Workflow git | Resolution Verification — merge-resolve skill's post-resolution checks | Workflow execution | Generic step-level review/verification activities (e.g. `dartclaw-review`) |
@@ -187,3 +192,5 @@
 - 2026-04-25: Added 0.16.4 agent-resolved-merge terms — Workflow git: Foreach Iteration, Project Base Branch, Integration Branch, Story Branch, Promotion, Promotion Conflict, Resolution Attempt, Resolution Verification, Internal Remediation, Serialize-remaining, Drain, Workflow Run Artifact. Agent skills: Bang Operator, Env-var Injection.
 - 2026-05-19: Added S38 overloaded Type row distinguishing workflow step type (`WorkflowTaskType`) from DartClaw task type.
 - 2026-06-12: Added 0.19 Context Engine, Turn Context Assembler, outbound MCP client, `context_research`, egress guard, and citation packet terms.
+- 2026-08-12: Added 0.24 execution-isolation terms – Execution Policy, Principal, Container Authority, Host Gateway, Container Bridge (`dartclaw_bridge`); extended the Bridge overloaded-term row with the container-bridge sense and carved the container-bridge / host-gateway names out of the Harness / Channel Avoid columns.
+- 2026-08-12: Retired the pre-0.24 Credential Proxy entry (redirect to Host Gateway / Container Bridge) and updated Container Isolation to the shipped 0.24 model (per-authority single-use container, `no-new-privileges`, framed bridge as the only egress path).

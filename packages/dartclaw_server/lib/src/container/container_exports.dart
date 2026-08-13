@@ -2,8 +2,15 @@ export 'bridge_binary.dart' show BridgeBinaryProvisioner;
 export 'container_authority.dart' show ContainerAuthorityLease, ContainerAuthorityProvider;
 export 'container_dispatcher.dart' show resolveProfile;
 export 'container_health_monitor.dart' show ContainerHealthMonitor;
+export 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
 export 'container_manager.dart'
-    show ContainerManager, RunCommand, StartCommand, containerArtifactsPath, containerGeneratedStatePath;
+    show
+        ContainerAuthorityLostException,
+        ContainerHealth,
+        ContainerManager,
+        RunCommand,
+        StartCommand,
+        containerArtifactsPath;
 export 'docker_validator.dart' show DockerValidator;
 export 'gateway/gateway_models.dart'
     show

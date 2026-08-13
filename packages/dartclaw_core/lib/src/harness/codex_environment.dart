@@ -4,6 +4,7 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/container_executor.dart' show containerImageUidGid;
 import 'codex_config_generator.dart';
 
 final _log = Logger('CodexEnvironment');
@@ -192,6 +193,15 @@ class CodexEnvironment {
       if (agentsContent != null) {
         await File(p.join(directory.path, 'AGENTS.md')).writeAsString(agentsContent, flush: true);
       }
+      // The home is chmod 700 and written by the host service uid, so on native
+      // Linux the container's uid-1000 user cannot read it (bind-mount ownership
+      // is verbatim; no Docker Desktop uid remapping). Chown the home and its
+      // config to the image uid so the mounted CODEX_HOME is readable. Best
+      // effort: this needs host CAP_CHOWN — a root or CAP_CHOWN service succeeds
+      // silently; an unprivileged non-1000 host cannot chown and the turn fails
+      // later on its own unreadable home (rootless/userns Docker is the fix
+      // there); Docker Desktop's uid remapping makes the mount readable anyway.
+      await _chownToImageUid(directory.path);
       _containerDirectory = directory;
       return directory.path;
     } catch (_) {
@@ -261,6 +271,19 @@ class CodexEnvironment {
     final result = await Process.run('chmod', ['700', path]);
     if (result.exitCode != 0) {
       throw ProcessException('chmod', ['700', path], '${result.stderr}'.trim(), result.exitCode);
+    }
+  }
+
+  /// Best-effort recursive chown of the container home to the image uid so the
+  /// container's uid-1000 user owns its mounted `CODEX_HOME`. See the caller for
+  /// why a failure is tolerated rather than thrown.
+  Future<void> _chownToImageUid(String path) async {
+    if (Platform.isWindows) {
+      return;
+    }
+    final result = await Process.run('chown', ['-R', containerImageUidGid, path]);
+    if (result.exitCode != 0) {
+      _log.fine('Could not chown Codex container home $path to $containerImageUidGid: ${result.stderr}');
     }
   }
 

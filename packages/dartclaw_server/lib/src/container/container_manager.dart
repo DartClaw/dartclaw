@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, canonicalizePathWithExistingAncestors;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show ContainerExecutor, canonicalizePathWithExistingAncestors, containerGeneratedStatePath, containerImageUidGid;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
@@ -25,8 +26,29 @@ typedef StartCommand =
       bool includeParentEnvironment,
     });
 
-/// Container mount point for one authority's generated client configuration.
-const containerGeneratedStatePath = '/home/dartclaw/.dartclaw';
+/// Three-valued container liveness.
+///
+/// [unknown] is the load-bearing state: a `docker inspect` that fails to reach
+/// the daemon (or errors for any reason other than an explicit "no such
+/// object") proves nothing about the container and must never be read as death.
+enum ContainerHealth { running, notRunning, unknown }
+
+/// Thrown when a container authority's container has been lost and cannot be
+/// reattached, so the execution needs a fresh authority.
+///
+/// A named subtype of [StateError] — existing callers that catch [StateError]
+/// keep their behavior, while the primary lane and tests can match this cause
+/// specifically instead of a bare internal error.
+class ContainerAuthorityLostException extends StateError {
+  ContainerAuthorityLostException({required this.containerName, required this.profileId})
+    : super(
+        'Container $containerName ($profileId) is no longer running and cannot be reattached: its host bridges died '
+        'with it, so this execution must acquire a new container authority.',
+      );
+
+  final String containerName;
+  final String profileId;
+}
 
 /// Container mount point for the host-owned artifacts directory an execution
 /// writes its durable outputs to.
@@ -160,22 +182,25 @@ class ContainerManager implements ContainerExecutor {
   /// The execution must acquire a new authority instead.
   @override
   Future<void> start() async {
-    if (await isHealthy()) {
+    if (await health() == ContainerHealth.running) {
       _log.info('Container $containerName ($profileId) already running');
       _created = true;
       return;
     }
     if (_created) {
-      throw StateError(
-        'Container $containerName ($profileId) is no longer running. Its host bridges died with it and cannot be '
-        'reattached; this execution needs a new container authority.',
-      );
+      throw ContainerAuthorityLostException(containerName: containerName, profileId: profileId);
     }
 
     // Remove stale container if exists
     await _run('docker', ['rm', '-f', containerName]);
     _validateLocalPathProjectMounts();
     await _createGeneratedStateDir();
+    // Bind-mount ownership passes through verbatim on native Linux, so the
+    // artifacts dir must be owned by the image uid or the container cannot
+    // write its outputs. The dir is created host-side before this point.
+    if (artifactsDir case final dir?) {
+      await _chownToImageUid(dir);
+    }
 
     final args = [
       'create',
@@ -259,7 +284,10 @@ class ContainerManager implements ContainerExecutor {
     // Generated state is deleted whether or not removal succeeded: a leaked
     // container must not also leave a readable generated home behind.
     await _deleteGeneratedStateDir();
-    if (removal.exitCode != 0 && await isHealthy()) {
+    // Only an explicitly-confirmed absence lets a failed removal pass: a daemon
+    // error is `unknown`, and admitting it as success would leak a live
+    // container (with its mounts) while returning its capacity.
+    if (removal.exitCode != 0 && await health() != ContainerHealth.notRunning) {
       throw StateError('Failed to destroy container $containerName: ${removal.stderr}');
     }
     _log.info('Container $containerName ($profileId) stopped and removed');
@@ -280,6 +308,32 @@ class ContainerManager implements ContainerExecutor {
       if (result.exitCode != 0) {
         throw StateError('Failed to restrict permissions on $generatedStateDir: ${result.stderr}');
       }
+      await _chownToImageUid(generatedStateDir);
+    }
+  }
+
+  /// Best-effort chown of a per-authority host mount dir to the image uid so the
+  /// container's uid-1000 `dartclaw` user owns the bind-mounted state.
+  ///
+  /// On native Linux bind-mount ownership is verbatim, so a host service uid
+  /// other than 1000 hands the container mounts it cannot use — every
+  /// containerized turn's state write and the `/artifacts` write fail. Chowning
+  /// the host side to 1000 is the standard bind-mount-uid fix and keeps the
+  /// container running as the user its image was built for.
+  ///
+  /// Best-effort on purpose: this fixes the privileged-host case (root or
+  /// CAP_CHOWN), which succeeds silently. An unprivileged host cannot chown to
+  /// another uid — including every Docker Desktop run, where the mount works
+  /// regardless via uid remapping — so a failure is logged at fine and not
+  /// thrown; throwing would regress those working deployments. An unprivileged
+  /// non-1000 host still cannot use the mount, surfacing later as the turn's own
+  /// write failure (the pre-existing state), and rootless/userns-remapped Docker
+  /// is the fix there.
+  Future<void> _chownToImageUid(String dir) async {
+    if (Platform.isWindows) return;
+    final result = await _run('chown', [containerImageUidGid, dir]);
+    if (result.exitCode != 0) {
+      _log.fine('Could not chown $dir to $containerImageUidGid (host may lack CAP_CHOWN): ${result.stderr}');
     }
   }
 
@@ -348,10 +402,29 @@ class ContainerManager implements ContainerExecutor {
     }
   }
 
-  /// Check if the container is running.
-  Future<bool> isHealthy() async {
+  /// Reports whether the container is running, not running, or unknown.
+  ///
+  /// A zero-exit `docker inspect` is authoritative (`true`/anything else). A
+  /// non-zero exit is only proof of death when Docker says so explicitly ("no
+  /// such object"); a daemon-connection or other inspect failure is [unknown]
+  /// and callers must not treat it as death.
+  Future<ContainerHealth> health() async {
     final result = await _run('docker', ['inspect', '--format', '{{.State.Running}}', containerName]);
-    return result.exitCode == 0 && (result.stdout as String).trim() == 'true';
+    if (result.exitCode == 0) {
+      return (result.stdout as String).trim() == 'true' ? ContainerHealth.running : ContainerHealth.notRunning;
+    }
+    return _confirmsAbsence(result.stderr) ? ContainerHealth.notRunning : ContainerHealth.unknown;
+  }
+
+  /// Check if the container is confirmed running.
+  Future<bool> isHealthy() async => await health() == ContainerHealth.running;
+
+  /// Whether Docker's stderr explicitly reports the container is absent. Only
+  /// this — never a bare non-zero exit — confirms a not-running state; anything
+  /// else (a daemon-connection failure) stays [ContainerHealth.unknown].
+  static bool _confirmsAbsence(Object? stderr) {
+    final text = (stderr is String ? stderr : stderr?.toString() ?? '').toLowerCase();
+    return text.contains('no such object') || text.contains('no such container');
   }
 
   bool _hasContainerMountTarget(String containerPath) {

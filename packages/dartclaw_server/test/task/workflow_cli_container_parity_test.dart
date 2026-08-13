@@ -72,6 +72,7 @@ void main() {
           ),
         },
         containerAuthorities: fakeContainerAuthorities(container, grantedMcpTools: grantedMcpTools),
+        bridgedMcpToolsResolver: testBridgedMcpTools,
       );
 
   Future<void> runTurn(
@@ -117,8 +118,9 @@ void main() {
       }
       // Hardening still applies; the host provider environment does not. The
       // only ANTHROPIC_API_KEY present is the non-credential placeholder that
-      // gets the CLI past its local auth gate.
-      expect(container.lastEnv, contains('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'));
+      // gets the CLI past its local auth gate. The subprocess env-scrub is
+      // explicitly disabled inside the container boundary.
+      expect(container.lastEnv!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '0');
       expect(container.lastEnv!['ANTHROPIC_API_KEY'], containerClaudePlaceholderApiKey);
     });
 
@@ -301,6 +303,24 @@ void main() {
       expect(granted.single, isEmpty);
     });
 
+    test('uses the injected resolver, so a deployment-wide deny bounds the grant', () async {
+      // The runner must not re-derive the grant locally: the injected resolver
+      // owns the deny subtraction. Pre-fix the workflow site applied no deny, so
+      // web_fetch reached the authority regardless.
+      final granted = <Set<String>>[];
+      final container = containerFor(stdout: _claudeResult, mcpBridgeUrl: 'http://127.0.0.1:8081/mcp');
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude', environment: _hostProviderEnvironment),
+        },
+        containerAuthorities: fakeContainerAuthorities(container, grantedMcpTools: granted),
+        bridgedMcpToolsResolver: (allowedTools) => testBridgedMcpTools(allowedTools).difference(const {'web_fetch'}),
+      );
+      await runTurn(runner, 'claude', allowedTools: ['web_fetch', 'web_search']);
+
+      expect(granted.single, {'web_search'}, reason: 'the denied web_fetch never reaches the authority');
+    });
+
     test('claude points at the execution bridge with no bearer', () async {
       final container = containerFor(stdout: _claudeResult, mcpBridgeUrl: 'http://127.0.0.1:8081/mcp');
       late String mcpConfig;
@@ -349,17 +369,6 @@ void main() {
       await runTurn(runnerFor('claude', container), 'claude');
 
       expect(denyRules(container), containsAll(['WebFetch', 'WebSearch']));
-    });
-  });
-
-  group('bridgedMcpToolsFor', () {
-    test('drops provider-native names and the catch-all canonical', () {
-      expect(bridgedMcpToolsFor(['web_fetch', 'WebFetch', 'mcp_call', 'shell']), {'web_fetch', 'shell'});
-    });
-
-    test('is empty for a null or empty allowlist', () {
-      expect(bridgedMcpToolsFor(null), isEmpty);
-      expect(bridgedMcpToolsFor(const []), isEmpty);
     });
   });
 }

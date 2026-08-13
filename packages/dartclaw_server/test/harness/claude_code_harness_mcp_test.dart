@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:dartclaw_server/src/container/gateway/gateway_models.dart' show mcpBridgePort;
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
 import 'package:dartclaw_core/src/harness/claude_protocol.dart'
-    show claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
+    show claudeContainerHardeningEnvVars, claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
 import 'package:dartclaw_core/src/harness/harness_config.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
@@ -85,10 +86,12 @@ StartCommand _containerStartCommand(FakeProcess process, {void Function(List<Str
       return process;
     };
 
-void _expectSecurityExecArgs(List<String> args) {
-  for (final entry in claudeHardeningEnvVars.entries) {
+void _expectContainerSecurityExecArgs(List<String> args) {
+  for (final entry in claudeContainerHardeningEnvVars.entries) {
     expect(args, contains('${entry.key}=${entry.value}'));
   }
+  // The subprocess env-scrub is explicitly disabled inside the container.
+  expect(args, contains('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0'));
 }
 
 void _expectSecurityEnvironment(Map<String, String>? environment) {
@@ -578,7 +581,7 @@ void main() {
       await harness.start();
 
       expect(capturedArgs, contains('CLAUDE_CODE_SIMPLE=1'));
-      _expectSecurityExecArgs(capturedArgs);
+      _expectContainerSecurityExecArgs(capturedArgs);
       expect(capturedArgs, isNot(contains('--dangerously-skip-permissions')));
       expect(capturedArgs, containsAll(['--permission-prompt-tool', 'stdio']));
 
@@ -601,7 +604,7 @@ void main() {
       await harness.start();
 
       expect(capturedArgs, isNot(contains('CLAUDE_CODE_SIMPLE=1')));
-      _expectSecurityExecArgs(capturedArgs);
+      _expectContainerSecurityExecArgs(capturedArgs);
       expect(capturedArgs, contains('--dangerously-skip-permissions'));
       expect(capturedArgs, isNot(contains('--permission-prompt-tool')));
 

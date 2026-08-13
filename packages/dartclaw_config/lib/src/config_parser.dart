@@ -138,8 +138,9 @@ Map<String, dynamic> _loadYaml(
   try {
     doc = loadYaml(content);
   } on YamlException catch (e) {
-    warns.add('YAML parse error — using defaults: $e');
-    return {};
+    // A malformed document must fail startup: silently falling back to
+    // defaults would boot a container-enabled deployment fully unisolated.
+    throw FormatException('YAML parse error in configuration — refusing to start with defaults: $e');
   }
 
   if (doc == null) return {};

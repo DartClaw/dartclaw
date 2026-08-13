@@ -1,13 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        CanonicalTool,
-        ContainerExecutor,
-        EventBus,
-        ProviderExecutionInventory,
-        ProviderExecutionVerdict,
-        ProviderLaunchSurface;
+    show ContainerExecutor, EventBus, ProviderExecutionInventory, ProviderExecutionVerdict, ProviderLaunchSurface;
 
 import '../container/container_authority.dart';
 import '../container/gateway/gateway_models.dart';
@@ -29,22 +23,6 @@ export 'cli_provider.dart'
         RootProcessTerminationObserver,
         StructuredTurnLimitProvider,
         WorkflowCliUsageBaseline;
-
-/// Canonical MCP tool names a containerized execution may reach, given the
-/// tool policy in force for it.
-///
-/// Deny-by-default: only entries naming a canonical tool participate, so a
-/// provider-native tool name says nothing about host MCP. `mcp_call` names
-/// every tool without a semantic canonical, so it can never act as a grant –
-/// one allowlist entry would otherwise open the whole registry.
-Set<String> bridgedMcpToolsFor(List<String>? allowedTools) {
-  if (allowedTools == null || allowedTools.isEmpty) return const {};
-  final canonicalNames = {
-    for (final tool in CanonicalTool.values)
-      if (tool != CanonicalTool.mcpCall) tool.stableName,
-  };
-  return allowedTools.map((tool) => tool.trim()).where(canonicalNames.contains).toSet();
-}
 
 /// Starts a CLI provider subprocess and returns the long-lived [Process].
 typedef WorkflowCliProcessStarter =
@@ -199,21 +177,40 @@ class WorkflowCliTurnResult {
 class WorkflowCliRunner {
   final Map<String, WorkflowCliProviderConfig> providers;
 
-  /// Leases a dedicated container authority for one container-policy turn.
+  /// Leases a dedicated container authority for one workflow step.
   ///
   /// `null` in host-only deployments; a container policy then fails rather
   /// than silently running on the host.
   final ContainerAuthorityProvider? containerAuthorities;
+
+  /// Derives the bridged-MCP grant a containerized step's authority is created
+  /// with, from the step's effective tool policy.
+  ///
+  /// Injected so the single owner (`HarnessWiring`, which holds the global deny
+  /// set and the servable tool set) computes the grant — `dartclaw_server`
+  /// cannot import `dartclaw_cli`. Required whenever [containerAuthorities] is
+  /// set; a container lease then fails closed rather than deriving a divergent,
+  /// unguarded grant locally.
+  final Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver;
   final EventBus? _eventBus;
   final WorkflowCliProcessStarter _processStarter;
   final Uuid _uuid;
   final Map<String, CliProvider> _providerImpls;
 
-  /// Leases the container backing [policy], or `null` for host execution.
+  /// Leases the one container authority backing a whole workflow step, or
+  /// `null` for host execution.
   ///
-  /// Each one-shot turn gets its own authority, so two concurrent workflow
+  /// One container per step (the one-shot job), reused across every turn of the
+  /// step — the main prompt, follow-ups, the finalizer, and its retry — and
+  /// torn down only when the step ends. This is what lets a step's provider
+  /// session (`providerSessionId`) resume across turns: the generated-state and
+  /// session substrate survive because the container does. The lease is one
+  /// trust principal; each [execute] call leases its own, so two concurrent
   /// steps never share a container, a bridge, or generated state.
-  Future<ContainerAuthorityLease?> _leaseContainer(
+  ///
+  /// A container profile with no [containerAuthorities] fails closed rather than
+  /// falling back to host execution.
+  Future<ContainerAuthorityLease?> leaseStepContainer(
     ExecutionPolicy policy, {
     required String provider,
     required String? sessionId,
@@ -229,6 +226,13 @@ class WorkflowCliRunner {
         'container mediation. Enable container.enabled: true or select host execution for this task type.',
       );
     }
+    final resolveGrant = bridgedMcpToolsResolver;
+    if (resolveGrant == null) {
+      throw StateError(
+        'Workflow one-shot has container mediation but no bridged-MCP grant resolver. Wiring must inject one from '
+        'HarnessWiring so the deployment-wide deny and servable filter apply.',
+      );
+    }
     return acquire(
       GatewayPrincipal(
         sessionId: sessionId ?? taskId ?? 'workflow-one-shot',
@@ -236,7 +240,7 @@ class WorkflowCliRunner {
         policy: policy,
         taskId: taskId,
       ),
-      allowedMcpTools: bridgedMcpToolsFor(allowedTools),
+      allowedMcpTools: resolveGrant(allowedTools),
       artifactsDir: artifactsDir,
     );
   }
@@ -254,6 +258,7 @@ class WorkflowCliRunner {
   WorkflowCliRunner({
     required this.providers,
     this.containerAuthorities,
+    this.bridgedMcpToolsResolver,
     this.executionInventory,
     EventBus? eventBus,
     WorkflowCliProcessStarter? processStarter,
@@ -363,6 +368,7 @@ class WorkflowCliRunner {
     String? sandboxOverride,
     Map<String, String>? extraEnvironment,
     String? artifactsDir,
+    ContainerAuthorityLease? stepContainer,
     WorkflowCliUsageBaseline usageBaseline = const WorkflowCliUsageBaseline(),
   }) async {
     // Compatibility first: an unavailable combination reports the same verdict
@@ -380,14 +386,20 @@ class WorkflowCliRunner {
     final impl = _implFor(provider, providerFamily);
     var rootProcessTerminationReported = false;
     final observer = onRootProcessTerminationConfirmed;
-    final lease = await _leaseContainer(
-      policy,
-      provider: provider,
-      sessionId: sessionId,
-      taskId: taskId,
-      allowedTools: allowedTools,
-      artifactsDir: artifactsDir,
-    );
+    // The step owns the container: when the caller (WorkflowOneShotRunner) holds
+    // one for the whole step, reuse it and leave its lifecycle to the caller.
+    // A direct single-turn call leases its own, matching one-turn == one-step.
+    final callerHeldContainer = stepContainer;
+    final lease =
+        callerHeldContainer ??
+        await leaseStepContainer(
+          policy,
+          provider: provider,
+          sessionId: sessionId,
+          taskId: taskId,
+          allowedTools: allowedTools,
+          artifactsDir: artifactsDir,
+        );
     try {
       final req = CliTurnRequest(
         prompt: prompt,
@@ -426,9 +438,9 @@ class WorkflowCliRunner {
       return await impl.run(req);
     } finally {
       if (observer != null && !rootProcessTerminationReported) await observer(false);
-      // The authority outlives nothing: the container and its bridges go away
-      // with the turn, on success and failure alike.
-      await lease?.release();
+      // A caller-held step container outlives the turn; only a lease this call
+      // acquired for a standalone single turn is released here.
+      if (callerHeldContainer == null) await lease?.release();
     }
   }
 

@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
+import 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
+import 'package:dartclaw_server/src/container/bridge_binary.dart' show BridgeBinaryProvisioner;
 import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:path/path.dart' as p;
@@ -133,6 +135,98 @@ void main() {
       // No host provider home is mounted: login state stays outside the boundary.
       expect(createCommand, isNot(contains('.claude.json')));
       expect(createCommand, isNot(contains('.codex')));
+    });
+
+    test('start builds the exact docker create argv — the full container security boundary', () async {
+      // CT-01 / G-HIGH-7. Order-exact golden over the entire `docker create`
+      // argv. The semantic test above asserts with containsAll + a substring
+      // denylist, so appending a privilege- or mount-granting flag passes it
+      // green; this pins the whole vector so any addition, removal, or reorder
+      // reddens. The expected list is built from the same name/mount/port
+      // constants the production code uses.
+      //
+      // Mutation this rejects: appending `--privileged` (or `--cap-add`,
+      // `SYS_ADMIN`, or an extra `-v` mount) to the args in ContainerManager
+      // .start() — the golden no longer matches, reddening the test.
+      final calls = <List<String>>[];
+      final manager = _manager(
+        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
+        artifactsDir: '/tmp/data/artifacts',
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          if (arguments.first == 'inspect') {
+            return ProcessResult(1, 1, '', 'missing');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      final create = calls.firstWhere((call) => call[1] == 'create');
+      expect(
+        create,
+        equals([
+          'docker',
+          'create',
+          '--name',
+          workspaceContainerName,
+          '--network',
+          'none',
+          '--cap-drop',
+          'ALL',
+          '--read-only',
+          '--tmpfs',
+          '/tmp:rw,noexec,nosuid,size=100m',
+          '--security-opt',
+          'no-new-privileges',
+          '-v',
+          '/tmp/workspace:/workspace:rw',
+          '-v',
+          '/tmp/project:/project:ro',
+          '-v',
+          '/tmp/dartclaw-bridge:${BridgeBinaryProvisioner.containerPath}:ro',
+          '-v',
+          '${manager.generatedStateDir}:$containerGeneratedStatePath:rw',
+          '-v',
+          '/tmp/data/artifacts:$containerArtifactsPath:rw',
+          '-e',
+          'ANTHROPIC_BASE_URL=${manager.providerBridgeUrl}',
+          '-v',
+          '/tmp/shared:/shared:ro',
+          'dartclaw-agent:latest',
+          'sleep',
+          'infinity',
+        ]),
+      );
+    });
+
+    test('start chowns both per-authority host mount dirs to the image uid (G-HIGH-5)', () async {
+      // Native Linux passes bind-mount ownership through verbatim, so the
+      // generated-state and artifacts mounts must be owned by the image's
+      // uid-1000 `dartclaw` user or the container cannot read/write its own
+      // state. Verified on a native-Linux VM: without this the writes fail with
+      // permission denied; with the host dirs chowned to 1000 they succeed.
+      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-chown-').path, 'authority'));
+      addTearDown(() {
+        final parent = stateDir.parent;
+        if (parent.existsSync()) parent.deleteSync(recursive: true);
+      });
+
+      final calls = <List<String>>[];
+      final manager = _manager(
+        generatedStateDir: stateDir.path,
+        artifactsDir: '/tmp/data/artifacts',
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          return arguments.first == 'inspect' ? ProcessResult(1, 1, '', 'missing') : ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await manager.start();
+
+      expect(calls, contains(equals(['chown', '1000:1000', stateDir.path])));
+      expect(calls, contains(equals(['chown', '1000:1000', '/tmp/data/artifacts'])));
     });
 
     test('start creates the generated-state directory empty and owner-only', () async {
@@ -344,7 +438,7 @@ void main() {
       await expectLater(
         manager.start(),
         throwsA(
-          isA<StateError>().having(
+          isA<ContainerAuthorityLostException>().having(
             (error) => error.message,
             'message',
             allOf(contains('no longer running'), contains('new container authority')),
@@ -353,6 +447,44 @@ void main() {
       );
       expect(calls.where((call) => call[1] == 'create'), isEmpty);
       expect(calls.where((call) => call.contains('rm')), isEmpty);
+    });
+
+    test('health distinguishes running, not-running, and daemon-error (unknown)', () async {
+      ContainerManager managerFor(ProcessResult inspect) => _manager(
+        run: (executable, arguments) async => arguments.first == 'inspect' ? inspect : ProcessResult(1, 0, '', ''),
+      );
+
+      expect(await managerFor(ProcessResult(1, 0, 'true\n', '')).health(), ContainerHealth.running);
+      expect(await managerFor(ProcessResult(1, 0, 'false\n', '')).health(), ContainerHealth.notRunning);
+      expect(
+        await managerFor(ProcessResult(1, 1, '', 'Error: No such object: x')).health(),
+        ContainerHealth.notRunning,
+      );
+      // A daemon-connection failure exits non-zero exactly like a dead container
+      // by exit code alone, but proves nothing — it must read as unknown.
+      expect(
+        await managerFor(
+          ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock'),
+        ).health(),
+        ContainerHealth.unknown,
+      );
+    });
+
+    test('stop throws when a failed removal cannot be confirmed (daemon unreachable)', () async {
+      final manager = _manager(
+        run: (executable, arguments) async {
+          if (arguments.first == 'rm') return ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon');
+          if (arguments.first == 'inspect') return ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon');
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      // An unconfirmable removal must throw, not silently return capacity while
+      // the container may still be alive once the daemon recovers.
+      await expectLater(
+        manager.stop(),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Failed to destroy container'))),
+      );
     });
 
     test('start rejects local project mounts outside the allowlist', () async {

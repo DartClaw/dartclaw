@@ -442,8 +442,9 @@ docker create \
   -v <workspace>:/workspace:rw \            # Workspace mount (workspace profile only)
   -v <dataDir>/projects/:/projects:ro \     # All project clones (parent-directory mount)
   -v <project>:/project:ro \                # Legacy alias for default project (backward compat)
-  -v <bridgeBinary>:/usr/local/bin/dartclaw-bridge:ro \  # Host gateway bridge
-  -v <dataDir>/containers/<name>:/state \   # Per-authority generated state
+  -v <bridgeBinary>:/opt/dartclaw/dartclaw-bridge:ro \       # Host gateway bridge
+  -v <dataDir>/containers/<name>:/home/dartclaw/.dartclaw:rw \  # Per-authority generated state (container home)
+  -v <artifactsDir>:/artifacts:rw \         # Host-owned artifacts dir (executions with an artifacts contract only)
   -e ANTHROPIC_BASE_URL=<providerBridgeUrl> \  # Framed pipe to the host gateway
   dartclaw-agent:latest \
   sleep infinity
@@ -550,8 +551,10 @@ Container (network:none)                     Host
 ```
 
 **Key properties**:
-- The container's only host object is the read-only bridge executable plus its own per-authority generated-state
-  directory; there is no socket mount, published port, or network attachment
+- The host objects the mediation path adds are the read-only bridge executable, the writable per-authority
+  generated-state directory (the container home, mounted at `/home/dartclaw/.dartclaw`), and – only for an execution
+  with an artifacts contract – a writable host-owned `/artifacts` directory; there is no socket mount, published port,
+  or network attachment
 - Provider credentials never exist inside the container environment, filesystem, arguments, or generated configuration
 - The adapter pins the upstream origin and the allowed request paths, so a container cannot retarget its own traffic
 - Authority is execution-scoped: release revokes the pipes, deletes generated state, and destroys the container, so

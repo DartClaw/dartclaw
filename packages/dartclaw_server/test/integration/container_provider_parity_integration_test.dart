@@ -5,7 +5,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show CodexEnvironment, containerClaudeExecutable, containerCodexExecutable, containerExecutableRuns;
+    show
+        CodexEnvironment,
+        containerClaudeExecutable,
+        containerCodexExecutable,
+        containerExecutableRuns,
+        containerGeneratedStatePath;
 import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
 import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:path/path.dart' as p;

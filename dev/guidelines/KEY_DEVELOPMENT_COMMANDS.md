@@ -115,6 +115,17 @@ bash dev/tools/parallels_windows_test.sh
 ```
 
 
+## Parallels Linux Agent VM
+
+For a reproducible Ubuntu 24 ARM64 desktop VM on an Apple Silicon Mac, follow
+`dev/guidelines/PARALLELS_LINUX_AGENT_VM.md`. It covers Parallels Tools, Wayland automatic login, key-only SSH, restricted
+host sharing, Cua Driver, optional native-Linux Docker conformance, cold-boot verification, snapshots, and per-agent
+clones.
+
+The guide is the provisioning source of truth. `dev/tools/parallels_linux.sh` is only a runtime lifecycle helper; do
+not use it as a substitute for setup verification. Treat each VM as single-caller unless every agent has its own clone.
+
+
 ## CI-Equivalent Gate
 
 Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that

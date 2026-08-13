@@ -255,10 +255,11 @@ projects:
         expect(config.server.port, 4444);
       });
 
-      test('YAML parse error collects warning and uses defaults', () {
-        final config = loadYaml('{\n  invalid: [unclosed');
-        expect(config.server.port, 3333);
-        expect(config.warnings, anyElement(contains('YAML parse error')));
+      test('YAML parse error is startup-fatal, never a silent defaults boot', () {
+        expect(
+          () => loadYaml('{\n  invalid: [unclosed'),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('YAML parse error'))),
+        );
       });
 
       test('~ expansion in data_dir', () {

@@ -6,7 +6,8 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, NullIoSink;
 import 'package:test/test.dart';
 
-import 'workflow_cli_runner_test_support.dart' show FakeContainerExecutor, fakeContainerAuthorities;
+import 'workflow_cli_runner_test_support.dart'
+    show FakeContainerExecutor, fakeContainerAuthorities, testBridgedMcpTools;
 
 void main() {
   group('ClaudeCliProvider', () {
@@ -371,6 +372,7 @@ void main() {
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
         containerAuthorities: fakeContainerAuthorities(container),
+        bridgedMcpToolsResolver: testBridgedMcpTools,
       );
 
       await runner.executeTurn(
@@ -615,6 +617,53 @@ void main() {
       }
     });
 
+    test('read-only step under approval: never never spawns with a permission bypass', () async {
+      // CT-03 / G-HIGH-8. `claude_cli_provider.dart:222` guards read-only
+      // containment with the `!req.readOnly &&` conjunct, so a read-only step
+      // cannot opt into full access even when the operator configures the
+      // provider `approval: never`. The read-only task policy stays in force;
+      // its deny-list conflicts with the bypassPermissions mode `approval: never`
+      // derives, so the run fails closed instead of spawning claude with
+      // `--permission-mode bypassPermissions` and no Edit/Write deny list.
+      //
+      // Mutation this rejects: delete `!req.readOnly && ` from line 222. The
+      // step then resolves to an empty full-access policy, does NOT throw, and
+      // spawns with `--permission-mode bypassPermissions` and no deny list —
+      // reddening both the throw expectation and the no-spawn assertion below.
+      List<String>? spawnedArgs;
+      final runner = WorkflowCliRunner(
+        providers: const {
+          'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'approval': 'never'}),
+        },
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          spawnedArgs = List<String>.from(args);
+          final payload = _streamJsonStdout({'session_id': 'rec', 'result': 'ok'}).replaceAll("'", "'\\''");
+          return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
+        },
+      );
+
+      await expectLater(
+        runner.executeTurn(
+          provider: 'claude',
+          prompt: 'Review only',
+          workingDirectory: Directory.systemTemp.path,
+          policy: const ExecutionPolicy.host(),
+          readOnly: true,
+          allowedTools: ['shell', 'file_read'],
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(contains('task policy cannot be enforced'), contains('bypassPermissions')),
+          ),
+        ),
+      );
+      // Fail-closed: containment refused the run before any bypass spawn reached
+      // the process starter.
+      expect(spawnedArgs, isNull, reason: 'a read-only step must never spawn with a permission bypass');
+    });
+
     test('full access (approval: never) opts the spawn env out of the subprocess env-scrub', () async {
       late Map<String, String>? environment;
       final runner = _envRecordingRunner(
@@ -711,6 +760,7 @@ void main() {
           'claude': WorkflowCliProviderConfig(executable: 'claude', options: {'approval': 'never'}),
         },
         containerAuthorities: fakeContainerAuthorities(container),
+        bridgedMcpToolsResolver: testBridgedMcpTools,
       );
 
       await expectLater(

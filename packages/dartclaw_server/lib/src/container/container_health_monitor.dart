@@ -66,11 +66,15 @@ class ContainerHealthMonitor {
       final containerName = entry.key;
       final manager = entry.value;
       try {
-        final healthy = await manager.isHealthy();
+        final health = await manager.health();
         // Release can unwatch while this check is in flight; a container that
         // is no longer ours must not produce an event.
         if (!_watched.containsKey(containerName)) continue;
+        // A daemon blip or inspect error is not a crash: hold the last known
+        // state so one transient failure cannot fail every watched execution.
+        if (health == ContainerHealth.unknown) continue;
         final wasHealthy = _lastHealthy[containerName] ?? true;
+        final healthy = health == ContainerHealth.running;
 
         if (wasHealthy && !healthy) {
           _log.severe('Container crashed: profile=${manager.profileId}, container=$containerName');

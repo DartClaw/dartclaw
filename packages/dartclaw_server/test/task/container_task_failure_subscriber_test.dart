@@ -73,6 +73,35 @@ void main() {
     );
   });
 
+  test('a crash re-queues a task with retries left instead of terminally failing it', () async {
+    await tasks.create(
+      id: 'retryable-task',
+      title: 'Research',
+      description: 'restricted task',
+      type: TaskType.research,
+      autoStart: true,
+      maxRetries: 2,
+    );
+    await tasks.transition('retryable-task', TaskStatus.running);
+
+    eventBus.fire(
+      ContainerCrashedEvent(
+        profileId: 'restricted',
+        containerName: 'dartclaw-abc-restricted-1',
+        error: 'Container is no longer running',
+        timestamp: DateTime.now(),
+        taskId: 'retryable-task',
+      ),
+    );
+    await pumpEventQueue();
+
+    final task = (await tasks.get('retryable-task'))!;
+    // Pre-fix the subscriber transitioned straight to failed, bypassing the
+    // retry machinery; routing through markFailedOrRetry re-queues instead.
+    expect(task.status, TaskStatus.queued, reason: 'a container crash must consult maxRetries, not fail directly');
+    expect(task.retryCount, 1);
+  });
+
   test('a crash of an authority no task owns fails nothing', () async {
     final resolvedSubscriber = ContainerTaskFailureSubscriber(
       tasks: tasks,

@@ -61,7 +61,7 @@ This table is the main registry of document locations relevant to development an
 | User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface – e.g. `configuration.md` documents `providers.*`, `workflows-reference.md` documents workflow YAML fields. **Keep them current** in the same change (same currency discipline as package `AGENTS.md`) |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
-| Development & architecture | `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` | Before coding or architecture work: CUPID, DDD, scalability/resilience, coding standards |
+| Development & architecture | `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` | Before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config |
 | Package boundaries | `dev/guidelines/DART-PACKAGE-GUIDELINES.md` | When touching pubspec or workspace packages: structure, versioning, pub.dev scoring, publishing |
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | Before writing tests: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns |
@@ -164,3 +164,11 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 - **Claude Code CLI** – https://code.claude.com/docs/en/headless – JSONL control protocol (stream-json)
 - **sqlite3 (Dart)** – https://pub.dev/packages/sqlite3 – raw SQLite bindings (search index only, no ORM)
 - **HTMX** – https://htmx.org/docs/ – attribute reference
+
+
+---
+
+
+## Spec-Driven Development (e.g. AndThen) process and SDLC guidelines
+
+- **Keep stories package-scoped.** When breaking a plan into many stories, aim for each story to stay within one `packages/<name>/` (or `apps/<name>/`); reach across packages only for genuinely cross-cutting seams. A single-package scope keeps stories focused and keeps the implementing agent's context to one package's `CLAUDE.md` / `AGENTS.md`, source, and tests instead of several.

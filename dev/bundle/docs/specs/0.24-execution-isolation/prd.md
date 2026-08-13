@@ -2,7 +2,8 @@
 
 > **Source Trust**: trusted-local
 > **Context**: `dev/state/ROADMAP.md#024--logical-agent-correctness--scheduling-operability` and `dev/adrs/012-per-type-container-isolation.md#context`; 0.24 release correction for the mixed-execution gap.
-> **Related Assets**: `dev/adrs/012-per-type-container-isolation.md`, `dev/adrs/015-container-isolation-strategy.md`, `dev/adrs/016-multi-provider-harness-architecture.md`, `dev/adrs/037-universal-acp-harness.md`, `dev/adrs/039-outbound-mcp-trust-boundary-and-transport.md`
+> **Related Assets**: `dev/adrs/012-per-type-container-isolation.md`, `dev/adrs/015-container-isolation-strategy.md`, `dev/adrs/016-multi-provider-harness-architecture.md`, `dev/adrs/037-universal-acp-harness.md`, `dev/adrs/039-outbound-mcp-trust-boundary-and-transport.md`, `dev/adrs/052-native-provider-web-tools-denied-all-container-profiles.md`
+> **Amended**: 2026-08-13 – reconciled with the ratified post-review decisions (see the Decisions Log tail): native-web denial widened to all container profiles (ADR-052), per-owner container lifetime, in-container provider hardening tooling disabled, startup-fatal config parse, native-Linux uid posture, primary-container-loss recovery, and the mediated-turn conformance evidence bar.
 
 ## Executive Summary
 
@@ -256,7 +257,10 @@ rather than trusted to client-side tool suppression.
 - [ ] Existing host SSRF, content, audit, and outbound-MCP protections remain on the network-performing side.
 - [ ] Linux and Docker Desktop retain `network:none` and use host-controlled, surface-separated framed stdio pipes over
       `docker exec -i`; the design requires neither a host AF_UNIX mount nor an egress-capable relay.
-- [ ] Restricted execution cannot invoke unmediated provider-native search or fetch as a fallback.
+- [ ] No containerized execution, on any profile (`workspace` included), can invoke provider-native search or fetch:
+      native web executes provider-side, outside `network:none`, so it is denied uniformly and the bridged MCP path is
+      a container's only web capability (ADR-052; reverses this PRD's original restricted-only scoping – the workspace
+      profile cannot honestly retain a capability the gateway 403s on every call).
 - [ ] Arbitrary direct Internet requests from the same container continue to fail.
 
 **Inputs / Outputs**:
@@ -272,7 +276,11 @@ rather than trusted to client-side tool suppression.
 - End-to-end tests make real MCP calls from a no-egress container on Linux and Docker Desktop and directly probe denied
   Internet/tool paths.
 - Concurrency and reuse tests prove that credentials captured by execution A are denied from execution B and after A ends.
-- Restricted Codex tests prove native web search cannot bypass the approved host capability path.
+- Containerized Codex and Claude tests, on every container profile, prove native web tools cannot bypass the approved
+  host capability path.
+- The release evidence bar is a full mediated provider *turn*: the packaged CLI completes a real conversation through
+  the framed pipe and host gateway, producing a container-side write the host observes – on Linux Docker and Docker
+  Desktop, both recorded. Static config/label assertions and container-reads-host-state checks are insufficient alone.
 
 **Error Handling**:
 
@@ -291,6 +299,9 @@ security claims.
 
 - [ ] Startup output lists deliberate host-execution overrides and unavailable provider/mode combinations without secrets.
 - [ ] Configuration errors use stable, actionable paths and accepted-value guidance.
+- [ ] A whole-document configuration parse error is startup-fatal: the deployment never boots on silent defaults, which
+      on a container-enabled deployment would mean booting fully unisolated on the host. Live reload of a malformed edit
+      keeps the active configuration.
 - [ ] Architecture and user guides distinguish execution mode, container security profile, provider credential mediation,
   and host capability mediation.
 - [ ] ADR-012 is amended or superseded with explicit lineage.
@@ -353,6 +364,10 @@ security claims.
 | Cached worker was created for another boundary | Worker is incompatible and not reused | Create a matching worker within capacity |
 | Research has no configured host search provider | Search is unavailable with an actionable diagnostic; restricted execution does not fall back to unmediated provider-native search | Configure an approved host-mediated search provider |
 | Windows requests container execution | Typed platform-capability rejection | Use host execution or a supported POSIX deployment |
+| `dartclaw.yaml` has a whole-document parse error | Startup aborts; the deployment never boots unisolated on silent defaults | Fix the YAML; live reload of a malformed edit keeps the active config |
+| Unprivileged non-1000 service user on native Linux with containers enabled | Mounted state/artifact dirs are unusable by the container; the alignment chown logs and never throws | Run as uid 1000, grant `CAP_CHOWN`, or use rootless/userns-remapped Docker |
+| The containerized primary agent's container dies | A typed, operator-actionable error names the loss and restart-to-recover; no silent brick, no auto-reacquire in 0.24 (deferred) | Restart the service; the next acquisition gets a fresh authority |
+| Docker daemon briefly unreachable during health checks | Health reports `unknown`, never a crash event; in-flight containerized work is not failed on a daemon blip | Health resumes on the next confirmed inspect |
 
 ## Constraints & Assumptions
 
@@ -361,9 +376,19 @@ security claims.
 - DartClaw remains a single-user, single-deployment runtime; multi-tenant policy administration is excluded.
 - Containers use the existing hardened Docker model with `network:none`; a bounded Dart-owned framed stdio bridge over
   `docker exec -i` is the only container-to-host mediation path.
-- One live container authority owns one container/process namespace and harness. Container harnesses are disposed on
-  authority release after confirmed process termination, pipe revocation, and generated-state cleanup; they do not enter
-  the reusable worker cache.
+- One live container authority owns one container/process namespace and harness, **for the whole life of its owner** – a
+  standing agent or a one-shot job (task; workflow step) – reused across all of that owner's turns and never re-leased
+  per turn (decided 2026-08-12; per-turn leasing was the root cause of the multi-turn workflow-step failures). A
+  container never crosses trust principals, and there is deliberately no cross-principal "shared" scope. Container
+  harnesses are disposed on authority release after confirmed process termination, pipe revocation, and generated-state
+  cleanup; they do not enter the reusable worker cache.
+- Inside a container, provider-native OS-hardening tooling is disabled – Claude's subprocess env-scrub
+  (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0`) and Codex's OS sandbox (`danger-full-access`, both lanes; read-only one-shots
+  keep `read-only`, failing closed). The container is the isolation boundary; that tooling cannot start under the
+  hardening, and enforcement is the guard chain plus the host gateway, never the provider's own sandbox.
+- Native-Linux containerized deployments need the mounted per-execution directories chown-able to the image uid (1000):
+  run the service as a uid-1000 user, grant root/`CAP_CHOWN`, or use rootless/userns-remapped Docker (the recommended
+  unprivileged posture). The alignment is best-effort by design; Docker Desktop is unaffected.
 - Execution-boundary configuration is restart-required.
 - `Task` currently has task type but no logical-agent identity; 0.24 uses a task-type fallback rather than a persistence migration.
 - Provider-specific behavior stays behind harness/composition boundaries; scheduling remains provider-neutral.
@@ -409,3 +434,10 @@ security claims.
 | Require host-owned provider credentials | Maintains defense-in-depth if a container is compromised | Read-only credential mounts; env injection |
 | Support Claude and Codex directly, ACP by declared compatibility | Satisfies the multi-harness promise without making false claims about arbitrary agents | Claude-only support; universal ACP guarantee |
 | Fail unsupported combinations closed | Security labels must describe real enforcement | Warn and fall back to host |
+| *(2026-08-13)* Deny provider-native web on **all** container profiles, not just `restricted` (ADR-052) | Native web executes provider-side; `network:none` cannot contain it, and "retained" workspace native web was 403'd at the gateway on every call – an advertised-but-unenforceable capability | Keep the original restricted-only split; open provider-side egress at the adapter |
+| *(2026-08-13)* One persistent container per owner, reused across its turns; never per-turn leasing | Per-turn re-creation destroyed provider session state mid-step and was an outlier no reference system runs; the fix was a subtraction to the model tasks/sessions already used | Per-step provider-state mount; keep per-turn leasing |
+| *(2026-08-13)* Disable provider in-container hardening tooling (Claude env-scrub `=0`, Codex `danger-full-access` on both lanes) | The container is the boundary; the tooling cannot start under `--cap-drop ALL`/`no-new-privileges` and its failure modes were broken spawns and silently tool-less "successful" turns | Ship bubblewrap in the image; honor stricter configured Codex sandboxes in containers |
+| *(2026-08-13)* Whole-document config parse errors are startup-fatal | A silent fall-back to defaults booted container-enabled deployments fully unisolated on one warning line | Warn-and-continue; fail-closed for security sections only |
+| *(2026-08-13)* Document the native-Linux uid-1000 posture; rootless Docker is the unprivileged path | Bind-mount uid pass-through is a Linux/Docker constraint every containerized tool shares; engineering userns support in 0.24 would be new scope for a solved problem | Implement userns-remap detection now; require root unconditionally |
+| *(2026-08-13)* Containerized-primary loss recovers by service restart; no auto-reacquire in 0.24 | A containerized primary is an opt-in posture; mid-conversation authority rebuild is real work for a rare case – ship a typed, actionable error instead of a silent brick | Auto-reacquire machinery now |
+| *(2026-08-13)* The release evidence bar is a real mediated provider turn with a container-side write, dual-engine | Static config/label assertions repeatedly passed while real turns were broken (untranslated cwd; sandbox tool panics); only a driven turn proves the mediation machinery | Accept config-level conformance; single-engine evidence |

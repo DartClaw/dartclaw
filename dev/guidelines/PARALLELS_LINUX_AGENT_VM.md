@@ -14,7 +14,7 @@ The tested baseline is:
 | VM resources | 4 vCPU, 8 GB RAM, 64 GB expanding disk |
 | Guest access | Parallels Tools 26.4.1 (57516) plus key-only SSH as the desktop user |
 | Computer use | Cua Driver 0.19.3 plus its WinRects GNOME helper as a desktop-user systemd service |
-| Linux conformance | Docker Engine 29.7.2 ARM64; `dartclaw-test` UID 1201 |
+| Linux conformance | Docker Engine 29.7.2 ARM64; `dartclaw-test` UID 1201; Dart SDK at `/opt/dart-sdk`; `claude` + `codex` CLIs in `/usr/local/bin` |
 | Host integration | Shared folders, profile, clipboard, cloud, SmartMount, camera, and location disabled |
 
 This is a disposable development VM, not a production security boundary. Automatic login deliberately trades local
@@ -760,6 +760,29 @@ docker run --rm hello-world
 
 Do not run the conformance checkout from a Parallels shared folder; that reintroduces host filesystem translation and
 weakens the proof.
+
+For provider-harness conformance, install the provider CLIs system-wide so both root and the conformance user resolve
+them (`prlctl exec` runs with `HOME=/`, so per-user installers land in `/.local` — copy the binary out instead):
+
+```bash
+# claude: native installer, then promote the versioned binary
+curl -fsSL https://claude.ai/install.sh | bash
+sudo install -m 755 "$(readlink -f ~/.local/bin/claude)" /usr/local/bin/claude
+
+# codex: musl release binary from GitHub
+arch=aarch64-unknown-linux-musl
+url=$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest \
+  | grep -o "https://[^\"]*codex-${arch}.tar.gz" | head -1)
+curl -fsSL "$url" | tar -xz -C /tmp && sudo install -m 755 "/tmp/codex-${arch}" /usr/local/bin/codex
+```
+
+Note: Docker Engine inside the Linux guest needs no nested virtualization — containers share the guest kernel. Only
+Docker Desktop (which boots its own VM) would; do not install it in the guest.
+
+After syncing a checkout onto the VM, open its permissions before running bridge-using suites: a `0700` checkout (the
+default for a home-dir rsync) blocks the container's uid-1000 user from traversing to the bind-mounted bridge binary,
+failing every gateway/mediated fixture with permission errors that look like bridge defects. On the checkout root run
+`chmod 755` on each path component and `chmod -R a+rX build` so the bridge binary and its parents are world-traversable.
 
 ## 10. Create the Reusable Baseline
 

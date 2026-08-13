@@ -80,6 +80,21 @@ void main() {
       'test/task/workflow_cli_container_parity_test.dart',
       'an unrunnable packaged CLI rejects before the turn is spawned',
     ),
+    // Turn-level evidence. The rows above prove placement, denial, and
+    // cleanup; these prove an agent can actually complete a provider turn
+    // through mediation alone and write back into the mounted workspace.
+    'mediated claude turn': (
+      'test/integration/mediated_provider_turn_integration_test.dart',
+      'a containerized claude turn writes into the mounted workspace through host mediation',
+    ),
+    'mediated codex turn': (
+      'test/integration/mediated_codex_turn_integration_test.dart',
+      'a containerized codex turn writes into the mounted workspace through its auth-clean home',
+    ),
+    'mediated turn upstream failure': (
+      'test/integration/mediated_provider_turn_integration_test.dart',
+      'an upstream failure mid-turn surfaces as a failed turn, never a silent success',
+    ),
   };
 
   HarnessFactory factoryWithAcp() {

@@ -36,9 +36,15 @@ Last Updated: 2026-08-13 08:48 CEST
 - 0.24 execution-isolation: all 9 release-gating HIGH gates from the council mixed review
   (`0.24-execution-isolation-mixed-review-claude-2026-08-12.md`) are remediated and the four open decisions are
   ratified (ADR-052 accepted; fatal YAML parse; documented uid-1000/rootless posture; container scrub opt-out) —
-  nothing committed yet. Remaining before the tag: full G-HIGH-6 conformance coverage (a mediated provider *turn* and a
-  container-side *write* in the parity suite, run green on the Linux VM as root and uid 1201, plus Docker Desktop), then
-  the CI-equivalent gate and commit.
+  nothing committed yet. G-HIGH-6 now has its mediated-turn coverage: real containerized claude and codex turns complete
+  through host mediation and write into the mounted workspace, green on Docker Desktop 29.4.2 (macOS 25.6.0) and Linux
+  Docker 29.7.2 (Ubuntu 24.04.3 aarch64, as root) on 2026-08-13 — 37 passed on both engines, with one pre-existing
+  unrelated failure (`crash_recovery_smoke_test.dart`, red at HEAD before this work).
+- That coverage surfaced two unfixed production defects that now block the tag, both recorded in the
+  mediated-provider-turn FIS's Implementation Observations: containerized `ClaudeCodeHarness.start()` execs with an
+  untranslated host `cwd`, so no containerized long-lived Claude worker can start; and containerized Codex under the
+  default `--full-auto` sandbox fails every tool call on a missing bubblewrap while still reporting a completed turn.
+  Remaining before the tag: fix both, re-run the dual-engine gate, then the CI-equivalent gate and commit.
 
 ## Recent Decisions
 

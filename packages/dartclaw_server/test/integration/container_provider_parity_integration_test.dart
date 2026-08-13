@@ -16,6 +16,8 @@ import 'package:dartclaw_server/src/container/container_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'container_integration_support.dart';
+
 /// Proves Claude/Codex container parity against a real Docker engine.
 ///
 /// Configuration labels are not evidence here: every assertion observes the
@@ -28,18 +30,16 @@ import 'package:test/test.dart';
 ///
 /// The contract is identical on Linux Docker and Docker Desktop; a single run
 /// proves the executing platform, and the 0.24 release gate records both.
-const _agentImage = 'dartclaw-agent-parity-probe:latest';
-
 void main() {
-  late String repoRoot;
+  late String checkoutRoot;
   late Directory dataDir;
 
   setUpAll(() async {
-    if (!await _dockerAvailable()) {
+    if (!await dockerAvailable()) {
       throw StateError('Docker is required for the container provider parity suite');
     }
-    repoRoot = await _repoRoot();
-    await _ensureAgentImage(repoRoot);
+    checkoutRoot = await repoRoot();
+    await ensureAgentImage(checkoutRoot);
   });
 
   setUp(() => dataDir = Directory.systemTemp.createTempSync('parity_integration_'));
@@ -54,13 +54,13 @@ void main() {
     // mounts nothing and works out of the container's own tmpfs.
     final workspace = Directory(p.join(dataDir.path, 'workspaces', name))..createSync(recursive: true);
     final manager = ContainerManager(
-      config: const ContainerConfig(enabled: true, image: _agentImage),
+      config: const ContainerConfig(enabled: true, image: agentProbeImage),
       containerName: name,
       profileId: profile,
       workspaceMounts: profile == 'restricted' ? const [] : ['${workspace.path}:/project:rw'],
       generatedStateDir: p.join(dataDir.path, 'containers', name),
       hasMcpBridge: hasMcpBridge,
-      buildContextDir: repoRoot,
+      buildContextDir: checkoutRoot,
       workingDir: profile == 'restricted' ? '/tmp' : '/project',
     );
     addTearDown(() async {
@@ -91,10 +91,10 @@ void main() {
     test('the image ships the pinned Codex version, not a floating one', () async {
       final manager = await startContainer();
 
-      final version = await _execOutput(manager, [containerCodexExecutable, '--version']);
+      final version = await execOutput(manager, [containerCodexExecutable, '--version']);
 
       expect(version.trim(), isNotEmpty);
-      expect(version, contains(_pinnedCodexVersion(repoRoot)));
+      expect(version, contains(_pinnedCodexVersion(checkoutRoot)));
     });
   });
 
@@ -102,13 +102,13 @@ void main() {
     test('a containerized process joins the container namespace, not the host', () async {
       final manager = await startContainer();
 
-      final containerCgroup = await _execOutput(manager, ['cat', '/proc/self/cgroup']);
-      final containerHostname = (await _execOutput(manager, ['cat', '/etc/hostname'])).trim();
+      final containerCgroup = await execOutput(manager, ['cat', '/proc/self/cgroup']);
+      final containerHostname = (await execOutput(manager, ['cat', '/etc/hostname'])).trim();
       final hostHostname = Platform.localHostname;
 
       // PID 1 in the container is the image's own `sleep infinity`, which can
       // only be true inside a separate PID namespace.
-      expect(await _execOutput(manager, ['cat', '/proc/1/comm']), contains('sleep'));
+      expect(await execOutput(manager, ['cat', '/proc/1/comm']), contains('sleep'));
       expect(containerHostname, isNot(hostHostname));
       expect(containerCgroup, isNotEmpty);
     });
@@ -117,8 +117,8 @@ void main() {
       final workspace = await startContainer();
       final restricted = await startContainer(profile: 'restricted');
 
-      expect((await _execOutput(workspace, ['pwd'])).trim(), '/project');
-      expect((await _execOutput(restricted, ['pwd'])).trim(), '/tmp');
+      expect((await execOutput(workspace, ['pwd'])).trim(), '/project');
+      expect((await execOutput(restricted, ['pwd'])).trim(), '/tmp');
     });
 
     test('the container keeps network:none with no extra attachment', () async {
@@ -155,13 +155,13 @@ void main() {
       expect(byDestination['/project']!['RW'], isTrue);
       expect(byDestination[containerGeneratedStatePath]!['RW'], isTrue);
       expect(
-        await _execOutput(manager, ['cat', '/home/dartclaw/.claude.json']),
+        await execOutput(manager, ['cat', '/home/dartclaw/.claude.json']),
         allOf(isNot(contains('oauthAccount')), isNot(contains('accessToken'))),
       );
       // No host Codex home was mounted either, so the container starts without
       // one and only ever sees a generated auth-clean home.
       expect(
-        await _execOutput(manager, ['sh', '-c', 'test -e /home/dartclaw/.codex && echo YES || echo NO']),
+        await execOutput(manager, ['sh', '-c', 'test -e /home/dartclaw/.codex && echo YES || echo NO']),
         contains('NO'),
       );
     });
@@ -179,8 +179,8 @@ void main() {
       await environment.setup();
 
       final containerHome = environment.environmentOverrides()['CODEX_HOME']!;
-      final listed = await _execOutput(manager, ['ls', '-A', containerHome]);
-      final config = await _execOutput(manager, ['cat', p.posix.join(containerHome, 'config.toml')]);
+      final listed = await execOutput(manager, ['ls', '-A', containerHome]);
+      final config = await execOutput(manager, ['cat', p.posix.join(containerHome, 'config.toml')]);
 
       expect(listed.trim(), 'config.toml');
       expect(config, contains('requires_openai_auth = false'));
@@ -197,15 +197,15 @@ void main() {
       await manager.stop();
 
       expect(stateDir.existsSync(), isFalse);
-      expect(await _containerExists(manager.containerName), isFalse);
+      expect(await containerExists(manager.containerName), isFalse);
     });
   });
 
   test('no host credential is readable from inside the container', () async {
     final manager = await startContainer();
 
-    final environment = await _execOutput(manager, ['env']);
-    final processEnviron = await _execOutput(manager, ['sh', '-c', 'tr "\\0" "\\n" < /proc/1/environ']);
+    final environment = await execOutput(manager, ['env']);
+    final processEnviron = await execOutput(manager, ['sh', '-c', 'tr "\\0" "\\n" < /proc/1/environ']);
 
     // Secret-absence is proved with planted sentinels in the harness unit
     // suites, which control the host environment. What only a real container
@@ -220,32 +220,6 @@ void main() {
   });
 }
 
-Future<bool> _dockerAvailable() async {
-  try {
-    return (await Process.run('docker', ['version'])).exitCode == 0;
-  } catch (_) {
-    return false;
-  }
-}
-
-Future<String> _repoRoot() async {
-  final result = await Process.run('git', ['rev-parse', '--show-toplevel']);
-  if (result.exitCode != 0) {
-    throw StateError('Cannot locate the repository root: ${result.stderr}');
-  }
-  return (result.stdout as String).trim();
-}
-
-/// Builds the shipped agent image under a suite-local tag.
-Future<void> _ensureAgentImage(String repoRoot) async {
-  final existing = await Process.run('docker', ['image', 'inspect', _agentImage]);
-  if (existing.exitCode == 0) return;
-  final built = await Process.run('docker', ['build', '-t', _agentImage, p.join(repoRoot, 'docker')]);
-  if (built.exitCode != 0) {
-    throw StateError('Failed to build the agent image: ${built.stderr}');
-  }
-}
-
 /// The exact Codex release `docker/Dockerfile` pins.
 String _pinnedCodexVersion(String repoRoot) {
   final dockerfile = File(p.join(repoRoot, 'docker', 'Dockerfile')).readAsStringSync();
@@ -254,21 +228,7 @@ String _pinnedCodexVersion(String repoRoot) {
   return match.group(1)!;
 }
 
-Future<String> _execOutput(ContainerManager manager, List<String> command) async {
-  final process = await manager.exec(command);
-  await process.stdin.close();
-  final stdout = process.stdout.transform(const SystemEncoding().decoder).join();
-  final stderr = process.stderr.transform(const SystemEncoding().decoder).join();
-  await process.exitCode;
-  return '${await stdout}${await stderr}';
-}
-
 Future<String> _inspect(String containerName, String format) async {
   final result = await Process.run('docker', ['inspect', '--format', format, containerName]);
   return result.stdout as String;
-}
-
-Future<bool> _containerExists(String name) async {
-  final result = await Process.run('docker', ['ps', '-a', '--filter', 'name=^$name\$', '--format', '{{.Names}}']);
-  return (result.stdout as String).trim().isNotEmpty;
 }

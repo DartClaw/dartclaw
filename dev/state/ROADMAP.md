@@ -6,13 +6,11 @@
 
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-**Status: Release correction in progress; tag blocked.** Logical-agent execution, scheduling, and the supplemental memory
-model plan are complete or in flight, but production feedback exposed a release-blocking execution-isolation gap. The
-parallel `dev/bundle/docs/specs/0.24-execution-isolation/` bundle must deliver per-agent host/container selection,
-provider-neutral enforcement, host-owned credentials, and scoped host capabilities before the tag. Native Windows Claude
-2.1.226 passed allowed and denied shell, file, web, and MCP checks. Codex 0.139.0 passed every claimed command,
-file-change, and MCP approval category after one-shot approval hardening; restricted execution must not rely on native
-Codex web search because it remains outside host interception.
+**Status: Release-ready, awaiting tag.** Logical-agent execution,
+scheduling, the canonical memory model, and the execution-isolation correction are complete. The transient public
+implementation bundles have been consolidated into the private canonical PRD and removed. Automated, live-workflow, and
+UI release gates are green. STATE records the completed compatibility evidence; the final clean-HEAD release check runs
+on the scope-frozen commit before squash-merge and tagging.
 
 ## Planned
 

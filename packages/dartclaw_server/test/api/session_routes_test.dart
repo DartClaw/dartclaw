@@ -1779,7 +1779,7 @@ void main() {
       expect(await errorCode(res), equals('TURN_NOT_FOUND'));
     });
 
-    test('returns 204 when turn outcome is cached (reconnect guard)', () async {
+    test('returns a terminal SSE frame when turn outcome is cached', () async {
       final session = await sessions.createSession();
       const turnId = 'fake-turn-id';
       final outcome = TurnOutcome(
@@ -1789,11 +1789,11 @@ void main() {
         completedAt: DateTime.now(),
       );
       turns.setRecentOutcome(turnId, outcome);
-      // isActiveTurn returns false (no active entry), recentOutcome returns the outcome
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/stream?turn=$turnId')),
       );
-      expect(res.statusCode, equals(204));
+      expect(res.statusCode, equals(200));
+      expect(await res.readAsString(), contains('event: done'));
     });
 
     test('returns 200 SSE stream for active turn', () async {

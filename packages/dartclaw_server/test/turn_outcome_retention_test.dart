@@ -95,7 +95,9 @@ void main() {
     expect(retainedStatus.turnId, turnId);
     expect(retainedStatus.state, TurnWaitState.completed);
     expect(retainedStatus.provider, 'claude');
-    expect(sseStreamResponse(primaryWorker, turns, session.id, turnId).statusCode, 204);
+    final retainedStream = sseStreamResponse(primaryWorker, turns, session.id, turnId);
+    expect(retainedStream.statusCode, 200);
+    expect(await retainedStream.readAsString(), contains('event: done'));
     final cancel = await turns.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
     expect(cancel.status, TurnWaitState.completed);
     expect(cancel.releasedSessionLock, isFalse);

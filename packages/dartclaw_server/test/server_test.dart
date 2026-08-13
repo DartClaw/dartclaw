@@ -193,6 +193,8 @@ void main() {
     expect(response.statusCode, 404);
     expect(response.headers['content-type'], startsWith('text/html'));
     expect(body, contains('Page Not Found'));
+    expect(body, contains('class="error-code t-display text-overlay"'));
+    expect(body, isNot(contains('class="error-code t-display text-gradient"')));
     expect(body, contains('href="/"'));
   });
 

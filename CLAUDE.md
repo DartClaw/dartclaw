@@ -136,6 +136,9 @@ The `andthen:visual-validation` skill auto-reads this `## Visual Validation Work
 
 See `dev/guidelines/RELEASE_PREPARATION.md` for the release preparation workflow, gates, and sequence.
 
+Treat the existing `HOMEBREW_TAP_TOKEN` scope as an operator-maintained invariant. Do not request reconfirmation during
+routine releases; audit it only after token rotation/widening or a relevant environment/repository-protection change.
+
 
 ---
 

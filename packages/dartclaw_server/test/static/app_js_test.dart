@@ -117,6 +117,9 @@ void main() {
       expect(chatSource, contains('handleBeforeRequest(event)'));
       expect(chatSource, contains('handleTurnError()'));
       expect(chatSource, contains('finalizeTurn(options = {})'));
+      final turnErrorHandler = _jsFunction(chatSource, 'handleTurnError()');
+      expect(turnErrorHandler, contains('this.showRecovery('));
+      expect(turnErrorHandler, isNot(contains('this.finalizeTurn(')));
     });
 
     test('mobile drawer exposes visible and assistive close controls', () {

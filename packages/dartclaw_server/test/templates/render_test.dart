@@ -854,6 +854,7 @@ void main() {
         'hx-ext="sse"',
         'sse-close="done"',
         'sse-swap="delta"',
+        'sse-swap="turn_cancelled" hx-swap="none" data-action="htmx:sseMessage->dc-chat#handleTurnCancelled"',
         'id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden',
       ]);
       expect(response, isNot(contains('id="streaming-content" class="print-in"')));

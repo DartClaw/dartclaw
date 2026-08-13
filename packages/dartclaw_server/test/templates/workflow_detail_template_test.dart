@@ -273,6 +273,7 @@ void main() {
 
       expect(html, contains('workflow-pause-banner'));
       expect(html, contains('Awaiting approval'));
+      expect(html, contains('<strong>Approval request</strong>:'));
       expect(html, contains('Plan Approval'));
       expect(html, contains('Review the plan before build.'));
     });

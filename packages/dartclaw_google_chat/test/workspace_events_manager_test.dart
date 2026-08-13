@@ -41,6 +41,13 @@ Map<String, dynamic> activeSubscription({String name = 'subscriptions/new-sub-1'
   'state': 'ACTIVE',
 };
 
+Future<void> defaultTestDelay(Duration duration) {
+  if (duration <= const Duration(milliseconds: 200)) {
+    return Future.value();
+  }
+  return Completer<void>().future;
+}
+
 MockClient createMockClient({
   int createStatus = 200,
   Map<String, dynamic>? createResponse,
@@ -95,7 +102,7 @@ WorkspaceEventsManager makeManager({
     config: config ?? testConfig(),
     dataDir: dataDir.path,
     discoverSpaces: discoverSpaces,
-    delay: delay ?? (_) async {},
+    delay: delay ?? defaultTestDelay,
     clock: clock,
   );
 }
@@ -762,6 +769,7 @@ void main() {
 
     test('handles missing subscriptions (404 on GET)', () async {
       final expireTime = DateTime.now().toUtc().add(const Duration(hours: 2));
+      final requests = <http.Request>[];
       writeSubscriptions([
         {
           'spaceId': 'SPACE_1',
@@ -771,12 +779,18 @@ void main() {
         },
       ]);
 
-      final manager = makeManager(mockClient: createMockClient(getStatus: 404), dataDir: tempDir);
+      final manager = makeManager(
+        mockClient: createMockClient(getStatus: 404, onRequest: requests.add),
+        dataDir: tempDir,
+      );
       addTearDown(manager.dispose);
 
       await manager.reconcile();
 
       expect(manager.subscriptions.containsKey('SPACE_1'), isTrue);
+      expect(manager.subscriptions['SPACE_1']!.subscriptionName, 'subscriptions/new-sub-1');
+      expect(requests.map((request) => request.method), ['GET', 'POST']);
+      expect(requests.where((request) => request.method == 'PATCH'), isEmpty);
     });
 
     test('prunes records when recreation fails', () async {

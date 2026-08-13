@@ -37,7 +37,20 @@ function extractFunction(source, name) {
 function extractMethod(source, name) {
   const start = source.indexOf('  ' + name + '(');
   if (start < 0) throw new Error('missing method ' + name);
-  const bodyStart = source.indexOf('{', start);
+  const paramsStart = source.indexOf('(', start);
+  let paramsDepth = 0;
+  let bodyStart = -1;
+  for (let index = paramsStart; index < source.length; index += 1) {
+    if (source[index] === '(') paramsDepth += 1;
+    if (source[index] === ')') {
+      paramsDepth -= 1;
+      if (paramsDepth === 0) {
+        bodyStart = source.indexOf('{', index);
+        break;
+      }
+    }
+  }
+  if (bodyStart < 0) throw new Error('missing method body ' + name);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
     if (source[index] === '{') depth += 1;
@@ -188,4 +201,44 @@ chat._stopTurnStatusPolling();
 chatResponses[2]({ ok: true, json: async () => ({ can_cancel: true }) });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert(chat.canCancel === false, 'retired chat poll generation changed cancel state');
+
+const lifecycleMethods = eval('({' +
+  extractMethod(chatSource, 'handleTurnCancelled') + ',' +
+  extractMethod(chatSource, 'handleSseClose') + ',' +
+  extractMethod(chatSource, 'finalizeTurn') +
+'})');
+let enableCount = 0;
+let recoveryMessage = '';
+globalThis.document = {
+  body: { classList: { remove() {} } },
+  getElementById() { return null; },
+};
+const lifecycleChat = {
+  ...lifecycleMethods,
+  recoveryActive: false,
+  turnFinalized: false,
+  textarea: { value: 'preserve me', style: { height: '42px' } },
+  attachments: [],
+  references: [],
+  sessionId: null,
+  showRecovery(message) {
+    recoveryMessage = message;
+    this.recoveryActive = true;
+  },
+  syncRichInputs() {},
+  enableInput() { enableCount += 1; },
+};
+
+// The terminal SSE can win the race with the cancel HTTP response.
+lifecycleChat.handleTurnCancelled();
+lifecycleChat.handleSseClose({ detail: { type: 'message' } });
+assert(recoveryMessage.includes('Turn stopped'), 'cancel SSE did not activate recovery before close');
+assert(lifecycleChat.textarea.value === 'preserve me', 'cancel SSE close cleared the composer');
+assert(enableCount === 1, 'terminal message did not finalize exactly once');
+
+// The later cancel response and SSE cleanup must not finalize the same turn again.
+lifecycleChat.showRecovery('Turn stopped. Edit your message or send again.');
+lifecycleChat.finalizeTurn({ preserveInput: true, refreshMessages: true });
+lifecycleChat.handleSseClose({ detail: { type: 'nodeReplaced' } });
+assert(enableCount === 1, 'cancel response or node cleanup finalized the turn twice');
 ''';

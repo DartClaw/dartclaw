@@ -123,7 +123,7 @@ void main() {
       );
     });
 
-    test('returns 204 when outcome is already cached (reconnect guard)', () {
+    test('replays terminal success when outcome completes before stream connects', () async {
       final cached = TurnOutcome(
         turnId: turnId,
         sessionId: sessionId,
@@ -132,7 +132,43 @@ void main() {
       );
       turns.setCachedOutcome(cached);
       final res = sseStreamResponse(worker, turns, sessionId, turnId);
-      expect(res.statusCode, equals(204));
+      expect(res.statusCode, equals(200));
+      expect(res.headers['content-type'], contains('text/event-stream'));
+      expect(await res.readAsString(), contains('event: done'));
+    });
+
+    test('replays terminal failure when outcome completes before stream connects', () async {
+      final cached = TurnOutcome(
+        turnId: turnId,
+        sessionId: sessionId,
+        status: TurnStatus.failed,
+        errorMessage: 'Blocked by guard: unsafe input',
+        completedAt: DateTime.now(),
+      );
+      turns.setCachedOutcome(cached);
+      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      expect(res.statusCode, equals(200));
+      expect(res.headers['content-type'], contains('text/event-stream'));
+      final body = await res.readAsString();
+      expect(body, contains('event: turn_error'));
+      expect(body, contains('Blocked by guard: unsafe input'));
+      expect(body, contains('event: done'));
+      expect(body.indexOf('event: turn_error'), lessThan(body.indexOf('event: done')));
+    });
+
+    test('replays terminal cancellation as a clean close when outcome completes before stream connects', () async {
+      final cached = TurnOutcome(
+        turnId: turnId,
+        sessionId: sessionId,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+      turns.setCachedOutcome(cached);
+      final body = await sseStreamResponse(worker, turns, sessionId, turnId).readAsString();
+      expect(body, contains('event: turn_cancelled'));
+      expect(body, contains('event: done'));
+      expect(body.indexOf('event: turn_cancelled'), lessThan(body.indexOf('event: done')));
+      expect(body, isNot(contains('event: turn_error')));
     });
 
     test('returns 404 for unknown turn (not active, no cached outcome)', () {
@@ -222,6 +258,27 @@ void main() {
       expect(errorFrame, isNotEmpty);
       final dataLine = errorFrame.split('\n').firstWhere((l) => l.startsWith('data:'));
       expect(dataLine, contains('<div class="turn-error">Worker crashed</div>'));
+      expect(frames.last, contains('event: done'));
+    });
+
+    test('emits only a clean terminal close when turn is cancelled', () async {
+      final frames = await _streamFrames(
+        worker,
+        turns,
+        sessionId,
+        turnId,
+        outcome: TurnOutcome(
+          turnId: turnId,
+          sessionId: sessionId,
+          status: TurnStatus.cancelled,
+          completedAt: DateTime.now(),
+        ),
+      );
+
+      expect(frames, hasLength(2));
+      expect(frames.first, contains('event: turn_cancelled'));
+      expect(frames.last, contains('event: done'));
+      expect(frames, everyElement(isNot(contains('event: turn_error'))));
     });
 
     test('terminal done comes after all delta frames', () async {

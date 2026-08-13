@@ -13,13 +13,12 @@ import 'task_origin.dart';
 import 'task_trigger_config.dart';
 import 'task_trigger_parser.dart';
 
-typedef BestEffortChannelSender =
-    Future<void> Function(
-      Channel channel,
-      String recipientId,
-      ChannelResponse response, {
-      required String failureMessage,
-    });
+typedef BestEffortChannelSender = Future<void> Function(
+  Channel channel,
+  String recipientId,
+  ChannelResponse response, {
+  required String failureMessage,
+});
 
 /// Extracted task-trigger workflow for [ChannelTaskBridge].
 class TaskTriggerEvaluator {

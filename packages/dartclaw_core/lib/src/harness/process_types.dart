@@ -1,14 +1,13 @@
 import 'dart:io';
 
 /// Factory for starting a subprocess used by a harness or sidecar manager.
-typedef ProcessFactory =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-      bool includeParentEnvironment,
-    });
+typedef ProcessFactory = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+});
 
 /// One-shot command callback used for availability probes and diagnostics.
 typedef CommandProbe = Future<ProcessResult> Function(String executable, List<String> arguments);

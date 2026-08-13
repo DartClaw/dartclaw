@@ -24,8 +24,11 @@ final class SessionCostSnapshot {
 }
 
 /// Reports a budget-exceeded outcome for a [Task].
-typedef BudgetFailureHandler =
-    Future<void> Function(Task task, {required String errorSummary, required bool retryable});
+typedef BudgetFailureHandler = Future<void> Function(
+  Task task, {
+  required String errorSummary,
+  required bool retryable,
+});
 
 /// Applies task and goal token-budget policy before task turns execute.
 final class TaskBudgetPolicy {

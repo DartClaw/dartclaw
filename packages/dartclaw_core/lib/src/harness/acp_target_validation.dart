@@ -6,8 +6,10 @@ import 'acp_errors.dart';
 import 'process_types.dart';
 
 /// Executes a target-specific ACP probe and returns operation evidence.
-typedef AcpTargetProbe =
-    Future<Iterable<AcpTargetOperationEvidence>> Function(String providerId, AcpAgentConfig config);
+typedef AcpTargetProbe = Future<Iterable<AcpTargetOperationEvidence>> Function(
+  String providerId,
+  AcpAgentConfig config,
+);
 
 /// Stable operation IDs reported by ACP target validation.
 enum AcpTargetOperation {

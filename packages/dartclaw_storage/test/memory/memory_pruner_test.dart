@@ -166,9 +166,8 @@ void main() {
     });
 
     test('missing MEMORY.md still reconciles archive and learning index rows', () async {
-      File(
-        '${tempDir.path}/MEMORY.archive.md',
-      ).writeAsStringSync('## project\n- [2025-01-10 09:00] Canonical archived fact\n');
+      File('${tempDir.path}/MEMORY.archive.md')
+          .writeAsStringSync('## project\n- [2025-01-10 09:00] Canonical archived fact\n');
       File('${tempDir.path}/learnings.md').writeAsStringSync('- [2026-08-10 10:00] Canonical learning fact\n');
       seed(text: 'Stale active fact', source: 'legacy-memory');
 

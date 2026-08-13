@@ -81,9 +81,8 @@ void _writeFixture(String root) {
     ..createSync(recursive: true)
     ..writeAsStringSync('export const x = 1;\n');
   File('$root/packages/dartclaw_server/lib/src/static/empty.txt').createSync();
-  File(
-    '$root/packages/dartclaw_server/lib/src/static/mascot.png',
-  ).writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+  File('$root/packages/dartclaw_server/lib/src/static/mascot.png')
+      .writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
   File('$root/packages/dartclaw_server/lib/src/static/$_longEmptyAssetName').createSync();
   File('$root/packages/dartclaw_server/lib/src/static/.cache/ignored.txt')
     ..createSync(recursive: true)

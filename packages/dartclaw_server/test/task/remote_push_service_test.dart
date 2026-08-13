@@ -3,13 +3,12 @@ import 'package:test/test.dart';
 
 import '../helpers/factories.dart';
 
-typedef _PushRunner =
-    Future<({int exitCode, String stdout, String stderr})> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef _PushRunner = Future<({int exitCode, String stdout, String stderr})> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 _PushRunner _fakeRunner({int exitCode = 0, String stdout = '', String stderr = ''}) {
   return (executable, arguments, {workingDirectory, environment}) async =>

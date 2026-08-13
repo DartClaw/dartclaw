@@ -51,8 +51,7 @@ void main() {
           await harness.messages.insertMessage(
             sessionId: session.id,
             role: 'assistant',
-            content:
-                'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>',
+            content: 'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>',
           );
           try {
             await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');

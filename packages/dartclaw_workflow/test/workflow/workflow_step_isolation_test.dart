@@ -666,8 +666,7 @@ void main() {
             'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
             'state_protocol': {'state_file': 'STATE.md'},
           },
-          'spec_document':
-              '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
+          'spec_document': '# Specification\n\nCreate `notes/e2e-test.md` containing one heading "E2E Test" and one bullet "Automated test artifact".',
           'validation_summary':
               'Implementation validated. File notes/e2e-test.md exists with expected content. No issues found.',
           'diff_summary':
@@ -678,8 +677,7 @@ void main() {
               '@@ -0,0 +1,2 @@\n'
               '+# E2E Test\n'
               '+- Automated test artifact\n',
-          'acceptance_criteria':
-              '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
+          'acceptance_criteria': '- One markdown file notes/e2e-test.md exists\n- Contains heading "E2E Test"\n- Contains bullet "Automated test artifact"',
         },
       ),
       artifactLabel: 'integrated-review-trivial-markdown-change',
@@ -981,10 +979,8 @@ void main() {
           'implementation_summary':
               'Both planned stories were implemented exactly as specified. '
               'Alpha and Beta note files exist with the expected heading and bullet, and the batch is otherwise clean.',
-          'validation_summary':
-              'Post-remediation validation is clean. Both note files still exist with the exact expected content, and no validation findings remain.',
-          'remediation_summary':
-              'Performed a consistency pass over the batch summary and confirmed that no code or content changes were required.',
+          'validation_summary': 'Post-remediation validation is clean. Both note files still exist with the exact expected content, and no validation findings remain.',
+          'remediation_summary': 'Performed a consistency pass over the batch summary and confirmed that no code or content changes were required.',
           'diff_summary': 'No file changes were necessary because the implementation already matched the story specs.',
         },
       ),

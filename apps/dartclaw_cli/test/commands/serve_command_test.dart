@@ -364,9 +364,8 @@ void main() {
         taskDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async {
-          pairingBody = await (await handler(
-            Request('GET', Uri.parse('http://localhost/whatsapp/pairing')),
-          )).readAsString();
+          pairingBody = await (await handler(Request('GET', Uri.parse('http://localhost/whatsapp/pairing'))))
+              .readAsString();
           return HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         },
         stderrLine: (_) {},

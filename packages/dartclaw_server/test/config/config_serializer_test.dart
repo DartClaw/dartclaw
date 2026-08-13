@@ -510,8 +510,7 @@ channels:
             'google_chat': _googleChatChannelConfig(
               const GoogleChatConfig(
                 enabled: true,
-                serviceAccount:
-                    '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
+                serviceAccount: '{"type":"service_account","client_email":"chat-bot@example.iam.gserviceaccount.com","private_key":"secret"}',
                 audience: GoogleChatAudienceConfig(mode: GoogleChatAudienceMode.projectNumber, value: '123456789'),
               ),
             ),

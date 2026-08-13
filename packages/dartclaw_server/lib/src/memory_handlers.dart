@@ -45,8 +45,10 @@ final class MemoryCaptureContext {
   );
 }
 
-typedef MemoryObserveWithContext =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> params, MemoryCaptureContext context);
+typedef MemoryObserveWithContext = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> params,
+  MemoryCaptureContext context,
+);
 
 /// Complete callback set for the built-in memory tools.
 typedef MemoryHandlers = ({

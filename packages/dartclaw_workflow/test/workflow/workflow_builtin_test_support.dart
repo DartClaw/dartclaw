@@ -312,15 +312,14 @@ final class BuiltInWorkflowDriver {
           WorkflowGitIntegrationBranchResult(
             integrationBranch: perMapItem ? 'dartclaw/integration/$runId' : 'dartclaw/shared/$runId',
           ),
-      promoteWorkflowBranch:
-          ({
-            required runId,
-            required projectId,
-            required branch,
-            required integrationBranch,
-            required strategy,
-            String? storyId,
-          }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+      promoteWorkflowBranch: ({
+        required runId,
+        required projectId,
+        required branch,
+        required integrationBranch,
+        required strategy,
+        String? storyId,
+      }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
       publishWorkflowBranch: ({required runId, required projectId, required branch}) async => WorkflowGitPublishResult(
         status: WorkflowPublishStatus.success,
         branch: branch,

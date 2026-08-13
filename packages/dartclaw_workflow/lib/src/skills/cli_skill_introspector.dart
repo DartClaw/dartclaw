@@ -7,8 +7,11 @@ import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafePr
 
 import '../workflow/skill_introspector.dart';
 
-typedef SkillProbeRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {Map<String, String>? environment});
+typedef SkillProbeRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+});
 
 typedef SkillProbeEnvironmentBuilder = Map<String, String> Function(String provider);
 

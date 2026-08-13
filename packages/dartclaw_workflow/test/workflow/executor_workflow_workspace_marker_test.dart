@@ -133,9 +133,8 @@ void main() {
     // equals the current template. A spurious rewrite would re-encode it
     // compactly, changing the bytes – so byte-identity, not mtime, proves the
     // no-op even on coarse-mtime filesystems.
-    final seededMarker = const JsonEncoder.withIndent(
-      '  ',
-    ).convert({'managedContent': template, 'note': 'seeded non-canonical marker'});
+    final seededMarker = const JsonEncoder.withIndent('  ')
+        .convert({'managedContent': template, 'note': 'seeded non-canonical marker'});
     File(markerPath()).writeAsStringSync(seededMarker);
 
     await runWorkflowStep(h.executor);

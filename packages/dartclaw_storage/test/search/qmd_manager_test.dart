@@ -56,14 +56,13 @@ void main() {
     test('production runner force-kills a process that ignores termination', () async {
       final process = _FakeProcess.running(ignoreFirstKill: true);
       final mgr = QmdManager(
-        processStarter:
-            (
-              executable,
-              arguments, {
-              workingDirectory,
-              required environment,
-              required includeParentEnvironment,
-            }) async => process,
+        processStarter: (
+          executable,
+          arguments, {
+          workingDirectory,
+          required environment,
+          required includeParentEnvironment,
+        }) async => process,
         commandTimeoutOverride: const Duration(milliseconds: 1),
         killGracePeriod: Duration.zero,
       );
@@ -135,14 +134,13 @@ void main() {
           stderrBytes: output == 'stderr' ? bytes : const [],
         );
         final mgr = QmdManager(
-          processStarter:
-              (
-                executable,
-                arguments, {
-                workingDirectory,
-                required environment,
-                required includeParentEnvironment,
-              }) async => process,
+          processStarter: (
+            executable,
+            arguments, {
+            workingDirectory,
+            required environment,
+            required includeParentEnvironment,
+          }) async => process,
         );
 
         await expectLater(

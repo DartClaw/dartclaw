@@ -125,9 +125,10 @@ final class WorkflowTurnExtractor {
   }
 
   List<String> _toolCallOutputs(String text) {
-    final tagged = RegExp(
-      r'<workflow-tool-output>\s*([\s\S]*?)\s*</workflow-tool-output>',
-    ).allMatches(text).map((match) => match.group(1)).whereType<String>();
+    final tagged = RegExp(r'<workflow-tool-output>\s*([\s\S]*?)\s*</workflow-tool-output>')
+        .allMatches(text)
+        .map((match) => match.group(1))
+        .whereType<String>();
     final jsonLines = text.split('\n').map(_toolOutputFromJsonLine).whereType<String>();
     return [...tagged, ...jsonLines].toList(growable: false);
   }

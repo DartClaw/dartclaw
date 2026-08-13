@@ -9,8 +9,11 @@ import 'package:logging/logging.dart';
 import '../task/git_credential_env.dart';
 
 /// Callback for running shell commands (injectable for tests).
-typedef CommandRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
+typedef CommandRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// Version-controls the workspace directory via git.
 ///

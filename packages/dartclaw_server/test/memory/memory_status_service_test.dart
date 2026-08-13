@@ -144,9 +144,8 @@ void main() {
     });
 
     test('corrupt curation evidence is unknown rather than absent', () async {
-      final status = await makeService(
-        curationStatusReader: () async => throw const FormatException('bad lifecycle'),
-      ).getStatus();
+      final status = await makeService(curationStatusReader: () async => throw const FormatException('bad lifecycle'))
+          .getStatus();
 
       expect(status['curation'], containsPair('state', 'unknown'));
       expect(status['curation'], containsPair('action', contains('Preserve')));
@@ -617,9 +616,8 @@ Another error
       final logDir = Directory(p.join(workspaceDir, 'memory'))..createSync(recursive: true);
       File(p.join(logDir.path, '2020-01-01.md')).writeAsStringSync('# DartClaw Canonical Memory\nmalformed');
       for (var day = 1; day <= 8; day++) {
-        File(
-          p.join(logDir.path, '2026-01-${day.toString().padLeft(2, '0')}.md'),
-        ).writeAsStringSync('## 10:00 — "Recent"\n');
+        File(p.join(logDir.path, '2026-01-${day.toString().padLeft(2, '0')}.md'))
+            .writeAsStringSync('## 10:00 — "Recent"\n');
       }
 
       final dailyLogs = (await makeService().getStatus())['dailyLogs'] as Map<String, dynamic>;

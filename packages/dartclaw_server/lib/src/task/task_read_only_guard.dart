@@ -6,8 +6,11 @@ import 'package:logging/logging.dart';
 import 'git_credential_env.dart';
 
 /// Runs `git status` against a worktree and returns the resulting [ProcessResult].
-typedef GitStatusRunner =
-    Future<ProcessResult> Function(List<String> args, {required String workingDirectory, bool noSystemConfig});
+typedef GitStatusRunner = Future<ProcessResult> Function(
+  List<String> args, {
+  required String workingDirectory,
+  bool noSystemConfig,
+});
 
 /// Snapshot of a worktree's porcelain git status.
 final class GitStatusSnapshot {

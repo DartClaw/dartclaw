@@ -194,9 +194,11 @@ List<File> _listDartFiles(String dirPath) {
 }
 
 Set<String> _contractKeys(String source) {
-  final matches = RegExp(
-    r'''['"](_workflow(?:\.[^'"]+)?|_dartclaw\.internal(?:\.[^'"]+)*)['"]''',
-  ).allMatches(source).map((match) => match.group(1)).whereType<String>().toSet();
+  final matches = RegExp(r'''['"](_workflow(?:\.[^'"]+)?|_dartclaw\.internal(?:\.[^'"]+)*)['"]''')
+      .allMatches(source)
+      .map((match) => match.group(1))
+      .whereType<String>()
+      .toSet();
   return matches;
 }
 
@@ -217,9 +219,8 @@ List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
     final line = lines[index];
     final trimmed = line.trim();
 
-    final classMatch = RegExp(
-      r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)',
-    ).firstMatch(line);
+    final classMatch = RegExp(r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)')
+        .firstMatch(line);
     if (classMatch != null && line.contains('{')) {
       classStack.add((name: classMatch.group(1)!, depth: braceDepth + _count(line, '{')));
     }

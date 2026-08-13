@@ -337,9 +337,8 @@ void main() {
 
     test('each channel page exposes exactly one h1, from the topbar', () async {
       for (final type in ['whatsapp', 'signal', 'google_chat']) {
-        final body = await (await handler(
-          Request('GET', Uri.parse('http://localhost/settings/channels/$type')),
-        )).readAsString();
+        final body = await (await handler(Request('GET', Uri.parse('http://localhost/settings/channels/$type'))))
+            .readAsString();
 
         expect(RegExp('<h1').allMatches(body), hasLength(1), reason: type);
         expect(body, contains('class="session-title-static t-page-title"'), reason: type);

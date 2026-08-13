@@ -112,8 +112,11 @@ class CliWorkflowPrResult {
 /// PR creation to the operator. Tests (and alternative standalone entry
 /// points) can inject a creator — e.g. one that shells out to `gh pr create`
 /// — to exercise the full publish → context → consumer pipeline end to end.
-typedef CliWorkflowPrCreator =
-    Future<CliWorkflowPrResult> Function({required String runId, required String projectId, required String branch});
+typedef CliWorkflowPrCreator = Future<CliWorkflowPrResult> Function({
+  required String runId,
+  required String projectId,
+  required String branch,
+});
 
 /// Minimal service graph for headless workflow execution.
 ///

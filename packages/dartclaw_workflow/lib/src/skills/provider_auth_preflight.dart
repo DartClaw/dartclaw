@@ -35,8 +35,11 @@ abstract interface class ProviderAuthPreflight {
   });
 }
 
-typedef AuthProbeRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {Map<String, String>? environment});
+typedef AuthProbeRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+});
 
 typedef AuthProbeEnvironmentBuilder = Map<String, String> Function(String provider);
 

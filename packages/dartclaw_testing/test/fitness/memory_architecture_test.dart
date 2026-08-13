@@ -479,9 +479,9 @@ bool _returnedContractHasProductionCaller(
 ) {
   final declaration = files.where((file) => file.path == declarationPath).firstOrNull;
   if (declaration == null) return false;
-  final methods = RegExp(
-    '(?:Future\\s*<\\s*)?${RegExp.escape(symbol)}\\s*>?\\s+([a-zA-Z_]\\w*)\\s*\\(',
-  ).allMatches(declaration.source).map((match) => match.group(1)!);
+  final methods = RegExp('(?:Future\\s*<\\s*)?${RegExp.escape(symbol)}\\s*>?\\s+([a-zA-Z_]\\w*)\\s*\\(')
+      .allMatches(declaration.source)
+      .map((match) => match.group(1)!);
   return methods.any(consumerTokens.contains);
 }
 
@@ -542,9 +542,10 @@ Set<String> _systemActionIdentifiers(String source) {
   for (final match in RegExp(r'\bSystemAction\s+([a-zA-Z_]\w*)').allMatches(source)) {
     identifiers.add(match.group(1)!);
   }
-  final factories = RegExp(
-    r'\bSystemAction\s+([a-zA-Z_]\w*)\s*\(',
-  ).allMatches(source).map((match) => match.group(1)!).toSet();
+  final factories = RegExp(r'\bSystemAction\s+([a-zA-Z_]\w*)\s*\(')
+      .allMatches(source)
+      .map((match) => match.group(1)!)
+      .toSet();
   for (final factory in factories) {
     final assignments = RegExp('\\b([a-zA-Z_]\\w*)\\s*=\\s*${RegExp.escape(factory)}\\s*\\(');
     identifiers.addAll(assignments.allMatches(source).map((match) => match.group(1)!));

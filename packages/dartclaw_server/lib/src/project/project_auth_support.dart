@@ -7,8 +7,10 @@ import 'package:dartclaw_config/dartclaw_config.dart';
 const _gitHubApiVersion = '2026-03-10';
 
 /// Performs an authenticated probe request against the GitHub API.
-typedef GitHubProbeRunner =
-    Future<({int statusCode, String body})> Function(Uri uri, {required Map<String, String> headers});
+typedef GitHubProbeRunner = Future<({int statusCode, String body})> Function(
+  Uri uri, {
+  required Map<String, String> headers,
+});
 
 /// Parsed GitHub repository identity.
 final class GitHubRepositoryRef {
@@ -27,9 +29,8 @@ final class GitHubRepositoryRef {
       return null;
     }
 
-    final sshMatch = RegExp(
-      r'^(?:git@github\.com:|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?$',
-    ).firstMatch(trimmed);
+    final sshMatch = RegExp(r'^(?:git@github\.com:|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?$')
+        .firstMatch(trimmed);
     if (sshMatch != null) {
       return GitHubRepositoryRef(owner: sshMatch.group(1)!, name: sshMatch.group(2)!);
     }

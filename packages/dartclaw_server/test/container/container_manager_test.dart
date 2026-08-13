@@ -462,9 +462,8 @@ void main() {
       // A daemon-connection failure exits non-zero exactly like a dead container
       // by exit code alone, but proves nothing — it must read as unknown.
       expect(
-        await managerFor(
-          ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock'),
-        ).health(),
+        await managerFor(ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock'))
+            .health(),
         ContainerHealth.unknown,
       );
     });

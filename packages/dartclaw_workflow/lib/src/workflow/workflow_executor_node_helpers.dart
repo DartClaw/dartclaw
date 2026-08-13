@@ -6,9 +6,10 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
   int _nodeIndexForStepIndex(List<WorkflowNode> nodes, Map<String, int> stepIndexById, int stepIndex) {
     if (nodes.isEmpty) return 0;
     for (var index = 0; index < nodes.length; index++) {
-      final referencedIndexes = _referencedStepIdsForNode(
-        nodes[index],
-      ).map((stepId) => stepIndexById[stepId]).nonNulls.toList(growable: false);
+      final referencedIndexes = _referencedStepIdsForNode(nodes[index])
+          .map((stepId) => stepIndexById[stepId])
+          .nonNulls
+          .toList(growable: false);
       if (referencedIndexes.contains(stepIndex)) {
         return index;
       }
@@ -26,9 +27,10 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
       _nodeIndexForStepIndex(nodes, stepIndexById, cursor.stepIndex);
 
   int _firstStepIndexForNode(WorkflowNode node, Map<String, int> stepIndexById) {
-    final indexes = _referencedStepIdsForNode(
-      node,
-    ).map((stepId) => stepIndexById[stepId]).nonNulls.toList(growable: false);
+    final indexes = _referencedStepIdsForNode(node)
+        .map((stepId) => stepIndexById[stepId])
+        .nonNulls
+        .toList(growable: false);
     if (indexes.isEmpty) return 0;
     return indexes.reduce((left, right) => left < right ? left : right);
   }

@@ -374,9 +374,9 @@ void main() {
 
     test('a pre-upgrade restricted pin without containers fails closed at resume', () {
       expect(
-        () => resolverFor(
-          containersEnabled: false,
-        ).resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
+        () =>
+            resolverFor(containersEnabled: false)
+                .resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
         throwsA(isA<ExecutionPolicyException>().having((error) => error.message, 'message', contains('s1'))),
       );
     });
@@ -385,9 +385,9 @@ void main() {
       // The resolver reads the session's own pinned routing, so no
       // `agent.execution` value can change the outcome for this session.
       final rejections = [
-        () => resolverFor(
-          containersEnabled: false,
-        ).resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
+        () =>
+            resolverFor(containersEnabled: false)
+                .resolveForPinnedSession(sessionId: 's1', securityProfile: 'restricted'),
         () => resolverFor(containersEnabled: false).resolveForPinnedSession(
           sessionId: 's1',
           executionMode: ExecutionMode.container,

@@ -7,6 +7,7 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show QueueStrategy;
+
 import 'channel.dart';
 import 'recipient_resolver.dart';
 
@@ -26,19 +27,22 @@ abstract interface class BudgetExhaustedError {
 
 /// Callback for dispatching a coalesced message to the turn manager.
 /// Returns the response text to send back via the channel.
-typedef TurnDispatcher =
-    Future<String> Function(String sessionKey, String message, {String? senderJid, String? senderDisplayName});
+typedef TurnDispatcher = Future<String> Function(
+  String sessionKey,
+  String message, {
+  String? senderJid,
+  String? senderDisplayName,
+});
 
 /// Observer for a queued turn. Can watch the running response future and
 /// optionally suppress the normal send when the response was already delivered.
-typedef TurnObserver =
-    Future<bool> Function(
-      String sessionKey,
-      ChannelMessage message,
-      Channel sourceChannel,
-      String recipientJid,
-      Future<String> responseFuture,
-    );
+typedef TurnObserver = Future<bool> Function(
+  String sessionKey,
+  ChannelMessage message,
+  Channel sourceChannel,
+  String recipientJid,
+  Future<String> responseFuture,
+);
 
 typedef _DebounceKey = ({String sessionKey, String senderJid});
 

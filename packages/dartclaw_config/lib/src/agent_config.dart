@@ -1,5 +1,6 @@
 import 'package:collection/collection.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show AgentDefinition, ExecutionMode;
+
 import 'history_config.dart';
 
 /// Configuration for the agent subsystem.

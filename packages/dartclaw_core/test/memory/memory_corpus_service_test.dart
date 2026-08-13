@@ -824,9 +824,10 @@ void main() {
 
     await files.appendDailyLog('Observed at this instant');
 
-    final observationFile = Directory(
-      p.join(workspace.path, 'memory'),
-    ).listSync().whereType<File>().singleWhere((file) => RegExp(r'\d{4}-\d{2}-\d{2}\.md$').hasMatch(file.path));
+    final observationFile = Directory(p.join(workspace.path, 'memory'))
+        .listSync()
+        .whereType<File>()
+        .singleWhere((file) => RegExp(r'\d{4}-\d{2}-\d{2}\.md$').hasMatch(file.path));
     final document = const MemoryMarkdownCodec().parse(observationFile.readAsStringSync()) as MemoryObservationDocument;
     final recorded = document.observations.single.recorded;
     expect(recorded.isUtc, isTrue);

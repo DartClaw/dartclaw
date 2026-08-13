@@ -79,9 +79,8 @@ void main() {
   });
 
   test('S01 TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
-    File(
-      '${workspace.path}/wiki/kg.md',
-    ).writeAsStringSync('---\nprovenance: human-authored\n---\nTemporal KG decision wiki.');
+    File('${workspace.path}/wiki/kg.md')
+        .writeAsStringSync('---\nprovenance: human-authored\n---\nTemporal KG decision wiki.');
     final factId = kg.addFact(
       entity: 'temporal KG',
       predicate: 'decision',

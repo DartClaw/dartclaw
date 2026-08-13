@@ -149,18 +149,17 @@ extension _TaskExecutorHelpers on TaskExecutor {
       runnerIndex: -1,
       provider: lease.request.providerId,
       runnerPolicy: lease.request.policy,
-      reserveTurn:
-          (
-            _, {
-            String? directory,
-            String? model,
-            String? effort,
-            String? taskId,
-            BehaviorFileService? behaviorOverride,
-            required List<String>? allowedTools,
-            required bool readOnly,
-            PromptScope? promptScope,
-          }) async => unavailable(),
+      reserveTurn: (
+        _, {
+        String? directory,
+        String? model,
+        String? effort,
+        String? taskId,
+        BehaviorFileService? behaviorOverride,
+        required List<String>? allowedTools,
+        required bool readOnly,
+        PromptScope? promptScope,
+      }) async => unavailable(),
       executeTurn: (_, _, _, {String? source, String agentName = 'task'}) => unavailable(),
       waitForOutcome: (_, _) async => unavailable(),
       onRootProcessTerminationConfirmed: onRootProcessTerminationConfirmed,

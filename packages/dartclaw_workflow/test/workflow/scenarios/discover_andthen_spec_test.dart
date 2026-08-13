@@ -138,8 +138,7 @@ void main() {
             await harness.messages.insertMessage(
               sessionId: session.id,
               role: 'assistant',
-              content:
-                  '<workflow-context>{"spec_path":"dev/specs/demo/fis/s01-story.md","spec_source":"existing","spec_confidence":0}</workflow-context>',
+              content: '<workflow-context>{"spec_path":"dev/specs/demo/fis/s01-story.md","spec_source":"existing","spec_confidence":0}</workflow-context>',
             );
             try {
               await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');

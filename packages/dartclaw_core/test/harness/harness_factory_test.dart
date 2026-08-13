@@ -215,17 +215,15 @@ void main() {
         const AcpAgentConfig(binary: 'goose', args: ['acp'], containerIsolationRequired: false),
       );
 
-      final harness =
-          factory.create(
-                'goose-direct',
-                HarnessFactoryConfig(
-                  cwd: '/tmp/workspace',
-                  guardChain: guardChain,
-                  acpPermissionDecision: permissionDecision,
-                  acpReverseCallAudit: audit,
-                ),
-              )
-              as AcpHarness;
+      final harness = factory.create(
+        'goose-direct',
+        HarnessFactoryConfig(
+          cwd: '/tmp/workspace',
+          guardChain: guardChain,
+          acpPermissionDecision: permissionDecision,
+          acpReverseCallAudit: audit,
+        ),
+      ) as AcpHarness;
 
       expect(harness.guardChain, same(guardChain));
       expect(harness.permissionDecision, same(permissionDecision));

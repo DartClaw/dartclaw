@@ -85,9 +85,8 @@ class StatusCommand extends Command<void> {
     if (status.migrationAction != null) _writeLine('  Migration action: ${_safe(status.migrationAction!)}');
     _writeLine('  Opaque legacy: ${status.opaqueLegacyLocators.length}; ${_locators(status.opaqueLegacyLocators)}');
     try {
-      final health = await IndexHealthStore(
-        workspaceDir: config.workspaceDir,
-      ).read(canonicalRevision: status.collectionRevision, canonicalFingerprint: status.collectionFingerprint);
+      final health = await IndexHealthStore(workspaceDir: config.workspaceDir)
+          .read(canonicalRevision: status.collectionRevision, canonicalFingerprint: status.collectionFingerprint);
       _writeLine(
         '  Index:     ${health.state.name}; canonical=${health.canonicalRevision}; '
         'indexed=${health.indexRevision?.toString() ?? 'unknown'}',

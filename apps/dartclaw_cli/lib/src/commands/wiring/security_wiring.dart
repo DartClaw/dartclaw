@@ -581,13 +581,12 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
 }
 
 /// Builds one live authority's container from a profile template.
-typedef _ContainerTemplate =
-    ContainerManager Function(
-      String containerName, {
-      required String generatedStateDir,
-      required String? artifactsDir,
-      required bool hasMcpBridge,
-    });
+typedef _ContainerTemplate = ContainerManager Function(
+  String containerName, {
+  required String generatedStateDir,
+  required String? artifactsDir,
+  required bool hasMcpBridge,
+});
 
 /// Bridges [MessageRedactor] (in dartclaw_security, which cannot depend on
 /// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).

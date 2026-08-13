@@ -13,10 +13,12 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         TaskRepository,
         WorkflowStepExecutionRepository,
         WorkflowTaskService;
+
 import 'workflow_definition.dart'
     show ActionNode, ForeachNode, LoopNode, MapNode, ParallelGroupNode, WorkflowDefinition, WorkflowNode, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 import 'workflow_run_repository.dart' show WorkflowRunRepository;
+
 import 'package:uuid/uuid.dart';
 
 import 'context_extractor.dart';
@@ -32,14 +34,13 @@ import 'workflow_git_port.dart';
 import 'workflow_template_engine.dart';
 import 'workflow_turn_adapter.dart';
 
-typedef WorkflowStepOutputTransformer =
-    FutureOr<Map<String, dynamic>> Function(
-      WorkflowRun run,
-      WorkflowDefinition definition,
-      WorkflowStep step,
-      Task task,
-      Map<String, dynamic> outputs,
-    );
+typedef WorkflowStepOutputTransformer = FutureOr<Map<String, dynamic>> Function(
+  WorkflowRun run,
+  WorkflowDefinition definition,
+  WorkflowStep step,
+  Task task,
+  Map<String, dynamic> outputs,
+);
 
 /// Effect-free result returned by an executable lookup executor.
 typedef ExecutableLookupResult = ({int exitCode, String stdout});

@@ -159,9 +159,8 @@ void main() {
 
       guard.setSessionToolFilter('inbox-session', null);
       expect(
-        (await guard.evaluate(
-          _ctx(hookPoint: 'beforeToolCall', toolName: 'web_fetch', sessionId: 'inbox-session'),
-        )).isPass,
+        (await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'web_fetch', sessionId: 'inbox-session')))
+            .isPass,
         isTrue,
       );
     });

@@ -7,13 +7,12 @@ import 'anthropic_api_classifier.dart';
 import 'content_classifier.dart';
 
 /// Typedef for subprocess creation — injectable for testing.
-typedef ClassifierProcessFactory =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      Map<String, String>? environment,
-      bool includeParentEnvironment,
-    });
+typedef ClassifierProcessFactory = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+});
 
 /// [ContentClassifier] that spawns `claude --print` for each classification.
 ///

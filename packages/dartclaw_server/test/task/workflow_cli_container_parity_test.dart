@@ -203,9 +203,10 @@ void main() {
 
       await execute(null);
       final firstHome = container.lastEnv!['CODEX_HOME'];
-      final hostHome = Directory(container.generatedStateDir).listSync().whereType<Directory>().singleWhere(
-        (directory) => p.basename(directory.path).startsWith('codex-home-'),
-      );
+      final hostHome = Directory(container.generatedStateDir)
+          .listSync()
+          .whereType<Directory>()
+          .singleWhere((directory) => p.basename(directory.path).startsWith('codex-home-'));
       final rollout = File(p.join(hostHome.path, 'sessions', 'rollout.jsonl'))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('preserved');
@@ -368,9 +369,10 @@ void main() {
       final container = containerFor(stdout: _codexEvents);
       await runTurn(runnerFor('codex', container), 'codex');
 
-      final leftovers = Directory(
-        container.generatedStateDir,
-      ).listSync(recursive: true).whereType<File>().map((entry) => entry.path);
+      final leftovers = Directory(container.generatedStateDir)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map((entry) => entry.path);
       expect(leftovers, isEmpty);
     });
   });

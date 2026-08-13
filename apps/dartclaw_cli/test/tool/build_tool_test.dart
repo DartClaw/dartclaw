@@ -106,9 +106,8 @@ void main() {
     final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
     addTearDown(() => smokeDir.deleteSync(recursive: true));
     Directory(p.join(smokeDir.path, 'workspace')).createSync(recursive: true);
-    File(
-      p.join(smokeDir.path, 'workspace', 'MEMORY.md'),
-    ).writeAsStringSync('## general\n- [2026-02-23 10:00] Bundled sqlite smoke entry\n');
+    File(p.join(smokeDir.path, 'workspace', 'MEMORY.md'))
+        .writeAsStringSync('## general\n- [2026-02-23 10:00] Bundled sqlite smoke entry\n');
     final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
     File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
 

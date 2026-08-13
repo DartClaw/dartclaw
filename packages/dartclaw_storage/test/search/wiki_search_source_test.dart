@@ -152,9 +152,8 @@ Dart macros and pattern matching roadmap synthesis.
     File(p.join(workspace.path, 'wiki', 'dart.md')).deleteSync();
     const partitionBytes = MemoryResourceLimits.recursiveBodyBytes ~/ 8;
     for (var index = 0; index < 8; index++) {
-      final handle = File(
-        p.join(workspace.path, 'wiki', '${index.toString().padLeft(4, '0')}.md'),
-      ).openSync(mode: FileMode.write);
+      final handle = File(p.join(workspace.path, 'wiki', '${index.toString().padLeft(4, '0')}.md'))
+          .openSync(mode: FileMode.write);
       handle.writeByteSync(0xff);
       handle.truncateSync(partitionBytes);
       handle.closeSync();

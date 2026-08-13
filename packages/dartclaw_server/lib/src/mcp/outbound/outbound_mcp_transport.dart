@@ -23,8 +23,10 @@ abstract interface class OutboundMcpTransport {
   Future<void> close();
 }
 
-typedef OutboundMcpTransportFactory =
-    Future<OutboundMcpTransport> Function(OutboundMcpServerDefinition server, OutboundMcpTransportOptions options);
+typedef OutboundMcpTransportFactory = Future<OutboundMcpTransport> Function(
+  OutboundMcpServerDefinition server,
+  OutboundMcpTransportOptions options,
+);
 
 final class OutboundMcpTransportOptions {
   final Duration timeout;

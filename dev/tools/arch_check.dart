@@ -419,9 +419,10 @@ _CheckResult _checkWorkspacePackageCount(String repoRoot) {
 List<_WorkspaceMember> _workspaceMembers(String repoRoot) {
   return [
     ..._packageMembers(repoRoot),
-    ...Directory(
-      '$repoRoot/apps',
-    ).listSync().whereType<Directory>().map((dir) => _WorkspaceMember(name: _basename(dir.path), path: dir.path)),
+    ...Directory('$repoRoot/apps')
+        .listSync()
+        .whereType<Directory>()
+        .map((dir) => _WorkspaceMember(name: _basename(dir.path), path: dir.path)),
   ];
 }
 

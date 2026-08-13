@@ -8,14 +8,13 @@ const maxMemoryApplyReasonLength = 1024;
 final _canonicalUuidPattern = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
 
 /// Replaces derived memory-index rows after a canonical commit.
-typedef MemoryIndexReconciler =
-    FutureOr<void> Function(
-      CanonicalMemoryCorpus corpus,
-      Set<String> priorRecordIds,
-      int baseRevision,
-      String baseFingerprint,
-      String userId,
-    );
+typedef MemoryIndexReconciler = FutureOr<void> Function(
+  CanonicalMemoryCorpus corpus,
+  Set<String> priorRecordIds,
+  int baseRevision,
+  String baseFingerprint,
+  String userId,
+);
 
 /// Atomically applies closed personal-memory change sets through collection CAS.
 ///

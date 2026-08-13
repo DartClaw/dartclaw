@@ -28,9 +28,8 @@ void main() {
       'opaque tail\r\n',
     );
     final legacyMemoryBytes = legacyMemory.readAsBytesSync();
-    File(
-      p.join(workspace.path, 'MEMORY.archive.md'),
-    ).writeAsStringSync('## Old Facts\n- [2026-08-09 09:00] Archived fact\n');
+    File(p.join(workspace.path, 'MEMORY.archive.md'))
+        .writeAsStringSync('## Old Facts\n- [2026-08-09 09:00] Archived fact\n');
     File(p.join(workspace.path, 'learnings.md')).writeAsStringSync('- [2026-08-08 08:00] Validate before commit\n');
     final daily = File(p.join(workspace.path, 'memory', '2026-08-07.md'))..parent.createSync(recursive: true);
     daily.writeAsStringSync(
@@ -53,9 +52,9 @@ void main() {
     });
     expect(result.render(), contains('maximum parsed-record batch=1 limit=256'));
     final codec = MemoryMarkdownCodec();
-    final topic =
-        codec.parse(File(p.join(workspace.path, 'memory', 'topics', 'user-preferences.md')).readAsStringSync())
-            as MemoryTopicDocument;
+    final topic = codec.parse(
+      File(p.join(workspace.path, 'memory', 'topics', 'user-preferences.md')).readAsStringSync(),
+    ) as MemoryTopicDocument;
     expect(topic.entries.single.content, 'Prefers concise answers');
     expect(topic.entries.single.provenance.originKind, MemoryOriginKind.migration);
     expect(topic.entries.single.created.isUtc, isTrue);
@@ -117,11 +116,9 @@ void main() {
 
     await LegacyMemoryMigrator(workspaceDir: workspace.path, corpusService: authority).preflight();
 
-    final topic =
-        const MemoryMarkdownCodec().parse(
-              File(p.join(workspace.path, 'memory', 'topics', 'general.md')).readAsStringSync(),
-            )
-            as MemoryTopicDocument;
+    final topic = const MemoryMarkdownCodec().parse(
+      File(p.join(workspace.path, 'memory', 'topics', 'general.md')).readAsStringSync(),
+    ) as MemoryTopicDocument;
     expect(topic.entries.single.created, DateTime.utc(2026, 1, 15, 15));
     await authority.close();
   }, skip: !fixedZoneChild);
@@ -308,9 +305,9 @@ void main() {
       final restarted = MemoryCorpusService(workspaceDir: caseDir.path);
       final result = await LegacyMemoryMigrator(workspaceDir: caseDir.path, corpusService: restarted).preflight();
       expect(result.collectionRevision, 1, reason: transition.name);
-      final observation =
-          const MemoryMarkdownCodec().parse(File(p.join(caseDir.path, 'memory', '2026-08-09.md')).readAsStringSync())
-              as MemoryObservationDocument;
+      final observation = const MemoryMarkdownCodec().parse(
+        File(p.join(caseDir.path, 'memory', '2026-08-09.md')).readAsStringSync(),
+      ) as MemoryObservationDocument;
       expect(observation.observations.single.content, dailyBytes.trim(), reason: transition.name);
       final snapshot = Directory(p.join(caseDir.path, '.dartclaw-memory-migration-snapshot'));
       final manifest =
@@ -552,11 +549,9 @@ void main() {
 
     expect(result.defaultTopicCount, 1);
     expect(result.render(), contains('Legacy entries assigned to topic general: 1'));
-    final topic =
-        const MemoryMarkdownCodec().parse(
-              File(p.join(workspace.path, 'memory', 'topics', 'general.md')).readAsStringSync(),
-            )
-            as MemoryTopicDocument;
+    final topic = const MemoryMarkdownCodec().parse(
+      File(p.join(workspace.path, 'memory', 'topics', 'general.md')).readAsStringSync(),
+    ) as MemoryTopicDocument;
     expect(topic.entries, hasLength(3));
     await authority.close();
   });

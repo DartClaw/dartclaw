@@ -68,9 +68,8 @@ void main() {
 
   test('S01 stable file runs a cron extraction turn and becomes durable synthesized knowledge', () async {
     Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
-    File(
-      p.join(workspace.path, 'inbox', 'dart-roadmap.md'),
-    ).writeAsStringSync('Dart roadmap notes. Verbatim source sentence that must not be stored.');
+    File(p.join(workspace.path, 'inbox', 'dart-roadmap.md'))
+        .writeAsStringSync('Dart roadmap notes. Verbatim source sentence that must not be stored.');
 
     final report = await service.runOnce(requireStable: false);
 
@@ -245,9 +244,9 @@ void main() {
       expect(turn.allowedTools, ['__knowledge_inbox_no_tools__']);
       expect(turn.readOnly, isTrue);
     }
-    final cronKeys = (await sessions.listSessions(
-      type: SessionType.cron,
-    )).map((session) => Uri.decodeComponent(SessionKey.parse(session.channelKey!).identifiers)).toList();
+    final cronKeys = (await sessions.listSessions(type: SessionType.cron))
+        .map((session) => Uri.decodeComponent(SessionKey.parse(session.channelKey!).identifiers))
+        .toList();
     expect(cronKeys, hasLength(2));
     expect(cronKeys.every((key) => key.contains('knowledge-inbox') && key.contains('notes.md')), isTrue);
     expect(cronKeys.toSet(), hasLength(2));
@@ -762,22 +761,21 @@ related: []
 
 FakeTurnManager _turnsReturning(String responseText) {
   return FakeTurnManager(
-    onStartTurn:
-        (
-          sessionId,
-          messages, {
-          source,
-          agentName = 'main',
-          model,
-          effort,
-          systemPromptOverride,
-          maxTurns,
-          taskId,
-          isHumanInput = false,
-          allowedTools,
-          readOnly = false,
-          promptScope,
-        }) async => 'extract-turn',
+    onStartTurn: (
+      sessionId,
+      messages, {
+      source,
+      agentName = 'main',
+      model,
+      effort,
+      systemPromptOverride,
+      maxTurns,
+      taskId,
+      isHumanInput = false,
+      allowedTools,
+      readOnly = false,
+      promptScope,
+    }) async => 'extract-turn',
     onWaitForOutcome: (sessionId, turnId) async => TurnOutcome(
       turnId: turnId,
       sessionId: sessionId,

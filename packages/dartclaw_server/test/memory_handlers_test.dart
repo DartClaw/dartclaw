@@ -78,9 +78,8 @@ void main() {
 
   test('observation capture returns canonical identity and advances the shared revision', () async {
     final base = await corpus.manifest();
-    await IndexHealthStore(
-      workspaceDir: workspace.path,
-    ).recordHealthy(canonicalRevision: base.collectionRevision, canonicalFingerprint: base.fingerprint);
+    await IndexHealthStore(workspaceDir: workspace.path)
+        .recordHealthy(canonicalRevision: base.collectionRevision, canonicalFingerprint: base.fingerprint);
     final before = base.collectionRevision;
 
     final response = _json(await handlers.onObserve({'text': 'Falcon status is green', 'role': 'observation'}));
@@ -580,9 +579,8 @@ small body
     expect(reads.where((path) => path.startsWith('memory/20') && path != 'memory/2026-08-12.md'), isEmpty);
     expect(memory.search('Fresh sparse observation'), hasLength(1));
     final current = await corpus.manifest();
-    final health = await IndexHealthStore(
-      workspaceDir: workspace.path,
-    ).read(canonicalRevision: current.collectionRevision, canonicalFingerprint: current.fingerprint);
+    final health = await IndexHealthStore(workspaceDir: workspace.path)
+        .read(canonicalRevision: current.collectionRevision, canonicalFingerprint: current.fingerprint);
     expect(health.state, IndexHealthState.degraded);
   });
 }

@@ -8,8 +8,11 @@ import 'json_rpc_utils.dart';
 import 'outbound_mcp_errors.dart';
 import 'outbound_mcp_transport.dart';
 
-typedef OutboundMcpProcessStarter =
-    Future<Process> Function(String executable, List<String> arguments, {Map<String, String> environment});
+typedef OutboundMcpProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String> environment,
+});
 
 final class StdioMcpTransport implements OutboundMcpTransport {
   final Process _process;

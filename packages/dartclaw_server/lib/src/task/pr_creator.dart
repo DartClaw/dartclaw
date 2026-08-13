@@ -39,13 +39,12 @@ final class PrCreationFailed extends PrCreationResult {
 }
 
 /// Issues an authenticated GitHub REST API call and returns the raw response.
-typedef GitHubApiRunner =
-    Future<({int statusCode, String body})> Function(
-      String method,
-      Uri uri, {
-      required Map<String, String> headers,
-      String? body,
-    });
+typedef GitHubApiRunner = Future<({int statusCode, String body})> Function(
+  String method,
+  Uri uri, {
+  required Map<String, String> headers,
+  String? body,
+});
 
 /// Creates GitHub pull requests via the GitHub REST API.
 class PrCreator {

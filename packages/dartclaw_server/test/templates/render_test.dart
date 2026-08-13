@@ -66,8 +66,7 @@ Map<String, dynamic> _sessionInfoContext(Map<String, dynamic> overrides) => {
   'inputStr': '1.2K',
   'outputStr': '3.4K',
   'totalStr': '4.6K',
-  'tokenMetricCardsHtml':
-      '''<div class="card card-metric card-metric--info"><div class="metric-value">1.2K</div><div class="metric-label">Input</div></div><div class="card card-metric card-metric--info"><div class="metric-value">3.4K</div><div class="metric-label">Output</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">4.6K</div><div class="metric-label">Total</div></div>''',
+  'tokenMetricCardsHtml': '''<div class="card card-metric card-metric--info"><div class="metric-value">1.2K</div><div class="metric-label">Input</div></div><div class="card card-metric card-metric--info"><div class="metric-value">3.4K</div><div class="metric-label">Output</div></div><div class="card card-metric card-metric--accent"><div class="metric-value">4.6K</div><div class="metric-label">Total</div></div>''',
   'messageCount': 42,
   'createdAt': '2025-01-15',
   'sidebar': '',

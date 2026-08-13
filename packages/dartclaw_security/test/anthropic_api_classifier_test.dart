@@ -82,9 +82,8 @@ class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
     void Function()? onDone,
     bool? cancelOnError,
   }) {
-    return Stream.value(
-      utf8.encode(_body),
-    ).listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+    return Stream.value(utf8.encode(_body))
+        .listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 
   @override

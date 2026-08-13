@@ -340,10 +340,8 @@ void main() {
         },
         processStarter: (exe, args, {workingDirectory, environment}) async {
           arguments = List<String>.from(args);
-          final payload = _streamJsonStdout({
-            'session_id': 'claude-provider-test',
-            'result': 'hello',
-          }).replaceAll("'", "'\\''");
+          final payload = _streamJsonStdout({'session_id': 'claude-provider-test', 'result': 'hello'})
+              .replaceAll("'", "'\\''");
           return Process.start('/bin/sh', ['-lc', "printf '%s' '$payload'"]);
         },
       );

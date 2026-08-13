@@ -197,9 +197,8 @@ void main() {
       IndexHealthState.rebuilding,
     );
 
-    final reopened = await IndexHealthStore(
-      workspaceDir: root.path,
-    ).read(canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+    final reopened = await IndexHealthStore(workspaceDir: root.path)
+        .read(canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
     expect(reopened.state, IndexHealthState.degraded);
     expect(reopened.failureStage, 'interrupted');
@@ -216,9 +215,8 @@ void main() {
       reason: StateError('projection unavailable'),
     );
 
-    final reopened = await IndexHealthStore(
-      workspaceDir: root.path,
-    ).read(canonicalRevision: 42, canonicalFingerprint: 'fingerprint-42');
+    final reopened = await IndexHealthStore(workspaceDir: root.path)
+        .read(canonicalRevision: 42, canonicalFingerprint: 'fingerprint-42');
     expect(reopened.state, IndexHealthState.degraded);
     expect(reopened.canonicalRevision, 42);
     expect(reopened.canonicalFingerprint, 'fingerprint-42');

@@ -20,8 +20,13 @@ void main() {
         cwd: '/',
         executable: 'goose',
         arguments: const ['acp'],
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
       );
     });
 
@@ -76,9 +81,13 @@ void main() {
       final boundHarness = AcpHarness(
         cwd: serviceRoot.path,
         guardChain: GuardChain(guards: [guard]),
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                boundProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => boundProcess,
       );
       addTearDown(() async {
         await boundHarness.dispose();
@@ -181,9 +190,13 @@ void main() {
       var spawnCount = 0;
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                spawnCount++ == 0 ? timedOutProcess : retryProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => spawnCount++ == 0 ? timedOutProcess : retryProcess,
         initializeTimeout: Duration.zero,
         terminationGracePeriod: Duration.zero,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
@@ -201,9 +214,13 @@ void main() {
       final timedOutProcess = FakeAcpProcess();
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                timedOutProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
         turnTimeout: const Duration(milliseconds: 20),
         terminationGracePeriod: Duration.zero,
       );
@@ -268,9 +285,13 @@ void main() {
       final timedOutProcess = FakeAcpProcess();
       final timedOutHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                timedOutProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
         turnTimeout: const Duration(milliseconds: 50),
         terminationGracePeriod: Duration.zero,
       );
@@ -363,9 +384,13 @@ void main() {
       final windowsProcess = FakeAcpProcess();
       final windowsHarness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                windowsProcess,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => windowsProcess,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
       );
       addTearDown(windowsHarness.dispose);
@@ -417,8 +442,13 @@ void main() {
       final process = FakeAcpProcess(completeExitOnKill: false);
       final harness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
         terminationGracePeriod: Duration.zero,
       );

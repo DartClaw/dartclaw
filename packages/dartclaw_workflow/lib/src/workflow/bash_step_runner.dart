@@ -7,8 +7,10 @@ import 'dart:typed_data';
 import 'package:dartclaw_config/dartclaw_config.dart'
     show BashShellPolicy, PlatformCapabilities, UnsupportedCapabilityError;
 import 'package:dartclaw_core/dartclaw_core.dart' show killWithEscalation;
+
 import 'workflow_definition.dart' show ActionNode, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
+
 import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, defaultSensitivePatterns;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -52,9 +54,10 @@ Future<BashShellInvocation> selectBashShell({
   } on ProcessException {
     throw _missingGitBashError();
   }
-  final resolvedExecutable = LineSplitter.split(
-    lookupResult.stdout,
-  ).map((line) => line.trim()).where(_isGitForWindowsBash).firstOrNull;
+  final resolvedExecutable = LineSplitter.split(lookupResult.stdout)
+      .map((line) => line.trim())
+      .where(_isGitForWindowsBash)
+      .firstOrNull;
   if (lookupResult.exitCode != 0 || resolvedExecutable == null) {
     throw _missingGitBashError();
   }

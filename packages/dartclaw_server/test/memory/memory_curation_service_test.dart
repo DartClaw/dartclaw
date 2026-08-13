@@ -63,22 +63,21 @@ void main() {
     Future<void> Function(MemoryCurationRecord record)? persistRecord,
   }) {
     final turns = FakeTurnManager(
-      onStartTurn:
-          (
-            sessionId,
-            messages, {
-            source,
-            agentName = 'main',
-            model,
-            effort,
-            systemPromptOverride,
-            maxTurns,
-            taskId,
-            isHumanInput = false,
-            allowedTools,
-            readOnly = false,
-            promptScope,
-          }) async => 'curation-turn',
+      onStartTurn: (
+        sessionId,
+        messages, {
+        source,
+        agentName = 'main',
+        model,
+        effort,
+        systemPromptOverride,
+        maxTurns,
+        taskId,
+        isHumanInput = false,
+        allowedTools,
+        readOnly = false,
+        promptScope,
+      }) async => 'curation-turn',
       onWaitForOutcome: (sessionId, turnId) async => TurnOutcome(
         turnId: turnId,
         sessionId: sessionId,
@@ -147,9 +146,9 @@ void main() {
 
     final prompt = ((curation.turns as FakeTurnManager).startedTurns.single.messages.single['content'] as String);
     expect(hostile.allMatches(prompt), isEmpty);
-    final encoded = RegExp(
-      r'BEGIN UNTRUSTED MEMORY SNAPSHOT BASE64URL ---\n([^\n]+)\n--- END',
-    ).firstMatch(prompt)!.group(1)!;
+    final encoded = RegExp(r'BEGIN UNTRUSTED MEMORY SNAPSHOT BASE64URL ---\n([^\n]+)\n--- END')
+        .firstMatch(prompt)!
+        .group(1)!;
     final decoded = jsonDecode(utf8.decode(base64Url.decode(encoded))) as Map<String, dynamic>;
     expect(decoded['indexProjection'], hostile);
   });

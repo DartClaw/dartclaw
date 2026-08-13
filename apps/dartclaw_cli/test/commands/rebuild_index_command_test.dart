@@ -162,9 +162,8 @@ void main() {
       createdAt: DateTime(2026, 2, 23, 10),
     );
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(
-      p.join(wsDir.path, 'MEMORY.md'),
-    ).writeAsStringSync('## project\n- [2026-02-23 10:00] **Durable heading**\n  \n  $longTail\n');
+    File(p.join(wsDir.path, 'MEMORY.md'))
+        .writeAsStringSync('## project\n- [2026-02-23 10:00] **Durable heading**\n  \n  $longTail\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
@@ -182,12 +181,10 @@ void main() {
 
   test('rebuilds memory and archive entries with their canonical sources', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(
-      p.join(wsDir.path, 'MEMORY.md'),
-    ).writeAsStringSync('## preferences\n- [2026-02-23 10:00] Current searchable preference\n');
-    File(
-      p.join(wsDir.path, 'MEMORY.archive.md'),
-    ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
+    File(p.join(wsDir.path, 'MEMORY.md'))
+        .writeAsStringSync('## preferences\n- [2026-02-23 10:00] Current searchable preference\n');
+    File(p.join(wsDir.path, 'MEMORY.archive.md'))
+        .writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
@@ -206,12 +203,10 @@ void main() {
 
   test('rebuild preserves source timestamps for recent ordering', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(
-      p.join(wsDir.path, 'MEMORY.md'),
-    ).writeAsStringSync('## preferences\n- [2026-02-23 10:00] Current searchable preference\n');
-    File(
-      p.join(wsDir.path, 'MEMORY.archive.md'),
-    ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
+    File(p.join(wsDir.path, 'MEMORY.md'))
+        .writeAsStringSync('## preferences\n- [2026-02-23 10:00] Current searchable preference\n');
+    File(p.join(wsDir.path, 'MEMORY.archive.md'))
+        .writeAsStringSync('## project\n- [2025-01-10 09:00] Archived searchable project\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
@@ -270,9 +265,8 @@ void main() {
 
   test('recovers the index from MEMORY.archive.md alone', () async {
     final wsDir = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(
-      p.join(wsDir.path, 'MEMORY.archive.md'),
-    ).writeAsStringSync('## project\n- [2025-01-10 09:00] Archive-only recovery fact\n');
+    File(p.join(wsDir.path, 'MEMORY.archive.md'))
+        .writeAsStringSync('## project\n- [2025-01-10 09:00] Archive-only recovery fact\n');
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));

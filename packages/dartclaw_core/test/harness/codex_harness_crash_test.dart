@@ -313,14 +313,12 @@ void main() {
     });
 
     test('FakeAgentHarness capability configuration is constructor-driven', () {
-      final harness =
-          Function.apply(FakeAgentHarness.new, const [], <Symbol, dynamic>{
-                #supportsCostReporting: false,
-                #supportsToolApproval: false,
-                #supportsStreaming: false,
-                #supportsCachedTokens: true,
-              })
-              as FakeAgentHarness;
+      final harness = Function.apply(FakeAgentHarness.new, const [], <Symbol, dynamic>{
+        #supportsCostReporting: false,
+        #supportsToolApproval: false,
+        #supportsStreaming: false,
+        #supportsCachedTokens: true,
+      }) as FakeAgentHarness;
 
       final dynamic dynamicHarness = harness;
       expect(dynamicHarness.supportsCostReporting, isFalse);

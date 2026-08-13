@@ -129,9 +129,10 @@ void main() {
       expect(refresh.message, contains('previous definition cleanup failed'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory(
-          '$home/Library/LaunchAgents',
-        ).listSync().whereType<File>().any((file) => file.path.contains('.previous_')),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_')),
         isTrue,
       );
     });
@@ -233,9 +234,10 @@ void main() {
       expect(refresh.message, contains('previous definition remains'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory('$home/Library/LaunchAgents').listSync().whereType<File>().any(
-          (file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw'),
-        ),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw')),
         isTrue,
       );
     });
@@ -263,9 +265,10 @@ void main() {
       expect(refresh.message, contains('previous definition remains'));
       expect(plist.readAsStringSync(), contains('/new/dartclaw'));
       expect(
-        Directory('$home/Library/LaunchAgents').listSync().whereType<File>().any(
-          (file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw'),
-        ),
+        Directory('$home/Library/LaunchAgents')
+            .listSync()
+            .whereType<File>()
+            .any((file) => file.path.contains('.previous_') && file.readAsStringSync().contains('/old/dartclaw')),
         isTrue,
       );
     });

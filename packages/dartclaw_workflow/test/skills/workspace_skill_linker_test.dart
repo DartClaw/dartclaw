@@ -242,15 +242,13 @@ void main() {
         agentTomlNames: const [],
       );
       expect(
-        File(
-          p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', '.dartclaw-managed'),
-        ).existsSync(),
+        File(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', '.dartclaw-managed'))
+            .existsSync(),
         isTrue,
       );
       expect(
-        File(
-          p.join(workspaceDir, '.agents', 'skills', 'dartclaw-discover-andthen-spec', '.dartclaw-managed'),
-        ).existsSync(),
+        File(p.join(workspaceDir, '.agents', 'skills', 'dartclaw-discover-andthen-spec', '.dartclaw-managed'))
+            .existsSync(),
         isTrue,
       );
       expect(copyWrites, 2);
@@ -264,9 +262,8 @@ void main() {
       );
       expect(copyWrites, 4);
 
-      File(
-        p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md'),
-      ).writeAsStringSync('changed\n');
+      File(p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', 'SKILL.md'))
+          .writeAsStringSync('changed\n');
       linker.materialize(
         dataDir: dataDir,
         workspaceDir: workspaceDir,

@@ -23,12 +23,18 @@ import 'worktree_manager.dart';
 /// Invoked by [TaskReviewService] after a `push_back` transitions a task
 /// from `review` to `running`. Delivery is best-effort — a failed callback
 /// does not roll back the state transition.
-typedef PushBackFeedbackDelivery =
-    Future<void> Function({required String taskId, required String sessionKey, required String feedback});
+typedef PushBackFeedbackDelivery = Future<void> Function({
+  required String taskId,
+  required String sessionKey,
+  required String feedback,
+});
 
 /// Runs a git subprocess and returns its [ProcessResult].
-typedef GitProcessRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
+typedef GitProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// Result of a task review action.
 sealed class ReviewResult {

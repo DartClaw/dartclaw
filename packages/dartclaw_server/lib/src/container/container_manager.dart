@@ -17,14 +17,13 @@ import 'gateway/process_bridge_channel.dart';
 typedef RunCommand = Future<ProcessResult> Function(String executable, List<String> arguments);
 
 /// Testable callback used for long-lived processes such as `docker exec -i`.
-typedef StartCommand =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-      bool includeParentEnvironment,
-    });
+typedef StartCommand = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  bool includeParentEnvironment,
+});
 
 /// Three-valued container liveness.
 ///

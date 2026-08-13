@@ -309,9 +309,8 @@ final class LegacyMemoryMigrator {
         File(p.join(temporary.path, name)).writeAsBytesSync(bytes, flush: true);
         members[entry.key] = name;
       }
-      File(
-        p.join(temporary.path, 'manifest.json'),
-      ).writeAsStringSync(jsonEncode({'sourceFingerprint': sourceFingerprint, 'members': members}), flush: true);
+      File(p.join(temporary.path, 'manifest.json'))
+          .writeAsStringSync(jsonEncode({'sourceFingerprint': sourceFingerprint, 'members': members}), flush: true);
       temporary.renameSync(snapshot.path);
     } finally {
       if (temporary.existsSync()) temporary.deleteSync(recursive: true);
@@ -408,9 +407,8 @@ final class LegacyMemoryMigrator {
   static bool _hasCanonicalMarker(File file) {
     final handle = file.openSync();
     try {
-      return RegExp(
-        r'^# DartClaw Canonical Memory(?:\r\n|\n|\r|$)',
-      ).hasMatch(utf8.decode(handle.readSync(64), allowMalformed: true));
+      return RegExp(r'^# DartClaw Canonical Memory(?:\r\n|\n|\r|$)')
+          .hasMatch(utf8.decode(handle.readSync(64), allowMalformed: true));
     } finally {
       handle.closeSync();
     }

@@ -102,9 +102,8 @@ class WorkflowStatusCommand extends ConnectedCommand {
 
       if (argResults!['json'] as bool) {
         writeLine(
-          const JsonEncoder.withIndent(
-            '  ',
-          ).convert({...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()}),
+          const JsonEncoder.withIndent('  ')
+              .convert({...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()}),
         );
       } else {
         _printStandaloneTable(run, childTasks);

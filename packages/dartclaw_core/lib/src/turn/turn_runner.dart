@@ -1,6 +1,8 @@
 import '../harness/agent_harness.dart';
+
 import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
 import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
+
 import 'turn_outcome.dart';
 
 /// Per-harness turn execution engine interface.

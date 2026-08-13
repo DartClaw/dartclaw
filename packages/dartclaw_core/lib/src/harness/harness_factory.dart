@@ -2,6 +2,7 @@ import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig, PlatformCapabilities;
+
 import 'agent_harness.dart';
 import 'acp_harness.dart';
 import 'acp_reverse_call_handlers.dart';

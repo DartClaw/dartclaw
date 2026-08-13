@@ -59,22 +59,20 @@ void main() {
 
     test('includes previousResponseItems and dynamic settings', () {
       final dynamic adapter = CodexProtocolAdapter();
-      final payload =
-          adapter.buildTurnRequest(
-                message: 'Hello',
-                threadId: 'thread-123',
-                history: [
-                  {'role': 'human', 'content': 'Earlier question'},
-                  {'role': 'assistant', 'content': 'Earlier answer'},
-                ],
-                settings: {
-                  'model': 'gpt-5',
-                  'cwd': '/tmp/workspace',
-                  'sandbox': 'workspaceWrite',
-                  'approval_policy': 'on-request',
-                },
-              )
-              as Map<String, dynamic>;
+      final payload = adapter.buildTurnRequest(
+        message: 'Hello',
+        threadId: 'thread-123',
+        history: [
+          {'role': 'human', 'content': 'Earlier question'},
+          {'role': 'assistant', 'content': 'Earlier answer'},
+        ],
+        settings: {
+          'model': 'gpt-5',
+          'cwd': '/tmp/workspace',
+          'sandbox': 'workspaceWrite',
+          'approval_policy': 'on-request',
+        },
+      ) as Map<String, dynamic>;
 
       final params = payload['params'] as Map<String, dynamic>;
       expect(params['threadId'], 'thread-123');

@@ -10,9 +10,13 @@ void main() {
     test('spawn failure is structured as SPAWN_FAILED', () async {
       final harness = AcpHarness(
         cwd: '/',
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-                throw const ProcessException('missing-goose', [], 'not found'),
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => throw const ProcessException('missing-goose', [], 'not found'),
       );
       addTearDown(harness.dispose);
 

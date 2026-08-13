@@ -30,8 +30,10 @@ abstract interface class HarnessTurnContextSink {
   void setTurnContext(HarnessTurnContext? context);
 }
 
-typedef ContextualMemoryToolHandler =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> arguments, HarnessTurnContext context);
+typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> arguments,
+  HarnessTurnContext context,
+);
 
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).

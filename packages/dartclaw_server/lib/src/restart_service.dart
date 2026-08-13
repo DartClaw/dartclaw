@@ -64,9 +64,8 @@ class RestartService {
     if (activeIds.isNotEmpty) {
       _log.info('Draining ${activeIds.length} active turn(s)...');
       try {
-        await Future.wait(
-          activeIds.map((id) => _turns.waitForCompletion(id, timeout: drainDeadline)),
-        ).timeout(drainDeadline);
+        await Future.wait(activeIds.map((id) => _turns.waitForCompletion(id, timeout: drainDeadline)))
+            .timeout(drainDeadline);
         _log.info('All turns drained successfully');
       } on TimeoutException {
         _log.warning('Drain deadline exceeded — force-canceling remaining turns');

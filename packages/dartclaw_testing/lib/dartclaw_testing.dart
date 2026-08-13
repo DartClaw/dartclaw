@@ -40,6 +40,7 @@ export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
 export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
 export 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskBindingCoordinator;
+
 export 'src/channel_test_helpers.dart'
     show RecordingReviewHandler, TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
 export 'src/codex_harness_test_helpers.dart'

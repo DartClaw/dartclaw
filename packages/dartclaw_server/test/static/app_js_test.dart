@@ -450,9 +450,8 @@ void main() {
       // above) owns its mobile target — which only reaches the icon buttons
       // because they carry the base class. Assert that half too; either alone
       // passes vacuously.
-      final schedulingHtml = File(
-        '${baseDir.replaceFirst('/static', '/templates')}/scheduling.html',
-      ).readAsStringSync();
+      final schedulingHtml = File('${baseDir.replaceFirst('/static', '/templates')}/scheduling.html')
+          .readAsStringSync();
       expect(RegExp(r'class="btn-icon-sm').hasMatch(schedulingHtml), isFalse);
       expect(RegExp(r'class="btn btn-icon-sm').allMatches(schedulingHtml), hasLength(7));
       // Anchors get no floor from the bare `button` rule, so they are named as
@@ -521,9 +520,8 @@ void main() {
         isTrue,
       );
       expect(
-        RegExp(
-          r'\.tabs::after\s*\{[^}]*width:\s*var\(--sp-5\);[^}]*color-mix\(in srgb, var\(--fg\) 24%, transparent\)',
-        ).hasMatch(designSystemCss),
+        RegExp(r'\.tabs::after\s*\{[^}]*width:\s*var\(--sp-5\);[^}]*color-mix\(in srgb, var\(--fg\) 24%, transparent\)')
+            .hasMatch(designSystemCss),
         isTrue,
       );
       expect(RegExp(r'^\.settings-tabs?\b', multiLine: true).hasMatch(appCss), isFalse);
@@ -603,9 +601,11 @@ void main() {
   });
 
   group('native dialog eradication', () {
-    final controllerSources = Directory(
-      '$baseDir/controllers',
-    ).listSync().whereType<File>().where((file) => file.path.endsWith('.js')).toList();
+    final controllerSources = Directory('$baseDir/controllers')
+        .listSync()
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.js'))
+        .toList();
 
     // Slices one method/function body out of a controller source, relying on the
     // two-space member indentation every controller uses.

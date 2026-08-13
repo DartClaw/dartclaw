@@ -19,6 +19,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         ProcessFactory,
         RetryPolicy,
         TaskTriggerConfig;
+
 export 'src/signal_channel.dart' show SignalChannel;
 export 'src/signal_cli_manager.dart' show SignalCliManager, SignalRegistrationState;
 export 'src/signal_config.dart' show SignalConfig;

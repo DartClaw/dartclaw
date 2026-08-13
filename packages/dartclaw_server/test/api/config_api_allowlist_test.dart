@@ -193,9 +193,8 @@ channels:
     });
 
     test('Signal: POST with phone entry succeeds', () async {
-      final body = await api(
-        router,
-      ).expectJsonObject('POST', '/api/config/channels/signal/dm-allowlist', json: {'entry': '+1234567890'});
+      final body = await api(router)
+          .expectJsonObject('POST', '/api/config/channels/signal/dm-allowlist', json: {'entry': '+1234567890'});
 
       expect(body['added'], isTrue);
       expect(sigCtrl.isAllowed('+1234567890'), isTrue);

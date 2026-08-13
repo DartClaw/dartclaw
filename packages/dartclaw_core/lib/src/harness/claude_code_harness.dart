@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../bridge/bridge_events.dart';
+
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:dartclaw_config/dartclaw_config.dart'
     show ClaudeProviderOptions, HistoryConfig, PlatformCapabilities, UnsupportedCapabilityError;
+
 import '../container/container_executor.dart';
 import '../memory/memory_apply_schema.dart';
 import '../storage/atomic_write.dart';

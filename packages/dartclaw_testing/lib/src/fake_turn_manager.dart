@@ -2,48 +2,45 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
-typedef FakeReserveTurnCallback =
-    Future<String> Function(
-      String sessionId, {
-      String agentName,
-      String? directory,
-      String? model,
-      String? effort,
-      String? systemPromptOverride,
-      ExecutionPolicy? workerPolicy,
-      int? maxTurns,
-      String? taskId,
-      bool isHumanInput,
-      PromptScope? promptScope,
-      List<String>? allowedTools,
-      bool readOnly,
-    });
+typedef FakeReserveTurnCallback = Future<String> Function(
+  String sessionId, {
+  String agentName,
+  String? directory,
+  String? model,
+  String? effort,
+  String? systemPromptOverride,
+  ExecutionPolicy? workerPolicy,
+  int? maxTurns,
+  String? taskId,
+  bool isHumanInput,
+  PromptScope? promptScope,
+  List<String>? allowedTools,
+  bool readOnly,
+});
 
-typedef FakeExecuteTurnCallback =
-    FutureOr<void> Function(
-      String sessionId,
-      String turnId,
-      List<Map<String, dynamic>> messages, {
-      String? source,
-      String agentName,
-    });
+typedef FakeExecuteTurnCallback = FutureOr<void> Function(
+  String sessionId,
+  String turnId,
+  List<Map<String, dynamic>> messages, {
+  String? source,
+  String agentName,
+});
 
-typedef FakeStartTurnCallback =
-    Future<String> Function(
-      String sessionId,
-      List<Map<String, dynamic>> messages, {
-      String? source,
-      String agentName,
-      String? model,
-      String? effort,
-      String? systemPromptOverride,
-      int? maxTurns,
-      String? taskId,
-      bool isHumanInput,
-      List<String>? allowedTools,
-      bool readOnly,
-      PromptScope? promptScope,
-    });
+typedef FakeStartTurnCallback = Future<String> Function(
+  String sessionId,
+  List<Map<String, dynamic>> messages, {
+  String? source,
+  String agentName,
+  String? model,
+  String? effort,
+  String? systemPromptOverride,
+  int? maxTurns,
+  String? taskId,
+  bool isHumanInput,
+  List<String>? allowedTools,
+  bool readOnly,
+  PromptScope? promptScope,
+});
 
 typedef FakeWaitForCompletionCallback = Future<void> Function(String sessionId, {Duration timeout});
 

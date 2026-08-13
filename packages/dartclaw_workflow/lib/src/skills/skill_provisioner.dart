@@ -7,13 +7,12 @@ import 'package:path/path.dart' as p;
 import 'dc_native_skill_manifest.dart';
 
 /// Function shape for invoking a child process. Retained as a public test seam.
-typedef ProcessRunner =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef ProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 /// Filesystem-recursive directory copy. Injectable for tests.
 typedef DirectoryCopier = Future<void> Function(Directory source, Directory destination);

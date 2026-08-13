@@ -2,8 +2,11 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 typedef RecordedEnqueue = ({ChannelMessage message, Channel sourceChannel, String sessionKey});
 
-typedef RecordingMessageQueueEnqueueCallback =
-    void Function(ChannelMessage message, Channel sourceChannel, String sessionKey);
+typedef RecordingMessageQueueEnqueueCallback = void Function(
+  ChannelMessage message,
+  Channel sourceChannel,
+  String sessionKey,
+);
 
 /// [MessageQueue] fake that records enqueues and can optionally forward to super.
 class RecordingMessageQueue extends MessageQueue {

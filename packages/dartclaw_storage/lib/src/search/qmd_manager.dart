@@ -7,18 +7,20 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 /// Callback for running commands (injectable for tests).
-typedef QmdCommandRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory});
+typedef QmdCommandRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// Callback for starting QMD processes (injectable for tests).
-typedef QmdProcessStarter =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      required Map<String, String> environment,
-      required bool includeParentEnvironment,
-    });
+typedef QmdProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  required Map<String, String> environment,
+  required bool includeParentEnvironment,
+});
 
 /// Manages the QMD daemon lifecycle — start, stop, health, indexing.
 ///
@@ -125,9 +127,8 @@ class QmdManager {
     try {
       final result = await _runCommand(['--version'], timeout: _probeTimeout);
       if (result.exitCode != 0) return false;
-      final match = RegExp(
-        r'^qmd (\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?(?: \([0-9A-Fa-f]+\))?$',
-      ).firstMatch(result.stdout.toString().trim());
+      final match = RegExp(r'^qmd (\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?(?: \([0-9A-Fa-f]+\))?$')
+          .firstMatch(result.stdout.toString().trim());
       if (match == null) return false;
       final major = int.parse(match.group(1)!);
       final minor = int.parse(match.group(2)!);

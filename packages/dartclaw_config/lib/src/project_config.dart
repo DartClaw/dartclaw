@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+
 import 'project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy;
+
 import 'package:path/path.dart' as p;
 
 import 'config_load_warnings.dart';

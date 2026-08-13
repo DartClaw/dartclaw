@@ -109,9 +109,11 @@ class SecretsCommand extends Command<void> {
 
   List<File> _findConfigFiles(String dir) {
     const extensions = {'.plist', '.service', '.yaml', '.conf'};
-    return Directory(
-      dir,
-    ).listSync(recursive: true).whereType<File>().where((f) => extensions.any((ext) => f.path.endsWith(ext))).toList();
+    return Directory(dir)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => extensions.any((ext) => f.path.endsWith(ext)))
+        .toList();
   }
 
   Future<bool> _healthCheck(String host, int port) async {

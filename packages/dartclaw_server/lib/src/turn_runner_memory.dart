@@ -75,9 +75,10 @@ extension _TurnRunnerMemory on TurnRunner {
     final eventCount = toolEvents.length < maxEvents ? toolEvents.length : maxEvents;
     for (var i = 0; i < eventCount; i++) {
       final t = toolEvents[i];
-      final inputSummary = _DailyLogValueSerializer(
-        redactor,
-      ).serializeInput(t.input).trim().replaceAll(RegExp(r'\s+'), ' ');
+      final inputSummary = _DailyLogValueSerializer(redactor)
+          .serializeInput(t.input)
+          .trim()
+          .replaceAll(RegExp(r'\s+'), ' ');
       final toolName = _DailyLogValueSerializer(redactor).serializeString(t.toolName, maxBytes: 1024);
       final key = '$toolName:${_DailyLogValueSerializer(redactor).serializeInput(t.input, canonical: true)}';
       if (seen.add(key)) {
@@ -105,12 +106,12 @@ extension _TurnRunnerMemory on TurnRunner {
     }
 
     final titleSummary = _DailyLogValueSerializer(redactor).serializeString(title, maxBytes: _dailyLogMaxRawTitleBytes);
-    final userSummary = _DailyLogValueSerializer(
-      redactor,
-    ).serializeString(loggedUserMessage ?? '(no message)', maxBytes: _dailyLogMaxRawUserBytes);
-    final resultSummary = _DailyLogValueSerializer(
-      redactor,
-    ).serializeString(result, maxBytes: _dailyLogMaxRawResultBytes).trim().replaceAll(RegExp(r'\s+'), ' ');
+    final userSummary = _DailyLogValueSerializer(redactor)
+        .serializeString(loggedUserMessage ?? '(no message)', maxBytes: _dailyLogMaxRawUserBytes);
+    final resultSummary = _DailyLogValueSerializer(redactor)
+        .serializeString(result, maxBytes: _dailyLogMaxRawResultBytes)
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
     final entry =
         '## $time — ${jsonEncode(titleSummary)}\n'
         '**User**: ${jsonEncode(userSummary)}\n'

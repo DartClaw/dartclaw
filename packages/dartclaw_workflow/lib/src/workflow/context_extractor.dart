@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show MessageService, Task, WorkflowStepExecutionRepository, WorkflowTaskService;
+
 import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, WorkflowStep;
 
 import 'package:logging/logging.dart';
@@ -22,14 +23,13 @@ import 'workflow_git_port.dart';
 import 'workflow_output_contract.dart';
 import 'workflow_task_config.dart';
 
-typedef StructuredOutputFallbackRecorder =
-    void Function(
-      String taskId, {
-      required String stepId,
-      required String outputKey,
-      required String failureReason,
-      String? providerSubtype,
-    });
+typedef StructuredOutputFallbackRecorder = void Function(
+  String taskId, {
+  required String stepId,
+  required String outputKey,
+  required String failureReason,
+  String? providerSubtype,
+});
 
 /// Extracts context outputs from a completed task's artifacts and messages.
 ///

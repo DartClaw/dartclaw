@@ -134,9 +134,8 @@ void main() {
       File(sourcePath).copySync(p.join(sourceDir.path, name));
     }
 
-    File(
-      p.join(sourceDir.path, 'code-review.yaml'),
-    ).writeAsStringSync('name: code-review\ndescription: upstream built-in update\n');
+    File(p.join(sourceDir.path, 'code-review.yaml'))
+        .writeAsStringSync('name: code-review\ndescription: upstream built-in update\n');
 
     final copied = await WorkflowMaterializer.materialize(dataDir: tempDir.path, sourceDir: sourceDir.path);
 

@@ -5,13 +5,12 @@ import 'package:uuid/uuid.dart';
 import 'package:dartclaw_models/dartclaw_models.dart' show AgentDefinition, SessionKey;
 
 /// Callback to dispatch a turn to an agent and return the result text.
-typedef LogicalAgentTurnDispatch =
-    Future<String> Function({
-      required String sessionId,
-      required String message,
-      required String agentId,
-      required bool createSession,
-    });
+typedef LogicalAgentTurnDispatch = Future<String> Function({
+  required String sessionId,
+  required String message,
+  required String agentId,
+  required bool createSession,
+});
 
 /// Callback that makes a failed newly-created logical-agent session inactive.
 typedef LogicalAgentSessionDiscard = Future<void> Function(String sessionId);

@@ -356,14 +356,13 @@ void main() {
         captureInto: captured,
         outputCapture: output,
         verifier: verifier,
-        runPreflight:
-            ({
-              required List<String> providers,
-              required int port,
-              required String instanceDir,
-              bool workflowTrack = false,
-              Future<ProcessResult> Function(String, List<String>)? runProcess,
-            }) async => const SetupPreflight(errors: [], warnings: []),
+        runPreflight: ({
+          required List<String> providers,
+          required int port,
+          required String instanceDir,
+          bool workflowTrack = false,
+          Future<ProcessResult> Function(String, List<String>)? runProcess,
+        }) async => const SetupPreflight(errors: [], warnings: []),
       );
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 

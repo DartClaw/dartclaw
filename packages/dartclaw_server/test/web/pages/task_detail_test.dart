@@ -248,8 +248,7 @@ void main() {
             'kind': 'diff',
             'name': 'diff.json',
             'content': '{"filesChanged":1}',
-            'renderedHtml':
-                '<div class="task-diff-summary">1 file changed</div><section class="task-diff-file"><strong>lib/main.dart</strong></section>',
+            'renderedHtml': '<div class="task-diff-summary">1 file changed</div><section class="task-diff-file"><strong>lib/main.dart</strong></section>',
           },
         ],
       );

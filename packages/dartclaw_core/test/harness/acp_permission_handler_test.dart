@@ -31,8 +31,13 @@ void main() {
         arguments: const ['acp'],
         permissionDecision: (request) async => AcpPermissionResult(granted: allow, reason: allow ? null : 'denied'),
         onReverseCallAudit: auditEvents.add,
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
       );
       addTearDown(harness.dispose);
       final startFuture = harness.start();
@@ -63,8 +68,13 @@ void main() {
         arguments: const ['acp'],
         permissionDecision: (request) async => throw StateError('boom'),
         onReverseCallAudit: auditEvents.add,
-        processFactory:
-            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
       );
       addTearDown(harness.dispose);
       final startFuture = harness.start();

@@ -214,6 +214,7 @@ export 'src/scoping/common_channel_fields.dart' show CommonChannelFields;
 export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
+
 // Types moved to dartclaw_config (re-exported here for backward compat)
 export 'package:dartclaw_config/dartclaw_config.dart'
     show

@@ -351,15 +351,14 @@ void main() {
         return result;
       },
       turnAdapter: standardTurnAdapter(
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => throw StateError('promotion callback exploded'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => throw StateError('promotion callback exploded'),
       ),
     );
 
@@ -417,15 +416,14 @@ void main() {
         return result;
       },
       turnAdapter: standardTurnAdapter(
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionError('remote rejected promotion'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionError('remote rejected promotion'),
       ),
     );
 
@@ -1081,15 +1079,14 @@ steps:
 
       final conflictExecutor = h.makeExecutor(
         turnAdapter: standardTurnAdapter(
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+          promoteWorkflowBranch: ({
+            required runId,
+            required projectId,
+            required branch,
+            required integrationBranch,
+            required strategy,
+            String? storyId,
+          }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
         ),
       );
 
@@ -1132,15 +1129,14 @@ steps:
       final resumedExecutor = h.makeExecutor(
         turnAdapter: standardTurnAdapter(
           turnId: 'turn-2',
-          promoteWorkflowBranch:
-              ({
-                required runId,
-                required projectId,
-                required branch,
-                required integrationBranch,
-                required strategy,
-                String? storyId,
-              }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
+          promoteWorkflowBranch: ({
+            required runId,
+            required projectId,
+            required branch,
+            required integrationBranch,
+            required strategy,
+            String? storyId,
+          }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
         ),
       );
 

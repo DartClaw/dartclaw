@@ -5,6 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 
 import '../container/container_authority.dart';
 import '../container/gateway/gateway_models.dart';
+
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, ProviderIdentity, TurnProgressAction;
 import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
@@ -25,13 +26,12 @@ export 'cli_provider.dart'
         WorkflowCliUsageBaseline;
 
 /// Starts a CLI provider subprocess and returns the long-lived [Process].
-typedef WorkflowCliProcessStarter =
-    Future<Process> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef WorkflowCliProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 /// YAML-decoded provider configuration for workflow one-shot execution.
 ///

@@ -230,8 +230,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           outputs: const {
             'merge_resolve.outcome': OutputConfig(
               format: OutputFormat.text,
-              description:
-                  "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
+              description: "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
             ),
             'merge_resolve.conflicted_files': OutputConfig(
               format: OutputFormat.json,
@@ -244,8 +243,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
             ),
             'merge_resolve.error_message': OutputConfig(
               format: OutputFormat.text,
-              description:
-                  "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
+              description: "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
             ),
           },
           maxTokens: config.tokenCeiling,

@@ -27,13 +27,12 @@ import '../fixtures/e2e_fixture.dart';
 import '_support/workflow_test_paths.dart';
 import 'workflow_e2e_test_support.dart';
 
-typedef _WorkflowE2eProcessRunner =
-    Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-      Map<String, String>? environment,
-    });
+typedef _WorkflowE2eProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
 
 WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
   required String remediationPlan,

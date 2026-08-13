@@ -78,8 +78,13 @@ abstract class Guard {
 
 /// Evaluates a list of [Guard]s in order. First block verdict wins.
 /// Exceptions from individual guards are treated as block (fail-closed).
-typedef GuardVerdictCallback =
-    void Function(String guardName, String guardCategory, String verdict, String? message, GuardContext context);
+typedef GuardVerdictCallback = void Function(
+  String guardName,
+  String guardCategory,
+  String verdict,
+  String? message,
+  GuardContext context,
+);
 
 /// Composes multiple [Guard] instances into a single ordered evaluation pipeline.
 class GuardChain {

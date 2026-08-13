@@ -13,8 +13,11 @@ import 'task_config_view.dart';
 import 'worktree_manager.dart';
 
 /// Reports a worktree-binding failure for a workflow-owned [Task].
-typedef WorkflowWorktreeFailureHandler =
-    Future<void> Function(Task task, {required String errorSummary, required bool retryable});
+typedef WorkflowWorktreeFailureHandler = Future<void> Function(
+  Task task, {
+  required String errorSummary,
+  required bool retryable,
+});
 
 const _workflowWorktreeTokenLength = 16;
 

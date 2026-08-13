@@ -521,16 +521,14 @@ void main() {
         final executor = h.makeExecutor(
           turnAdapter: standardTurnAdapter(
             turnId: 'turn-p4',
-            promoteWorkflowBranch:
-                ({
-                  required runId,
-                  required projectId,
-                  required branch,
-                  required integrationBranch,
-                  required strategy,
-                  String? storyId,
-                }) async =>
-                    const WorkflowGitPromotionConflict(conflictingFiles: ['docs/STATE.md'], details: 'conflict'),
+            promoteWorkflowBranch: ({
+              required runId,
+              required projectId,
+              required branch,
+              required integrationBranch,
+              required strategy,
+              String? storyId,
+            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['docs/STATE.md'], details: 'conflict'),
             captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre-p4',
             captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
                 (sha: 'sha-pre-p4', isDirty: false, cleanupError: null),

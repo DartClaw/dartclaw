@@ -177,15 +177,14 @@ void main() {
       turnAdapter: standardTurnAdapter(
         turnId: 'turn-0',
         integrationBranch: 'dartclaw/integration',
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
       ),
     );
 
@@ -492,15 +491,14 @@ void main() {
       turnAdapter: standardTurnAdapter(
         turnId: 'turn-exhaust',
         integrationBranch: 'dartclaw/integration',
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-exhaust',
         captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
             (sha: 'sha-exhaust', isDirty: false, cleanupError: null),
@@ -764,15 +762,14 @@ void main() {
       turnAdapter: standardTurnAdapter(
         turnId: 'turn-cleanup',
         integrationBranch: 'dartclaw/integration',
-        promoteWorkflowBranch:
-            ({
-              required runId,
-              required projectId,
-              required branch,
-              required integrationBranch,
-              required strategy,
-              String? storyId,
-            }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+        promoteWorkflowBranch: ({
+          required runId,
+          required projectId,
+          required branch,
+          required integrationBranch,
+          required strategy,
+          String? storyId,
+        }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-cleanup',
         captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
             (sha: 'sha-cleanup', isDirty: true, cleanupError: 'cleanup failed: git reset --hard exit=1'),

@@ -37,14 +37,13 @@ typedef _SetupDefaults = ({
   bool inputSanitizerEnabled,
 });
 
-typedef _PreflightRunner =
-    Future<SetupPreflight> Function({
-      required List<String> providers,
-      required int port,
-      required String instanceDir,
-      bool workflowTrack,
-      Future<ProcessResult> Function(String, List<String>)? runProcess,
-    });
+typedef _PreflightRunner = Future<SetupPreflight> Function({
+  required List<String> providers,
+  required int port,
+  required String instanceDir,
+  bool workflowTrack,
+  Future<ProcessResult> Function(String, List<String>)? runProcess,
+});
 
 abstract class _InitImpl extends Command<void> {
   @override

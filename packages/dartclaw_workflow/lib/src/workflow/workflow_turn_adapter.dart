@@ -101,14 +101,13 @@ class WorkflowStartResolution {
   const WorkflowStartResolution({this.projectId, this.branch});
 }
 
-typedef WorkflowExecuteTurn =
-    void Function(
-      String sessionId,
-      String turnId,
-      List<Map<String, dynamic>> messages, {
-      required String source,
-      required bool resume,
-    });
+typedef WorkflowExecuteTurn = void Function(
+  String sessionId,
+  String turnId,
+  List<Map<String, dynamic>> messages, {
+  required String source,
+  required bool resume,
+});
 
 /// Bundle of callbacks required for workflow continuation turns and map-step
 /// concurrency budgeting.

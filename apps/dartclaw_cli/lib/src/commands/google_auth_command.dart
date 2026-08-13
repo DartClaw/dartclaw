@@ -7,13 +7,12 @@ import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 
 import 'config_loader.dart';
 
-typedef ConsentFlowRunner =
-    Future<String?> Function({
-      required String clientId,
-      required String clientSecret,
-      required List<String> scopes,
-      required int listenPort,
-    });
+typedef ConsentFlowRunner = Future<String?> Function({
+  required String clientId,
+  required String clientSecret,
+  required List<String> scopes,
+  required int listenPort,
+});
 
 /// CLI command that runs the interactive Google OAuth consent flow and stores
 /// the resulting refresh token for Workspace Events API access.

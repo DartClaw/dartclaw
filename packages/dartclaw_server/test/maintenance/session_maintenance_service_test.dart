@@ -827,7 +827,7 @@ void main() {
 }
 
 class _FailingArtifactDeleteTaskService extends TaskService {
-  _FailingArtifactDeleteTaskService(super.repo, {required this.failingArtifactId});
+  new(super.repo, {required this.failingArtifactId});
 
   final String failingArtifactId;
 

@@ -49,7 +49,7 @@ class WhatsAppConfig {
   final TaskTriggerConfig taskTrigger;
 
   /// Creates immutable WhatsApp channel configuration.
-  const WhatsAppConfig({
+  const new({
     this.enabled = false,
     this.gowaExecutable = 'whatsapp',
     this.gowaHost = '127.0.0.1',
@@ -74,10 +74,10 @@ class WhatsAppConfig {
   List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
 
   /// Creates a disabled WhatsApp configuration.
-  const WhatsAppConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Parses WhatsApp configuration from YAML, appending warnings to [warns].
-  factory WhatsAppConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final common = CommonChannelFields<GroupAccessMode>.fromYaml(
       'whatsapp',
       yaml,

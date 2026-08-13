@@ -26,7 +26,7 @@ final class WorkspaceFileReader {
   final String _root;
 
   /// Pins [workspaceDir] to its canonical directory for subsequent reads.
-  WorkspaceFileReader(String workspaceDir) : _root = _resolveRoot(workspaceDir);
+  new(String workspaceDir) : _root = _resolveRoot(workspaceDir);
 
   /// Reads regular file [name], or returns `null` when missing.
   WorkspaceFileSnapshot? read(String name, {MemoryRole? role}) {

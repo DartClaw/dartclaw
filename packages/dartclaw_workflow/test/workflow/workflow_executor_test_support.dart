@@ -63,7 +63,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// exercise the dispatchers' generic extraction-failure handling, which must
 /// fail the step/item (not silently proceed) on both the single-step and map paths.
 final class ThrowingContextExtractor extends ContextExtractor {
-  ThrowingContextExtractor({
+  new({
     required super.taskService,
     required super.messageService,
     required super.dataDir,

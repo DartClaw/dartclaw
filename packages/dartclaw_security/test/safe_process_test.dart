@@ -5,7 +5,7 @@ final class _FakePlan implements ProcessEnvironmentPlan {
   @override
   final Map<String, String> environment;
 
-  const _FakePlan(this.environment);
+  const new(this.environment);
 }
 
 void main() {

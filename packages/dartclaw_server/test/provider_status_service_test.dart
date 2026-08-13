@@ -440,7 +440,7 @@ Future<ExecutionCoordinator> _buildCoordinator({
 }
 
 final class _StatusHarness extends FakeAgentHarness {
-  _StatusHarness({required this.terminationConfirmed}) : super(initialState: WorkerState.idle);
+  new({required this.terminationConfirmed}) : super(initialState: WorkerState.idle);
 
   final bool terminationConfirmed;
 

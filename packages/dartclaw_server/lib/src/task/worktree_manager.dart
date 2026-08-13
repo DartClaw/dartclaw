@@ -15,11 +15,11 @@ class WorktreeInfo {
   final String branch;
   final DateTime createdAt;
 
-  const WorktreeInfo({required this.path, required this.branch, required this.createdAt});
+  const new({required this.path, required this.branch, required this.createdAt});
 
   Map<String, dynamic> toJson() => {'path': path, 'branch': branch, 'createdAt': createdAt.toIso8601String()};
 
-  factory WorktreeInfo.fromJson(Map<String, dynamic> json) => WorktreeInfo(
+  factory fromJson(Map<String, dynamic> json) => WorktreeInfo(
     path: json['path'] as String,
     branch: json['branch'] as String,
     createdAt: DateTime.parse(json['createdAt'] as String),
@@ -32,7 +32,7 @@ class WorktreeException implements Exception {
   final String? gitStderr;
   final int? exitCode;
 
-  const WorktreeException(this.message, {this.gitStderr, this.exitCode});
+  const new(this.message, {this.gitStderr, this.exitCode});
 
   @override
   String toString() {
@@ -57,7 +57,7 @@ final class _RegisteredWorktree {
   final String path;
   final String? branch;
 
-  const _RegisteredWorktree({required this.path, required this.branch});
+  const new({required this.path, required this.branch});
 }
 
 /// Hook invoked after a worktree is created and before it is returned.
@@ -103,7 +103,7 @@ class WorktreeManager {
   /// Injectable working-directory source for testing.
   final CurrentDirectoryProvider _currentDirectory;
 
-  WorktreeManager({
+  new({
     required String dataDir,
     String? projectDir,
     String baseRef = 'main',

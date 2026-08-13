@@ -3,7 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDurationMs;
 import '../connected_command_support.dart';
 
 class TracesListCommand extends ConnectedCommand {
-  TracesListCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('task-id')
       ..addOption('session-id')

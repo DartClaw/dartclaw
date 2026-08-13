@@ -8,7 +8,7 @@ class TemporalKnowledgeGraphService {
   final Database _db;
 
   /// Creates the KG schema on [_db] and enables SQLite foreign-key checks.
-  TemporalKnowledgeGraphService(this._db) {
+  new(this._db) {
     _db.execute('PRAGMA foreign_keys=ON');
     _initSchema();
   }
@@ -374,7 +374,7 @@ class KnowledgeFact {
   final String? invalidationReason;
 
   /// Creates an immutable fact snapshot.
-  const KnowledgeFact({
+  const new({
     required this.id,
     required this.entity,
     required this.predicate,
@@ -388,7 +388,7 @@ class KnowledgeFact {
   });
 
   /// Hydrates a fact from a SQLite result row.
-  factory KnowledgeFact.fromRow(Row row) => KnowledgeFact(
+  factory fromRow(Row row) => KnowledgeFact(
     id: row['id'] as int,
     entity: row['entity'] as String,
     predicate: row['predicate'] as String,
@@ -429,7 +429,7 @@ class KnowledgeContradiction {
   final String incomingValue;
 
   /// Creates an immutable contradiction report.
-  const KnowledgeContradiction({required this.existing, required this.incomingValue});
+  const new({required this.existing, required this.incomingValue});
 
   /// Converts the contradiction to the MCP/tool JSON shape.
   Map<String, Object?> toJson() => {'incoming_value': incomingValue, 'existing': existing.toJson()};

@@ -20,7 +20,7 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   final Map<String, Object> _approvalWireIds = {};
   final Map<String, Map<String, dynamic>> _startedItems = {};
 
-  CodexProtocolAdapter({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
+  new({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
     : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
 
   @override

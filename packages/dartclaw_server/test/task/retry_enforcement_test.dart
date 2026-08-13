@@ -356,23 +356,14 @@ class _WorkerResponse {
   final int inputTokens;
   final int outputTokens;
 
-  const _WorkerResponse._({
-    required this.success,
-    this.text = '',
-    this.errorMessage,
-    this.inputTokens = 0,
-    this.outputTokens = 0,
-  });
+  const new _({required this.success, this.text = '', this.errorMessage, this.inputTokens = 0, this.outputTokens = 0});
 
-  factory _WorkerResponse.succeed([String text = 'Done.']) => _WorkerResponse._(success: true, text: text);
+  factory succeed([String text = 'Done.']) => _WorkerResponse._(success: true, text: text);
 
-  factory _WorkerResponse.succeedWithTokens({
-    required String response,
-    required int inputTokens,
-    required int outputTokens,
-  }) => _WorkerResponse._(success: true, text: response, inputTokens: inputTokens, outputTokens: outputTokens);
+  factory succeedWithTokens({required String response, required int inputTokens, required int outputTokens}) =>
+      _WorkerResponse._(success: true, text: response, inputTokens: inputTokens, outputTokens: outputTokens);
 
-  factory _WorkerResponse.fail(String message) => _WorkerResponse._(success: false, errorMessage: message);
+  factory fail(String message) => _WorkerResponse._(success: false, errorMessage: message);
 }
 
 class _CountingWorker implements AgentHarness {

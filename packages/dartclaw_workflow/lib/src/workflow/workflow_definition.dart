@@ -90,7 +90,7 @@ class OutputConfig {
   final Object? _setValue;
 
   /// Creates an [OutputConfig] value.
-  const OutputConfig({
+  const new({
     this.format = OutputFormat.text,
     this.schema,
     this.source,
@@ -134,7 +134,7 @@ class OutputConfig {
   };
 
   /// Reconstructs an [OutputConfig] from its JSON representation.
-  factory OutputConfig.fromJson(Map<String, dynamic> json) => OutputConfig(
+  factory fromJson(Map<String, dynamic> json) => OutputConfig(
     format: json['format'] != null ? OutputFormat.values.byName(json['format'] as String) : OutputFormat.text,
     schema: json['schema'],
     source: json['source'] as String?,
@@ -164,7 +164,7 @@ enum OnFailurePolicy {
   /// YAML wire name for this policy.
   final String yamlName;
 
-  const OnFailurePolicy(this.yamlName);
+  new(this.yamlName);
 
   /// Parses an [OnFailurePolicy] from its YAML string representation.
   static OnFailurePolicy? fromYaml(String value) => switch (value) {
@@ -188,7 +188,7 @@ enum OnErrorPolicy {
   /// YAML wire name for this policy.
   final String yamlName;
 
-  const OnErrorPolicy(this.yamlName);
+  new(this.yamlName);
 
   /// Parses an [OnErrorPolicy]; the legacy `fail` spelling maps to [pause].
   static OnErrorPolicy? fromYaml(String value) => switch (value) {
@@ -210,7 +210,7 @@ class WorkflowVariable {
   final String? defaultValue;
 
   /// Creates a [WorkflowVariable] declaration.
-  const WorkflowVariable({this.required = true, this.description = '', this.defaultValue});
+  const new({this.required = true, this.description = '', this.defaultValue});
 
   /// Serializes this variable declaration to a JSON-ready map.
   Map<String, dynamic> toJson() => {
@@ -220,7 +220,7 @@ class WorkflowVariable {
   };
 
   /// Reconstructs a [WorkflowVariable] from its JSON representation.
-  factory WorkflowVariable.fromJson(Map<String, dynamic> json) => WorkflowVariable(
+  factory fromJson(Map<String, dynamic> json) => WorkflowVariable(
     required: (json['required'] as bool?) ?? true,
     description: (json['description'] as String?) ?? '',
     defaultValue: json['defaultValue'] as String?,
@@ -260,7 +260,7 @@ class StepConfigDefault {
   final List<String>? allowedTools;
 
   /// Creates a [StepConfigDefault] value.
-  const StepConfigDefault({
+  const new({
     required this.match,
     this.provider,
     this.model,
@@ -286,7 +286,7 @@ class StepConfigDefault {
   };
 
   /// Reconstructs a [StepConfigDefault] from its JSON representation.
-  factory StepConfigDefault.fromJson(Map<String, dynamic> json) => StepConfigDefault(
+  factory fromJson(Map<String, dynamic> json) => StepConfigDefault(
     match: json['match'] as String,
     provider: json['provider'] as String?,
     model: json['model'] as String?,
@@ -342,7 +342,7 @@ class WorkflowLoop {
   static const String onMaxIterationsEscalate = 'escalate';
 
   /// Creates a [WorkflowLoop] value.
-  const WorkflowLoop({
+  const new({
     required this.id,
     required this.steps,
     required this.maxIterations,
@@ -364,7 +364,7 @@ class WorkflowLoop {
   };
 
   /// Reconstructs a [WorkflowLoop] from its JSON representation.
-  factory WorkflowLoop.fromJson(Map<String, dynamic> json) => WorkflowLoop(
+  factory fromJson(Map<String, dynamic> json) => WorkflowLoop(
     id: json['id'] as String,
     steps: (json['steps'] as List).cast<String>(),
     maxIterations: json['maxIterations'] as int,
@@ -377,7 +377,7 @@ class WorkflowLoop {
 
 /// A normalized execution node within a workflow definition.
 sealed class WorkflowNode {
-  const WorkflowNode();
+  const new();
 
   /// Discriminator used for serialization.
   String get type;
@@ -389,7 +389,7 @@ sealed class WorkflowNode {
   Map<String, dynamic> toJson();
 
   /// Reconstructs a [WorkflowNode] from its JSON representation.
-  factory WorkflowNode.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final type = json['type'] as String?;
     return switch (type) {
       'action' => ActionNode(stepId: json['stepId'] as String),
@@ -413,7 +413,7 @@ sealed class WorkflowNode {
 final class ActionNode extends WorkflowNode {
   final String stepId;
 
-  const ActionNode({required this.stepId});
+  const new({required this.stepId});
 
   @override
   String get type => 'action';
@@ -429,7 +429,7 @@ final class ActionNode extends WorkflowNode {
 final class MapNode extends WorkflowNode {
   final String stepId;
 
-  const MapNode({required this.stepId});
+  const new({required this.stepId});
 
   @override
   String get type => 'map';
@@ -446,7 +446,7 @@ final class ParallelGroupNode extends WorkflowNode {
   @override
   final List<String> stepIds;
 
-  const ParallelGroupNode({required this.stepIds});
+  const new({required this.stepIds});
 
   @override
   String get type => 'parallelGroup';
@@ -464,7 +464,7 @@ final class LoopNode extends WorkflowNode {
 
   final String? finallyStepId;
 
-  const LoopNode({required this.loopId, required this.stepIds, this.finallyStepId});
+  const new({required this.loopId, required this.stepIds, this.finallyStepId});
 
   @override
   String get type => 'loop';
@@ -492,7 +492,7 @@ final class ForeachNode extends WorkflowNode {
   /// Ordered sub-pipeline step IDs executed sequentially per item.
   final List<String> childStepIds;
 
-  const ForeachNode({required this.stepId, required this.childStepIds});
+  const new({required this.stepId, required this.childStepIds});
 
   @override
   String get type => 'foreach';
@@ -731,7 +731,7 @@ class WorkflowStep {
   List<String> get outputKeys => outputs?.keys.toList(growable: false) ?? const [];
 
   /// Creates a [WorkflowStep] value.
-  const WorkflowStep({
+  const new({
     required this.id,
     required this.name,
     this.prompts,
@@ -803,7 +803,7 @@ class WorkflowStep {
   };
 
   /// Reconstructs a [WorkflowStep] from its JSON representation.
-  factory WorkflowStep.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     // Accept both legacy String and new List<String> for 'prompts'/'prompt'.
     // Null is valid when 'skill' is present.
     final List<String>? prompts;
@@ -966,7 +966,7 @@ class WorkflowGitArtifactsStrategy {
   /// project (`{{PROJECT}}`) is used.
   final String? project;
 
-  const WorkflowGitArtifactsStrategy({this.commit, this.commitMessage, this.project});
+  const new({this.commit, this.commitMessage, this.project});
 
   /// Serializes this value to a JSON-ready map.
   Map<String, dynamic> toJson() => {
@@ -976,7 +976,7 @@ class WorkflowGitArtifactsStrategy {
   };
 
   /// Reconstructs a [WorkflowGitArtifactsStrategy] from its JSON representation.
-  factory WorkflowGitArtifactsStrategy.fromJson(Map<String, dynamic> json) => WorkflowGitArtifactsStrategy(
+  factory fromJson(Map<String, dynamic> json) => WorkflowGitArtifactsStrategy(
     commit: json['commit'] as bool?,
     commitMessage: json['commitMessage'] as String?,
     project: json['project'] as String?,
@@ -1039,7 +1039,7 @@ class WorkflowGitExternalArtifactMount {
   final bool? readonly;
 
   /// Creates a [WorkflowGitExternalArtifactMount] value.
-  const WorkflowGitExternalArtifactMount({
+  const new({
     this.mode = WorkflowExternalArtifactMountMode.perStoryCopy,
     required this.fromProject,
     this.source,
@@ -1059,7 +1059,7 @@ class WorkflowGitExternalArtifactMount {
   };
 
   /// Reconstructs a [WorkflowGitExternalArtifactMount] from its JSON representation.
-  factory WorkflowGitExternalArtifactMount.fromJson(Map<String, dynamic> json) => WorkflowGitExternalArtifactMount(
+  factory fromJson(Map<String, dynamic> json) => WorkflowGitExternalArtifactMount(
     mode: json['mode'] == null
         ? WorkflowExternalArtifactMountMode.perStoryCopy
         : WorkflowExternalArtifactMountMode.fromJsonString(json['mode'] as String),
@@ -1125,7 +1125,7 @@ class MergeResolveConfig {
   final List<String> unknownFields;
 
   /// Creates a [MergeResolveConfig] value.
-  const MergeResolveConfig({
+  const new({
     this.enabled = false,
     this.maxAttempts = 2,
     this.tokenCeiling = 100000,
@@ -1146,7 +1146,7 @@ class MergeResolveConfig {
   };
 
   /// Reconstructs a [MergeResolveConfig] from its JSON representation.
-  factory MergeResolveConfig.fromJson(Object? raw) {
+  factory fromJson(Object? raw) {
     final json = switch (raw) {
       Map<String, dynamic> m => m,
       Map<Object?, Object?> m => Map<String, dynamic>.from(m),
@@ -1204,7 +1204,7 @@ class WorkflowGitWorktreeStrategy {
   /// Optional cross-clone external artifact mount (two-repo profiles).
   final WorkflowGitExternalArtifactMount? externalArtifactMount;
 
-  const WorkflowGitWorktreeStrategy({this.mode, this.externalArtifactMount});
+  const new({this.mode, this.externalArtifactMount});
 
   Object? toJsonValue() {
     if (mode != null && externalArtifactMount == null) return mode!.toJson();
@@ -1216,7 +1216,7 @@ class WorkflowGitWorktreeStrategy {
   }
 
   /// Reconstructs a [WorkflowGitWorktreeStrategy] from its JSON representation.
-  factory WorkflowGitWorktreeStrategy.fromJson(Object? json) => switch (json) {
+  factory fromJson(Object? json) => switch (json) {
     String mode => WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.fromJsonString(mode)),
     Map<String, dynamic> map => WorkflowGitWorktreeStrategy(
       mode: map['mode'] == null ? null : WorkflowGitWorktreeMode.fromJsonString(map['mode'] as String),
@@ -1303,7 +1303,7 @@ class WorkflowGitStrategy {
   }
 
   /// Creates a [WorkflowGitStrategy] value.
-  const WorkflowGitStrategy({
+  const new({
     this.integrationBranch,
     this.worktree,
     this.promotion,
@@ -1325,7 +1325,7 @@ class WorkflowGitStrategy {
   };
 
   /// Reconstructs a [WorkflowGitStrategy] from its JSON representation.
-  factory WorkflowGitStrategy.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final integrationBranchRaw = _resolveIntegrationBranchJsonValue(
       json,
       error: (message) => ArgumentError.value(json, 'json', message),
@@ -1408,7 +1408,7 @@ class WorkflowDefinition {
   final WorkflowGitStrategy? gitStrategy;
 
   /// Creates a [WorkflowDefinition] value.
-  const WorkflowDefinition({
+  const new({
     required this.name,
     required this.description,
     this.variables = const {},
@@ -1467,7 +1467,7 @@ class WorkflowDefinition {
   };
 
   /// Reconstructs a [WorkflowDefinition] from its JSON representation.
-  factory WorkflowDefinition.fromJson(Map<String, dynamic> json) => WorkflowDefinition(
+  factory fromJson(Map<String, dynamic> json) => WorkflowDefinition(
     name: json['name'] as String,
     description: json['description'] as String,
     variables:

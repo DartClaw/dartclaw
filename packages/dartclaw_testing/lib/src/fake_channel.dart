@@ -3,7 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 /// Recording [Channel] fake for inbound routing and delivery tests.
 class FakeChannel extends Channel {
   /// Creates a fake channel with configurable ownership and send behavior.
-  FakeChannel({
+  new({
     this.name = 'fake',
     this.type = ChannelType.whatsapp,
     this.ownedJids = const {},

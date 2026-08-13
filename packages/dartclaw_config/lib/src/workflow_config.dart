@@ -14,7 +14,7 @@ enum WorkflowApprovalPolicy {
   /// Auto-resolve both `needsInput` outcomes and explicit approval steps.
   auto('auto');
 
-  const WorkflowApprovalPolicy(this.yamlValue);
+  new(this.yamlValue);
 
   /// Serialized config and run-context value.
   final String yamlValue;
@@ -43,7 +43,7 @@ class WorkflowRoleModelConfig {
   final String? effort;
 
   /// Creates a [WorkflowRoleModelConfig] value.
-  const WorkflowRoleModelConfig({this.provider, this.model, this.effort});
+  const new({this.provider, this.model, this.effort});
 
   @override
   bool operator ==(Object other) =>
@@ -75,7 +75,7 @@ class WorkflowRoleDefaultsConfig {
   final WorkflowRoleModelConfig reviewer;
 
   /// Creates a [WorkflowRoleDefaultsConfig] value.
-  const WorkflowRoleDefaultsConfig({
+  const new({
     this.workflow = const WorkflowRoleModelConfig(provider: 'claude'),
     this.planner = const WorkflowRoleModelConfig(),
     this.executor = const WorkflowRoleModelConfig(),
@@ -83,7 +83,7 @@ class WorkflowRoleDefaultsConfig {
   });
 
   /// Creates a [WorkflowRoleDefaultsConfig.defaults] value.
-  const WorkflowRoleDefaultsConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -113,10 +113,10 @@ class WorkflowCleanupConfig {
   final bool deleteRemoteBranchOnFailure;
 
   /// Creates a [WorkflowCleanupConfig] value.
-  const WorkflowCleanupConfig({this.deleteRemoteBranchOnFailure = false});
+  const new({this.deleteRemoteBranchOnFailure = false});
 
   /// Creates a [WorkflowCleanupConfig.defaults] value.
-  const WorkflowCleanupConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -146,10 +146,10 @@ class WorkflowRuntimeArtifactsRetentionConfig {
   final int pruneAfterDays;
 
   /// Creates a [WorkflowRuntimeArtifactsRetentionConfig] value.
-  const WorkflowRuntimeArtifactsRetentionConfig({this.mode = MaintenanceMode.warn, this.pruneAfterDays = 0});
+  const new({this.mode = MaintenanceMode.warn, this.pruneAfterDays = 0});
 
   /// Default retention configuration (disabled).
-  const WorkflowRuntimeArtifactsRetentionConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -184,7 +184,7 @@ class WorkflowConfig {
   final WorkflowRuntimeArtifactsRetentionConfig runtimeArtifactsRetention;
 
   /// Creates a [WorkflowConfig] value.
-  const WorkflowConfig({
+  const new({
     this.workspaceDir,
     this.defaults = const WorkflowRoleDefaultsConfig.defaults(),
     this.cleanup = const WorkflowCleanupConfig.defaults(),
@@ -193,7 +193,7 @@ class WorkflowConfig {
   });
 
   /// Default configuration with no custom workflow workspace override.
-  const WorkflowConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

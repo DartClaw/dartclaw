@@ -1,4 +1,3 @@
-// ignore_for_file: avoid_print
 // Requires GCP project with Chat API enabled and service account credentials.
 
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';

@@ -37,7 +37,7 @@ class TurnOutcome {
   /// Whether [toolCalls] omits invocation details retained only in the counters.
   bool get toolCallsTruncated => toolCalls.length < toolCallCount;
 
-  TurnOutcome({
+  new({
     required this.turnId,
     required this.sessionId,
     required this.status,

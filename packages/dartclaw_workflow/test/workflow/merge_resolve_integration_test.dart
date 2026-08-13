@@ -430,7 +430,7 @@ final class _ArtifactEvidence {
   final Map<String, dynamic> raw;
   final MergeResolveAttemptArtifact value;
 
-  const _ArtifactEvidence({required this.raw, required this.value});
+  const new({required this.raw, required this.value});
 }
 
 final class _RunEvidence {
@@ -439,7 +439,7 @@ final class _RunEvidence {
   final Directory preservedArtifactsDir;
   final WorkflowRunStatus terminalStatus;
 
-  const _RunEvidence({
+  const new({
     required this.runId,
     required this.lastStepId,
     required this.preservedArtifactsDir,
@@ -451,7 +451,7 @@ final class _RunFailure implements Exception {
   final String message;
   final Object original;
 
-  const _RunFailure(this.message, {required this.original});
+  const new(this.message, {required this.original});
 
   @override
   String toString() => message;

@@ -19,7 +19,7 @@ class ConfigDelta {
   final Set<String> changedKeys;
 
   /// const ConfigDelta({required this.previous, required this.cur.
-  const ConfigDelta({required this.previous, required this.current, required this.changedKeys});
+  const new({required this.previous, required this.current, required this.changedKeys});
 
   /// Returns `true` if [key] is represented in this delta.
   ///

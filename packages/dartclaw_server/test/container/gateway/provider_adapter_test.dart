@@ -398,7 +398,7 @@ Future<String> _read(GatewayResponse response) async =>
 
 /// Stands in for the provider API, recording exactly what the host sent.
 final class _FakeUpstream {
-  _FakeUpstream._(this._server);
+  new _(this._server);
 
   final HttpServer _server;
 

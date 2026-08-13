@@ -46,7 +46,7 @@ class WorkflowTemplateEngine {
 
   final Set<String> _knownWorkflowSystemVariables;
 
-  WorkflowTemplateEngine({Set<String> knownWorkflowSystemVariableKeys = knownWorkflowSystemVariables})
+  new({Set<String> knownWorkflowSystemVariableKeys = knownWorkflowSystemVariables})
     : _knownWorkflowSystemVariables = identical(knownWorkflowSystemVariableKeys, knownWorkflowSystemVariables)
           ? knownWorkflowSystemVariables
           : Set.unmodifiable(knownWorkflowSystemVariableKeys);

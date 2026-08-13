@@ -19,7 +19,7 @@ final class ReleaseSqliteCheckCommand extends Command<void> {
   final void Function(String) _writeLine;
   final String Function() _sqliteModulePath;
 
-  ReleaseSqliteCheckCommand({void Function(String)? writeLine, String Function()? sqliteModulePath})
+  new({void Function(String)? writeLine, String Function()? sqliteModulePath})
     : _writeLine = writeLine ?? stdout.writeln,
       _sqliteModulePath = sqliteModulePath ?? _windowsSqliteModulePath {
     argParser.addOption('expected-module', mandatory: true, help: 'Expected absolute path of the bundled SQLite DLL.');

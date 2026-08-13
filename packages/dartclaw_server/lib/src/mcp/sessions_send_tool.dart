@@ -6,7 +6,7 @@ import 'mcp_utils.dart';
 class SessionsSendTool implements McpTool {
   final LogicalAgentSessionService _sessions;
 
-  SessionsSendTool({required LogicalAgentSessionService sessions}) : _sessions = sessions;
+  new({required LogicalAgentSessionService sessions}) : _sessions = sessions;
 
   @override
   String get name => 'sessions_send';

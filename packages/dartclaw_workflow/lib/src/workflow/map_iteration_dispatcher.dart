@@ -1,7 +1,7 @@
 part of 'workflow_executor.dart';
 
 final class _MapIterationAttempt {
-  const _MapIterationAttempt({
+  const new({
     required this.taskId,
     required this.isFailedOutcome,
     required this.message,

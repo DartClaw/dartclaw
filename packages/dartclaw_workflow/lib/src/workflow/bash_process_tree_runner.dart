@@ -11,7 +11,7 @@ final class PosixProcessInspectionException implements Exception {
   final String message;
   final Object? cause;
 
-  const PosixProcessInspectionException(this.message, [this.cause]);
+  const new(this.message, [this.cause]);
 
   @override
   String toString() => cause == null ? message : '$message: $cause';

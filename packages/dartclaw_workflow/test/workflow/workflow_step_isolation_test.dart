@@ -228,7 +228,7 @@ class _StepExecutionResult {
   final Map<String, dynamic> outputs;
   final String artifactPath;
 
-  const _StepExecutionResult({
+  const new({
     required this.stepId,
     required this.stepName,
     required this.taskId,

@@ -454,7 +454,7 @@ void main() {
 }
 
 class _CommitFailingWebhookDeliveryStore extends WebhookDeliveryStore {
-  _CommitFailingWebhookDeliveryStore(super.db);
+  new(super.db);
 
   var commitAttempts = 0;
 
@@ -496,7 +496,7 @@ Map<String, dynamic> _pullRequestPayload({required String action, int prNumber =
 }
 
 class _StaticProjectService implements ProjectService {
-  _StaticProjectService(this.projects);
+  new(this.projects);
 
   final List<Project> projects;
 

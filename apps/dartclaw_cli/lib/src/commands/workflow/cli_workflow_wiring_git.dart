@@ -8,7 +8,7 @@ final class _CliWorkflowWiringCtx {
   final WorkspaceSkillLinker workspaceSkillLinker;
   final TurnManager? turns;
 
-  const _CliWorkflowWiringCtx({required this.workspaceSkillLinker, this.turns});
+  const new({required this.workspaceSkillLinker, this.turns});
 
   TurnManager get turnsOrThrow => turns ?? (throw StateError('turns not yet bound'));
 
@@ -25,7 +25,7 @@ final class _TaskHandles {
   final SqliteWorkflowRunRepository workflowRunRepository;
   final TaskEventRecorder taskEventRecorder;
 
-  const _TaskHandles({
+  const new({
     required this.agentExecutionRepository,
     required this.workflowStepExecutionRepository,
     required this.executionRepositoryTransactor,

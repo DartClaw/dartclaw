@@ -83,7 +83,7 @@ class MessageRedactor {
   /// Creates a redactor with built-in patterns plus optional [extraPatterns].
   ///
   /// Invalid regexes in [extraPatterns] are logged as warnings and skipped.
-  MessageRedactor({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
+  new({List<String> extraPatterns = const []}) : _compiled = _compilePatterns(extraPatterns);
 
   /// Whether [key] names a credential value rather than related metadata.
   static bool isSecretKey(Object key) {

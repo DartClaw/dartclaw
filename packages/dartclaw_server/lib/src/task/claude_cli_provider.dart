@@ -33,7 +33,7 @@ import 'cli_process_supervisor.dart';
 class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTurnLimitProvider {
   static final _log = Logger('ClaudeCliProvider');
 
-  ClaudeCliProvider({
+  new({
     super.platformCapabilities,
     super.terminationGracePeriod,
     super.outputDrainGracePeriod,
@@ -704,13 +704,13 @@ String _settingsPolicyUnsupportedReason(String settings) {
 }
 
 final class _ClaudeTaskPolicy {
-  _ClaudeTaskPolicy(List<String>? allowedTools, {required this.readOnly})
+  new(List<String>? allowedTools, {required this.readOnly})
     : allowedTools =
           allowedTools?.where((tool) => tool.trim().isNotEmpty).map((tool) => tool.trim()).toSet() ?? const <String>{};
 
   /// An empty, no-policy task policy: no allow-list is constructed and the
   /// one-shot bypass-permissions guard does not fire. Used for full-access runs.
-  const _ClaudeTaskPolicy.empty() : allowedTools = const <String>{}, readOnly = false;
+  const new empty() : allowedTools = const <String>{}, readOnly = false;
 
   final Set<String> allowedTools;
   final bool readOnly;

@@ -17,7 +17,7 @@ final class GuardEditorResult {
   final List<String> applied;
   final List<String> pendingRestart;
 
-  const GuardEditorResult({
+  const new({
     required this.guard,
     required this.field,
     required this.entries,
@@ -38,11 +38,11 @@ final class GuardEditorResult {
 final class GuardEditorValidationException implements Exception {
   final List<String> errors;
 
-  const GuardEditorValidationException(this.errors);
+  const new(this.errors);
 }
 
 final class GuardEditorService {
-  GuardEditorService({required this.writer, required this.dataDir, this.configNotifier, this.guardChain});
+  new({required this.writer, required this.dataDir, this.configNotifier, this.guardChain});
 
   final ConfigWriter writer;
   final String dataDir;

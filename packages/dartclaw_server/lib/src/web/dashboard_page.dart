@@ -35,11 +35,11 @@ abstract class DashboardPage {
 }
 
 /// Marks a registered [DashboardPage] that should remain outside dashboard navigation.
-abstract interface class DashboardNavigationExclusion {}
+abstract interface class DashboardNavigationExclusion;
 
 /// Shared services made available to registered dashboard pages.
 class PageContext {
-  PageContext({
+  new({
     required this.sessions,
     required this.appDisplay,
     this.dataDir,

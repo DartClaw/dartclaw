@@ -17,12 +17,7 @@ class WorkflowWorktreeBinding {
   final String workflowRunId;
 
   /// Creates a [WorkflowWorktreeBinding] value.
-  const WorkflowWorktreeBinding({
-    required this.key,
-    required this.path,
-    required this.branch,
-    required this.workflowRunId,
-  });
+  const new({required this.key, required this.path, required this.branch, required this.workflowRunId});
 
   /// Returns a copy of this binding with the given fields replaced.
   WorkflowWorktreeBinding copyWith({String? key, String? path, String? branch, String? workflowRunId}) =>
@@ -37,7 +32,7 @@ class WorkflowWorktreeBinding {
   Map<String, dynamic> toJson() => {'key': key, 'path': path, 'branch': branch, 'workflowRunId': workflowRunId};
 
   /// Reconstructs a [WorkflowWorktreeBinding] from its JSON representation.
-  factory WorkflowWorktreeBinding.fromJson(Map<String, dynamic> json) => WorkflowWorktreeBinding(
+  factory fromJson(Map<String, dynamic> json) => WorkflowWorktreeBinding(
     key: json['key'] as String,
     path: json['path'] as String,
     branch: json['branch'] as String,
@@ -93,7 +88,7 @@ class WorkflowExecutionCursor {
   final Map<int, List<String>> completedSubStepIdsByIndex;
 
   /// Creates a [WorkflowExecutionCursor] value.
-  const WorkflowExecutionCursor({
+  const new({
     required this.nodeType,
     required this.nodeId,
     required this.stepIndex,
@@ -108,21 +103,17 @@ class WorkflowExecutionCursor {
   });
 
   /// Creates a cursor for resuming a loop node.
-  factory WorkflowExecutionCursor.loop({
-    required String loopId,
-    required int stepIndex,
-    required int iteration,
-    String? stepId,
-  }) => WorkflowExecutionCursor(
-    nodeType: WorkflowExecutionCursorNodeType.loop,
-    nodeId: loopId,
-    stepIndex: stepIndex,
-    stepId: stepId,
-    iteration: iteration,
-  );
+  factory loop({required String loopId, required int stepIndex, required int iteration, String? stepId}) =>
+      WorkflowExecutionCursor(
+        nodeType: WorkflowExecutionCursorNodeType.loop,
+        nodeId: loopId,
+        stepIndex: stepIndex,
+        stepId: stepId,
+        iteration: iteration,
+      );
 
   /// Creates a cursor for resuming a parallel map node.
-  factory WorkflowExecutionCursor.map({
+  factory map({
     required String stepId,
     required int stepIndex,
     required int totalItems,
@@ -144,7 +135,7 @@ class WorkflowExecutionCursor {
   );
 
   /// Creates a cursor for resuming a foreach/sub-pipeline node.
-  factory WorkflowExecutionCursor.foreach({
+  factory foreach({
     required String stepId,
     required int stepIndex,
     required int totalItems,
@@ -182,7 +173,7 @@ class WorkflowExecutionCursor {
   };
 
   /// Reconstructs a [WorkflowExecutionCursor] from its JSON representation.
-  factory WorkflowExecutionCursor.fromJson(Map<String, dynamic> json) => WorkflowExecutionCursor(
+  factory fromJson(Map<String, dynamic> json) => WorkflowExecutionCursor(
     nodeType: WorkflowExecutionCursorNodeType.values.byName(json['nodeType'] as String),
     nodeId: json['nodeId'] as String,
     stepIndex: (json['stepIndex'] as num?)?.toInt() ?? 0,
@@ -246,7 +237,7 @@ class WorkflowRun {
   WorkflowWorktreeBinding? get workflowWorktree => workflowWorktrees.isEmpty ? null : workflowWorktrees.last;
 
   /// Creates a [WorkflowRun] value.
-  WorkflowRun({
+  new({
     required this.id,
     required this.definitionName,
     this.status = WorkflowRunStatus.pending,
@@ -327,7 +318,7 @@ class WorkflowRun {
   };
 
   /// Reconstructs a [WorkflowRun] from its JSON representation.
-  factory WorkflowRun.fromJson(Map<String, dynamic> json) => WorkflowRun(
+  factory fromJson(Map<String, dynamic> json) => WorkflowRun(
     id: json['id'] as String,
     definitionName: json['definitionName'] as String,
     status: WorkflowRunStatus.values.byName(json['status'] as String),

@@ -58,7 +58,7 @@ class MapStepContext {
   /// even under `onFailure: continue` (nested-loop escalation).
   static const String requiresDependencyHoldKey = 'requires_dependency_hold';
 
-  MapStepContext({required this.collection, required this.maxParallel, required this.maxItems})
+  new({required this.collection, required this.maxParallel, required this.maxItems})
     : results = List<dynamic>.filled(collection.length, null);
 
   /// Records a successful result at [index].

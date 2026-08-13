@@ -56,7 +56,7 @@ class HarnessConfig {
   final String? mcpGatewayToken;
 
   /// Creates immutable initialize-handshake options for a harness.
-  const HarnessConfig({
+  const new({
     this.disallowedTools = const [],
     this.maxTurns,
     this.model,

@@ -245,7 +245,7 @@ String _repoRoot() {
 }
 
 final class _AssetBundle {
-  const _AssetBundle({
+  const new({
     required this.packageName,
     required this.variableName,
     required this.binaryVariableName,
@@ -261,14 +261,14 @@ final class _AssetBundle {
 }
 
 final class _CollectedAssets {
-  const _CollectedAssets({required this.text, required this.binary});
+  const new({required this.text, required this.binary});
 
   final SplayTreeMap<String, List<int>> text;
   final SplayTreeMap<String, List<int>> binary;
 }
 
 final class _AssetRoot {
-  const _AssetRoot(this.sourcePath, this.keyPrefix, {this.excludeDart = false, this.optional = false});
+  const new(this.sourcePath, this.keyPrefix, {this.excludeDart = false, this.optional = false});
 
   final String sourcePath;
   final String keyPrefix;

@@ -752,7 +752,7 @@ final class _PoolTransport implements OutboundMcpTransport {
   Completer<void>? _pingStarted;
   Completer<bool>? _pingResult;
 
-  _PoolTransport({
+  new({
     this.failCalls = false,
     this.failToolsList = false,
     this.failClose = false,
@@ -833,7 +833,7 @@ final class _ManualTimer implements Timer {
   final void Function() _callback;
   var _isActive = true;
 
-  _ManualTimer(this._callback);
+  new(this._callback);
 
   void fire() {
     if (!_isActive) return;

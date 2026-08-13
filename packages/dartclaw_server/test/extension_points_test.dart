@@ -88,7 +88,7 @@ class _TestGuard extends Guard {
 
   final FutureOr<GuardVerdict> Function(GuardContext context) evaluator;
 
-  _TestGuard({required this.name, required this.evaluator});
+  new({required this.name, required this.evaluator});
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async => evaluator(context);
@@ -102,7 +102,7 @@ class _FakeChannel extends Channel {
   final ChannelType type = ChannelType.whatsapp;
   bool connected = false;
 
-  _FakeChannel({this.name = 'fake-channel'});
+  new({this.name = 'fake-channel'});
 
   @override
   Future<void> connect() async => connected = true;

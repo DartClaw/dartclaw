@@ -16,10 +16,10 @@ class TaskBudgetConfig {
   final double warningThreshold;
 
   /// const TaskBudgetConfig({this.defaultMaxTokens, this.warningT.
-  const TaskBudgetConfig({this.defaultMaxTokens, this.warningThreshold = 0.8});
+  const new({this.defaultMaxTokens, this.warningThreshold = 0.8});
 
   /// Default configuration — no budget limits, 80% warning threshold.
-  const TaskBudgetConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Whether any default budget is configured.
   bool get hasDefaults => defaultMaxTokens != null;
@@ -60,7 +60,7 @@ class TaskConfig {
   final Map<TaskType, ExecutionMode> execution;
 
   /// Creates a [TaskConfig] value.
-  const TaskConfig({
+  const new({
     this.artifactRetentionDays = 0,
     this.completionAction = 'review',
     this.worktreeBaseRef = 'main',
@@ -71,7 +71,7 @@ class TaskConfig {
   });
 
   /// Default configuration.
-  const TaskConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

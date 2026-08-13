@@ -470,7 +470,7 @@ void main() {
 }
 
 final class _RecordingContainerExecutor implements ContainerExecutor {
-  _RecordingContainerExecutor(this.process);
+  new(this.process);
 
   final FakeAcpProcess process;
   final List<List<String>> commands = [];

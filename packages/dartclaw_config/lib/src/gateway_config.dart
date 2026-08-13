@@ -14,10 +14,10 @@ class ReloadConfig {
   final int debounceMs;
 
   /// const ReloadConfig({this.mode = 'signal', this.debounceMs = .
-  const ReloadConfig({this.mode = 'signal', this.debounceMs = 500});
+  const new({this.mode = 'signal', this.debounceMs = 500});
 
   /// Creates a [ReloadConfig.defaults] value.
-  const ReloadConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -42,15 +42,10 @@ class GatewayConfig {
   final ReloadConfig reload;
 
   /// Creates a [GatewayConfig] value.
-  const GatewayConfig({
-    this.authMode = 'token',
-    this.token,
-    this.hsts = false,
-    this.reload = const ReloadConfig.defaults(),
-  });
+  const new({this.authMode = 'token', this.token, this.hsts = false, this.reload = const ReloadConfig.defaults()});
 
   /// Default configuration.
-  const GatewayConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

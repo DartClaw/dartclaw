@@ -19,7 +19,7 @@ class HarnessWiring {
   static const _preCompactObservationMaxBytes = 32 * 1024;
   static const _preCompactMessageCount = 12;
 
-  HarnessWiring({
+  new({
     required this.config,
     required String dataDir,
     required int port,

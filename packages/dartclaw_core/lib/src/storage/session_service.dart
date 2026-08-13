@@ -21,7 +21,7 @@ class SessionService {
   static const _uuid = Uuid();
   static final _log = Logger('SessionService');
 
-  SessionService({required this.baseDir, this.eventBus, RepoLock? repoLock}) : _repoLock = repoLock ?? RepoLock();
+  new({required this.baseDir, this.eventBus, RepoLock? repoLock}) : _repoLock = repoLock ?? RepoLock();
 
   Future<Session> createSession({
     SessionType type = SessionType.user,

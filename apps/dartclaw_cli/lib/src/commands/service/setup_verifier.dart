@@ -26,7 +26,7 @@ class LocalVerificationResult {
   final List<String> failures;
   final List<String> warnings;
 
-  const LocalVerificationResult({required this.passed, required this.failures, required this.warnings});
+  const new({required this.passed, required this.failures, required this.warnings});
 }
 
 /// Results of a provider/network verification pass.
@@ -35,7 +35,7 @@ class NetworkVerificationResult {
   final bool skipped;
   final List<String> messages;
 
-  const NetworkVerificationResult({required this.reachable, required this.skipped, this.messages = const []});
+  const new({required this.reachable, required this.skipped, this.messages = const []});
 
   String? get message => messages.isEmpty ? null : messages.join(' ');
 }
@@ -46,7 +46,7 @@ class SetupVerificationResult {
   final LocalVerificationResult local;
   final NetworkVerificationResult? network;
 
-  const SetupVerificationResult({required this.outcome, required this.local, this.network});
+  const new({required this.outcome, required this.local, this.network});
 
   bool get success => outcome == VerificationOutcome.success;
   bool get configuredButUnverified => outcome == VerificationOutcome.configuredButUnverified;
@@ -62,7 +62,7 @@ class SetupVerifier {
   final Future<bool> Function(int) _portFree;
   final Future<bool> Function(String providerId, String providerBinary, String configPath) _providerVerified;
 
-  SetupVerifier({
+  new({
     DartclawConfig Function(String configPath)? loadConfig,
     Future<bool> Function(String)? binaryExists,
     Future<bool> Function(String)? configParseable,

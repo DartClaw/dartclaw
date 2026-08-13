@@ -63,7 +63,7 @@ final class ApprovalStepDependencies {
   final Future<void> Function(WorkflowRun run, String reason) cancelRun;
   final Map<String, Timer> approvalTimers;
 
-  const ApprovalStepDependencies({
+  const new({
     required this.eventBus,
     required this.repository,
     required this.persistContext,

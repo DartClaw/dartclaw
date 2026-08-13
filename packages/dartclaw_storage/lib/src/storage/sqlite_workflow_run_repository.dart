@@ -14,7 +14,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
   final Database _db;
 
   /// Creates the repository against [_db] and initializes its schema.
-  SqliteWorkflowRunRepository(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

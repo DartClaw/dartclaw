@@ -19,7 +19,7 @@ typedef GatewayDenialSink = void Function(GatewayPrincipal principal, String rea
 /// is released. Revocation is permanent: nothing re-registers an authority, so
 /// a captured pipe or request ID cannot be revived by a later execution.
 final class GatewayAuthority {
-  GatewayAuthority._({
+  new _({
     required this.id,
     required this.principal,
     required this.requiredSurfaces,
@@ -56,7 +56,7 @@ final class GatewayAuthority {
 /// the pipe it arrived on determines the principal, the surface, the upstream,
 /// the credential, and the tool policy. No frame contributes to that decision.
 final class HostGateway {
-  HostGateway({
+  new({
     required Map<String, ProviderMediator> providerAdapters,
     McpProtocolHandler Function()? mcpHandler,
     Map<String, CanonicalTool> Function()? mcpToolCanonicals,

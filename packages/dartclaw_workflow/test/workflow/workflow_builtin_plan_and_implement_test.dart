@@ -714,7 +714,7 @@ class _DiscoveryRow {
   final List<String> implementPromptContains;
   final List<String> implementPromptExcludes;
 
-  const _DiscoveryRow({
+  const new({
     required this.name,
     required this.feature,
     required this.discover,

@@ -25,12 +25,7 @@ final class OutboundMcpToolAdapter implements McpTool {
   final OutboundMcpCallerProvider callerProvider;
 
   /// Creates an adapter for one surfaced [tool] on [serverName].
-  OutboundMcpToolAdapter({
-    required this.serverName,
-    required this.tool,
-    required this.pool,
-    required this.callerProvider,
-  });
+  new({required this.serverName, required this.tool, required this.pool, required this.callerProvider});
 
   /// Namespaced tool name exposed to harness-facing MCP clients.
   @override

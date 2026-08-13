@@ -20,7 +20,7 @@ class MessageService {
   final Map<String, int> _lineCounts = {};
   late final BoundedWriteQueue _queue;
 
-  MessageService({required this.baseDir}) {
+  new({required this.baseDir}) {
     _queue = BoundedWriteQueue(logger: _log);
   }
 

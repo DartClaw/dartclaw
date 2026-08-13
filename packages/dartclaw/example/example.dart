@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 /// Example: Guarded harness execution with event handling.
 ///
 /// Demonstrates how to combine a [GuardChain], the typed [EventBus], and a

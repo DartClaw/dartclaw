@@ -39,7 +39,7 @@ class ScheduledTaskDefinition {
   final int? tokenBudget;
 
   /// Creates a [ScheduledTaskDefinition] value.
-  const ScheduledTaskDefinition({
+  const new({
     required this.id,
     required this.cronExpression,
     this.enabled = true,

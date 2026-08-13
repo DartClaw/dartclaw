@@ -112,7 +112,7 @@ class DartclawServer {
   TaskEventRecorder? get taskEventRecorder => _tasks.taskEventRecorder;
 
   /// Internal constructor — prefer [DartclawServerBuilder] to assemble instances.
-  DartclawServer.fromDeps({
+  new fromDeps({
     required ServerCoreDeps core,
     required ServerTurnDeps turn,
     required ServerChannelDeps channels,

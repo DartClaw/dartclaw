@@ -330,11 +330,11 @@ final class _FakeWorktree {
   final stash = <_FakeStash>[];
   final conflicts = <String>[];
 
-  _FakeWorktree({required this.branch, required this.head});
+  new({required this.branch, required this.head});
 }
 
 final class _FakeStash {
   final Map<String, String> files;
 
-  _FakeStash(Map<String, String> files) : files = Map.unmodifiable(files);
+  new(Map<String, String> files) : files = Map.unmodifiable(files);
 }

@@ -805,7 +805,7 @@ void main() {
 }
 
 final class _TestProcessOwner extends ProcessBackedCliProvider {
-  _TestProcessOwner({super.platformCapabilities, super.terminationGracePeriod});
+  new({super.platformCapabilities, super.terminationGracePeriod});
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest request) => throw UnimplementedError();
@@ -817,7 +817,7 @@ Future<Process> _codexProcess(String payload) {
 }
 
 class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
+  new({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
 
   final String? stdoutOnKill;
 
@@ -837,7 +837,7 @@ class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 class _CloseFailsBeforeKillProcess extends FakeProcess {
-  _CloseFailsBeforeKillProcess() : super(completeExitOnKill: true, killExitCode: 143);
+  new() : super(completeExitOnKill: true, killExitCode: 143);
 
   final IOSink _stdin = _CloseFailsBeforeKillSink();
 
@@ -856,7 +856,7 @@ class _CloseFailsBeforeKillSink extends NullIoSink {
 }
 
 class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._killed);
+  new(this._killed);
 
   final bool Function() _killed;
 

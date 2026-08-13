@@ -332,7 +332,7 @@ class _PauseBanner {
   final String cssClass;
   final String label;
   final String text;
-  const _PauseBanner({required this.cssClass, required this.label, required this.text});
+  const new({required this.cssClass, required this.label, required this.text});
 }
 
 /// Derives the why-paused banner from fields the run already carries: approval

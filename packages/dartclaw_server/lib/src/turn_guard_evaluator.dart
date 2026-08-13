@@ -19,7 +19,7 @@ class TurnGuardEvaluator {
   final SessionService? _sessions;
   final SelfImprovementService? _selfImprovement;
 
-  TurnGuardEvaluator({
+  new({
     required GuardChain? guardChain,
     required MessageService messages,
     required SessionService? sessions,
@@ -138,7 +138,7 @@ class TurnToolHookCallbackHandler {
   String? _lastToolName;
   ToolUseEvent? _lastToolEvent;
 
-  TurnToolHookCallbackHandler({
+  new({
     required String sessionId,
     required String turnId,
     required TurnGovernanceEnforcer governanceEnforcer,

@@ -508,7 +508,7 @@ void main() {
 }
 
 class _StartTrackingQmdManager extends QmdManager {
-  _StartTrackingQmdManager({required super.commandRunner}) : super(workspaceDir: '/home/user/.dartclaw/workspace');
+  new({required super.commandRunner}) : super(workspaceDir: '/home/user/.dartclaw/workspace');
 
   int startCalls = 0;
 
@@ -519,7 +519,7 @@ class _StartTrackingQmdManager extends QmdManager {
 }
 
 class _LifecycleQmdManager extends QmdManager {
-  _LifecycleQmdManager({required super.commandRunner, super.commandTimeoutOverride})
+  new({required super.commandRunner, super.commandTimeoutOverride})
     : super(host: '127.0.0.2', port: 9191, workspaceDir: '/workspace', healthRetryDelay: Duration.zero);
 
   @override
@@ -527,7 +527,7 @@ class _LifecycleQmdManager extends QmdManager {
 }
 
 class _NeverHealthyQmdManager extends QmdManager {
-  _NeverHealthyQmdManager({required super.commandRunner})
+  new({required super.commandRunner})
     : super(host: '127.0.0.2', port: 9191, workspaceDir: '/workspace', healthRetryDelay: Duration.zero);
 
   @override
@@ -541,22 +541,19 @@ final class _FakeProcess implements Process {
   final Completer<int>? _exitCompleter;
   final bool _ignoreFirstKill;
 
-  _FakeProcess.completed({String stdoutText = '', String stderrText = '', int exitCode = 0})
+  new completed({String stdoutText = '', String stderrText = '', int exitCode = 0})
     : _exitCode = Future.value(exitCode),
       _stdout = Stream.value(utf8.encode(stdoutText)),
       _stderr = Stream.value(utf8.encode(stderrText)),
       _exitCompleter = null,
       _ignoreFirstKill = false;
 
-  _FakeProcess.running({
-    List<int> stdoutBytes = const [],
-    List<int> stderrBytes = const [],
-    bool ignoreFirstKill = false,
-  }) : _exitCompleter = Completer<int>(),
-       _exitCode = Future.value(0),
-       _stdout = Stream.value(stdoutBytes),
-       _stderr = Stream.value(stderrBytes),
-       _ignoreFirstKill = ignoreFirstKill;
+  new running({List<int> stdoutBytes = const [], List<int> stderrBytes = const [], bool ignoreFirstKill = false})
+    : _exitCompleter = Completer<int>(),
+      _exitCode = Future.value(0),
+      _stdout = Stream.value(stdoutBytes),
+      _stderr = Stream.value(stderrBytes),
+      _ignoreFirstKill = ignoreFirstKill;
 
   bool wasKilled = false;
   final killSignals = <ProcessSignal>[];

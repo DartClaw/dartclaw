@@ -22,7 +22,7 @@ final class LoopDetectedEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a loop-detected event.
-  LoopDetectedEvent({
+  new({
     required this.sessionId,
     required this.mechanism,
     required this.message,
@@ -51,12 +51,7 @@ final class EmergencyStopEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates an emergency-stop event.
-  EmergencyStopEvent({
-    required this.stoppedBy,
-    required this.turnsCancelled,
-    required this.tasksCancelled,
-    required this.timestamp,
-  });
+  new({required this.stoppedBy, required this.turnsCancelled, required this.tasksCancelled, required this.timestamp});
 
   @override
   String toString() => 'EmergencyStopEvent(stoppedBy: $stoppedBy, turns: $turnsCancelled, tasks: $tasksCancelled)';
@@ -83,7 +78,7 @@ final class OutboundMcpGovernanceEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates an outbound MCP governance counter event.
-  OutboundMcpGovernanceEvent({
+  new({
     required this.serverName,
     required this.callsUsed,
     required this.tokensUsed,

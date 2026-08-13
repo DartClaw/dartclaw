@@ -83,7 +83,7 @@ class _RecordingVerifier extends SetupVerifier {
   final List<List<String>> providerCalls = [];
   final List<String> configCalls = [];
 
-  _RecordingVerifier({required Future<bool> Function(String, String, String) providerVerified})
+  new({required Future<bool> Function(String, String, String) providerVerified})
     : super(
         binaryExists: (_) async => true,
         configParseable: (_) async => true,

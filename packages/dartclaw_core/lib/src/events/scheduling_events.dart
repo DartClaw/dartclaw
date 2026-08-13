@@ -19,7 +19,7 @@ final class ScheduledJobFailedEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a scheduled-job-failed event.
-  ScheduledJobFailedEvent({required this.jobId, required this.jobName, required this.error, required this.timestamp});
+  new({required this.jobId, required this.jobName, required this.error, required this.timestamp});
 
   @override
   String toString() => 'ScheduledJobFailedEvent(jobId: $jobId, error: $error)';

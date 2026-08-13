@@ -27,7 +27,7 @@ class _KnowledgeInboxSearchProvider implements SearchProvider {
   final String safeUrl;
   int callCount = 0;
 
-  _KnowledgeInboxSearchProvider({required this.safeUrl});
+  new({required this.safeUrl});
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -66,7 +66,7 @@ class _KnowledgeInboxWorker implements AgentHarness {
   int savedFindings = 0;
   int blockedFindings = 0;
 
-  _KnowledgeInboxWorker({required this.searchTool, required this.fetchTool, required this.onMemoryObserve});
+  new({required this.searchTool, required this.fetchTool, required this.onMemoryObserve});
 
   @override
   bool get supportsCostReporting => true;

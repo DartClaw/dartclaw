@@ -12,7 +12,7 @@ class FakeContentClassifier implements ContentClassifier {
   /// When true, [classify] throws instead of returning [result].
   bool shouldThrow;
 
-  FakeContentClassifier({this.result = 'safe', this.shouldThrow = false});
+  new({this.result = 'safe', this.shouldThrow = false});
 
   @override
   Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {

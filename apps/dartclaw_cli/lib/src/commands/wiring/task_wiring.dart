@@ -62,7 +62,7 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
 /// - [wirePostServer]: builds services that need a live [TurnManager] from the
 ///   constructed server.
 class TaskWiring {
-  TaskWiring({
+  new({
     required this.config,
     required String dataDir,
     required EventBus eventBus,

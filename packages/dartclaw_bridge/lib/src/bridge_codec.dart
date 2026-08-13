@@ -40,7 +40,7 @@ Uint8List encodeBridgeFrame(BridgeFrame frame, {BridgeLimits limits = BridgeLimi
 /// declared length is rejected before any allocation, so a hostile peer cannot
 /// grow the reader.
 final class BridgeFrameReader {
-  BridgeFrameReader({this.limits = BridgeLimits.defaults});
+  new({this.limits = BridgeLimits.defaults});
 
   final BridgeLimits limits;
 

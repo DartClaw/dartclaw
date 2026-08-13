@@ -84,7 +84,7 @@ class FastFakeWorker extends AgentHarness {
 /// [providerId] defaults to `claude`; pass another to exercise per-provider
 /// metric grouping.
 class FakeTurnRunner extends TurnRunner {
-  FakeTurnRunner({
+  new({
     super.providerId = 'claude',
     super.executionPolicy = const ExecutionPolicy.host(),
     bool supportsCachedTokens = false,
@@ -179,7 +179,7 @@ Future<Map<String, dynamic>> readSessionCost(KvService kvService, String session
 class RecordingSessionResetService extends SessionResetService {
   final List<String> touchedSessions = [];
 
-  RecordingSessionResetService({required super.sessions, required super.messages});
+  new({required super.sessions, required super.messages});
 
   @override
   void touchActivity(String sessionId) {
@@ -191,7 +191,7 @@ class DelayedCancelHarness extends FakeAgentHarness {
   final cancelStarted = Completer<void>();
   final allowCancelReturn = Completer<void>();
 
-  DelayedCancelHarness() : super(promptStrategy: PromptStrategy.append);
+  new() : super(promptStrategy: PromptStrategy.append);
 
   @override
   Future<void> cancel() async {
@@ -202,7 +202,7 @@ class DelayedCancelHarness extends FakeAgentHarness {
 }
 
 class FailingCancelCleanupHarness extends FakeAgentHarness {
-  FailingCancelCleanupHarness() : super(promptStrategy: PromptStrategy.append);
+  new() : super(promptStrategy: PromptStrategy.append);
 
   int remainingStopFailures = 1;
   int stopCalls = 0;
@@ -219,7 +219,7 @@ class FailingCancelCleanupHarness extends FakeAgentHarness {
 }
 
 class FailingStartAfterCancelHarness extends FakeAgentHarness {
-  FailingStartAfterCancelHarness() : super(promptStrategy: PromptStrategy.append);
+  new() : super(promptStrategy: PromptStrategy.append);
 
   @override
   Future<void> cancel() async {
@@ -234,8 +234,7 @@ class FailingStartAfterCancelHarness extends FakeAgentHarness {
 }
 
 class IdleAfterFailedCancelRecoveryHarness extends FakeAgentHarness {
-  IdleAfterFailedCancelRecoveryHarness({this.terminationConfirmed = true})
-    : super(promptStrategy: PromptStrategy.append);
+  new({this.terminationConfirmed = true}) : super(promptStrategy: PromptStrategy.append);
 
   final bool terminationConfirmed;
 
@@ -250,7 +249,7 @@ class IdleAfterFailedCancelRecoveryHarness extends FakeAgentHarness {
 }
 
 class HangingCancelHarness extends FakeAgentHarness {
-  HangingCancelHarness() : super(promptStrategy: PromptStrategy.append);
+  new() : super(promptStrategy: PromptStrategy.append);
 
   final cancelStarted = Completer<void>();
   final cancelCompleter = Completer<void>();

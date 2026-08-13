@@ -9,7 +9,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
 class DartclawRunner extends CommandRunner<void> {
   final void Function(String) _writeLine;
 
-  DartclawRunner({void Function(String)? writeLine})
+  new({void Function(String)? writeLine})
     : _writeLine = writeLine ?? print,
       super('dartclaw', 'DartClaw — security-conscious AI agent runtime') {
     argParser.addFlag('version', negatable: false, help: 'Print the DartClaw runtime version.');

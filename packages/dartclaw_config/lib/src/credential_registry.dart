@@ -14,7 +14,7 @@ class CredentialRegistry {
   final Map<String, String> _env;
 
   /// CredentialRegistry({required CredentialsConfig credentials, .
-  CredentialRegistry({required CredentialsConfig credentials, Map<String, String>? env})
+  new({required CredentialsConfig credentials, Map<String, String>? env})
     : _credentials = credentials,
       _env = env ?? const {};
 

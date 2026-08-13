@@ -36,10 +36,10 @@ class BudgetConfig {
   bool get enabled => dailyTokens > 0;
 
   /// const BudgetConfig({this.dailyTokens = 0, this.action = Budg.
-  const BudgetConfig({this.dailyTokens = 0, this.action = BudgetAction.warn, this.timezone = 'UTC'});
+  const new({this.dailyTokens = 0, this.action = BudgetAction.warn, this.timezone = 'UTC'});
 
   /// Creates a [BudgetConfig.defaults] value.
-  const BudgetConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

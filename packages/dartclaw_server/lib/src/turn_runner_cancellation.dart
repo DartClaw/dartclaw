@@ -327,7 +327,7 @@ class _RuntimeWaitTracker {
   Timer? _stuckTimer;
   _RuntimeWaitSnapshot _snapshot;
 
-  _RuntimeWaitTracker({
+  new({
     required this.waitWarningAfter,
     required this.stuckAfter,
     required this.timerFactory,
@@ -378,12 +378,7 @@ class _RuntimeWaitSnapshot {
   final DateTime? stuckSince;
   final TurnWaitReason reason;
 
-  const _RuntimeWaitSnapshot({
-    required this.waitingSince,
-    required this.reason,
-    this.warningVisibleAt,
-    this.stuckSince,
-  });
+  const new({required this.waitingSince, required this.reason, this.warningVisibleAt, this.stuckSince});
 
   _RuntimeWaitSnapshot copyWith({DateTime? warningVisibleAt, DateTime? stuckSince}) {
     return _RuntimeWaitSnapshot(

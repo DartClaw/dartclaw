@@ -245,7 +245,7 @@ final class _GitCredentialHelper {
   final Directory _directory;
   final String path;
 
-  _GitCredentialHelper._(this._directory, this.path);
+  new _(this._directory, this.path);
 
   static _GitCredentialHelper create(String token) {
     final directory = Directory.systemTemp.createTempSync('dartclaw_fixture_git_credentials_');

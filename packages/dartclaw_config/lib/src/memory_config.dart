@@ -19,7 +19,7 @@ class MemoryConfig {
   final String journalSchedule;
 
   /// Creates a [MemoryConfig] value.
-  factory MemoryConfig({
+  factory({
     int maxBytes = 32 * 1024,
     bool pruningEnabled = true,
     int archiveAfterDays = 90,
@@ -40,7 +40,7 @@ class MemoryConfig {
   }
 
   /// Default configuration.
-  const MemoryConfig.defaults()
+  const new defaults()
     : maxBytes = 32 * 1024,
       pruningEnabled = true,
       archiveAfterDays = 90,
@@ -48,7 +48,7 @@ class MemoryConfig {
       journalEnabled = false,
       journalSchedule = '0 22 * * *';
 
-  const MemoryConfig._({
+  const new _({
     required this.maxBytes,
     required this.pruningEnabled,
     required this.archiveAfterDays,

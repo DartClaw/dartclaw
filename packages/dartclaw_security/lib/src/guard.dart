@@ -39,7 +39,7 @@ class GuardContext {
   final DateTime timestamp;
 
   /// Creates the immutable context shared with a guard evaluation.
-  const GuardContext({
+  const new({
     required this.hookPoint,
     this.toolName,
     this.rawProviderToolName,
@@ -107,9 +107,7 @@ class GuardChain {
   final bool failOpen;
 
   /// Creates a guard chain with optional verdict reporting.
-  GuardChain({required List<Guard> guards, this.onVerdict, this.failOpen = false})
-    : _guards = List.of(guards),
-      _base = null;
+  new({required List<Guard> guards, this.onVerdict, this.failOpen = false}) : _guards = List.of(guards), _base = null;
 
   /// Creates a chain that evaluates all of [base]'s guards followed by [guards].
   ///
@@ -118,7 +116,7 @@ class GuardChain {
   /// chain's own [guards] survive the rebuild. [onVerdict] and [failOpen] are
   /// inherited from [base]; with a null [base] only [guards] are evaluated,
   /// fail-closed and without verdict reporting.
-  GuardChain.layered({required GuardChain? base, required List<Guard> guards})
+  new layered({required GuardChain? base, required List<Guard> guards})
     : _guards = List.of(guards),
       _base = base,
       onVerdict = base?.onVerdict,

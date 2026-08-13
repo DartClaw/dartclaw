@@ -28,7 +28,7 @@ import 'task_wiring.dart';
 /// Owns channel manager, WhatsApp, Signal, Google Chat (including Space Events),
 /// task notification subscriber, and the dispatch helpers used by channel turns.
 class ChannelWiring {
-  ChannelWiring({
+  new({
     required this.config,
     required String dataDir,
     required int port,

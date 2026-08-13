@@ -20,7 +20,7 @@ class TurnGovernanceEnforcer {
   Future<void> Function(String sessionId, LoopDetection detection, String action)? _loopDetectionNotifier;
   bool _rateLimitWarningEmitted = false;
 
-  TurnGovernanceEnforcer({
+  new({
     required BudgetEnforcer? budgetEnforcer,
     required SlidingWindowRateLimiter? globalRateLimiter,
     required LoopDetector? loopDetector,

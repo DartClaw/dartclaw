@@ -821,7 +821,7 @@ void main() {
 }
 
 class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
+  new({this.stdoutOnKill}) : super(completeExitOnKill: true, killExitCode: 143);
 
   final String? stdoutOnKill;
 
@@ -841,7 +841,7 @@ class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._killed);
+  new(this._killed);
 
   final bool Function() _killed;
 

@@ -16,7 +16,7 @@ import 'process_types.dart';
 
 /// Shared lifecycle base for subprocess-backed harnesses.
 abstract class BaseHarness extends AgentHarness with SequentialLock {
-  BaseHarness({
+  new({
     required this.log,
     required this.cwd,
     required this.turnTimeout,

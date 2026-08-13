@@ -51,14 +51,14 @@ class WorkspaceFileWriteObserver {
   final Map<String, _FileFingerprint> _baseline;
   final Set<String> _ignoredDirs;
 
-  WorkspaceFileWriteObserver._(this._root, this._baseline, this._ignoredDirs);
+  new _(this._root, this._baseline, this._ignoredDirs);
 
   /// Capture the current state of files under [workspaceDir].
   ///
   /// Directories matching any entry in [ignoredDirs] (relative-path prefix)
   /// are excluded from the snapshot. Defaults cover `.git` / `.dartclaw` /
   /// `.dart_tool` / `node_modules`.
-  factory WorkspaceFileWriteObserver.snapshot(
+  factory snapshot(
     String workspaceDir, {
     Set<String> ignoredDirs = const {'.git', '.dartclaw', '.dart_tool', 'node_modules'},
   }) {
@@ -156,7 +156,7 @@ class WorkspaceFileWriteObserver {
 class _FileFingerprint {
   final int size;
   final int modifiedMicros;
-  const _FileFingerprint(this.size, this.modifiedMicros);
+  const new(this.size, this.modifiedMicros);
 
   @override
   bool operator ==(Object other) =>
@@ -184,11 +184,11 @@ class LogInvariantObserver {
   Level _previousRootLevel = Level.INFO;
   Level _minimumLevel = Level.WARNING;
 
-  LogInvariantObserver._(this._forbiddenPatterns);
+  new _(this._forbiddenPatterns);
 
   /// Default observer: catches the known-spurious "requires a worktree"
   /// warning and the "succeeded without FIS" log (if emitted).
-  factory LogInvariantObserver.defaults({List<RegExp> extra = const []}) {
+  factory defaults({List<RegExp> extra = const []}) {
     return LogInvariantObserver._([
       RegExp('requires a worktree but has no worktree metadata'),
       // Add known-spurious patterns here as they are documented.
@@ -199,7 +199,7 @@ class LogInvariantObserver {
   /// Observer that records all log records at or above [minimumLevel] without
   /// any forbidden-pattern rules. Use with [expectRecord] for positive
   /// assertions about failure-path logging.
-  factory LogInvariantObserver.capture({Level minimumLevel = Level.WARNING}) {
+  factory capture({Level minimumLevel = Level.WARNING}) {
     return LogInvariantObserver._([]).._minimumLevel = minimumLevel;
   }
 
@@ -290,7 +290,7 @@ class TokenCeilingObserver {
   final int _defaultCeiling;
   final Map<String, int> _observations = {};
 
-  TokenCeilingObserver({required int defaultCeiling, Map<String, int>? ceilings})
+  new({required int defaultCeiling, Map<String, int>? ceilings})
     : _defaultCeiling = defaultCeiling,
       _ceilings = {...?ceilings};
 

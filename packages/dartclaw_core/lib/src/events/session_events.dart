@@ -16,19 +16,14 @@ sealed class SessionLifecycleEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a session lifecycle event.
-  SessionLifecycleEvent({required this.sessionId, this.sessionKey, required this.sessionType, required this.timestamp});
+  new({required this.sessionId, this.sessionKey, required this.sessionType, required this.timestamp});
 }
 
 /// Fired when a new session is created.
 // NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
 final class SessionCreatedEvent extends SessionLifecycleEvent {
   /// Creates a session-created event.
-  SessionCreatedEvent({
-    required super.sessionId,
-    super.sessionKey,
-    required super.sessionType,
-    required super.timestamp,
-  });
+  new({required super.sessionId, super.sessionKey, required super.sessionType, required super.timestamp});
 
   @override
   String toString() => 'SessionCreatedEvent(id: $sessionId, type: $sessionType)';
@@ -38,7 +33,7 @@ final class SessionCreatedEvent extends SessionLifecycleEvent {
 // NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
 final class SessionEndedEvent extends SessionLifecycleEvent {
   /// Creates a session-ended event.
-  SessionEndedEvent({required super.sessionId, super.sessionKey, required super.sessionType, required super.timestamp});
+  new({required super.sessionId, super.sessionKey, required super.sessionType, required super.timestamp});
 
   @override
   String toString() => 'SessionEndedEvent(id: $sessionId, type: $sessionType)';
@@ -51,7 +46,7 @@ final class SessionErrorEvent extends SessionLifecycleEvent {
   final String error;
 
   /// Creates a session-error event.
-  SessionErrorEvent({
+  new({
     required super.sessionId,
     super.sessionKey,
     required super.sessionType,

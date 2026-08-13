@@ -16,7 +16,7 @@ class TaskEventService {
   final Database _db;
 
   /// Creates the service against [_db] and initializes its schema.
-  TaskEventService(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

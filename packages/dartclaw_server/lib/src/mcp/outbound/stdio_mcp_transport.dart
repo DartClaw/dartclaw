@@ -23,7 +23,7 @@ final class StdioMcpTransport implements OutboundMcpTransport {
   var _closed = false;
   String? _lastStderr;
 
-  StdioMcpTransport._(this._process, this._stdoutSubscription, this._stderrSubscription);
+  new _(this._process, this._stdoutSubscription, this._stderrSubscription);
 
   static Future<StdioMcpTransport> start(
     String command, {
@@ -172,7 +172,7 @@ final class _PendingRequest {
   final int maxResponseBytes;
   final Completer<Map<String, dynamic>> completer;
 
-  const _PendingRequest({required this.id, required this.maxResponseBytes, required this.completer});
+  const new({required this.id, required this.maxResponseBytes, required this.completer});
 }
 
 Future<Process> _defaultProcessStarter(

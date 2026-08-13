@@ -34,7 +34,7 @@ final class MemoryIndexRow {
   final int? entryRevision;
 
   /// Creates one derived index row.
-  const MemoryIndexRow({
+  const new({
     required this.text,
     required this.source,
     required this.category,
@@ -53,7 +53,7 @@ class MemoryService {
   final Database _db;
 
   /// Creates a [MemoryService] backed by [_db] and initializes the FTS5 schema.
-  MemoryService(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

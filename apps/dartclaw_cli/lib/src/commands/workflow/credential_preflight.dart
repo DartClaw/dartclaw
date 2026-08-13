@@ -5,7 +5,7 @@ class CredentialPreflightResult {
   final List<ProjectCredentialError> hardErrors;
   final List<String> warnings;
 
-  const CredentialPreflightResult({this.hardErrors = const [], this.warnings = const []});
+  const new({this.hardErrors = const [], this.warnings = const []});
 
   bool get hasHardErrors => hardErrors.isNotEmpty;
 }
@@ -17,12 +17,7 @@ class ProjectCredentialError {
   final String? envVar;
   final String reason;
 
-  const ProjectCredentialError({
-    required this.projectId,
-    required this.credentialRef,
-    this.envVar,
-    required this.reason,
-  });
+  const new({required this.projectId, required this.credentialRef, this.envVar, required this.reason});
 
   String get message => switch (reason) {
     'missing_credential_def' =>
@@ -41,7 +36,7 @@ class ProjectCredentialError {
 class CredentialPreflightException implements Exception {
   final List<ProjectCredentialError> errors;
 
-  const CredentialPreflightException(this.errors);
+  const new(this.errors);
 
   @override
   String toString() => errors.map((error) => error.message).join('\n');

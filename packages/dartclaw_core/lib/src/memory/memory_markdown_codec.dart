@@ -5,7 +5,7 @@ import 'memory_documents.dart';
 
 /// Parses and renders deterministic, LF-terminated canonical memory Markdown.
 final class MemoryMarkdownCodec {
-  const MemoryMarkdownCodec();
+  const new();
 
   /// Renders [document] in stable field and record order with one final LF.
   String render(CanonicalMemoryDocument document) {

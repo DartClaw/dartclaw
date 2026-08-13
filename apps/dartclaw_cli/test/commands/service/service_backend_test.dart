@@ -8,7 +8,7 @@ class _FakeRunner {
   final List<ProcessResult> _launchctlResponses;
   final List<(String, List<String>)> calls = [];
 
-  _FakeRunner(this._responses, {List<ProcessResult> launchctlResponses = const []})
+  new(this._responses, {List<ProcessResult> launchctlResponses = const []})
     : _launchctlResponses = [...launchctlResponses];
 
   Future<ProcessResult> call(String exe, List<String> args) async {

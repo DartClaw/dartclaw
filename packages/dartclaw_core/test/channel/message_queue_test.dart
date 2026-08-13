@@ -56,7 +56,7 @@ class FakeChannel extends Channel {
 enum _FakeQuoteReplyMode { native, sender }
 
 class _FakeGoogleChatChannel extends Channel {
-  _FakeGoogleChatChannel({required this.quoteReplyMode});
+  new({required this.quoteReplyMode});
 
   final _FakeQuoteReplyMode quoteReplyMode;
   final List<(String spaceName, String text)> sentMessages = [];

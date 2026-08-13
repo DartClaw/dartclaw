@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'standalone_lifecycle_support.dart';
 
 class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
-  WorkflowCancelCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

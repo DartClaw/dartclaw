@@ -50,7 +50,7 @@ final class WorkflowRunStatusChangedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowRunStatusChangedEvent({
+  new({
     required this.runId,
     required this.definitionName,
     required this.oldStatus,
@@ -59,7 +59,7 @@ final class WorkflowRunStatusChangedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory WorkflowRunStatusChangedEvent.fromJson(Map<String, dynamic> json) => WorkflowRunStatusChangedEvent(
+  factory fromJson(Map<String, dynamic> json) => WorkflowRunStatusChangedEvent(
     runId: _requiredString(json, 'runId'),
     definitionName: _optionalString(json, 'definitionName') ?? '',
     oldStatus: _workflowRunStatus(json, 'oldStatus'),
@@ -126,7 +126,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowStepCompletedEvent({
+  new({
     required this.runId,
     required this.stepId,
     required this.stepName,
@@ -141,7 +141,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory WorkflowStepCompletedEvent.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final stepId = _requiredString(json, 'stepId');
     return WorkflowStepCompletedEvent(
       runId: _requiredString(json, 'runId'),
@@ -217,7 +217,7 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowCliTurnProgressEvent({
+  new({
     required this.taskId,
     required this.sessionId,
     required this.provider,
@@ -245,7 +245,7 @@ final class WorkflowCliStallEvent extends DartclawEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowCliStallEvent({
+  new({
     required this.provider,
     required this.stepName,
     required this.silentDuration,
@@ -279,7 +279,7 @@ final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  ParallelGroupCompletedEvent({
+  new({
     required this.runId,
     required this.stepIds,
     required this.successCount,
@@ -288,7 +288,7 @@ final class ParallelGroupCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory ParallelGroupCompletedEvent.fromJson(Map<String, dynamic> json) => ParallelGroupCompletedEvent(
+  factory fromJson(Map<String, dynamic> json) => ParallelGroupCompletedEvent(
     runId: _requiredString(json, 'runId'),
     stepIds: _requiredStringList(json, 'stepIds'),
     successCount: _requiredInt(json, 'successCount'),
@@ -333,7 +333,7 @@ final class WorkflowBudgetWarningEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowBudgetWarningEvent({
+  new({
     required this.runId,
     required this.definitionName,
     required this.consumedPercent,
@@ -342,7 +342,7 @@ final class WorkflowBudgetWarningEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory WorkflowBudgetWarningEvent.fromJson(Map<String, dynamic> json) => WorkflowBudgetWarningEvent(
+  factory fromJson(Map<String, dynamic> json) => WorkflowBudgetWarningEvent(
     runId: _requiredString(json, 'runId'),
     definitionName: _requiredString(json, 'definitionName'),
     consumedPercent: _requiredDouble(json, 'consumedPercent'),
@@ -389,7 +389,7 @@ final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  LoopIterationCompletedEvent({
+  new({
     required this.runId,
     required this.loopId,
     required this.iteration,
@@ -398,7 +398,7 @@ final class LoopIterationCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory LoopIterationCompletedEvent.fromJson(Map<String, dynamic> json) => LoopIterationCompletedEvent(
+  factory fromJson(Map<String, dynamic> json) => LoopIterationCompletedEvent(
     runId: _requiredString(json, 'runId'),
     loopId: _requiredString(json, 'loopId'),
     iteration: _requiredInt(json, 'iteration'),
@@ -462,7 +462,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  MapIterationCompletedEvent({
+  new({
     required this.runId,
     required this.stepId,
     required this.iterationIndex,
@@ -476,7 +476,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory MapIterationCompletedEvent.fromJson(Map<String, dynamic> json) => MapIterationCompletedEvent(
+  factory fromJson(Map<String, dynamic> json) => MapIterationCompletedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     iterationIndex: _requiredInt(json, 'iterationIndex'),
@@ -531,15 +531,9 @@ final class WorkflowApprovalRequestedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowApprovalRequestedEvent({
-    required this.runId,
-    required this.stepId,
-    required this.message,
-    this.timeoutSeconds,
-    required this.timestamp,
-  });
+  new({required this.runId, required this.stepId, required this.message, this.timeoutSeconds, required this.timestamp});
 
-  factory WorkflowApprovalRequestedEvent.fromJson(Map<String, dynamic> json) => WorkflowApprovalRequestedEvent(
+  factory fromJson(Map<String, dynamic> json) => WorkflowApprovalRequestedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     message: _requiredString(json, 'message'),
@@ -581,15 +575,9 @@ final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowApprovalResolvedEvent({
-    required this.runId,
-    required this.stepId,
-    required this.approved,
-    this.feedback,
-    required this.timestamp,
-  });
+  new({required this.runId, required this.stepId, required this.approved, this.feedback, required this.timestamp});
 
-  factory WorkflowApprovalResolvedEvent.fromJson(Map<String, dynamic> json) => WorkflowApprovalResolvedEvent(
+  factory fromJson(Map<String, dynamic> json) => WorkflowApprovalResolvedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     approved: _requiredBool(json, 'approved'),
@@ -648,7 +636,7 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  MapStepCompletedEvent({
+  new({
     required this.runId,
     required this.stepId,
     required this.stepName,
@@ -661,7 +649,7 @@ final class MapStepCompletedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory MapStepCompletedEvent.fromJson(Map<String, dynamic> json) => MapStepCompletedEvent(
+  factory fromJson(Map<String, dynamic> json) => MapStepCompletedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     stepName: _requiredString(json, 'stepName'),
@@ -721,7 +709,7 @@ final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  WorkflowSerializationEnactedEvent({
+  new({
     required this.runId,
     required this.foreachStepId,
     required this.failingIterationIndex,
@@ -729,7 +717,7 @@ final class WorkflowSerializationEnactedEvent extends WorkflowLifecycleEvent {
     required this.timestamp,
   });
 
-  factory WorkflowSerializationEnactedEvent.fromJson(Map<String, dynamic> json) => WorkflowSerializationEnactedEvent(
+  factory fromJson(Map<String, dynamic> json) => WorkflowSerializationEnactedEvent(
     runId: _requiredString(json, 'runId'),
     foreachStepId: _requiredString(json, 'foreachStepId'),
     failingIterationIndex: _requiredInt(json, 'failingIterationIndex'),
@@ -771,9 +759,9 @@ final class StepSkippedEvent extends WorkflowLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  StepSkippedEvent({required this.runId, required this.stepId, required this.reason, required this.timestamp});
+  new({required this.runId, required this.stepId, required this.reason, required this.timestamp});
 
-  factory StepSkippedEvent.fromJson(Map<String, dynamic> json) => StepSkippedEvent(
+  factory fromJson(Map<String, dynamic> json) => StepSkippedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     reason: _requiredString(json, 'reason'),

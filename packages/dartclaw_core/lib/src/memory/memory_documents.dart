@@ -7,7 +7,7 @@ abstract base class CanonicalMemoryDocument {
 
 /// Collection metadata and the bounded active-entry index.
 final class MemoryIndexDocument extends CanonicalMemoryDocument {
-  MemoryIndexDocument({required this.metadata, Iterable<MemoryIndexEntry> entries = const []})
+  new({required this.metadata, Iterable<MemoryIndexEntry> entries = const []})
     : entries = immutableMemoryList(
         entries.toList()..sort((left, right) {
           final byPriority = right.priority.compareTo(left.priority);
@@ -32,7 +32,7 @@ final class MemoryIndexDocument extends CanonicalMemoryDocument {
 
 /// Detailed active entries for one validated topic slug.
 final class MemoryTopicDocument extends CanonicalMemoryDocument {
-  MemoryTopicDocument({required this.topic, Iterable<CanonicalMemoryEntry> entries = const []})
+  new({required this.topic, Iterable<CanonicalMemoryEntry> entries = const []})
     : entries = immutableMemoryList(entries.toList()..sort((left, right) => left.id.compareTo(right.id))) {
     validateMemoryTopic(topic);
     for (final entry in this.entries) {
@@ -55,7 +55,7 @@ final class MemoryTopicDocument extends CanonicalMemoryDocument {
 
 /// Detailed inactive entries whose stable identities survive archival.
 final class MemoryArchiveDocument extends CanonicalMemoryDocument {
-  MemoryArchiveDocument({Iterable<CanonicalMemoryEntry> entries = const []})
+  new({Iterable<CanonicalMemoryEntry> entries = const []})
     : entries = immutableMemoryList(entries.toList()..sort((left, right) => left.id.compareTo(right.id)));
   final List<CanonicalMemoryEntry> entries;
   @override
@@ -70,7 +70,7 @@ final class MemoryArchiveDocument extends CanonicalMemoryDocument {
 
 /// Raw observations for one valid UTC calendar date.
 final class MemoryObservationDocument extends CanonicalMemoryDocument {
-  MemoryObservationDocument({required this.date, Iterable<MemoryObservation> observations = const []})
+  new({required this.date, Iterable<MemoryObservation> observations = const []})
     : observations = immutableMemoryList(
         observations.toList()..sort((left, right) {
           final byTime = left.recorded.compareTo(right.recorded);
@@ -104,8 +104,7 @@ final class MemoryObservationDocument extends CanonicalMemoryDocument {
 
 /// Canonical bounded runtime learnings with stable entry identity.
 final class MemoryLearningDocument extends CanonicalMemoryDocument {
-  MemoryLearningDocument({Iterable<CanonicalMemoryLearning> entries = const []})
-    : entries = immutableMemoryList(entries);
+  new({Iterable<CanonicalMemoryLearning> entries = const []}) : entries = immutableMemoryList(entries);
   final List<CanonicalMemoryLearning> entries;
   @override
   MemoryRole get role => MemoryRole.learning;
@@ -119,7 +118,7 @@ final class MemoryLearningDocument extends CanonicalMemoryDocument {
 
 /// Canonical deletion records whose host fields do not copy entry content.
 final class MemoryAuditDocument extends CanonicalMemoryDocument {
-  MemoryAuditDocument({Iterable<MemoryDeletionAudit> records = const []})
+  new({Iterable<MemoryDeletionAudit> records = const []})
     : records = immutableMemoryList(
         records.toList()..sort((left, right) {
           final byTime = left.deletedAt.compareTo(right.deletedAt);

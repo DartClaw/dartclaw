@@ -11,13 +11,13 @@ import 'group_entry.dart';
 class GroupConfigResolver {
   final Map<(ChannelType, String), GroupEntry> _entries;
 
-  const GroupConfigResolver._(this._entries);
+  const new _(this._entries);
 
   /// Builds a resolver from per-channel [GroupEntry] lists.
   ///
   /// Entries where all optional fields are null are skipped (they are
   /// semantically identical to plain-string entries and don't need lookup).
-  factory GroupConfigResolver.fromChannelEntries(Map<ChannelType, List<GroupEntry>> entries) {
+  factory fromChannelEntries(Map<ChannelType, List<GroupEntry>> entries) {
     final map = <(ChannelType, String), GroupEntry>{};
     for (final MapEntry(:key, :value) in entries.entries) {
       for (final entry in value) {

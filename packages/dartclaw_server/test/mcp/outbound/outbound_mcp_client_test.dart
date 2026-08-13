@@ -129,7 +129,7 @@ final class _ScriptedTransport implements OutboundMcpTransport {
   final Map<String, dynamic> callResult;
   final methods = <String>[];
 
-  _ScriptedTransport({
+  new({
     this.callResult = const {
       'content': [
         {'type': 'text', 'text': 'hi'},
@@ -180,7 +180,7 @@ final class _ScriptedTransport implements OutboundMcpTransport {
 final class _FailingTransport implements OutboundMcpTransport {
   final OutboundMcpException error;
 
-  const _FailingTransport(this.error);
+  const new(this.error);
 
   @override
   Future<Map<String, dynamic>> sendRequest(

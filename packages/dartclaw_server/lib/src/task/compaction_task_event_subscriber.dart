@@ -17,7 +17,7 @@ class CompactionTaskEventSubscriber {
   final TaskEventRecorder _eventRecorder;
   StreamSubscription<CompactionCompletedEvent>? _subscription;
 
-  CompactionTaskEventSubscriber({required TaskService tasks, required TaskEventRecorder eventRecorder})
+  new({required TaskService tasks, required TaskEventRecorder eventRecorder})
     : _tasks = tasks,
       _eventRecorder = eventRecorder;
 

@@ -10,7 +10,7 @@ part 'memory_preflight_result.dart';
 /// Converts the retained preview memory dialect into the canonical corpus once.
 final class LegacyMemoryMigrator {
   /// Creates a preflight against [workspaceDir] using the shared corpus authority.
-  LegacyMemoryMigrator({required this.workspaceDir, required this.corpusService});
+  new({required this.workspaceDir, required this.corpusService});
 
   /// Maximum records transformed per migration batch.
   static const maxBatchRecords = 256;

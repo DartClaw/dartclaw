@@ -23,7 +23,7 @@ class GitHubWebhookHandler {
   final List<String> trustedProxies;
   final WebhookDeliveryStore? deliveryStore;
 
-  GitHubWebhookHandler({
+  new({
     required this.config,
     required this.workflows,
     required this.definitions,

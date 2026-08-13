@@ -33,7 +33,7 @@ class ContextMonitor implements Reconfigurable {
   int _lastFlushCycleId = -1;
   String? _lastFlushHash;
 
-  ContextMonitor({this.reserveTokens = 20000, this.warningThreshold = 80});
+  new({this.reserveTokens = 20000, this.warningThreshold = 80});
 
   @override
   Set<String> get watchKeys => const {'context.*'};

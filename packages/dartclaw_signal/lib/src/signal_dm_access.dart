@@ -9,7 +9,7 @@ class SignalMentionGating {
   final List<RegExp> _patterns;
   String ownNumber;
 
-  SignalMentionGating({required this.requireMention, required List<String> mentionPatterns, required this.ownNumber})
+  new({required this.requireMention, required List<String> mentionPatterns, required this.ownNumber})
     : _patterns = mentionPatterns.map(RegExp.new).toList();
 
   /// Whether the given message should be processed.

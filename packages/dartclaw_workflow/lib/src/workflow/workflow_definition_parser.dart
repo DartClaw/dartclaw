@@ -1216,7 +1216,7 @@ class _ParsedSteps {
   final List<WorkflowStep> steps;
   final List<WorkflowLoop> inlineLoops;
 
-  const _ParsedSteps({required this.steps, required this.inlineLoops});
+  const new({required this.steps, required this.inlineLoops});
 }
 
 class _ParsedInlineLoopStep {
@@ -1224,7 +1224,7 @@ class _ParsedInlineLoopStep {
   final List<WorkflowStep> steps;
   final WorkflowStep? finalizerStep;
 
-  const _ParsedInlineLoopStep({required this.loop, required this.steps, this.finalizerStep});
+  const new({required this.loop, required this.steps, this.finalizerStep});
 }
 
 class _ParsedInlineForeachStep {
@@ -1242,7 +1242,7 @@ class _ParsedInlineForeachStep {
   /// definition's `steps` list but owned by the loop, not the foreach node.
   final List<WorkflowStep> nestedLoopSteps;
 
-  const _ParsedInlineForeachStep({
+  const new({
     required this.controller,
     required this.childSteps,
     this.nestedLoops = const [],

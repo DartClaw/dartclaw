@@ -40,7 +40,7 @@ class CommonChannelFields<TGroupAccess extends Enum> {
   final TaskTriggerConfig taskTrigger;
 
   /// Creates immutable shared channel configuration fields.
-  const CommonChannelFields({
+  const new({
     required this.enabled,
     required this.dmAccess,
     required this.groupAccess,
@@ -55,7 +55,7 @@ class CommonChannelFields<TGroupAccess extends Enum> {
   });
 
   /// Parses shared channel configuration fields from YAML.
-  factory CommonChannelFields.fromYaml(
+  factory fromYaml(
     String channelName,
     Map<String, dynamic> yaml,
     List<String> warns, {

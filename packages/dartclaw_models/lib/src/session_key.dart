@@ -13,7 +13,7 @@ class SessionKey {
   final String identifiers;
 
   /// Creates a parsed session key representation.
-  const SessionKey({required this.agentId, required this.scope, this.identifiers = ''});
+  const new({required this.agentId, required this.scope, this.identifiers = ''});
 
   /// Generates key string: `agent:<agentId>:<scope>:<identifiers>`.
   /// Identifiers are assumed to be pre-encoded by factory methods.
@@ -21,7 +21,7 @@ class SessionKey {
   String toString() => 'agent:$agentId:$scope:$identifiers';
 
   /// Parses a serialized key string back into a [SessionKey].
-  factory SessionKey.parse(String key) {
+  factory parse(String key) {
     final parts = key.split(':');
     if (parts.length < 4 || parts[0] != 'agent') {
       throw FormatException('Invalid session key format: $key');

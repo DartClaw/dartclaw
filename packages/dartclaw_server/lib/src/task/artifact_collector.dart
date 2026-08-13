@@ -14,7 +14,7 @@ import 'worktree_manager.dart';
 
 /// Collects task artifacts into `<dataDir>/tasks/<taskId>/artifacts/`.
 class ArtifactCollector {
-  ArtifactCollector({
+  new({
     required TaskService tasks,
     required MessageService messages,
     required String sessionsDir,

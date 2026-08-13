@@ -22,7 +22,7 @@ class LoopDetector {
   final Map<String, ({String fingerprint, int count})> _consecutiveToolCalls = {};
 
   /// Creates a [LoopDetector] with the given [config].
-  LoopDetector({required LoopDetectionConfig config}) : _config = config;
+  new({required LoopDetectionConfig config}) : _config = config;
 
   /// Whether loop detection is globally enabled.
   bool get enabled => _config.enabled;

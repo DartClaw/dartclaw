@@ -279,7 +279,7 @@ final class _ThrowingBackend extends _S07RecordingBackend {
 }
 
 final class _RecordingWiki extends WikiSearchSource {
-  _RecordingWiki() : super(workspaceDir: '.');
+  new() : super(workspaceDir: '.');
 
   final queries = <String>[];
   List<MemorySearchResult> results = const [];

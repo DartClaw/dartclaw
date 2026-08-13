@@ -416,9 +416,9 @@ final class WorkflowE2ePrerequisiteResult {
   final String? skipReason;
   final bool canCreateGitHubPr;
 
-  const WorkflowE2ePrerequisiteResult.run({required this.canCreateGitHubPr}) : skipReason = null;
+  const new run({required this.canCreateGitHubPr}) : skipReason = null;
 
-  const WorkflowE2ePrerequisiteResult.skip(this.skipReason) : canCreateGitHubPr = false;
+  const new skip(this.skipReason) : canCreateGitHubPr = false;
 
   bool get shouldSkip => skipReason != null;
 }
@@ -447,7 +447,7 @@ class WorkflowStepTrace {
   final DateTime queuedAt;
   final DateTime? completedAt;
 
-  WorkflowStepTrace({
+  new({
     required this.runId,
     required this.stepKey,
     required this.occurrence,
@@ -498,7 +498,7 @@ class WorkflowExecutionRecorder {
 
   final Map<String, List<Map<String, dynamic>>> _taskEventsByTaskId = {};
 
-  WorkflowExecutionRecorder(
+  new(
     this._eventBus,
     this._taskService,
     this._messageService,

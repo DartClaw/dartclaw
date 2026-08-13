@@ -131,7 +131,7 @@ void main() {
 }
 
 final class _MediatedCodex {
-  _MediatedCodex(this.authority, this.workspace, this.generatedStateDir);
+  new(this.authority, this.workspace, this.generatedStateDir);
 
   final ContainerAuthority authority;
   final Directory workspace;

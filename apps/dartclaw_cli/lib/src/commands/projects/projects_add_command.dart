@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import '../connected_command_support.dart';
 
 class ProjectsAddCommand extends ConnectedCommand {
-  ProjectsAddCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('name', help: 'Project name')
       ..addOption('remote-url', help: 'Remote Git URL')

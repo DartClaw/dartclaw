@@ -8,7 +8,7 @@ class TurnProgressSnapshot {
   final int accumulatedTokens;
   final int textLength;
 
-  const TurnProgressSnapshot({
+  const new({
     required this.elapsed,
     required this.toolCallCount,
     this.lastToolName,
@@ -24,12 +24,7 @@ class FeedbackContext {
   final String? inboundMessageId;
   String? placeholderMessageId;
 
-  FeedbackContext({
-    required this.channel,
-    required this.recipientJid,
-    this.inboundMessageId,
-    this.placeholderMessageId,
-  });
+  new({required this.channel, required this.recipientJid, this.inboundMessageId, this.placeholderMessageId});
 }
 
 /// Channel-specific progress feedback for a running turn.
@@ -62,7 +57,7 @@ abstract interface class ChannelFeedbackStrategy {
 
 /// No-op feedback strategy used when channel feedback is disabled.
 class NoFeedbackStrategy implements ChannelFeedbackStrategy {
-  const NoFeedbackStrategy();
+  const new();
 
   @override
   Future<void> onTurnStarted({required FeedbackContext context, TurnProgressSnapshot? snapshot}) async {}

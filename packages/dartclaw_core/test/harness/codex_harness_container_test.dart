@@ -18,7 +18,7 @@ const _sharedMcpBearerSentinel = 'shared-operator-MCP-BEARER-SENTINEL';
 
 /// Records what a containerized Codex launch actually asked the container to do.
 final class _RecordingCodexContainer implements ContainerExecutor {
-  _RecordingCodexContainer({
+  new({
     required this.hostRoot,
     this.profileId = 'restricted',
     this.mcpBridgeUrl,

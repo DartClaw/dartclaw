@@ -48,7 +48,7 @@ class SignalConfig {
   final TaskTriggerConfig taskTrigger;
 
   /// Creates immutable Signal channel configuration.
-  const SignalConfig({
+  const new({
     this.enabled = false,
     this.phoneNumber = '',
     this.executable = 'signal-cli',
@@ -72,10 +72,10 @@ class SignalConfig {
   List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
 
   /// Creates a disabled Signal configuration.
-  const SignalConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Parses Signal configuration from YAML, appending warnings to [warns].
-  factory SignalConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final common = CommonChannelFields<SignalGroupAccessMode>.fromYaml(
       'signal',
       yaml,

@@ -35,7 +35,7 @@ part 'task_executor_helpers.dart';
 
 /// Executes queued tasks through the shared execution authority.
 class TaskExecutor {
-  TaskExecutor({
+  new({
     required TaskExecutorServices services,
     required TaskExecutorRunners runners,
     TaskExecutorLimits limits = const TaskExecutorLimits(),

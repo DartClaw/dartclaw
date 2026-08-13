@@ -16,7 +16,7 @@ class ToolPolicyCascade {
   final Map<String, Set<String>> agentDeny;
   final Map<String, Set<String>> agentAllow;
 
-  ToolPolicyCascade({
+  new({
     Set<String> globalDeny = const {},
     Map<String, Set<String>> agentDeny = const {},
     Map<String, Set<String>> agentAllow = const {},
@@ -77,7 +77,7 @@ class ToolPolicyGuard extends Guard {
 
   final ToolPolicyCascade cascade;
 
-  ToolPolicyGuard({required this.cascade});
+  new({required this.cascade});
 
   @override
   String get name => 'ToolPolicyGuard';

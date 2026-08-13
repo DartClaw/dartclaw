@@ -170,7 +170,7 @@ String _staticDir() {
 final class _MapResolver implements CitationSourceResolver {
   final Map<CitationLayer, Set<String>> locators;
 
-  const _MapResolver(this.locators);
+  const new(this.locators);
 
   @override
   Future<bool> resolves(SourceRef ref) async => locators[ref.layer]?.contains(ref.locator) ?? false;

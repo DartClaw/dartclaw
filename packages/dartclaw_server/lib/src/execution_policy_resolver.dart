@@ -9,7 +9,7 @@ import 'container/container_dispatcher.dart';
 /// rejected before the turn starts and is never replaced by host execution.
 final class ExecutionPolicyException implements Exception {
   /// Creates a rejection carrying an operator-actionable [message].
-  const ExecutionPolicyException(this.message);
+  const new(this.message);
 
   /// Diagnostic naming the affected identity, the policy, and the remediation.
   final String message;
@@ -29,7 +29,7 @@ final class ExecutionPolicyResolver {
   ///
   /// [availableContainerProfiles] are the container profiles this deployment
   /// can actually run; an empty set means no container runtime is available.
-  ExecutionPolicyResolver({required DartclawConfig config, required Set<String> availableContainerProfiles})
+  new({required DartclawConfig config, required Set<String> availableContainerProfiles})
     : _config = config,
       _availableContainerProfiles = Set.unmodifiable(availableContainerProfiles);
 

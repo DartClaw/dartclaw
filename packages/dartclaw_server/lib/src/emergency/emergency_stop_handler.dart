@@ -12,7 +12,7 @@ class EmergencyStopResult {
   /// Number of tasks that were transitioned to cancelled.
   final int tasksCancelled;
 
-  const EmergencyStopResult({required this.turnsCancelled, required this.tasksCancelled});
+  const new({required this.turnsCancelled, required this.tasksCancelled});
 
   /// True when at least one turn or task was cancelled.
   bool get hadActivity => turnsCancelled > 0 || tasksCancelled > 0;
@@ -35,7 +35,7 @@ class EmergencyStopHandler {
   final EventBus? _eventBus;
   final SseBroadcast? _sseBroadcast;
 
-  EmergencyStopHandler({
+  new({
     required TurnManager turnManager,
     required TaskService taskService,
     EventBus? eventBus,

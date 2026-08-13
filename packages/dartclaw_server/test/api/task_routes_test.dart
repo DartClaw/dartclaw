@@ -1213,7 +1213,7 @@ void main() {
 }
 
 class _CancelTrackingTurns extends TurnManager {
-  _CancelTrackingTurns()
+  new()
     : super(
         messages: _ThrowingMessageService(),
         worker: FakeAgentHarness(),
@@ -1237,7 +1237,7 @@ class _MockMergeExecutor extends MergeExecutor {
   final MergeResult result;
   int callCount = 0;
 
-  _MockMergeExecutor({required this.result}) : super(projectDir: '/mock');
+  new({required this.result}) : super(projectDir: '/mock');
 
   @override
   Future<MergeResult> merge({
@@ -1256,7 +1256,7 @@ class _MockMergeExecutor extends MergeExecutor {
 class _ThrowingMergeExecutor extends MergeExecutor {
   final Object error;
 
-  _ThrowingMergeExecutor(this.error) : super(projectDir: '/mock');
+  new(this.error) : super(projectDir: '/mock');
 
   @override
   Future<MergeResult> merge({

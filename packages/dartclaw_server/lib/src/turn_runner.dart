@@ -115,7 +115,7 @@ class TurnRunner implements core.TurnRunner {
     _outcomeObserver = observer;
   }
 
-  TurnRunner({
+  new({
     required AgentHarness harness,
     required MessageService messages,
     required BehaviorFileService behavior,

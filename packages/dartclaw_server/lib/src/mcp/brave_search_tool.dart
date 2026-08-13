@@ -15,9 +15,7 @@ class BraveSearchProvider implements SearchProvider {
   final String _apiKey;
   final Duration _timeout;
 
-  BraveSearchProvider({required String apiKey, Duration timeout = const Duration(seconds: 15)})
-    : _apiKey = apiKey,
-      _timeout = timeout;
+  new({required String apiKey, Duration timeout = const Duration(seconds: 15)}) : _apiKey = apiKey, _timeout = timeout;
 
   @override
   Future<List<SearchResult>> search(String query, {int count = 5}) async {
@@ -51,7 +49,7 @@ class BraveSearchProvider implements SearchProvider {
 
 /// MCP tool that searches via Brave Search API.
 class BraveSearchTool extends SearchMcpTool {
-  BraveSearchTool({required super.provider, super.contentGuard})
+  new({required super.provider, super.contentGuard})
     : super(
         name: 'brave_search',
         description: 'Search the web using Brave Search API. Returns titles, URLs, and snippets.',

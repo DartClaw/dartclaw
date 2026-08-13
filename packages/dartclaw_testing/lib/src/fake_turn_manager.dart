@@ -93,7 +93,7 @@ typedef RecordedStartTurn = ({
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
 class FakeTurnManager implements TurnManager {
-  FakeTurnManager({
+  new({
     Iterable<String> activeSessionIds = const [],
     Map<String, String> activeTurns = const {},
     Map<String, TurnOutcome> recentOutcomes = const {},

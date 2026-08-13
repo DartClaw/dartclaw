@@ -10,7 +10,7 @@ final class _ResolvedSourceAttribution {
   final String? excerpt;
   final bool showLayerBadge;
 
-  const _ResolvedSourceAttribution({
+  const new({
     required this.sourceRef,
     required this.attributed,
     required this.marker,

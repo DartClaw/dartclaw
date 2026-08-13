@@ -6,7 +6,7 @@ import '../knowledge/knowledge_inbox_service.dart';
 /// Reopens non-canonical memory locators through their owning native source.
 final class LiveMemorySourceResolver {
   /// Creates a resolver backed by the current native source owners.
-  LiveMemorySourceResolver({
+  new({
     required WikiSearchSource wiki,
     required TemporalKnowledgeGraphService kg,
     required KnowledgeInboxReadService inbox,

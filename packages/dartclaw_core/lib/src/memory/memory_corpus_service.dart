@@ -22,13 +22,13 @@ part 'memory_corpus_scanner.dart';
 enum MemorySnapshotOmissionReason { documentLimit, aggregateByteLimit }
 
 final class MemorySnapshotOmission {
-  const MemorySnapshotOmission({required this.path, required this.reason});
+  const new({required this.path, required this.reason});
   final String path;
   final MemorySnapshotOmissionReason reason;
 }
 
 final class MemoryCorpusSnapshot {
-  MemoryCorpusSnapshot({
+  new({
     required this.collectionRevision,
     required this.fingerprint,
     required Map<String, Uint8List> documents,
@@ -50,7 +50,7 @@ final class MemoryCorpusSnapshot {
 }
 
 final class MemoryCorpusStatusSnapshot {
-  MemoryCorpusStatusSnapshot({
+  new({
     required this.collectionRevision,
     required this.collectionFingerprint,
     required this.curatedEntryCount,
@@ -93,7 +93,7 @@ final class MemoryCorpusStatusSnapshot {
 }
 
 final class MemoryCurationSnapshot {
-  const MemoryCurationSnapshot({
+  const new({
     required this.collectionRevision,
     required this.index,
     required this.entries,
@@ -109,21 +109,17 @@ final class MemoryCurationSnapshot {
 }
 
 final class MemoryCorpusExternalChange {
-  const MemoryCorpusExternalChange({required this.role, required this.locator, required this.wasRemoved});
+  const new({required this.role, required this.locator, required this.wasRemoved});
   final MemoryRole? role;
   final String locator;
   final bool wasRemoved;
 }
 
 final class MemoryCorpusCommitResult {
-  const MemoryCorpusCommitResult._({
-    required this.wasCommitted,
-    required this.collectionRevision,
-    required this.fingerprint,
-  });
-  const MemoryCorpusCommitResult.committed({required int collectionRevision, required String fingerprint})
+  const new _({required this.wasCommitted, required this.collectionRevision, required this.fingerprint});
+  const new committed({required int collectionRevision, required String fingerprint})
     : this._(wasCommitted: true, collectionRevision: collectionRevision, fingerprint: fingerprint);
-  const MemoryCorpusCommitResult.stale({required int collectionRevision, required String fingerprint})
+  const new stale({required int collectionRevision, required String fingerprint})
     : this._(wasCommitted: false, collectionRevision: collectionRevision, fingerprint: fingerprint);
   final bool wasCommitted;
   final int collectionRevision;
@@ -131,7 +127,7 @@ final class MemoryCorpusCommitResult {
 }
 
 final class MemoryCorpusProjection {
-  MemoryCorpusProjection({
+  new({
     required this.corpus,
     required Iterable<String> priorRecordIds,
     required this.isComplete,
@@ -149,12 +145,7 @@ final class MemoryCorpusProjection {
 typedef MemoryCorpusPostCommitProjection = FutureOr<void> Function(MemoryCorpusProjection, MemoryCorpusCommitResult);
 
 final class MemoryCorpusSelection {
-  const MemoryCorpusSelection({
-    required this.collectionRevision,
-    required this.fingerprint,
-    required this.corpus,
-    required this.paths,
-  });
+  const new({required this.collectionRevision, required this.fingerprint, required this.corpus, required this.paths});
   final int collectionRevision;
   final String fingerprint;
   final CanonicalMemoryCorpus corpus;
@@ -162,12 +153,7 @@ final class MemoryCorpusSelection {
 }
 
 final class MemoryCorpusManifest {
-  const MemoryCorpusManifest({
-    required this.collectionRevision,
-    required this.fingerprint,
-    required this.paths,
-    required this.status,
-  });
+  const new({required this.collectionRevision, required this.fingerprint, required this.paths, required this.status});
   final int collectionRevision;
   final String fingerprint;
   final List<String> paths;
@@ -175,13 +161,13 @@ final class MemoryCorpusManifest {
 }
 
 final class MemoryCorpusChange<T> {
-  const MemoryCorpusChange({required this.value, this.replacement});
+  const new({required this.value, this.replacement});
   final T value;
   final CanonicalMemoryCorpus? replacement;
 }
 
 final class MemoryCorpusChangeResult<T> {
-  const MemoryCorpusChangeResult({
+  const new({
     required this.wasStale,
     required this.wasCommitted,
     required this.collectionRevision,
@@ -195,7 +181,7 @@ final class MemoryCorpusChangeResult<T> {
 }
 
 final class MemoryCorpusFileMutation<T> {
-  MemoryCorpusFileMutation({required this.value, required Map<String, List<int>?> writes})
+  new({required this.value, required Map<String, List<int>?> writes})
     : writes = Map.unmodifiable({
         for (final entry in writes.entries) entry.key: entry.value == null ? null : Uint8List.fromList(entry.value!),
       });
@@ -204,7 +190,7 @@ final class MemoryCorpusFileMutation<T> {
 }
 
 final class MemoryCorpusMutation<T> {
-  const MemoryCorpusMutation({required this.value, required this.corpus});
+  const new({required this.value, required this.corpus});
   final T value;
   final CanonicalMemoryCorpus corpus;
 }
@@ -222,18 +208,18 @@ enum MemoryCorpusTransition {
 typedef MemoryCorpusTransitionHook = FutureOr<void> Function(MemoryCorpusTransition transition, String path);
 
 final class MemoryCorpusSimulatedCrash implements Exception {
-  const MemoryCorpusSimulatedCrash(this.transition);
+  const new(this.transition);
   final MemoryCorpusTransition transition;
 }
 
 final class MemoryCorpusPostCommitException implements Exception {
-  const MemoryCorpusPostCommitException({required this.result, required this.cause});
+  const new({required this.result, required this.cause});
   final MemoryCorpusCommitResult result;
   final Object cause;
 }
 
 final class MemoryCorpusRecoveryRequired implements Exception {
-  const MemoryCorpusRecoveryRequired(this.message);
+  const new(this.message);
   final String message;
 
   @override
@@ -241,7 +227,7 @@ final class MemoryCorpusRecoveryRequired implements Exception {
 }
 
 final class MemoryCorpusService {
-  MemoryCorpusService({
+  new({
     required this.workspaceDir,
     MemoryCorpusTransitionHook? transitionHook,
     void Function(String path)? readObserver,

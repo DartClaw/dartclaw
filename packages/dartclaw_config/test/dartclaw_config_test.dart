@@ -9,7 +9,7 @@ import 'support/load_config.dart';
 class _FakeGoogleChatConfig {
   final bool enabled;
 
-  const _FakeGoogleChatConfig({this.enabled = false});
+  const new({this.enabled = false});
 }
 
 void _ensureTestGoogleChatRegistered() {

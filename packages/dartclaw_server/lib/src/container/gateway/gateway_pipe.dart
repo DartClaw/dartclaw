@@ -12,7 +12,7 @@ import 'gateway_models.dart';
 /// destination, or credential. A revoked pipe stays revoked — there is no
 /// re-attach path for an authority that has been released.
 final class GatewayPipe {
-  GatewayPipe({
+  new({
     required this.surface,
     required this.principal,
     required BridgeChannel channel,
@@ -318,7 +318,7 @@ final class GatewayPipe {
 
 /// One request the host is currently answering.
 final class _InFlightRequest {
-  _InFlightRequest(this.id, this._limits, this._detach, this._onConsumerPaused) {
+  new(this.id, this._limits, this._detach, this._onConsumerPaused) {
     _body = StreamController<List<int>>(
       onPause: () => _setPaused(true),
       onResume: () => _setPaused(false),

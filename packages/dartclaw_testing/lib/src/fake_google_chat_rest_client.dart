@@ -45,7 +45,7 @@ typedef GoogleChatDownloadMediaCallback = Future<List<int>?> Function(String res
 
 /// Recording [GoogleChatRestClient] fake with configurable operation callbacks.
 class FakeGoogleChatRestClient extends GoogleChatRestClient {
-  FakeGoogleChatRestClient({
+  new({
     this.quoteFallbackUsesQuotedMessageMetadata = true,
     this.failQuotedSend = false,
     this.failCard = false,

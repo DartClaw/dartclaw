@@ -17,7 +17,7 @@ class _FakeRemotePushService extends RemotePushService {
   final PushResult result;
   int callCount = 0;
 
-  _FakeRemotePushService(this.result);
+  new(this.result);
 
   @override
   Future<PushResult> push({required Project project, required String branch}) async {
@@ -30,7 +30,7 @@ class _FakePrCreator extends PrCreator {
   final PrCreationResult result;
   final List<({Project project, Task task, String branch, String? notes})> calls = [];
 
-  _FakePrCreator(this.result);
+  new(this.result);
 
   @override
   Future<PrCreationResult> create({

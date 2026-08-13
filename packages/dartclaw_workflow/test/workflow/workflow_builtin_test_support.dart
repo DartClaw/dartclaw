@@ -59,7 +59,7 @@ class StubResponse {
   final String assistantContent;
   final Map<String, dynamic>? worktreeJson;
 
-  const StubResponse({required this.assistantContent, this.worktreeJson});
+  const new({required this.assistantContent, this.worktreeJson});
 }
 
 /// Architecture-review stub. When [stepArtifactsDir] is supplied the report is
@@ -229,7 +229,7 @@ class QueuedStep {
   final int occurrence;
   final int? mapIndex;
 
-  const QueuedStep({
+  const new({
     required this.definition,
     required this.task,
     required this.stepKey,
@@ -247,7 +247,7 @@ class ExecutionTrace {
   final List<String> queuedStepOrder;
   final List<QueuedTaskRecord> queuedTasks;
 
-  const ExecutionTrace({
+  const new({
     required this.context,
     required this.finalRun,
     required this.descriptionsByStep,
@@ -269,7 +269,7 @@ class QueuedTaskRecord {
   final String description;
   final Map<String, dynamic> configJson;
 
-  const QueuedTaskRecord({
+  const new({
     required this.stepKey,
     required this.taskId,
     required this.projectId,

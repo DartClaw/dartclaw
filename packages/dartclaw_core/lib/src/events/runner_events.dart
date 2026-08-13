@@ -28,7 +28,7 @@ final class RunnerStateChangedEvent extends RunnerLifecycleEvent {
   final DateTime timestamp;
 
   /// Creates a runner-state-changed event.
-  RunnerStateChangedEvent({required this.runnerId, required this.state, this.currentTaskId, required this.timestamp});
+  new({required this.runnerId, required this.state, this.currentTaskId, required this.timestamp});
 
   @override
   String toString() => 'RunnerStateChangedEvent(runner: $runnerId, state: $state, task: $currentTaskId)';

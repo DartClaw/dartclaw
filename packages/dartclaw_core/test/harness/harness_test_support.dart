@@ -17,7 +17,7 @@ import 'package:test/test.dart';
 /// Union of the former per-file recording guards: exposes both the full
 /// [contexts] history and a [lastContext] convenience accessor.
 class RecordingGuard extends Guard {
-  RecordingGuard({this.verdict});
+  new({this.verdict});
 
   final GuardVerdict? verdict;
   final contexts = <GuardContext>[];
@@ -59,7 +59,7 @@ FakeProcess makeKillTrackingClaudeProcess({bool completeExitOnKill = false, int 
 );
 
 class FailingWriteClaudeProcess extends CapturingFakeProcess {
-  FailingWriteClaudeProcess() : super(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
+  new() : super(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
 
   bool failWrites = false;
 
@@ -70,7 +70,7 @@ class FailingWriteClaudeProcess extends CapturingFakeProcess {
 }
 
 class SwitchableFailingSink implements IOSink {
-  SwitchableFailingSink(this._delegate, this._shouldFail);
+  new(this._delegate, this._shouldFail);
 
   final IOSink _delegate;
   final bool Function() _shouldFail;
@@ -125,7 +125,7 @@ class SwitchableFailingSink implements IOSink {
 }
 
 class FakeClaudeContainerExecutor implements ContainerExecutor {
-  FakeClaudeContainerExecutor({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl});
+  new({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl});
 
   @override
   final String profileId = 'workspace';

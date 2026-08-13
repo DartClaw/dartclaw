@@ -11,7 +11,7 @@ enum TurnCancelReason {
 
   final String jsonName;
 
-  const TurnCancelReason(this.jsonName);
+  new(this.jsonName);
 
   static TurnCancelReason? parse(String value) {
     for (final reason in values) {
@@ -39,7 +39,7 @@ class TurnStatusSnapshot {
   /// terminal turns, so completion time must not leak into that field.
   final DateTime? completedAt;
 
-  const TurnStatusSnapshot({
+  const new({
     required this.sessionId,
     required this.state,
     required this.canCancel,
@@ -53,10 +53,10 @@ class TurnStatusSnapshot {
     this.completedAt,
   });
 
-  factory TurnStatusSnapshot.idle(String sessionId) =>
+  factory idle(String sessionId) =>
       TurnStatusSnapshot(sessionId: sessionId, state: TurnWaitState.idle, canCancel: false);
 
-  factory TurnStatusSnapshot.fromOutcome({
+  factory fromOutcome({
     required String sessionId,
     required TurnOutcome outcome,
     required String provider,
@@ -97,7 +97,7 @@ class TurnCancelResult {
   final TurnWaitState status;
   final bool releasedSessionLock;
 
-  const TurnCancelResult({required this.status, required this.releasedSessionLock});
+  const new({required this.status, required this.releasedSessionLock});
 
   Map<String, dynamic> toJson() => {'status': status.name, 'released_session_lock': releasedSessionLock};
 }
@@ -107,5 +107,5 @@ class TurnCancelException implements Exception {
   final String message;
   final int statusCode;
 
-  const TurnCancelException(this.code, this.message, {required this.statusCode});
+  const new(this.code, this.message, {required this.statusCode});
 }

@@ -392,7 +392,7 @@ class _ProviderWorker implements AgentHarness {
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
   final Completer<void> _turnStarted = Completer<void>();
 
-  _ProviderWorker({required this.responseText});
+  new({required this.responseText});
 
   String responseText;
   int turnCalls = 0;
@@ -484,7 +484,7 @@ Future<void> _waitForTaskStatus(TaskService tasks, String taskId, TaskStatus sta
 }
 
 class _SerialSessionService extends SessionService {
-  _SerialSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   Future<void> _pending = Future<void>.value();
 

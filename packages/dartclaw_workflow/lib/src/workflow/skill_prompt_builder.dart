@@ -21,7 +21,7 @@ class SkillPromptBuilder {
   /// registry that produces live harness instances – so the activation
   /// convention stays owned by each concrete [AgentHarness] subclass. No
   /// per-provider branching lives in this builder.
-  const SkillPromptBuilder({required PromptAugmenter augmenter, required HarnessFactory harnessFactory})
+  const new({required PromptAugmenter augmenter, required HarnessFactory harnessFactory})
     : _augmenter = augmenter,
       _harnessFactory = harnessFactory;
 

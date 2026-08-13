@@ -35,7 +35,7 @@ class AcpVerifiedTargetProfile {
   final bool requiresTerminalCapability;
 
   /// Creates verified target metadata.
-  const AcpVerifiedTargetProfile({
+  const new({
     required this.providerId,
     required this.binary,
     required this.args,
@@ -83,10 +83,10 @@ class HarnessConfig {
   final AcpConfig acp;
 
   /// Creates harness-level runtime controls.
-  const HarnessConfig({this.turnMonitor = const TurnMonitorConfig.defaults(), this.acp = const AcpConfig.defaults()});
+  const new({this.turnMonitor = const TurnMonitorConfig.defaults(), this.acp = const AcpConfig.defaults()});
 
   /// Default harness controls.
-  const HarnessConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -114,13 +114,10 @@ class TurnMonitorConfig {
   final Duration stuckAfter;
 
   /// Creates turn monitor thresholds.
-  const TurnMonitorConfig({
-    this.waitWarningAfter = const Duration(seconds: 30),
-    this.stuckAfter = const Duration(seconds: 120),
-  });
+  const new({this.waitWarningAfter = const Duration(seconds: 30), this.stuckAfter = const Duration(seconds: 120)});
 
   /// Default turn monitor thresholds.
-  const TurnMonitorConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>
@@ -140,10 +137,10 @@ class AcpConfig {
   final Map<String, AcpAgentConfig> agents;
 
   /// Creates an ACP registration section.
-  const AcpConfig({this.agents = const {}});
+  const new({this.agents = const {}});
 
   /// Default ACP registration section.
-  const AcpConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the ACP agent registration for [providerId], if configured.
   AcpAgentConfig? operator [](String providerId) {
@@ -238,7 +235,7 @@ class AcpAgentConfig {
   final AcpContainerProfile? containerProfile;
 
   /// Creates an ACP agent registration.
-  const AcpAgentConfig({
+  const new({
     required this.binary,
     this.args = const [],
     this.topology = AcpAgentTopology.unverified,

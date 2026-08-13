@@ -27,7 +27,7 @@ final class AdvisorMentionEvent extends DartclawEvent {
   @override
   final DateTime timestamp;
 
-  AdvisorMentionEvent({
+  new({
     required this.senderJid,
     required this.channelType,
     required this.recipientId,
@@ -66,7 +66,7 @@ final class AdvisorInsightEvent extends DartclawEvent {
   @override
   final DateTime timestamp;
 
-  AdvisorInsightEvent({
+  new({
     required this.status,
     required this.observation,
     this.suggestion,

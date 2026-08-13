@@ -615,11 +615,8 @@ void main() {
 Future<void> _flushEvents() => Future<void>.delayed(Duration.zero);
 
 final class _CoordinatorFixture {
-  _CoordinatorFixture({
-    required Map<String, int> capacities,
-    bool terminationConfirmed = true,
-    _TestHarness? primaryHarness,
-  }) : _terminationConfirmed = terminationConfirmed {
+  new({required Map<String, int> capacities, bool terminationConfirmed = true, _TestHarness? primaryHarness})
+    : _terminationConfirmed = terminationConfirmed {
     coordinator = ExecutionCoordinator(
       providerCapacities: capacities,
       primary: primaryHarness == null
@@ -683,7 +680,7 @@ TurnRunner _runner(_TestHarness harness, {required String providerId, required E
 );
 
 class _TestHarness extends FakeAgentHarness {
-  _TestHarness({this.terminationConfirmed = true}) : super(autoTransitionState: false);
+  new({this.terminationConfirmed = true}) : super(autoTransitionState: false);
 
   final bool terminationConfirmed;
 
@@ -692,7 +689,7 @@ class _TestHarness extends FakeAgentHarness {
 }
 
 final class _FailingStartHarness extends _TestHarness {
-  _FailingStartHarness({required super.terminationConfirmed});
+  new({required super.terminationConfirmed});
 
   @override
   Future<void> start() async {

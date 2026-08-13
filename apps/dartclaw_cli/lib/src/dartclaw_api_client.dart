@@ -12,10 +12,10 @@ class DartclawApiClient {
   final String? token;
   final ApiTransport _transport;
 
-  DartclawApiClient({required this.baseUri, this.token, HttpClientFactory? httpClientFactory, ApiTransport? transport})
+  new({required this.baseUri, this.token, HttpClientFactory? httpClientFactory, ApiTransport? transport})
     : _transport = transport ?? _IoApiTransport(httpClientFactory: httpClientFactory);
 
-  factory DartclawApiClient.fromConfig({
+  factory fromConfig({
     required DartclawConfig config,
     String? serverOverride,
     String? tokenOverride,
@@ -279,7 +279,7 @@ class DartclawApiException implements Exception {
   final int? statusCode;
   final Object? details;
 
-  const DartclawApiException(this.message, {this.code, this.statusCode, this.details});
+  const new(this.message, {this.code, this.statusCode, this.details});
 
   @override
   String toString() => message;
@@ -291,7 +291,7 @@ class ApiRequest {
   final Map<String, String> headers;
   final String? body;
 
-  const ApiRequest({required this.method, required this.uri, required this.headers, this.body});
+  const new({required this.method, required this.uri, required this.headers, this.body});
 }
 
 class ApiResponse {
@@ -299,7 +299,7 @@ class ApiResponse {
   final Map<String, String> headers;
   final Stream<List<int>> body;
 
-  const ApiResponse({required this.statusCode, required this.headers, required this.body});
+  const new({required this.statusCode, required this.headers, required this.body});
 
   Future<String> readAsString() async {
     return utf8.decode(await body.expand((chunk) => chunk).toList());
@@ -315,7 +315,7 @@ abstract interface class ApiTransport {
 class _IoApiTransport implements ApiTransport {
   final HttpClientFactory _httpClientFactory;
 
-  _IoApiTransport({HttpClientFactory? httpClientFactory}) : _httpClientFactory = httpClientFactory ?? HttpClient.new;
+  new({HttpClientFactory? httpClientFactory}) : _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
   @override
   Future<ApiResponse> send(ApiRequest request) async {

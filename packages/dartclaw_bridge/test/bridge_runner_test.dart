@@ -257,7 +257,7 @@ void main() {
 
 /// Drives a real [BridgeRunner] over in-memory pipes, standing in for the host.
 final class _HostPipe {
-  _HostPipe._(this.runner, this._toBridge, this._fromBridge, this.frames, this.handshake, this.ready);
+  new _(this.runner, this._toBridge, this._fromBridge, this.frames, this.handshake, this.ready);
 
   final BridgeRunner runner;
   final StreamController<List<int>> _toBridge;
@@ -325,7 +325,7 @@ final class _HostPipe {
 }
 
 final class _HttpResult {
-  const _HttpResult(this.statusCode, this.body, this.headers);
+  const new(this.statusCode, this.body, this.headers);
 
   final int statusCode;
   final String body;

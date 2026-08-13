@@ -15,7 +15,7 @@ import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 /// completes on the first [sendText]/[sendMedia]. Status and running/paired state are configurable so
 /// each call site can reproduce its own permutation.
 class FakeGowaManager extends GowaManager {
-  FakeGowaManager({
+  new({
     bool? running,
     GowaStatus status = (isConnected: false, isLoggedIn: false, deviceId: null),
     String? pairedJid,

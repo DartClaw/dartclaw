@@ -14,7 +14,7 @@ class MockQmdManager extends QmdManager {
   final _content = <Map<String, dynamic>>[];
   bool fakeRunning = true;
 
-  MockQmdManager()
+  new()
     : super(
         commandRunner: (exe, args, {workingDirectory}) async {
           return ProcessResult(0, 0, '', '');

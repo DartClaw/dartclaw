@@ -15,7 +15,7 @@ class DeployCommand extends Command<void> {
   @override
   String get description => 'Deploy DartClaw as a persistent service';
 
-  DeployCommand() {
+  new() {
     addSubcommand(ConfigCommand());
     addSubcommand(SecretsCommand());
   }

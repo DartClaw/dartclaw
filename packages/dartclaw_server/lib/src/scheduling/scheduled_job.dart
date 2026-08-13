@@ -51,7 +51,7 @@ class ScheduledJob {
   /// through the agent turn system. The returned string is the job result.
   final JobCallback? onExecute;
 
-  ScheduledJob({
+  new({
     required this.id,
     this.prompt = '',
     required this.scheduleType,
@@ -74,7 +74,7 @@ class ScheduledJob {
   ///
   /// Optional [warnings] list receives non-fatal parse warnings (e.g. from
   /// parsing a nested [ScheduledTaskDefinition]).
-  factory ScheduledJob.fromConfig(Map<String, dynamic> config, [List<String>? warnings]) {
+  factory fromConfig(Map<String, dynamic> config, [List<String>? warnings]) {
     final id = (config['id'] ?? config['name']) as String? ?? '';
     if (id.isEmpty) throw FormatException('Job missing "id"');
 

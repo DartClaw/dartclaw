@@ -4,7 +4,7 @@ import 'runners_list_command.dart';
 import 'runners_show_command.dart';
 
 class RunnersCommand extends Command<void> {
-  RunnersCommand() {
+  new() {
     addSubcommand(RunnersListCommand());
     addSubcommand(RunnersShowCommand());
   }

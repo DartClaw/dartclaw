@@ -27,7 +27,7 @@ class PauseController {
   DateTime? _pausedAt;
   final List<_QueuedMessage> _queue = [];
 
-  PauseController({this.maxQueueSize = 200});
+  new({this.maxQueueSize = 200});
 
   /// Whether the agent is currently paused.
   bool get isPaused => _paused;
@@ -146,10 +146,5 @@ class _QueuedMessage {
   final String sessionKey;
   final String senderDisplayName;
 
-  _QueuedMessage({
-    required this.message,
-    required this.channel,
-    required this.sessionKey,
-    required this.senderDisplayName,
-  });
+  new({required this.message, required this.channel, required this.sessionKey, required this.senderDisplayName});
 }

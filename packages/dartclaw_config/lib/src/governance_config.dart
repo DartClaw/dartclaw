@@ -36,7 +36,7 @@ class GovernanceConfig {
   final TurnProgressConfig turnProgress;
 
   /// Creates a [GovernanceConfig] value.
-  const GovernanceConfig({
+  const new({
     this.adminSenders = const [],
     this.rateLimits = const RateLimitsConfig.defaults(),
     this.budget = const BudgetConfig.defaults(),
@@ -47,7 +47,7 @@ class GovernanceConfig {
   });
 
   /// Default governance config — all features disabled, all senders are admins.
-  const GovernanceConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns `true` if [senderId] is an admin.
   ///

@@ -1039,7 +1039,7 @@ class _ManualTimer implements Timer {
   final void Function() _callback;
   var _isActive = true;
 
-  _ManualTimer(this.duration, this._callback);
+  new(this.duration, this._callback);
 
   void fire() {
     if (!_isActive) return;

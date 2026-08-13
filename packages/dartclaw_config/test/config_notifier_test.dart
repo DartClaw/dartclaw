@@ -8,7 +8,7 @@ class _FakeReconfigurable implements Reconfigurable {
 
   final List<ConfigDelta> received = [];
 
-  _FakeReconfigurable(this._watchKeys, {this.shouldThrow = false});
+  new(this._watchKeys, {this.shouldThrow = false});
 
   @override
   Set<String> get watchKeys => _watchKeys;

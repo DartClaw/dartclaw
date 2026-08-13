@@ -29,7 +29,7 @@ class AlertThrottle {
 
   final Map<String, _ThrottleEntry> _entries = {};
 
-  AlertThrottle({required Duration cooldown, required int burstThreshold, required OnSummary onSummary})
+  new({required Duration cooldown, required int burstThreshold, required OnSummary onSummary})
     : _cooldown = cooldown,
       _burstThreshold = burstThreshold,
       _onSummary = onSummary;
@@ -98,5 +98,5 @@ class _ThrottleEntry {
   int suppressedCount = 0;
   Timer? timer;
 
-  _ThrottleEntry({required this.firstEventTime});
+  new({required this.firstEventTime});
 }

@@ -32,7 +32,7 @@ class ProviderStatus {
   final String? securityClassification;
   final List<Map<String, dynamic>>? validationEvidence;
 
-  const ProviderStatus({
+  const new({
     required this.id,
     required this.executable,
     required this.version,
@@ -82,7 +82,7 @@ class ProviderStatusService {
 
   final Map<String, _ProbeResult> _probeCache = <String, _ProbeResult>{};
 
-  ProviderStatusService({
+  new({
     required ProvidersConfig providers,
     required CredentialRegistry registry,
     required String defaultProvider,
@@ -299,5 +299,5 @@ class _ProbeResult {
   final String? version;
   final bool binaryAuthed;
 
-  const _ProbeResult({required this.binaryFound, this.version, this.binaryAuthed = false});
+  const new({required this.binaryFound, this.version, this.binaryAuthed = false});
 }

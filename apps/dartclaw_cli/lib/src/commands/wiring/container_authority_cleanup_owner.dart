@@ -9,7 +9,7 @@ import 'package:logging/logging.dart';
 /// Failed releases remain owned and are retried after [retryDelay]. [dispose]
 /// performs a final sweep over active and failed leases.
 class ContainerAuthorityCleanupOwner {
-  ContainerAuthorityCleanupOwner({this.retryDelay = const Duration(seconds: 5)});
+  new({this.retryDelay = const Duration(seconds: 5)});
 
   static final _log = Logger('ContainerAuthorityCleanupOwner');
 
@@ -79,7 +79,7 @@ class ContainerAuthorityCleanupOwner {
 }
 
 final class _OwnedContainerAuthorityLease implements ContainerAuthorityLease {
-  _OwnedContainerAuthorityLease(this._delegate, this._owner);
+  new(this._delegate, this._owner);
 
   final ContainerAuthorityLease _delegate;
   final ContainerAuthorityCleanupOwner _owner;

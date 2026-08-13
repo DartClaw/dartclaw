@@ -21,7 +21,7 @@ class GroupEntry {
   /// Optional effort override for turns from this group.
   final String? effort;
 
-  const GroupEntry({required this.id, this.name, this.project, this.model, this.effort});
+  const new({required this.id, this.name, this.project, this.model, this.effort});
 
   /// Parses a mixed YAML list of strings and maps into a [GroupEntry] list.
   ///

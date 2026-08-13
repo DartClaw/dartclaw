@@ -102,7 +102,7 @@ class CliWorkflowPrResult {
   final String prUrl;
   final String? error;
 
-  const CliWorkflowPrResult({required this.status, required this.prUrl, this.error});
+  const new({required this.status, required this.prUrl, this.error});
 }
 
 /// Optional PR-creation hook for standalone CLI workflow runs.
@@ -179,7 +179,7 @@ class CliWorkflowWiring {
   bool _executionsWired = false;
   bool _workflowServiceWired = false;
 
-  CliWorkflowWiring({
+  new({
     required this.config,
     required this.dataDir,
     String? runtimeCwd,

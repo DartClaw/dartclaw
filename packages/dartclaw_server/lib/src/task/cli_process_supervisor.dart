@@ -14,7 +14,7 @@ final _processLifecycleLog = Logger('WorkflowCliProcess');
 final class CliProcessSupervisor {
   static const defaultOutputLimitBytes = 16 * 1024 * 1024;
 
-  CliProcessSupervisor({
+  new({
     required this.process,
     required this.provider,
     required this.stepName,

@@ -25,7 +25,7 @@ class TaskOrigin {
   /// Currently populated only for Google Chat (sender `avatarUrl`).
   final String? senderAvatarUrl;
 
-  const TaskOrigin({
+  const new({
     required this.channelType,
     required this.sessionKey,
     required this.recipientId,
@@ -47,7 +47,7 @@ class TaskOrigin {
     if (senderAvatarUrl != null) 'senderAvatarUrl': senderAvatarUrl,
   };
 
-  factory TaskOrigin.fromJson(Map<String, dynamic> json) => TaskOrigin(
+  factory fromJson(Map<String, dynamic> json) => TaskOrigin(
     channelType: json['channelType'] as String,
     sessionKey: json['sessionKey'] as String,
     recipientId: json['recipientId'] as String,

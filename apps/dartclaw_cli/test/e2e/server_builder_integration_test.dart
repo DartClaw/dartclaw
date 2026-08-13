@@ -109,7 +109,7 @@ final class _FakeOutboundTransport implements OutboundMcpTransport {
   var initializeRequests = 0;
   var toolsListRequests = 0;
 
-  _FakeOutboundTransport({
+  new({
     required this.tools,
     this.failedToolsListResponses = 0,
     this.rejectDuplicateInitialize = false,
@@ -177,7 +177,7 @@ final class _NamedTool implements McpTool {
   @override
   final String name;
 
-  _NamedTool(this.name);
+  new(this.name);
 
   @override
   String get description => 'test duplicate';

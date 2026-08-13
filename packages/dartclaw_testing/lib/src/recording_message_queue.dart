@@ -10,7 +10,7 @@ typedef RecordingMessageQueueEnqueueCallback = void Function(
 
 /// [MessageQueue] fake that records enqueues and can optionally forward to super.
 class RecordingMessageQueue extends MessageQueue {
-  RecordingMessageQueue({
+  new({
     super.debounceWindow,
     super.maxConcurrentTurns,
     super.maxQueueDepth,

@@ -8,7 +8,7 @@ class WorkflowContext {
   final Map<String, String> _variables;
   final Map<String, String> _systemVariables;
 
-  WorkflowContext({Map<String, dynamic>? data, Map<String, String>? variables, Map<String, String>? systemVariables})
+  new({Map<String, dynamic>? data, Map<String, String>? variables, Map<String, String>? systemVariables})
     : _data = Map.of(data ?? {}),
       _variables = Map.unmodifiable(variables ?? {}),
       _systemVariables = Map.of(systemVariables ?? const {});
@@ -50,7 +50,7 @@ class WorkflowContext {
   };
 
   /// Deserializes from persisted JSON.
-  factory WorkflowContext.fromJson(Map<String, dynamic> json) => WorkflowContext(
+  factory fromJson(Map<String, dynamic> json) => WorkflowContext(
     data: (json['data'] as Map?)?.cast<String, dynamic>(),
     variables: (json['variables'] as Map?)?.cast<String, String>(),
   );

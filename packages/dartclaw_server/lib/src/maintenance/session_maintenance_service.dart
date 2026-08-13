@@ -22,12 +22,7 @@ class MaintenanceAction {
   /// True if the action was applied (enforce mode), false if only planned (warn mode).
   final bool applied;
 
-  const MaintenanceAction({
-    required this.sessionId,
-    required this.actionType,
-    required this.reason,
-    required this.applied,
-  });
+  const new({required this.sessionId, required this.actionType, required this.reason, required this.applied});
 }
 
 /// Summary of a maintenance run.
@@ -43,7 +38,7 @@ class MaintenanceReport {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  const MaintenanceReport({
+  const new({
     required this.mode,
     this.sessionsArchived = 0,
     this.sessionsDeleted = 0,
@@ -57,7 +52,7 @@ class MaintenanceReport {
   });
 
   /// Empty report for a given mode.
-  MaintenanceReport.empty(this.mode)
+  new empty(this.mode)
     : sessionsArchived = 0,
       sessionsDeleted = 0,
       diskReclaimedBytes = 0,
@@ -85,7 +80,7 @@ class SessionMaintenanceService {
   final int artifactRetentionDays;
   final String? dataDir;
 
-  SessionMaintenanceService({
+  new({
     required this.sessions,
     required this.config,
     required this.activeChannelKeys,
@@ -425,9 +420,9 @@ class _StageResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _StageResult({this.archived = 0, this.deleted = 0, this.warnings = const [], this.actions = const []});
+  new({this.archived = 0, this.deleted = 0, this.warnings = const [], this.actions = const []});
 
-  factory _StageResult.empty() => _StageResult();
+  factory empty() => _StageResult();
 }
 
 class _DiskResult {
@@ -436,9 +431,9 @@ class _DiskResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  _DiskResult({this.deleted = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
+  new({this.deleted = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
 
-  factory _DiskResult.empty() => _DiskResult();
+  factory empty() => _DiskResult();
 }
 
 class _ArtifactResult {
@@ -447,12 +442,7 @@ class _ArtifactResult {
   final List<String> warnings;
   final List<MaintenanceAction> actions;
 
-  const _ArtifactResult({
-    this.deletedArtifacts = 0,
-    this.reclaimedBytes = 0,
-    this.warnings = const [],
-    this.actions = const [],
-  });
+  const new({this.deletedArtifacts = 0, this.reclaimedBytes = 0, this.warnings = const [], this.actions = const []});
 
-  factory _ArtifactResult.empty() => const _ArtifactResult();
+  factory empty() => const _ArtifactResult();
 }

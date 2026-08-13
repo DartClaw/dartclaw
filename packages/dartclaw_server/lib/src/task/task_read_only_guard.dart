@@ -16,29 +16,29 @@ typedef GitStatusRunner = Future<ProcessResult> Function(
 final class GitStatusSnapshot {
   final Set<String> entries;
 
-  const GitStatusSnapshot(this.entries);
+  const new(this.entries);
 }
 
 /// Represents the verdict of a [TaskReadOnlyGuard] check.
 sealed class ReadOnlyEvaluation {
-  const ReadOnlyEvaluation();
+  const new();
 }
 
 /// Indicates the worktree remained unchanged across the read-only turn.
 final class ReadOnlyClean extends ReadOnlyEvaluation {
-  const ReadOnlyClean();
+  const new();
 }
 
 /// Reports the paths a read-only task mutated despite the guard.
 final class ReadOnlyViolation extends ReadOnlyEvaluation {
   final List<String> mutatedPaths;
 
-  const ReadOnlyViolation(this.mutatedPaths);
+  const new(this.mutatedPaths);
 }
 
 /// Detects project mutations that occurred during a read-only task turn.
 final class TaskReadOnlyGuard {
-  TaskReadOnlyGuard({required this.worktreePath, GitStatusRunner? git, this.noSystemConfig = false, Logger? log})
+  new({required this.worktreePath, GitStatusRunner? git, this.noSystemConfig = false, Logger? log})
     : _git = git ?? _defaultGit,
       _log = log ?? Logger('TaskReadOnlyGuard');
 

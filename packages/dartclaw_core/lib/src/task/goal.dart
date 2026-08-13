@@ -25,7 +25,7 @@ class Goal {
   final int? maxTokens;
 
   /// Creates an immutable goal record.
-  const Goal({
+  const new({
     required this.id,
     required this.title,
     this.parentGoalId,
@@ -45,7 +45,7 @@ class Goal {
   };
 
   /// Deserializes a goal from persisted JSON.
-  factory Goal.fromJson(Map<String, dynamic> json) => Goal(
+  factory fromJson(Map<String, dynamic> json) => Goal(
     id: json['id'] as String,
     title: json['title'] as String,
     parentGoalId: json['parentGoalId'] as String?,

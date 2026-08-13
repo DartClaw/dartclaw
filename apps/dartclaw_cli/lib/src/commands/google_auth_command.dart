@@ -33,7 +33,7 @@ class GoogleAuthCommand extends Command<void> {
 
   final ConsentFlowRunner _runConsentFlow;
 
-  GoogleAuthCommand({void Function(String)? writeLine, String? dataDir, ConsentFlowRunner? runConsentFlow})
+  new({void Function(String)? writeLine, String? dataDir, ConsentFlowRunner? runConsentFlow})
     : _writeLine = writeLine ?? stdout.writeln,
       _dataDir = dataDir,
       _runConsentFlow = runConsentFlow ?? _defaultRunConsentFlow {

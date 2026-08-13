@@ -43,7 +43,7 @@ class WorkflowCliProviderConfig {
   final Map<String, String> environment;
   final Map<String, dynamic> options;
 
-  const WorkflowCliProviderConfig({
+  const new({
     required this.executable,
     this.environment = const <String, String>{},
     this.options = const <String, dynamic>{},
@@ -55,7 +55,7 @@ sealed class WorkflowCliException implements Exception {
   /// Workflow step name associated with the failed subprocess, if known.
   final String? stepName;
 
-  const WorkflowCliException({required this.stepName});
+  const new({required this.stepName});
 }
 
 /// Raised when a workflow CLI subprocess is silent for longer than configured.
@@ -63,7 +63,7 @@ final class WorkflowCliStallException extends WorkflowCliException {
   /// Configured silent duration that triggered the stall.
   final Duration silentDuration;
 
-  const WorkflowCliStallException({required super.stepName, required this.silentDuration});
+  const new({required super.stepName, required this.silentDuration});
 
   @override
   String toString() =>
@@ -75,7 +75,7 @@ final class WorkflowCliTimeoutException extends WorkflowCliException {
   /// Configured wall-clock timeout.
   final Duration configuredTimeout;
 
-  const WorkflowCliTimeoutException({required super.stepName, required this.configuredTimeout});
+  const new({required super.stepName, required this.configuredTimeout});
 
   @override
   String toString() =>
@@ -93,12 +93,7 @@ final class WorkflowCliOutputLimitException extends WorkflowCliException {
   /// Maximum accepted bytes for the stream.
   final int maxBytes;
 
-  const WorkflowCliOutputLimitException({
-    required super.stepName,
-    required this.provider,
-    required this.streamName,
-    required this.maxBytes,
-  });
+  const new({required super.stepName, required this.provider, required this.streamName, required this.maxBytes});
 
   @override
   String toString() =>
@@ -141,7 +136,7 @@ class WorkflowCliTurnResult {
   /// Whether the provider process was intentionally cancelled during teardown.
   final bool cancelled;
 
-  WorkflowCliTurnResult({
+  new({
     required this.providerSessionId,
     required this.responseText,
     this.structuredOutput,
@@ -155,7 +150,7 @@ class WorkflowCliTurnResult {
     this.cancelled = false,
   });
 
-  WorkflowCliTurnResult.cancelled({this.duration = Duration.zero})
+  new cancelled({this.duration = Duration.zero})
     : providerSessionId = '',
       responseText = '',
       structuredOutput = null,
@@ -286,7 +281,7 @@ class WorkflowCliRunner {
   /// manufacture support this deployment does not have.
   final ProviderExecutionInventory? executionInventory;
 
-  WorkflowCliRunner({
+  new({
     required this.providers,
     this.containerAuthorities,
     this.bridgedMcpToolsResolver,

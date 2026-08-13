@@ -12,7 +12,7 @@ final class FakeProviderAuthPreflight implements ProviderAuthPreflight {
   /// Providers passed to [evaluate], in order.
   final probed = <String>[];
 
-  FakeProviderAuthPreflight({Set<String> unauthenticated = const <String>{}}) : unauthenticated = unauthenticated;
+  new({Set<String> unauthenticated = const <String>{}}) : unauthenticated = unauthenticated;
 
   @override
   Future<ProviderAuthResult> evaluate({

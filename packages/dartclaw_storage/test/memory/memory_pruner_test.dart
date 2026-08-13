@@ -969,7 +969,7 @@ memory:
 final class _FailingMemoryService extends MemoryService {
   var failNextReplacement = true;
 
-  _FailingMemoryService(super.db);
+  new(super.db);
 
   @override
   void replaceMemoryRows(Iterable<MemoryIndexRow> rows, {String userId = 'owner'}) {

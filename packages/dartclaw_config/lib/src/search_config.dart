@@ -9,7 +9,7 @@ class SearchProviderEntry {
   final String apiKey;
 
   /// const SearchProviderEntry({required this.enabled, required t.
-  const SearchProviderEntry({required this.enabled, required this.apiKey});
+  const new({required this.enabled, required this.apiKey});
 
   @override
   bool operator ==(Object other) =>
@@ -37,7 +37,7 @@ class SearchConfig {
   final Map<String, SearchProviderEntry> providers;
 
   /// Creates a [SearchConfig] value.
-  const SearchConfig({
+  const new({
     this.backend = 'fts5',
     this.qmdHost = '127.0.0.1',
     this.qmdPort = 8181,
@@ -46,7 +46,7 @@ class SearchConfig {
   });
 
   /// Default configuration.
-  const SearchConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

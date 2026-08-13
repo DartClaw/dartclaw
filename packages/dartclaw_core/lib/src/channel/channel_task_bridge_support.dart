@@ -20,7 +20,7 @@ class ChannelTaskBridgeSupport {
   final EventBus? _eventBus;
   final ReviewCommandDispatcher? _reviewDispatcher;
 
-  ChannelTaskBridgeSupport({
+  new({
     ReviewCommandParser? reviewCommandParser,
     ChannelReviewHandler? reviewHandler,
     TaskLister? taskLister,

@@ -8,7 +8,7 @@ sealed class TurnProgressEvent {
   /// Snapshot of turn progress at the time this event was emitted.
   final TurnProgressSnapshot snapshot;
 
-  const TurnProgressEvent({required this.snapshot});
+  const new({required this.snapshot});
 }
 
 /// A tool invocation was requested by the agent.
@@ -16,7 +16,7 @@ final class ToolStartedProgressEvent extends TurnProgressEvent {
   final String toolName;
   final int toolCallCount;
 
-  const ToolStartedProgressEvent({required super.snapshot, required this.toolName, required this.toolCallCount});
+  const new({required super.snapshot, required this.toolName, required this.toolCallCount});
 
   @override
   bool operator ==(Object other) =>
@@ -35,7 +35,7 @@ final class ToolCompletedProgressEvent extends TurnProgressEvent {
   final String toolName;
   final bool isError;
 
-  const ToolCompletedProgressEvent({required super.snapshot, required this.toolName, required this.isError});
+  const new({required super.snapshot, required this.toolName, required this.isError});
 
   @override
   bool operator ==(Object other) =>
@@ -53,7 +53,7 @@ final class ToolCompletedProgressEvent extends TurnProgressEvent {
 final class TextDeltaProgressEvent extends TurnProgressEvent {
   final String text;
 
-  const TextDeltaProgressEvent({required super.snapshot, required this.text});
+  const new({required super.snapshot, required this.text});
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is TextDeltaProgressEvent && other.text == text;
@@ -70,7 +70,7 @@ final class ProviderProgressEvent extends TurnProgressEvent {
   final String kind;
   final String text;
 
-  const ProviderProgressEvent({required super.snapshot, required this.kind, required this.text});
+  const new({required super.snapshot, required this.kind, required this.text});
 
   @override
   bool operator ==(Object other) =>
@@ -85,7 +85,7 @@ final class ProviderProgressEvent extends TurnProgressEvent {
 
 /// Periodic status tick emitted at a configurable interval.
 final class StatusTickProgressEvent extends TurnProgressEvent {
-  const StatusTickProgressEvent({required super.snapshot});
+  const new({required super.snapshot});
 
   @override
   String toString() => 'StatusTickProgressEvent()';
@@ -96,7 +96,7 @@ final class TurnStallProgressEvent extends TurnProgressEvent {
   final Duration stallTimeout;
   final String action;
 
-  const TurnStallProgressEvent({required super.snapshot, required this.stallTimeout, required this.action});
+  const new({required super.snapshot, required this.stallTimeout, required this.action});
 
   @override
   bool operator ==(Object other) =>

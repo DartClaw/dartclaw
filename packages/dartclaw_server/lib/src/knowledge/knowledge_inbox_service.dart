@@ -23,7 +23,7 @@ final class KnowledgeInboxReadService {
   final int maxPreviewBytes;
   final int maxScannedFiles;
 
-  KnowledgeInboxReadService({required this.workspaceDir, this.maxPreviewBytes = 16 * 1024, this.maxScannedFiles = 200});
+  new({required this.workspaceDir, this.maxPreviewBytes = 16 * 1024, this.maxScannedFiles = 200});
 
   Future<List<KnowledgeInboxItem>> list({String query = '', int limit = 20}) async {
     if (limit < 1 || maxScannedFiles < 1 || maxPreviewBytes < 1) {
@@ -135,7 +135,7 @@ final class _InboxReadCandidate {
   final String folder;
   final DateTime modified;
 
-  const _InboxReadCandidate({required this.file, required this.folder, required this.modified});
+  const new({required this.file, required this.folder, required this.modified});
 }
 
 /// Read-only inbox item surfaced by [KnowledgeInboxReadService].
@@ -146,7 +146,7 @@ final class KnowledgeInboxItem {
   final String snippet;
   final DateTime modified;
 
-  const KnowledgeInboxItem({
+  const new({
     required this.locator,
     required this.label,
     required this.folder,
@@ -176,7 +176,7 @@ class KnowledgeInboxService {
   /// Placement for extraction turns, which carry no logical-agent identity.
   final ExecutionPolicy? workerPolicy;
 
-  KnowledgeInboxService({
+  new({
     required this.workspaceDir,
     required this.onMemoryObserve,
     required this.wiki,
@@ -580,7 +580,7 @@ class KnowledgeExtraction {
   final String? wikiConfidence;
   final List<KnowledgeExtractionFact> facts;
 
-  const KnowledgeExtraction({
+  const new({
     required this.memoryFindings,
     required this.wikiSlug,
     required this.wikiTitle,
@@ -589,7 +589,7 @@ class KnowledgeExtraction {
     required this.facts,
   });
 
-  factory KnowledgeExtraction.fromAssistantText(String text) {
+  factory fromAssistantText(String text) {
     final payload = _extractPayload(text);
     final memoryFindings = _stringList(payload['memory_findings']);
     final wikiPage = payload['wiki_page'] is Map ? Map<String, Object?>.from(payload['wiki_page'] as Map) : null;
@@ -668,7 +668,7 @@ class KnowledgeExtractionFact {
   final String validFrom;
   final String? validTo;
 
-  const KnowledgeExtractionFact({
+  const new({
     required this.entity,
     required this.predicate,
     required this.value,
@@ -676,7 +676,7 @@ class KnowledgeExtractionFact {
     this.validTo,
   });
 
-  factory KnowledgeExtractionFact.fromPayload(Map<String, Object?> payload) {
+  factory fromPayload(Map<String, Object?> payload) {
     String requiredString(String key) {
       final value = payload[key]?.toString().trim();
       if (value == null || value.isEmpty) {
@@ -763,7 +763,7 @@ class WikiPageStore {
 
   final String workspaceDir;
 
-  WikiPageStore({required this.workspaceDir});
+  new({required this.workspaceDir});
 
   Directory get wikiDir => Directory(p.join(workspaceDir, 'wiki'));
 
@@ -1009,7 +1009,7 @@ class KnowledgeInboxRunReport {
   final List<KnowledgeInboxQuarantine> quarantined;
   final List<KnowledgeInboxContradiction> contradictions;
 
-  const KnowledgeInboxRunReport({
+  const new({
     required this.processed,
     required this.skipped,
     required this.quarantined,
@@ -1036,7 +1036,7 @@ class KnowledgeInboxSkip {
   final String file;
   final String reason;
 
-  const KnowledgeInboxSkip({required this.file, required this.reason});
+  const new({required this.file, required this.reason});
 }
 
 class KnowledgeInboxQuarantine {
@@ -1044,7 +1044,7 @@ class KnowledgeInboxQuarantine {
   final String error;
   final int attempts;
 
-  const KnowledgeInboxQuarantine({required this.file, required this.error, required this.attempts});
+  const new({required this.file, required this.error, required this.attempts});
 }
 
 /// A KG contradiction surfaced during ingestion: the conflicting fact is not
@@ -1053,7 +1053,7 @@ class KnowledgeInboxContradiction {
   final String file;
   final String detail;
 
-  const KnowledgeInboxContradiction({required this.file, required this.detail});
+  const new({required this.file, required this.detail});
 }
 
 class WikiLintReport {
@@ -1067,7 +1067,7 @@ class WikiLintReport {
   final int processedBytes;
   final List<core.MemorySearchDegradation> degradations;
 
-  const WikiLintReport({
+  const new({
     required this.contradictions,
     required this.stalePages,
     required this.missingLinks,

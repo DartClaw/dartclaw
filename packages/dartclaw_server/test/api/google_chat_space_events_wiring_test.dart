@@ -9,7 +9,7 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 class _FakePubSubClient extends PubSubClient {
-  _FakePubSubClient()
+  new()
     : super(
         authClient: MockClient((request) async => throw UnimplementedError()),
         projectId: 'project',
@@ -19,7 +19,7 @@ class _FakePubSubClient extends PubSubClient {
 }
 
 class _FakeWorkspaceEventsManager extends WorkspaceEventsManager {
-  _FakeWorkspaceEventsManager(String dataDir)
+  new(String dataDir)
     : super(
         authClient: MockClient((request) async => throw UnimplementedError()),
         config: const SpaceEventsConfig(enabled: true),
@@ -34,7 +34,7 @@ class _FakeWorkspaceEventsManager extends WorkspaceEventsManager {
 }
 
 class _FakeAdapter extends CloudEventAdapter {
-  _FakeAdapter(this.result);
+  new(this.result);
 
   final AdapterResult result;
 

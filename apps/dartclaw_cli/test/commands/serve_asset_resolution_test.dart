@@ -28,7 +28,7 @@ Future<String> _resolveServerAssetDir(String child) async {
 
 class _ExitIntercept implements Exception {
   final int code;
-  _ExitIntercept(this.code);
+  new(this.code);
 }
 
 class _WorkerHarness extends FakeAgentHarness {

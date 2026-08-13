@@ -21,7 +21,7 @@ typedef MemoryIndexReconciler = FutureOr<void> Function(
 /// Canonical commit and derived-index outcomes are reported separately. Model input
 /// cannot select another store or provide audit provenance.
 final class MemoryApplyService {
-  MemoryApplyService({
+  new({
     required MemoryCorpusService corpus,
     required MemoryIndexReconciler reconcileIndex,
     DateTime Function()? now,
@@ -379,7 +379,7 @@ final class MemoryApplyService {
 }
 
 final class _ParsedRequest {
-  const _ParsedRequest({required this.expectedRevision, required this.operations, this.requestError});
+  const new({required this.expectedRevision, required this.operations, this.requestError});
 
   final int? expectedRevision;
   final List<_ApplyOperation> operations;
@@ -506,7 +506,7 @@ _ApplyOperation _parseOperation(Map<String, dynamic> raw) {
 }
 
 sealed class _ApplyOperation {
-  const _ApplyOperation(this.correlationId);
+  const new(this.correlationId);
 
   final String correlationId;
   Iterable<_Target> get targets;
@@ -514,7 +514,7 @@ sealed class _ApplyOperation {
 }
 
 final class _InvalidOperation extends _ApplyOperation {
-  const _InvalidOperation({required String correlationId, required this.reason}) : super(correlationId);
+  const new({required String correlationId, required this.reason}) : super(correlationId);
 
   final String reason;
   @override
@@ -524,8 +524,7 @@ final class _InvalidOperation extends _ApplyOperation {
 }
 
 final class _AddOperation extends _ApplyOperation {
-  const _AddOperation({required String correlationId, required this.topic, required this.content})
-    : super(correlationId);
+  const new({required String correlationId, required this.topic, required this.content}) : super(correlationId);
 
   final String topic;
   final String content;
@@ -534,7 +533,7 @@ final class _AddOperation extends _ApplyOperation {
 }
 
 final class _ReviseOperation extends _ApplyOperation {
-  const _ReviseOperation({
+  const new({
     required String correlationId,
     required this.target,
     required this.topic,
@@ -551,7 +550,7 @@ final class _ReviseOperation extends _ApplyOperation {
 }
 
 final class _MergeOperation extends _ApplyOperation {
-  const _MergeOperation({
+  const new({
     required String correlationId,
     required this.target,
     required this.sources,
@@ -572,8 +571,7 @@ final class _MergeOperation extends _ApplyOperation {
 }
 
 final class _RemoveOperation extends _ApplyOperation {
-  const _RemoveOperation({required String correlationId, required this.target, required this.reason})
-    : super(correlationId);
+  const new({required String correlationId, required this.target, required this.reason}) : super(correlationId);
 
   final _Target target;
   final String reason;
@@ -582,21 +580,21 @@ final class _RemoveOperation extends _ApplyOperation {
 }
 
 final class _Target {
-  const _Target(this.id, this.expectedRevision);
+  const new(this.id, this.expectedRevision);
 
   final String id;
   final int expectedRevision;
 }
 
 final class _LocatedEntry {
-  const _LocatedEntry({required this.entry, required this.archived});
+  const new({required this.entry, required this.archived});
 
   final CanonicalMemoryEntry entry;
   final bool archived;
 }
 
 final class _PreparedApply {
-  const _PreparedApply({required this.rejected, required this.records, this.replacement});
+  const new({required this.rejected, required this.records, this.replacement});
 
   final bool rejected;
   final Map<String, _ApplyRecord> records;
@@ -604,7 +602,7 @@ final class _PreparedApply {
 }
 
 final class _ApplyRecord {
-  const _ApplyRecord({required this.outcome, this.entryId, this.reason, this.collectionRevision});
+  const new({required this.outcome, this.entryId, this.reason, this.collectionRevision});
 
   final String outcome;
   final String? entryId;

@@ -50,7 +50,7 @@ class GitFetchException implements Exception {
   final String message;
   final Object? cause;
 
-  GitFetchException(this.message, {this.cause});
+  new(this.message, {this.cause});
 
   @override
   String toString() => cause != null ? 'GitFetchException: $message (cause: $cause)' : 'GitFetchException: $message';
@@ -91,7 +91,7 @@ class ProjectServiceImpl implements ProjectService {
   /// Creates a [ProjectServiceImpl].
   ///
   /// [gitRunner] defaults to [_isolateGitRunner] but can be replaced for testing.
-  ProjectServiceImpl({
+  new({
     required String dataDir,
     required ProjectConfig projectConfig,
     required CredentialsConfig credentials,

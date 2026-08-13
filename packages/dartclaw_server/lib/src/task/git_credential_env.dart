@@ -15,9 +15,9 @@ final class GitCredentialPlan implements ProcessEnvironmentPlan {
   @override
   final Map<String, String> environment;
 
-  const GitCredentialPlan({required this.remoteUrl, required this.environment});
+  const new({required this.remoteUrl, required this.environment});
 
-  const GitCredentialPlan.none() : remoteUrl = '', environment = const <String, String>{};
+  const new none() : remoteUrl = '', environment = const <String, String>{};
 }
 
 /// Prepends a `-c remote.origin.url=$resolvedRemoteUrl` override to [gitArgs]

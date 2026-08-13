@@ -111,7 +111,7 @@ class WorkflowService {
   /// shutdown always makes progress.
   static const int maxDisposePromotionAttempts = 8;
 
-  WorkflowService({
+  new({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
@@ -135,7 +135,7 @@ class WorkflowService {
          options: options,
        );
 
-  WorkflowService.lifecycleOnly({
+  new lifecycleOnly({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,
@@ -161,7 +161,7 @@ class WorkflowService {
          debugBashProcessOwner: debugBashProcessOwner,
        );
 
-  WorkflowService._({
+  new _({
     required WorkflowRunRepository repository,
     required WorkflowTaskService taskService,
     required MessageService messageService,

@@ -26,7 +26,7 @@ enum AcpTargetOperation {
   /// Expected raw ACP method, when the operation proves a reverse-call path.
   final String? rawMethod;
 
-  const AcpTargetOperation(this.id, this.rawMethod);
+  new(this.id, this.rawMethod);
 
   /// Finds an operation by wire-format [id].
   static AcpTargetOperation? fromId(String id) {
@@ -47,7 +47,7 @@ enum AcpTargetEvidenceStatus {
   /// Wire-format status.
   final String id;
 
-  const AcpTargetEvidenceStatus(this.id);
+  new(this.id);
 }
 
 /// Overall target validation status.
@@ -59,7 +59,7 @@ enum AcpTargetValidationStatus {
   /// Wire-format status.
   final String id;
 
-  const AcpTargetValidationStatus(this.id);
+  new(this.id);
 }
 
 /// Evidence for one ACP target operation.
@@ -77,7 +77,7 @@ final class AcpTargetOperationEvidence {
   final String? detail;
 
   /// Creates operation evidence.
-  const AcpTargetOperationEvidence({required this.operation, required this.status, this.rawMethod, this.detail});
+  const new({required this.operation, required this.status, this.rawMethod, this.detail});
 
   /// Whether this operation proves guard mediation.
   bool get isGuardMediated => status == AcpTargetEvidenceStatus.guardMediated;
@@ -112,7 +112,7 @@ final class AcpTargetValidationResult {
   final String? message;
 
   /// Creates a target validation result.
-  const AcpTargetValidationResult({
+  const new({
     required this.providerId,
     required this.status,
     required this.securityClassification,
@@ -128,7 +128,7 @@ final class AcpTargetValidationResult {
       AcpTargetOperation.values.every((operation) => evidence[operation]?.isGuardMediated ?? false);
 
   /// Creates a fully guard-mediated result for deterministic probes.
-  factory AcpTargetValidationResult.guardMediated(String providerId) {
+  factory guardMediated(String providerId) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
@@ -138,7 +138,7 @@ final class AcpTargetValidationResult {
   }
 
   /// Creates a host-only result for a registration claiming no guard mediation.
-  factory AcpTargetValidationResult.hostOnly(String providerId, {String? message}) {
+  factory hostOnly(String providerId, {String? message}) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: AcpTargetValidationStatus.passed,
@@ -149,7 +149,7 @@ final class AcpTargetValidationResult {
   }
 
   /// Creates a structured spawn-failed result for missing optional binaries.
-  factory AcpTargetValidationResult.spawnFailed(String providerId, {required bool required, String? message}) {
+  factory spawnFailed(String providerId, {required bool required, String? message}) {
     return AcpTargetValidationResult(
       providerId: providerId,
       status: required ? AcpTargetValidationStatus.failed : AcpTargetValidationStatus.skipped,
@@ -177,7 +177,7 @@ final class AcpTargetValidator {
   final Map<String, AcpVerifiedTargetProfile> profiles;
 
   /// Creates an ACP target validator.
-  const AcpTargetValidator({this.profiles = AcpVerifiedTargetProfile.byProviderId});
+  const new({this.profiles = AcpVerifiedTargetProfile.byProviderId});
 
   /// Validates static config proof requirements before subprocess spawn.
   List<String> validateConfig(

@@ -14,7 +14,7 @@ import 'workflow_validate_command.dart';
 
 /// Parent command for workflow management: `dartclaw workflow <subcommand>`.
 class WorkflowCommand extends Command<void> {
-  WorkflowCommand() {
+  new() {
     addSubcommand(WorkflowListCommand());
     addSubcommand(WorkflowCleanupSkillsCommand());
     addSubcommand(WorkflowShowCommand());

@@ -12,7 +12,7 @@ typedef AcpPermissionDecision = Future<AcpPermissionResult> Function(AcpPermissi
 typedef AcpReverseCallAuditSink = void Function(AcpReverseCallAuditEvent event);
 
 final class AcpReverseCallHandlers {
-  AcpReverseCallHandlers({this.guardChain, AcpPermissionDecision? permissionDecision, AcpReverseCallAuditSink? onAudit})
+  new({this.guardChain, AcpPermissionDecision? permissionDecision, AcpReverseCallAuditSink? onAudit})
     : _permissionDecision = permissionDecision,
       _onAudit = onAudit;
 
@@ -244,7 +244,7 @@ final class AcpReverseCallHandlers {
 }
 
 final class _AcpTurnBinding {
-  _AcpTurnBinding({required this.sessionId, required this.agentId, required this.workspaceRoot});
+  new({required this.sessionId, required this.agentId, required this.workspaceRoot});
 
   final String sessionId;
   final String? agentId;
@@ -281,19 +281,19 @@ final class AcpPermissionRequest {
   final String? sessionId;
   final String? agentId;
 
-  const AcpPermissionRequest({required this.operation, required this.params, this.sessionId, this.agentId});
+  const new({required this.operation, required this.params, this.sessionId, this.agentId});
 }
 
 final class AcpPermissionResult {
   final bool granted;
   final String? reason;
 
-  const AcpPermissionResult({required this.granted, this.reason});
+  const new({required this.granted, this.reason});
 }
 
 final class AcpReverseCallAuditEvent {
   final String rawProviderToolName;
   final String? canonicalToolName;
 
-  const AcpReverseCallAuditEvent({required this.rawProviderToolName, this.canonicalToolName});
+  const new({required this.rawProviderToolName, this.canonicalToolName});
 }

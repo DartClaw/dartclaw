@@ -20,7 +20,7 @@ const maxMemoryReadResponseBytes = 64 * 1024;
 
 /// Host-owned provenance for a canonical memory capture.
 final class MemoryCaptureContext {
-  const MemoryCaptureContext({
+  const new({
     this.userId = 'owner',
     this.originKind,
     required this.sourceLocator,

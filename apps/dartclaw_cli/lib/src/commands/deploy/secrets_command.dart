@@ -17,7 +17,7 @@ class SecretsCommand extends Command<void> {
   @override
   String get description => 'Inject secrets and start the service';
 
-  SecretsCommand({RunProcess? run}) : _run = run ?? Process.run {
+  new({RunProcess? run}) : _run = run ?? Process.run {
     argParser
       ..addOption('api-key', help: 'Anthropic API key (or set ANTHROPIC_API_KEY env)')
       ..addOption('data-dir', help: 'Data directory (default: ~/.dartclaw)')

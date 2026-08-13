@@ -27,7 +27,7 @@ abstract class ConnectedCommand extends Command<void> {
   @protected
   final ExitFn exitFn;
 
-  ConnectedCommand({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
+  new({DartclawConfig? config, DartclawApiClient? apiClient, WriteLine? writeLine, ExitFn? exitFn})
     : _config = config,
       _apiClient = apiClient,
       writeLine = writeLine ?? stdout.writeln,

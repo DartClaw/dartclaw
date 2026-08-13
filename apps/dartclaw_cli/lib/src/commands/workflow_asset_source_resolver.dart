@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 /// Resolves the built-in workflow asset source tree.
 class WorkflowAssetSourceResolver {
-  const WorkflowAssetSourceResolver._();
+  const new _();
 
   /// Finds `packages/dartclaw_workflow/skills` in a source checkout.
   ///

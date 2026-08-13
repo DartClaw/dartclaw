@@ -31,7 +31,7 @@ class WhatsAppChannel extends Channel {
   bool _disabled = false;
   bool _disconnecting = false;
 
-  WhatsAppChannel({
+  new({
     required this.gowa,
     required this.config,
     required this.dmAccess,

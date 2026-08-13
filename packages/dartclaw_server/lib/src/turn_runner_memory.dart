@@ -180,7 +180,7 @@ final class _DailyLogValueSerializer {
   late _DailyLogStringWriter _writer;
   var _items = 0;
 
-  _DailyLogValueSerializer(this._redactor);
+  new(this._redactor);
 
   String serializeInput(Map<String, dynamic> input, {bool canonical = false}) {
     _writer = _DailyLogStringWriter(_dailyLogMaxSerializedToolBytes);
@@ -309,7 +309,7 @@ final class _DailyLogStringWriter {
   var _usedBytes = 0;
   var _isTruncated = false;
 
-  _DailyLogStringWriter(this._maxBytes);
+  new(this._maxBytes);
 
   int get remainingBytes => _maxBytes - _usedBytes;
   bool get isTruncated => _isTruncated;

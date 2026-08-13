@@ -15,7 +15,7 @@ class ChatCommandHandler {
   final DateTime Function() now;
   final Map<String, DateTime> _recentCommands = <String, DateTime>{};
 
-  ChatCommandHandler({
+  new({
     required this.workflows,
     required this.definitions,
     this.duplicateCooldown = const Duration(seconds: 30),

@@ -1,7 +1,7 @@
 import 'package:collection/collection.dart' show MapEquality;
 
 /// Base type for events received from the claude binary over the JSONL bridge.
-sealed class BridgeEvent {}
+sealed class BridgeEvent;
 
 /// Incremental text output from the agent.
 final class DeltaEvent extends BridgeEvent {
@@ -9,7 +9,7 @@ final class DeltaEvent extends BridgeEvent {
   final String text;
 
   /// Creates a text delta event.
-  DeltaEvent(this.text);
+  new(this.text);
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is DeltaEvent && other.text == text;
@@ -33,7 +33,7 @@ final class ToolUseEvent extends BridgeEvent {
   final Map<String, dynamic> input;
 
   /// Creates a tool-use event.
-  ToolUseEvent({required this.toolName, required this.toolId, required this.input});
+  new({required this.toolName, required this.toolId, required this.input});
 
   static const _mapEq = MapEquality<String, dynamic>();
 
@@ -64,7 +64,7 @@ final class ToolResultEvent extends BridgeEvent {
   final bool isError;
 
   /// Creates a tool-result event.
-  ToolResultEvent({required this.toolId, required this.output, required this.isError});
+  new({required this.toolId, required this.output, required this.isError});
 
   @override
   bool operator ==(Object other) =>
@@ -87,7 +87,7 @@ final class ToolApprovalWaitEvent extends BridgeEvent {
   final String toolName;
 
   /// Creates a tool-approval wait event.
-  ToolApprovalWaitEvent({required this.requestId, required this.toolName});
+  new({required this.requestId, required this.toolName});
 
   @override
   bool operator ==(Object other) =>
@@ -107,7 +107,7 @@ final class ToolApprovalResolvedEvent extends BridgeEvent {
   final String requestId;
 
   /// Creates a tool-approval resolved event.
-  ToolApprovalResolvedEvent({required this.requestId});
+  new({required this.requestId});
 
   @override
   bool operator ==(Object other) =>
@@ -129,7 +129,7 @@ final class ProviderProgressBridgeEvent extends BridgeEvent {
   final String text;
 
   /// Creates a provider progress event.
-  ProviderProgressBridgeEvent({required this.kind, required this.text});
+  new({required this.kind, required this.text});
 
   @override
   bool operator ==(Object other) =>
@@ -148,7 +148,7 @@ final class SystemInitEvent extends BridgeEvent {
   final int contextWindow;
 
   /// Creates an initialization event from the runtime handshake.
-  SystemInitEvent({required this.contextWindow});
+  new({required this.contextWindow});
 
   @override
   bool operator ==(Object other) =>

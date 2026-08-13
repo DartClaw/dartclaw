@@ -61,7 +61,7 @@ enum BridgeFrameType {
   /// abandoned the request ID.
   cancel(0x31);
 
-  const BridgeFrameType(this.code);
+  new(this.code);
 
   final int code;
 
@@ -78,7 +78,7 @@ enum BridgeFrameType {
 /// The frame reader rejects an oversized declared length before allocating, so
 /// these caps also bound peak memory per pipe.
 final class BridgeLimits {
-  const BridgeLimits({
+  const new({
     // The metadata length travels in a uint16 header field, so 0xffff is the
     // hard ceiling: a larger value would wrap on encode and decode as a corrupt
     // frame instead of being rejected.
@@ -116,7 +116,7 @@ const int frameLengthPrefixBytes = 4;
 
 /// A protocol violation. Always terminal for the pipe that produced it.
 final class BridgeProtocolException implements Exception {
-  const BridgeProtocolException(this.message);
+  const new(this.message);
 
   final String message;
 
@@ -133,7 +133,7 @@ String stringOrDefault(Object? value, String fallback) => value is String && val
 
 /// One decoded frame.
 final class BridgeFrame {
-  const BridgeFrame({required this.type, this.requestId = 0, this.metadata = const {}, this.body = const []});
+  const new({required this.type, this.requestId = 0, this.metadata = const {}, this.body = const []});
 
   final BridgeFrameType type;
 

@@ -76,7 +76,7 @@ final class AcpHarness with SequentialLock implements AgentHarness {
   bool _disposed = false;
 
   /// Creates an ACP harness.
-  AcpHarness({
+  new({
     required this.cwd,
     this.executable = 'goose',
     this.arguments = const <String>[],

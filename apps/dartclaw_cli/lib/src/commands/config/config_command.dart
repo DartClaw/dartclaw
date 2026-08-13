@@ -5,7 +5,7 @@ import 'config_set_command.dart';
 import 'config_show_command.dart';
 
 class ConfigCommand extends Command<void> {
-  ConfigCommand() {
+  new() {
     addSubcommand(ConfigShowCommand());
     addSubcommand(ConfigGetCommand());
     addSubcommand(ConfigSetCommand());

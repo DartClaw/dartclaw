@@ -15,7 +15,7 @@ class ContainerConfig {
   final List<String> extraArgs;
 
   /// Creates container isolation configuration.
-  const ContainerConfig({
+  const new({
     this.enabled = false,
     this.image = 'dartclaw-agent:latest',
     this.extraMounts = const [],
@@ -23,10 +23,10 @@ class ContainerConfig {
   });
 
   /// Creates a disabled container configuration.
-  const ContainerConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Parses container configuration from YAML, appending warnings to [warns].
-  factory ContainerConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = yaml['enabled'];
     if (enabled != null && enabled is! bool) {
       warns.add('Invalid type for container.enabled: "${enabled.runtimeType}" — using default');

@@ -39,7 +39,7 @@ class ChannelTaskBridge {
   late final ThreadBindingRouter _threadBindingRouter;
   late final ChannelTaskBridgeSupport _support;
 
-  ChannelTaskBridge({
+  new({
     ReservedCommandHandler? reservedCommandHandler,
     TaskCreator? taskCreator,
     TaskLister? taskLister,

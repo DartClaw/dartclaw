@@ -50,7 +50,7 @@ class AgentDefinition {
   final String? effort;
 
   /// Creates a logical-agent definition.
-  const AgentDefinition({
+  const new({
     required this.id,
     required this.description,
     required this.prompt,
@@ -66,11 +66,7 @@ class AgentDefinition {
   });
 
   /// Default search agent with web_search + web_fetch only.
-  factory AgentDefinition.searchAgent({
-    String prompt = _defaultSearchPrompt,
-    int maxResponseBytes = 5 * 1024 * 1024,
-    String? model,
-  }) {
+  factory searchAgent({String prompt = _defaultSearchPrompt, int maxResponseBytes = 5 * 1024 * 1024, String? model}) {
     return AgentDefinition(
       id: 'search',
       description:
@@ -86,7 +82,7 @@ class AgentDefinition {
   }
 
   /// Builds a config entry for `AgentDefinition.fromYaml`.
-  factory AgentDefinition.fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
     const removedKeys = {
       'max_spawn_depth': 'nested logical-agent execution is bounded by shared worker capacity',
       'max_children_per_agent': 'nested logical-agent execution is bounded by shared worker capacity',

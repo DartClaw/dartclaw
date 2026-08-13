@@ -1,6 +1,6 @@
 /// Host-owned operation exposed through scheduling's read and run-now boundary.
 final class SystemAction {
-  const SystemAction({required this.id, required this.description, required this.run, this.isBlocked});
+  const new({required this.id, required this.description, required this.run, this.isBlocked});
 
   final String id;
   final String description;
@@ -12,7 +12,7 @@ final class SystemAction {
 
 /// Read-only scheduling entry shared by configured jobs and system actions.
 final class SchedulingEntry {
-  const SchedulingEntry({required this.id, required this.kind, required this.runnable, required this.mutable});
+  const new({required this.id, required this.kind, required this.runnable, required this.mutable});
 
   final String id;
   final SchedulingEntryKind kind;
@@ -24,7 +24,7 @@ enum SchedulingEntryKind { job, systemAction }
 
 /// A configured job attempted to claim an immutable system-action ID.
 final class ReservedSystemActionIdException implements Exception {
-  const ReservedSystemActionIdException(this.ids);
+  const new(this.ids);
 
   final Set<String> ids;
 

@@ -4,7 +4,7 @@ part of 'execution_coordinator.dart';
 typedef ExecutionNow = DateTime Function();
 
 final class _OutcomeRetention {
-  _OutcomeRetention(this.ttl, this.now);
+  new(this.ttl, this.now);
 
   final Duration ttl;
   final ExecutionNow now;

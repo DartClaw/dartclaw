@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'package:dartclaw_models/dartclaw_models.dart';
 
 void main() {

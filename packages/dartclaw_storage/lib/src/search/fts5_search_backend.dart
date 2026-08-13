@@ -11,7 +11,7 @@ class Fts5SearchBackend implements SearchBackend {
   final MemoryService _memoryService;
 
   /// Creates an FTS5 backend that delegates lookups to [memoryService].
-  Fts5SearchBackend({required MemoryService memoryService}) : _memoryService = memoryService;
+  new({required MemoryService memoryService}) : _memoryService = memoryService;
 
   @override
   Future<MemorySearchOutcome> search(

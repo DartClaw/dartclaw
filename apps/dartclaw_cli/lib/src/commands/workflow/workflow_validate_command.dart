@@ -36,7 +36,7 @@ class WorkflowValidateCommand extends Command<void> {
   final WriteLine _writeLine;
   final SkillIntrospector? _introspector;
 
-  WorkflowValidateCommand({DartclawConfig? config, WriteLine? writeLine, SkillIntrospector? introspector})
+  new({DartclawConfig? config, WriteLine? writeLine, SkillIntrospector? introspector})
     : _config = config,
       _writeLine = writeLine ?? stdout.writeln,
       _introspector = introspector {

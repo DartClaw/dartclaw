@@ -11,7 +11,7 @@ import 'bridge_protocol.dart';
 /// host binds destination, credentials, and policy to the pipe itself, so the
 /// only thing crossing this boundary is the request shape.
 final class BridgeRunner {
-  BridgeRunner({
+  new({
     required this.surface,
     required Stream<List<int>> hostInput,
     required IOSink hostOutput,
@@ -277,7 +277,7 @@ final class BridgeRunner {
 
 /// One in-flight loopback request awaiting host frames.
 final class _PendingResponse {
-  _PendingResponse(this._request, this._limits, this._detach) {
+  new(this._request, this._limits, this._detach) {
     _request.response.bufferOutput = false;
     // A dropped client resolves `done` early rather than with an error, so
     // "resolved before we settled" is the disconnect signal.
@@ -380,7 +380,7 @@ final class _PendingResponse {
 }
 
 final class _RequestRejected implements Exception {
-  const _RequestRejected(this.status, this.message);
+  const new(this.status, this.message);
 
   final int status;
   final String message;

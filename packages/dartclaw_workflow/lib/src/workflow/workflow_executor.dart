@@ -99,7 +99,7 @@ class WorkflowExecutor {
   String? _workflowWorkspaceDirCache;
   final _approvalTimers = <String, Timer>{};
   final _inputConfigCache = Expando<Map<String, Map<String, OutputConfig>>>('workflowInputConfigCache');
-  factory WorkflowExecutor({
+  factory({
     required StepExecutionContext executionContext,
     StepPromptConfiguration? promptConfiguration,
     required String dataDir,
@@ -122,7 +122,7 @@ class WorkflowExecutor {
     );
   }
 
-  WorkflowExecutor._internal({
+  new _internal({
     required StepExecutionContext executionContext,
     required StepPromptConfiguration promptConfiguration,
     required String dataDir,

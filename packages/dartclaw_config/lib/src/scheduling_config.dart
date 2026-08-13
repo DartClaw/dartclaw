@@ -17,7 +17,7 @@ class SchedulingConfig {
   final int heartbeatIntervalMinutes;
 
   /// Creates a [SchedulingConfig] value.
-  const SchedulingConfig({
+  const new({
     this.jobs = const [],
     this.taskDefinitions = const [],
     this.heartbeatEnabled = true,
@@ -25,7 +25,7 @@ class SchedulingConfig {
   });
 
   /// Default configuration.
-  const SchedulingConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

@@ -1,7 +1,7 @@
 import 'workflow_run_id_command.dart';
 
 class WorkflowPauseCommand extends WorkflowRunIdCommand {
-  WorkflowPauseCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

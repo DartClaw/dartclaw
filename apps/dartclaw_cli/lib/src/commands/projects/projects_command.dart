@@ -7,7 +7,7 @@ import 'projects_remove_command.dart';
 import 'projects_show_command.dart';
 
 class ProjectsCommand extends Command<void> {
-  ProjectsCommand() {
+  new() {
     addSubcommand(ProjectsListCommand());
     addSubcommand(ProjectsAddCommand());
     addSubcommand(ProjectsShowCommand());

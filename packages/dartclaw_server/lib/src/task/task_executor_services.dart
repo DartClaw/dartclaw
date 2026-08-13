@@ -12,7 +12,7 @@ import 'worktree_manager.dart';
 
 /// Repository, bus, and service dependencies for [TaskExecutor].
 class TaskExecutorServices {
-  const TaskExecutorServices({
+  const new({
     required this.tasks,
     this.goals,
     required this.sessions,

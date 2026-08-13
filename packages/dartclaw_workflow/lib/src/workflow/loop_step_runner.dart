@@ -29,7 +29,7 @@ class WorkflowLoopExecutionResult {
   /// Tokens consumed by the loop body, for per-iteration attribution.
   final int tokensConsumed;
 
-  const WorkflowLoopExecutionResult({
+  const new({
     this.halted = false,
     this.converged = false,
     this.failureMessage,
@@ -67,7 +67,7 @@ class _NestedLoopScope {
   /// Records the enclosing foreach iteration's first task id for attribution.
   final void Function(String taskId)? onFirstTaskCreated;
 
-  const _NestedLoopScope({
+  const new({
     required this.foreachStepId,
     required this.iterIndex,
     required this.childStepIds,

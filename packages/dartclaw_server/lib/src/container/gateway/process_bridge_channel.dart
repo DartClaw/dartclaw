@@ -10,7 +10,7 @@ import 'gateway_models.dart';
 /// The process pair is the authority boundary: the host started it, only the
 /// host holds its stdio, and killing it revokes the surface outright.
 final class ProcessBridgeChannel implements BridgeChannel {
-  ProcessBridgeChannel(this._process, {required this.label}) {
+  new(this._process, {required this.label}) {
     _process.stderr.listen((bytes) => _retainStderr(String.fromCharCodes(bytes)));
     unawaited(
       _process.exitCode.then((code) {

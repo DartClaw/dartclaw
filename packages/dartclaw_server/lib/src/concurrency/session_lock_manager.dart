@@ -22,7 +22,7 @@ class SessionLockManager implements Reconfigurable {
   final SessionLockNow _now;
   int _activeCount = 0;
 
-  SessionLockManager({int maxParallel = 3, SessionLockTimerFactory? timerFactory, SessionLockNow? now})
+  new({int maxParallel = 3, SessionLockTimerFactory? timerFactory, SessionLockNow? now})
     : _maxParallel = maxParallel,
       _timerFactory = timerFactory ?? Timer.new,
       _now = now ?? DateTime.now;
@@ -124,7 +124,7 @@ class SessionLockWaitSnapshot {
   final DateTime? warningVisibleAt;
   final DateTime? stuckSince;
 
-  const SessionLockWaitSnapshot({required this.waitingSince, this.warningVisibleAt, this.stuckSince});
+  const new({required this.waitingSince, this.warningVisibleAt, this.stuckSince});
 }
 
 class _WaitEntry {
@@ -134,5 +134,5 @@ class _WaitEntry {
   Timer? waitingTimer;
   Timer? stuckTimer;
 
-  _WaitEntry({required this.waitingSince});
+  new({required this.waitingSince});
 }

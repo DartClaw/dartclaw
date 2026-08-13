@@ -30,7 +30,7 @@ Map<String, dynamic> channelOriginJson({
 
 /// Shared in-memory task operations for channel tests.
 class TaskOps {
-  TaskOps(this._repo);
+  new(this._repo);
 
   final InMemoryTaskRepository _repo;
 

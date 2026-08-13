@@ -17,7 +17,7 @@ class TaskNotificationSubscriber {
   final bool _threadBindingEnabled;
   StreamSubscription<TaskStatusChangedEvent>? _subscription;
 
-  TaskNotificationSubscriber({
+  new({
     required TaskService tasks,
     required ChannelManager channelManager,
     ChatCardBuilder? googleChatCardBuilder,

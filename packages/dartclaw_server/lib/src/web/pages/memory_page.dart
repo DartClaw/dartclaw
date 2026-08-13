@@ -8,7 +8,7 @@ import '../web_utils.dart';
 
 /// Renders the agent-memory dashboard page.
 class MemoryPage extends DashboardPage {
-  MemoryPage({this.memoryStatusServiceGetter, this.workspaceDisplay = const WorkspaceDisplayParams()});
+  new({this.memoryStatusServiceGetter, this.workspaceDisplay = const WorkspaceDisplayParams()});
 
   final MemoryStatusService? Function()? memoryStatusServiceGetter;
   final WorkspaceDisplayParams workspaceDisplay;

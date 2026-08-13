@@ -386,13 +386,13 @@ void main() {
 }
 
 final class _Exit implements Exception {
-  const _Exit(this.code);
+  const new(this.code);
 
   final int code;
 }
 
 final class _SentinelQmdManager extends QmdManager {
-  _SentinelQmdManager(this.onActivate)
+  new(this.onActivate)
     : super(commandRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''));
 
   final void Function() onActivate;

@@ -31,7 +31,7 @@ class AlertRouter implements Reconfigurable {
   late final AlertThrottle _throttle;
   StreamSubscription<DartclawEvent>? _subscription;
 
-  AlertRouter({
+  new({
     required EventBus bus,
     required AlertDeliveryAdapter adapter,
     required AlertsConfig config,

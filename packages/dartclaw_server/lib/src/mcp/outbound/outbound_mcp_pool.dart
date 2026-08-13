@@ -33,7 +33,7 @@ final class OutboundMcpPool {
   final Map<String, _ServerGovernanceState> _governance = {};
   var _closed = false;
 
-  OutboundMcpPool({
+  new({
     required McpServersConfig mcpServers,
     Duration idleTtl = const Duration(minutes: 5),
     Duration timeout = const Duration(seconds: 30),
@@ -448,7 +448,7 @@ final class _PooledConnection {
   final OutboundMcpClient client;
   Timer? idleTimer;
 
-  _PooledConnection(this.client);
+  new(this.client);
 }
 
 final class _ServerGovernanceState {
@@ -457,7 +457,7 @@ final class _ServerGovernanceState {
   final List<({DateTime timestamp, int tokens})> _tokenUsage = [];
   final List<DateTime> _rejections = [];
 
-  _ServerGovernanceState(this.entry)
+  new(this.entry)
     : _rateLimiter = SlidingWindowRateLimiter(limit: entry.rateLimit.calls, window: entry.rateLimit.window);
 
   bool tryAdmitRate(String serverName, DateTime now) {

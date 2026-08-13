@@ -14,7 +14,7 @@ class FakeProcess implements Process {
   final bool _killResult;
 
   /// Creates a fake process with optional stream controllers and pid.
-  FakeProcess({
+  new({
     this.pid = 42,
     StreamController<List<int>>? stdoutController,
     StreamController<List<int>>? stderrController,
@@ -96,7 +96,7 @@ class FakeProcess implements Process {
 /// [FakeProcess] variant that captures lines written to stdin.
 class CapturingFakeProcess extends FakeProcess {
   /// Creates a capturing fake process.
-  CapturingFakeProcess({
+  new({
     super.pid,
     super.stdoutController,
     super.stderrController,
@@ -120,7 +120,7 @@ class CapturingFakeProcess extends FakeProcess {
 }
 
 class _LineRecordingIOSink implements IOSink {
-  _LineRecordingIOSink({this.captureLines = false, this.captureJsonMaps = false});
+  new({this.captureLines = false, this.captureJsonMaps = false});
 
   final bool captureLines;
   final bool captureJsonMaps;

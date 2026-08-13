@@ -207,7 +207,7 @@ void main() {
 
 /// One assembled mediated-Claude fixture: authority, harness, and its mounts.
 final class _MediatedClaude {
-  _MediatedClaude(this.authority, this.harness, this.workspace, this.generatedStateDir);
+  new(this.authority, this.harness, this.workspace, this.generatedStateDir);
 
   final ContainerAuthority authority;
   final ClaudeCodeHarness harness;

@@ -68,10 +68,10 @@ class ChannelScopeConfig {
   final String? effort;
 
   /// Creates a per-channel scope override.
-  const ChannelScopeConfig({this.dmScope, this.groupScope, this.model, this.effort});
+  const new({this.dmScope, this.groupScope, this.model, this.effort});
 
   /// Empty config — both fields null (use global defaults).
-  const ChannelScopeConfig.empty() : dmScope = null, groupScope = null, model = null, effort = null;
+  const new empty() : dmScope = null, groupScope = null, model = null, effort = null;
 
   @override
   bool operator ==(Object other) =>
@@ -107,16 +107,10 @@ class SessionScopeConfig {
   final String? effort;
 
   /// Creates a session scope configuration.
-  const SessionScopeConfig({
-    required this.dmScope,
-    required this.groupScope,
-    this.channels = const {},
-    this.model,
-    this.effort,
-  });
+  const new({required this.dmScope, required this.groupScope, this.channels = const {}, this.model, this.effort});
 
   /// Default scope configuration: per-channel-contact DMs, shared groups.
-  const SessionScopeConfig.defaults()
+  const new defaults()
     : dmScope = DmScope.perChannelContact,
       groupScope = GroupScope.shared,
       channels = const {},

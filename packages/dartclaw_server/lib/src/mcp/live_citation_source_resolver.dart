@@ -12,7 +12,7 @@ final class LiveCitationSourceResolver implements CitationSourceResolver {
   final KnowledgeInboxReadService _inbox;
 
   /// Creates a resolver over the current canonical and native sources.
-  LiveCitationSourceResolver({
+  new({
     required MemoryCorpusService corpus,
     required WikiSearchSource wiki,
     required TemporalKnowledgeGraphService kg,

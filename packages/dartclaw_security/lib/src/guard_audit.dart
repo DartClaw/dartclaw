@@ -58,7 +58,7 @@ class AuditEntry {
   final String? credentialRef;
 
   /// Creates a structured audit entry.
-  const AuditEntry({
+  const new({
     required this.timestamp,
     required this.guard,
     required this.hook,
@@ -77,7 +77,7 @@ class AuditEntry {
   });
 
   /// Deserializes an [AuditEntry] from a JSON map (NDJSON line).
-  factory AuditEntry.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     return AuditEntry(
       timestamp: DateTime.parse(json['timestamp'] as String),
       guard: json['guard'] as String,
@@ -144,7 +144,7 @@ class GuardAuditLogger {
   Future<void> _pendingWrite = Future.value();
 
   /// Creates an audit logger with optional file-backed persistence.
-  GuardAuditLogger({this.dataDir, this.maxEntries = 10000, this.rotationCheckInterval = 100});
+  new({this.dataDir, this.maxEntries = 10000, this.rotationCheckInterval = 100});
 
   /// Path to today's audit NDJSON partition. Only meaningful when [dataDir] is set.
   String get auditFilePath => _auditFilePathForDate(DateTime.now());

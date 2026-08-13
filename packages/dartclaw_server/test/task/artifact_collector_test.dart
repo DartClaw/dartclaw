@@ -456,7 +456,7 @@ class _MockDiffGenerator extends DiffGenerator {
   String? lastBranch;
   String? lastProjectDir;
 
-  _MockDiffGenerator({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
+  new({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
 
   @override
   Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {

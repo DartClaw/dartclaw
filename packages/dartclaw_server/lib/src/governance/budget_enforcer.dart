@@ -35,7 +35,7 @@ class BudgetCheckResult {
   /// True if the warning threshold was crossed for the first time today.
   final bool warningIsNew;
 
-  const BudgetCheckResult({
+  const new({
     required this.decision,
     this.tokensUsed = 0,
     this.budget = 0,
@@ -57,7 +57,7 @@ class BudgetStatus {
   final BudgetAction? action;
   final String? timezone;
 
-  const BudgetStatus({
+  const new({
     required this.enabled,
     this.tokensUsed = 0,
     this.budget = 0,
@@ -85,7 +85,7 @@ class BudgetEnforcer {
   final UsageTracker _usageTracker;
   final BudgetConfig _config;
 
-  BudgetEnforcer({required UsageTracker usageTracker, required BudgetConfig config})
+  new({required UsageTracker usageTracker, required BudgetConfig config})
     : _usageTracker = usageTracker,
       _config = config;
 

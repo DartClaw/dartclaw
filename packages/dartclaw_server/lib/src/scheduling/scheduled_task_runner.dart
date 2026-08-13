@@ -19,7 +19,7 @@ class ScheduledTaskRunner {
   final TaskService _taskService;
   final List<ScheduledTaskDefinition> _definitions;
 
-  ScheduledTaskRunner({required TaskService taskService, required List<ScheduledTaskDefinition> definitions})
+  new({required TaskService taskService, required List<ScheduledTaskDefinition> definitions})
     : _taskService = taskService,
       _definitions = definitions;
 

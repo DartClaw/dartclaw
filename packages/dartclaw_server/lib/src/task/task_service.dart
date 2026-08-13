@@ -24,7 +24,7 @@ class VersionConflictException implements Exception {
   final int expectedVersion;
   final int currentVersion;
 
-  const VersionConflictException({required this.taskId, required this.expectedVersion, required this.currentVersion});
+  const new({required this.taskId, required this.expectedVersion, required this.currentVersion});
 
   @override
   String toString() =>
@@ -40,7 +40,7 @@ class TaskService implements WorkflowTaskService {
   final EventBus? _eventBus;
   final TaskEventRecorder? _eventRecorder;
 
-  TaskService(
+  new(
     this._repo, {
     AgentExecutionRepository? agentExecutionRepository,
     ExecutionRepositoryTransactor? executionTransactor,
@@ -512,5 +512,5 @@ class TaskService implements WorkflowTaskService {
 }
 
 final class _TaskTransitionConflict implements Exception {
-  const _TaskTransitionConflict();
+  const new();
 }

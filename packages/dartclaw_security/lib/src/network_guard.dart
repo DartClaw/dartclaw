@@ -32,14 +32,14 @@ class NetworkGuardConfig {
   final Map<String, Set<String>> agentOverrides;
 
   /// Creates a network guard configuration from precompiled rules.
-  NetworkGuardConfig({required this.allowedDomains, required this.exfilPatterns, this.agentOverrides = const {}});
+  new({required this.allowedDomains, required this.exfilPatterns, this.agentOverrides = const {}});
 
   /// Hardcoded safe defaults.
-  factory NetworkGuardConfig.defaults() =>
+  factory defaults() =>
       NetworkGuardConfig(allowedDomains: {..._defaultAllowedDomains}, exfilPatterns: _defaultExfilPatterns);
 
   /// Merges extra config from YAML with defaults.
-  factory NetworkGuardConfig.fromYaml(Map<String, dynamic> yaml) {
+  factory fromYaml(Map<String, dynamic> yaml) {
     final defaults = NetworkGuardConfig.defaults();
 
     // Extra allowed domains
@@ -142,7 +142,7 @@ class NetworkGuard extends Guard {
   final NetworkGuardConfig config;
 
   /// Creates a network guard with defaults unless overridden.
-  NetworkGuard({NetworkGuardConfig? config}) : config = config ?? NetworkGuardConfig.defaults();
+  new({NetworkGuardConfig? config}) : config = config ?? NetworkGuardConfig.defaults();
 
   @override
   Future<GuardVerdict> evaluate(GuardContext context) async {

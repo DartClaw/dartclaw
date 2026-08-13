@@ -19,7 +19,7 @@ class FakeAgentHarness extends AgentHarness {
   bool get isRootProcessTerminationConfirmed => true;
 
   /// Creates a fake harness with optional lifecycle and prompt configuration.
-  FakeAgentHarness({
+  new({
     PromptStrategy promptStrategy = PromptStrategy.replace,
     WorkerState initialState = WorkerState.idle,
     bool autoTransitionState = true,

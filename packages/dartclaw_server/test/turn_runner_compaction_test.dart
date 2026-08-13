@@ -11,8 +11,7 @@ import 'package:test/test.dart';
 class _CompactionCapabilityHarness extends FakeAgentHarness {
   final bool _supportsPreCompactHook;
 
-  _CompactionCapabilityHarness({required bool supportsPreCompactHook})
-    : _supportsPreCompactHook = supportsPreCompactHook;
+  new({required bool supportsPreCompactHook}) : _supportsPreCompactHook = supportsPreCompactHook;
 
   @override
   bool get supportsPreCompactHook => _supportsPreCompactHook;

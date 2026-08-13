@@ -29,7 +29,7 @@ enum SearchDepth {
 
   /// Wire value used to select the QMD query strategy.
   final String value;
-  const SearchDepth(this.value);
+  new(this.value);
 
   /// Parses a [SearchDepth] from its config string.
   static SearchDepth fromString(String s) => switch (s) {
@@ -56,7 +56,7 @@ class QmdSearchBackend implements SearchBackend {
   final SearchDepth defaultDepth;
 
   /// Creates a QMD-backed search backend with [fallback] as the FTS5 substitute.
-  QmdSearchBackend({required this.manager, required this.fallback, this.defaultDepth = SearchDepth.standard});
+  new({required this.manager, required this.fallback, this.defaultDepth = SearchDepth.standard});
 
   @override
   Future<MemorySearchOutcome> search(

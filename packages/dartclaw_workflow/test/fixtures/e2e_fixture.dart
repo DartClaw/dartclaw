@@ -144,7 +144,7 @@ final class E2EFixture {
   final E2EProjectSetup? projectSetup;
   final Map<String, String> environment;
 
-  factory E2EFixture({
+  factory({
     String fixtureProfile = 'workflow-e2e-profile',
     String projectId = 'workflow-test-todo-app',
     String projectRemote = 'git@github.com:DartClaw/workflow-test-todo-app.git',
@@ -211,7 +211,7 @@ final class E2EFixture {
     );
   }
 
-  const E2EFixture._({
+  const new _({
     required this.fixtureProfile,
     required this.projectId,
     required this.projectRemote,
@@ -533,7 +533,7 @@ final class E2EFixtureInstance {
   final DartclawConfig config;
   final Map<String, String> environment;
 
-  E2EFixtureInstance._({
+  new _({
     required this.runtimeDir,
     required this.dataDir,
     required this.workspaceDir,

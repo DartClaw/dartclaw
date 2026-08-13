@@ -64,7 +64,7 @@ class FieldMeta {
   final List<String>? allowedValues;
 
   /// Creates a [FieldMeta] value.
-  const FieldMeta({
+  const new({
     required this.yamlPath,
     required this.jsonKey,
     required this.type,

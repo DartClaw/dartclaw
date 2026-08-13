@@ -21,15 +21,11 @@ class CleanupCommand extends Command<void> {
   final CleanupExitFn _exitFn;
   final TaskDbFactory _taskDbFactory;
 
-  CleanupCommand({
-    DartclawConfig? config,
-    CleanupWriteLine? writeLine,
-    CleanupExitFn? exitFn,
-    TaskDbFactory? taskDbFactory,
-  }) : _config = config,
-       _writeLine = writeLine ?? stdout.writeln,
-       _exitFn = exitFn ?? exit,
-       _taskDbFactory = taskDbFactory ?? openTaskDb {
+  new({DartclawConfig? config, CleanupWriteLine? writeLine, CleanupExitFn? exitFn, TaskDbFactory? taskDbFactory})
+    : _config = config,
+      _writeLine = writeLine ?? stdout.writeln,
+      _exitFn = exitFn ?? exit,
+      _taskDbFactory = taskDbFactory ?? openTaskDb {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }

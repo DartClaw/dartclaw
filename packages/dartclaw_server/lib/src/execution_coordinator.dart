@@ -13,7 +13,7 @@ part 'execution_coordinator_observability.dart';
 
 /// Owns execution allocation for one set of fixed harness-construction inputs.
 final class ExecutionCoordinator {
-  ExecutionCoordinator({
+  new({
     required Map<String, int> providerCapacities,
     required CreateExecutionWorker createWorker,
     AdmitExecution? admitExecution,
@@ -362,7 +362,7 @@ final class ExecutionCoordinator {
 }
 
 final class ExecutionLease {
-  ExecutionLease._(this._coordinator, this._executionId, this.request, this._lane, this.runner, this.runnerId);
+  new _(this._coordinator, this._executionId, this.request, this._lane, this.runner, this.runnerId);
 
   final ExecutionCoordinator _coordinator;
   final int _executionId;
@@ -384,7 +384,7 @@ final class ExecutionLease {
 }
 
 final class _ActiveExecution {
-  const _ActiveExecution({required this.request, required this.lane, required this.permit, required this.runner});
+  const new({required this.request, required this.lane, required this.permit, required this.runner});
 
   final ExecutionRequest request;
   final ExecutionLane lane;
@@ -393,12 +393,7 @@ final class _ActiveExecution {
 }
 
 final class _CachedWorker {
-  const _CachedWorker({
-    required this.runner,
-    required this.lastSessionId,
-    required this.lastUsed,
-    required this.request,
-  });
+  const new({required this.runner, required this.lastSessionId, required this.lastUsed, required this.request});
 
   final TurnRunner runner;
   final String lastSessionId;

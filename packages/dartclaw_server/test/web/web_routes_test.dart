@@ -1069,7 +1069,7 @@ void main() {
 }
 
 class _RecoveryNoticeTurns implements TurnManager {
-  _RecoveryNoticeTurns(this._sessionIds);
+  new(this._sessionIds);
 
   final Set<String> _sessionIds;
 
@@ -1085,7 +1085,7 @@ class _RecoveryNoticeTurns implements TurnManager {
 }
 
 class _StatusTurns implements TurnManager {
-  _StatusTurns(this._status);
+  new(this._status);
 
   final TurnStatusSnapshot _status;
 

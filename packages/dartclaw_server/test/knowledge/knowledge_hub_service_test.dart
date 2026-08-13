@@ -185,7 +185,7 @@ void _writeFile(Directory tempDir, String relativePath, String body) {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
@@ -195,7 +195,7 @@ final class _RecordingKg extends TemporalKnowledgeGraphService {
   String? lastSearch;
   int? lastLimit;
 
-  _RecordingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {

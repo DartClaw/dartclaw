@@ -12,7 +12,7 @@ class AuditPage {
   final int totalPages;
   final int pageSize;
 
-  const AuditPage({
+  const new({
     required this.entries,
     required this.totalEntries,
     required this.currentPage,
@@ -34,7 +34,7 @@ class AuditLogReader {
 
   final String dataDir;
 
-  AuditLogReader({required this.dataDir});
+  new({required this.dataDir});
 
   /// Read audit entries with optional filtering and pagination.
   ///

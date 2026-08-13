@@ -31,12 +31,7 @@ const _memoryMcpTools = {'memory_apply', 'memory_observe', 'memory_search', 'mem
 /// Authority acquisition is the only seam that sees the grant, and the real one
 /// needs Docker, so the grants are read here instead.
 class _GrantRecordingSecurityWiring extends SecurityWiring {
-  _GrantRecordingSecurityWiring({
-    required super.config,
-    required super.dataDir,
-    required super.eventBus,
-    required super.exitFn,
-  });
+  new({required super.config, required super.dataDir, required super.eventBus, required super.exitFn});
 
   final grants = <({String sessionId, String? taskId, Set<String> allowedMcpTools})>[];
 

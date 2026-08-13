@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 class _TrackingConfigNotifier extends ConfigNotifier {
   final List<DartclawConfig> reloadCalls = [];
 
-  _TrackingConfigNotifier(super.initial, {super.platformCapabilities});
+  new(super.initial, {super.platformCapabilities});
 
   @override
   ConfigDelta? reload(DartclawConfig newConfig) {
@@ -619,7 +619,7 @@ class _DebounceTestService {
   final DartclawConfig Function() configLoader;
   Timer? _timer;
 
-  _DebounceTestService({required this.debounceMs, required this.configLoader});
+  new({required this.debounceMs, required this.configLoader});
 
   void simulateFileEvent() {
     _timer?.cancel();

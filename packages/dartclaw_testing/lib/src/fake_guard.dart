@@ -8,7 +8,7 @@ class FakeGuard extends Guard {
   final GuardVerdict? _fixedVerdict;
 
   /// Creates a fake guard with either a fixed [verdict] or dynamic [evaluator].
-  FakeGuard({
+  new({
     this.name = 'fake',
     this.category = 'test',
     GuardVerdict? verdict,
@@ -17,15 +17,15 @@ class FakeGuard extends Guard {
        _evaluator = evaluator;
 
   /// Creates a fake guard that always passes.
-  FakeGuard.pass({this.name = 'fake', this.category = 'test'}) : _fixedVerdict = GuardVerdict.pass(), _evaluator = null;
+  new pass({this.name = 'fake', this.category = 'test'}) : _fixedVerdict = GuardVerdict.pass(), _evaluator = null;
 
   /// Creates a fake guard that always warns with [message].
-  FakeGuard.warn(String message, {this.name = 'fake', this.category = 'test'})
+  new warn(String message, {this.name = 'fake', this.category = 'test'})
     : _fixedVerdict = GuardVerdict.warn(message),
       _evaluator = null;
 
   /// Creates a fake guard that always blocks with [message].
-  FakeGuard.block(String message, {this.name = 'fake', this.category = 'test'})
+  new block(String message, {this.name = 'fake', this.category = 'test'})
     : _fixedVerdict = GuardVerdict.block(message),
       _evaluator = null;
 

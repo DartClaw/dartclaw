@@ -17,7 +17,7 @@ class WorkflowStatusCommand extends ConnectedCommand {
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
-  WorkflowStatusCommand({
+  new({
     super.config,
     TaskDbFactory? taskDbFactory,
     String? currentDirectory,

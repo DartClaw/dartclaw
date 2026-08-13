@@ -23,7 +23,7 @@ class GoogleChatSpaceEventsWiring {
   static const _senderCacheTtl = Duration(hours: 1);
   static const _senderCacheMaxSize = 500;
 
-  GoogleChatSpaceEventsWiring({
+  new({
     required PubSubClient pubSubClient,
     required WorkspaceEventsManager subscriptionManager,
     required CloudEventAdapter adapter,

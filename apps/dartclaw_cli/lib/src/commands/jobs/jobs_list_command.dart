@@ -1,7 +1,7 @@
 import '../connected_command_support.dart';
 
 class JobsListCommand extends ConnectedCommand {
-  JobsListCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser.addFlag('json', negatable: false, help: 'Output as JSON');
   }
 

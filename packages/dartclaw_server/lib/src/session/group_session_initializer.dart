@@ -11,7 +11,7 @@ class ChannelGroupConfig {
   final bool groupAccessEnabled;
   final List<GroupEntry> groupEntries;
 
-  const ChannelGroupConfig({required this.channelType, required this.groupAccessEnabled, required this.groupEntries});
+  const new({required this.channelType, required this.groupAccessEnabled, required this.groupEntries});
 
   /// Returns the group IDs from [groupEntries] as a plain string list.
   List<String> get groupIds => groupEntries.map((e) => e.id).toList();
@@ -32,7 +32,7 @@ class GroupSessionInitializer {
   final Future<String?> Function(String channelType, String groupId)? _displayNameResolver;
   StreamSubscription<ConfigChangedEvent>? _subscription;
 
-  GroupSessionInitializer({
+  new({
     required SessionService sessions,
     EventBus? eventBus,
     required List<ChannelGroupConfig> channelConfigs,

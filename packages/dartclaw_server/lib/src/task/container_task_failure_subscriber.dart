@@ -18,7 +18,7 @@ class ContainerTaskFailureSubscriber {
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(tasks: _tasks);
   StreamSubscription<ContainerCrashedEvent>? _subscription;
 
-  ContainerTaskFailureSubscriber({required TaskService tasks, ExecutionPolicyResolver? policyResolver})
+  new({required TaskService tasks, ExecutionPolicyResolver? policyResolver})
     : _tasks = tasks,
       _policyResolver = policyResolver;
 

@@ -5,7 +5,7 @@ class TurnStateStore {
   final Database _db;
 
   /// Creates a store backed by [db] and initializes the required schema.
-  TurnStateStore(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

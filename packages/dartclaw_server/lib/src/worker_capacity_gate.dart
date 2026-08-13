@@ -3,7 +3,7 @@ import 'dart:collection';
 
 /// Bounds concurrent executions independently from reusable worker state.
 final class WorkerCapacityGate {
-  WorkerCapacityGate(this.configuredCapacity) {
+  new(this.configuredCapacity) {
     if (configuredCapacity < 1) {
       throw ArgumentError.value(configuredCapacity, 'configuredCapacity', 'must be positive');
     }
@@ -99,7 +99,7 @@ final class WorkerCapacityGate {
 
 /// Idempotent ownership token returned by [WorkerCapacityGate].
 final class WorkerCapacityPermit {
-  WorkerCapacityPermit._(this._gate);
+  new _(this._gate);
 
   final WorkerCapacityGate _gate;
   var _released = false;

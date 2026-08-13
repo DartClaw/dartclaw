@@ -43,7 +43,7 @@ const ansiBrightWhite = '\x1b[97m';
 class StyledSpan {
   final String text;
   final String? color;
-  const StyledSpan(this.text, [this.color]);
+  const new(this.text, [this.color]);
 }
 
 /// Joins [spans]; wraps each colored, non-empty span in its SGR code + reset
@@ -73,7 +73,7 @@ class _ActiveStep {
   final String label;
   final DateTime startedAt;
   int tokens;
-  _ActiveStep(this.label, this.startedAt) : tokens = 0;
+  new(this.label, this.startedAt) : tokens = 0;
 }
 
 /// A single in-place "live" status line at the bottom of the terminal: an
@@ -103,7 +103,7 @@ class LiveStatusLine {
   final _settledTokens = <String, int>{};
   int _completedTokens = 0;
 
-  LiveStatusLine({
+  new({
     void Function(String)? write,
     required this.enabled,
     bool? color,
@@ -116,8 +116,7 @@ class LiveStatusLine {
 
   /// Builds a stdout-backed line, enabled only on an interactive terminal and
   /// when not emitting machine-readable JSON.
-  factory LiveStatusLine.forStdout({required bool jsonOutput}) =>
-      LiveStatusLine(enabled: stdout.hasTerminal && !jsonOutput);
+  factory forStdout({required bool jsonOutput}) => LiveStatusLine(enabled: stdout.hasTerminal && !jsonOutput);
 
   /// Registers a newly-running step under [key] (the same key the caller uses
   /// to match the eventual completion). [label] is the compact one-line

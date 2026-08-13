@@ -140,5 +140,5 @@ void main() {
 
 class _SlackConfig {
   final String webhook;
-  const _SlackConfig({required this.webhook});
+  const new({required this.webhook});
 }

@@ -16,13 +16,7 @@ class ToolCallRecord {
   final String? context;
 
   /// Creates a [ToolCallRecord] value.
-  const ToolCallRecord({
-    required this.name,
-    required this.success,
-    required this.durationMs,
-    this.errorType,
-    this.context,
-  });
+  const new({required this.name, required this.success, required this.durationMs, this.errorType, this.context});
 
   /// Serializes this record to a JSON-ready map.
   Map<String, dynamic> toJson() => {
@@ -34,7 +28,7 @@ class ToolCallRecord {
   };
 
   /// Reconstructs a [ToolCallRecord] from its JSON representation.
-  factory ToolCallRecord.fromJson(Map<String, dynamic> json) => ToolCallRecord(
+  factory fromJson(Map<String, dynamic> json) => ToolCallRecord(
     name: json['name'] as String,
     success: json['success'] as bool,
     durationMs: json['durationMs'] as int,

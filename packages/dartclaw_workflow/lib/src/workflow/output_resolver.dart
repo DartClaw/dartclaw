@@ -1,12 +1,12 @@
 /// Declares where a workflow output should be resolved from.
 sealed class OutputResolver {
-  const OutputResolver();
+  const new();
 
   /// Serializes the resolver for tests and future DSL metadata.
   Map<String, Object?> toJson();
 
   /// Reconstructs an [OutputResolver] from [json].
-  factory OutputResolver.fromJson(Map<String, Object?> json) {
+  factory fromJson(Map<String, Object?> json) {
     return switch (json['kind']) {
       'filesystem' => FileSystemOutput(
         pathPattern: json['pathPattern'] as String? ?? '**/*',
@@ -37,7 +37,7 @@ final class FileSystemOutput extends OutputResolver {
   /// declarative replacement for hard-coded framework basenames in the engine.
   final List<String> preferPatterns;
 
-  const FileSystemOutput({required this.pathPattern, required this.listMode, this.preferPatterns = const []});
+  const new({required this.pathPattern, required this.listMode, this.preferPatterns = const []});
 
   /// Returns true when [path] matches [pathPattern].
   bool matches(String path) => _globMatches(pathPattern, path);
@@ -56,7 +56,7 @@ final class InlineOutput extends OutputResolver {
   /// Output field name this resolver belongs to.
   final String schemaKey;
 
-  const InlineOutput({required this.schemaKey});
+  const new({required this.schemaKey});
 
   @override
   Map<String, Object?> toJson() => {'kind': 'inline', 'schemaKey': schemaKey};

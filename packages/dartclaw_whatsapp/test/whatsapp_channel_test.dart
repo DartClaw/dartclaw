@@ -23,7 +23,7 @@ class FakeGowaManager extends GowaManager {
   GowaStatus statusResult = (isConnected: false, isLoggedIn: false, deviceId: null);
   GowaLoginQr loginQrResult = (url: null, durationSeconds: 60);
 
-  FakeGowaManager()
+  new()
     : super(
         executable: 'whatsapp',
         processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {

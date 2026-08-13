@@ -24,7 +24,7 @@ abstract final class MemoryResourceLimits {
 /// Reports a rejected memory operation with exact resource context.
 final class MemoryResourceLimitException implements Exception {
   /// Creates a limit rejection for a direct source or prospective mutation.
-  const MemoryResourceLimitException({
+  const new({
     required this.role,
     required this.locator,
     required this.observedBytes,

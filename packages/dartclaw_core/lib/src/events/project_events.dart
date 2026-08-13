@@ -27,12 +27,7 @@ final class ProjectStatusChangedEvent extends ProjectLifecycleEvent {
   final DateTime timestamp;
 
   /// Creates a project-status-changed event.
-  ProjectStatusChangedEvent({
-    required this.projectId,
-    required this.oldStatus,
-    required this.newStatus,
-    required this.timestamp,
-  });
+  new({required this.projectId, required this.oldStatus, required this.newStatus, required this.timestamp});
 
   @override
   String toString() =>

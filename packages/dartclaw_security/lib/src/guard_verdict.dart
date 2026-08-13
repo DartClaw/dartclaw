@@ -1,15 +1,15 @@
 /// Sealed class representing the outcome of a guard evaluation.
 sealed class GuardVerdict {
-  const GuardVerdict();
+  const new();
 
   /// Creates a successful guard verdict.
-  factory GuardVerdict.pass() = GuardPass;
+  factory pass() = GuardPass;
 
   /// Creates a warning verdict that allows execution to continue.
-  factory GuardVerdict.warn(String message) = GuardWarn;
+  factory warn(String message) = GuardWarn;
 
   /// Creates a blocking verdict that denies execution.
-  factory GuardVerdict.block(String reason) = GuardBlock;
+  factory block(String reason) = GuardBlock;
 
   /// Whether this verdict is a [GuardPass].
   bool get isPass => this is GuardPass;
@@ -27,7 +27,7 @@ sealed class GuardVerdict {
 /// Successful guard verdict with no explanatory message.
 final class GuardPass extends GuardVerdict {
   /// Creates a [GuardPass] verdict.
-  const GuardPass();
+  const new();
 
   @override
   String? get message => null;
@@ -43,7 +43,7 @@ final class GuardWarn extends GuardVerdict {
   final String message;
 
   /// Creates a [GuardWarn] verdict carrying [message].
-  const GuardWarn(this.message);
+  const new(this.message);
 
   @override
   String toString() => 'GuardVerdict.warn($message)';
@@ -56,7 +56,7 @@ final class GuardBlock extends GuardVerdict {
   final String message;
 
   /// Creates a [GuardBlock] verdict carrying [message].
-  const GuardBlock(this.message);
+  const new(this.message);
 
   @override
   String toString() => 'GuardVerdict.block($message)';

@@ -105,7 +105,7 @@ final class _EffectiveAuthority {
   final String host;
   final int port;
 
-  const _EffectiveAuthority({required this.scheme, required this.host, required this.port});
+  const new({required this.scheme, required this.host, required this.port});
 
   @override
   bool operator ==(Object other) =>

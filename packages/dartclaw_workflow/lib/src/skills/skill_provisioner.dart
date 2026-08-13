@@ -23,7 +23,7 @@ const skillProvisionerMarkerFile = '.dartclaw-native-skills';
 /// Thrown for bundled asset validation failures.
 class SkillProvisionConfigException implements Exception {
   final String message;
-  const SkillProvisionConfigException(this.message);
+  const new(this.message);
 
   @override
   String toString() => 'SkillProvisionConfigException: $message';
@@ -32,7 +32,7 @@ class SkillProvisionConfigException implements Exception {
 /// Thrown when native skill copy fails irrecoverably.
 class SkillProvisionException implements Exception {
   final String message;
-  const SkillProvisionException(this.message);
+  const new(this.message);
 
   @override
   String toString() => 'SkillProvisionException: $message';
@@ -43,7 +43,7 @@ final class _InstallDestination {
   final String claudeSkillsDir;
   final String label;
 
-  const _InstallDestination({required this.codexSkillsDir, required this.claudeSkillsDir, required this.label});
+  const new({required this.codexSkillsDir, required this.claudeSkillsDir, required this.label});
 
   String get markerPath => p.join(label, skillProvisionerMarkerFile);
 }
@@ -57,7 +57,7 @@ class SkillProvisioner {
   final Map<String, String>? embeddedAssets;
   final DirectoryCopier _copyDirectory;
 
-  SkillProvisioner({
+  new({
     required this.dataDir,
     this.dcNativeSkillsSourceDir,
     this.embeddedAssets,

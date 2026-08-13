@@ -268,7 +268,7 @@ void main() {
 }
 
 final class _AcceptedTreeProvider extends ProcessBackedCliProvider {
-  _AcceptedTreeProvider()
+  new()
     : super(
         platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
         terminationGracePeriod: Duration.zero,
@@ -287,7 +287,7 @@ final class _AcceptedTreeProvider extends ProcessBackedCliProvider {
 }
 
 final class _CloseFailsAfterKillProcess extends FakeProcess {
-  _CloseFailsAfterKillProcess({
+  new({
     required super.stdoutController,
     required super.stderrController,
     super.completeExitOnKill = true,
@@ -314,7 +314,7 @@ final class _CloseFailsAfterKillProcess extends FakeProcess {
 }
 
 final class _CloseFailsAfterKillSink extends NullIoSink {
-  _CloseFailsAfterKillSink(this._isKilled, {required this.killed, required this.waitForKill});
+  new(this._isKilled, {required this.killed, required this.waitForKill});
 
   final bool Function() _isKilled;
   final Future<void> killed;

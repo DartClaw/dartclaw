@@ -23,7 +23,7 @@ class PubSubHealthReporter {
   /// [client] — the running PubSubClient (null if not started).
   /// [subscriptionCount] — callback returning active subscription count.
   /// [enabled] — whether Pub/Sub is configured in the YAML config.
-  PubSubHealthReporter({PubSubClient? client, SubscriptionCountGetter? subscriptionCount, bool enabled = false})
+  new({PubSubClient? client, SubscriptionCountGetter? subscriptionCount, bool enabled = false})
     : _client = client,
       _subscriptionCount = subscriptionCount,
       _enabled = enabled;

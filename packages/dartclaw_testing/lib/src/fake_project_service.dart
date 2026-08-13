@@ -46,7 +46,7 @@ typedef RecordedProjectUpdate = ({
 
 /// In-memory [ProjectService] fake with optional lifecycle callbacks.
 class FakeProjectService implements ProjectService {
-  FakeProjectService({
+  new({
     Iterable<Project> projects = const [],
     Project? localProject,
     this.includeLocalProjectInGetAll = true,

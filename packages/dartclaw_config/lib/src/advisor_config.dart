@@ -24,7 +24,7 @@ class AdvisorConfig {
   final int maxPriorReflections;
 
   /// Creates a [AdvisorConfig] value.
-  const AdvisorConfig({
+  const new({
     this.enabled = false,
     this.model,
     this.effort,
@@ -35,7 +35,7 @@ class AdvisorConfig {
   });
 
   /// Creates a [AdvisorConfig.defaults] value.
-  const AdvisorConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

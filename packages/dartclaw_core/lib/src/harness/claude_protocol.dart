@@ -64,7 +64,7 @@ const containerClaudePlaceholderApiKey = 'dartclaw-host-mediated-no-credential';
 // Sealed class hierarchy for claude binary JSONL messages
 // ---------------------------------------------------------------------------
 
-sealed class ClaudeMessage {}
+sealed class ClaudeMessage;
 
 /// System init event — emitted by the CLI at the start of each turn response.
 final class SystemInit extends ClaudeMessage {
@@ -72,7 +72,7 @@ final class SystemInit extends ClaudeMessage {
   final int toolCount;
   final int? contextWindow;
 
-  SystemInit({this.sessionId, required this.toolCount, this.contextWindow});
+  new({this.sessionId, required this.toolCount, this.contextWindow});
 
   @override
   String toString() => 'SystemInit(sessionId: $sessionId, toolCount: $toolCount)';
@@ -82,7 +82,7 @@ final class SystemInit extends ClaudeMessage {
 final class StreamTextDelta extends ClaudeMessage {
   final String text;
 
-  StreamTextDelta(this.text);
+  new(this.text);
 
   @override
   String toString() => 'StreamTextDelta(text: ${text.length > 80 ? '${text.substring(0, 80)}...' : text})';
@@ -94,7 +94,7 @@ final class ToolUseBlock extends ClaudeMessage {
   final String id;
   final Map<String, dynamic> input;
 
-  ToolUseBlock({required this.name, required this.id, required this.input});
+  new({required this.name, required this.id, required this.input});
 
   @override
   String toString() => 'ToolUseBlock(name: $name, id: $id)';
@@ -106,7 +106,7 @@ final class ToolResultBlock extends ClaudeMessage {
   final String output;
   final bool isError;
 
-  ToolResultBlock({required this.toolId, required this.output, this.isError = false});
+  new({required this.toolId, required this.output, this.isError = false});
 
   @override
   String toString() => 'ToolResultBlock(toolId: $toolId, isError: $isError)';
@@ -118,7 +118,7 @@ final class ControlRequest extends ClaudeMessage {
   final String subtype;
   final Map<String, dynamic> data;
 
-  ControlRequest({required this.requestId, required this.subtype, required this.data});
+  new({required this.requestId, required this.subtype, required this.data});
 
   @override
   String toString() => 'ControlRequest(requestId: $requestId, subtype: $subtype)';
@@ -135,7 +135,7 @@ final class CompactBoundary extends ClaudeMessage {
   /// Token count before compaction. May be null if omitted by the binary.
   final int? preTokens;
 
-  CompactBoundary({required this.trigger, this.preTokens});
+  new({required this.trigger, this.preTokens});
 
   @override
   String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
@@ -151,7 +151,7 @@ final class TurnResult extends ClaudeMessage {
   final int? cacheReadInputTokens;
   final int? cacheCreationInputTokens;
 
-  TurnResult({
+  new({
     this.stopReason,
     this.costUsd,
     this.durationMs,

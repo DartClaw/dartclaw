@@ -30,7 +30,7 @@ final class TaskStatusChangedEvent extends TaskLifecycleEvent {
   final DateTime timestamp;
 
   /// Creates a task-status-changed event.
-  TaskStatusChangedEvent({
+  new({
     required this.taskId,
     required this.oldStatus,
     required this.newStatus,
@@ -61,12 +61,7 @@ final class TaskReviewReadyEvent extends TaskLifecycleEvent {
   final DateTime timestamp;
 
   /// Creates a task-review-ready event.
-  TaskReviewReadyEvent({
-    required this.taskId,
-    required this.artifactCount,
-    required this.artifactKinds,
-    required this.timestamp,
-  });
+  new({required this.taskId, required this.artifactCount, required this.artifactKinds, required this.timestamp});
 
   @override
   String toString() => 'TaskReviewReadyEvent(task: $taskId, artifacts: $artifactCount, kinds: $artifactKinds)';
@@ -93,7 +88,7 @@ final class TaskEventCreatedEvent extends TaskLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  TaskEventCreatedEvent({
+  new({
     required this.taskId,
     required this.eventId,
     required this.kind,
@@ -124,7 +119,7 @@ final class BudgetWarningEvent extends TaskLifecycleEvent {
   @override
   final DateTime timestamp;
 
-  BudgetWarningEvent({
+  new({
     required this.taskId,
     required this.consumedPercent,
     required this.consumed,

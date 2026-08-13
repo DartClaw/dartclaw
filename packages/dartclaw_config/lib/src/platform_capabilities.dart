@@ -26,7 +26,7 @@ final class PlatformCapabilities {
   /// Creates capabilities from injectable platform inputs.
   ///
   /// Omitted inputs use the current process's [Platform] values.
-  PlatformCapabilities({String? operatingSystem, Map<String, String>? environment})
+  new({String? operatingSystem, Map<String, String>? environment})
     : _isWindows = (operatingSystem ?? Platform.operatingSystem) == 'windows',
       _environment = Map<String, String>.unmodifiable(environment ?? Platform.environment);
 
@@ -127,11 +127,7 @@ final class UnsupportedCapabilityError implements Exception {
   final String remediation;
 
   /// Creates a structured platform-capability failure.
-  const UnsupportedCapabilityError({
-    required this.capability,
-    required this.attemptedContext,
-    required this.remediation,
-  });
+  const new({required this.capability, required this.attemptedContext, required this.remediation});
 
   @override
   String toString() => 'Unsupported capability "$capability"; attempted $attemptedContext. $remediation';

@@ -13,14 +13,14 @@ sealed class ContainerLifecycleEvent extends DartclawEvent {
   final DateTime timestamp;
 
   /// Creates a container lifecycle event.
-  ContainerLifecycleEvent({required this.profileId, required this.containerName, required this.timestamp});
+  new({required this.profileId, required this.containerName, required this.timestamp});
 }
 
 /// Fired when a container starts successfully.
 // NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStartedEvent extends ContainerLifecycleEvent {
   /// Creates a container-started event.
-  ContainerStartedEvent({required super.profileId, required super.containerName, required super.timestamp});
+  new({required super.profileId, required super.containerName, required super.timestamp});
 
   @override
   String toString() => 'ContainerStartedEvent(profile: $profileId, container: $containerName)';
@@ -30,7 +30,7 @@ final class ContainerStartedEvent extends ContainerLifecycleEvent {
 // NOT_ALERTABLE: normal lifecycle telemetry — no operator action required
 final class ContainerStoppedEvent extends ContainerLifecycleEvent {
   /// Creates a container-stopped event.
-  ContainerStoppedEvent({required super.profileId, required super.containerName, required super.timestamp});
+  new({required super.profileId, required super.containerName, required super.timestamp});
 
   @override
   String toString() => 'ContainerStoppedEvent(profile: $profileId, container: $containerName)';
@@ -50,7 +50,7 @@ final class ContainerCrashedEvent extends ContainerLifecycleEvent {
   final String? taskId;
 
   /// Creates a container-crashed event.
-  ContainerCrashedEvent({
+  new({
     required super.profileId,
     required super.containerName,
     required this.error,

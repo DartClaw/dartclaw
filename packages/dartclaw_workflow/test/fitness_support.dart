@@ -27,9 +27,9 @@ final class FitnessBaseline {
   final String regenerationRecipe;
   final Map<String, Map<String, Object?>> allowlist;
 
-  const FitnessBaseline({required this.generatedAt, required this.regenerationRecipe, required this.allowlist});
+  const new({required this.generatedAt, required this.regenerationRecipe, required this.allowlist});
 
-  factory FitnessBaseline.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final rawAllowlist = (json['allowlist'] as Map<String, dynamic>? ?? const <String, dynamic>{});
     return FitnessBaseline(
       generatedAt: json['generated_at'] as String? ?? '',
@@ -57,7 +57,7 @@ final class MethodMetric {
   final String methodName;
   final int complexity;
 
-  const MethodMetric({
+  const new({
     required this.filePath,
     required this.key,
     required this.className,
@@ -75,7 +75,7 @@ final class FitnessSnapshot {
   final Set<String> scenarioTypes;
   final List<String> scenarioFiles;
 
-  const FitnessSnapshot({
+  const new({
     required this.fileLoc,
     required this.classMethodCounts,
     required this.fileMethodCounts,

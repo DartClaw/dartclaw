@@ -44,7 +44,7 @@ class ValidationError {
   final String? stepId;
   final String? loopId;
 
-  const ValidationError({required this.message, required this.type, this.stepId, this.loopId});
+  const new({required this.message, required this.type, this.stepId, this.loopId});
 
   @override
   String toString() =>
@@ -68,7 +68,7 @@ class ValidationReport {
   /// Soft notices that do not prevent loading.
   final List<ValidationError> warnings;
 
-  const ValidationReport({required this.errors, required this.warnings});
+  const new({required this.errors, required this.warnings});
 
   bool get isEmpty => errors.isEmpty && warnings.isEmpty;
 
@@ -94,10 +94,8 @@ class WorkflowDefinitionValidator {
   final WorkflowTemplateEngine _engine;
   final WorkflowRoleDefaults roleDefaults;
 
-  WorkflowDefinitionValidator({
-    this.roleDefaults = const WorkflowRoleDefaults(),
-    WorkflowTemplateEngine? templateEngine,
-  }) : _engine = templateEngine ?? WorkflowTemplateEngine();
+  new({this.roleDefaults = const WorkflowRoleDefaults(), WorkflowTemplateEngine? templateEngine})
+    : _engine = templateEngine ?? WorkflowTemplateEngine();
 
   /// Validates [definition] and returns a [ValidationReport].
   ///

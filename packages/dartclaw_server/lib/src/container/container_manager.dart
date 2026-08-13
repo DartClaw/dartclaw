@@ -39,7 +39,7 @@ enum ContainerHealth { running, notRunning, unknown }
 /// keep their behavior, while the primary lane and tests can match this cause
 /// specifically instead of a bare internal error.
 class ContainerAuthorityLostException extends StateError {
-  ContainerAuthorityLostException({required this.containerName, required this.profileId})
+  new({required this.containerName, required this.profileId})
     : super(
         'Container $containerName ($profileId) is no longer running and cannot be reattached: its host bridges died '
         'with it, so this execution must acquire a new container authority.',
@@ -92,7 +92,7 @@ class ContainerManager implements ContainerExecutor {
   final RunCommand _run;
   final StartCommand _start;
 
-  ContainerManager({
+  new({
     required this.config,
     required this.containerName,
     required this.profileId,

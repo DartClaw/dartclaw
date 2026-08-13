@@ -31,7 +31,7 @@ class ContentGuard extends Guard {
   final bool failOpen;
 
   /// Creates a content guard around a concrete [ContentClassifier].
-  ContentGuard({
+  new({
     required ContentClassifier classifier,
     this.maxContentBytes = 50 * 1024,
     this.timeout = const Duration(seconds: 15),

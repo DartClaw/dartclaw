@@ -14,7 +14,7 @@ class StatusCommand extends Command<void> {
   final DartclawConfig? _config;
   final StatusWriteLine _writeLine;
 
-  StatusCommand({DartclawConfig? config, StatusWriteLine? writeLine})
+  new({DartclawConfig? config, StatusWriteLine? writeLine})
     : _config = config,
       _writeLine = writeLine ?? stdout.writeln;
 

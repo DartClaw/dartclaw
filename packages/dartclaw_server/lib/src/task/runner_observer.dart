@@ -28,7 +28,7 @@ class RunnerMetrics {
   final int totalToolCalls;
   final int failedToolCalls;
 
-  const RunnerMetrics({
+  const new({
     required this.runnerId,
     required this.role,
     required this.providerId,
@@ -68,7 +68,7 @@ class RunnerMetrics {
 }
 
 final class ExecutionCapacityMetrics {
-  const ExecutionCapacityMetrics({
+  const new({
     required this.runnerCount,
     required this.configured,
     required this.effective,
@@ -105,9 +105,7 @@ final class ExecutionCapacityMetrics {
 
 /// Derives runner lifecycle from execution leases and retains aggregate turn metrics.
 class RunnerObserver {
-  RunnerObserver({required ExecutionCoordinator executions, EventBus? eventBus})
-    : _executions = executions,
-      _eventBus = eventBus {
+  new({required ExecutionCoordinator executions, EventBus? eventBus}) : _executions = executions, _eventBus = eventBus {
     for (final runner in executions.runners) {
       final runnerId = identical(runner, executions.primary) ? 0 : null;
       if (runnerId != null) {
@@ -268,7 +266,7 @@ class _MutableMetrics {
   int totalToolCalls = 0;
   int failedToolCalls = 0;
 
-  _MutableMetrics({required this.runnerId, required this.role, required this.providerId, required this.policy});
+  new({required this.runnerId, required this.role, required this.providerId, required this.policy});
 
   RunnerMetrics toSnapshot() => RunnerMetrics(
     runnerId: runnerId,

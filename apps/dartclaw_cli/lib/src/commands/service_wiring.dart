@@ -97,7 +97,7 @@ class WiringResult {
   /// registry.
   final WorkflowRegistry workflowRegistry;
 
-  const WiringResult({
+  const new({
     required this.server,
     required this.searchDb,
     required this.agentExecutionRepository,
@@ -142,7 +142,7 @@ final class _WiringContext {
   late DartclawServer _serverRef;
   late TurnManager _serverTurns;
 
-  _WiringContext({
+  new({
     required this.eventBus,
     required this.configNotifier,
     required this.dataDir,
@@ -202,7 +202,7 @@ class ServiceWiring {
 
   static final _log = Logger('ServiceWiring');
 
-  ServiceWiring({
+  new({
     required this.config,
     required this.dataDir,
     required this.port,

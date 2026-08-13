@@ -41,7 +41,7 @@ enum MemoryRole {
   wiki('wiki'),
   kg('kg');
 
-  const MemoryRole(this.wireName);
+  new(this.wireName);
 
   final String wireName;
 
@@ -75,7 +75,7 @@ final class MemorySourceRef {
   /// Capture origins require [sourceEvent]; manual and migration references
   /// require it to be absent. Throws [ArgumentError] when either contract is
   /// violated.
-  MemorySourceRef({this.originKind, required this.sourceLocator, this.sourceEvent, this.caller, this.sessionRef}) {
+  new({this.originKind, required this.sourceLocator, this.sourceEvent, this.caller, this.sessionRef}) {
     _requireText(sourceLocator, 'sourceLocator');
     if (sourceEvent != null) _requireText(sourceEvent!, 'sourceEvent');
     if (caller != null) _requireText(caller!, 'caller');
@@ -124,11 +124,7 @@ final class MemorySourceRef {
 
 /// Identifies a canonical collection and its positive mutation revision.
 final class MemoryCollectionMetadata {
-  MemoryCollectionMetadata({
-    this.formatVersion = canonicalMemoryFormatVersion,
-    required this.collectionId,
-    required this.revision,
-  }) {
+  new({this.formatVersion = canonicalMemoryFormatVersion, required this.collectionId, required this.revision}) {
     if (formatVersion != canonicalMemoryFormatVersion) {
       throw ArgumentError.value(formatVersion, 'formatVersion', 'unsupported');
     }
@@ -153,7 +149,7 @@ final class MemoryCollectionMetadata {
 
 /// Shared identity, revision, timestamp, and provenance contract for records.
 abstract base class CanonicalMemoryRecord {
-  CanonicalMemoryRecord({
+  new({
     required this.id,
     required this.revision,
     required this.created,
@@ -177,7 +173,7 @@ abstract base class CanonicalMemoryRecord {
 
 /// A detailed curated personal-memory entry stored in a topic or archive document.
 final class CanonicalMemoryEntry extends CanonicalMemoryRecord {
-  CanonicalMemoryEntry({
+  new({
     required super.id,
     required super.revision,
     required this.topic,
@@ -214,7 +210,7 @@ final class CanonicalMemoryEntry extends CanonicalMemoryRecord {
 
 /// A stable runtime-learning entry stored outside personal topic memory.
 final class CanonicalMemoryLearning extends CanonicalMemoryRecord {
-  CanonicalMemoryLearning({
+  new({
     required super.id,
     required super.revision,
     required this.summary,
@@ -247,7 +243,7 @@ final class CanonicalMemoryLearning extends CanonicalMemoryRecord {
 
 /// The bounded prompt-index representation of an active curated entry.
 final class MemoryIndexEntry {
-  MemoryIndexEntry({
+  new({
     required this.id,
     required this.revision,
     required this.topic,
@@ -290,7 +286,7 @@ final class MemoryIndexEntry {
 
 /// A provenance-labelled raw observation that is never prompt-authoritative by location.
 final class MemoryObservation {
-  MemoryObservation({
+  new({
     required this.id,
     required this.recorded,
     required this.content,
@@ -336,12 +332,7 @@ final class MemoryObservation {
 ///
 /// [reason] is stored verbatim and may independently quote that content.
 final class MemoryDeletionAudit {
-  MemoryDeletionAudit({
-    required this.entryId,
-    required this.deletedAt,
-    required this.reason,
-    required this.provenance,
-  }) {
+  new({required this.entryId, required this.deletedAt, required this.reason, required this.provenance}) {
     _requireId(entryId, 'entryId');
     _requireUtc(deletedAt, 'deletedAt');
     _requireText(reason, 'reason');

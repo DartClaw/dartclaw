@@ -1,7 +1,7 @@
 import 'workflow_run_id_command.dart';
 
 class WorkflowRetryCommand extends WorkflowRunIdCommand {
-  WorkflowRetryCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

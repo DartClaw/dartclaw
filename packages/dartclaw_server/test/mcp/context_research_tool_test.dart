@@ -411,7 +411,7 @@ void main() {
 }
 
 final class _CountingWiki extends WikiSearchSource {
-  _CountingWiki() : super(workspaceDir: '.');
+  new() : super(workspaceDir: '.');
 
   int calls = 0;
 
@@ -482,7 +482,7 @@ final class _RecordingSearchBackend implements SearchBackend {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> query({
@@ -498,7 +498,7 @@ final class _ThrowingKg extends TemporalKnowledgeGraphService {
 final class _RecordingLogicalAgentSessionService extends LogicalAgentSessionService {
   final List<Map<String, dynamic>> sent = [];
 
-  _RecordingLogicalAgentSessionService()
+  new()
     : super(dispatch: ({required sessionId, required message, required agentId, required createSession}) async => '');
 
   @override

@@ -33,7 +33,7 @@ class WorkflowExclusion {
   /// Reason(s) the workflow was excluded — validation errors or parse failures.
   final List<String> errors;
 
-  const WorkflowExclusion({required this.sourcePath, this.workflowName, required this.errors});
+  const new({required this.sourcePath, this.workflowName, required this.errors});
 }
 
 class _RegisteredWorkflow {
@@ -42,7 +42,7 @@ class _RegisteredWorkflow {
   final String? sourcePath;
   final String? sourceFingerprint;
 
-  const _RegisteredWorkflow({required this.definition, required this.source, this.sourcePath, this.sourceFingerprint});
+  const new({required this.definition, required this.source, this.sourcePath, this.sourceFingerprint});
 }
 
 /// Production registry of workflow definitions - materialized and custom.
@@ -68,7 +68,7 @@ class WorkflowRegistry implements WorkflowDefinitionSource {
   final Map<String, _RegisteredWorkflow> _definitions = {};
   final List<WorkflowExclusion> _exclusions = [];
 
-  WorkflowRegistry({
+  new({
     required WorkflowDefinitionParser parser,
     required WorkflowDefinitionValidator validator,
     Set<String>? continuityProviders,

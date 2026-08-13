@@ -591,7 +591,7 @@ final class _PostCommitMissingGit implements WorkflowGitPort {
   final FakeGitGateway _delegate;
   bool committed = false;
 
-  _PostCommitMissingGit(this._delegate);
+  new(this._delegate);
 
   @override
   Future<void> add(String worktreePath, List<String> paths, {bool all = false}) =>

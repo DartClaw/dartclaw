@@ -804,7 +804,7 @@ class _BlockingMergeExecutor extends MergeExecutor {
   final Completer<void> release = Completer<void>();
   int callCount = 0;
 
-  _BlockingMergeExecutor({required this.result}) : super(projectDir: '.');
+  new({required this.result}) : super(projectDir: '.');
 
   @override
   Future<MergeResult> merge({
@@ -827,7 +827,7 @@ class _BlockingMergeExecutor extends MergeExecutor {
 class _ThrowingMergeExecutor extends MergeExecutor {
   final Object error;
 
-  _ThrowingMergeExecutor(this.error) : super(projectDir: '.');
+  new(this.error) : super(projectDir: '.');
 
   @override
   Future<MergeResult> merge({
@@ -890,11 +890,11 @@ class _FakeGitRunner {
   final Map<String, ProcessResult> _responses;
   final List<String> commands = [];
 
-  _FakeGitRunner._(this._responses);
+  new _(this._responses);
 
-  factory _FakeGitRunner.withResponses(Map<String, ProcessResult> responses) => _FakeGitRunner._(responses);
+  factory withResponses(Map<String, ProcessResult> responses) => _FakeGitRunner._(responses);
 
-  factory _FakeGitRunner.cleanBranchDiff() => _FakeGitRunner.withResponses({
+  factory cleanBranchDiff() => _FakeGitRunner.withResponses({
     'status --porcelain --untracked-files=all': _gitResult(''),
     'rev-parse --verify origin/main': _gitResult('origin/main\n'),
     'diff --quiet origin/main...HEAD': _gitResult('', exitCode: 1),

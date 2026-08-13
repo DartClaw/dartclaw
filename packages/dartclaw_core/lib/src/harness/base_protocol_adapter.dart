@@ -7,7 +7,7 @@ import 'protocol_adapter.dart';
 
 /// Shared helpers for provider protocol adapters.
 abstract class BaseProtocolAdapter implements ProtocolAdapter {
-  const BaseProtocolAdapter();
+  const new();
 }
 
 Map<String, dynamic>? mapValue(Object? value) {

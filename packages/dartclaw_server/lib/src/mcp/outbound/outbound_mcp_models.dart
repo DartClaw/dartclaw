@@ -5,7 +5,7 @@ final class OutboundMcpCaller {
   final String sessionId;
   final String? principal;
 
-  const OutboundMcpCaller({required this.sessionId, this.principal});
+  const new({required this.sessionId, this.principal});
 }
 
 /// Request shape passed to the outbound MCP guard hook.
@@ -15,12 +15,7 @@ final class OutboundMcpGuardRequest {
   final Map<String, dynamic> arguments;
   final OutboundMcpCaller caller;
 
-  const OutboundMcpGuardRequest({
-    required this.serverName,
-    required this.toolName,
-    required this.arguments,
-    required this.caller,
-  });
+  const new({required this.serverName, required this.toolName, required this.arguments, required this.caller});
 }
 
 typedef OutboundMcpGuardHook = Future<void> Function(OutboundMcpGuardRequest request);
@@ -31,11 +26,11 @@ final class OutboundMcpGuardDecision {
   final String decision;
   final String? reason;
 
-  const OutboundMcpGuardDecision._({required this.allowed, required this.decision, this.reason});
+  const new _({required this.allowed, required this.decision, this.reason});
 
-  const OutboundMcpGuardDecision.allow() : this._(allowed: true, decision: 'allow');
+  const new allow() : this._(allowed: true, decision: 'allow');
 
-  const OutboundMcpGuardDecision.deny(String reason) : this._(allowed: false, decision: 'deny', reason: reason);
+  const new deny(String reason) : this._(allowed: false, decision: 'deny', reason: reason);
 }
 
 typedef OutboundMcpGuardDecisionHook = Future<OutboundMcpGuardDecision> Function(OutboundMcpGuardRequest request);
@@ -46,7 +41,7 @@ final class OutboundMcpTool {
   final String? description;
   final Map<String, dynamic> inputSchema;
 
-  const OutboundMcpTool({required this.name, this.description, this.inputSchema = const {}});
+  const new({required this.name, this.description, this.inputSchema = const {}});
 }
 
 /// Structured caller-visible failure for transport/protocol/lifecycle errors.
@@ -55,7 +50,7 @@ final class OutboundMcpError {
   final String message;
   final String serverName;
 
-  const OutboundMcpError({required this.code, required this.message, required this.serverName});
+  const new({required this.code, required this.message, required this.serverName});
 
   Map<String, dynamic> toJson() => {'code': code, 'message': message, 'serverName': serverName};
 }
@@ -71,7 +66,7 @@ final class OutboundMcpCallResult {
   final String? decision;
   final String? reason;
 
-  const OutboundMcpCallResult({
+  const new({
     required this.serverName,
     required this.toolName,
     required this.content,
@@ -101,7 +96,7 @@ final class OutboundMcpServerDefinition {
   final String name;
   final McpServerEntry entry;
 
-  const OutboundMcpServerDefinition({required this.name, required this.entry});
+  const new({required this.name, required this.entry});
 }
 
 /// Outbound connection lifecycle and health event.
@@ -112,7 +107,7 @@ final class OutboundMcpLifecycleEvent {
   final DateTime timestamp;
   final int? outboundCallTokens;
 
-  const OutboundMcpLifecycleEvent({
+  const new({
     required this.serverName,
     required this.type,
     required this.timestamp,

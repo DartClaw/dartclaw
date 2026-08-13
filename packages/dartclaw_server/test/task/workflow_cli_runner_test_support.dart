@@ -113,7 +113,7 @@ ContainerAuthorityProvider fakeContainerAuthorities(
 
 /// A lease over a pre-built container executor.
 final class FakeContainerAuthorityLease implements ContainerAuthorityLease {
-  FakeContainerAuthorityLease(this.container, this.released, this.sessionId);
+  new(this.container, this.released, this.sessionId);
 
   @override
   final ContainerExecutor container;
@@ -195,7 +195,7 @@ Map<String, dynamic> decodedClaudeSettings(List<String> arguments) {
 }
 
 class FakeCliProvider implements CliProvider {
-  const FakeCliProvider(this.onRun);
+  const new(this.onRun);
 
   final void Function() onRun;
 
@@ -236,7 +236,7 @@ final class RecordingCliProvider implements CliProvider {
 }
 
 class FakeContainerExecutor implements ContainerExecutor {
-  FakeContainerExecutor({
+  new({
     required this.hostRoot,
     required this.containerRoot,
     this.profileId = 'workspace',

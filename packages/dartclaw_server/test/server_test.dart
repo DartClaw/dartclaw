@@ -110,7 +110,7 @@ class FakeWorkerService implements AgentHarness {
 }
 
 class _TestDashboardPage extends DashboardPage {
-  _TestDashboardPage({this.routePath = '/custom-dashboard'});
+  new({this.routePath = '/custom-dashboard'});
 
   final String routePath;
 

@@ -3,7 +3,7 @@ import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 class _StubDashboardPage implements DashboardPage {
-  _StubDashboardPage(this._route, this._title, {this.iconValue});
+  new(this._route, this._title, {this.iconValue});
 
   final String _route;
   final String _title;
@@ -28,7 +28,7 @@ class _StubDashboardPage implements DashboardPage {
 }
 
 class _HiddenStubDashboardPage extends _StubDashboardPage implements DashboardNavigationExclusion {
-  _HiddenStubDashboardPage(super._route, super._title);
+  new(super._route, super._title);
 }
 
 void main() {

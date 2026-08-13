@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 
 void main() async {

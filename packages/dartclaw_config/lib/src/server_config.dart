@@ -34,7 +34,7 @@ class ServerConfig {
   final int maxParallelTurns;
 
   /// Creates a [ServerConfig] value.
-  const ServerConfig({
+  const new({
     this.port = 3333,
     this.host = 'localhost',
     this.name = 'DartClaw',
@@ -49,7 +49,7 @@ class ServerConfig {
   });
 
   /// Default configuration.
-  const ServerConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

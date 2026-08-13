@@ -9,7 +9,7 @@ class FakeChannelManager extends ChannelManager {
   /// Inbound messages captured in arrival order.
   final List<ChannelMessage> received = [];
 
-  FakeChannelManager()
+  new()
     : super(
         queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
         config: const ChannelConfig.defaults(),

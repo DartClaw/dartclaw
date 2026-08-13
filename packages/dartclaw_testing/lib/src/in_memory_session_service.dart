@@ -6,8 +6,7 @@ class InMemorySessionService implements SessionService {
   static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron, SessionType.task};
 
   /// Creates an in-memory session service.
-  InMemorySessionService({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator})
-    : _idGenerator = idGenerator;
+  new({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator}) : _idGenerator = idGenerator;
 
   @override
   final String baseDir;

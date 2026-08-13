@@ -44,8 +44,7 @@ class InMemoryDefinitionSource implements WorkflowDefinitionSource {
   final Map<String, WorkflowDefinition> _definitions;
   static const _resolver = WorkflowDefinitionResolver();
 
-  InMemoryDefinitionSource(List<WorkflowDefinition> definitions)
-    : _definitions = {for (final d in definitions) d.name: d};
+  new(List<WorkflowDefinition> definitions) : _definitions = {for (final d in definitions) d.name: d};
 
   @override
   WorkflowDefinition? getByName(String name) => _definitions[name];

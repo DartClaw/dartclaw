@@ -19,14 +19,13 @@ class InputSanitizerConfig {
   final List<({String category, RegExp pattern})> patterns;
 
   /// Creates an input sanitizer configuration from precompiled patterns.
-  InputSanitizerConfig({required this.enabled, required this.channelsOnly, required this.patterns});
+  new({required this.enabled, required this.channelsOnly, required this.patterns});
 
   /// Hardcoded safe defaults — ships with built-in patterns for 4 injection categories.
-  factory InputSanitizerConfig.defaults() =>
-      InputSanitizerConfig(enabled: true, channelsOnly: true, patterns: _defaultPatterns);
+  factory defaults() => InputSanitizerConfig(enabled: true, channelsOnly: true, patterns: _defaultPatterns);
 
   /// Merges extra patterns from YAML config with defaults.
-  factory InputSanitizerConfig.fromYaml(Map<String, dynamic> yaml) {
+  factory fromYaml(Map<String, dynamic> yaml) {
     final defaults = InputSanitizerConfig.defaults();
 
     final enabled = yaml['enabled'];
@@ -107,7 +106,7 @@ class InputSanitizer extends Guard {
   InputSanitizerConfig config;
 
   /// Creates an input sanitizer with defaults unless overridden.
-  InputSanitizer({InputSanitizerConfig? config}) : config = config ?? InputSanitizerConfig.defaults();
+  new({InputSanitizerConfig? config}) : config = config ?? InputSanitizerConfig.defaults();
 
   /// Rebuilds config from new YAML. Called by the reconfigurability adapter in wiring.
   void reconfigureFromYaml(Map<String, dynamic>? guardsYaml) {

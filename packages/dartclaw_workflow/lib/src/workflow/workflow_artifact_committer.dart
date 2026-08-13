@@ -33,7 +33,7 @@ final class ArtifactCommitPolicy {
   final WorkflowTemplateEngine templateEngine;
   final WorkflowGitPort? workflowGitPort;
 
-  const ArtifactCommitPolicy({
+  const new({
     required this.run,
     required this.definition,
     required this.step,
@@ -61,7 +61,7 @@ final class ArtifactCommitResult {
   final String? failureReason;
   final bool fatal;
 
-  const ArtifactCommitResult._({
+  const new _({
     this.committedPaths = const <String>[],
     this.skippedPaths = const <String>[],
     this.commitSha,
@@ -69,17 +69,13 @@ final class ArtifactCommitResult {
     this.fatal = false,
   });
 
-  const ArtifactCommitResult.skipped({List<String> skippedPaths = const <String>[]})
-    : this._(skippedPaths: skippedPaths);
+  const new skipped({List<String> skippedPaths = const <String>[]}) : this._(skippedPaths: skippedPaths);
 
-  const ArtifactCommitResult.committed({required List<String> committedPaths, required String commitSha})
+  const new committed({required List<String> committedPaths, required String commitSha})
     : this._(committedPaths: committedPaths, commitSha: commitSha);
 
-  const ArtifactCommitResult.failed({
-    required String failureReason,
-    List<String> skippedPaths = const <String>[],
-    required bool fatal,
-  }) : this._(failureReason: failureReason, skippedPaths: skippedPaths, fatal: fatal);
+  const new failed({required String failureReason, List<String> skippedPaths = const <String>[], required bool fatal})
+    : this._(failureReason: failureReason, skippedPaths: skippedPaths, fatal: fatal);
 
   bool get failed => failureReason != null;
 }
@@ -346,5 +342,5 @@ final class ResolvedArtifactProject {
   final String dir;
   final bool exists;
 
-  const ResolvedArtifactProject({required this.projectId, required this.dir, required this.exists});
+  const new({required this.projectId, required this.dir, required this.exists});
 }

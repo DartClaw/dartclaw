@@ -18,9 +18,9 @@ final class WorkspaceSkillInventory {
   final List<String> agentMdNames;
   final List<String> agentTomlNames;
 
-  const WorkspaceSkillInventory({required this.skillNames, required this.agentMdNames, required this.agentTomlNames});
+  const new({required this.skillNames, required this.agentMdNames, required this.agentTomlNames});
 
-  factory WorkspaceSkillInventory.fromDataDir(String dataDir) {
+  factory fromDataDir(String dataDir) {
     return WorkspaceSkillInventory(
       skillNames: _discoverSkillNames(dataDir),
       agentMdNames: _discoverAgentNames(p.join(dataDir, '.claude', 'agents'), '.md'),
@@ -41,7 +41,7 @@ final class WorkspaceSkillLinker {
   final WorkspaceGitDirResolver _gitDirResolver;
   final bool _symlinksEnabled;
 
-  WorkspaceSkillLinker({
+  new({
     WorkspaceLinkFactory? linkFactory,
     WorkspaceDirectoryCopier? directoryCopier,
     WorkspaceGitDirResolver? gitDirResolver,

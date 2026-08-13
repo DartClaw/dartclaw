@@ -114,7 +114,7 @@ class SetupState {
   /// Whether the input sanitizer is enabled (Full track only; default: true).
   final bool? inputSanitizerEnabled;
 
-  SetupState({
+  new({
     required this.instanceName,
     required this.instanceDir,
     String? configPath,

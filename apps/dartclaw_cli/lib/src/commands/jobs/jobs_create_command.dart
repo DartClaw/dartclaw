@@ -4,7 +4,7 @@ import 'package:dartclaw_server/dartclaw_server.dart' show CronExpression;
 import '../connected_command_support.dart';
 
 class JobsCreateCommand extends ConnectedCommand {
-  JobsCreateCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('name', help: 'Job name')
       ..addOption('schedule', help: 'Cron schedule expression')

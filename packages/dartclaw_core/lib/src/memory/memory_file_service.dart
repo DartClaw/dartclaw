@@ -27,7 +27,7 @@ class MemoryFileService {
   final String baseDir;
   final MemoryCorpusService _corpusService;
   final bool _ownsCorpusService;
-  MemoryFileService({required this.baseDir, MemoryCorpusService? corpusService})
+  new({required this.baseDir, MemoryCorpusService? corpusService})
     : _corpusService = corpusService ?? MemoryCorpusService(workspaceDir: baseDir),
       _ownsCorpusService = corpusService == null;
 

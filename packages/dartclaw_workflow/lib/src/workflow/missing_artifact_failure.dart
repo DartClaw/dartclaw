@@ -15,7 +15,7 @@ final class MissingArtifactFailure implements Exception {
   /// Stable human-readable reason for the failure.
   final String reason;
 
-  const MissingArtifactFailure({
+  const new({
     required this.claimedPaths,
     required this.missingPaths,
     required this.worktreePath,

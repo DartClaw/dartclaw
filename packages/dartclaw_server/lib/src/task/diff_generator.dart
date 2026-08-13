@@ -18,7 +18,7 @@ class DiffHunk {
   final int newCount;
   final List<String> lines;
 
-  const DiffHunk({
+  const new({
     required this.header,
     required this.oldStart,
     required this.oldCount,
@@ -36,7 +36,7 @@ class DiffHunk {
     'lines': lines,
   };
 
-  factory DiffHunk.fromJson(Map<String, dynamic> json) => DiffHunk(
+  factory fromJson(Map<String, dynamic> json) => DiffHunk(
     header: json['header'] as String,
     oldStart: json['oldStart'] as int,
     oldCount: json['oldCount'] as int,
@@ -56,7 +56,7 @@ class DiffFileEntry {
   final bool binary;
   final List<DiffHunk> hunks;
 
-  const DiffFileEntry({
+  const new({
     required this.path,
     this.oldPath,
     required this.status,
@@ -76,7 +76,7 @@ class DiffFileEntry {
     'hunks': hunks.map((h) => h.toJson()).toList(),
   };
 
-  factory DiffFileEntry.fromJson(Map<String, dynamic> json) => DiffFileEntry(
+  factory fromJson(Map<String, dynamic> json) => DiffFileEntry(
     path: json['path'] as String,
     oldPath: json['oldPath'] as String?,
     status: DiffFileStatus.values.byName(json['status'] as String),
@@ -94,7 +94,7 @@ class DiffResult {
   final int totalDeletions;
   final int filesChanged;
 
-  const DiffResult({
+  const new({
     required this.files,
     required this.totalAdditions,
     required this.totalDeletions,
@@ -108,7 +108,7 @@ class DiffResult {
     'filesChanged': filesChanged,
   };
 
-  factory DiffResult.fromJson(Map<String, dynamic> json) => DiffResult(
+  factory fromJson(Map<String, dynamic> json) => DiffResult(
     files: (json['files'] as List).map((f) => DiffFileEntry.fromJson(f as Map<String, dynamic>)).toList(),
     totalAdditions: json['totalAdditions'] as int,
     totalDeletions: json['totalDeletions'] as int,
@@ -124,7 +124,7 @@ class DiffGenerator {
   final Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})
   _runProcess;
 
-  DiffGenerator({
+  new({
     required String projectDir,
     Future<ProcessResult> Function(String executable, List<String> arguments, {String? workingDirectory})?
     processRunner,
@@ -449,7 +449,7 @@ class _NumstatEntry {
   final bool binary;
   final DiffFileStatus status;
 
-  const _NumstatEntry({
+  const new({
     required this.path,
     this.oldPath,
     required this.additions,

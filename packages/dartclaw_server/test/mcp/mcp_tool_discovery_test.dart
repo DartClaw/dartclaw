@@ -17,7 +17,7 @@ class _StubTool implements McpTool {
   @override
   final Map<String, dynamic> inputSchema;
 
-  _StubTool(this.name, {String? description})
+  new(this.name, {String? description})
     : description = description ?? 'Stub $name',
       inputSchema = {'type': 'object', 'properties': {}};
 

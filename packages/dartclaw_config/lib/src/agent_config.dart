@@ -31,7 +31,7 @@ class AgentConfig {
   final HistoryConfig history;
 
   /// Creates a [AgentConfig] value.
-  const AgentConfig({
+  const new({
     this.provider = 'claude',
     this.model,
     this.effort,
@@ -43,7 +43,7 @@ class AgentConfig {
   });
 
   /// Default configuration.
-  const AgentConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

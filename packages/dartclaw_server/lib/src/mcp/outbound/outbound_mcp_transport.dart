@@ -33,5 +33,5 @@ final class OutboundMcpTransportOptions {
   final int maxResponseBytes;
   final CredentialEntry? credential;
 
-  const OutboundMcpTransportOptions({required this.timeout, required this.maxResponseBytes, this.credential});
+  const new({required this.timeout, required this.maxResponseBytes, this.credential});
 }

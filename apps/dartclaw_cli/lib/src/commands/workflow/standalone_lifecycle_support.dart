@@ -32,7 +32,7 @@ class StandaloneLifecycleSession {
   final CliWorkflowWiring wiring;
   final WorkflowRun run;
 
-  const StandaloneLifecycleSession({required this.wiring, required this.run});
+  const new({required this.wiring, required this.run});
 }
 
 /// Base for `workflow` subcommands that can drive a single run's lifecycle
@@ -57,7 +57,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
 
-  StandaloneWorkflowLifecycleCommand({
+  new({
     super.config,
     super.apiClient,
     super.writeLine,

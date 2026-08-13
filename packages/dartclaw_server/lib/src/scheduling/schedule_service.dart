@@ -34,7 +34,7 @@ class ScheduleTurnFailureException implements Exception {
   final String message;
   final Object? cause;
 
-  ScheduleTurnFailureException(this.message, {this.cause});
+  new(this.message, {this.cause});
 
   @override
   String toString() => cause != null
@@ -67,7 +67,7 @@ class ScheduleService implements Reconfigurable {
   bool _started = false;
   final EventBus? _eventBus;
 
-  ScheduleService({
+  new({
     required TurnManager turns,
     required SessionService sessions,
     required List<ScheduledJob> jobs,

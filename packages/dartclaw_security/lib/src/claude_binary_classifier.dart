@@ -30,11 +30,8 @@ class ClaudeBinaryClassifier implements ContentClassifier {
   final ClassifierProcessFactory _processFactory;
 
   /// Creates a classifier backed by `claude --print`.
-  ClaudeBinaryClassifier({
-    this.claudeExecutable = 'claude',
-    this.model = 'haiku',
-    ClassifierProcessFactory? processFactory,
-  }) : _processFactory = processFactory ?? Process.start;
+  new({this.claudeExecutable = 'claude', this.model = 'haiku', ClassifierProcessFactory? processFactory})
+    : _processFactory = processFactory ?? Process.start;
 
   @override
   Future<String> classify(String content, {Duration timeout = const Duration(seconds: 15)}) async {

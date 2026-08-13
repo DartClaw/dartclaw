@@ -8,7 +8,7 @@ import 'mcp_utils.dart';
 class SessionsSpawnTool implements McpTool {
   final LogicalAgentSessionService _sessions;
 
-  SessionsSpawnTool({required LogicalAgentSessionService sessions}) : _sessions = sessions;
+  new({required LogicalAgentSessionService sessions}) : _sessions = sessions;
 
   @override
   String get name => 'sessions_spawn';

@@ -33,7 +33,7 @@ class SchemaPreset {
   /// Field-specific resolver declarations for canonical output keys.
   final Map<String, OutputResolver> fieldResolvers;
 
-  const SchemaPreset({
+  const new({
     required this.name,
     required this.format,
     required this.schema,

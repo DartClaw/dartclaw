@@ -10,7 +10,7 @@ class MediaExtraction {
   final String cleanedText;
   final List<String> mediaPaths;
 
-  const MediaExtraction({required this.cleanedText, required this.mediaPaths});
+  const new({required this.cleanedText, required this.mediaPaths});
 }
 
 final _mediaPattern = RegExp(r'^MEDIA:(.+)$', multiLine: true);

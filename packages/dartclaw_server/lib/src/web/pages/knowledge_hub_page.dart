@@ -16,7 +16,7 @@ import '../web_utils.dart';
 class KnowledgeHubPage extends DashboardPage {
   static const navigationTitle = 'Knowledge';
 
-  KnowledgeHubPage({KnowledgeHubService? Function()? hubGetter, CitationSourceResolver? resolver})
+  new({KnowledgeHubService? Function()? hubGetter, CitationSourceResolver? resolver})
     : _hubGetter = hubGetter,
       _resolver = resolver;
 

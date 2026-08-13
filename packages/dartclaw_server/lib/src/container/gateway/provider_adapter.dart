@@ -33,13 +33,9 @@ abstract interface class ProviderMediator implements GatewaySurfaceHandler {
 /// [handle], and a subclass that replaced it would quietly reopen the boundary.
 /// Subclasses supply protocol details, never request flow.
 abstract base class ProviderAdapter implements ProviderMediator {
-  ProviderAdapter({
-    required this.providerId,
-    required this.upstream,
-    required String? Function() apiKey,
-    HttpClient? client,
-  }) : _apiKey = apiKey,
-       _client = client ?? HttpClient();
+  new({required this.providerId, required this.upstream, required String? Function() apiKey, HttpClient? client})
+    : _apiKey = apiKey,
+      _client = client ?? HttpClient();
 
   static final _log = Logger('ProviderAdapter');
 
@@ -222,7 +218,7 @@ abstract base class ProviderAdapter implements ProviderMediator {
 
 /// Anthropic Messages mediation for containerized Claude.
 final class AnthropicMessagesAdapter extends ProviderAdapter {
-  AnthropicMessagesAdapter({required super.apiKey, Uri? upstream, super.client, super.providerId = 'claude'})
+  new({required super.apiKey, Uri? upstream, super.client, super.providerId = 'claude'})
     : super(upstream: upstream ?? defaultUpstream);
 
   static final Uri defaultUpstream = Uri.https('api.anthropic.com');
@@ -258,7 +254,7 @@ final class AnthropicMessagesAdapter extends ProviderAdapter {
 
 /// OpenAI Responses mediation for containerized Codex.
 final class OpenAiResponsesAdapter extends ProviderAdapter {
-  OpenAiResponsesAdapter({required super.apiKey, Uri? upstream, super.client, super.providerId = 'codex'})
+  new({required super.apiKey, Uri? upstream, super.client, super.providerId = 'codex'})
     : super(upstream: upstream ?? defaultUpstream);
 
   static final Uri defaultUpstream = Uri.https('api.openai.com');

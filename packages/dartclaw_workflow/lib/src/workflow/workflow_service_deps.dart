@@ -25,7 +25,7 @@ final class WorkflowPersistencePorts {
   final WorkflowStepExecutionRepository workflowStepExecutionRepository;
   final ExecutionRepositoryTransactor executionRepositoryTransactor;
 
-  const WorkflowPersistencePorts({
+  const new({
     required this.taskRepository,
     required this.agentExecutionRepository,
     required this.workflowStepExecutionRepository,
@@ -40,12 +40,7 @@ final class WorkflowGitContext {
   final String? defaultWorkspaceRoot;
   final FutureOr<void> Function(WorkflowWorktreeBinding binding)? hydrateBinding;
 
-  const WorkflowGitContext({
-    required this.gitPort,
-    this.projectService,
-    this.defaultWorkspaceRoot,
-    this.hydrateBinding,
-  });
+  const new({required this.gitPort, this.projectService, this.defaultWorkspaceRoot, this.hydrateBinding});
 }
 
 /// Optional runtime customizations for workflow lifecycle management.
@@ -62,7 +57,7 @@ final class WorkflowServiceOptions {
   final List<String>? bashStepExtraStripPatterns;
   final Uuid? uuid;
 
-  const WorkflowServiceOptions({
+  const new({
     this.roleDefaults = const WorkflowRoleDefaults(),
     this.approvalPolicyDefault = WorkflowApprovalPolicy.manual,
     this.outputTransformer,

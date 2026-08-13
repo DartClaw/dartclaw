@@ -121,7 +121,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
 
   Completer<Map<String, dynamic>>? _initCompleter;
 
-  ClaudeCodeHarness({
+  new({
     this.claudeExecutable = 'claude',
     required super.cwd,
     super.turnTimeout = const Duration(seconds: 600),

@@ -22,7 +22,7 @@ class TaskTriggerConfig {
   final bool autoStart;
 
   /// Creates per-channel task trigger configuration.
-  const TaskTriggerConfig({
+  const new({
     this.enabled = false,
     this.prefix = defaultPrefix,
     this.defaultType = defaultDefaultType,
@@ -30,13 +30,13 @@ class TaskTriggerConfig {
   });
 
   /// Creates a disabled task-trigger configuration.
-  const TaskTriggerConfig.disabled() : this();
+  const new disabled() : this();
 
   /// Normalizes a configured default task type name.
   static String normalizeDefaultType(String defaultType) => defaultType.trim();
 
   /// Parses task trigger configuration from YAML, appending warnings to [warns].
-  factory TaskTriggerConfig.fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     final enabled = yaml['enabled'];
     if (enabled != null && enabled is! bool) {
       warns.add('Invalid type for task_trigger.enabled: "${enabled.runtimeType}" — using default');

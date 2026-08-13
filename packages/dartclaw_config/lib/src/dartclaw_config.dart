@@ -199,7 +199,7 @@ class DartclawConfig {
   String get projectsClonesDir => p.join(server.dataDir, 'projects');
 
   /// Creates a [DartclawConfig] value.
-  const DartclawConfig({
+  const new({
     this.server = const ServerConfig.defaults(),
     this.agent = const AgentConfig.defaults(),
     this.advisor = const AdvisorConfig.defaults(),
@@ -233,7 +233,7 @@ class DartclawConfig {
   }) : _warnings = warnings;
 
   /// All default values.
-  const DartclawConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns a copy with the given sections replaced, preserving every other
   /// section (including [warnings]).
@@ -378,7 +378,7 @@ class DartclawConfig {
   /// [cliOverrides] — key/value pairs from CLI flags (snake_case keys).
   /// [env] — environment variables (defaults to `Platform.environment`).
   /// [fileReader] — returns file contents or null; injectable for tests.
-  factory DartclawConfig.load({
+  factory load({
     String? configPath,
     Map<String, String>? cliOverrides,
     Map<String, String>? env,

@@ -4,7 +4,7 @@ typedef GoogleJwtVerifyCallback = Future<bool> Function(String? authHeader);
 
 /// Recording [GoogleJwtVerifier] fake with configurable verification outcomes.
 class FakeGoogleJwtVerifier implements GoogleJwtVerifier {
-  FakeGoogleJwtVerifier({this.shouldVerify = true, this.onVerify});
+  new({this.shouldVerify = true, this.onVerify});
 
   bool shouldVerify;
   final GoogleJwtVerifyCallback? onVerify;

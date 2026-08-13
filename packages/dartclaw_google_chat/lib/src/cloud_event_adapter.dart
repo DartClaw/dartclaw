@@ -12,7 +12,7 @@ import 'pubsub_client.dart';
 
 /// Result of processing a CloudEvent Pub/Sub message.
 sealed class AdapterResult {
-  const AdapterResult();
+  const new();
 }
 
 /// One or more [ChannelMessage] objects parsed from a CloudEvent.
@@ -20,7 +20,7 @@ class MessageResult extends AdapterResult {
   /// Parsed inbound messages ready for the channel pipeline.
   final List<ChannelMessage> messages;
 
-  const MessageResult(this.messages);
+  const new(this.messages);
 }
 
 /// Message was filtered (e.g., bot-originated).
@@ -28,7 +28,7 @@ class Filtered extends AdapterResult {
   /// Human-readable reason the message was filtered.
   final String reason;
 
-  const Filtered(this.reason);
+  const new(this.reason);
 }
 
 /// Event was logged but not processed (e.g., message.updated, message.deleted).
@@ -36,7 +36,7 @@ class LogOnly extends AdapterResult {
   /// The CloudEvent type that was logged.
   final String eventType;
 
-  const LogOnly(this.eventType);
+  const new(this.eventType);
 }
 
 /// Malformed payload acknowledged to prevent redelivery loops.
@@ -44,7 +44,7 @@ class Acknowledged extends AdapterResult {
   /// Human-readable reason the payload was acknowledged without processing.
   final String reason;
 
-  const Acknowledged(this.reason);
+  const new(this.reason);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ class CloudEventAdapter {
   /// [botUser] — optional bot user resource name (e.g., `users/BOT_ID`)
   /// used to filter self-originated messages. Matches
   /// [GoogleChatConfig.botUser].
-  CloudEventAdapter({String? botUser}) : _botUser = botUser;
+  new({String? botUser}) : _botUser = botUser;
 
   /// Processes a raw Pub/Sub [ReceivedMessage] and returns a structured result.
   ///

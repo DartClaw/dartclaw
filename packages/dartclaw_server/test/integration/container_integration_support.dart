@@ -42,7 +42,7 @@ const gatewayProbeImage = 'dartclaw-gateway-probe:latest';
 /// allowlisted and retries also increment a counter, so a count alone cannot
 /// distinguish a completed round-trip from a retry storm.
 final class UpstreamRequest {
-  UpstreamRequest({required this.method, required this.path, required this.headers, required this.body});
+  new({required this.method, required this.path, required this.headers, required this.body});
 
   final String method;
   final String path;
@@ -62,13 +62,12 @@ final class UpstreamRequest {
 
 /// One scripted answer the fake upstream serves for a single provider request.
 final class UpstreamReply {
-  const UpstreamReply({required this.status, required this.contentType, required this.body});
+  const new({required this.status, required this.contentType, required this.body});
 
   /// A server-sent-event stream, which is what both providers' turn paths use.
-  const UpstreamReply.sse(String body) : this(status: 200, contentType: 'text/event-stream', body: body);
+  const new sse(String body) : this(status: 200, contentType: 'text/event-stream', body: body);
 
-  const UpstreamReply.json(String body, {int status = 200})
-    : this(status: status, contentType: 'application/json', body: body);
+  const new json(String body, {int status = 200}) : this(status: status, contentType: 'application/json', body: body);
 
   final int status;
   final String contentType;
@@ -80,7 +79,7 @@ final class UpstreamReply {
 /// Binds loopback port 0: `dart test` runs suites as isolates in one OS
 /// process, so a fixed port would collide across suites.
 final class FakeProviderUpstream {
-  FakeProviderUpstream._(this._server);
+  new _(this._server);
 
   final HttpServer _server;
   final _requests = <UpstreamRequest>[];
@@ -337,7 +336,7 @@ String _sseEvent(String event, Map<String, Object?> data) => 'event: $event\ndat
 
 /// One live container authority under test.
 final class ContainerAuthority {
-  ContainerAuthority(this.gateway, this.authority, this.manager);
+  new(this.gateway, this.authority, this.manager);
 
   final HostGateway gateway;
   final GatewayAuthority authority;

@@ -15,7 +15,7 @@ class KgAddTool implements McpTool {
   final KgPrincipalProvider principalProvider;
   final KgGuardEvaluator? guardEvaluator;
 
-  KgAddTool({required this.kg, this.auditLogger, KgPrincipalProvider? principalProvider, this.guardEvaluator})
+  new({required this.kg, this.auditLogger, KgPrincipalProvider? principalProvider, this.guardEvaluator})
     : principalProvider = principalProvider ?? _systemPrincipal;
 
   @override
@@ -91,7 +91,7 @@ class KgAddTool implements McpTool {
 class KgQueryTool implements McpTool {
   final TemporalKnowledgeGraphService kg;
 
-  KgQueryTool({required this.kg});
+  new({required this.kg});
 
   @override
   String get name => 'kg_query';
@@ -127,7 +127,7 @@ class KgQueryTool implements McpTool {
 class KgTimelineTool implements McpTool {
   final TemporalKnowledgeGraphService kg;
 
-  KgTimelineTool({required this.kg});
+  new({required this.kg});
 
   @override
   String get name => 'kg_timeline';
@@ -160,7 +160,7 @@ class KgInvalidateTool implements McpTool {
   final String stewardPrincipal;
   final KgGuardEvaluator? guardEvaluator;
 
-  KgInvalidateTool({
+  new({
     required this.kg,
     this.auditLogger,
     KgPrincipalProvider? principalProvider,
@@ -249,7 +249,7 @@ class KgInvalidateTool implements McpTool {
 class KgContradictionsTool implements McpTool {
   final TemporalKnowledgeGraphService kg;
 
-  KgContradictionsTool({required this.kg});
+  new({required this.kg});
 
   @override
   String get name => 'kg_contradictions';

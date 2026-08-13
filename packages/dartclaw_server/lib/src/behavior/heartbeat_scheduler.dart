@@ -22,7 +22,7 @@ class HeartbeatScheduler implements Reconfigurable {
 
   Timer? _timer;
 
-  HeartbeatScheduler({
+  new({
     required Duration interval,
     required this.workspaceDir,
     required Future<void> Function(String sessionKey, String message) dispatch,

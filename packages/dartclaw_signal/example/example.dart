@@ -1,4 +1,3 @@
-// ignore_for_file: avoid_print
 // Requires signal-cli installed and configured with a registered phone number.
 
 import 'package:dartclaw_signal/dartclaw_signal.dart';

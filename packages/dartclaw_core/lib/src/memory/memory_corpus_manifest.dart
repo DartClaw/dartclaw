@@ -51,14 +51,14 @@ Map<String, Object?> _curationSourceJson(MemorySourceRef source) => {
 };
 
 final class _PreparedManifest {
-  const _PreparedManifest({required this.root, required this.state, this.externalChanges = const []});
+  const new({required this.root, required this.state, this.externalChanges = const []});
   final String root;
   final _CorpusState state;
   final List<MemoryCorpusExternalChange> externalChanges;
 }
 
 final class _CorpusState {
-  const _CorpusState({
+  const new({
     required this.collectionId,
     required this.revision,
     required this.fingerprint,
@@ -79,7 +79,7 @@ final class _CorpusState {
 }
 
 final class _CorpusMemberState {
-  const _CorpusMemberState({
+  const new({
     required this.fingerprint,
     this.length,
     this.modifiedMicros,
@@ -107,8 +107,8 @@ final class _CorpusMemberState {
 }
 
 final class _TransactionEntry {
-  const _TransactionEntry({required this.path, required this.stagePath, required this.backupPath});
-  factory _TransactionEntry.fromJson(Map<String, dynamic> json) {
+  const new({required this.path, required this.stagePath, required this.backupPath});
+  factory fromJson(Map<String, dynamic> json) {
     final path = json['path'];
     final stagePath = json['stage'];
     final backupPath = json['backup'];
@@ -123,7 +123,7 @@ final class _TransactionEntry {
 }
 
 final class _TransactionJournal {
-  const _TransactionJournal({
+  const new({
     required this.collectionId,
     required this.baseRevision,
     required this.targetRevision,
@@ -131,7 +131,7 @@ final class _TransactionJournal {
     required this.targetFingerprint,
     required this.entries,
   });
-  factory _TransactionJournal.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final baseRevision = json['baseRevision'];
     final targetRevision = json['targetRevision'];
     final collectionId = json['collectionId'];

@@ -13,7 +13,7 @@ class ControllableTurnManager extends TurnManager {
   final Completer<TurnOutcome> _completer = Completer();
   TurnOutcome? _cachedOutcome;
 
-  ControllableTurnManager(MessageService messages, AgentHarness worker, this.activeTurnIdValue)
+  new(MessageService messages, AgentHarness worker, this.activeTurnIdValue)
     : super(
         messages: messages,
         worker: worker,

@@ -14,11 +14,11 @@ final class AcpClient {
   final Future<void> _listenFuture;
   final Map<String, bool> _reverseCallCapabilities;
 
-  AcpClient._(this._peer, this._listenFuture, {required Map<String, bool> reverseCallCapabilities})
+  new _(this._peer, this._listenFuture, {required Map<String, bool> reverseCallCapabilities})
     : _reverseCallCapabilities = Map<String, bool>.unmodifiable(reverseCallCapabilities);
 
   /// Creates and starts an ACP client over newline-delimited stdio JSON-RPC.
-  factory AcpClient(
+  factory(
     Stream<List<int>> stdout,
     StreamSink<List<int>> stdin, {
     void Function(Map<String, dynamic> update)? onSessionUpdate,
@@ -34,7 +34,7 @@ final class AcpClient {
   }
 
   /// Creates and starts an ACP client over a string channel.
-  factory AcpClient.fromChannel(
+  factory fromChannel(
     StreamChannel<String> channel, {
     void Function(Map<String, dynamic> update)? onSessionUpdate,
     void Function(String line)? onMalformedLine,
@@ -48,7 +48,7 @@ final class AcpClient {
     );
   }
 
-  factory AcpClient._start(
+  factory _start(
     StreamChannel<String> channel, {
     void Function(Map<String, dynamic> update)? onSessionUpdate,
     void Function(String line)? onMalformedLine,
@@ -282,7 +282,7 @@ final class AcpPromptResult {
   final Map<String, dynamic> metadata;
 
   /// Creates a prompt result.
-  const AcpPromptResult({
+  const new({
     required this.text,
     this.inputTokens,
     this.outputTokens,

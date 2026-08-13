@@ -24,7 +24,7 @@ class TaskProgressTracker {
 
   static const _throttleInterval = Duration(seconds: 1);
 
-  TaskProgressTracker({required EventBus eventBus, required TaskService tasks}) : _eventBus = eventBus, _tasks = tasks;
+  new({required EventBus eventBus, required TaskService tasks}) : _eventBus = eventBus, _tasks = tasks;
 
   /// Broadcast stream of throttled progress snapshots.
   Stream<TaskProgressSnapshot> get onProgress => _progressController.stream;
@@ -210,7 +210,7 @@ class TaskProgressSnapshot {
   /// True when emitted because the task left the running state.
   final bool isComplete;
 
-  const TaskProgressSnapshot({
+  const new({
     required this.taskId,
     required this.progress,
     required this.currentActivity,

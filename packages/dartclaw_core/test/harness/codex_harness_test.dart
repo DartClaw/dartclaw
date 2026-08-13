@@ -31,7 +31,7 @@ class _PassGuard extends Guard {
 }
 
 class _FailingWriteCodexProcess extends FakeCodexProcess {
-  _FailingWriteCodexProcess() : super(completeExitOnKill: true);
+  new() : super(completeExitOnKill: true);
 
   bool failWrites = false;
 

@@ -334,7 +334,7 @@ void main() {
 
 /// A provider upstream that must never be reached.
 final class _ForbiddenUpstream {
-  _ForbiddenUpstream._(this._server);
+  new _(this._server);
 
   final HttpServer _server;
 
@@ -358,7 +358,7 @@ final class _ForbiddenUpstream {
 
 /// One registered authority with a live provider pipe, ready to serve.
 final class _GatewayHarness {
-  _GatewayHarness._(this.gateway, this.authority, this.providerChannel, this.providerPipe, this.denials);
+  new _(this.gateway, this.authority, this.providerChannel, this.providerPipe, this.denials);
 
   final HostGateway gateway;
   final GatewayAuthority authority;

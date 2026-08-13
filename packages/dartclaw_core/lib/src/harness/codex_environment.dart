@@ -56,7 +56,7 @@ class CodexEnvironment {
   Directory? _tempDirectory;
   Directory? _containerDirectory;
 
-  CodexEnvironment({
+  new({
     required this.developerInstructions,
     this.mcpServerUrl,
     this.mcpGatewayToken,
@@ -75,7 +75,7 @@ class CodexEnvironment {
   /// directory and is visible to the container at [containerHomePath].
   /// [gatewayBaseUrl] is the container-loopback provider bridge; no upstream
   /// URL and no credential is ever written here.
-  CodexEnvironment.containerAuthClean({
+  new containerAuthClean({
     required this.developerInstructions,
     required String hostHomePath,
     required String containerHomePath,

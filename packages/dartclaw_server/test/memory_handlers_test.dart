@@ -616,7 +616,7 @@ final class _RecordingBackend implements SearchBackend {
 }
 
 final class _IndexFailingBackend implements SearchBackend {
-  _IndexFailingBackend(this.delegate);
+  new(this.delegate);
 
   final SearchBackend delegate;
 
@@ -637,7 +637,7 @@ final class _IndexFailingBackend implements SearchBackend {
 }
 
 final class _AlwaysResolvingBackend implements SearchBackend {
-  const _AlwaysResolvingBackend(this.delegate);
+  const new(this.delegate);
 
   final SearchBackend delegate;
 
@@ -658,7 +658,7 @@ final class _AlwaysResolvingBackend implements SearchBackend {
 }
 
 final class _CannedQmdManager extends QmdManager {
-  _CannedQmdManager({required super.workspaceDir});
+  new({required super.workspaceDir});
 
   @override
   bool get isRunning => true;

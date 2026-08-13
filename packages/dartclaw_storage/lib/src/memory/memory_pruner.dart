@@ -46,7 +46,7 @@ class MemoryPruner {
   final bool _ownsCorpusService;
 
   /// Creates a pruner that operates on the given [workspaceDir].
-  MemoryPruner({
+  new({
     required this.workspaceDir,
     required this.memoryService,
     this.archiveAfterDays = 90,

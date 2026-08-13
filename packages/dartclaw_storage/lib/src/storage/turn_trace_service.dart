@@ -12,7 +12,7 @@ class TurnTraceService {
   final Database _db;
 
   /// Creates the service against [_db] and initializes its schema.
-  TurnTraceService(this._db) {
+  new(this._db) {
     _initSchema();
   }
 
@@ -265,7 +265,7 @@ class TraceQueryResult {
   final TurnTraceSummary summary;
 
   /// Creates a query result from [traces] and their [summary].
-  const TraceQueryResult({required this.traces, required this.summary});
+  const new({required this.traces, required this.summary});
 
   /// Serializes this result to a JSON-ready map.
   Map<String, dynamic> toJson() => {'traces': traces.map((t) => t.toJson()).toList(), 'summary': summary.toJson()};

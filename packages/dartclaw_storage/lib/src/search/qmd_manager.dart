@@ -88,7 +88,7 @@ class QmdManager {
   ///
   /// Throws [ArgumentError] when [host] is not `localhost`, a `127.0.0.0/8`
   /// address, or IPv6 loopback.
-  QmdManager({
+  new({
     this.qmdExecutable = 'qmd',
     String host = '127.0.0.1',
     this.port = 8181,

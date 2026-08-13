@@ -26,7 +26,7 @@ import 'container_authority_cleanup_owner.dart';
 ///
 /// Both registrations happen in [wire], after [ConfigNotifier] is available.
 class SecurityWiring implements Reconfigurable {
-  SecurityWiring({
+  new({
     required this.config,
     required String dataDir,
     required EventBus eventBus,
@@ -533,7 +533,7 @@ class SecurityWiring implements Reconfigurable {
 /// use them, then destroy the container. Every step runs even if an earlier one
 /// fails. Confirmed release is idempotent; failed destruction stays retryable.
 class _ContainerAuthorityLease implements ContainerAuthorityLease {
-  _ContainerAuthorityLease({
+  new({
     required this.manager,
     required this.authority,
     required HostGateway gateway,
@@ -592,7 +592,7 @@ typedef _ContainerTemplate = ContainerManager Function(
 /// dartclaw_core) to the [Reconfigurable] interface (in dartclaw_core).
 class _MessageRedactorAdapter implements Reconfigurable {
   final MessageRedactor _redactor;
-  _MessageRedactorAdapter(this._redactor);
+  new(this._redactor);
 
   @override
   Set<String> get watchKeys => const {'logging.*'};

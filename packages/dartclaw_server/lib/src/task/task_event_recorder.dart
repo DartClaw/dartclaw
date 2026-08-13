@@ -14,7 +14,7 @@ class TaskEventRecorder {
   final EventBus? _eventBus;
   final Uuid _uuid;
 
-  TaskEventRecorder({required TaskEventService eventService, EventBus? eventBus, Uuid? uuid})
+  new({required TaskEventService eventService, EventBus? eventBus, Uuid? uuid})
     : _eventService = eventService,
       _eventBus = eventBus,
       _uuid = uuid ?? const Uuid();

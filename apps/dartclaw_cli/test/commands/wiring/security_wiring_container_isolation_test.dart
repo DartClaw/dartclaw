@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 final class _ExitCalled implements Exception {
-  const _ExitCalled(this.code);
+  const new(this.code);
 
   final int code;
 }

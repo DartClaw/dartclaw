@@ -13,7 +13,7 @@ import 'alert_classifier.dart';
 class AlertFormatter {
   final ChatCardBuilder _cardBuilder;
 
-  const AlertFormatter({ChatCardBuilder cardBuilder = const ChatCardBuilder()}) : _cardBuilder = cardBuilder;
+  const new({ChatCardBuilder cardBuilder = const ChatCardBuilder()}) : _cardBuilder = cardBuilder;
 
   /// Formats [event] into a [ChannelResponse] appropriate for [channelType].
   ///

@@ -22,7 +22,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
   final SkillProbeEnvironmentBuilder? _environmentForProvider;
   final _cache = <_SkillProbeKey, Future<Set<String>>>{};
 
-  CliSkillIntrospector({
+  new({
     SkillProbeRunner? runner,
     Map<String, String> environment = const <String, String>{},
     SkillProbeEnvironmentBuilder? environmentForProvider,
@@ -172,7 +172,7 @@ final class _SkillProbeKey {
   final String executable;
   final bool inheritUserSettings;
 
-  const _SkillProbeKey({required this.provider, required this.executable, required this.inheritUserSettings});
+  const new({required this.provider, required this.executable, required this.inheritUserSettings});
 
   @override
   bool operator ==(Object other) =>

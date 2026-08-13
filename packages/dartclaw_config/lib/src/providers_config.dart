@@ -17,7 +17,7 @@ class ProviderEntry {
   final Map<String, dynamic> options;
 
   /// const ProviderEntry({required this.executable, this.poolSize.
-  const ProviderEntry({required this.executable, this.poolSize = 0, this.options = const {}});
+  const new({required this.executable, this.poolSize = 0, this.options = const {}});
 
   /// Effective worker capacity after applying the unset default.
   int get effectivePoolSize => poolSize > 0 ? poolSize : 1;
@@ -43,10 +43,10 @@ class ProvidersConfig {
   final Map<String, ProviderEntry> entries;
 
   /// const ProvidersConfig({this.entries = const {}});.
-  const ProvidersConfig({this.entries = const {}});
+  const new({this.entries = const {}});
 
   /// Creates a [ProvidersConfig.defaults] value.
-  const ProvidersConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns the entry for [providerId], or `null` if not configured.
   ProviderEntry? operator [](String providerId) {

@@ -10,7 +10,7 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 /// Drives a real [GatewayPipe] without Docker: the test writes the frames a
 /// bridge would write and reads the frames the host sends back.
 final class FakeBridgeChannel implements BridgeChannel {
-  FakeBridgeChannel({BridgeLimits limits = BridgeLimits.defaults}) : _limits = limits;
+  new({BridgeLimits limits = BridgeLimits.defaults}) : _limits = limits;
 
   final BridgeLimits _limits;
   final StreamController<List<int>> _toHost = StreamController<List<int>>();
@@ -128,7 +128,7 @@ final class FakeBridgeChannel implements BridgeChannel {
 
 /// One completed host answer.
 final class GatewayExchange {
-  const GatewayExchange({required this.status, required this.body, required this.headers, this.failure});
+  const new({required this.status, required this.body, required this.headers, this.failure});
 
   final int status;
   final String body;
@@ -145,7 +145,7 @@ final class GatewayExchange {
 /// `package:async`'s StreamQueue cannot be reused across the broadcast
 /// subscriptions these tests need; this keeps every frame buffered instead.
 final class StreamQueueLite<T> {
-  StreamQueueLite(Stream<T> source) {
+  new(Stream<T> source) {
     source.listen(
       (event) {
         if (_waiters.isNotEmpty) {
@@ -194,7 +194,7 @@ GatewayPrincipal principal({
 /// Shared by the unit and real-Docker gateway suites: both need to prove that
 /// an authorized call reaches the implementation and a denied one does not.
 final class RecordingMcpTool implements McpTool {
-  RecordingMcpTool(this.name, this._called);
+  new(this.name, this._called);
 
   @override
   final String name;

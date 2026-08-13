@@ -83,7 +83,7 @@ Future<void> waitFor(bool Function() predicate, {Duration timeout = const Durati
 }
 
 final class CliWorkflowWiringFixture {
-  CliWorkflowWiringFixture(this.tempDir);
+  new(this.tempDir);
 
   final Directory tempDir;
 

@@ -38,14 +38,14 @@ typedef GitProcessRunner = Future<ProcessResult> Function(
 
 /// Result of a task review action.
 sealed class ReviewResult {
-  const ReviewResult();
+  const new();
 }
 
 /// Review action succeeded.
 final class ReviewSuccess extends ReviewResult {
   final Task task;
 
-  const ReviewSuccess(this.task);
+  const new(this.task);
 }
 
 /// Review action failed because the merge produced conflicts.
@@ -55,19 +55,14 @@ final class ReviewMergeConflict extends ReviewResult {
   final List<String> conflictingFiles;
   final String details;
 
-  const ReviewMergeConflict({
-    required this.taskId,
-    required this.taskTitle,
-    required this.conflictingFiles,
-    required this.details,
-  });
+  const new({required this.taskId, required this.taskTitle, required this.conflictingFiles, required this.details});
 }
 
 /// Review action failed because the task does not exist.
 final class ReviewNotFound extends ReviewResult {
   final String taskId;
 
-  const ReviewNotFound(this.taskId);
+  const new(this.taskId);
 }
 
 /// Review action failed because the task can no longer transition.
@@ -77,12 +72,7 @@ final class ReviewInvalidTransition extends ReviewResult {
   final TaskStatus targetStatus;
   final TaskStatus currentStatus;
 
-  const ReviewInvalidTransition({
-    required this.taskId,
-    required this.oldStatus,
-    required this.targetStatus,
-    required this.currentStatus,
-  });
+  const new({required this.taskId, required this.oldStatus, required this.targetStatus, required this.currentStatus});
 
   String get message => 'Cannot transition from ${oldStatus.name} to ${targetStatus.name}';
 }
@@ -91,14 +81,14 @@ final class ReviewInvalidTransition extends ReviewResult {
 final class ReviewInvalidRequest extends ReviewResult {
   final String message;
 
-  const ReviewInvalidRequest(this.message);
+  const new(this.message);
 }
 
 /// Review action failed during execution.
 final class ReviewActionFailed extends ReviewResult {
   final String message;
 
-  const ReviewActionFailed(this.message);
+  const new(this.message);
 }
 
 /// Shared lifecycle service for task review actions.
@@ -120,7 +110,7 @@ class TaskReviewService {
   final GitProcessRunner _runProcess;
   final Map<String, Future<void>> _reviewLocks = <String, Future<void>>{};
 
-  TaskReviewService({
+  new({
     required TaskService tasks,
     WorktreeManager? worktreeManager,
     TaskFileGuard? taskFileGuard,

@@ -4,19 +4,19 @@ part of 'workflow_executor.dart';
 /// retry loop without having to translate `return`/`continue` inside the
 /// closure passed to [WorkflowTurnAdapter.runResolverAttemptUnderLock].
 sealed class _ResolverAttemptDecision {
-  const _ResolverAttemptDecision();
+  const new();
 }
 
 /// Exit the resolver loop and return [value] to the caller of
 /// `_resolveMergePromotionConflict`.
 final class _ResolverExit extends _ResolverAttemptDecision {
   final WorkflowGitPromotionResult? value;
-  const _ResolverExit(this.value);
+  const new(this.value);
 }
 
 /// Advance to the next attempt in the resolver loop.
 final class _ResolverContinue extends _ResolverAttemptDecision {
-  const _ResolverContinue();
+  const new();
 }
 
 extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {

@@ -282,7 +282,7 @@ class _AdvisorHarness implements AgentHarness {
   @override
   String skillActivationLine(String skill) => "Use the '$skill' skill.";
 
-  _AdvisorHarness(this._responseText);
+  new(this._responseText);
 
   final String _responseText;
   final _events = StreamController<BridgeEvent>.broadcast();
@@ -356,8 +356,7 @@ class _AdvisorHarness implements AgentHarness {
 }
 
 class _AdvisorGoogleChatChannel extends GoogleChatChannel {
-  _AdvisorGoogleChatChannel()
-    : super(config: const GoogleChatConfig(enabled: true), restClient: FakeGoogleChatRestClient());
+  new() : super(config: const GoogleChatConfig(enabled: true), restClient: FakeGoogleChatRestClient());
 
   final List<(String, ChannelResponse)> sent = [];
   final List<(String, ChannelResponse, String)> threaded = [];

@@ -17,7 +17,7 @@ class TaskCancellationSubscriber {
   final TurnManager _turns;
   StreamSubscription<TaskStatusChangedEvent>? _subscription;
 
-  TaskCancellationSubscriber({required TaskService tasks, required TurnManager turns}) : _tasks = tasks, _turns = turns;
+  new({required TaskService tasks, required TurnManager turns}) : _tasks = tasks, _turns = turns;
 
   void subscribe(EventBus eventBus) {
     _subscription ??= eventBus.on<TaskStatusChangedEvent>().listen((event) {

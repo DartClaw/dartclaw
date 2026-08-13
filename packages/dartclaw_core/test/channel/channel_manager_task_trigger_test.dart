@@ -305,7 +305,7 @@ void main() {
 }
 
 class _FailingTaskService extends TaskOps {
-  _FailingTaskService() : super(InMemoryTaskRepository());
+  new() : super(InMemoryTaskRepository());
 
   @override
   Future<Task> create({

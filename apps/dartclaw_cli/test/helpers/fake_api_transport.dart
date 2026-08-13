@@ -8,7 +8,7 @@ class FakeApiTransport implements ApiTransport {
   final Queue<ApiResponse> _streamResponses;
   final List<ApiRequest> requests = <ApiRequest>[];
 
-  FakeApiTransport({List<ApiResponse> sendResponses = const [], List<ApiResponse> streamResponses = const []})
+  new({List<ApiResponse> sendResponses = const [], List<ApiResponse> streamResponses = const []})
     : _sendResponses = Queue<ApiResponse>.of(sendResponses),
       _streamResponses = Queue<ApiResponse>.of(streamResponses);
 

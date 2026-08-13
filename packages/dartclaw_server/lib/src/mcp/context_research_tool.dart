@@ -21,7 +21,7 @@ final class ContextResearchCandidate {
   final SourceRef sourceRef;
 
   /// Creates a synthesis candidate.
-  const ContextResearchCandidate({required this.text, required this.sourceRef});
+  const new({required this.text, required this.sourceRef});
 
   /// Converts this candidate to JSON.
   Map<String, dynamic> toJson() => {'text': text, 'sourceRef': sourceRef.toJson()};
@@ -39,7 +39,7 @@ final class ContextResearchSynthesisRequest {
   final int tokenBudget;
 
   /// Creates a synthesis request.
-  const ContextResearchSynthesisRequest({required this.query, required this.candidates, required this.tokenBudget});
+  const new({required this.query, required this.candidates, required this.tokenBudget});
 
   /// Converts this request to JSON.
   Map<String, dynamic> toJson() => {
@@ -67,7 +67,7 @@ final class ContextResearchMetrics {
   final bool cacheBypass;
 
   /// Creates a metrics event.
-  const ContextResearchMetrics({
+  const new({
     required this.inputTokens,
     required this.outputTokens,
     required this.sourcesCount,
@@ -97,7 +97,7 @@ final class ContextResearchTool implements McpTool {
   final int _defaultTokenBudget;
 
   /// Creates the `context_research` MCP tool.
-  ContextResearchTool({
+  new({
     required SearchBackend memorySearch,
     required TemporalKnowledgeGraphService kg,
     required ContextResearchSynthesizer synthesizer,
@@ -460,7 +460,7 @@ final class _LayerResult {
   final List<ContextResearchCandidate> candidates;
   final List<String> degradedLayers;
 
-  const _LayerResult({required this.candidates, required this.degradedLayers});
+  const new({required this.candidates, required this.degradedLayers});
 }
 
 final class _RetrievalResult {
@@ -468,7 +468,7 @@ final class _RetrievalResult {
   final List<String> degradedLayers;
   final CitationSourceResolver resolver;
 
-  const _RetrievalResult({required this.candidates, required this.degradedLayers, required this.resolver});
+  const new({required this.candidates, required this.degradedLayers, required this.resolver});
 }
 
 final class _BudgetResult {
@@ -476,5 +476,5 @@ final class _BudgetResult {
   final bool truncated;
   final bool isOverBudget;
 
-  const _BudgetResult({required this.packet, required this.truncated, this.isOverBudget = false});
+  const new({required this.packet, required this.truncated, this.isOverBudget = false});
 }

@@ -32,10 +32,10 @@ enum ExecutionMode {
 /// by the constructors.
 final class ExecutionPolicy {
   /// Host execution. Carries no container profile.
-  const ExecutionPolicy.host() : mode = ExecutionMode.host, containerProfile = null;
+  const new host() : mode = ExecutionMode.host, containerProfile = null;
 
   /// Container execution within [containerProfile].
-  const ExecutionPolicy.container(String this.containerProfile) : mode = ExecutionMode.container;
+  const new container(String this.containerProfile) : mode = ExecutionMode.container;
 
   /// Where the harness process runs.
   final ExecutionMode mode;
@@ -56,7 +56,7 @@ final class ExecutionPolicy {
   ///
   /// Throws [FormatException] when the mode is unknown or the profile
   /// contradicts the mode.
-  factory ExecutionPolicy.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     final rawMode = json['mode'];
     final mode = rawMode is String ? ExecutionMode.fromYaml(rawMode) : null;
     if (mode == null) throw FormatException('Unknown execution mode: $rawMode');
@@ -68,7 +68,7 @@ final class ExecutionPolicy {
   ///
   /// Throws [FormatException] when a profile is supplied for host execution or
   /// omitted for container execution.
-  factory ExecutionPolicy.of(ExecutionMode mode, String? containerProfile) {
+  factory of(ExecutionMode mode, String? containerProfile) {
     switch (mode) {
       case ExecutionMode.host:
         if (containerProfile != null) {

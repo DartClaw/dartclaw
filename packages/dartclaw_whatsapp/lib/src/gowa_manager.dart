@@ -62,7 +62,7 @@ class GowaManager with SequentialLock {
   String? _deviceId;
   String? _pairedJid;
 
-  GowaManager({
+  new({
     required this.executable,
     this.host = '127.0.0.1',
     this.port = 3000,

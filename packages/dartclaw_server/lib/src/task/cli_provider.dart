@@ -39,7 +39,7 @@ abstract interface class StructuredTurnLimitProvider {
 
 /// Shared process ownership for CLI providers backed by one-shot subprocesses.
 abstract class ProcessBackedCliProvider implements CliProvider {
-  ProcessBackedCliProvider({
+  new({
     PlatformCapabilities? platformCapabilities,
     this.terminationGracePeriod = const Duration(seconds: 5),
     this.outputDrainGracePeriod = const Duration(seconds: 2),
@@ -249,12 +249,7 @@ final class WorkflowCliUsageBaseline {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
-  const WorkflowCliUsageBaseline({
-    this.inputTokens = 0,
-    this.outputTokens = 0,
-    this.cacheReadTokens = 0,
-    this.cacheWriteTokens = 0,
-  });
+  const new({this.inputTokens = 0, this.outputTokens = 0, this.cacheReadTokens = 0, this.cacheWriteTokens = 0});
 }
 
 typedef RootProcessTerminationObserver = FutureOr<void> Function(bool confirmed);
@@ -357,7 +352,7 @@ final class CliTurnRequest {
   /// Logger for the provider implementation.
   final Logger log;
 
-  const CliTurnRequest({
+  const new({
     required this.prompt,
     required this.workingDirectory,
     required this.policy,

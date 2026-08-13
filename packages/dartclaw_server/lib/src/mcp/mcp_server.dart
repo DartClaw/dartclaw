@@ -22,7 +22,7 @@ abstract interface class McpCallerPolicy {
 
 /// Trusted identity supplied by the transport that authenticated an MCP caller.
 final class McpCallerIdentity {
-  const McpCallerIdentity({required this.authorityId, this.sessionId, this.taskId, this.agentId});
+  const new({required this.authorityId, this.sessionId, this.taskId, this.agentId});
 
   final String authorityId;
   final String? sessionId;
@@ -32,13 +32,7 @@ final class McpCallerIdentity {
 
 /// Trusted caller identity plus one host-generated MCP call event.
 final class McpCallerContext {
-  const McpCallerContext({
-    required this.authorityId,
-    required this.sourceEvent,
-    this.sessionId,
-    this.taskId,
-    this.agentId,
-  });
+  const new({required this.authorityId, required this.sourceEvent, this.sessionId, this.taskId, this.agentId});
 
   final String authorityId;
   final String sourceEvent;
@@ -57,9 +51,9 @@ abstract interface class ContextualMcpTool implements McpTool {
 /// Handles `initialize`, `notifications/initialized`, `tools/list`, and
 /// `tools/call` methods. Tools are registered at startup via [registerTool].
 class McpProtocolHandler {
-  McpProtocolHandler() : _tools = {}, _policy = null, _callerIdentity = null;
+  new() : _tools = {}, _policy = null, _callerIdentity = null;
 
-  McpProtocolHandler._scoped(this._tools, this._policy, this._callerIdentity) : _started = true;
+  new _scoped(this._tools, this._policy, this._callerIdentity) : _started = true;
 
   static final _log = Logger('McpProtocolHandler');
   static const _uuid = Uuid();

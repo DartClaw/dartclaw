@@ -19,7 +19,7 @@ class RestartService {
 
   bool _restarting = false;
 
-  RestartService({
+  new({
     required TurnManager turns,
     this.drainDeadline = const Duration(seconds: 30),
     required void Function(int code) exit,

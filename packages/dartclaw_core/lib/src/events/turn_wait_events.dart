@@ -14,7 +14,7 @@ enum TurnWaitReason {
 
   final String jsonName;
 
-  const TurnWaitReason(this.jsonName);
+  new(this.jsonName);
 }
 
 /// Operator-visible wait/stuck state for an active session turn.
@@ -31,7 +31,7 @@ final class TurnWaitStateChangedEvent extends DartclawEvent {
   @override
   final DateTime timestamp;
 
-  TurnWaitStateChangedEvent({
+  new({
     required this.sessionId,
     required this.turnId,
     required this.state,

@@ -93,7 +93,7 @@ class HarnessFactoryConfig {
   final HistoryConfig historyConfig;
 
   /// Creates an immutable harness-construction configuration.
-  const HarnessFactoryConfig({
+  const new({
     required this.cwd,
     this.executable = 'claude',
     this.turnTimeout = const Duration(seconds: 600),
@@ -133,7 +133,7 @@ class HarnessFactory {
   final Map<String, AgentHarness> _activationProbes = {};
 
   /// Creates a factory with built-in provider registrations.
-  HarnessFactory() {
+  new() {
     register('claude', _createClaudeHarness);
     register('codex', _createCodexHarness);
   }

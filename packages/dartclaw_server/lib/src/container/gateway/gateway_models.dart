@@ -26,7 +26,7 @@ int bridgePortFor(BridgeSurface surface) => switch (surface) {
 /// Nothing here is a credential — it is the subject an authorization decision
 /// is made about.
 final class GatewayPrincipal {
-  const GatewayPrincipal({
+  const new({
     required this.sessionId,
     required this.providerId,
     required this.policy,
@@ -64,7 +64,7 @@ final class GatewayPrincipal {
 
 /// One request arriving from a container over a bound pipe.
 final class GatewayRequest {
-  const GatewayRequest({
+  const new({
     required this.principal,
     required this.method,
     required this.path,
@@ -107,9 +107,9 @@ final class GatewayRequest {
 
 /// A host answer streamed back over the pipe.
 final class GatewayResponse {
-  const GatewayResponse({required this.status, this.headers = const {}, required this.body});
+  const new({required this.status, this.headers = const {}, required this.body});
 
-  GatewayResponse.empty(this.status, {this.headers = const {}}) : body = const Stream<List<int>>.empty();
+  new empty(this.status, {this.headers = const {}}) : body = const Stream<List<int>>.empty();
 
   final int status;
   final Map<String, List<String>> headers;
@@ -121,7 +121,7 @@ final class GatewayResponse {
 /// [reason] is written to logs and audit entries, so it must never carry a
 /// credential, a request body, or an authority identifier.
 final class GatewayDenied implements Exception {
-  const GatewayDenied({required this.status, required this.reason});
+  const new({required this.status, required this.reason});
 
   final int status;
   final String reason;

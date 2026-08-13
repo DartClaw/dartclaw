@@ -22,7 +22,7 @@ class ReviewCommandDispatcher {
   final TaskTriggerEvaluator _taskTriggerEvaluator;
   final BestEffortChannelSender _sendBestEffort;
 
-  ReviewCommandDispatcher({
+  new({
     required ReviewCommandParser reviewCommandParser,
     required ChannelReviewHandler reviewHandler,
     required TaskLister taskLister,

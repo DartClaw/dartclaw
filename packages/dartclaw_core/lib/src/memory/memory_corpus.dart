@@ -8,7 +8,7 @@ import 'memory_markdown_codec.dart';
 
 /// Preserved opaque bytes held under the canonical legacy subtree.
 final class VerbatimMemoryMember {
-  VerbatimMemoryMember({required this.path, required List<int> bytes}) : _bytes = Uint8List.fromList(bytes) {
+  new({required this.path, required List<int> bytes}) : _bytes = Uint8List.fromList(bytes) {
     final segments = path.split('/');
     if (path.contains(r'\') ||
         !RegExp(r'^memory/legacy/(?:[^/]+/)*[^/]+$').hasMatch(path) ||
@@ -24,7 +24,7 @@ final class VerbatimMemoryMember {
 
 /// An immutable canonical corpus plus preserved opaque legacy members.
 final class CanonicalMemoryCorpus {
-  CanonicalMemoryCorpus({
+  new({
     required this.index,
     Iterable<MemoryTopicDocument> topics = const [],
     MemoryArchiveDocument? archive,
@@ -79,7 +79,7 @@ final class CanonicalMemoryCorpus {
 
 /// Reports every cross-document inconsistency found in a corpus.
 final class MemoryCorpusValidationException implements Exception {
-  MemoryCorpusValidationException(Iterable<String> errors) : errors = List.unmodifiable(errors);
+  new(Iterable<String> errors) : errors = List.unmodifiable(errors);
   final List<String> errors;
   @override
   String toString() => 'Invalid canonical memory corpus: ${errors.join('; ')}';
@@ -87,7 +87,7 @@ final class MemoryCorpusValidationException implements Exception {
 
 /// Enforces canonical identity and active-index consistency across documents.
 final class MemoryCorpusValidator {
-  const MemoryCorpusValidator();
+  const new();
 
   /// Throws [MemoryCorpusValidationException] when cross-document invariants fail.
   void validate(CanonicalMemoryCorpus corpus) {

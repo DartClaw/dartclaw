@@ -29,7 +29,7 @@ class FakeSignalCliManager extends SignalCliManager {
 
   final StreamController<Map<String, dynamic>> _fakeEvents = StreamController<Map<String, dynamic>>.broadcast();
 
-  FakeSignalCliManager()
+  new()
     : super(
         executable: 'signal-cli',
         phoneNumber: '+1234567890',

@@ -14,7 +14,7 @@ abstract class SearchMcpTool implements McpTool {
   final SearchProvider provider;
   final ContentGuard? contentGuard;
 
-  SearchMcpTool({
+  new({
     required this.provider,
     required this.name,
     required this.description,

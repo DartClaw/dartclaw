@@ -25,7 +25,7 @@ final class _FakeContainerExecutor implements ContainerExecutor {
   @override
   final String? mcpBridgeUrl = null;
 
-  const _FakeContainerExecutor();
+  const new();
 
   @override
   String? containerPathForHostPath(String hostPath) => hostPath;

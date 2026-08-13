@@ -26,7 +26,7 @@ class LogicalAgentSessionService {
   final ContentGuard? _contentGuard;
   final GuardAuditLogger? _auditLogger;
 
-  LogicalAgentSessionService({
+  new({
     required LogicalAgentTurnDispatch dispatch,
     LogicalAgentSessionDiscard? discardSession,
     Map<String, AgentDefinition> agents = const {},

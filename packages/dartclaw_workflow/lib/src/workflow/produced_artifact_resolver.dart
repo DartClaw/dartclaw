@@ -13,7 +13,7 @@ final class ProducedArtifacts {
   /// Paths that must be present for downstream workflow worktrees.
   final List<String> requiredPaths;
 
-  const ProducedArtifacts({required this.requiredPaths});
+  const new({required this.requiredPaths});
 }
 
 /// Normalized story-spec paths discovered inside `story_specs`.
@@ -24,12 +24,12 @@ final class StorySpecPathResolution {
   /// Normalized `spec_path` values found in `story_specs`.
   final List<String> specPaths;
 
-  const StorySpecPathResolution({required this.outputs, required this.specPaths});
+  const new({required this.outputs, required this.specPaths});
 }
 
 /// Collects the artifacts a workflow step produced and downstream steps need.
 final class ProducedArtifactResolver {
-  const ProducedArtifactResolver();
+  const new();
 
   /// Resolves required produced artifacts from top-level and nested outputs.
   ProducedArtifacts resolve({

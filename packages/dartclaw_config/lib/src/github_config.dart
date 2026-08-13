@@ -17,12 +17,7 @@ class GitHubWorkflowTrigger {
   final String workflow;
 
   /// Creates a [GitHubWorkflowTrigger] value.
-  const GitHubWorkflowTrigger({
-    required this.event,
-    required this.actions,
-    required this.labels,
-    required this.workflow,
-  });
+  const new({required this.event, required this.actions, required this.labels, required this.workflow});
 }
 
 /// class GitHubWebhookConfig {.
@@ -40,7 +35,7 @@ class GitHubWebhookConfig {
   final List<GitHubWorkflowTrigger> triggers;
 
   /// Creates a [GitHubWebhookConfig] value.
-  const GitHubWebhookConfig({
+  const new({
     this.enabled = false,
     this.webhookSecret,
     this.webhookPath = '/webhook/github',
@@ -55,7 +50,7 @@ class GitHubWebhookConfig {
   });
 
   /// Creates a [GitHubWebhookConfig.defaults] value.
-  const GitHubWebhookConfig.defaults() : this();
+  const new defaults() : this();
 }
 
 /// void ensureGitHubWebhookConfigRegistered() {.

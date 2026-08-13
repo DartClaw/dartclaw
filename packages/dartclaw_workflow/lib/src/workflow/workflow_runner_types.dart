@@ -58,7 +58,7 @@ final class StepValidationFailure {
   final String reason;
   final List<String> missingArtifacts;
 
-  const StepValidationFailure({required this.reason, this.missingArtifacts = const <String>[]});
+  const new({required this.reason, this.missingArtifacts = const <String>[]});
 
   List<String> get missingPaths => missingArtifacts;
 
@@ -88,7 +88,7 @@ class StepOutcome {
   final bool requiresDependencyHold;
   final StepValidationFailure? validationFailure;
 
-  const StepOutcome({
+  const new({
     required this.step,
     this.task,
     this.outputs = const {},
@@ -110,7 +110,7 @@ final class MapStepResult {
   final bool success;
   final String? error;
 
-  const MapStepResult({required this.results, required this.totalTokens, required this.success, this.error});
+  const new({required this.results, required this.totalTokens, required this.success, this.error});
 }
 
 final class StepExecutionContext {
@@ -153,7 +153,7 @@ final class StepExecutionContext {
   final WorkflowDefinition? definition;
   final WorkflowContext? workflowContext;
 
-  StepExecutionContext({
+  new({
     required this.taskService,
     required this.eventBus,
     required this.kvService,
@@ -279,7 +279,7 @@ final class StepPromptConfiguration {
   final WorkflowTemplateEngine templateEngine;
   final SkillPromptBuilder skillPromptBuilder;
 
-  StepPromptConfiguration({
+  new({
     WorkflowTemplateEngine? templateEngine,
     SkillPromptBuilder? skillPromptBuilder,
     PromptAugmenter? promptAugmenter,
@@ -312,7 +312,7 @@ final class BashStepPolicy {
   final List<String> envAllowlist;
   final List<String> extraStripPatterns;
 
-  const BashStepPolicy({
+  const new({
     this.hostEnvironment,
     this.envAllowlist = defaultEnvAllowlist,
     this.extraStripPatterns = const <String>[],

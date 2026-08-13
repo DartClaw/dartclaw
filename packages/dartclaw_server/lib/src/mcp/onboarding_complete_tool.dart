@@ -22,7 +22,7 @@ class OnboardingCompleteTool implements McpTool {
   /// agents that share the same MCP surface prematurely clearing onboarding state.
   final bool onboardingActive;
 
-  OnboardingCompleteTool({required this.workspaceDir, this.onboardingActive = true});
+  new({required this.workspaceDir, this.onboardingActive = true});
 
   @override
   String get name => 'onboarding_complete';

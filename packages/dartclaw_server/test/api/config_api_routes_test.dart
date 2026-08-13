@@ -1454,7 +1454,7 @@ Router _buildRouterWithThrowingNotifier(String configPath, String dataDir) {
 
 /// [ConfigNotifier] subclass whose [reload] always throws.
 class _ThrowingConfigNotifier extends ConfigNotifier {
-  _ThrowingConfigNotifier(super.initial);
+  new(super.initial);
 
   @override
   ConfigDelta? reload(DartclawConfig newConfig) {

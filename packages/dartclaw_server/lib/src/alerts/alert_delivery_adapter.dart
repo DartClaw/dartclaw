@@ -11,7 +11,7 @@ class AlertDeliveryAdapter {
 
   final Channel? Function(String channelTypeName) _channelLookup;
 
-  AlertDeliveryAdapter(this._channelLookup);
+  new(this._channelLookup);
 
   /// Resolves [target] to a [Channel] and sends [response] to
   /// [target.recipient].

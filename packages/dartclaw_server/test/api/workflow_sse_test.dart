@@ -52,7 +52,7 @@ WorkflowRun _makeRun({
 }
 
 class _ControllableListTaskService extends TaskService {
-  _ControllableListTaskService(super.repository, {required super.eventBus});
+  new(super.repository, {required super.eventBus});
 
   Completer<void>? _listStarted;
   Completer<void>? _releaseList;

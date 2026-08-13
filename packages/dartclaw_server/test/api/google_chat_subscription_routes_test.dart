@@ -174,7 +174,7 @@ class _RecordingWorkspaceEventsManager extends WorkspaceEventsManager {
   Object? subscribeError;
   Object? unsubscribeError;
 
-  _RecordingWorkspaceEventsManager(String dataDir)
+  new(String dataDir)
     : super(
         authClient: MockClient((_) async => http.Response('{}', 200)),
         config: const SpaceEventsConfig(

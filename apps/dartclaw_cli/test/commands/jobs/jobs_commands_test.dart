@@ -328,5 +328,5 @@ void main() {
 }
 
 class _ExitIntercept implements Exception {
-  const _ExitIntercept();
+  const new();
 }

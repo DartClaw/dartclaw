@@ -70,7 +70,7 @@ class TurnContext {
   /// Whether this active turn should be evaluated as read-only.
   final bool readOnly;
 
-  TurnContext({
+  new({
     required this.turnId,
     required this.sessionId,
     this.agentName = 'main',
@@ -113,7 +113,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   /// that keeps container-backed runners out of the reuse cache. It defaults to
   /// host execution because that is what an SDK host composes unless it wired a
   /// containerized harness itself.
-  TurnManager({
+  new({
     required MessageService messages,
     required AgentHarness worker,
     required BehaviorFileService behavior,
@@ -164,7 +164,7 @@ class TurnManager implements core.TurnManager, Reconfigurable {
          sessions: sessions,
        );
 
-  TurnManager.fromCoordinator({
+  new fromCoordinator({
     required ExecutionCoordinator coordinator,
     SessionService? sessions,
     ExecutionPolicyResolver? policyResolver,

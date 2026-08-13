@@ -233,14 +233,14 @@ final _emptySidebarData = (
 );
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  _ThrowingKg(super.db);
+  new(super.db);
 
   @override
   List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
 }
 
 final class _RoleSearchBackend implements SearchBackend {
-  const _RoleSearchBackend();
+  const new();
 
   @override
   Future<void> indexAfterWrite() async {}
@@ -275,7 +275,7 @@ final class _RoleSearchBackend implements SearchBackend {
 }
 
 final class _UnresolvedSearchBackend implements SearchBackend {
-  const _UnresolvedSearchBackend();
+  const new();
 
   @override
   Future<void> indexAfterWrite() async {}

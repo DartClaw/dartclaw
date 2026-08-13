@@ -27,7 +27,7 @@ part 'workflow_one_shot_runner_helpers.dart';
 final class WorkflowOneShotRunner {
   static const _legacySessionCostFreshInputKey = 'new_input_tokens';
 
-  WorkflowOneShotRunner({
+  new({
     required WorkflowCliRunner? runner,
     required WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     required MessageService messages,

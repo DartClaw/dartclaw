@@ -30,7 +30,7 @@ class TaskTriggerEvaluator {
   final GroupConfigResolver? Function()? _groupConfigResolverGetter;
   final BestEffortChannelSender _sendBestEffort;
 
-  TaskTriggerEvaluator({
+  new({
     TaskCreator? taskCreator,
     TaskTriggerParser? triggerParser,
     Map<ChannelType, TaskTriggerConfig> taskTriggerConfigs = const {},

@@ -1818,7 +1818,7 @@ void main() {
 }
 
 final class PausingTailMessageService extends MessageService {
-  PausingTailMessageService({required super.baseDir});
+  new({required super.baseDir});
 
   final firstTailReadStarted = Completer<void>();
   final resumeFirstTailRead = Completer<void>();
@@ -1836,7 +1836,7 @@ final class PausingTailMessageService extends MessageService {
 }
 
 final class PausingInsertMessageService extends MessageService {
-  PausingInsertMessageService({required super.baseDir});
+  new({required super.baseDir});
 
   final insertStarted = Completer<void>();
   final resumeInsert = Completer<void>();
@@ -1855,7 +1855,7 @@ final class PausingInsertMessageService extends MessageService {
 }
 
 final class PausingUpdateTitleSessionService extends SessionService {
-  PausingUpdateTitleSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final updateStarted = Completer<void>();
   final resumeUpdate = Completer<void>();
@@ -1905,7 +1905,7 @@ final class PausingUpdateTitleSessionService extends SessionService {
 }
 
 final class PausingUpdateSessionTypeSessionService extends SessionService {
-  PausingUpdateSessionTypeSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final updateStarted = Completer<void>();
   final resumeUpdate = Completer<void>();
@@ -1933,7 +1933,7 @@ final class PausingUpdateSessionTypeSessionService extends SessionService {
 }
 
 final class PausingFirstGetSessionService extends SessionService {
-  PausingFirstGetSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final firstReadStarted = Completer<void>();
   final resumeFirstRead = Completer<void>();
@@ -1952,7 +1952,7 @@ final class PausingFirstGetSessionService extends SessionService {
 }
 
 final class OpenTrackingSessionService extends SessionService {
-  OpenTrackingSessionService({required super.baseDir});
+  new({required super.baseDir});
 
   final replacementCreateStarted = Completer<void>();
   Session? _initialSession;
@@ -1989,7 +1989,7 @@ final class OpenTrackingSessionService extends SessionService {
 }
 
 final class QueuingFakeTurnManager extends FakeTurnManager {
-  QueuingFakeTurnManager(super.messages, super.worker);
+  new(super.messages, super.worker);
 
   final queuedReservationStarted = Completer<void>();
   final resumeQueuedReservation = Completer<void>();

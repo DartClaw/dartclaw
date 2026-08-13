@@ -24,7 +24,7 @@ class WorkflowShowCommand extends ConnectedCommand {
   final String? _projectFallbackCwd;
   final void Function(String) _write;
 
-  WorkflowShowCommand({
+  new({
     super.config,
     AssetResolver? assetResolver,
     super.apiClient,
@@ -89,7 +89,6 @@ class WorkflowShowCommand extends ConnectedCommand {
         'resolve': 'true',
         if (stepId != null && stepId.isNotEmpty) 'step': stepId,
       };
-      // ignore: use_null_aware_elements — conditional only applies when stepId is a non-empty string.
       final body = await apiClient.getText(
         '/api/workflows/definitions/$workflowName',
         queryParameters: queryParameters,

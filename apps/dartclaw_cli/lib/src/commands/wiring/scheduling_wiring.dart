@@ -19,7 +19,7 @@ import 'storage_wiring.dart';
 /// scheduling UI, and the [configChangeSubscriber] that reacts to live config
 /// changes at runtime.
 class SchedulingWiring {
-  SchedulingWiring({
+  new({
     required this.config,
     required EventBus eventBus,
     required StorageWiring storage,

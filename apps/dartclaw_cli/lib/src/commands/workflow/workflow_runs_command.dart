@@ -5,7 +5,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime, trun
 import '../connected_command_support.dart' hide truncate;
 
 class WorkflowRunsCommand extends ConnectedCommand {
-  WorkflowRunsCommand({super.config, super.apiClient, super.writeLine, super.exitFn}) {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('status', help: 'Filter by workflow status')
       ..addOption('definition', help: 'Filter by workflow definition name')

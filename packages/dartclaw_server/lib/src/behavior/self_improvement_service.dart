@@ -24,7 +24,7 @@ import 'package:uuid/uuid.dart';
 class _WriteOp {
   final Future<void> Function() run;
 
-  _WriteOp(this.run);
+  new(this.run);
 }
 
 /// Manages `errors.md` and `learnings.md` in the workspace.
@@ -45,7 +45,7 @@ class SelfImprovementService {
   final _queue = StreamController<_WriteOp>();
   late final StreamSubscription<void> _queueSub;
 
-  SelfImprovementService({
+  new({
     required this.workspaceDir,
     this.maxEntries = 50,
     MemoryCorpusService? corpusService,

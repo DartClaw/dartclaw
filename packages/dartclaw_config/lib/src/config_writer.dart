@@ -11,7 +11,7 @@ final _log = Logger('ConfigWriter');
 class _WriteOp {
   final Future<void> Function() fn;
   final Completer<void> completer;
-  _WriteOp(this.fn) : completer = Completer<void>();
+  new(this.fn) : completer = Completer<void>();
 }
 
 /// Non-destructive YAML config writer with backup and atomic writes.
@@ -25,7 +25,7 @@ class ConfigWriter {
   late final StreamSubscription<void> _queueSub;
 
   /// ConfigWriter({required this.configPath}) {.
-  ConfigWriter({required this.configPath}) {
+  new({required this.configPath}) {
     _queueSub = _queue.stream
         .asyncMap((op) async {
           try {

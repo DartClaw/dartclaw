@@ -12,7 +12,7 @@ import 'container_manager.dart';
 /// A normal release must never be reported as a crash: crash attribution is
 /// what tells an operator an isolated execution died unexpectedly.
 class ContainerHealthMonitor {
-  ContainerHealthMonitor({
+  new({
     required EventBus eventBus,
     this.interval = const Duration(seconds: 10),
     this.healthCheckTimeout = const Duration(seconds: 5),

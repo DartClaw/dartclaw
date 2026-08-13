@@ -6,7 +6,7 @@ import 'package:dartclaw_server/dartclaw_server.dart';
 /// Records each [deliver] call in [calls] instead of dispatching. The injected
 /// [ChannelManager] uses a no-op dispatcher since delivery never reaches it.
 class RecordingDeliveryService extends DeliveryService {
-  RecordingDeliveryService({required super.sessions})
+  new({required super.sessions})
     : super(
         channelManager: ChannelManager(
           queue: MessageQueue(dispatcher: _noopTestChannelDispatch),

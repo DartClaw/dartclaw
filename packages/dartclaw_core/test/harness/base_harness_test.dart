@@ -14,7 +14,7 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 final class _LineRecordingHarness extends BaseHarness {
-  _LineRecordingHarness(this.adapter)
+  new(this.adapter)
     : super(
         log: Logger.detached('base-harness-crlf-test'),
         cwd: '/tmp',

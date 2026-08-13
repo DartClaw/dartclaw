@@ -15,10 +15,10 @@ class LoggingConfig {
   final List<String> redactPatterns;
 
   /// const LoggingConfig({this.format = 'human', this.file, this..
-  const LoggingConfig({this.format = 'human', this.file, this.level = 'INFO', this.redactPatterns = const []});
+  const new({this.format = 'human', this.file, this.level = 'INFO', this.redactPatterns = const []});
 
   /// Default configuration.
-  const LoggingConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

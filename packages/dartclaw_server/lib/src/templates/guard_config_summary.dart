@@ -15,7 +15,7 @@ class GuardConfigSummary {
   final bool enabled;
   final List<GuardConfigSection> sections;
 
-  const GuardConfigSummary({
+  const new({
     required this.name,
     required this.guardKey,
     required this.category,
@@ -37,7 +37,7 @@ class GuardConfigSection {
   final String label;
   final List<GuardConfigItem> items;
 
-  const GuardConfigSection({required this.label, required this.items});
+  const new({required this.label, required this.items});
 
   Map<String, dynamic> toTemplateMap() => {'label': label, 'items': items.map((i) => i.toTemplateMap()).toList()};
 }
@@ -48,7 +48,7 @@ class GuardConfigItem {
   final String value;
   final String style;
 
-  const GuardConfigItem({required this.label, required this.value, this.style = 'default'});
+  const new({required this.label, required this.value, this.style = 'default'});
 
   Map<String, dynamic> toTemplateMap() => {'label': label, 'value': value, 'style': style};
 }

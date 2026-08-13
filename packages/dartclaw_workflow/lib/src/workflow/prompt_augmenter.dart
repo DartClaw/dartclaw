@@ -6,7 +6,7 @@ import 'workflow_output_contract.dart';
 
 /// Augments a step prompt with output format instructions from schema declarations.
 class PromptAugmenter {
-  const PromptAugmenter();
+  const new();
 
   /// Returns [prompt] with appended output format and workflow-context instructions.
   ///

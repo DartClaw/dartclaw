@@ -3,7 +3,7 @@ import 'package:dartclaw_config/dartclaw_config.dart'
 
 /// Policy and limits configuration for [TaskExecutor].
 class TaskExecutorLimits {
-  const TaskExecutorLimits({
+  const new({
     this.maxMemoryBytes,
     this.compactInstructions,
     this.identifierPreservation = IdentifierPreservationMode.strict,

@@ -12,7 +12,7 @@ import '../generated/embedded_assets.g.dart';
 /// class only resolves and unpacks it; the protocol handshake is what actually
 /// proves the pair matches.
 final class BridgeBinaryProvisioner {
-  BridgeBinaryProvisioner({required this.dataDir, Map<String, List<int>>? embeddedAssets, Directory? sourceTreeDir})
+  new({required this.dataDir, Map<String, List<int>>? embeddedAssets, Directory? sourceTreeDir})
     : _embedded = embeddedAssets ?? embeddedServerBinaryAssets,
       _sourceTreeDir = sourceTreeDir ?? Directory(p.join(Directory.current.path, 'build', 'bridge'));
 

@@ -79,7 +79,7 @@ void main() {
 }
 
 final class _RecordingLease implements ContainerAuthorityLease {
-  _RecordingLease({this.failuresRemaining = 0, this.onRelease});
+  new({this.failuresRemaining = 0, this.onRelease});
 
   int failuresRemaining;
   final Future<void> Function()? onRelease;

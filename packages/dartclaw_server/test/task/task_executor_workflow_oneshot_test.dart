@@ -1892,7 +1892,7 @@ void main() {
 }
 
 final class _LifecycleRunner extends WorkflowCliRunner {
-  _LifecycleRunner({this.turnBehavior = _TurnBehavior.succeed, this.throwOnLease = false, this.throwOnRelease = false})
+  new({this.turnBehavior = _TurnBehavior.succeed, this.throwOnLease = false, this.throwOnRelease = false})
     : super(providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')});
 
   final _TurnBehavior turnBehavior;
@@ -1968,7 +1968,7 @@ final class _LifecycleRunner extends WorkflowCliRunner {
 enum _TurnBehavior { succeed, fail, cancel }
 
 final class _CountingLease implements ContainerAuthorityLease {
-  _CountingLease(this._onRelease);
+  new(this._onRelease);
 
   final void Function() _onRelease;
 
@@ -1998,7 +1998,7 @@ final class _RecordingTimeoutCliProvider implements CliProvider {
 }
 
 final class _ConfirmationSequenceCliProvider implements CliProvider {
-  _ConfirmationSequenceCliProvider(this._confirmations);
+  new(this._confirmations);
 
   final List<bool?> _confirmations;
   int runCount = 0;
@@ -2016,7 +2016,7 @@ final class _ConfirmationSequenceCliProvider implements CliProvider {
 }
 
 final class _CancellingCliProvider implements CliProvider {
-  const _CancellingCliProvider();
+  const new();
 
   @override
   Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
@@ -2029,7 +2029,7 @@ final class _CancellingCliProvider implements CliProvider {
 }
 
 final class _FailingCliProvider implements CliProvider {
-  const _FailingCliProvider();
+  const new();
 
   @override
   Future<void> cancelInflight({bool cancelFutureProcesses = false}) async {}
@@ -2042,7 +2042,7 @@ final class _FailingCliProvider implements CliProvider {
 }
 
 final class _CancelsThenFailsCliProvider implements CliProvider {
-  const _CancelsThenFailsCliProvider(this.cancelTask);
+  const new(this.cancelTask);
 
   final Future<void> Function() cancelTask;
 

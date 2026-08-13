@@ -33,7 +33,7 @@ class WebhookDeliveryStore {
   final Database _db;
 
   /// Creates a store backed by [db] and initializes the required schema.
-  WebhookDeliveryStore(this._db) {
+  new(this._db) {
     _initSchema();
   }
 

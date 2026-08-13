@@ -20,7 +20,7 @@ class MemoryEntry {
 
   /// Exclusive source offset in the parsed file, when available.
   final int? sourceEnd;
-  MemoryEntry({
+  new({
     required this.timestamp,
     required this.category,
     this.categoryWasDefaulted = false,
@@ -31,7 +31,7 @@ class MemoryEntry {
   });
 
   /// Creates an entry without a recognized timestamp.
-  factory MemoryEntry.undated({required String category, required String rawText, required String rawBlock}) =>
+  factory undated({required String category, required String rawText, required String rawBlock}) =>
       MemoryEntry(timestamp: null, category: category, rawText: rawText, rawBlock: rawBlock);
 
   /// Normalized text for deduplication: trimmed and whitespace-collapsed.

@@ -15,7 +15,7 @@ final class OutboundMcpClient {
   var _initialized = false;
   List<OutboundMcpTool> _tools = const [];
 
-  OutboundMcpClient({
+  new({
     required this.serverName,
     required OutboundMcpTransport transport,
     required Duration timeout,

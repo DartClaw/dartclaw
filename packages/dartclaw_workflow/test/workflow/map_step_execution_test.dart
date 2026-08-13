@@ -1656,7 +1656,7 @@ void main() {
 /// executor must surface as `run.status=failed` with [errorContains]
 /// substring(s), optionally asserting no tasks were dispatched.
 class _MapValidationCase {
-  const _MapValidationCase({
+  const new({
     required this.name,
     required this.definition,
     required this.contextData,

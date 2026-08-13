@@ -17,7 +17,7 @@ final class GitHubRepositoryRef {
   final String owner;
   final String name;
 
-  const GitHubRepositoryRef({required this.owner, required this.name});
+  const new({required this.owner, required this.name});
 
   String get slug => '$owner/$name';
 
@@ -59,7 +59,7 @@ final class GitHubRepositoryRef {
 final class ProjectAuthException implements Exception {
   final ProjectAuthStatus authStatus;
 
-  const ProjectAuthException(this.authStatus);
+  const new(this.authStatus);
 
   String get code => authStatus.errorCode ?? 'PROJECT_AUTH_ERROR';
 

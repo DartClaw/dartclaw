@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dart 3.13 toolchain** – SDK constraint raised to `^3.13.0` across all packages, CI, and docs; codebase migrated to 3.13 constructor declarations (`new`) via the six opt-in constructor-style lints (now enforced), additional modernization ratchet lints enabled, and the language-versioned 3.13 formatter applied.
 - **Leaner memory architecture** – production wiring now shares one memory handler authority, metadata-only reads use the authenticated manifest directly, index parity and file-containment checks have one implementation, and canonical learning construction is no longer duplicated. The core LOC ratchet is lowered from 20 500 to 20 350.
 - **Background execution uses one bounded authority** – the fixed serialized primary lane serves main user/channel turns, while `providers.<id>.pool_size` is the hard per-provider capacity shared by tasks, cron/system/advisor work, logical agents, and workflow one-shots. Healthy compatible workers may be reused, but cached processes and containers no longer determine capacity.
 - **Human onboarding is transport-independent** – fresh onboarding applies to Web UI and configured messaging-channel conversations while remaining excluded from tasks, scheduled work, workflows, evaluators, advisors, and logical agents.

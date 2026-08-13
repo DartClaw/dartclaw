@@ -15,12 +15,7 @@ enum MemoryPreflightStatus {
 }
 
 final class _MemoryPreflightDiagnostic {
-  const _MemoryPreflightDiagnostic({
-    required this.role,
-    required this.locator,
-    required this.stage,
-    required this.reason,
-  });
+  const new({required this.role, required this.locator, required this.stage, required this.reason});
 
   final String role;
   final String locator;
@@ -30,7 +25,7 @@ final class _MemoryPreflightDiagnostic {
 
 /// Result emitted before derived memory indexes may start.
 final class MemoryPreflightResult {
-  MemoryPreflightResult._({
+  new _({
     required this.status,
     required this.collectionRevision,
     required this.fingerprint,
@@ -100,10 +95,10 @@ final class MemoryPreflightResult {
 
 /// A failed preflight with a bounded recovery report.
 final class MemoryPreflightException implements Exception {
-  const MemoryPreflightException._(this.report);
+  const new _(this.report);
 
   /// Creates a failure carrying a bounded operator report.
-  factory MemoryPreflightException.bounded({required String stage, required Object error}) =>
+  factory bounded({required String stage, required Object error}) =>
       MemoryPreflightException._(LegacyMemoryMigrator._failureReport(stage, error));
 
   /// Bounded recovery report suitable for startup logging.
@@ -124,7 +119,7 @@ String _utf8Prefix(String value, int maxBytes) {
 }
 
 final class _PreparedMigration {
-  const _PreparedMigration({required this.corpus, required this.result, required this.sourceFingerprint});
+  const new({required this.corpus, required this.result, required this.sourceFingerprint});
 
   final CanonicalMemoryCorpus corpus;
   final MemoryPreflightResult result;
@@ -132,7 +127,7 @@ final class _PreparedMigration {
 }
 
 final class _DailyBlock {
-  const _DailyBlock({required this.start, required this.end, required this.timestamp, required this.content});
+  const new({required this.start, required this.end, required this.timestamp, required this.content});
 
   final int start;
   final int end;
@@ -141,7 +136,7 @@ final class _DailyBlock {
 }
 
 final class _SourceLine {
-  const _SourceLine({required this.start, required this.contentEnd, required this.text});
+  const new({required this.start, required this.contentEnd, required this.text});
 
   final int start;
   final int contentEnd;

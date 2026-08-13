@@ -36,7 +36,7 @@ final class AgentExecution {
   final DateTime? completedAt;
 
   /// Creates an immutable agent execution record.
-  const AgentExecution({
+  const new({
     required this.id,
     this.sessionId,
     this.provider,
@@ -89,7 +89,7 @@ final class AgentExecution {
   };
 
   /// Deserializes an execution from persisted JSON.
-  factory AgentExecution.fromJson(Map<String, dynamic> json) => AgentExecution(
+  factory fromJson(Map<String, dynamic> json) => AgentExecution(
     id: json['id'] as String,
     sessionId: json['sessionId'] as String?,
     provider: json['provider'] as String?,

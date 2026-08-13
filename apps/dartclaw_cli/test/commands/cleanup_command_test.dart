@@ -259,7 +259,7 @@ void main() {
 
 /// Test wrapper for SessionsCommand that uses a pre-configured CleanupCommand.
 class _TestSessionsCommand extends Command<void> {
-  _TestSessionsCommand(CleanupCommand cleanup) {
+  new(CleanupCommand cleanup) {
     addSubcommand(cleanup);
   }
 

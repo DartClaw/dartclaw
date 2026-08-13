@@ -10,7 +10,7 @@ class CronExpression {
   final Set<int> daysOfWeek;
   final String _expression;
 
-  CronExpression._({
+  new _({
     required String expression,
     required this.minutes,
     required this.hours,
@@ -20,7 +20,7 @@ class CronExpression {
   }) : _expression = expression;
 
   /// Parses a 5-field cron expression string.
-  factory CronExpression.parse(String expression) {
+  factory parse(String expression) {
     final parts = expression.trim().split(RegExp(r'\s+'));
     if (parts.length != 5) {
       throw FormatException('Cron expression must have 5 fields, got ${parts.length}: "$expression"');

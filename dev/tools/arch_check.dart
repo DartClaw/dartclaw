@@ -118,7 +118,7 @@ final class _CheckResult {
   final bool passed;
   final String detail;
 
-  const _CheckResult({required this.name, required this.passed, required this.detail});
+  const new({required this.name, required this.passed, required this.detail});
 }
 
 Future<void> main() async {
@@ -512,5 +512,5 @@ final class _WorkspaceMember {
   final String name;
   final String path;
 
-  const _WorkspaceMember({required this.name, required this.path});
+  const new({required this.name, required this.path});
 }

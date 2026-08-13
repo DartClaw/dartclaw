@@ -55,7 +55,7 @@ class ContextExtractor {
   final WorkflowStepExecutionRepository? _workflowStepExecutionRepository;
   final WorkflowGitPort? _workflowGitPort;
 
-  ContextExtractor({
+  new({
     required WorkflowTaskService taskService,
     required MessageService messageService,
     required String dataDir,

@@ -43,7 +43,7 @@ class ServeCommand extends Command<void> {
   @override
   String get description => 'Start the DartClaw HTTP server';
 
-  ServeCommand({
+  new({
     DartclawConfig? config,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
@@ -158,7 +158,7 @@ class ServeCommand extends Command<void> {
     if (explicitConfigPath == null && explicitEnvConfig == null) {
       final expandedDataDir = expandHome(config.server.dataDir);
       final configDir = p.dirname(resolvedConfigPath);
-      if (p.equals(expandedDataDir, configDir) == false) {
+      if (!p.equals(expandedDataDir, configDir)) {
         _stderrLine(
           'WARNING: Your config is at $resolvedConfigPath but data_dir points to $expandedDataDir. '
           'In the unified instance-directory model (0.16.2+), both should be in the same directory. '

@@ -46,7 +46,7 @@ class WorkflowRunCommand extends Command<void> {
   final SkillIntrospector? _skillIntrospector;
   final ProviderAuthPreflight? _providerAuthPreflight;
 
-  WorkflowRunCommand({
+  new({
     DartclawConfig? config,
     SearchDbFactory? searchDbFactory,
     TaskDbFactory? taskDbFactory,
@@ -490,7 +490,6 @@ class WorkflowRunCommand extends Command<void> {
             } else if (newStatus == TaskStatus.review.name && !jsonOutput) {
               printer.stepReview(stepIndex, step.id, displayScope: displayScope);
             }
-            break;
           case 'workflow_step_completed':
             final WorkflowStepCompletedEvent completed;
             try {
@@ -513,7 +512,6 @@ class WorkflowRunCommand extends Command<void> {
                 progressKey: key,
               );
             }
-            break;
           case 'map_iteration_completed':
             final MapIterationCompletedEvent completed;
             try {
@@ -541,7 +539,6 @@ class WorkflowRunCommand extends Command<void> {
                 displayScope: displayScope,
               );
             }
-            break;
           case 'workflow_cli_turn_progress':
             if (!jsonOutput) {
               final key = taskProgressKey(event['taskId']?.toString());
@@ -550,7 +547,6 @@ class WorkflowRunCommand extends Command<void> {
                 printer.stepTokens(key, cumulative);
               }
             }
-            break;
           case 'workflow_status_changed':
             final newStatusName = event['newStatus']?.toString();
             final newStatus = newStatusName == null ? null : WorkflowRunStatus.values.asNameMap()[newStatusName];
@@ -568,19 +564,14 @@ class WorkflowRunCommand extends Command<void> {
               switch (lastStatus) {
                 case WorkflowRunStatus.completed:
                   printer.workflowCompleted(definition.steps.length, event['totalTokens'] as int? ?? run.totalTokens);
-                  break;
                 case WorkflowRunStatus.failed:
                   printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError);
-                  break;
                 case WorkflowRunStatus.cancelled:
                   printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError ?? 'Cancelled');
-                  break;
                 case WorkflowRunStatus.paused:
                   printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
-                  break;
                 case WorkflowRunStatus.awaitingApproval:
                   printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
-                  break;
                 case WorkflowRunStatus.pending || WorkflowRunStatus.running:
                   break;
               }

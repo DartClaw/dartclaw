@@ -281,7 +281,7 @@ Dart async reference.
 }
 
 final class _RunningQmdManager extends QmdManager {
-  _RunningQmdManager({required super.port}) : super(host: InternetAddress.loopbackIPv4.address);
+  new({required super.port}) : super(host: InternetAddress.loopbackIPv4.address);
 
   @override
   bool get isRunning => true;

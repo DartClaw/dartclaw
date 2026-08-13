@@ -30,7 +30,7 @@ class CliProgressPrinter {
   /// Controls the resume/cancel guidance printed at an approval pause.
   final bool standalone;
 
-  CliProgressPrinter({
+  new({
     required this.totalSteps,
     required this.workflowName,
     required WriteLine writeLine,

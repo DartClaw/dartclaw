@@ -46,7 +46,7 @@ class SessionMaintenanceConfig {
   final String schedule;
 
   /// Creates a [SessionMaintenanceConfig] value.
-  const SessionMaintenanceConfig({
+  const new({
     this.mode = MaintenanceMode.warn,
     this.pruneAfterDays = 30,
     this.maxSessions = 500,
@@ -56,7 +56,7 @@ class SessionMaintenanceConfig {
   });
 
   /// Default maintenance configuration.
-  const SessionMaintenanceConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

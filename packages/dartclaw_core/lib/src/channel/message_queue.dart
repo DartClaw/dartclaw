@@ -53,7 +53,7 @@ class _QueueEntry {
   final String senderJid;
   int attempt = 0;
 
-  _QueueEntry({required this.message, required this.sourceChannel, required this.sessionKey, required this.senderJid});
+  new({required this.message, required this.sourceChannel, required this.sessionKey, required this.senderJid});
 }
 
 /// Channel-agnostic message queue with debounce, per-session FIFO, global
@@ -100,7 +100,7 @@ class MessageQueue {
 
   bool _disposed = false;
 
-  MessageQueue({
+  new({
     this.debounceWindow = const Duration(milliseconds: 1000),
     this.maxConcurrentTurns = 3,
     this.maxQueueDepth = 100,
@@ -504,5 +504,5 @@ class _DebounceBuffer {
   final Channel sourceChannel;
   Timer timer;
 
-  _DebounceBuffer({required this.texts, required this.lastMessage, required this.sourceChannel, required this.timer});
+  new({required this.texts, required this.lastMessage, required this.sourceChannel, required this.timer});
 }

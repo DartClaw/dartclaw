@@ -13,13 +13,10 @@ class RebuildIndexCommand extends Command<void> {
   final void Function(String)? _writeLine;
   final CanonicalIndexReconciler? _indexReconciler;
 
-  RebuildIndexCommand({
-    DartclawConfig? config,
-    void Function(String)? writeLine,
-    CanonicalIndexReconciler? indexReconciler,
-  }) : _config = config,
-       _writeLine = writeLine,
-       _indexReconciler = indexReconciler {
+  new({DartclawConfig? config, void Function(String)? writeLine, CanonicalIndexReconciler? indexReconciler})
+    : _config = config,
+      _writeLine = writeLine,
+      _indexReconciler = indexReconciler {
     argParser.addFlag('json', negatable: false, help: 'Output the rebuild result as JSON');
   }
 

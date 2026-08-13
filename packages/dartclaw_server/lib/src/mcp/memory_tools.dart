@@ -14,7 +14,7 @@ class MemoryObserveTool implements ContextualMcpTool {
   final MemoryHandler _handler;
   final MemoryObserveWithContext? _contextualHandler;
 
-  MemoryObserveTool({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
+  new({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
     : _handler = handler,
       _contextualHandler = contextualHandler;
 
@@ -55,7 +55,7 @@ class MemoryApplyTool implements ContextualMcpTool {
   final MemoryHandler _handler;
   final MemoryObserveWithContext? _contextualHandler;
 
-  MemoryApplyTool({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
+  new({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
     : _handler = handler,
       _contextualHandler = contextualHandler;
 
@@ -106,7 +106,7 @@ MemoryCaptureContext _captureContext(String toolName, McpCallerContext context) 
 class MemorySearchTool implements McpTool {
   final MemoryHandler _handler;
 
-  MemorySearchTool({required MemoryHandler handler}) : _handler = handler;
+  new({required MemoryHandler handler}) : _handler = handler;
 
   @override
   String get name => 'memory_search';
@@ -142,7 +142,7 @@ class MemorySearchTool implements McpTool {
 class MemoryReadTool implements McpTool {
   final MemoryHandler _handler;
 
-  MemoryReadTool({required MemoryHandler handler}) : _handler = handler;
+  new({required MemoryHandler handler}) : _handler = handler;
 
   @override
   String get name => 'memory_read';

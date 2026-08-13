@@ -46,7 +46,7 @@ final class TaskExecutorTestHarness {
 
   final AgentHarness worker;
 
-  TaskExecutorTestHarness(this.worker);
+  new(this.worker);
 
   Future<void> setUp({String tempPrefix = 'dartclaw_executor_test_'}) async {
     tempDir = Directory.systemTemp.createTempSync(tempPrefix);
@@ -303,7 +303,7 @@ Future<Directory> initGitRepo({
 /// suite `setUp` hook and [tearDown] in `tearDown`; use [seedWorkflowExecution]
 /// and [buildExecutor] for per-test wiring.
 final class WorkflowTaskExecutorTestContext {
-  WorkflowTaskExecutorTestContext(this.worker) : _harness = TaskExecutorTestHarness(worker);
+  new(this.worker) : _harness = TaskExecutorTestHarness(worker);
 
   final AgentHarness worker;
   final TaskExecutorTestHarness _harness;
@@ -569,7 +569,7 @@ class FakeTaskWorker implements AgentHarness {
 /// Records the create()/baseRef/createBranch a worktree request carried and
 /// returns a synthetic worktree.
 class CapturingWorktreeManager extends WorktreeManager {
-  CapturingWorktreeManager()
+  new()
     : super(
         dataDir: '/tmp',
         processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
@@ -606,7 +606,7 @@ class CapturingWorktreeManager extends WorktreeManager {
 /// A [WorktreeManager] whose create() blocks on [_gate] — used to prove
 /// concurrent shared-workflow dispatch coalesces into a single create call.
 class BlockingWorktreeManager extends WorktreeManager {
-  BlockingWorktreeManager(this._gate)
+  new(this._gate)
     : super(
         dataDir: '/tmp',
         processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
@@ -639,7 +639,7 @@ class BlockingWorktreeManager extends WorktreeManager {
 /// A [WorktreeManager] that always returns a fixed [path] — used to point the
 /// executor at a pre-seeded worktree directory.
 class StaticPathWorktreeManager extends WorktreeManager {
-  StaticPathWorktreeManager(this.path)
+  new(this.path)
     : super(
         dataDir: '/tmp',
         processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
@@ -669,9 +669,9 @@ class StaticPathWorktreeManager extends WorktreeManager {
 /// Captures the prompt scope / behavior override / directory the executor
 /// routed a turn with, without driving a real harness.
 class CapturingTurnManager extends TurnManager {
-  CapturingTurnManager(MessageService messages, AgentHarness worker) : this._(_CapturingTurnRunner(messages, worker));
+  new(MessageService messages, AgentHarness worker) : this._(_CapturingTurnRunner(messages, worker));
 
-  CapturingTurnManager._(this._runner)
+  new _(this._runner)
     : super.fromCoordinator(
         coordinator: ExecutionCoordinator(
           providerCapacities: const {},
@@ -694,7 +694,7 @@ class CapturingTurnManager extends TurnManager {
 }
 
 final class _CapturingTurnRunner extends TurnRunner {
-  _CapturingTurnRunner(MessageService messages, AgentHarness worker)
+  new(MessageService messages, AgentHarness worker)
     : super(
         messages: messages,
         harness: worker,
@@ -760,7 +760,7 @@ final class _CapturingTurnRunner extends TurnRunner {
 /// succeeds thereafter — proves the executor waits out shared-harness
 /// contention rather than failing the task.
 class BusyOnceTurnManager extends TurnManager {
-  BusyOnceTurnManager(MessageService messages, AgentHarness worker)
+  new(MessageService messages, AgentHarness worker)
     : super(
         messages: messages,
         worker: worker,

@@ -7,7 +7,7 @@ class RuntimeConfig {
   bool gitSyncEnabled;
   bool gitSyncPushEnabled;
 
-  RuntimeConfig({required this.heartbeatEnabled, required this.gitSyncEnabled, this.gitSyncPushEnabled = true});
+  new({required this.heartbeatEnabled, required this.gitSyncEnabled, this.gitSyncPushEnabled = true});
 
   Map<String, dynamic> toJson() => {
     'heartbeat': {'enabled': heartbeatEnabled},

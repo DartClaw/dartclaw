@@ -96,7 +96,7 @@ class CodexHarness extends BaseHarness {
   final Duration _killGracePeriod;
   final Duration _initializeTimeout;
 
-  CodexHarness({
+  new({
     required super.cwd,
     this.executable = 'codex',
     super.turnTimeout = const Duration(seconds: 600),

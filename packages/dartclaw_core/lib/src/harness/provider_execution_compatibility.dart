@@ -21,7 +21,7 @@ enum ProviderLaunchSurface {
   /// Workflow-owned one-shot CLI turns.
   workflowOneShot('workflow one-shot');
 
-  const ProviderLaunchSurface(this.label);
+  new(this.label);
 
   /// Operator-facing surface name used in diagnostics.
   final String label;
@@ -43,17 +43,17 @@ enum ProviderUnavailability {
 /// a different boundary or another provider's adapter.
 final class ProviderExecutionVerdict {
   /// The combination is runnable as requested.
-  const ProviderExecutionVerdict.supported() : reason = null, message = '';
+  const new supported() : reason = null, message = '';
 
   /// [surface] has no launch implementation for [providerId].
-  ProviderExecutionVerdict.unsupportedSurface({required String providerId, required ProviderLaunchSurface surface})
+  new unsupportedSurface({required String providerId, required ProviderLaunchSurface surface})
     : reason = ProviderUnavailability.surface,
       message =
           'Provider "$providerId" has no ${surface.label} launch implementation, so that surface is unavailable for '
           'it. Run this workload on a surface the provider implements, or select a provider implemented for the '
           '${surface.label} surface.';
 
-  ProviderExecutionVerdict._containerMediation(this.message) : reason = ProviderUnavailability.containerMediation;
+  new _containerMediation(this.message) : reason = ProviderUnavailability.containerMediation;
 
   /// Why the combination is unavailable, or `null` when it is supported.
   final ProviderUnavailability? reason;
@@ -73,7 +73,7 @@ final class ProviderExecutionVerdict {
 /// a profile ID, or the presence of a container manager.
 final class ProviderExecutionSupport {
   /// Creates a support record.
-  const ProviderExecutionSupport({
+  const new({
     required this.providerId,
     required this.surfaces,
     required this.registrationYamlPath,
@@ -83,7 +83,7 @@ final class ProviderExecutionSupport {
   /// Compatibility of a built-in provider adapter (Claude, Codex).
   ///
   /// Both surfaces implement it and both execution modes are mediated.
-  ProviderExecutionSupport.builtIn(String providerId)
+  new builtIn(String providerId)
     : this(
         providerId: providerId,
         surfaces: const {ProviderLaunchSurface.longLived, ProviderLaunchSurface.workflowOneShot},
@@ -96,7 +96,7 @@ final class ProviderExecutionSupport {
   /// container combination is mediated. A registration that *requires* a
   /// container therefore has no runnable combination at all — see
   /// [acpContainerRequirementError], which rejects it at startup.
-  ProviderExecutionSupport.acp(String providerId)
+  new acp(String providerId)
     : this(
         providerId: providerId,
         surfaces: const {ProviderLaunchSurface.longLived},
@@ -147,7 +147,7 @@ final class ProviderExecutionSupport {
 /// compatibility locally.
 final class ProviderExecutionInventory {
   /// Creates an inventory over per-provider [supports], keyed by provider ID.
-  ProviderExecutionInventory(Map<String, ProviderExecutionSupport> supports) : _supports = Map.unmodifiable(supports);
+  new(Map<String, ProviderExecutionSupport> supports) : _supports = Map.unmodifiable(supports);
 
   /// Builds the inventory for a deployment.
   ///
@@ -158,7 +158,7 @@ final class ProviderExecutionInventory {
   /// construction still rejects it by identity. Both sets are normalized to
   /// canonical provider identity, so lookups match however a caller spelled
   /// the ID.
-  factory ProviderExecutionInventory.of({required Iterable<String> providerIds, required Set<String> acpProviderIds}) {
+  factory of({required Iterable<String> providerIds, required Set<String> acpProviderIds}) {
     const builtInFamilies = {ProviderIdentity.claude, ProviderIdentity.codex};
     final acp = acpProviderIds.map(ProviderIdentity.normalize).toSet();
     return ProviderExecutionInventory({

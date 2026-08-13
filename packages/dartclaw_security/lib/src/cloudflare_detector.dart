@@ -13,7 +13,7 @@ class CloudflareDetector {
     'ray id:',
   ];
 
-  const CloudflareDetector._();
+  const new _();
 
   /// Returns true if [content] looks like a Cloudflare challenge page.
   static bool isCloudflareChallenge(String content) {

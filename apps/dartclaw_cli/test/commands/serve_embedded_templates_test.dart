@@ -13,7 +13,7 @@ import '../helpers/log_service_capture.dart';
 
 class _ExitIntercept implements Exception {
   final int code;
-  _ExitIntercept(this.code);
+  new(this.code);
 }
 
 HarnessFactory _harnessFactoryFor(AgentHarness harness) {

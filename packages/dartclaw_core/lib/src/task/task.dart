@@ -110,7 +110,7 @@ class Task {
   final int retryCount;
 
   /// Creates an immutable task record.
-  Task({
+  new({
     required this.id,
     required this.title,
     required this.description,
@@ -305,7 +305,7 @@ class Task {
   };
 
   /// Deserializes a task from persisted JSON.
-  factory Task.fromJson(Map<String, dynamic> json) => Task(
+  factory fromJson(Map<String, dynamic> json) => Task(
     id: json['id'] as String,
     title: json['title'] as String,
     description: json['description'] as String,

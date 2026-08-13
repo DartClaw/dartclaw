@@ -55,11 +55,14 @@ int? _allowedCount(String? rationale) {
   return match == null ? null : int.parse(match.group(1)!);
 }
 
+final _constructorDeclaration = RegExp(r'^(?:const\s+)?(?:factory\s|new[\s(.])');
+
 int _methodCount(File file) {
   var count = 0;
   for (final line in file.readAsLinesSync()) {
     final trimmed = line.trimLeft();
     if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('typedef ')) continue;
+    if (_constructorDeclaration.hasMatch(trimmed)) continue;
     if (_methodLike.hasMatch(line)) count += 1;
   }
   return count;

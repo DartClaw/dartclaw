@@ -23,13 +23,10 @@ final class ComposedSearchBackend implements SearchBackend {
   final SearchIndexHealthProbe? _indexHealthProbe;
 
   /// Creates the single composition owner for one configured search backend.
-  ComposedSearchBackend({
-    required SearchBackend personal,
-    required WikiSearchSource wiki,
-    SearchIndexHealthProbe? indexHealthProbe,
-  }) : _personal = personal,
-       _wiki = wiki,
-       _indexHealthProbe = indexHealthProbe;
+  new({required SearchBackend personal, required WikiSearchSource wiki, SearchIndexHealthProbe? indexHealthProbe})
+    : _personal = personal,
+      _wiki = wiki,
+      _indexHealthProbe = indexHealthProbe;
 
   @override
   Future<MemorySearchOutcome> search(

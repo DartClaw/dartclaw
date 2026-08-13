@@ -7,10 +7,10 @@ class WorkspaceConfig {
   final bool gitSyncPushEnabled;
 
   /// const WorkspaceConfig({this.gitSyncEnabled = true, this.gitS.
-  const WorkspaceConfig({this.gitSyncEnabled = true, this.gitSyncPushEnabled = true});
+  const new({this.gitSyncEnabled = true, this.gitSyncPushEnabled = true});
 
   /// Default configuration.
-  const WorkspaceConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

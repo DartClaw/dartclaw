@@ -15,7 +15,7 @@ enum KnowledgeHubLayer {
   final String wireName;
   final String label;
 
-  const KnowledgeHubLayer(this.wireName, this.label);
+  new(this.wireName, this.label);
 
   static Iterable<KnowledgeHubLayer> get searchable => values.where((layer) => layer != all);
 
@@ -35,12 +35,7 @@ final class KnowledgeHubQuery {
   final int page;
   final int perPage;
 
-  const KnowledgeHubQuery({
-    this.query = '',
-    this.layer = KnowledgeHubLayer.all,
-    this.page = 1,
-    this.perPage = defaultPerPage,
-  });
+  const new({this.query = '', this.layer = KnowledgeHubLayer.all, this.page = 1, this.perPage = defaultPerPage});
 
   KnowledgeHubQuery normalized() {
     final trimmed = query.trim();
@@ -64,7 +59,7 @@ final class KnowledgeHubResult {
   final bool hasPreviousPage;
   final bool hasNextPage;
 
-  const KnowledgeHubResult({
+  const new({
     required this.query,
     required this.items,
     required this.layerCounts,
@@ -85,7 +80,7 @@ final class KnowledgeHubItem {
   final String sourceLabel;
   final SourceRef sourceRef;
 
-  const KnowledgeHubItem({
+  const new({
     required this.layer,
     required this.title,
     required this.snippet,
@@ -103,7 +98,7 @@ final class KnowledgeHubService {
   final KnowledgeInboxReadService inbox;
   final CitationSourceResolver? sourceResolver;
 
-  KnowledgeHubService({
+  new({
     required this.wiki,
     required this.kg,
     required this.memory,

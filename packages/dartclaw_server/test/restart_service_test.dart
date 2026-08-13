@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 
 /// Wraps [FakeTurnManager] so timeout cancellation can iterate a stable snapshot.
 class _RestartFakeTurnManager extends FakeTurnManager {
-  _RestartFakeTurnManager({super.activeSessionIds, super.waitDelay});
+  new({super.activeSessionIds, super.waitDelay});
 
   @override
   Iterable<String> get activeSessionIds => List<String>.of(super.activeSessionIds);

@@ -11,7 +11,7 @@ enum ExecutionSurface { interactive, channel, task, workflow, logicalAgent, sche
 
 /// Describes one post-governance execution allocation.
 final class ExecutionRequest {
-  const ExecutionRequest({
+  const new({
     required this.surface,
     required this.providerId,
     required this.policy,
@@ -71,7 +71,7 @@ typedef CreateExecutionWorker = Future<TurnRunner> Function(ExecutionRequest req
 
 /// Identifies a container authority being released.
 final class ExecutionReleaseContext {
-  const ExecutionReleaseContext({required this.request, required this.runner});
+  const new({required this.request, required this.runner});
 
   /// The request the released authority was created for.
   final ExecutionRequest request;
@@ -101,7 +101,7 @@ typedef AdmitExecution = Future<void> Function(ExecutionRequest request);
 typedef ReleaseExecutionAdmission = void Function(String sessionId);
 
 final class WorkerCreationException implements Exception {
-  const WorkerCreationException(this.message);
+  const new(this.message);
 
   final String message;
 
@@ -112,14 +112,7 @@ final class WorkerCreationException implements Exception {
 enum ExecutionEventKind { capacityChanged, acquired, released, disposed, quarantined, runnerCreated, turnSettled }
 
 final class ExecutionEvent {
-  const ExecutionEvent({
-    required this.kind,
-    required this.request,
-    required this.lane,
-    this.runnerId,
-    this.runner,
-    this.outcome,
-  });
+  const new({required this.kind, required this.request, required this.lane, this.runnerId, this.runner, this.outcome});
 
   final ExecutionEventKind kind;
   final ExecutionRequest request;
@@ -131,7 +124,7 @@ final class ExecutionEvent {
 
 /// Immutable capacity state for one provider.
 final class ProviderCapacitySnapshot {
-  const ProviderCapacitySnapshot({
+  const new({
     required this.configured,
     required this.effective,
     required this.active,
@@ -163,7 +156,7 @@ final class ProviderCapacitySnapshot {
 
 /// Immutable aggregate execution-capacity state.
 final class ExecutionSnapshot {
-  const ExecutionSnapshot({required this.primaryActive, required this.providers});
+  const new({required this.primaryActive, required this.providers});
 
   final bool primaryActive;
   final Map<String, ProviderCapacitySnapshot> providers;

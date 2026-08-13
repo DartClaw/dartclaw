@@ -25,7 +25,7 @@ final class HttpMcpTransport implements OutboundMcpTransport {
   String? _sessionId;
   String? _negotiatedProtocolVersion;
 
-  HttpMcpTransport(
+  new(
     String url, {
     http.Client? client,
     Iterable<String>? allowedRedirectHosts,

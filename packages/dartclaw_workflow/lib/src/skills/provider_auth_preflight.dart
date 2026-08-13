@@ -18,11 +18,9 @@ final class ProviderAuthResult {
   /// when the provider is authenticated.
   final String? remediationMessage;
 
-  const ProviderAuthResult.authenticated(this.provider) : authenticated = true, remediationMessage = null;
+  const new authenticated(this.provider) : authenticated = true, remediationMessage = null;
 
-  const ProviderAuthResult.unauthenticated(this.provider, String message)
-    : authenticated = false,
-      remediationMessage = message;
+  const new unauthenticated(this.provider, String message) : authenticated = false, remediationMessage = message;
 }
 
 /// Pre-step auth probe for a referenced workflow provider.
@@ -56,7 +54,7 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
   final AuthProbeEnvironmentBuilder? _environmentForProvider;
   final Map<String, String> _environment;
 
-  CliProviderAuthPreflight({
+  new({
     required CredentialRegistry credentials,
     AuthProbeRunner? runner,
     AuthProbeEnvironmentBuilder? environmentForProvider,

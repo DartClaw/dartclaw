@@ -65,7 +65,7 @@ class AdvisorOutput {
   final String observation;
   final String? suggestion;
 
-  const AdvisorOutput({required this.status, required this.observation, this.suggestion});
+  const new({required this.status, required this.observation, this.suggestion});
 }
 
 /// Carries the metadata required to fire an advisor trigger.
@@ -78,7 +78,7 @@ class AdvisorTriggerContext {
   final String? recipientId;
   final String? threadId;
 
-  const AdvisorTriggerContext({
+  const new({
     required this.type,
     required this.reason,
     required this.sessionKey,
@@ -101,7 +101,7 @@ class ContextEntry {
   final int estimatedTokens;
   final Map<String, dynamic> details;
 
-  const ContextEntry({
+  const new({
     required this.kind,
     required this.summary,
     required this.sessionKey,
@@ -118,7 +118,7 @@ class SlidingContextWindow {
   final List<ContextEntry> _entries = <ContextEntry>[];
   int _estimatedTokens = 0;
 
-  SlidingContextWindow({this.maxEntries = 10});
+  new({this.maxEntries = 10});
 
   void add(ContextEntry entry) {
     _entries.add(entry);
@@ -160,7 +160,7 @@ class CircuitBreaker {
   final int minPrimaryTurnsBetweenFirings;
   int _primaryTurnsSinceLastFire;
 
-  CircuitBreaker({this.minPrimaryTurnsBetweenFirings = 5}) : _primaryTurnsSinceLastFire = minPrimaryTurnsBetweenFirings;
+  new({this.minPrimaryTurnsBetweenFirings = 5}) : _primaryTurnsSinceLastFire = minPrimaryTurnsBetweenFirings;
 
   void recordPrimaryTurn() {
     _primaryTurnsSinceLastFire++;
@@ -186,7 +186,7 @@ class TriggerEvaluator {
 
   Timer? _periodicTimer;
 
-  TriggerEvaluator({
+  new({
     required Set<AdvisorTriggerType> triggers,
     required Duration periodicInterval,
     int turnDepthThreshold = 5,
@@ -293,7 +293,7 @@ class TriggerEvaluator {
 
 /// Parses raw advisor harness text into a structured [AdvisorOutput].
 class AdvisorOutputParser {
-  const AdvisorOutputParser();
+  const new();
 
   AdvisorOutput parse(String rawText) {
     final trimmed = rawText.trim();
@@ -346,7 +346,7 @@ class AdvisorOutputParser {
 
 /// Dispatches an [AdvisorOutput] to the appropriate channel destinations.
 class AdvisorOutputRouter {
-  AdvisorOutputRouter({
+  new({
     ChannelManager? channelManager,
     required EventBus eventBus,
     required ChatCardBuilder googleChatCardBuilder,
@@ -507,7 +507,7 @@ class AdvisorSubscriber {
   StreamSubscription<AdvisorMentionEvent>? _advisorMentionSub;
   String? _lastSessionKey;
 
-  AdvisorSubscriber({
+  new({
     required ExecutionCoordinator executions,
     required String providerId,
     required SessionService sessions,
@@ -816,7 +816,7 @@ class _Destination {
   final String recipientId;
   final String? threadId;
 
-  const _Destination({required this.channelType, required this.recipientId, this.threadId});
+  const new({required this.channelType, required this.recipientId, this.threadId});
 
   String get key => '$channelType::$recipientId::${threadId ?? ''}';
 }

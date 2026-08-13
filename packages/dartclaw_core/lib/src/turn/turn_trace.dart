@@ -50,7 +50,7 @@ class TurnTrace {
   final int failedToolCallCount;
 
   /// Creates a [TurnTrace] value.
-  TurnTrace({
+  new({
     required this.id,
     required this.sessionId,
     this.taskId,
@@ -115,7 +115,7 @@ class TurnTrace {
   };
 
   /// Reconstructs a [TurnTrace] from its JSON representation.
-  factory TurnTrace.fromJson(Map<String, dynamic> json) => TurnTrace(
+  factory fromJson(Map<String, dynamic> json) => TurnTrace(
     id: json['id'] as String,
     sessionId: json['sessionId'] as String,
     taskId: json['taskId'] as String?,

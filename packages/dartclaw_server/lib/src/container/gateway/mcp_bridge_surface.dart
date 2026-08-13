@@ -13,7 +13,7 @@ import 'gateway_models.dart';
 /// respected the filtered `tools/list`. Client-side suppression is not part of
 /// the decision.
 final class McpBridgeSurface implements GatewaySurfaceHandler {
-  McpBridgeSurface({
+  new({
     required McpProtocolHandler handler,
     required this.principal,
     required Set<String> allowedCanonicalTools,
@@ -81,7 +81,7 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
 /// with no configured allowlist reaches no tools at all — the host MCP surface
 /// was previously unreachable from a container, so exposure is opt-in.
 final class _BridgeToolPolicy implements McpCallerPolicy {
-  _BridgeToolPolicy({
+  new({
     required this.principal,
     required Set<String> allowedCanonicalTools,
     required Map<String, CanonicalTool> toolCanonicals,

@@ -14,7 +14,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
 
   final Map<String, CanonicalTool> _ownMcpToolCanonicals;
 
-  ClaudeProtocolAdapter({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
+  new({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
     : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
 
   @override

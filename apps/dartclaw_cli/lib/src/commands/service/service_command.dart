@@ -13,12 +13,7 @@ class _ServiceTarget {
   final int port;
   final String? sourceDir;
 
-  const _ServiceTarget({
-    required this.configPath,
-    required this.instanceDir,
-    required this.port,
-    required this.sourceDir,
-  });
+  const new({required this.configPath, required this.instanceDir, required this.port, required this.sourceDir});
 }
 
 Future<_ServiceTarget> _resolveTarget(
@@ -120,7 +115,7 @@ class ServiceCommand extends Command<void> {
   @override
   String get description => 'Manage DartClaw as a user-scoped background service';
 
-  ServiceCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _env = env,
       _detectSourceDir = detectSourceDir {
     addSubcommand(ServiceInstallCommand(backend: backend, env: _env, detectSourceDir: _detectSourceDir));
@@ -147,7 +142,7 @@ class ServiceInstallCommand extends Command<void> {
   final Map<String, String>? _env;
   final String? Function()? _detectSourceDir;
 
-  ServiceInstallCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _backendOverride = backend,
       _env = env,
       _detectSourceDir = detectSourceDir {
@@ -191,7 +186,7 @@ class ServiceUninstallCommand extends Command<void> {
   final Map<String, String>? _env;
   final String? Function()? _detectSourceDir;
 
-  ServiceUninstallCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _backendOverride = backend,
       _env = env,
       _detectSourceDir = detectSourceDir {
@@ -224,7 +219,7 @@ class ServiceStatusCommand extends Command<void> {
   final Map<String, String>? _env;
   final String? Function()? _detectSourceDir;
 
-  ServiceStatusCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _backendOverride = backend,
       _env = env,
       _detectSourceDir = detectSourceDir {
@@ -255,7 +250,7 @@ class ServiceStartCommand extends Command<void> {
   final Map<String, String>? _env;
   final String? Function()? _detectSourceDir;
 
-  ServiceStartCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _backendOverride = backend,
       _env = env,
       _detectSourceDir = detectSourceDir {
@@ -288,7 +283,7 @@ class ServiceStopCommand extends Command<void> {
   final Map<String, String>? _env;
   final String? Function()? _detectSourceDir;
 
-  ServiceStopCommand({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
+  new({ServiceBackend? backend, Map<String, String>? env, String? Function()? detectSourceDir})
     : _backendOverride = backend,
       _env = env,
       _detectSourceDir = detectSourceDir {

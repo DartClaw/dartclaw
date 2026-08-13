@@ -55,7 +55,7 @@ class MemoryStatusService {
   final ScheduleService? scheduleService;
   final WorkspaceFileReader _workspaceFiles;
 
-  MemoryStatusService({
+  new({
     required this.workspaceDir,
     required this.config,
     required this.kvService,

@@ -29,7 +29,7 @@ class ContextConfig {
   final String? identifierInstructions;
 
   /// Creates a [ContextConfig] value.
-  const ContextConfig({
+  const new({
     this.reserveTokens = 20000,
     this.maxResultBytes = 50 * 1024,
     this.warningThreshold = 80,
@@ -40,7 +40,7 @@ class ContextConfig {
   });
 
   /// Default configuration.
-  const ContextConfig.defaults() : this();
+  const new defaults() : this();
 
   @override
   bool operator ==(Object other) =>

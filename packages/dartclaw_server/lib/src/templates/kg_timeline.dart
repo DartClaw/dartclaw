@@ -9,7 +9,7 @@ final class KgTimelineCategoryView {
   final String name;
   final List<KgTimelineFactView> facts;
 
-  const KgTimelineCategoryView({required this.name, required this.facts});
+  const new({required this.name, required this.facts});
 }
 
 /// Render-ready temporal KG fact card.
@@ -23,7 +23,7 @@ final class KgTimelineFactView {
   final bool isConflict;
   final String attributionHtml;
 
-  const KgTimelineFactView({
+  const new({
     required this.id,
     required this.statement,
     required this.validFrom,

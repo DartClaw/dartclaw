@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'package:dartclaw/dartclaw.dart';
 
 const _secretPhrase = 'swordfish';
@@ -25,7 +23,7 @@ Future<void> main(List<String> args) async {
 }
 
 final class SecretPhraseGuard extends Guard {
-  SecretPhraseGuard({required this.secretPhrase});
+  new({required this.secretPhrase});
 
   final String secretPhrase;
 

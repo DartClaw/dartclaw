@@ -239,7 +239,7 @@ void main() {
 /// Coordinator wired with recording release hooks and a recording container
 /// destroyer, so teardown ordering is observable.
 class _Fixture {
-  _Fixture({required Map<String, int> capacities, bool destroyThrows = false}) {
+  new({required Map<String, int> capacities, bool destroyThrows = false}) {
     coordinator = ExecutionCoordinator(
       providerCapacities: capacities,
       admitExecution: (_) async {},
@@ -306,7 +306,7 @@ class _Fixture {
 }
 
 class _RecordingHarness extends FakeAgentHarness {
-  _RecordingHarness(this._order) : super(autoTransitionState: false);
+  new(this._order) : super(autoTransitionState: false);
 
   final List<String> _order;
 

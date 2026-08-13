@@ -16,7 +16,7 @@ enum MemoryCurationState { running, succeeded, conflicted, failed }
 
 /// One coherent, bounded input captured for a curation proposal.
 final class MemoryCurationInput {
-  MemoryCurationInput({
+  new({
     required this.collectionRevision,
     required this.indexProjection,
     required Iterable<CanonicalMemoryEntry> entries,
@@ -38,7 +38,7 @@ typedef MemoryCurationSnapshotReader = Future<MemoryCurationInput> Function(Date
 
 /// Persisted truth about the latest explicit curation action.
 final class MemoryCurationRecord {
-  MemoryCurationRecord({
+  new({
     required this.state,
     required this.runId,
     required this.startedAt,
@@ -95,7 +95,7 @@ final class MemoryCurationRecord {
     if (indeterminateCommit) 'indeterminateCommit': true,
   };
 
-  factory MemoryCurationRecord.fromJson(Map<String, dynamic> json) {
+  factory fromJson(Map<String, dynamic> json) {
     _validateRecordSchema(json);
     return MemoryCurationRecord(
       state: MemoryCurationState.values.byName(json['state'] as String),
@@ -120,7 +120,7 @@ final class MemoryCurationRecord {
 
 /// Runs one proposal-only model turn and delegates every mutation to [MemoryApplyService].
 final class MemoryCurationService {
-  MemoryCurationService({
+  new({
     required this.turns,
     required this.sessions,
     required this.kv,
@@ -493,7 +493,7 @@ void _validateBoundedReferences(List<Map<String, dynamic>> operations, Set<Strin
 }
 
 final class _ProposalValidationException implements Exception {
-  const _ProposalValidationException(this.reasons);
+  const new(this.reasons);
 
   final Map<String, String> reasons;
 

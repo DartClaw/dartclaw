@@ -4,10 +4,10 @@ import 'dart:collection';
 
 /// Keeps reload validity typed without breaking parser APIs that accept `List<String>`.
 final class ConfigLoadWarnings extends ListBase<String> {
-  ConfigLoadWarnings([Iterable<String> warnings = const []])
+  new([Iterable<String> warnings = const []])
     : _entries = [for (final warning in warnings) (message: warning, advisory: false)];
 
-  ConfigLoadWarnings.copy(List<String> warnings)
+  new copy(List<String> warnings)
     : _entries = warnings is ConfigLoadWarnings
           ? List<({String message, bool advisory})>.of(warnings._entries)
           : [for (final warning in warnings) (message: warning, advisory: false)];

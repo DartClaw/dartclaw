@@ -18,7 +18,7 @@ class DeliveryService {
   final SessionService _sessions;
   final HttpClient Function() _httpClientFactory;
 
-  DeliveryService({
+  new({
     required ChannelManager channelManager,
     required SseBroadcast sseBroadcast,
     required SessionService sessions,

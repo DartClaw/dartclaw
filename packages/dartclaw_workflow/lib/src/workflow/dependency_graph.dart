@@ -32,7 +32,7 @@ class DependencyGraph {
   /// Whether any item declares dependencies.
   bool get hasDependencies => _deps.isNotEmpty;
 
-  DependencyGraph(List<dynamic> items) : _items = List<dynamic>.unmodifiable(items), _length = items.length {
+  new(List<dynamic> items) : _items = List<dynamic>.unmodifiable(items), _length = items.length {
     // First pass: build ID ↔ index maps.
     for (var i = 0; i < items.length; i++) {
       final item = items[i];

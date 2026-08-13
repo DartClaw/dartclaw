@@ -15,7 +15,7 @@ import '../serve_command.dart' show ExitFn;
 /// search DB, task DB, turn state, memory, KV, and optional QMD hybrid search.
 /// Calls [exitFn] on fatal database open failures.
 class StorageWiring {
-  StorageWiring({
+  new({
     required this.config,
     required EventBus eventBus,
     required SearchDbFactory searchDbFactory,

@@ -60,7 +60,7 @@ class Session {
   final DateTime updatedAt;
 
   /// Creates a session snapshot with immutable metadata.
-  const Session({
+  const new({
     required this.id,
     this.title,
     this.type = SessionType.user,
@@ -89,7 +89,7 @@ class Session {
   ///
   /// A missing legacy `type` defaults to [SessionType.user]. Throws
   /// [FormatException] when a present type is not a supported string value.
-  factory Session.fromJson(Map<String, dynamic> json) => Session(
+  factory fromJson(Map<String, dynamic> json) => Session(
     id: json['id'] as String,
     title: json['title'] as String?,
     type: _parseSessionType(json['type']),
@@ -165,7 +165,7 @@ class Message {
   final DateTime createdAt;
 
   /// Creates an immutable message record.
-  const Message({
+  const new({
     required this.cursor,
     required this.id,
     required this.sessionId,
@@ -187,7 +187,7 @@ class Message {
   };
 
   /// Reconstructs a [Message] from persisted JSON data.
-  factory Message.fromJson(Map<String, dynamic> json) => Message(
+  factory fromJson(Map<String, dynamic> json) => Message(
     cursor: json['cursor'] as int,
     id: json['id'] as String,
     sessionId: json['sessionId'] as String,
@@ -231,7 +231,7 @@ class MemorySearchResult {
   final int? entryRevision;
 
   /// Creates an immutable memory search result value.
-  const MemorySearchResult({
+  const new({
     required this.text,
     required this.source,
     this.category,
@@ -244,7 +244,7 @@ class MemorySearchResult {
   }) : locator = locator ?? source;
 
   /// Creates a result backed by one canonical entry identity.
-  factory MemorySearchResult.canonical({
+  factory canonical({
     required String text,
     required String source,
     String? category,
@@ -300,7 +300,7 @@ final _canonicalMemoryId = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 /// Explains one bounded retrieval omission or failure without discarding healthy results.
 final class MemorySearchDegradation {
   /// Creates structured degradation evidence for one retrieval layer.
-  const MemorySearchDegradation({
+  const new({
     required this.layer,
     required this.reason,
     this.locator,
@@ -353,7 +353,7 @@ final class MemorySearchOutcome extends Iterable<MemorySearchResult> {
   final int? canonicalRevision;
 
   /// Creates one search outcome.
-  const MemorySearchOutcome({
+  const new({
     required this.results,
     this.degradedLayers = const [],
     this.degradations = const [],

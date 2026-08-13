@@ -10,7 +10,7 @@ import '../web_utils.dart';
 
 /// Renders the scheduled-jobs dashboard page.
 class SchedulingPage extends DashboardPage {
-  SchedulingPage({
+  new({
     this.runtimeConfigGetter,
     this.configWriter,
     this.memoryStatusServiceGetter,

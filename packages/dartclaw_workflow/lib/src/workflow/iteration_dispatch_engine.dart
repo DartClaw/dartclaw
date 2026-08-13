@@ -1,7 +1,7 @@
 part of 'workflow_executor.dart';
 
 final class _IterationDispatchEngine {
-  _IterationDispatchEngine({
+  new({
     required this.mapCtx,
     required this.depGraph,
     required Iterable<int> pendingIndices,
@@ -196,7 +196,7 @@ enum _SerializeRemainingPhase {
 }
 
 final class _SerializeRemainingState {
-  const _SerializeRemainingState({
+  const new({
     required this.stepId,
     required this.phase,
     required this.iterIndex,

@@ -10,10 +10,7 @@ class SecurityBashStepConfig {
   final List<String> extraStripPatterns;
 
   /// Creates a [SecurityBashStepConfig] value.
-  const SecurityBashStepConfig({
-    this.envAllowlist = defaultBashStepEnvAllowlist,
-    this.extraStripPatterns = const <String>[],
-  });
+  const new({this.envAllowlist = defaultBashStepEnvAllowlist, this.extraStripPatterns = const <String>[]});
 
   @override
   bool operator ==(Object other) =>
@@ -62,7 +59,7 @@ class SecurityConfig {
   final int guardAuditMaxRetentionDays;
 
   /// Creates a [SecurityConfig] value.
-  const SecurityConfig({
+  const new({
     this.guards = const GuardConfig.defaults(),
     this.guardsYaml = const {},
     this.bashStep = const SecurityBashStepConfig(),
@@ -76,7 +73,7 @@ class SecurityConfig {
   });
 
   /// Default configuration.
-  const SecurityConfig.defaults() : this();
+  const new defaults() : this();
 
   /// Returns a copy with the given fields replaced.
   SecurityConfig copyWith({

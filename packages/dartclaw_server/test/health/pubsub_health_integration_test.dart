@@ -15,7 +15,7 @@ import 'package:test/test.dart';
 // ---------------------------------------------------------------------------
 
 class _FakeRestClient extends GoogleChatRestClient {
-  _FakeRestClient() : super(authClient: MockClient((_) async => http.Response('{}', 200)));
+  new() : super(authClient: MockClient((_) async => http.Response('{}', 200)));
 
   @override
   Future<String?> sendMessage(
@@ -29,7 +29,7 @@ class _FakeRestClient extends GoogleChatRestClient {
 }
 
 class _AlwaysValidJwtVerifier extends GoogleJwtVerifier {
-  _AlwaysValidJwtVerifier()
+  new()
     : super(
         audience: const GoogleChatAudienceConfig(
           mode: GoogleChatAudienceMode.appUrl,

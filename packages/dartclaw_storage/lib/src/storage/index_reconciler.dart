@@ -29,7 +29,7 @@ enum IndexHealthState {
 /// Durable evidence about the last complete canonical-index reconciliation.
 final class IndexHealthEvidence {
   /// Creates an immutable health snapshot.
-  const IndexHealthEvidence({
+  const new({
     required this.state,
     required this.canonicalRevision,
     required this.canonicalFingerprint,
@@ -93,7 +93,7 @@ final class IndexHealthEvidence {
 /// Persists derived-index evidence beside the canonical corpus coordination state.
 final class IndexHealthStore {
   /// Creates a workspace-scoped evidence store.
-  IndexHealthStore({required String workspaceDir, DateTime Function()? now, IndexHealthWriter? writer})
+  new({required String workspaceDir, DateTime Function()? now, IndexHealthWriter? writer})
     : _file = File(p.join(workspaceDir, '.dartclaw-memory-index.json')),
       _now = now ?? DateTime.now,
       _writer = writer;
@@ -303,7 +303,7 @@ typedef IndexFileReplace = void Function(File sibling, String targetPath);
 /// Outcome of one complete fresh-sibling reconciliation.
 final class IndexReconcileResult {
   /// Creates a successful reconciliation result.
-  const IndexReconcileResult({required this.revision, required this.rowCount, required this.health});
+  const new({required this.revision, required this.rowCount, required this.health});
 
   /// Canonical revision projected.
   final int revision;
@@ -318,7 +318,7 @@ final class IndexReconcileResult {
 /// Rebuilds the FTS5 index from one captured canonical corpus and publishes it atomically.
 final class CanonicalIndexReconciler {
   /// Creates a reconciler for one `search.db` target.
-  CanonicalIndexReconciler({
+  new({
     required this.targetPath,
     required this.healthStore,
     SearchDbFactory? databaseFactory,

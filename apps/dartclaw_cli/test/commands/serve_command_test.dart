@@ -51,7 +51,7 @@ AssetResolver _assetResolverFor(Directory tempDir) {
 
 class _ExitIntercept implements Exception {
   final int code;
-  _ExitIntercept(this.code);
+  new(this.code);
 }
 
 class _FakeWorkerService extends FakeAgentHarness {

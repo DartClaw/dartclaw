@@ -17,7 +17,7 @@ import '../web_utils.dart';
 
 /// Renders the runtime-settings dashboard page.
 class SettingsPage extends DashboardPage {
-  SettingsPage({
+  new({
     this.healthService,
     this.workerStateGetter,
     this.whatsAppChannel,

@@ -14,7 +14,7 @@ import '../runtime_config.dart';
 /// rather than [DartclawConfig] (startup YAML) so the UI reflects toggle
 /// changes without restart.
 class ConfigSerializer {
-  const ConfigSerializer();
+  const new();
 
   /// Serializes the full config to the nested camelCase JSON shape.
   ///

@@ -7,7 +7,7 @@ import 'fake_process.dart';
 /// Codex app-server focused [Process] fake with JSON-RPC helpers.
 class FakeCodexProcess extends CapturingFakeProcess {
   /// Creates a fake Codex subprocess with controllable I/O.
-  FakeCodexProcess({
+  new({
     super.pid = 4242,
     super.stdoutController,
     super.stderrController,
@@ -165,7 +165,7 @@ class FakeCodexProcess extends CapturingFakeProcess {
 }
 
 class _TrackingIOSink implements IOSink {
-  _TrackingIOSink(this._delegate, {this.onClose});
+  new(this._delegate, {this.onClose});
 
   final IOSink _delegate;
   final void Function()? onClose;

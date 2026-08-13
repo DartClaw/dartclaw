@@ -15,7 +15,7 @@ final class KnowledgeHubItemView {
   final bool sourceResolved;
   final String attributionHtml;
 
-  const KnowledgeHubItemView({
+  const new({
     required this.layerClass,
     required this.layerLabel,
     required this.title,

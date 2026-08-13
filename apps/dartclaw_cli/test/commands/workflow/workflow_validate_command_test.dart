@@ -14,7 +14,7 @@ class _FakeSkillIntrospector implements SkillIntrospector {
   final Object? throwOnProbe;
   int calls = 0;
 
-  _FakeSkillIntrospector(this.available, {this.throwOnProbe});
+  new(this.available, {this.throwOnProbe});
 
   @override
   Future<Set<String>> listAvailable({

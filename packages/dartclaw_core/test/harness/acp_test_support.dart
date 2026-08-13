@@ -7,7 +7,7 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 final class FakeAcpProcess extends CapturingFakeProcess {
-  FakeAcpProcess({super.completeExitOnKill = true});
+  new({super.completeExitOnKill = true});
 
   Future<Map<String, dynamic>> waitForRequest(String method) async {
     final deadline = DateTime.now().add(const Duration(seconds: 2));

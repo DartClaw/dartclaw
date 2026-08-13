@@ -31,7 +31,7 @@ part 'codex_cli_provider_types.dart';
 class CodexCliProvider extends ProcessBackedCliProvider {
   static final _log = Logger('CodexCliProvider');
 
-  CodexCliProvider({
+  new({
     super.platformCapabilities,
     super.terminationGracePeriod,
     super.outputDrainGracePeriod,
@@ -433,7 +433,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     switch (type) {
       case 'thread.started':
         state.providerSessionId = stringValue(event['thread_id']) ?? state.providerSessionId;
-        break;
 
       case 'turn.started':
         if (emitProgress) {
@@ -443,7 +442,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             '${state.providerSessionId.isEmpty ? '<pending>' : state.providerSessionId}',
           );
         }
-        break;
 
       case 'item.started':
       case 'item.updated':
@@ -459,7 +457,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             _log.fine('CodexCliProvider: codex agent message completed: ${_previewText(state.responseText)}');
           }
         }
-        break;
 
       case 'turn.completed':
         final previousCumulative = state.inputTokens + state.outputTokens;
@@ -498,7 +495,6 @@ class CodexCliProvider extends ProcessBackedCliProvider {
             ),
           );
         }
-        break;
 
       case 'turn.failed':
       case 'error':
@@ -650,7 +646,7 @@ final class _CodexUsageSnapshot {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
-  const _CodexUsageSnapshot({
+  const new({
     this.inputTokens = 0,
     this.newInputTokens = 0,
     this.outputTokens = 0,
@@ -658,7 +654,7 @@ final class _CodexUsageSnapshot {
     this.cacheWriteTokens = 0,
   });
 
-  factory _CodexUsageSnapshot.fromState(_CodexStreamState state) {
+  factory fromState(_CodexStreamState state) {
     final newInputTokens = math.max(0, state.inputTokens - state.cacheReadTokens);
     return _CodexUsageSnapshot(
       inputTokens: state.inputTokens,
@@ -669,7 +665,7 @@ final class _CodexUsageSnapshot {
     );
   }
 
-  factory _CodexUsageSnapshot.fromBaseline(WorkflowCliUsageBaseline baseline) => _CodexUsageSnapshot(
+  factory fromBaseline(WorkflowCliUsageBaseline baseline) => _CodexUsageSnapshot(
     inputTokens: baseline.inputTokens + baseline.cacheReadTokens,
     newInputTokens: baseline.inputTokens,
     outputTokens: baseline.outputTokens,
@@ -682,5 +678,5 @@ class _CodexCommand {
   final (String, List<String>) command;
   final String? tempSchemaPath;
 
-  const _CodexCommand(this.command, {this.tempSchemaPath});
+  const new(this.command, {this.tempSchemaPath});
 }

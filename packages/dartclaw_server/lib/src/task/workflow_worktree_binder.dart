@@ -23,7 +23,7 @@ const _workflowWorktreeTokenLength = 16;
 
 /// Binds workflow-owned tasks to their shared or inline worktrees.
 final class WorkflowWorktreeBinder implements WorkflowTaskBindingCoordinator {
-  WorkflowWorktreeBinder({
+  new({
     required WorktreeManager? worktreeManager,
     required WorkflowRunRepository? workflowRunRepository,
     required WorkflowWorktreeFailureHandler failTask,

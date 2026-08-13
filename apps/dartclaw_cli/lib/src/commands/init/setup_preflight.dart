@@ -8,7 +8,7 @@ class SetupPreflight {
   final List<String> errors;
   final List<String> warnings;
 
-  const SetupPreflight({required this.errors, required this.warnings});
+  const new({required this.errors, required this.warnings});
 
   bool get passed => errors.isEmpty;
 

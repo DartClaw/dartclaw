@@ -7,7 +7,7 @@ import 'jobs_run_command.dart';
 import 'jobs_show_command.dart';
 
 class JobsCommand extends Command<void> {
-  JobsCommand() {
+  new() {
     addSubcommand(JobsListCommand());
     addSubcommand(JobsCreateCommand());
     addSubcommand(JobsShowCommand());

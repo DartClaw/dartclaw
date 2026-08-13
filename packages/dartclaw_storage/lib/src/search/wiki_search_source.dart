@@ -12,7 +12,7 @@ class WikiSearchSource {
   final String workspaceDir;
 
   /// Creates a source rooted at `<workspaceDir>/wiki`.
-  WikiSearchSource({required this.workspaceDir});
+  new({required this.workspaceDir});
 
   /// Searches wiki markdown pages and returns synthesized results before raw memory.
   Future<List<MemorySearchResult>> search(String query, {int limit = 10}) async {
@@ -313,7 +313,7 @@ class WikiSearchSource {
 /// Accepted wiki candidates plus bounded-scan coverage.
 final class WikiSearchScan {
   /// Creates one bounded wiki scan result.
-  const WikiSearchScan({
+  const new({
     required this.results,
     this.degraded = false,
     this.degradations = const [],

@@ -26,7 +26,7 @@ class ServerCoreDeps {
   final GuardChain? guardChain;
   final String? webhookSecret;
 
-  const ServerCoreDeps({
+  const new({
     required this.sessions,
     required this.messages,
     required this.worker,
@@ -53,7 +53,7 @@ class ServerTurnDeps {
   final ExecutionCoordinator? executions;
   final TurnManager turns;
 
-  const ServerTurnDeps({required this.executions, required this.turns});
+  const new({required this.executions, required this.turns});
 }
 
 class ServerChannelDeps {
@@ -64,7 +64,7 @@ class ServerChannelDeps {
   final GoogleChatSpaceEventsWiring? spaceEventsWiring;
   final ThreadBindingStore? threadBindingStore;
 
-  const ServerChannelDeps({
+  const new({
     required this.channelManager,
     required this.whatsAppChannel,
     required this.signalChannel,
@@ -91,7 +91,7 @@ class ServerTaskDeps {
   final TaskProgressTracker? progressTracker;
   final Future<void> Function()? executionDrainer;
 
-  const ServerTaskDeps({
+  const new({
     required this.projectService,
     required this.goalService,
     required this.taskService,
@@ -125,7 +125,7 @@ class ServerObservabilityDeps {
   final WorkspaceGitSync? gitSync;
   final EventBusSseBridge? eventBusSseBridge;
 
-  const ServerObservabilityDeps({
+  const new({
     required this.eventBus,
     required this.sseBroadcast,
     required this.providerStatus,
@@ -152,7 +152,7 @@ class ServerWebDeps {
   final WorkspaceDisplayParams workspaceDisplay;
   final AppDisplayParams appDisplay;
 
-  const ServerWebDeps({
+  const new({
     required this.workflowService,
     required this.workflowDefinitionSource,
     required this.kgService,

@@ -17,7 +17,7 @@ Never _unexpectedExit(int code) {
 }
 
 final class _FailingWorkerHarness extends FakeAgentHarness {
-  _FailingWorkerHarness() : super(promptStrategy: PromptStrategy.append);
+  new() : super(promptStrategy: PromptStrategy.append);
 
   @override
   Future<void> start() async {
@@ -43,7 +43,7 @@ Future<T> _pollFor<T>(T Function() read, bool Function(T) isReady) async {
 }
 
 final class _HarnessWiringFixture {
-  _HarnessWiringFixture() {
+  new() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_harness_wiring_execution_');
     config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),

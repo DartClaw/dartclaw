@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 
 /// The exact bounded prompt-memory block produced for one fresh turn.
 final class MemoryPromptProjection {
-  const MemoryPromptProjection({
+  const new({
     required this.text,
     required this.usedBytes,
     required this.budgetBytes,
@@ -74,7 +74,7 @@ class BehaviorFileService {
   /// Tracks whether the project SOUL.md deprecation warning has been logged.
   bool _projSoulDeprecationWarned = false;
 
-  BehaviorFileService({
+  new({
     required this.workspaceDir,
     this.projectDir,
     this.maxMemoryBytes,

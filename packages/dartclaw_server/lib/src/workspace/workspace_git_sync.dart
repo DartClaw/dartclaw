@@ -29,7 +29,7 @@ class WorkspaceGitSync implements Reconfigurable {
   final CommandRunner _run;
   bool _gitAvailable = false;
 
-  WorkspaceGitSync({required this.workspaceDir, this.pushEnabled = true, CommandRunner? commandRunner})
+  new({required this.workspaceDir, this.pushEnabled = true, CommandRunner? commandRunner})
     : _run = commandRunner ?? _defaultRunner;
 
   bool get gitAvailable => _gitAvailable;

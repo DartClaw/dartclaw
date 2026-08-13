@@ -13,7 +13,7 @@ import 'package:sqlite3/sqlite3.dart';
 import '_support/workflow_test_paths.dart';
 
 final class ScenarioTaskHarness {
-  ScenarioTaskHarness._();
+  new _();
 
   late Directory tempDir;
   late String sessionsDir;
@@ -377,7 +377,7 @@ WorkflowCliRunner successWorkflowCliRunner({String sessionId = 'cli-session-succ
 }
 
 final class StaticPathWorktreeManager extends WorktreeManager {
-  StaticPathWorktreeManager(this.path)
+  new(this.path)
     : super(
         dataDir: '/tmp',
         processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
@@ -439,7 +439,7 @@ final class ScriptedResponse {
   /// to simulate the agent's on-disk effect.
   final FutureOr<void> Function(String sessionId, String? directory)? onInvoked;
 
-  const ScriptedResponse({
+  const new({
     this.assistantContent = '',
     this.usage = const {},
     this.delay,

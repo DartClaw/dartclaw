@@ -48,7 +48,7 @@ enum CanonicalTool {
   /// Stable string name used across providers.
   final String stableName;
 
-  const CanonicalTool(this.stableName);
+  new(this.stableName);
 
   /// Returns the canonical tool for [name], or `null` when it is unknown.
   static CanonicalTool? fromName(String name) {

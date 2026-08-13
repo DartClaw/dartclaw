@@ -37,7 +37,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// - [calls] / [startCalls] / [lastProjectId] / [lastAllowDirtyLocalPath] /
 ///   [lastCancelFeedback] / [activeRuns] — recorded for assertions.
 class FakeWorkflowService extends WorkflowService {
-  FakeWorkflowService._super(
+  new _super(
     SqliteWorkflowRunRepository repository,
     TaskService taskService,
     MessageService messageService,
@@ -53,7 +53,7 @@ class FakeWorkflowService extends WorkflowService {
         dataDir: dataDir,
       );
 
-  factory FakeWorkflowService({
+  factory({
     required Database db,
     required TaskService taskService,
     required EventBus eventBus,

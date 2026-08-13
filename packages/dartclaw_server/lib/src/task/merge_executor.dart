@@ -10,7 +10,7 @@ enum MergeStrategy { squash, merge }
 
 /// Represents the outcome of a worktree merge attempt.
 sealed class MergeResult {
-  const MergeResult();
+  const new();
 }
 
 /// Records a successful merge along with the resulting commit metadata.
@@ -18,7 +18,7 @@ class MergeSuccess extends MergeResult {
   final String commitSha;
   final String commitMessage;
 
-  const MergeSuccess({required this.commitSha, required this.commitMessage});
+  const new({required this.commitSha, required this.commitMessage});
 }
 
 /// Records a merge that aborted due to conflicts.
@@ -26,28 +26,28 @@ class MergeConflict extends MergeResult {
   final List<String> conflictingFiles;
   final String details;
 
-  const MergeConflict({required this.conflictingFiles, required this.details});
+  const new({required this.conflictingFiles, required this.details});
 
   Map<String, dynamic> toJson() => {'conflictingFiles': conflictingFiles, 'details': details};
 }
 
 /// Names the specific pre-merge repository invariant that was violated.
 sealed class PreMergeInvariantReason {
-  const PreMergeInvariantReason();
+  const new();
 }
 
 /// Indicates the index already had modified entries before the merge.
 final class UncleanIndex extends PreMergeInvariantReason {
   final List<String> modified;
 
-  const UncleanIndex({required this.modified});
+  const new({required this.modified});
 }
 
 /// Indicates untracked paths overlap with files the merge would touch.
 final class UntrackedOverlap extends PreMergeInvariantReason {
   final List<String> paths;
 
-  const UntrackedOverlap({required this.paths});
+  const new({required this.paths});
 }
 
 /// Indicates the merge target's commit SHA does not match the expected base.
@@ -55,7 +55,7 @@ final class TargetShaMismatch extends PreMergeInvariantReason {
   final String expected;
   final String actual;
 
-  const TargetShaMismatch({required this.expected, required this.actual});
+  const new({required this.expected, required this.actual});
 }
 
 /// Thrown when a pre-merge repository invariant is already broken.
@@ -63,8 +63,7 @@ class PreMergeInvariantException extends WorktreeException implements Exception 
   final PreMergeInvariantReason reason;
   final String detail;
 
-  const PreMergeInvariantException({required this.reason, required this.detail, super.gitStderr, super.exitCode})
-    : super(detail);
+  const new({required this.reason, required this.detail, super.gitStderr, super.exitCode}) : super(detail);
 }
 
 /// Handles merging a worktree branch onto the base branch.
@@ -78,13 +77,10 @@ class MergeExecutor {
   final MergeStrategy _defaultStrategy;
   final WorkflowGitPort _gitPort;
 
-  MergeExecutor({
-    required String projectDir,
-    MergeStrategy defaultStrategy = MergeStrategy.squash,
-    WorkflowGitPort? gitPort,
-  }) : _projectDir = projectDir,
-       _defaultStrategy = defaultStrategy,
-       _gitPort = gitPort ?? WorkflowGitPortProcess();
+  new({required String projectDir, MergeStrategy defaultStrategy = MergeStrategy.squash, WorkflowGitPort? gitPort})
+    : _projectDir = projectDir,
+      _defaultStrategy = defaultStrategy,
+      _gitPort = gitPort ?? WorkflowGitPortProcess();
 
   /// Merges [branch] onto [baseRef] using the configured strategy.
   ///

@@ -113,11 +113,11 @@ Reusable harnesses form a small opportunistic cache with no operator knobs. One 
 
 A provider/profile mismatch or unknown health means fresh creation, never speculative reuse. A released unhealthy worker is disposed. Before a worker is replaced, DartClaw must confirm termination of the managed root process. If confirmation is unavailable, the lease's capacity slot is quarantined and effective provider capacity decreases; no overlapping replacement is spawned.
 
-Container executions are not amortized (ADR-012, 2026-08-11 amendment): each live container authority owns a dedicated container destroyed on release, and container harnesses are never cached. Only host harnesses are reusable. Compatibility within a coordinator is the normalized provider plus the complete effective execution policy, and a provider whose container execution DartClaw does not mediate — every ACP registration — is refused a container policy rather than reassigned to host.
+Container execution is amortized only within one trust owner (ADR-012, 2026-08-13 amendment). A logical-agent container may be retained only for its exact session/agent principal and is destroyed on discard, eviction, or shutdown; task containers end with the turn and workflow containers with the step. Host harnesses remain compatible-worker reusable. Compatibility within a coordinator is the normalized provider plus the complete effective execution policy; container reuse additionally requires the exact owner. A provider whose container execution DartClaw does not mediate — every ACP registration — is refused a container policy rather than reassigned to host.
 
 The server derives runner activity and capacity observability from active leases rather than mutable idle/busy callbacks. This includes capacity-only workflow executions that have no reusable runner. Provider-specific branching is confined to protocol adapters and composition/wiring; coordinator clients use provider-neutral requests and leases.
 
-SDK consumers that construct only one harness retain a compatibility exception: ordinary background tasks may serialize on that harness when no multi-worker coordinator exists. Server logical-agent execution never uses this exception.
+SDK consumers that construct only one harness retain a compatibility exception: ordinary background tasks may serialize on that harness when no multi-worker coordinator exists, but only when provider and effective policy already match. Server logical-agent execution never uses this exception.
 
 ## Consequences
 

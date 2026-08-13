@@ -63,7 +63,19 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
   }
 
   Future<void> _resetSessionContinuity(String sessionId, {bool workersOnly = false}) async {
-    final relevantRunners = runners.where((runner) => !workersOnly || !identical(runner, _primary)).toList();
+    final ownedContainers = _cache
+        .where(
+          (worker) =>
+              worker.lastSessionId == sessionId &&
+              worker.runner.executionPolicy.isContainer &&
+              worker.request.surface == ExecutionSurface.logicalAgent,
+        )
+        .toList();
+    final relevantRunners = runners
+        .where(
+          (runner) => (!workersOnly || !identical(runner, _primary)) && !ownedContainers.any((w) => w.runner == runner),
+        )
+        .toList();
     _ActiveExecution? busyExecution;
     for (final execution in _active.values) {
       if (execution.runner != null && (!workersOnly || !identical(execution.runner, _primary))) {
@@ -94,6 +106,15 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
         'Cannot reset session continuity while a relevant runner is busy',
         isSameSession: sameSession,
       );
+    }
+    for (final worker in ownedContainers) {
+      _cache.remove(worker);
+      final confirmed = await _disposeWorker(worker.runner, worker.request);
+      if (!confirmed || !worker.runner.harness.isRootProcessTerminationConfirmed) {
+        final gate = _workerGates[worker.request.providerId];
+        gate?.quarantineAvailableSlot();
+        _emit(ExecutionEventKind.quarantined, worker.request, ExecutionLane.worker, runner: worker.runner);
+      }
     }
     for (final runner in relevantRunners) {
       await runner.resetSessionContinuity(sessionId);

@@ -517,7 +517,7 @@ class GowaManager with SequentialLock {
       final request = await client.getUrl(Uri.parse('$baseUrl$path'));
       _addDeviceHeader(request);
       final response = await request.close().timeout(_apiTimeout);
-      return _decodeRawResponse(response, path);
+      return await _decodeRawResponse(response, path);
     } finally {
       client.close();
     }
@@ -531,7 +531,7 @@ class GowaManager with SequentialLock {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
       final response = await request.close().timeout(_apiTimeout);
-      return _decodeRawResponse(response, path);
+      return await _decodeRawResponse(response, path);
     } finally {
       client.close();
     }

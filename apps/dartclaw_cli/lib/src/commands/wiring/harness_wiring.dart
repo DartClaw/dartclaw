@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart' hide HarnessConfig;
+import 'package:dartclaw_storage/dartclaw_storage.dart' show WikiSearchSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -136,6 +137,11 @@ class HarnessWiring {
       memoryFile: _storage.memoryFile,
       corpusService: _storage.memoryCorpus,
       searchBackend: _storage.searchBackend,
+      nativeSourceResolver: LiveMemorySourceResolver(
+        wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+        kg: _storage.kg,
+        inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+      ),
       selfImprovement: _selfImprovement,
     );
 

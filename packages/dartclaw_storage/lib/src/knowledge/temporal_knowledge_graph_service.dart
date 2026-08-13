@@ -195,6 +195,20 @@ class TemporalKnowledgeGraphService {
     return rows.first['owner'] as String?;
   }
 
+  /// Returns the fact identified by [id], including preserved invalidated facts.
+  KnowledgeFact? factById(int id) {
+    final rows = _db.select(
+      '''
+      SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
+      FROM kg_facts
+      WHERE id = ?
+      LIMIT 1
+      ''',
+      [id],
+    );
+    return rows.isEmpty ? null : KnowledgeFact.fromRow(rows.first);
+  }
+
   /// Whether a fact row with [id] exists.
   bool factExists(int id) => _db.select('SELECT 1 FROM kg_facts WHERE id = ? LIMIT 1', [id]).isNotEmpty;
 

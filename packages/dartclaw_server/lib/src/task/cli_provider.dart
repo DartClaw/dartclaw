@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, EventBus, ProcessTerminationResult;
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy, PlatformCapabilities, TurnProgressAction;
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -11,6 +12,14 @@ import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
 final _log = Logger('ProcessBackedCliProvider');
+
+/// Redacts and bounds an untrusted provider diagnostic field for exceptions and logs.
+String boundedProviderDiagnostic(String value, MessageRedactor redactor, {int maxChars = 160}) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final redacted = redactor.redact(normalized);
+  if (redacted.length <= maxChars) return redacted;
+  return '${redacted.substring(0, maxChars - 1).trimRight()}…';
+}
 
 /// Abstraction for a single-turn CLI provider invocation.
 ///
@@ -332,6 +341,10 @@ final class CliTurnRequest {
   /// Container executor bound to [policy], or null when running on the host.
   final ContainerExecutor? containerManager;
 
+  /// Whether the caller owns a longer-lived container state boundary and will
+  /// explicitly release provider state with that authority.
+  final bool retainContainerState;
+
   /// Process-spawning collaborator; injected so tests can intercept the spawn.
   final WorkflowCliProcessStarter processStarter;
 
@@ -368,6 +381,7 @@ final class CliTurnRequest {
     this.usageBaseline = const WorkflowCliUsageBaseline(),
     required this.providerConfig,
     required this.containerManager,
+    this.retainContainerState = false,
     required this.processStarter,
     this.eventBus,
     required this.uuid,

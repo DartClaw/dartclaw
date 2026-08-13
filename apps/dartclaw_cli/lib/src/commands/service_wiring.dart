@@ -438,6 +438,8 @@ class ServiceWiring {
       // paired with container mediation so a containerized step's bridge grant
       // gets the same deny/servable treatment as every other execution.
       bridgedMcpToolsResolver: security.containersEnabled ? harness.workflowBridgedMcpTools : null,
+      executionInventory: harness.executionInventory,
+      messageRedactor: ctx.messageRedactor,
     );
     await task.wirePreServer();
     return task;

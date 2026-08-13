@@ -238,7 +238,7 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `memory_apply` | own MCP `mcp__dartclaw__memory_apply` | own MCP `{server: dartclaw, tool: memory_apply}` | Curated personal-memory writes |
 | `memory_observe` | own MCP `mcp__dartclaw__memory_observe` | own MCP `{server: dartclaw, tool: memory_observe}` | Observation and learning writes |
 | `memory_search` | own MCP `mcp__dartclaw__memory_search` | own MCP `{server: dartclaw, tool: memory_search}` | Read-only memory search |
-| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Read-only canonical source access |
+| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Bounded read-only canonical or source-owner-routed wiki/KG/inbox/QMD access |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
 ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`
@@ -461,7 +461,7 @@ Minimal Debian Bookworm slim image with only essential packages: `ca-certificate
 
 ### Per-Type Container Isolation (ADR-012)
 
-A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each live container authority is given its own container built from that template and destroyed on release (ADR-012, 2026-08-11 amendment), so concurrent executions of the same profile never share a PID, `/tmp`, or generated-home namespace. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) holds no harness and no worker lease, but follows the same rule: `WorkflowCliRunner` leases one authority per container-policy turn and releases it in `finally`. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration.
+A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each execution owner receives its own container, so concurrent owners using the same profile never share a PID, `/tmp`, or generated-home namespace. A logical-agent container spans only that owner's turns; an ordinary task container spans its turn; `WorkflowCliRunner` holds one authority across the complete workflow step. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration.
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
@@ -487,11 +487,11 @@ custom    → workspace
 
 Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, advisor turns, tasks, and logical agents consume worker capacity; workflow one-shots consume capacity-only leases.
 
-`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and one complete effective execution policy — host, or container plus its profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/policy, then any healthy worker with the same provider/policy, otherwise fresh. A mismatch or unknown health is treated as fresh. Host and container workers are never interchangeable, and neither are container workers built from different profiles.
+`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and one complete effective execution policy — host, or container plus its profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/policy, then any healthy host worker with the same provider/policy, otherwise fresh. A logical-agent container additionally requires the exact agent principal. A mismatch or unknown health is treated as fresh. Host and container workers are never interchangeable, and neither are container workers built from different profiles.
 
 Released unhealthy workers are stopped and disposed. No replacement is created until teardown of the managed root process is confirmed. If confirmation is unavailable, the slot is quarantined and effective provider capacity decreases. This prevents a failed termination from turning one configured capacity slot into multiple live security principals.
 
-The reusable harness cache is opportunistic, holds host harnesses only, and has no security-relaxing knobs. Workflow one-shots never enter it. Container harnesses never enter it either (ADR-012, 2026-08-11 amendment): every live container authority owns a dedicated container, and release confirms root-process termination, revokes authority-scoped resources, removes generated state, and destroys the container before capacity is returned. Container lifetime therefore tracks its authority and still neither carries conversation identity nor changes provider capacity. Lease state, not runner callbacks or cached process presence, is authoritative for active execution and emergency cancellation.
+Reusable workers have no security-relaxing cache knobs. Host harnesses may be reused by a compatible session. A logical-agent container may be retained only for its exact session/agent owner and is destroyed on discard, eviction, or shutdown. Task containers end with the turn; workflow one-shot containers end with the step. Every authority owns a dedicated container, and destruction confirms root-process termination, revokes authority-scoped resources, removes generated state, and destroys the container. Container lifetime tracks its owner and does not change provider execution capacity. Lease state, not retained process presence, is authoritative for active execution and emergency cancellation.
 
 ### Multi-Provider Sandbox Interaction
 
@@ -1119,8 +1119,8 @@ guards:
 container:
   enabled: false               # Docker isolation
   image: dartclaw-agent:latest
-  mounts: []                   # Extra volume mounts
-  extra_args: []               # Extra docker create arguments
+  mounts: []                   # Must remain empty; arbitrary host mounts are unsupported
+  extra_args: []               # Must remain empty; raw arguments cannot override hardening
 
 gateway:
   auth_mode: token             # token | none

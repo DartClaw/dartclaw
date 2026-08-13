@@ -11,6 +11,9 @@ abstract interface class ContainerAuthorityLease {
   ContainerExecutor get container;
 
   /// Revokes the bridges and destroys the container. Idempotent.
+  ///
+  /// Throws when destruction cannot be confirmed; callers must quarantine any
+  /// capacity reserved for the authority. A failed release remains retryable.
   Future<void> release();
 }
 

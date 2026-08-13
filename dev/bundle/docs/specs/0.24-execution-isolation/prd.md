@@ -186,7 +186,8 @@ mechanisms they declare and satisfy.
 - [ ] Relay, unverified, or otherwise container-required ACP registrations cannot discard their required container manager.
 - [ ] A harness unable to uphold the requested mode is rejected before its turn begins.
 - [ ] Every live container authority owns one container/process namespace, harness lifetime, bridge pipe set, and generated
-      state; container harnesses are disposed rather than cached across authority release.
+      state; an exact logical-agent owner may retain that live authority between its turns, but release disposes it and
+      no container harness is reused across principals.
 - [ ] Shutdown, crash attribution, reuse, and capacity accounting remain correct across distinct execution identities.
 
 **Inputs / Outputs**:
@@ -381,7 +382,7 @@ security claims.
   per turn (decided 2026-08-12; per-turn leasing was the root cause of the multi-turn workflow-step failures). A
   container never crosses trust principals, and there is deliberately no cross-principal "shared" scope. Container
   harnesses are disposed on authority release after confirmed process termination, pipe revocation, and generated-state
-  cleanup; they do not enter the reusable worker cache.
+  cleanup. Owner-bound parking of a standing logical-agent authority is not release and never makes it reusable.
 - Inside a container, provider-native OS-hardening tooling is disabled – Claude's subprocess env-scrub
   (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0`) and Codex's OS sandbox (`danger-full-access`, both lanes; read-only one-shots
   keep `read-only`, failing closed). The container is the isolation boundary; that tooling cannot start under the
@@ -428,7 +429,7 @@ security claims.
 | Preserve container execution as the enabled default | Avoids silently weakening current deployments | Make coding native by default |
 | Keep raw container networking disabled | Current search/fetch needs can be safely host-mediated | Docker bridge or unrestricted Internet |
 | Use framed `docker exec -i` mediation | It preserves `network:none` on Linux and Docker Desktop and binds the host pipe out of band to one authority | Host Unix-socket mount; internal-network relay |
-| Do not cache container harnesses across authority release | Shared namespaces and immutable startup credentials cannot enforce cross-principal replay denial | Per-profile shared containers; bearer rotation in a shared namespace |
+| Permit only exact-owner parking while a container authority remains live; never reuse after release or across principals | Shared namespaces and immutable startup credentials cannot enforce cross-principal replay denial | Per-profile shared containers; bearer rotation in a shared namespace |
 | Limit containerized Claude to API-key mediation | OAuth/setup-token requires container-visible auth and has no verified credential-free gateway contract | Mount `~/.claude.json`; speculative OAuth relay |
 | Separate provider credential gateways from host MCP capabilities | The two boundaries carry different authority and risks | Generalize CredentialProxy into one universal proxy |
 | Require host-owned provider credentials | Maintains defense-in-depth if a container is compromised | Read-only credential mounts; env injection |

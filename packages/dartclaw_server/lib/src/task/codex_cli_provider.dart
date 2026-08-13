@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 
 import 'claude_cli_provider.dart'
     show
@@ -17,6 +18,7 @@ import 'claude_cli_provider.dart'
         resolveContainerWorkDir,
         startCliProcess,
         verifyContainerCliExecutable;
+import 'cli_provider.dart' show boundedProviderDiagnostic;
 import 'cli_process_supervisor.dart';
 import 'workflow_cli_runner.dart';
 
@@ -34,13 +36,16 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     super.terminationGracePeriod,
     super.outputDrainGracePeriod,
     this.maxOutputBytes = CliProcessSupervisor.defaultOutputLimitBytes,
-  });
+    MessageRedactor? diagnosticRedactor,
+  }) : _diagnosticRedactor = diagnosticRedactor ?? MessageRedactor();
 
   final int maxOutputBytes;
+  final MessageRedactor _diagnosticRedactor;
 
   static const _maxUsageEntries = 512;
 
   final Map<String, _CodexUsageSnapshot> _usageByRequestKey = <String, _CodexUsageSnapshot>{};
+  final Map<ContainerExecutor, CodexEnvironment> _containerHomes = Map.identity();
 
   @override
   Future<WorkflowCliTurnResult> run(CliTurnRequest req) async {
@@ -48,7 +53,11 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     // A containerized turn never reads the user's Codex home: it gets a freshly
     // created, never-seeded one holding only generated client configuration,
     // destroyed with the authority.
-    final codexHome = container == null ? null : _buildContainerHome(req, container);
+    final codexHome = container == null
+        ? null
+        : req.retainContainerState
+        ? _containerHomes.putIfAbsent(container, () => _buildContainerHome(req, container))
+        : _buildContainerHome(req, container);
     if (container != null) {
       await verifyContainerCliExecutable(
         container,
@@ -216,8 +225,13 @@ class CodexCliProvider extends ProcessBackedCliProvider {
           _log.warning('Failed to delete temporary Codex schema file at $tempSchemaPath', error, stackTrace);
         }
       }
-      await codexHome?.cleanup();
+      if (!req.retainContainerState) await codexHome?.cleanup();
     }
+  }
+
+  /// Deletes the auth-clean home owned by [container].
+  Future<void> releaseContainerState(ContainerExecutor container) async {
+    await _containerHomes.remove(container)?.cleanup();
   }
 
   /// Builds this turn's auth-clean container home.
@@ -277,18 +291,34 @@ class CodexCliProvider extends ProcessBackedCliProvider {
   }
 
   StateError _codexNonZeroExitError(int exitCode, String stdout, String stderr) {
-    // For Codex --json mode, the real error is often in stdout (as JSON events
-    // like {"type":"error",...}), while stderr may only contain informational
-    // messages like "Reading additional input from stdin...".
     final errorDetails = <String>[
-      if (stderr.trim().isNotEmpty) stderr.trim(),
-      if (stdout.trim().isNotEmpty)
-        'stdout: ${stdout.trim().length > 500 ? '${stdout.trim().substring(0, 500)}…' : stdout.trim()}',
+      ?_codexErrorEventDiagnostic(stdout),
+      if (stderr.trim().isNotEmpty) 'provider stderr reported failure details',
     ];
     return StateError(
       'Workflow one-shot codex command failed with exit code $exitCode'
       '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
     );
+  }
+
+  String? _codexErrorEventDiagnostic(String stdout) {
+    for (final line in const LineSplitter().convert(stdout)) {
+      try {
+        final decoded = jsonDecode(line);
+        if (decoded is! Map<String, dynamic>) continue;
+        final type = stringValue(decoded['type']);
+        if (type != 'error' && type != 'turn.failed') continue;
+        final error = decoded['error'];
+        final code = error is Map<String, dynamic> ? stringValue(error['code']) : null;
+        return [
+          'event=${boundedProviderDiagnostic(type!, _diagnosticRedactor)}',
+          if (code != null && code.isNotEmpty) 'code=${boundedProviderDiagnostic(code, _diagnosticRedactor)}',
+        ].join(' ');
+      } on FormatException {
+        continue;
+      }
+    }
+    return null;
   }
 
   bool _hasCodexFailureEvidence(String stdout, String stderr) {

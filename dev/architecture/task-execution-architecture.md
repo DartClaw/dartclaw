@@ -24,7 +24,7 @@ Key design principles:
 - **Decoupled creation and execution** — tasks are queued, not executed inline
 - **Optimistic locking** — version-based concurrency control prevents lost updates
 - **One post-governance execution authority** — task code requests a provider-neutral lease and never manages pool/cache state
-- **Capacity independent from reuse** — per-provider leases bound execution; host harnesses are opportunistically reused, while container harnesses and their dedicated containers are destroyed on release
+- **Capacity independent from owner lifetime** — per-provider leases bound active execution; host harnesses are opportunistically reused, while a logical-agent container is retained only for its exact owner and task/workflow containers end with their turn/step
 - **Fail-safe budgets** — budget enforcement defaults to open (proceed) on error
 - **Best-effort observability** — event recording never blocks the execution path
 
@@ -256,7 +256,7 @@ Two execution paths:
 | Mode | Condition | Behavior |
 |------|-----------|----------|
 | **Server coordinator** | `ExecutionCoordinator` is wired | Acquires a provider worker lease; execution is bounded by `providers.<id>.pool_size` |
-| **SDK single-harness compatibility** | No multi-worker coordinator and one harness supplied | Serializes ordinary background tasks on that harness; never used for server logical-agent execution |
+| **SDK single-harness compatibility** | No multi-worker coordinator and one harness supplied | Serializes only ordinary background work whose provider and effective policy exactly match that harness; never used for server logical-agent execution |
 
 Poll cycle (`_pollOnceInner`):
 1. List all queued tasks, sort by `createdAt` (FIFO)
@@ -328,11 +328,11 @@ Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast
 
 After the lease is granted, reusable-worker lookup prefers:
 
-1. the exact session with the requested provider/profile;
-2. any healthy host worker with the same provider and identical effective execution policy (container workers are never cached);
+1. the exact session with the requested provider/profile; container reuse additionally requires the exact logical-agent principal;
+2. any healthy host worker with the same provider and identical effective execution policy;
 3. a fresh worker.
 
-A provider/profile mismatch or unknown health means fresh creation. Cache behavior has no configuration knobs. An idle healthy worker may be cached after release; an unhealthy worker is disposed.
+A provider/profile mismatch or unknown health means fresh creation. Cache behavior has no configuration knobs. An idle healthy host worker may be cached after release. A logical-agent container may be retained only for the same owner until discard, eviction, or shutdown. Other container workers and unhealthy workers are disposed.
 
 ### 4.4 Replacement and quarantine
 
@@ -342,7 +342,7 @@ Workflow one-shots are capacity-only. Their direct provider process is lifecycle
 
 ### 4.5 Containers and shutdown
 
-A security profile is a filesystem/capability template, not a running container (ADR-012, 2026-08-11 amendment). Each live container authority owns a dedicated container that is destroyed when the authority is released, so a container never outlives its harness or serves a second lease. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) holds no harness and no worker lease, but follows the same rule: `WorkflowCliRunner` leases one authority per container-policy turn and releases it in `finally`, on success and failure alike. Containers still do not own session state or reserve provider capacity; the complete execution policy — host, or container plus profile — is what participates in cache matching, and container harnesses are never cached.
+A security profile is a filesystem/capability template, not a running container. Each execution owner receives a dedicated container that never serves another principal. A logical-agent container spans that owner's turns and ends on discard, eviction, or shutdown; an ordinary task container ends with its turn. The provider-CLI one-shot path holds one authority for the complete workflow step and releases it in `finally`. The complete execution policy — host, or container plus profile — participates in matching, and container reuse additionally requires the exact logical-agent owner.
 
 Coordinator shutdown stops admission, drains active leases, disposes cached harnesses, then tears down the fixed primary harness. Workflow CLI providers and channel managers still reap their own children. Root-process termination confirmation is a replacement invariant, not merely an operational warning.
 

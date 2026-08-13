@@ -5,13 +5,13 @@
 ## Entries
 
 ### packages/dartclaw_core/lib/src/harness/provider_execution_compatibility.dart:spec-stale:compatibility-reads-two-registration-fields-not-four
-- Status: OPEN
+- Status: CLOSED
 - Class: spec-stale
 - Stale targets: dev/bundle/docs/specs/0.24-execution-isolation/s04-acp-compatibility-and-release-conformance.md#technical-overview, dev/bundle/docs/specs/0.24-execution-isolation/s04-acp-compatibility-and-release-conformance.md#implementation-tasks
 - Source run: exec-spec-s04-acp-compatibility-and-release-conformance-2026-08-12T02:30Z-a7f3
 - Recurrence: 1
-- Falsifier: –
+- Falsifier: Searched `provider_execution_compatibility.dart` for every `AcpAgentConfig` field read and confirmed only topology and `containerIsolationRequired` affect the release-wide container requirement.
 - Override reason: –
 - Created: 2026-08-12
-- Updated: 2026-08-12
-- Notes: TI01 and the Technical Overview enumerate four registration fields as compatibility inputs (topology, verification, container_isolation_required, container_profile). The implementation reads only topology and container_isolation_required, because the computed posture makes every ACP container combination unavailable regardless of verification or container_profile — reading them could not change any verdict. The posture is identical; the FIS's field enumeration is broader than the inputs that can affect the result.
+- Updated: 2026-08-13
+- Notes: Closed by narrowing the active Architecture Decision and TI01 wording to the two inputs the implementation reads. Verification metadata and container_profile are now explicitly described as separate declarations that cannot grant container support in 0.24.

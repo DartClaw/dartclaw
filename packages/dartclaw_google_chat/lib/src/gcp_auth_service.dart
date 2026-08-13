@@ -38,7 +38,7 @@ class GcpAuthService {
         ClientId.serviceAccount('service-account'),
         _privateKey,
       );
-      return clientViaServiceAccount(credentials, scopes, baseClient: httpClient);
+      return await clientViaServiceAccount(credentials, scopes, baseClient: httpClient);
     } catch (error) {
       throw StateError('Failed to initialize GCP auth client: $error');
     }

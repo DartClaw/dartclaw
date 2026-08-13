@@ -147,6 +147,18 @@ void main() {
     expect(items.single.snippet.length, lessThanOrEqualTo(12));
   });
 
+  test('read-only source lookup reopens only supported regular inbox locators', () async {
+    final inbox = Directory(p.join(workspace.path, 'inbox'))..createSync(recursive: true);
+    File(p.join(inbox.path, 'note.md')).writeAsStringSync('Native inbox detail');
+    File(p.join(inbox.path, 'secret.bin')).writeAsStringSync('not an inbox source');
+    final reader = KnowledgeInboxReadService(workspaceDir: workspace.path);
+
+    expect(await reader.read('inbox/note.md'), 'Native inbox detail');
+    expect(await reader.read('inbox/missing.md'), isNull);
+    expect(await reader.read('inbox/../note.md'), isNull);
+    expect(await reader.read('inbox/secret.bin'), isNull);
+  });
+
   test('inbox retry reuses the exact capture source identity', () async {
     var calls = 0;
     service = KnowledgeInboxService(

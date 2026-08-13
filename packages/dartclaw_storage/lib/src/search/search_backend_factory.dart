@@ -14,6 +14,7 @@ SearchBackend createSearchBackend({
   QmdManager? qmdManager,
   String defaultDepth = 'standard',
   String? workspaceDir,
+  SearchIndexHealthProbe? indexHealthProbe,
 }) {
   final wikiSearch = workspaceDir == null ? null : WikiSearchSource(workspaceDir: workspaceDir);
   final fts5 = Fts5SearchBackend(memoryService: memoryService);
@@ -29,5 +30,7 @@ SearchBackend createSearchBackend({
     personal = fts5;
   }
 
-  return wikiSearch == null ? personal : ComposedSearchBackend(personal: personal, wiki: wikiSearch);
+  return wikiSearch == null
+      ? personal
+      : ComposedSearchBackend(personal: personal, wiki: wikiSearch, indexHealthProbe: indexHealthProbe);
 }

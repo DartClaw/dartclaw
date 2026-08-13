@@ -287,6 +287,32 @@ void main() {
       );
     });
 
+    test('workflow step compatibility rejects before container authority acquisition', () async {
+      var acquired = false;
+      final runner = WorkflowCliRunner(
+        providers: const {'goose': WorkflowCliProviderConfig(executable: 'goose')},
+        executionInventory: inventory,
+        bridgedMcpToolsResolver: (_) => const {},
+        containerAuthorities: (principal, {allowedMcpTools = const {}, artifactsDir}) async {
+          acquired = true;
+          throw StateError('unsupported compatibility must reject before acquisition');
+        },
+      );
+
+      await expectLater(
+        runner.leaseStepContainer(
+          const ExecutionPolicy.container('workspace'),
+          provider: 'goose',
+          sessionId: 'session',
+          taskId: 'task',
+          allowedTools: null,
+          artifactsDir: null,
+        ),
+        throwsA(isA<UnsupportedError>()),
+      );
+      expect(acquired, isFalse);
+    });
+
     test('a provider both surfaces implement is refused on neither', () {
       for (final providerId in ['claude', 'codex']) {
         for (final surface in ProviderLaunchSurface.values) {

@@ -8,6 +8,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         SearchResultLayer;
 
 import 'wiki_search_source.dart';
+import '../storage/index_reconciler.dart';
+
+/// Reads persisted index health relative to one current canonical identity.
+typedef SearchIndexHealthProbe = Future<IndexHealthEvidence> Function();
 
 /// Request-level composition of personal-memory and native wiki retrieval.
 final class ComposedSearchBackend implements SearchBackend {
@@ -16,11 +20,16 @@ final class ComposedSearchBackend implements SearchBackend {
 
   final SearchBackend _personal;
   final WikiSearchSource _wiki;
+  final SearchIndexHealthProbe? _indexHealthProbe;
 
   /// Creates the single composition owner for one configured search backend.
-  ComposedSearchBackend({required SearchBackend personal, required WikiSearchSource wiki})
-    : _personal = personal,
-      _wiki = wiki;
+  ComposedSearchBackend({
+    required SearchBackend personal,
+    required WikiSearchSource wiki,
+    SearchIndexHealthProbe? indexHealthProbe,
+  }) : _personal = personal,
+       _wiki = wiki,
+       _indexHealthProbe = indexHealthProbe;
 
   @override
   Future<MemorySearchOutcome> search(
@@ -32,13 +41,66 @@ final class ComposedSearchBackend implements SearchBackend {
     if (query.trim().isEmpty) return const MemorySearchOutcome(results: []);
     final outputLimit = limit.clamp(1, maxResults);
 
-    MemorySearchOutcome personal;
+    var personal = const MemorySearchOutcome(results: <MemorySearchResult>[]);
     List<MemorySearchResult> wiki;
     var wikiDegradations = const <MemorySearchDegradation>[];
-    try {
-      personal = await _personal.search(query, limit: outputLimit, userId: userId, layers: layers);
-    } on Object {
-      personal = const MemorySearchOutcome(results: [], degradedLayers: ['memory']);
+    int? canonicalRevision;
+    final includesPersonal = layers == null || layers.contains(SearchResultLayer.memory);
+    IndexHealthEvidence? before;
+    var canQueryPersonal = includesPersonal;
+    if (includesPersonal && _indexHealthProbe != null) {
+      try {
+        before = await _indexHealthProbe();
+        canonicalRevision = before.canonicalRevision;
+        if (!before.isCurrent(before.canonicalRevision, before.canonicalFingerprint)) {
+          canQueryPersonal = false;
+          personal = _degradedPersonal(personal, 'indexNotCurrent');
+        }
+      } on Object {
+        canQueryPersonal = false;
+        personal = _degradedPersonal(personal, 'indexHealthUnavailable');
+      }
+    }
+    if (canQueryPersonal) {
+      try {
+        personal = await _personal.search(query, limit: outputLimit, userId: userId, layers: layers);
+        canonicalRevision ??= personal.canonicalRevision;
+      } on Object {
+        personal = _degradedPersonal(personal, 'searchFailure');
+      }
+      if (_indexHealthProbe != null && before != null) {
+        try {
+          final after = await _indexHealthProbe();
+          canonicalRevision = after.canonicalRevision;
+          final current = after.isCurrent(after.canonicalRevision, after.canonicalFingerprint);
+          final unchanged =
+              before.canonicalRevision == after.canonicalRevision &&
+              before.canonicalFingerprint == after.canonicalFingerprint &&
+              before.indexRevision == after.indexRevision &&
+              before.indexFingerprint == after.indexFingerprint;
+          if (!current || !unchanged) {
+            personal = _degradedPersonal(
+              MemorySearchOutcome(
+                results: const [],
+                degradedLayers: personal.degradedLayers,
+                degradations: personal.degradations,
+                canonicalRevision: canonicalRevision,
+              ),
+              current ? 'indexChangedDuringSearch' : 'indexNotCurrent',
+            );
+          }
+        } on Object {
+          personal = _degradedPersonal(
+            MemorySearchOutcome(
+              results: const [],
+              degradedLayers: personal.degradedLayers,
+              degradations: personal.degradations,
+              canonicalRevision: canonicalRevision,
+            ),
+            'indexHealthUnavailable',
+          );
+        }
+      }
     }
     if (layers != null && !layers.contains(SearchResultLayer.wiki)) {
       wiki = const [];
@@ -54,6 +116,7 @@ final class ComposedSearchBackend implements SearchBackend {
               ...{...personal.degradedLayers, 'wiki'},
             ],
             degradations: personal.degradations,
+            canonicalRevision: personal.canonicalRevision,
           );
         }
       } on Object {
@@ -67,6 +130,7 @@ final class ComposedSearchBackend implements SearchBackend {
             ...personal.degradations,
             const MemorySearchDegradation(layer: 'wiki', reason: 'searchFailure'),
           ],
+          canonicalRevision: personal.canonicalRevision,
         );
       }
     }
@@ -92,6 +156,7 @@ final class ComposedSearchBackend implements SearchBackend {
           .toList(growable: false),
       degradedLayers: [...personal.degradedLayers.toSet()],
       degradations: [...personal.degradations, ...wikiDegradations],
+      canonicalRevision: canonicalRevision,
     );
   }
 
@@ -119,4 +184,17 @@ final class ComposedSearchBackend implements SearchBackend {
 
   static SearchResultLayer _layerFor(MemorySearchResult result) =>
       result.role == 'wiki' ? SearchResultLayer.wiki : SearchResultLayer.memory;
+
+  static MemorySearchOutcome _degradedPersonal(MemorySearchOutcome outcome, String reason) => MemorySearchOutcome(
+    results: outcome.results,
+    degradedLayers: [
+      ...{...outcome.degradedLayers, 'memory'},
+    ],
+    degradations: [
+      ...outcome.degradations,
+      if (!outcome.degradations.any((item) => item.layer == 'memory' && item.reason == reason))
+        MemorySearchDegradation(layer: 'memory', reason: reason),
+    ],
+    canonicalRevision: outcome.canonicalRevision,
+  );
 }

@@ -3,8 +3,9 @@ import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart' show ExecutionPolicy;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show containerClaudeExecutable, containerClaudePlaceholderApiKey, containerCodexExecutable;
+    show ContainerExecutor, containerClaudeExecutable, containerClaudePlaceholderApiKey, containerCodexExecutable;
 import 'package:dartclaw_server/dartclaw_server.dart' show containerArtifactsPath;
+import 'package:dartclaw_server/src/task/codex_cli_provider.dart' show CodexCliProvider;
 import 'package:dartclaw_server/src/task/workflow_cli_runner.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -27,6 +28,13 @@ const _claudeResult = '{"type":"result","session_id":"one-shot","result":"ok"}';
 const _codexEvents =
     '{"type":"thread.started","thread_id":"codex-thread"}\n'
     '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}';
+
+final class _FailingCodexCleanupProvider extends CodexCliProvider {
+  @override
+  Future<void> releaseContainerState(ContainerExecutor container) async {
+    throw StateError('generated home cleanup failed');
+  }
+}
 
 /// Every container-visible surface a secret could ride out on.
 List<String> _inspectableSurfaces(FakeContainerExecutor container) => [
@@ -169,6 +177,59 @@ void main() {
       }
       // The generated home pointer is the only thing the process is told.
       expect(container.lastEnv!.keys, ['CODEX_HOME']);
+    });
+
+    test('held Codex step authority retains one auth-clean home until release', () async {
+      final container = containerFor(stdout: _codexEvents);
+      final runner = runnerFor('codex', container);
+      final lease = await runner.leaseStepContainer(
+        const ExecutionPolicy.container('workspace'),
+        provider: 'codex',
+        sessionId: 'workflow-session',
+        taskId: 'workflow-task',
+        allowedTools: null,
+        artifactsDir: null,
+      );
+      expect(lease, isNotNull);
+
+      Future<void> execute(String? providerSessionId) => runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Continue',
+        workingDirectory: workingDirectory.path,
+        policy: const ExecutionPolicy.container('workspace'),
+        providerSessionId: providerSessionId,
+        stepContainer: lease,
+      );
+
+      await execute(null);
+      final firstHome = container.lastEnv!['CODEX_HOME'];
+      final hostHome = Directory(container.generatedStateDir).listSync().whereType<Directory>().singleWhere(
+        (directory) => p.basename(directory.path).startsWith('codex-home-'),
+      );
+      final rollout = File(p.join(hostHome.path, 'sessions', 'rollout.jsonl'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('preserved');
+
+      await execute('codex-thread');
+      expect(container.lastEnv!['CODEX_HOME'], firstHome);
+      expect(rollout.readAsStringSync(), 'preserved');
+
+      await runner.releaseStepContainer('codex', lease!);
+      expect(hostHome.existsSync(), isFalse);
+    });
+
+    test('Codex home cleanup failure cannot skip authority release', () async {
+      final container = containerFor(stdout: _codexEvents);
+      final released = <String>[];
+      final lease = FakeContainerAuthorityLease(container, released, 'workflow-session');
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        providerImpls: {'codex': _FailingCodexCleanupProvider()},
+      );
+
+      await expectLater(runner.releaseStepContainer('codex', lease), throwsA(isA<StateError>()));
+
+      expect(released, ['workflow-session']);
     });
   });
 

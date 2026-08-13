@@ -185,11 +185,10 @@ void main() {
     addTearDown(() async => lease?.release());
 
     final grant = security!.grants.singleWhere((entry) => entry.taskId == 'research-task');
-    expect(
-      grant.allowedMcpTools,
-      {'web_search', 'web_fetch'},
-      reason: 'background work carries no agent definition, so its own tool policy is what authorizes host tools',
-    );
+    expect(grant.allowedMcpTools, {
+      'web_search',
+      'web_fetch',
+    }, reason: 'background work carries no agent definition, so its own tool policy is what authorizes host tools');
   });
 
   test('a task with no tool policy is granted nothing, and the capability loss is named', () async {
@@ -254,11 +253,10 @@ void main() {
     await wireAll();
 
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
-    expect(
-      grant.allowedMcpTools,
-      {'web_fetch', ..._memoryMcpTools},
-      reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant',
-    );
+    expect(grant.allowedMcpTools, {
+      'web_fetch',
+      ..._memoryMcpTools,
+    }, reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant');
   });
 
   test('a provider-native-spelled task allow-list still grants the canonical bridged tool', () async {
@@ -279,11 +277,9 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
-    expect(
-      security!.grants.singleWhere((entry) => entry.taskId == 'native-allow-task').allowedMcpTools,
-      {'web_fetch'},
-      reason: 'a native-spelled allow of WebFetch must resolve to the canonical web_fetch grant, not nothing',
-    );
+    expect(security!.grants.singleWhere((entry) => entry.taskId == 'native-allow-task').allowedMcpTools, {
+      'web_fetch',
+    }, reason: 'a native-spelled allow of WebFetch must resolve to the canonical web_fetch grant, not nothing');
   });
 
   test('a containerized primary granted no bridged search still loses its native search', () async {
@@ -381,11 +377,9 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
-    expect(
-      security!.grants.singleWhere((entry) => entry.sessionId == 'agent-session').allowedMcpTools,
-      {'web_fetch'},
-      reason: 'an unservable canonical is dropped rather than granted against nothing',
-    );
+    expect(security!.grants.singleWhere((entry) => entry.sessionId == 'agent-session').allowedMcpTools, {
+      'web_fetch',
+    }, reason: 'an unservable canonical is dropped rather than granted against nothing');
   });
 
   test('the workflow one-shot grant resolver subtracts the deployment-wide deny', () async {
@@ -395,11 +389,9 @@ void main() {
 
     await wireAll();
 
-    expect(
-      harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']),
-      {'web_search'},
-      reason: 'agent.disallowed_tools must bound a containerized workflow step — pre-fix it subtracted nothing',
-    );
+    expect(harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']), {
+      'web_search',
+    }, reason: 'agent.disallowed_tools must bound a containerized workflow step — pre-fix it subtracted nothing');
   });
 
   test('the workflow one-shot grant resolver normalizes a native-spelled deny before subtracting', () async {
@@ -409,11 +401,9 @@ void main() {
 
     await wireAll();
 
-    expect(
-      harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']),
-      {'web_search'},
-      reason: 'a native-spelled global deny of WebFetch must remove the canonical web_fetch grant',
-    );
+    expect(harnessWiring!.workflowBridgedMcpTools(const ['web_fetch', 'web_search']), {
+      'web_search',
+    }, reason: 'a native-spelled global deny of WebFetch must remove the canonical web_fetch grant');
   });
 
   test('the workflow one-shot grant resolver drops an unservable grant so no MCP bridge is falsely declared', () async {

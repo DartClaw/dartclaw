@@ -349,8 +349,16 @@ final class MemorySearchOutcome extends Iterable<MemorySearchResult> {
   /// Structured reasons and limits for partial retrieval coverage.
   final List<MemorySearchDegradation> degradations;
 
+  /// Canonical collection revision coherently observed by the search path.
+  final int? canonicalRevision;
+
   /// Creates one search outcome.
-  const MemorySearchOutcome({required this.results, this.degradedLayers = const [], this.degradations = const []});
+  const MemorySearchOutcome({
+    required this.results,
+    this.degradedLayers = const [],
+    this.degradations = const [],
+    this.canonicalRevision,
+  });
 
   @override
   Iterator<MemorySearchResult> get iterator => results.iterator;

@@ -432,10 +432,8 @@ projects:
         expect(config.warnings, anyElement(contains('null')));
       });
 
-      test('non-map YAML root collects warning and uses defaults', () {
-        final config = loadYaml('- item1\n- item2\n');
-        expect(config.server.port, 3333);
-        expect(config.warnings, anyElement(contains('not a map')));
+      test('non-map YAML root fails closed', () {
+        expect(() => loadYaml('- item1\n- item2\n'), throwsFormatException);
       });
 
       test('DARTCLAW_CONFIG pointing to non-existent file collects warning and uses defaults', () {

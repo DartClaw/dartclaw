@@ -86,7 +86,6 @@ void main() {
     test('start creates a network:none container whose only host object is the read-only bridge', () async {
       final calls = <List<String>>[];
       final manager = _manager(
-        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
         run: (executable, arguments) async {
           calls.add([executable, ...arguments]);
           if (arguments.first == 'inspect') {
@@ -112,8 +111,6 @@ void main() {
           '/tmp/workspace:/workspace:rw',
           '-v',
           '/tmp/project:/project:ro',
-          '-v',
-          '/tmp/shared:/shared:ro',
           '-v',
           '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
           '-v',
@@ -150,7 +147,6 @@ void main() {
       // .start() — the golden no longer matches, reddening the test.
       final calls = <List<String>>[];
       final manager = _manager(
-        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
         artifactsDir: '/tmp/data/artifacts',
         run: (executable, arguments) async {
           calls.add([executable, ...arguments]);
@@ -192,8 +188,6 @@ void main() {
           '/tmp/data/artifacts:$containerArtifactsPath:rw',
           '-e',
           'ANTHROPIC_BASE_URL=${manager.providerBridgeUrl}',
-          '-v',
-          '/tmp/shared:/shared:ro',
           'dartclaw-agent:latest',
           'sleep',
           'infinity',
@@ -298,7 +292,6 @@ void main() {
     test('start creates restricted container with no workspace mounts', () async {
       final calls = <List<String>>[];
       final manager = _manager(
-        config: const ContainerConfig(enabled: true, extraMounts: ['/tmp/shared:/shared:ro']),
         containerName: restrictedContainerName,
         profileId: 'restricted',
         workspaceMounts: const [],
@@ -318,7 +311,6 @@ void main() {
       final createCommand = create.join(' ');
       expect(createCommand, isNot(contains('/workspace:rw')));
       expect(createCommand, isNot(contains('/project:ro')));
-      expect(createCommand, contains('/shared:ro'));
       expect(
         create,
         containsAll([
@@ -332,24 +324,15 @@ void main() {
           '--security-opt',
           'no-new-privileges',
           '-v',
-          '/tmp/shared:/shared:ro',
-          '-v',
           '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
         ]),
       );
     });
 
-    test('start filters only workspace-related extra mounts for restricted profile', () async {
+    test('start rejects arbitrary mounts before invoking Docker', () async {
       final calls = <List<String>>[];
       final manager = _manager(
-        config: const ContainerConfig(
-          enabled: true,
-          extraMounts: [
-            '/tmp/shared:/shared:ro',
-            '/tmp/other-project:/project:ro',
-            '/tmp/other-workspace:/workspace:rw',
-          ],
-        ),
+        config: const ContainerConfig(enabled: true, extraMounts: ['/:/project/subdir:rw']),
         containerName: restrictedContainerName,
         profileId: 'restricted',
         workspaceMounts: const [],
@@ -363,12 +346,28 @@ void main() {
         },
       );
 
-      await manager.start();
+      await expectLater(
+        manager.start(),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('container.mounts'))),
+      );
+      expect(calls, isEmpty);
+    });
 
-      final createCommand = calls.firstWhere((call) => call[1] == 'create').join(' ');
-      expect(createCommand, contains('/shared:ro'));
-      expect(createCommand, isNot(contains('/other-project:/project:ro')));
-      expect(createCommand, isNot(contains('/other-workspace:/workspace:rw')));
+    test('start rejects raw Docker arguments before invoking Docker', () async {
+      final calls = <List<String>>[];
+      final manager = _manager(
+        config: const ContainerConfig(enabled: true, extraArgs: ['--net=host']),
+        run: (executable, arguments) async {
+          calls.add([executable, ...arguments]);
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+
+      await expectLater(
+        manager.start(),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('container.extra_args'))),
+      );
+      expect(calls, isEmpty);
     });
 
     test('an execution artifacts dir is mounted read-write and translates into the container', () async {
@@ -485,6 +484,31 @@ void main() {
         manager.stop(),
         throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Failed to destroy container'))),
       );
+    });
+
+    test('stop can reclaim an unconfirmed orphan after the daemon recovers', () async {
+      var daemonAvailable = false;
+      var removals = 0;
+      final manager = _manager(
+        run: (executable, arguments) async {
+          if (arguments.first == 'rm') {
+            removals++;
+            return daemonAvailable
+                ? ProcessResult(1, 0, '', '')
+                : ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon');
+          }
+          if (arguments.first == 'inspect' && !daemonAvailable) {
+            return ProcessResult(1, 1, '', 'Cannot connect to the Docker daemon');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await expectLater(manager.stop(), throwsStateError);
+      daemonAvailable = true;
+      await manager.stop();
+
+      expect(removals, 2);
     });
 
     test('start rejects local project mounts outside the allowlist', () async {

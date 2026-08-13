@@ -1158,7 +1158,7 @@ void main() {
       expect(result.newInputTokens, 110);
     });
 
-    test('nonzero Codex exit still includes stdout excerpt after streaming parse', () async {
+    test('nonzero Codex exit reports structure without provider-authored stdout', () async {
       final stdout = jsonEncode({'type': 'error', 'message': 'fatal workflow error'});
       final runner = codexRunner(
         processStarter: (exe, args, {workingDirectory, environment}) async {
@@ -1177,7 +1177,7 @@ void main() {
           isA<StateError>().having(
             (e) => e.message,
             'message',
-            allOf(contains('stdout:'), contains('fatal workflow error')),
+            allOf(contains('event=error'), isNot(contains('stdout:')), isNot(contains('fatal workflow error'))),
           ),
         ),
       );

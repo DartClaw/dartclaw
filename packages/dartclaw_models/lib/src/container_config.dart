@@ -8,10 +8,10 @@ class ContainerConfig {
   /// Docker image used for isolated agent execution.
   final String image;
 
-  /// Additional bind mounts applied to the container.
+  /// Reserved legacy bind-mount configuration. Must remain empty.
   final List<String> extraMounts;
 
-  /// Additional raw Docker CLI arguments appended at startup.
+  /// Reserved legacy Docker-argument configuration. Must remain empty.
   final List<String> extraArgs;
 
   /// Creates container isolation configuration.

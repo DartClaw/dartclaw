@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../serve_command.dart' show ExitFn;
+import 'container_authority_cleanup_owner.dart';
 
 /// Constructs and exposes security-layer services.
 ///
@@ -61,6 +62,7 @@ class SecurityWiring implements Reconfigurable {
   String? _bridgeBinaryPath;
   ContainerHealthMonitor? _containerHealthMonitor;
   final Map<String, _ContainerTemplate> _containerTemplates = {};
+  final ContainerAuthorityCleanupOwner _containerAuthorities = ContainerAuthorityCleanupOwner();
   // Authority suffixes must not repeat across process restarts: ContainerManager
   // adopts a healthy same-named container, so a recycled name could hand a new
   // authority an orphan from a previous run.
@@ -128,12 +130,14 @@ class SecurityWiring implements Reconfigurable {
     // Registration rejects a provider this deployment cannot mediate – an
     // unusable Claude auth mode included – before any container is created.
     final authority = gateway.register(principal: principal, allowedMcpTools: allowedMcpTools);
-    final lease = _ContainerAuthorityLease(
-      manager: manager,
-      authority: authority,
-      gateway: gateway,
-      eventBus: _eventBus,
-      monitor: _containerHealthMonitor,
+    final lease = _containerAuthorities.own(
+      _ContainerAuthorityLease(
+        manager: manager,
+        authority: authority,
+        gateway: gateway,
+        eventBus: _eventBus,
+        monitor: _containerHealthMonitor,
+      ),
     );
     try {
       await manager.start();
@@ -510,6 +514,7 @@ class SecurityWiring implements Reconfigurable {
 
   Future<void> dispose() async {
     await _containerHealthMonitor?.stop();
+    await _containerAuthorities.dispose();
     // Revoking every live authority also kills its bridge processes; the
     // containers themselves are destroyed by their own leases.
     await _gateway?.dispose();
@@ -526,7 +531,7 @@ class SecurityWiring implements Reconfigurable {
 /// Release order is the isolation order: stop watching (so teardown is not a
 /// crash), revoke the pipes while the container still exists but can no longer
 /// use them, then destroy the container. Every step runs even if an earlier one
-/// fails, and repeat calls are no-ops.
+/// fails. Confirmed release is idempotent; failed destruction stays retryable.
 class _ContainerAuthorityLease implements ContainerAuthorityLease {
   _ContainerAuthorityLease({
     required this.manager,
@@ -546,15 +551,11 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
   final EventBus _eventBus;
   final ContainerHealthMonitor? _monitor;
 
-  bool _released = false;
-
   @override
   ContainerExecutor get container => manager;
 
   @override
   Future<void> release() async {
-    if (_released) return;
-    _released = true;
     _monitor?.unwatch(manager.containerName);
     try {
       await _gateway.revoke(authority);
@@ -574,6 +575,7 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
       );
     } catch (error, stackTrace) {
       _log.severe('Failed to destroy container ${manager.containerName}', error, stackTrace);
+      rethrow;
     }
   }
 }

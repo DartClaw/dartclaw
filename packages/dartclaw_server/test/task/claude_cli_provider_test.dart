@@ -88,7 +88,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'diagnostic', contains('result=auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('subtype=error_during_execution'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
       expect(process.killCalled, isTrue);
@@ -129,7 +130,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'diagnostic', contains('result=auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('subtype=error_during_execution'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
     });
@@ -161,7 +163,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot claude command failed'))
-              .having((error) => error.toString(), 'stderr', contains('invalid API key')),
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'secret-bearing stderr', isNot(contains('invalid API key'))),
         ),
       );
     });
@@ -219,7 +222,11 @@ void main() {
 
       await expectLater(
         turn,
-        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('authentication failed'))),
+        throwsA(
+          isA<StateError>()
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'secret-bearing stderr', isNot(contains('authentication failed'))),
+        ),
       );
     });
 
@@ -775,7 +782,7 @@ void main() {
       );
     });
 
-    test('non-zero exit surfaces the stdout result-JSON diagnostic, not just the stderr warning', () async {
+    test('non-zero exit surfaces only bounded structural result diagnostics', () async {
       final runner = WorkflowCliRunner(
         providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')},
         processStarter: (exe, args, {workingDirectory, environment}) async {
@@ -806,7 +813,7 @@ void main() {
               contains('exit code 1'),
               contains('subtype=error_during_execution'),
               contains('is_error=true'),
-              contains('result=reviewer panel crashed'),
+              isNot(contains('reviewer panel crashed')),
             ]),
           ),
         ),

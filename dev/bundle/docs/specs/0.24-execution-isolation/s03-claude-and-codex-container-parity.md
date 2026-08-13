@@ -28,7 +28,7 @@
 - `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.2` – provider credentials stay absent from all container-visible surfaces.
 - `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.3` – host authorization uses the effective principal and tool set.
 - `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.4` – bridge authority is execution-bound and non-replayable.
-- `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.5` – every live container authority owns a dedicated non-cached container harness.
+- `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.5` – every live container authority owns a dedicated harness that cannot cross principals or survive authority release.
 - `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.6` – every agent container retains `network:none`.
 - `dev/bundle/docs/specs/0.24-execution-isolation/plan.json#bindingConstraints.7` – containerized Claude supports
   host-held API-key mediation only.
@@ -102,7 +102,7 @@
 - [x] Containerized Codex always uses a newly created, permission-restricted home — generated host-side in the per-execution state directory and bind-mounted read-write into the container through S02's ContainerManager create path (this story supplies the home path and contents), never the host user's Codex home — that contains only required generated client configuration, is enumerated in mount/secret inspection, and is deleted on stop, crash, cancellation, and failed startup; host-mode Codex retains its existing user-home behavior.
 - [x] Neither container mode copies or mounts host provider homes/auth files nor injects provider credentials through environment, arguments, settings, MCP headers, or bridge URLs.
 - [x] Every containerized provider harness owns its dedicated S01 container and is disposed/destroyed on authority release;
-      it never enters the reusable worker cache.
+      exact-owner logical-agent parking may retain the live authority between turns but cannot enable cross-principal reuse.
 - [x] The container image pins an exact Codex version and per-architecture sha256 checksum from the release's current Linux archive naming for every supported Docker architecture; the build verifies the checksum before install and executes `codex --version` before succeeding, and `latest` or unchecksummed fetches are rejected.
 - [x] Every containerized Claude and Codex execution exposes only the execution-scoped DartClaw MCP endpoint with the deny-by-default tool inventory authorized for the effective principal; provider-native web capabilities are disabled for every container profile – `restricted` and `workspace` alike (reconciled 2026-08-12, [ADR-052](../../../../adrs/052-native-provider-web-tools-denied-all-container-profiles.md): native web executes provider-side, so `network:none` cannot contain it and retaining it for `workspace` only relocates the failure to a gateway 403).
 - [x] Container processes retain Docker `network:none` and reach S02 only through their surface-separated loopback bridge
@@ -151,7 +151,7 @@ container authority is released.
 
 The provider-specific MCP configuration names only S02's container-loopback MCP bridge and requires no reusable bearer
 inside the container. The host binds that pipe to the effective execution identity and exposes only the principal's
-approved DartClaw tools. Restricted launches explicitly disable Claude/Codex native web tools. Thus approved search/fetch
+approved DartClaw tools. Every container launch explicitly disables Claude/Codex native web tools. Thus approved search/fetch
 happens in DartClaw's host MCP implementation, while Docker `network:none` rejects arbitrary external sockets.
 
 ## Code Patterns & External References
@@ -180,9 +180,10 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
 - **No bearer ambiguity**: the Codex proof must inspect the outbound container-side request itself. A saved login can add `Authorization` even when `requires_openai_auth=false`, so config assertions alone are inadequate.
 - **Scoped MCP is not Internet access**: expose only S02's container-loopback endpoint and host-controlled stdio pipe. The
   container retains `network:none` and no bearer identifies it to the host.
-- **Native web denial is provider-specific and host-enforced**: preserve canonical guard/audit mapping and configure each CLI so it cannot bypass MCP via its built-in web tool, but the enforcement point is S02's provider adapter, which rejects restricted executions' requests that declare provider-native web tools — client-side suppression is defense in depth, not the boundary. Tool-policy denial alone does not prove the network path is absent.
-- **Container harnesses are single-authority**: they are never cached or shared across authorities; disposal revokes pipes,
-  deletes generated state, and destroys the container before capacity returns.
+- **Native web denial is provider-specific and host-enforced**: preserve canonical guard/audit mapping and configure each CLI so it cannot bypass MCP via its built-in web tool, but the enforcement point is S02's provider adapter, which rejects every container execution's request that declares provider-native web tools — client-side suppression is defense in depth, not the boundary. Tool-policy denial alone does not prove the network path is absent.
+- **Container harnesses are single-authority**: exact-owner parking can retain one live logical-agent authority, but a
+  harness is never shared across authorities; disposal revokes pipes, deletes generated state, and destroys the container
+  before capacity returns.
 - **Secret inspection is exhaustive**: test env, mounts, argv, generated homes/settings, intercepted requests, stdout/stderr, and formatted failures for known sentinel values and auth-file material — including the shared operator MCP bearer, which containerized launches must never receive in any generated configuration or environment (the execution-scoped bridge replaces it).
 
 ## Implementation Plan
@@ -216,18 +217,18 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
 - [x] **TI05** Containerized provider clients expose only their scoped host MCP inventory
   - Generate provider-specific MCP/native-tool launch settings from S02's loopback/pipe descriptor for both long-lived and
     workflow surfaces and for both container profiles; start no network relay, explicitly disable Claude/Codex native web
-    paths for restricted executions, and leave workspace-profile native web enabled while its MCP access still flows only
-    through the scoped bridge with the deny-by-default inventory.
+    paths for both restricted and workspace executions while MCP access flows only through the scoped bridge with the
+    deny-by-default inventory.
   - **Verify**: S04–S06 pass for both providers; approved search/fetch traverse the existing host MCP guards;
-    unapproved/direct/replayed attempts fail for both container profiles, native web fails for restricted while a
-    workspace container retains it; bridge loss does not trigger fallback, and container inspect shows `network:none`
+    unapproved/direct/replayed attempts and native web fail for both container profiles; bridge loss does not trigger
+    fallback, and container inspect shows `network:none`
     with no extra attachment.
 
 - [x] **TI06** Conformance suites prove runtime placement, denial, cleanup, and secret absence
   - Add a shared provider/surface matrix fixture with sentinel provider credentials/login files and a sentinel shared operator MCP bearer, actual Docker namespace probes, captured provider/MCP requests, inspectable argv/env/mounts/generated homes, bridge authority replay, and injected startup/runtime failures.
   - **Verify**: all six scenarios pass non-skipped on the executing platform for story completion, with recorded evidence on both Linux Docker and Docker Desktop owned by S04's release conformance gate; focused unit tests
     cover launch construction and cleanup, integration tests exercise real provider-compatible fakes through Docker, and
-    assertions fail when only a label changes, a container harness is cached, a sentinel leaks, native web is re-enabled,
+    assertions fail when only a label changes, a container harness crosses principals or survives release, a sentinel leaks, native web is re-enabled,
     or direct egress succeeds.
 
 ### Testing Strategy
@@ -238,7 +239,7 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
   absence across `docker inspect`, `/proc/<pid>/environ`, `/proc/<pid>/cmdline`, mounted/generated files, and captured
   output/errors.
 - [S03 → TI04,TI06] Extend `codex_environment_test.dart`, `codex_harness_test.dart`, `workflow_cli_runner_codex_command_test.dart`, and Docker image checks. Start from a deliberately credentialed host home, assert the container home is fresh and unseeded, capture the client-side Responses request without auth, and verify the host-side request gains auth.
-- [S04,S05 → TI05,TI06] Extend MCP wiring/tool-policy tests and add provider/container integration cases with approved search/fetch, denied MCP, native-web attempts, direct DNS/TCP/HTTP probes, and replay from a second principal/session. Assert the host router/guards/audit own accepted calls and Docker owns direct-network denial. Include a workspace-profile case: scoped-bridge-only MCP with the deny-by-default inventory, retained provider-native web, and denied direct egress.
+- [S04,S05 → TI05,TI06] Extend MCP wiring/tool-policy tests and add provider/container integration cases with approved search/fetch, denied MCP, native-web attempts, direct DNS/TCP/HTTP probes, and replay from a second principal/session. Assert the host router/guards/audit own accepted calls and Docker owns direct-network denial. Include a workspace-profile case: scoped-bridge-only MCP with the deny-by-default inventory, denied provider-native web, and denied direct egress.
 - [S06 → TI01–TI06] Inject each binary/gateway/bridge/restart failure in both execution surfaces. Assert terminal no-fallback behavior, root-process/ephemeral-home/authority cleanup, stable capacity release, and redacted diagnostics.
 - Keep provider CLIs and upstream APIs deterministic behind protocol-compatible local fakes; real Docker placement/network/image tests are mandatory because process-factory mocks cannot prove the OS boundary. The Codex bearer-forwarding hazard is additionally proven with the real pinned Codex binary in a live-tagged test (credentialed host home, fresh container home, captured request without Authorization); this recorded evidence is a 0.24 release-completion requirement, not per-commit CI.
 
@@ -250,7 +251,7 @@ file | docker/Dockerfile#CODEX_VERSION | Replace floating/bare-binary install wi
 Decision-Key: scoped-mcp-applies-to-workspace-profile
 Altitude: requirements
 Affected surface: Intent; OC03; Structural Criterion; TI05; Testing Strategy
-Decision: Scoped host MCP applies to ALL containerized executions (workspace and restricted), deny-by-default. Provider-native web is disabled for restricted executions and retained for workspace containers. TI05 generates launch settings for both container profiles and its verify asserts the workspace behaviors (scoped-bridge-only MCP, retained native web, denied direct egress); the Testing Strategy includes an explicit workspace-profile case. OC03/SC amendments already applied and stand. Ratified by the operator in preflight interview.
+Decision: Scoped host MCP applies to ALL containerized executions (workspace and restricted), deny-by-default. This note originally retained provider-native web for workspace containers; ADR-052 supersedes that clause and denies provider-native web for both profiles. TI05 and its verification now require scoped-bridge-only MCP, denied native web, and denied direct egress for both profiles.
 Rationale: Re-check found TI05 still restricted-only — contradicting amended OC03 and leaving no task configuring workspace-container MCP — and the workspace half unverified.
 Evidence: PRD FR4 covers containerized agents generally; native-fallback ban is restricted-scoped.
 
@@ -272,8 +273,8 @@ New:
 ```
   - Generate provider-specific MCP/native-tool launch settings from S02's loopback/pipe descriptor for both long-lived and
     workflow surfaces and for both container profiles; start no network relay, explicitly disable Claude/Codex native web
-    paths for restricted executions, and leave workspace-profile native web enabled while its MCP access still flows only
-    through the scoped bridge with the deny-by-default inventory.
+    paths for both restricted and workspace executions while MCP access flows only through the scoped bridge with the
+    deny-by-default inventory.
 ```
 
 Old:
@@ -285,8 +286,8 @@ Old:
 New:
 ```
   - **Verify**: S04–S06 pass for both providers; approved search/fetch traverse the existing host MCP guards;
-    unapproved/direct/replayed attempts fail for both container profiles, native web fails for restricted while a
-    workspace container retains it; bridge loss does not trigger fallback, and container inspect shows `network:none`
+    unapproved/direct/replayed attempts and native web fail for both container profiles; bridge loss does not trigger
+    fallback, and container inspect shows `network:none`
     with no extra attachment.
 ```
 
@@ -296,7 +297,7 @@ Old:
 ```
 New:
 ```
-- [S04,S05 → TI05,TI06] Extend MCP wiring/tool-policy tests and add provider/container integration cases with approved search/fetch, denied MCP, native-web attempts, direct DNS/TCP/HTTP probes, and replay from a second principal/session. Assert the host router/guards/audit own accepted calls and Docker owns direct-network denial. Include a workspace-profile case: scoped-bridge-only MCP with the deny-by-default inventory, retained provider-native web, and denied direct egress.
+- [S04,S05 → TI05,TI06] Extend MCP wiring/tool-policy tests and add provider/container integration cases with approved search/fetch, denied MCP, native-web attempts, direct DNS/TCP/HTTP probes, and replay from a second principal/session. Assert the host router/guards/audit own accepted calls and Docker owns direct-network denial. Include a workspace-profile case: scoped-bridge-only MCP with the deny-by-default inventory, denied provider-native web, and denied direct egress.
 ```
 
 Old:
@@ -312,7 +313,7 @@ New:
 Decision-Key: native-web-denial-enforcement-point
 Altitude: project-decision
 Affected surface: Constraints & Gotchas native-web bullet
-Decision: Restricted-execution provider-native web denial is enforced host-side in S02's provider adapters (requests declaring provider-native web tools are rejected), with client-side config disabling retained as defense in depth. Client suppression alone is insufficient.
+Decision: Provider-native web denial for every container profile is enforced host-side in S02's provider adapters (requests declaring provider-native web tools are rejected), with client-side config disabling retained as defense in depth. This broadens the note's original restricted-only scope per ADR-052; client suppression alone is insufficient.
 Rationale: Provider-native web executes server-side at the provider through the credential gateway, so network:none and client config cannot enforce the denial; the binding constraint rejects trusting client-side tool suppression.
 Evidence: plan.json bindingConstraints FR4; Claude WebSearch and Codex web_search are provider-side tools riding the gateway.
 
@@ -322,7 +323,7 @@ Old:
 ```
 New:
 ```
-- **Native web denial is provider-specific and host-enforced**: preserve canonical guard/audit mapping and configure each CLI so it cannot bypass MCP via its built-in web tool, but the enforcement point is S02's provider adapter, which rejects restricted executions' requests that declare provider-native web tools — client-side suppression is defense in depth, not the boundary. Tool-policy denial alone does not prove the network path is absent.
+- **Native web denial is provider-specific and host-enforced**: preserve canonical guard/audit mapping and configure each CLI so it cannot bypass MCP via its built-in web tool, but the enforcement point is S02's provider adapter, which rejects every container execution's request that declares provider-native web tools — client-side suppression is defense in depth, not the boundary. Tool-policy denial alone does not prove the network path is absent.
 ```
 
 #### DECISION NOTE: codex-auth-leak-proof-fidelity

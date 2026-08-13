@@ -5,6 +5,8 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:uuid/uuid.dart';
 
 import 'behavior/self_improvement_service.dart';
+import 'knowledge/knowledge_inbox_service.dart' show KnowledgeInboxReadService;
+import 'memory/live_memory_source_resolver.dart';
 import 'memory/memory_apply_service.dart';
 
 /// Maximum number of results accepted by the retrieval tools.
@@ -63,6 +65,7 @@ MemoryHandlers createMemoryHandlers({
   required MemoryFileService memoryFile,
   MemoryCorpusService? corpusService,
   required SearchBackend searchBackend,
+  LiveMemorySourceResolver? nativeSourceResolver,
   SelfImprovementService? selfImprovement,
   MemoryCaptureContext Function(String toolName)? captureContext,
   MemoryIndexReconciler? reconcileIndex,
@@ -223,11 +226,12 @@ MemoryHandlers createMemoryHandlers({
       _requireOnlyKeys(params, const {'query', 'limit'});
       final query = _requiredString(params, 'query');
       final limit = _memoryLimit(params['limit']);
-      final collectionRevision = (await corpus.manifest()).collectionRevision;
       if (query.trim().isEmpty) {
+        final collectionRevision = (await corpus.manifest()).collectionRevision;
         return _toolJson({'collectionRevision': collectionRevision, 'results': const <Object>[]});
       }
       final outcome = await searchBackend.search(query, limit: limit, userId: 'owner');
+      final collectionRevision = outcome.canonicalRevision ?? (await corpus.manifest()).collectionRevision;
       return _toolJson({
         'collectionRevision': collectionRevision,
         'results': outcome.results.take(limit).map((result) => result.toRetrievalJson()).toList(growable: false),
@@ -264,7 +268,12 @@ MemoryHandlers createMemoryHandlers({
         } else if (current != null && _isAuditLocator(current, locator)) {
           throw ArgumentError.value(locator, 'locator', 'audit records are not model-readable');
         } else {
-          final native = await searchBackend.resolve(locator, userId: 'owner');
+          MemorySearchResult? native;
+          if (nativeSourceResolver != null && _isSourceOwnedNativeLocator(locator)) {
+            native = await nativeSourceResolver.resolve(locator, userId: 'owner');
+          } else if (!_isCanonicalMemoryLocator(locator)) {
+            native = await searchBackend.resolve(locator, userId: 'owner');
+          }
           if (native != null && native.role != 'audit') {
             records.add(_readResult(native));
           }
@@ -431,12 +440,13 @@ bool _isAuditLocator(CanonicalMemoryCorpus corpus, String locator) =>
     corpus.audit?.records.any((record) => record.entryId == locator) ?? false;
 
 bool _isMemoryLocator(String locator) {
-  if (RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(locator)) {
-    return true;
-  }
+  if (_isCanonicalMemoryLocator(locator)) return true;
   final normalized = locator.replaceAll('\\', '/');
   if (normalized.startsWith('wiki/') && normalized.endsWith('.md')) {
     return !normalized.split('/').any((segment) => segment.isEmpty || segment == '.' || segment == '..');
+  }
+  if (RegExp(r'^[1-9][0-9]*$').hasMatch(locator) || KnowledgeInboxReadService.supportsLocator(locator)) {
+    return true;
   }
   final uri = Uri.tryParse(locator);
   if (uri == null || uri.scheme != 'qmd' || uri.hasAuthority || uri.hasQuery || uri.hasFragment) return false;
@@ -444,6 +454,16 @@ bool _isMemoryLocator(String locator) {
   return uri.path.startsWith('/') &&
       segments.isNotEmpty &&
       !segments.any((segment) => segment == '.' || segment == '..');
+}
+
+bool _isCanonicalMemoryLocator(String locator) =>
+    RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$').hasMatch(locator);
+
+bool _isSourceOwnedNativeLocator(String locator) {
+  final normalized = locator.replaceAll('\\', '/');
+  return RegExp(r'^[1-9][0-9]*$').hasMatch(locator) ||
+      KnowledgeInboxReadService.supportsLocator(locator) ||
+      normalized.startsWith('wiki/');
 }
 
 bool _isAuditDocumentLocator(String locator) {

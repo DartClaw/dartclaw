@@ -132,7 +132,7 @@ Router sessionRoutes(
       if (titleValidation != null) return titleValidation;
 
       final trimmed = title!.trim();
-      return sessionMutations.run(id, () async {
+      return await sessionMutations.run(id, () async {
         final session = await sessions.getSession(id);
         if (session == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');

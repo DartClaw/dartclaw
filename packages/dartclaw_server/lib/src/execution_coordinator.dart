@@ -149,6 +149,14 @@ final class ExecutionCoordinator {
   ExecutionRequest _routeRequest(ExecutionRequest request, ExecutionLane lane) {
     final primary = _primary;
     if (lane != ExecutionLane.primary || primary == null) return request;
+    final backgroundFallback =
+        request.surface == ExecutionSurface.task || request.surface == ExecutionSurface.scheduler;
+    if (backgroundFallback && (request.providerId != primary.providerId || request.policy != primary.executionPolicy)) {
+      throw StateError(
+        'Single-harness fallback cannot execute ${request.providerId} ${request.policy.describe()} work on '
+        '${primary.providerId} ${primary.executionPolicy.describe()}',
+      );
+    }
     return request._route(providerId: primary.providerId, policy: primary.executionPolicy);
   }
 
@@ -269,9 +277,13 @@ final class ExecutionCoordinator {
       (worker) =>
           worker.runner.providerId == request.providerId &&
           worker.runner.executionPolicy == request.policy &&
-          worker.lastSessionId == request.sessionId,
+          worker.lastSessionId == request.sessionId &&
+          (!worker.runner.executionPolicy.isContainer ||
+              worker.request.surface == ExecutionSurface.logicalAgent &&
+                  request.surface == ExecutionSurface.logicalAgent &&
+                  worker.request.logicalAgentId == request.logicalAgentId),
     );
-    if (index < 0) {
+    if (index < 0 && !request.policy.isContainer) {
       index = _cache.indexWhere(
         (worker) => worker.runner.providerId == request.providerId && worker.runner.executionPolicy == request.policy,
       );
@@ -312,9 +324,7 @@ final class ExecutionCoordinator {
     final runner = active.runner;
     var quarantine = false;
     if (runner != null && active.lane == ExecutionLane.worker) {
-      // A container runner owns its container, process namespace, and generated
-      // state; caching it would hand all three to the next authority.
-      final cacheable = !runner.executionPolicy.isContainer;
+      final cacheable = !runner.executionPolicy.isContainer || active.request.surface == ExecutionSurface.logicalAgent;
       if (cacheable && !_closing && runner.isReusable && runner.harness.state == WorkerState.idle) {
         _cache.add(
           _CachedWorker(

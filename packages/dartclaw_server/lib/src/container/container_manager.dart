@@ -124,7 +124,7 @@ class ContainerManager implements ContainerExecutor {
   String? get _artifactsMount => artifactsDir == null ? null : '$artifactsDir:$containerArtifactsPath:rw';
 
   /// Every host object this container can see, as Docker `-v` specs.
-  List<String> get _allMounts => [...workspaceMounts, ...effectiveExtraMounts, _generatedStateMount, ?_artifactsMount];
+  List<String> get _allMounts => [...workspaceMounts, _generatedStateMount, ?_artifactsMount];
 
   /// Format: `dartclaw-<stableHash(dataDir)>-<profileId>`
   static String generateName(String dataDir, String profileId) {
@@ -182,6 +182,12 @@ class ContainerManager implements ContainerExecutor {
   /// The execution must acquire a new authority instead.
   @override
   Future<void> start() async {
+    if (config.extraMounts.isNotEmpty) {
+      throw StateError('container.mounts is unsupported because arbitrary host mounts bypass the execution boundary');
+    }
+    if (config.extraArgs.isNotEmpty) {
+      throw StateError('container.extra_args is unsupported because raw Docker arguments bypass mandatory hardening');
+    }
     if (await health() == ContainerHealth.running) {
       _log.info('Container $containerName ($profileId) already running');
       _created = true;
@@ -221,8 +227,6 @@ class ContainerManager implements ContainerExecutor {
       // outputs where the host reads them back from, inside the boundary.
       if (_artifactsMount case final mount?) ...['-v', mount],
       '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
-      ...effectiveExtraMounts.expand((m) => ['-v', m]),
-      ...config.extraArgs,
       config.image,
       'sleep', 'infinity', // Keep container alive for docker exec
     ];
@@ -276,8 +280,7 @@ class ContainerManager implements ContainerExecutor {
   ///
   /// Throws when removal cannot be confirmed. A container that outlives its
   /// authority still holds that authority's mounts and root process, and its
-  /// name is never reused, so nothing else would ever reclaim it — the caller
-  /// has to hear about it.
+  /// name is never reused, so the owning authority must retain it for retry.
   Future<void> stop() async {
     await _run('docker', ['stop', '-t', '5', containerName]);
     final removal = await _run('docker', ['rm', '-f', containerName]);
@@ -347,12 +350,6 @@ class ContainerManager implements ContainerExecutor {
       _log.warning('Failed to delete generated state for $containerName', error, stackTrace);
     }
   }
-
-  /// Restricted containers keep non-workspace mounts but never get access to
-  /// the project/workspace filesystem via extra mounts.
-  List<String> get effectiveExtraMounts => profileId == 'restricted'
-      ? config.extraMounts.where((mount) => !_isWorkspaceRelatedMount(mount)).toList(growable: false)
-      : config.extraMounts;
 
   @override
   bool get hasProjectMount => _hasContainerMountTarget('/project');
@@ -435,12 +432,6 @@ class ContainerManager implements ContainerExecutor {
       }
     }
     return false;
-  }
-
-  bool _isWorkspaceRelatedMount(String mount) {
-    final parts = mount.split(':');
-    if (parts.length < 2) return false;
-    return parts[1] == '/project' || parts[1] == '/workspace';
   }
 
   /// Translates a host path into the corresponding container path for a mounted directory.

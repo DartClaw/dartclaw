@@ -290,6 +290,30 @@ void main() {
         );
         await lease!.release();
       }
+      for (final mismatch in [const ExecutionPolicy.container('workspace')]) {
+        await expectLater(
+          coordinator.acquire(
+            ExecutionRequest(
+              surface: ExecutionSurface.task,
+              providerId: 'claude',
+              policy: mismatch,
+              sessionId: 'mismatched-policy',
+            ),
+          ),
+          throwsStateError,
+        );
+      }
+      await expectLater(
+        coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'codex',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'mismatched-provider',
+          ),
+        ),
+        throwsStateError,
+      );
       for (final surface in [ExecutionSurface.advisor, ExecutionSurface.workflow, ExecutionSurface.logicalAgent]) {
         await expectLater(
           coordinator.acquire(

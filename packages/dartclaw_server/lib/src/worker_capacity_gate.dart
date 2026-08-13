@@ -55,6 +55,20 @@ final class WorkerCapacityGate {
     }
   }
 
+  /// Removes one idle slot after teardown of an unleased authority could not be
+  /// confirmed.
+  void quarantineAvailableSlot() {
+    if (_closed || availableCount <= 0) return;
+    _quarantinedCount++;
+    if (effectiveCapacity == 0) {
+      while (_waiters.isNotEmpty) {
+        _waiters.removeFirst().completeError(
+          StateError('Worker capacity is unavailable because all slots are quarantined'),
+        );
+      }
+    }
+  }
+
   void _release({required bool quarantine}) {
     if (_activeCount <= 0) {
       throw StateError('Worker capacity permit released without an active execution');

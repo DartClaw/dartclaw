@@ -432,6 +432,43 @@ void main() {
     test('the pruner action is a real destructive control', () {
       expect(render(), contains('<button class="btn btn-danger" data-action="click->dc-memory#confirmPrune">'));
     });
+
+    test('the memory file controls expose selected state and keyboard tab semantics', () {
+      final html = render();
+
+      expect(html, contains('role="tablist" aria-label="Memory files" data-action="keydown->dc-memory#navigateTabs"'));
+      expect(
+        RegExp(r'role="tab" aria-selected="true" aria-controls="tab-memory" tabindex="0"').allMatches(html),
+        hasLength(1),
+      );
+      expect(
+        RegExp(r'role="tab" aria-selected="false" aria-controls="tab-[^"]+" tabindex="-1"').allMatches(html),
+        hasLength(3),
+      );
+      expect(html, contains('role="group" aria-label="Preview mode"'));
+      expect(RegExp(r'data-mode="raw" aria-pressed="true"').allMatches(html), hasLength(1));
+      expect(RegExp(r'data-mode="rendered" aria-pressed="false"').allMatches(html), hasLength(1));
+      expect(RegExp(r'role="tabpanel" aria-labelledby="memory-file-tab-[^"]+"').allMatches(html), hasLength(4));
+    });
+
+    test('next run uses future-aware relative time', () {
+      final status = sampleStatus();
+      final nextRun = DateTime.now().add(const Duration(hours: 49)).toUtc().toIso8601String();
+      (status['pruner'] as Map<String, dynamic>)['nextRun'] = nextRun;
+
+      final html = memoryDashboardTemplate(
+        status: status,
+        sidebarData: emptySidebarData(),
+        navItems: emptyNavItems,
+        workspacePath: '/tmp',
+      );
+      final nextRunRow = RegExp(r'<span class="card-row-label">Next run</span>([\s\S]*?)</div>').firstMatch(html);
+
+      expect(nextRunRow, isNotNull);
+      expect(nextRunRow!.group(1), contains('>in 2d</span>'));
+      expect(nextRunRow.group(1), isNot(contains('just now')));
+      expect(nextRunRow.group(1), contains('title="$nextRun"'));
+    });
   });
 
   group('memoryDashboardContentFragment', () {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/wiring/harness_wiring.dart';
@@ -101,4 +102,26 @@ void main() {
     expect(journal.caller, 'cron:memory-journal');
     expect(journal.sessionRef, 'journal-session');
   });
+
+  test('production memory handlers reopen native KG and inbox locators', () async {
+    final factId = storage.kg.addFact(
+      entity: 'Falcon',
+      predicate: 'status',
+      value: 'green',
+      validFrom: '2026-08-12T00:00:00Z',
+      source: 'wiki/falcon.md',
+    );
+    Directory('${config.workspaceDir}/inbox').createSync();
+    File('${config.workspaceDir}/inbox/note.md').writeAsStringSync('Native inbox detail');
+
+    final fact = _decode(await harnessWiring.memoryHandlers.onRead({'locator': '$factId'}));
+    final inbox = _decode(await harnessWiring.memoryHandlers.onRead({'locator': 'inbox/note.md'}));
+
+    expect(((fact['results'] as List).single as Map)['role'], 'kg');
+    expect(((inbox['results'] as List).single as Map)['content'], 'Native inbox detail');
+  });
 }
+
+Map<String, dynamic> _decode(Map<String, dynamic> response) =>
+    jsonDecode(((response['content'] as List).single as Map<String, dynamic>)['text'] as String)
+        as Map<String, dynamic>;

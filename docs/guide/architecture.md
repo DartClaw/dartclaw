@@ -215,7 +215,7 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
 
 For more detail on memory configuration, see the [Search guide](search.md).
 
@@ -405,7 +405,7 @@ Built-in MCP tools:
 | Tool | Purpose |
 |------|---------|
 | `memory_apply` / `memory_observe` | Curated personal-memory and capture writes |
-| `memory_search` / `memory_read` | Read-only indexed retrieval and canonical reads |
+| `memory_search` / `memory_read` | Read-only indexed retrieval and bounded canonical or native source-owner reads |
 | `sessions_spawn` | Creates a configured logical-agent conversation and returns its handle after the first turn |
 | `sessions_send` | Continues the logical-agent conversation identified by that handle |
 | `web_fetch` | Fetch web content (SSRF-hardened: DNS resolution, private IP blocking) |

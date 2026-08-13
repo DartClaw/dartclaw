@@ -931,32 +931,28 @@ void main() {
     expect(_corpusBytes(workspace), retiredBefore);
   });
 
-  test(
-    'a resulting corpus above the canonical byte ceiling is rejected before any sink',
-    () async {
-      final revision = (await corpus.readCorpus()).index.metadata.revision;
-      final before = _corpusBytes(workspace);
-      final oversized = 'x'.padRight(MemoryCorpusService.maxCorpusBytes, 'x');
+  test('a resulting corpus above the canonical byte ceiling is rejected before any sink', () async {
+    final revision = (await corpus.readCorpus()).index.metadata.revision;
+    final before = _corpusBytes(workspace);
+    final oversized = 'x'.padRight(MemoryCorpusService.maxCorpusBytes, 'x');
 
-      final result = await service().apply(
-        {
-          'expectedRevision': revision,
-          'operations': [
-            {'kind': 'add', 'correlationId': 'oversized', 'topic': 'general', 'content': oversized},
-          ],
-        },
-        userId: 'owner',
-        provenance: provenance,
-      );
+    final result = await service().apply(
+      {
+        'expectedRevision': revision,
+        'operations': [
+          {'kind': 'add', 'correlationId': 'oversized', 'topic': 'general', 'content': oversized},
+        ],
+      },
+      userId: 'owner',
+      provenance: provenance,
+    );
 
-      expect(result['canonicalOutcome'], 'rejected');
-      expect(result['collectionRevision'], revision);
-      expect(((result['operations'] as Map)['oversized'] as Map)['outcome'], 'rejected');
-      expect(_corpusBytes(workspace), before);
-      expect(reconciliations, 0);
-    },
-    timeout: const Timeout(Duration(seconds: 30)),
-  );
+    expect(result['canonicalOutcome'], 'rejected');
+    expect(result['collectionRevision'], revision);
+    expect(((result['operations'] as Map)['oversized'] as Map)['outcome'], 'rejected');
+    expect(_corpusBytes(workspace), before);
+    expect(reconciliations, 0);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
 
 CanonicalMemoryEntry _entry(String id, String content, {String topic = 'general'}) => CanonicalMemoryEntry(

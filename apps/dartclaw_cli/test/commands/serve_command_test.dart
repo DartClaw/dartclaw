@@ -180,6 +180,26 @@ void main() {
       expect(options.containsKey('offline'), isFalse);
     });
 
+    test('non-map config exits before server or provider wiring', () async {
+      final tempDir = _tempDirectory('dartclaw_non_map_config_');
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('- container\n- enabled\n');
+      var serverBuilt = false;
+      final command = ServeCommand(
+        serverFactory: (builder) {
+          serverBuilt = true;
+          return builder.build();
+        },
+        runWorkflowSkillsBootstrap: false,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await expectLater(
+        localRunner.run(['--config', configFile.path, 'serve']),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('root must be a map'))),
+      );
+      expect(serverBuilt, isFalse);
+    });
+
     group('port validation', () {
       test('port 0 throws UsageException', () {
         expect(

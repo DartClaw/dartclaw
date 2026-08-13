@@ -104,7 +104,8 @@ reusable credentials or restoring agent Internet access.
 - [x] Every agent container uses `network:none`; there is no relay, published port, host networking, added Docker network,
       Docker socket, or bind-mounted host socket.
 - [x] One live authority owns one container/process namespace, bridge-process set, generated state, and harness; release
-      destroys them rather than caching the container runner.
+      destroys them. Exact-owner logical-agent parking may retain the still-live authority between turns, but never makes
+      the runner reusable across principals or after release.
 - [x] Framing is versioned and length-prefixed with surface, request ID, message kind, bounded metadata/body chunks,
       terminal/error/cancel messages, concurrency limits, backpressure, and malformed-frame rejection.
 - [x] The implementation introduces no user-facing relaxation knob or silent transport/provider fallback.
@@ -227,7 +228,8 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
     generated state, and destroys the container idempotently on success, failure, cancellation, or quarantine.
   - **Verify**: Captured Docker calls and inspect output prove no networks/sockets/ports/relays beyond the sanctioned
     read-only bridge-binary mount, one namespace per concurrent
-    authority, correct reverse-order cleanup for every injected failure, and no container runner enters the cache.
+    authority, correct reverse-order cleanup for every injected failure, and no released authority or container runner
+    can be reused.
 
 - [x] **TI05** Cross-platform adversarial evidence proves the boundary
   - Add real-Docker provider/MCP fakes plus direct egress, cross-surface, cross-authority, framing, cancellation, cleanup,
@@ -251,7 +253,8 @@ test | packages/dartclaw_server/test/mcp/mcp_router_test.dart#mcpRoute | Bounded
 
 - S01, including its ADR-012 lifecycle amendment, completes before TI01–TI04.
 - TI01 and TI03 settle the host/bridge protocol before handlers and container composition depend on it.
-- Any need for a socket mount, added network, container bearer, shared namespace, or cached container harness is BLOCKED;
+- Any need for a socket mount, added network, container bearer, shared namespace, or cross-principal/released-authority
+  container reuse is BLOCKED;
   it is not permission to weaken the PRD.
 
 ## Final Validation Checklist

@@ -226,6 +226,7 @@ class StorageWiring {
       qmdManager: _qmdManager,
       defaultDepth: config.search.defaultDepth,
       workspaceDir: config.workspaceDir,
+      indexHealthProbe: _probeIndexHealth,
     );
     _memoryCorpus.registerPostCommitProjection((projection, result) async {
       try {
@@ -304,6 +305,24 @@ class StorageWiring {
         throw StateError('Canonical memory changed during index reconciliation');
       }
       yield MemoryService.canonicalIndexRows(selection.corpus);
+    }
+  }
+
+  Future<IndexHealthEvidence> _probeIndexHealth() async {
+    final manifest = await _memoryCorpus.manifest();
+    try {
+      return await _indexHealth.read(
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+      );
+    } on Object {
+      return IndexHealthEvidence(
+        state: IndexHealthState.unknown,
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        reason: 'Index health evidence is unavailable.',
+        action: 'Run dartclaw rebuild-index.',
+      );
     }
   }
 }

@@ -430,7 +430,7 @@ class WorkspaceEventsManager {
       // Handle 409 ALREADY_EXISTS — subscription exists server-side but
       // was lost locally (e.g. after restart). Recover by fetching it.
       if (response.statusCode == 409) {
-        return _recoverExistingSubscription(spaceId, response.body);
+        return await _recoverExistingSubscription(spaceId, response.body);
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {

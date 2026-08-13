@@ -140,7 +140,7 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `memory_apply` | Curating personal memory with collection CAS |
 | `memory_observe` | Capturing observations or learnings |
 | `memory_search` | Searching memory |
-| `memory_read` | Reading canonical sources |
+| `memory_read` | Reading canonical memory or native wiki/KG/inbox/QMD sources by stable locator |
 | `mcp_call` | Other tools routed through an MCP server |
 
 Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.

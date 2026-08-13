@@ -7,9 +7,7 @@ import 'package:test/test.dart';
 
 /// Allocation identity and container-authority release lifecycle.
 ///
-/// Covers Acceptance Scenarios S03 (host and container workers are never
-/// interchangeable) and S07 (container profiles stay distinct without
-/// container-runner caching).
+/// Covers host/container identity and owner-bound container release.
 void main() {
   group('S03 worker identity spans both policy axes', () {
     test('a released host worker is never handed to a container request', () async {
@@ -73,7 +71,7 @@ void main() {
     });
   });
 
-  group('S07 container authorities are dedicated and destroyed on release', () {
+  group('container authorities stay dedicated to one owner', () {
     test('a released container runner is destroyed rather than cached', () async {
       final fixture = _Fixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);
@@ -99,6 +97,59 @@ void main() {
 
       expect(second.runner, isNot(same(firstRunner)));
       expect(fixture.created, hasLength(2), reason: 'each authority builds a fresh harness and container');
+      await second.release();
+    });
+
+    test('a logical-agent owner keeps its container across turns and destroys it on discard', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+
+      final first = await fixture.acquire(
+        'logical-session',
+        const ExecutionPolicy.container('workspace'),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'researcher',
+      );
+      final runner = first.runner;
+      await first.release();
+
+      final second = await fixture.acquire(
+        'logical-session',
+        const ExecutionPolicy.container('workspace'),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'researcher',
+      );
+      expect(second.runner, same(runner));
+      expect(fixture.created, hasLength(1));
+      expect(fixture.destroyed, isEmpty);
+      await second.release();
+
+      await fixture.coordinator.resetSessionContinuity('logical-session', workersOnly: true);
+      expect(fixture.destroyed, [runner]);
+      expect(fixture.coordinator.snapshot.cachedWorkers, 0);
+    });
+
+    test('a logical-agent container never crosses owner principals', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+
+      final first = await fixture.acquire(
+        'logical-a',
+        const ExecutionPolicy.container('workspace'),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'researcher',
+      );
+      final firstRunner = first.runner;
+      await first.release();
+
+      final second = await fixture.acquire(
+        'logical-b',
+        const ExecutionPolicy.container('workspace'),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'researcher',
+      );
+      expect(second.runner, isNot(same(firstRunner)));
+      expect(fixture.destroyed, [firstRunner]);
       await second.release();
     });
 
@@ -229,9 +280,20 @@ class _Fixture {
   int? activeWorkersDuringDestroy;
   var _disposed = false;
 
-  Future<ExecutionLease> acquire(String sessionId, ExecutionPolicy policy) async {
+  Future<ExecutionLease> acquire(
+    String sessionId,
+    ExecutionPolicy policy, {
+    ExecutionSurface surface = ExecutionSurface.task,
+    String? logicalAgentId,
+  }) async {
     final lease = await coordinator.acquire(
-      ExecutionRequest(surface: ExecutionSurface.task, providerId: 'claude', policy: policy, sessionId: sessionId),
+      ExecutionRequest(
+        surface: surface,
+        providerId: 'claude',
+        policy: policy,
+        sessionId: sessionId,
+        logicalAgentId: logicalAgentId,
+      ),
     );
     return lease!;
   }

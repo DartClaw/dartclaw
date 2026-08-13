@@ -1,6 +1,6 @@
 # ADR-012: Per-Type Container Isolation
 
-**Status:** Accepted (amended 2026-08-11 — a security profile is a filesystem/capability template, not a shared runtime container; each live container authority owns a dedicated container and harness)
+**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals)
 
 ## Context
 
@@ -24,14 +24,14 @@ Container = security boundary (mounts, network, capabilities). Profile = the tem
 The original decision let concurrent tasks and sessions of the same profile share one long-lived container via `docker exec`, amortizing container startup across leases. That is superseded:
 
 - A **security profile** is a filesystem/capability *template*. It is not itself a running container and carries no execution location — placement is the separate host/container execution mode.
-- Every **live container authority** — one admitted container execution — owns a dedicated container, process namespace, harness lifetime, and generated state.
-- **Container harnesses are never cached across authority release.** Release confirms root-process termination, runs the authority-revocation seam, removes generated state, and destroys the container before capacity is returned. Host harnesses remain reusable and cached as before.
+- Every **execution owner** owns a dedicated container, process namespace, harness lifetime, and generated state.
+- A logical-agent session is a standing owner, so its container persists across that owner's turns and ends on discard, eviction, or shutdown. A task owns its container for one turn; a workflow step owns its container across all step turns. Host harnesses remain reusable as before.
 
 Sharing one container per profile left siblings and successors inside one PID, `/tmp`, and generated-home namespace. Under a per-profile shared container, a compromised or merely leaky harness could observe or tamper with a co-resident harness of the same profile, and a released harness could leave state that the next lease inherits — which defeats the isolation the profile was chosen for and blocks binding credentials or capabilities to a single execution.
 
-Container *count* therefore scales with concurrent container executions rather than with the number of profiles; `providers.<id>.pool_size` remains the only worker-capacity limit and bounds it.
+Container count is bounded by `providers.<id>.pool_size`; retained logical-agent owners compete within that bound and are evicted before a different owner can exceed it.
 
-**Scope of the amendment.** It governs *harness-owning* authorities: the primary harness and every coordinator-managed worker. The provider-CLI one-shot path (workflow steps driven by `ClaudeCliProvider`/`CodexCliProvider`) holds no harness and no worker lease, and since Claude/Codex container parity landed it follows the same rule — `WorkflowCliRunner` leases one authority per container-policy turn and releases it in `finally`.
+**2026-08-13 owner-lifetime clarification.** The 2026-08-11 amendment correctly prohibited sharing across principals but equated an authority with one turn. That destroyed provider-native continuation for standing logical agents and multi-turn workflow steps. An authority now tracks the trust owner: primary process lifetime, logical-agent session, task turn, or workflow step. The provider-CLI one-shot path holds one authority and one auth-clean provider home for the complete step, then releases both in `finally`.
 
 **Provider compatibility.** A container authority can only be granted to a provider whose container execution DartClaw actually mediates. The host gateway's provider adapters are verified for the Claude and Codex clients only, so an ACP registration has no mediated container execution: an ACP registration that requires a container is rejected at startup, and an ACP provider whose resolved policy is container execution is refused before admission rather than downgraded to host. Placement remains the resolved execution mode's decision; this only bounds which providers a container mode can carry.
 
@@ -48,14 +48,14 @@ Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`, with a per-auth
 
 ```
 ExecutionCoordinator (5 worker leases)
-  ├── coding task      → container/workspace   → its own container, destroyed on release
-  ├── writing task     → container/workspace   → its own container, destroyed on release
-  ├── research task    → container/restricted  → its own container, destroyed on release
-  ├── logical agent    → resolved policy       → host process, or its own container
+  ├── coding task      → container/workspace   → its own turn container
+  ├── writing task     → container/workspace   → its own turn container
+  ├── research task    → container/restricted  → its own turn container
+  ├── logical agent    → resolved policy       → its own owner container across turns
   └── cron job         → deployment default    → host process, or its own container
 ```
 
-The Dart host mediates all routing: `execution request → effective execution policy → container`. Containers never communicate directly. Container lifetime is bound to the authority that owns it: the container is created when the authority is admitted and destroyed when it is released. `pool_size` accounting is unchanged — capacity is returned only after teardown completes.
+The Dart host mediates all routing: `execution request → effective execution policy → owner container`. Containers never communicate directly or cross principals. Active execution capacity is lease-owned; owner containers may remain idle only within the provider's bounded retained-worker set.
 
 ### Future Profiles (when needed)
 
@@ -80,13 +80,13 @@ The `macos-vm` profile is a separate tier using Apple's Virtualization.framework
 - Enables future Lume VM tier without architectural changes
 
 ### Negative
-- One container per live container execution instead of one per profile — more to monitor, debug, and clean up on crash
-- Container creation cost is paid per authority rather than amortized across leases
+- One container per live execution owner instead of one per profile — more to monitor, debug, and clean up on crash
+- Container creation cost is amortized only across turns belonging to the same standing owner
 - Harness pool must resolve the correct policy and provision a container per admitted execution — adds routing and lifecycle complexity
 - Each container runs its own bridge process pair — slightly more moving parts
 
 ### Neutral
-- Host mediation is per authority: one gateway registration and one pipe pair per live container execution, revoked on release
+- Host mediation is per owner authority: one gateway registration and pipe pair, revoked when that owner ends
 - Docker image stays shared — security differentiation via launch flags, not image contents
 - `container.enabled: false` path unchanged — all tasks share host process, no containers
 - Coding tasks use git worktrees (directories within workspace mount) — worktree isolation is git-level, not container-level

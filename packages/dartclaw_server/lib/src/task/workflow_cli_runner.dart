@@ -218,6 +218,7 @@ class WorkflowCliRunner {
     required List<String>? allowedTools,
     required String? artifactsDir,
   }) async {
+    _requireSupported(provider, policy);
     if (!policy.isContainer) return null;
     final acquire = containerAuthorities;
     if (acquire == null) {
@@ -246,6 +247,35 @@ class WorkflowCliRunner {
     );
   }
 
+  /// Releases provider state and then the container authority that owns it.
+  ///
+  /// Authority release is always attempted, even when provider-state cleanup
+  /// fails.
+  Future<void> releaseStepContainer(String provider, ContainerAuthorityLease lease) async {
+    Object? cleanupError;
+    StackTrace? cleanupStackTrace;
+    final providerConfig = providers[provider];
+    if (providerConfig != null) {
+      final family = ProviderIdentity.resolveFamily(
+        provider,
+        options: providerConfig.options,
+        executable: providerConfig.executable,
+      );
+      if (_providerImpls[family] case final CodexCliProvider codex) {
+        try {
+          await codex.releaseContainerState(lease.container);
+        } catch (error, stackTrace) {
+          cleanupError = error;
+          cleanupStackTrace = stackTrace;
+        }
+      }
+    }
+    await lease.release();
+    if (cleanupError != null) {
+      Error.throwWithStackTrace(cleanupError, cleanupStackTrace!);
+    }
+  }
+
   /// Startup-computed launch compatibility, consulted by provider identity
   /// before family resolution.
   ///
@@ -265,10 +295,16 @@ class WorkflowCliRunner {
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
     Map<String, CliProvider>? providerImpls,
+    MessageRedactor? diagnosticRedactor,
   }) : _processStarter = processStarter ?? _defaultProcessStarter,
        _eventBus = eventBus,
        _uuid = uuid ?? const Uuid(),
-       _providerImpls = providerImpls ?? {'claude': ClaudeCliProvider(), 'codex': CodexCliProvider()};
+       _providerImpls =
+           providerImpls ??
+           {
+             'claude': ClaudeCliProvider(diagnosticRedactor: diagnosticRedactor),
+             'codex': CodexCliProvider(diagnosticRedactor: diagnosticRedactor),
+           };
 
   /// Rejects [provider] under [policy] when the inventory says this surface
   /// cannot run it, before any family resolution or process spawn.
@@ -431,6 +467,7 @@ class WorkflowCliRunner {
         usageBaseline: usageBaseline,
         providerConfig: providerConfig,
         containerManager: lease?.container,
+        retainContainerState: lease != null,
         processStarter: _processStarter,
         eventBus: _eventBus,
         uuid: _uuid,
@@ -441,7 +478,14 @@ class WorkflowCliRunner {
       if (observer != null && !rootProcessTerminationReported) await observer(false);
       // A caller-held step container outlives the turn; only a lease this call
       // acquired for a standalone single turn is released here.
-      if (callerHeldContainer == null) await lease?.release();
+      if (callerHeldContainer == null && lease != null) {
+        try {
+          await releaseStepContainer(provider, lease);
+        } catch (_) {
+          if (observer != null) await observer(false);
+          rethrow;
+        }
+      }
     }
   }
 

@@ -75,15 +75,33 @@ final class KnowledgeInboxReadService {
 
   /// Returns whether [locator] names a current regular file owned by this layer.
   Future<bool> exists(String locator) async {
+    final file = _fileForLocator(locator);
+    return file != null && FileSystemEntity.typeSync(file.path, followLinks: false) == FileSystemEntityType.file;
+  }
+
+  /// Reads the current regular source owned by [locator], or `null` when missing.
+  Future<String?> read(String locator) async {
+    final file = _fileForLocator(locator);
+    return file == null ? null : core.MemoryFileService.readRegularFile(file);
+  }
+
+  /// Whether [locator] has the stable native shape owned by this layer.
+  static bool supportsLocator(String locator) {
     final normalized = locator.replaceAll('\\', '/');
     final segments = normalized.split('/');
-    if (segments.length != 2 || !folders.contains(segments.first) || segments.any((part) => part.isEmpty)) {
-      return false;
-    }
+    return segments.length == 2 &&
+        folders.contains(segments.first) &&
+        !segments.any((part) => part.isEmpty || part == '.' || part == '..') &&
+        KnowledgeInboxService.supportedExtensions.contains(p.extension(segments.last).toLowerCase());
+  }
+
+  File? _fileForLocator(String locator) {
+    final normalized = locator.replaceAll('\\', '/');
+    final segments = normalized.split('/');
+    if (!supportsLocator(locator)) return null;
     final root = Directory(p.absolute(workspaceDir));
-    final file = File(p.normalize(p.join(root.path, normalized)));
-    if (!p.isWithin(root.path, file.path)) return false;
-    return FileSystemEntity.typeSync(file.path, followLinks: false) == FileSystemEntityType.file;
+    final file = File(p.normalize(p.joinAll([root.path, ...segments])));
+    return p.isWithin(root.path, file.path) ? file : null;
   }
 
   static List<String> _queryTerms(String query) => query

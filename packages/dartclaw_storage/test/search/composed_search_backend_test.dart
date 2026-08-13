@@ -150,7 +150,101 @@ void main() {
     expect(wikiOnly.every((result) => result.role == 'wiki'), isTrue);
     expect(wiki.queries, ['Falcon']);
   });
+
+  test('suppresses stale personal rows while retaining native wiki and canonical revision', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'stale memory', source: 'memory-id', score: 0)];
+    final wiki = _RecordingWiki()
+      ..results = const [MemorySearchResult(text: 'wiki survives', source: 'wiki/falcon.md', score: -1, role: 'wiki')];
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      wiki: wiki,
+      indexHealthProbe: () async => _health(IndexHealthState.degraded, 42, indexRevision: 41),
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(personal.calls, isEmpty);
+    expect(outcome.map((result) => result.text), ['wiki survives']);
+    expect(outcome.canonicalRevision, 42);
+    expect(outcome.degradedLayers, ['memory']);
+    expect(outcome.degradations.single.reason, 'indexNotCurrent');
+  });
+
+  test('double-probe discards personal rows when canonical identity changes during query', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'raced memory', source: 'memory-id', score: 0)];
+    final wiki = _RecordingWiki()
+      ..results = const [MemorySearchResult(text: 'wiki survives', source: 'wiki/falcon.md', score: -1, role: 'wiki')];
+    final evidence = [_health(IndexHealthState.healthy, 41), _health(IndexHealthState.healthy, 42)].iterator;
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      wiki: wiki,
+      indexHealthProbe: () async {
+        evidence.moveNext();
+        return evidence.current;
+      },
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(personal.calls, [('Falcon', 'owner')]);
+    expect(outcome.map((result) => result.text), ['wiki survives']);
+    expect(outcome.canonicalRevision, 42);
+    expect(outcome.degradations.single.reason, 'indexChangedDuringSearch');
+  });
+
+  test('double-probe discards personal rows when health degrades during query', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'unvalidated memory', source: 'memory-id', score: 0)];
+    final wiki = _RecordingWiki()
+      ..results = const [MemorySearchResult(text: 'wiki survives', source: 'wiki/falcon.md', score: -1, role: 'wiki')];
+    final evidence = [_health(IndexHealthState.healthy, 41), _health(IndexHealthState.degraded, 41)].iterator;
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      wiki: wiki,
+      indexHealthProbe: () async {
+        evidence.moveNext();
+        return evidence.current;
+      },
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(outcome.map((result) => result.text), ['wiki survives']);
+    expect(outcome.canonicalRevision, 41);
+    expect(outcome.degradations.single.reason, 'indexNotCurrent');
+  });
+
+  test('double-probe retains personal rows only across stable current evidence', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'current memory', source: 'memory-id', score: 0)];
+    var probes = 0;
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      wiki: _RecordingWiki(),
+      indexHealthProbe: () async {
+        probes++;
+        return _health(IndexHealthState.healthy, 41);
+      },
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(probes, 2);
+    expect(outcome.single.text, 'current memory');
+    expect(outcome.canonicalRevision, 41);
+    expect(outcome.degradedLayers, isEmpty);
+  });
 }
+
+IndexHealthEvidence _health(IndexHealthState state, int revision, {int? indexRevision}) => IndexHealthEvidence(
+  state: state,
+  canonicalRevision: revision,
+  canonicalFingerprint: 'fingerprint-$revision',
+  indexRevision: indexRevision ?? revision,
+  indexFingerprint: 'fingerprint-${indexRevision ?? revision}',
+);
 
 class _S07RecordingBackend implements SearchBackend {
   final calls = <(String, String)>[];

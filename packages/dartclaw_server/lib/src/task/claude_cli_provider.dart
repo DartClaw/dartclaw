@@ -18,8 +18,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         stringValue;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 
 import '../container/security_profile.dart';
+import 'cli_provider.dart' show boundedProviderDiagnostic;
 import 'workflow_cli_runner.dart';
 import 'cli_process_supervisor.dart';
 
@@ -36,9 +38,11 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
     super.terminationGracePeriod,
     super.outputDrainGracePeriod,
     this.maxOutputBytes = CliProcessSupervisor.defaultOutputLimitBytes,
-  });
+    MessageRedactor? diagnosticRedactor,
+  }) : _diagnosticRedactor = diagnosticRedactor ?? MessageRedactor();
 
   final int maxOutputBytes;
+  final MessageRedactor _diagnosticRedactor;
 
   @override
   int maxTurnsForStructuredTurn({required bool noTools}) => noTools ? 2 : 5;
@@ -169,7 +173,7 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
           final stdout = stdoutBuffer.toString();
           if (_hasClaudeFailureEvidence(stdout) ||
               hasNonBenignStderr(stderrBuffer.toString(), _claudeBenignStderrLines)) {
-            throw StateError(_describeNonZeroExit(exitCode, stdout, stderrBuffer.toString()));
+            throw StateError(_describeNonZeroExit(exitCode, stdout, stderrBuffer.toString(), _diagnosticRedactor));
           }
           return WorkflowCliTurnResult.cancelled(duration: stopwatch.elapsed);
         }
@@ -200,7 +204,9 @@ class ClaudeCliProvider extends ProcessBackedCliProvider implements StructuredTu
       if (cancellationResult != null) return cancellationResult;
       if (exitCode != 0) {
         if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
-          throw StateError(_describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString()));
+          throw StateError(
+            _describeNonZeroExit(exitCode, stdoutBuffer.toString(), stderrBuffer.toString(), _diagnosticRedactor),
+          );
         }
       }
 
@@ -508,34 +514,33 @@ bool _isClaudeProgressLine(String line) {
 
 /// Builds a diagnostic message for a non-zero claude one-shot exit.
 ///
-/// `claude -p --output-format stream-json` reports turn-level errors in the
-/// terminal `result` event (`subtype`, `is_error`, `api_error_status`,
-/// `result`), while stderr typically carries only operational warnings (e.g.
-/// the benign `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` notice). The stdout diagnostic
-/// is placed before stderr so the real failure survives downstream reason
-/// truncation instead of being masked by a harmless warning.
-String _describeNonZeroExit(int exitCode, String stdout, String stderr) {
+/// Only bounded structural fields from the terminal result are retained.
+/// Provider-authored result and stderr text can echo the request or credentials,
+/// so exceptions report their presence without copying that content.
+String _describeNonZeroExit(int exitCode, String stdout, String stderr, MessageRedactor redactor) {
   final parts = <String>['Workflow one-shot claude command failed with exit code $exitCode'];
-  final diagnostic = _resultJsonDiagnostic(stdout);
+  final diagnostic = _resultJsonDiagnostic(stdout, redactor);
   if (diagnostic != null) parts.add(diagnostic);
   final trimmedStderr = stderr.trim();
-  if (trimmedStderr.isNotEmpty) parts.add('stderr: $trimmedStderr');
+  if (trimmedStderr.isNotEmpty) parts.add('provider stderr reported failure details');
   return parts.join('; ');
 }
 
-/// Extracts a human-readable diagnostic from the terminal claude `result`
-/// event, or null when stdout carries no parseable result event.
-String? _resultJsonDiagnostic(String stdout) {
+/// Extracts bounded structural fields from the terminal Claude result.
+String? _resultJsonDiagnostic(String stdout, MessageRedactor redactor) {
   final decoded = _terminalResultEvent(stdout);
   if (decoded == null) return null;
   final subtype = stringValue(decoded['subtype']);
-  final result = stringValue(decoded['result']);
-  final apiErrorStatus = decoded['api_error_status'];
+  final apiErrorStatus = switch (decoded['api_error_status']) {
+    final String value => value,
+    final num value => value.toString(),
+    _ => null,
+  };
   final fields = <String>[
-    if (subtype != null && subtype.isNotEmpty) 'subtype=$subtype',
+    if (subtype != null && subtype.isNotEmpty) 'subtype=${boundedProviderDiagnostic(subtype, redactor)}',
     if (decoded['is_error'] == true) 'is_error=true',
-    if (apiErrorStatus != null) 'api_error_status=$apiErrorStatus',
-    if (result != null && result.trim().isNotEmpty) 'result=${result.trim()}',
+    if (apiErrorStatus != null && apiErrorStatus.isNotEmpty)
+      'api_error_status=${boundedProviderDiagnostic(apiErrorStatus, redactor)}',
   ];
   return fields.isEmpty ? null : fields.join(' ');
 }

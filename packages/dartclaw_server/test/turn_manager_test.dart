@@ -126,7 +126,7 @@ void main() {
       await providerTurns.waitForOutcome(session.id, turnId);
     });
 
-    test('SDK single-harness mode runs cron sessions on the serialized primary lane', () async {
+    test('SDK single-harness mode rejects cron sessions pinned to another provider', () async {
       final sessionService = SessionService(baseDir: tempDir.path);
       final session = await sessionService.createSession(type: SessionType.cron, provider: 'codex');
       final sdkTurns = TurnManager(
@@ -137,12 +137,8 @@ void main() {
       );
       addTearDown(sdkTurns.executions.dispose);
 
-      final turnId = await sdkTurns.startTurn(session.id, const []);
-      await worker.turnInvoked;
-      worker.completeSuccess();
-
-      expect((await sdkTurns.waitForOutcome(session.id, turnId)).status, TurnStatus.completed);
-      expect(worker.turnCalls, 1);
+      await expectLater(sdkTurns.startTurn(session.id, const []), throwsStateError);
+      expect(worker.turnCalls, 0);
     });
 
     test('SDK single-harness mode fails closed for logical-agent sessions', () async {

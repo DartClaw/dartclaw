@@ -272,21 +272,21 @@
         <section class="memory-dashboard-section" aria-labelledby="memory-files-title">
         <h2 id="memory-files-title" class="section-title">Memory Files</h2>
         <div class="card" id="memory-files-card">
-          <div class="tabs" role="tablist">
-            <button class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory">MEMORY.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors">errors.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings">learnings.md</button>
-            <button class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive">Archive</button>
+          <div class="tabs" role="tablist" aria-label="Memory files" data-action="keydown->dc-memory#navigateTabs">
+            <button type="button" id="memory-file-tab-memory" class="tab t-label active" data-action="click->dc-memory#switchTab" data-tab="tab-memory" role="tab" aria-selected="true" aria-controls="tab-memory" tabindex="0">MEMORY.md</button>
+            <button type="button" id="memory-file-tab-errors" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-errors" role="tab" aria-selected="false" aria-controls="tab-errors" tabindex="-1">errors.md</button>
+            <button type="button" id="memory-file-tab-learnings" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-learnings" role="tab" aria-selected="false" aria-controls="tab-learnings" tabindex="-1">learnings.md</button>
+            <button type="button" id="memory-file-tab-archive" class="tab t-label" data-action="click->dc-memory#switchTab" data-tab="tab-archive" role="tab" aria-selected="false" aria-controls="tab-archive" tabindex="-1">Archive</button>
             <div class="tabs-actions">
-              <div class="toggle-btn-group">
-                <button class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw">Raw</button>
-                <button class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered">Rendered</button>
+              <div class="toggle-btn-group" role="group" aria-label="Preview mode">
+                <button type="button" class="toggle-btn active" data-action="click->dc-memory#toggleView" data-mode="raw" aria-pressed="true">Raw</button>
+                <button type="button" class="toggle-btn" data-action="click->dc-memory#toggleView" data-mode="rendered" aria-pressed="false">Rendered</button>
               </div>
             </div>
           </div>
 
           <!-- Tab: MEMORY.md -->
-          <div class="tab-panel active" id="tab-memory" role="tabpanel">
+          <div class="tab-panel active" id="tab-memory" role="tabpanel" aria-labelledby="memory-file-tab-memory">
             <div class="tab-meta">
               <!-- Entry count and file size are Overview tiles. This card sits
                    outside the 30s poll so the reader's tab and loaded preview
@@ -329,7 +329,7 @@
           </div>
 
           <!-- Tab: errors.md -->
-          <div class="tab-panel" id="tab-errors" role="tabpanel">
+          <div class="tab-panel" id="tab-errors" role="tabpanel" aria-labelledby="memory-file-tab-errors">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
@@ -340,7 +340,7 @@
           </div>
 
           <!-- Tab: learnings.md -->
-          <div class="tab-panel" id="tab-learnings" role="tabpanel">
+          <div class="tab-panel" id="tab-learnings" role="tabpanel" aria-labelledby="memory-file-tab-learnings">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>
@@ -351,7 +351,7 @@
           </div>
 
           <!-- Tab: Archive -->
-          <div class="tab-panel" id="tab-archive" role="tabpanel">
+          <div class="tab-panel" id="tab-archive" role="tabpanel" aria-labelledby="memory-file-tab-archive">
             <div class="tab-meta">
               <div class="tab-meta-item">
                 <span class="tab-meta-label">Size</span>

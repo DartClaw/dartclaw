@@ -1775,9 +1775,6 @@ void main() {
     }
 
     test('holds one container for the whole step, reused across turns, released once (success)', () async {
-      // Two turns (main + follow-up). Pre-fix leased a fresh authority per turn
-      // and destroyed the session substrate between them, so the resume on turn
-      // 2 targeted state that no longer existed.
       final acquires = <Set<String>>[];
       final releases = <String>[];
       final execCommands = <List<String>>[];
@@ -1793,12 +1790,10 @@ void main() {
       );
       final executor = buildExecutor(workflowCliRunner: cliRunner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-step-lifetime', runId: 'wf-step-lifetime', followUpPrompts: ['second turn']);
       await executor.pollOnce();
       await executor.drain();
       await waitForTaskStatus(tasks, 'task-step-lifetime', until: const {TaskStatus.review});
-
       expect(
         acquires,
         hasLength(1),
@@ -1817,12 +1812,10 @@ void main() {
       final runner = _LifecycleRunner();
       final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-reuse-lease', runId: 'wf-reuse-lease', followUpPrompts: ['second turn']);
       await executor.pollOnce();
       await executor.drain();
       await waitForTaskStatus(tasks, 'task-reuse-lease', until: const {TaskStatus.review});
-
       expect(runner.leaseCount, 1, reason: 'execute leases exactly one authority — pre-fix never leased at step scope');
       expect(runner.turnCount, greaterThanOrEqualTo(2));
       expect(runner.observedStepContainers, everyElement(isNotNull), reason: 'every turn received the step container');
@@ -1834,12 +1827,10 @@ void main() {
       final runner = _LifecycleRunner(turnBehavior: _TurnBehavior.fail);
       final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-fail-lease', runId: 'wf-fail-lease');
       await executor.pollOnce();
       await executor.drain();
       await waitForTaskStatus(tasks, 'task-fail-lease', until: const {TaskStatus.failed});
-
       expect(runner.leaseCount, 1);
       expect(runner.releaseCount, 1, reason: 'the lease is released on the failure path, not leaked');
     });
@@ -1848,26 +1839,35 @@ void main() {
       final runner = _LifecycleRunner(turnBehavior: _TurnBehavior.cancel);
       final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-cancel-lease', runId: 'wf-cancel-lease');
       await executor.pollOnce();
       await executor.drain();
       await waitForTaskStatus(tasks, 'task-cancel-lease', until: const {TaskStatus.cancelled});
-
       expect(runner.leaseCount, 1);
       expect(runner.releaseCount, 1, reason: 'the lease is released on the cancel path, not leaked');
+    });
+
+    test('quarantines workflow capacity when container destruction is unconfirmed', () async {
+      final runner = _LifecycleRunner(throwOnRelease: true);
+      final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
+      addTearDown(executor.stop);
+      await createStepTask('task-destroy-failure', runId: 'wf-destroy-failure');
+      await executor.pollOnce();
+      await executor.drain();
+      await waitForTaskStatus(tasks, 'task-destroy-failure', until: const {TaskStatus.failed});
+      expect(runner.releaseCount, 1);
+      expect(workflowTurns.executions.snapshot.providers['claude']?.quarantined, 1);
+      expect(workflowTurns.executions.snapshot.providers['claude']?.effective, 0);
     });
 
     test('fails the step closed when the container authority cannot be acquired', () async {
       final runner = _LifecycleRunner(throwOnLease: true);
       final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-closed', runId: 'wf-closed');
       await executor.pollOnce();
       await executor.drain();
       await waitForTaskStatus(tasks, 'task-closed', until: const {TaskStatus.failed});
-
       expect(runner.turnCount, 0, reason: 'a lease-acquire failure never falls back to host execution');
       expect(runner.releaseCount, 0, reason: 'nothing was leased, so nothing is released');
     });
@@ -1876,7 +1876,6 @@ void main() {
       final runner = _LifecycleRunner();
       final executor = buildExecutor(workflowCliRunner: runner, policyResolver: containerPolicyResolver());
       addTearDown(executor.stop);
-
       await createStepTask('task-share-a', runId: 'wf-share-a');
       await createStepTask('task-share-b', runId: 'wf-share-b');
       for (var i = 0; i < 4; i++) {
@@ -1885,7 +1884,6 @@ void main() {
       }
       await waitForTaskStatus(tasks, 'task-share-a', until: const {TaskStatus.review});
       await waitForTaskStatus(tasks, 'task-share-b', until: const {TaskStatus.review});
-
       expect(runner.leaseCount, 2);
       expect(runner.leases.toSet(), hasLength(2), reason: 'each step leases its own authority — never a shared one');
       expect(runner.releaseCount, 2);
@@ -1893,15 +1891,13 @@ void main() {
   });
 }
 
-/// A [WorkflowCliRunner] that counts step-container leases/releases and records
-/// the lease each turn received, so the one-authority-per-step lifetime can be
-/// asserted without Docker. Simulates the turn outcome deterministically.
 final class _LifecycleRunner extends WorkflowCliRunner {
-  _LifecycleRunner({this.turnBehavior = _TurnBehavior.succeed, this.throwOnLease = false})
+  _LifecycleRunner({this.turnBehavior = _TurnBehavior.succeed, this.throwOnLease = false, this.throwOnRelease = false})
     : super(providers: const {'claude': WorkflowCliProviderConfig(executable: 'claude')});
 
   final _TurnBehavior turnBehavior;
   final bool throwOnLease;
+  final bool throwOnRelease;
   final List<ContainerAuthorityLease> leases = [];
   final List<ContainerAuthorityLease?> observedStepContainers = [];
   int releaseCount = 0;
@@ -1920,7 +1916,10 @@ final class _LifecycleRunner extends WorkflowCliRunner {
   }) async {
     if (throwOnLease) throw StateError('container authority acquire failed');
     if (!policy.isContainer) return null;
-    final lease = _CountingLease(() => releaseCount++);
+    final lease = _CountingLease(() {
+      releaseCount++;
+      if (throwOnRelease) throw StateError('docker rm -f failed');
+    });
     leases.add(lease);
     return lease;
   }

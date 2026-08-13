@@ -160,7 +160,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stdout', contains('auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('event=error'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
       expect(process.killCalled, isTrue);
@@ -218,7 +219,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stdout', contains('auth failed')),
+              .having((error) => error.toString(), 'diagnostic', contains('event=error'))
+              .having((error) => error.toString(), 'request body', isNot(contains('auth failed'))),
         ),
       );
     });
@@ -250,7 +252,8 @@ void main() {
         throwsA(
           isA<StateError>()
               .having((error) => error.toString(), 'message', contains('Workflow one-shot codex command failed'))
-              .having((error) => error.toString(), 'stderr', contains('sandbox denied')),
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'provider stderr', isNot(contains('sandbox denied'))),
         ),
       );
     });
@@ -305,7 +308,11 @@ void main() {
 
       await expectLater(
         turn,
-        throwsA(isA<StateError>().having((error) => error.toString(), 'stderr', contains('fatal:'))),
+        throwsA(
+          isA<StateError>()
+              .having((error) => error.toString(), 'diagnostic', contains('provider stderr reported failure details'))
+              .having((error) => error.toString(), 'provider stderr', isNot(contains('fatal:'))),
+        ),
       );
     });
 
@@ -594,7 +601,8 @@ void main() {
           isA<StateError>().having(
             (error) => error.toString(),
             'message',
-            'Bad state: Workflow one-shot codex command failed with exit code 17: codex crashed',
+            'Bad state: Workflow one-shot codex command failed with exit code 17: '
+                'provider stderr reported failure details',
           ),
         ),
       );

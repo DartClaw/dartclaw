@@ -293,6 +293,9 @@ void main() {
     File(p.join(config.workspaceDir, 'MEMORY.md'))
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('- [2026-08-10 10:00] Canonical remains readable\n');
+    File(p.join(config.workspaceDir, 'wiki', 'recovery.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('Native recovery source survives');
     final health = IndexHealthStore(workspaceDir: config.workspaceDir);
     final wiring = StorageWiring(
       config: config,
@@ -322,6 +325,11 @@ void main() {
       IndexHealthState.degraded,
     );
     expect(() => wiring.memory.search('Canonical'), throwsA(isA<SqliteException>()));
+    final search = await wiring.searchBackend.search('recovery');
+    expect(search.map((result) => result.locator), ['wiki/recovery.md']);
+    expect(search.canonicalRevision, snapshot.collectionRevision);
+    expect(search.degradedLayers, ['memory']);
+    expect(search.degradations.single.reason, 'indexNotCurrent');
     await wiring.dispose();
   });
 

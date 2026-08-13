@@ -90,12 +90,12 @@
     },
     {
       "title": "Execution-scoped bridge authority",
-    "description": "Every live container authority owns one container/process namespace, harness lifetime, generated state, and provider/MCP pipe set. Container harnesses never enter the reusable worker cache; release confirms process termination, revokes the pipes/authority, removes generated state, and destroys the container. Reusable provider credentials remain host-only.",
-    "stories": [
-      "S01",
-      "S02",
-      "S03",
-      "S04"
+      "description": "Every live container authority owns one container/process namespace, harness lifetime, generated state, and provider/MCP pipe set. A logical-agent runner may be parked only for its exact standing owner while that same authority remains live; no container runner is reusable across principals or after authority release. Release confirms process termination, revokes the pipes/authority, removes generated state, and destroys the container. Reusable provider credentials remain host-only.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04"
       ]
     },
     {
@@ -137,7 +137,7 @@
     {
       "featureId": "FR2",
       "anchor": "prd.md#fr2-enforced-multi-harness-isolation",
-      "verbatim": "Every live container authority owns one container/process namespace, harness lifetime, bridge pipe set, and generated state; container harnesses are disposed rather than cached across authority release."
+      "verbatim": "Every live container authority owns one container/process namespace, harness lifetime, bridge pipe set, and generated state; an exact logical-agent owner may retain that live authority between its turns, but release disposes it and no container harness is reused across principals."
     },
     {
       "featureId": "FR4",
@@ -162,7 +162,7 @@
       "status": "done",
       "fis": "s01-effective-execution-policy.md",
       "owner": null,
-      "scope": "Add restart-time host/container selection for the primary and logical agents plus identityless task-type fallbacks; resolve one validated policy shared by task, workflow, crash and scheduling paths; separate container profile from execution mode in worker identity, preserve host caching, make each container authority own a non-cached container harness, and amend ADR-012 before gateway work.",
+      "scope": "Add restart-time host/container selection for the primary and logical agents plus identityless task-type fallbacks; resolve one validated policy shared by task, workflow, crash and scheduling paths; separate container profile from execution mode in worker identity, preserve host caching and exact-owner logical-agent continuity, forbid cross-principal container reuse, and amend ADR-012 before gateway work.",
       "sourceRefs": [
         "FR1",
         "FR2",

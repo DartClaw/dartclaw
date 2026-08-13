@@ -692,7 +692,7 @@ These tools are available to the agent during conversations. They're exposed via
 | `memory_apply` | `expectedRevision`, nonempty `operations` array | Atomically add, revise, merge, or remove curated personal entries. Every operation supplies a unique `correlationId`; revise/merge/remove use entry revisions. |
 | `memory_observe` | `text`, `role` (`observation` or `learning`) | Capture non-authoritative observations or bounded runtime learnings. |
 | `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search canonical memory and sourced knowledge using the configured backend's natural-language query path. Non-integer or out-of-range limits are rejected. Returns ranked results with explicit degraded-layer metadata. |
-| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical source using a stable search locator or topic selector. |
+| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical record or reopen a native wiki, knowledge-graph, knowledge-inbox, or eligible QMD search locator through its source owner. `role` + `topic` addresses canonical topic-bearing roles only. |
 
 `memory_apply` is personal-memory-only and uses the collection revision returned by canonical reads/search results. A valid changed request commits once; an exact no-op does not advance revision. Results report canonical and derived-index outcomes separately. Removal audit records contain the entry ID, time, host provenance, and the caller's unfiltered verbatim reason. The host never copies entry content into the record, though the caller's reason may independently quote it.
 

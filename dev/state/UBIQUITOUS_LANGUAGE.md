@@ -44,7 +44,7 @@
 | Cursor | Line number in NDJSON file used as crash recovery resume point. `lastCursor` tracks position | offset, checkpoint, position | Crash recovery |
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write | Storage |
 | Canonical Memory Entry | Stable UUID-addressed record with revision, role, provenance, and validated Markdown representation | memory chunk, indexed text | Memory system |
-| Memory Locator | Stable canonical entry UUID, or a native source locator for wiki/KG results; accepted by `memory_read` | generic source, row ID | Memory system |
+| Memory Locator | Stable canonical entry UUID, or a native source locator for wiki, KG, knowledge-inbox, or eligible QMD results; accepted by `memory_read` and reopened through the source owner | generic source, row ID | Memory system |
 | Search Index | Rebuildable FTS5 projection of canonical topic, archive, observation, and learning entries. QMD Markdown search is opt-in; audit entries are never indexed | source of truth, search database | Search |
 | Database Backend | Pluggable database engine behind the storage layer (`DatabaseBackend`: `SqliteBackend` default, `PostgresBackend` opt-in; ADR-045). Always qualified as *database* backend — bare "backend" is a disfavored synonym for Provider (LLM) in the Configuration context | engine, database provider | Storage |
 | Full-Text Index | `FullTextIndex` abstraction over backend-native FTS (FTS5 `bm25()` / PostgreSQL `tsvector`). Search, upsert, and delete all carry the tenancy (`user_id`) dimension – the multi-user isolation mechanism (ADR-045) | FTS layer, search abstraction | Storage |

@@ -279,6 +279,7 @@ void main() {
   test('search exposes selected-backend degradation without dropping healthy results', () async {
     final backend = _RecordingBackend()
       ..results = const [MemorySearchResult(text: 'Falcon survives', source: 'native', score: 0)]
+      ..canonicalRevision = 91
       ..degradedLayers = const ['qmd']
       ..degradations = const [
         MemorySearchDegradation(
@@ -298,6 +299,7 @@ void main() {
 
     final response = _json(await handlers.onSearch({'query': 'Falcon'}));
 
+    expect(response['collectionRevision'], 91);
     expect(response['degradedLayers'], ['qmd']);
     expect(response['degradations'], [
       {
@@ -381,6 +383,58 @@ Falcon wiki detail
     expect(native.containsKey('entryId'), isFalse);
   });
 
+  test('read reopens native KG and inbox locators through their source owners', () async {
+    final kg = TemporalKnowledgeGraphService(db);
+    final factId = kg.addFact(
+      entity: 'Falcon',
+      predicate: 'status',
+      value: 'green',
+      validFrom: '2026-08-12T00:00:00Z',
+      source: 'wiki/falcon.md',
+    );
+    final otherFactId = kg.addFact(
+      entity: 'Private Falcon',
+      predicate: 'status',
+      value: 'hidden',
+      validFrom: '2026-08-12T00:00:00Z',
+      source: 'wiki/private.md',
+      owner: 'other',
+    );
+    Directory('${workspace.path}/inbox').createSync();
+    File('${workspace.path}/inbox/note.md').writeAsStringSync('Native inbox detail');
+    handlers = createMemoryHandlers(
+      memory: memory,
+      memoryFile: memoryFile,
+      corpusService: corpus,
+      searchBackend: _AlwaysResolvingBackend(search),
+      nativeSourceResolver: LiveMemorySourceResolver(
+        wiki: WikiSearchSource(workspaceDir: workspace.path),
+        kg: kg,
+        inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),
+      ),
+    );
+
+    final fact = _json(await handlers.onRead({'locator': '$factId'}));
+    final inbox = _json(await handlers.onRead({'locator': 'inbox/note.md'}));
+
+    expect((fact['results'] as List).single, {
+      'role': 'kg',
+      'provenance': 'wiki/falcon.md',
+      'locator': '$factId',
+      'content': 'falcon status green',
+    });
+    expect((inbox['results'] as List).single, {
+      'role': 'knowledge-inbox',
+      'provenance': 'inbox/note.md',
+      'locator': 'inbox/note.md',
+      'content': 'Native inbox detail',
+    });
+    expect(_json(await handlers.onRead({'locator': '99999'}))['results'], isEmpty);
+    expect(_json(await handlers.onRead({'locator': '$otherFactId'}))['results'], isEmpty);
+    await expectLater(handlers.onRead({'locator': '0'}), throwsA(isA<ArgumentError>()));
+    await expectLater(handlers.onRead({'locator': 'inbox/../note.md'}), throwsA(isA<ArgumentError>()));
+  });
+
   test('memory_read follows canonical QMD search locators and rejects files outside the index mask', () async {
     Directory('${workspace.path}/inbox').createSync();
     File('${workspace.path}/inbox/note one.md').writeAsStringSync('QMD inbox detail');
@@ -415,7 +469,15 @@ Falcon wiki detail
 
     expect(response['results'], hasLength(1));
     await expectLater(handlers.onRead({'role': 'observation', 'topic': 'falcon'}), throwsA(isA<ArgumentError>()));
-    expect(_json(await handlers.onRead({'locator': const Uuid().v4()}))['results'], isEmpty);
+    final staleLocator = const Uuid().v4();
+    db.execute('INSERT INTO memory_chunks (text, source, created_at, user_id, locator) VALUES (?, ?, ?, ?, ?)', [
+      'Stale derived content',
+      staleLocator,
+      DateTime(2026).toIso8601String(),
+      'owner',
+      staleLocator,
+    ]);
+    expect(_json(await handlers.onRead({'locator': staleLocator}))['results'], isEmpty);
     expect(_json(await handlers.onRead({'locator': 'wiki/missing.md'}))['results'], isEmpty);
     await expectLater(handlers.onRead({'locator': 'not-a-locator'}), throwsA(isA<ArgumentError>()));
     await expectLater(handlers.onRead({'locator': '../../secret'}), throwsA(isA<ArgumentError>()));
@@ -530,6 +592,7 @@ final class _RecordingBackend implements SearchBackend {
   List<MemorySearchResult> results = const [];
   List<String> degradedLayers = const [];
   List<MemorySearchDegradation> degradations = const [];
+  int? canonicalRevision;
 
   @override
   Future<MemorySearchOutcome> search(
@@ -539,7 +602,12 @@ final class _RecordingBackend implements SearchBackend {
     Set<SearchResultLayer>? layers,
   }) async {
     queries.add(query);
-    return MemorySearchOutcome(results: results, degradedLayers: degradedLayers, degradations: degradations);
+    return MemorySearchOutcome(
+      results: results,
+      degradedLayers: degradedLayers,
+      degradations: degradations,
+      canonicalRevision: canonicalRevision,
+    );
   }
 
   @override
@@ -560,6 +628,27 @@ final class _IndexFailingBackend implements SearchBackend {
   @override
   Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) =>
       delegate.resolve(locator, userId: userId);
+
+  @override
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) => delegate.search(query, limit: limit, userId: userId, layers: layers);
+}
+
+final class _AlwaysResolvingBackend implements SearchBackend {
+  const _AlwaysResolvingBackend(this.delegate);
+
+  final SearchBackend delegate;
+
+  @override
+  Future<void> indexAfterWrite() => delegate.indexAfterWrite();
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async =>
+      MemorySearchResult(text: 'stale derived result', source: locator, score: 0, locator: locator);
 
   @override
   Future<MemorySearchOutcome> search(

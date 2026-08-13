@@ -5,7 +5,7 @@ import 'package:dartclaw_config/dartclaw_config.dart'
     show CredentialRegistry, DartclawConfig, ProviderEntry, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show ArtifactKind, EventBus, HarnessFactory, KvService, MessageService, ProviderExecutionInventory, SessionService;
-import 'package:dartclaw_security/dartclaw_security.dart' show SafeProcess, normalizeGitRefOperand;
+import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor, SafeProcess, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
         AssetResolver,
@@ -421,6 +421,7 @@ class CliWorkflowWiring {
         providerIds: providerEntries.keys,
         acpProviderIds: config.harness.acp.agents.keys.toSet(),
       ),
+      diagnosticRedactor: MessageRedactor(extraPatterns: config.logging.redactPatterns),
       eventBus: eventBus,
       processStarter: workflowCliProcessStarter,
     );

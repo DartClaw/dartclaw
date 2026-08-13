@@ -935,7 +935,7 @@ The bearer header is omitted only for an authentication-disabled loopback deploy
 | `memory_apply` | `MemoryApplyTool` | always | Atomically curate personal memory with collection CAS |
 | `memory_observe` | `MemoryObserveTool` | always | Capture observations or bounded learnings |
 | `memory_search` | `MemorySearchTool` | always | Natural-language search over canonical entries and native wiki sources |
-| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, with collection revision |
+| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, or reopen native wiki/KG/inbox/QMD locators through their source owners |
 | `kg_add` | `KgAddTool` | always | Add a source-linked temporal fact to the knowledge graph |
 | `kg_query` | `KgQueryTool` | always | Query temporal knowledge-graph facts by entity/predicate (+ optional `as_of`) |
 | `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |
@@ -1106,21 +1106,21 @@ The coordinator returns an idempotent `ExecutionLease`. The lease is released ex
 
 Harness-construction inputs are fixed for a coordinator's lifetime. Within that boundary, normalized provider ID and the complete effective execution policy identify compatible workers; callers submit those two facts directly rather than constructing a second configuration identity. The cache lookup order is:
 
-1. healthy exact-session host worker for the requested provider and policy;
-2. any healthy host worker with the same provider and identical effective execution policy (container workers are never cached);
+1. healthy exact-session worker for the requested provider and policy; a container worker additionally requires the exact logical-agent principal;
+2. any healthy host worker with the same provider and identical effective execution policy;
 3. create a fresh worker through provider wiring.
 
 Compatibility is the explicit provider plus execution-policy match within the immutable composition — a host worker and a container worker are never interchangeable, and neither are container workers built from different profiles. A mismatch or unknown health means fresh creation. The cache is opportunistic and has no size, TTL, prewarm, or reuse-policy configuration.
 
 ### Release, replacement, and quarantine
 
-An idle healthy released *host* worker may return to the cache; a container worker never does. Any other worker is stopped and disposed. Replacement is permitted only after the harness confirms teardown of its managed root process. If termination cannot be confirmed, the capacity permit is quarantined: effective provider capacity decreases and DartClaw does not spawn an overlapping replacement. Cached excess is scavenged with the same rule.
+An idle healthy released host worker may return to the compatible-worker cache. A logical-agent container worker may be retained only for its exact session/agent principal; task containers are stopped and disposed at release. Replacement is permitted only after the harness confirms teardown of its managed root process. If termination cannot be confirmed, the capacity permit is quarantined: effective provider capacity decreases and DartClaw does not spawn an overlapping replacement. Cached excess is scavenged with the same rule.
 
-Each live container authority owns a dedicated container (ADR-012, 2026-08-11 amendment). It is created when the authority is admitted and destroyed on release, after confirmed root-process termination and authority revocation, before capacity is returned. A container owns neither conversation continuity nor execution admission.
+Each live container authority owns a dedicated container. A standing logical-agent owner's authority spans its turns and ends on discard, eviction, or shutdown; a task authority ends with the turn; a workflow authority spans its step. Destruction follows confirmed root-process termination and authority revocation. A container never crosses principals, and active execution admission remains lease-owned.
 
 ### SDK single-harness compatibility
 
-An SDK composition that provides only one harness may serialize ordinary background tasks on that harness when no multi-worker coordinator is present. This is a compatibility exception, not a server routing mode. Logical-agent sessions and production server worker surfaces do not fall back to the primary-interactive lane.
+An SDK composition that provides only one harness may serialize ordinary background tasks on that harness when no multi-worker coordinator is present, but only when the request already matches that harness's provider and effective policy. A mismatch fails closed rather than rewriting resolved placement. This is a compatibility exception, not a server routing mode. Logical-agent sessions and production server worker surfaces do not fall back to the primary-interactive lane.
 
 ---
 

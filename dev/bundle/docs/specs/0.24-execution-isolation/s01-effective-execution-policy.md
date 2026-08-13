@@ -45,12 +45,12 @@
   - **When** the primary agent, `coder`, an inheriting logical agent, a coding task, and a research task request execution
   - **Then** `coder` and the coding task resolve to host with no container profile while the primary, inheriting agent, and research task resolve to container with their applicable profiles
 
-- [x] **S03 [OC02] [TI02,TI03,TI04] Host and container workers are never interchangeable**
+- [x] **S03 [OC02] [TI02,TI03,TI04] Host and container workers are never interchangeable or shared across principals**
   - **Given** two logical agents use the same provider but one resolves to host and the other to the restricted container profile
   - **When** both acquire, release, and reacquire worker capacity
   - **Then** they never reuse each other's worker and each runner reports its real execution mode and container profile, with the host profile absent
-  - **And** the released container runner is terminated and destroyed rather than cached, while compatible host-runner
-    caching remains unchanged
+  - **And** each logical-agent container is retained only for that exact session/agent owner across its turns and destroyed
+    when the owner ends, while compatible host-runner caching remains unchanged
 
 - [x] **S04 [OC02] [TI02,TI03,TI05] Background entry points apply the same task-type policy**
   - **Given** the coding task-type fallback is host and the deployment default is container
@@ -71,14 +71,14 @@
   - **Given** one Claude request resolves to restricted container execution and a later request resolves to workspace
     container execution
   - **When** each request is admitted and released
-  - **Then** each receives its own dedicated container built from only its resolved profile, neither runner enters the
-    cache, and the workspace request cannot reuse the restricted container, manager, mounts, or generated state
+  - **Then** each receives its own dedicated container built from only its resolved profile, neither can reuse the other's
+    authority, and the workspace request cannot reuse the restricted container, manager, mounts, or generated state
 
 ## Structural Criteria
 
 - [x] `providers.<id>.pool_size` remains the only worker-capacity limit, and the fixed primary lane remains outside it.
 - [x] Host harness caching remains available, but every live container authority owns a dedicated container/process
-      namespace and harness; container harnesses never enter the reusable worker cache and are destroyed on release.
+      namespace and harness; a logical-agent container may persist only for its exact owner until discard, eviction, or shutdown.
 - [x] Identityless task fallback uses the existing `TaskType`; no task-schema or logical-agent-identity migration is introduced.
 - [x] Execution-boundary configuration is restart-required and does not enter hot-reload handling.
 
@@ -107,8 +107,8 @@
 
 **Approach**: Resolve an immutable effective policy containing `host` or `container` plus a profile only for container mode,
 validate it before admission, and carry it unchanged through sessions, execution requests, runners, caches, and diagnostics.
-Host runners may retain compatible reuse. A container runner owns one authority-specific container and is disposed, revoked,
-cleaned, and destroyed on release rather than cached.
+Host runners may retain compatible reuse. A logical-agent container is retained only for its exact session/agent owner and
+is disposed, revoked, cleaned, and destroyed when that owner ends; task and workflow owner lifetimes remain turn and step.
 **Why this over alternatives**: A complete policy value makes host/container placement explicit and prevents a nullable container manager or profile label from silently deciding execution; provider-specific validation can extend the same seam in S03–S04.
 
 ## Technical Overview
@@ -148,8 +148,9 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
 - **Constraint**: Resolution and validation must be shared by all entry points – no caller may reconstruct policy from `containerManager != null` or duplicate precedence locally.
 - **Constraint**: Provider/platform constraints run after operator-policy resolution and reject conflicts; they must never weaken, strengthen, or substitute the resolved boundary.
 - **Critical**: Missing/unknown container state must fail closed – a null manager is valid only for an already-validated host policy.
-- **Critical**: Container runners must never enter the reusable cache – sibling or later harnesses cannot share the PID,
-  network, temp-file, generated-home, or bridge state of a live/released authority.
+- **Critical**: Container runners are never reusable across principals or after authority release. A logical-agent runner
+  may be parked only for its exact standing owner while the same authority remains live; sibling or later owners cannot
+  share its PID, network, temp-file, generated-home, or bridge state.
 - **Assumption**: Because upstream sources specify behavior but not YAML spelling, use the minimal co-located paths named in Technical Overview; changing those paths is a product-contract amendment, not an executor convenience.
 
 ## Implementation Plan
@@ -165,13 +166,13 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
   - **Verify**: A table-driven resolver matrix proves all precedence branches, container-enabled/disabled defaults, profile invariants, and fail-closed unavailable-container cases from S01, S02, and S05.
 
 - [x] **TI03** Allocation identity and observability distinguish host from container/profile
-  - Carry TI02's policy through `ExecutionRequest`, runner contracts, cache matching, events, snapshots, and `RunnerMetrics`;
-    keep compatible host reuse, but make container release perform confirmed termination, invocation of a release-hook
-    seam (no-op default in this story; S02 registers pipe/authority revocation into it), container destruction, and
-    capacity return without entering `_cached`.
-  - **Verify**: Coordinator/observer tests prove host and container workers never cross-reuse, container runners are never
-    cached, workspace/restricted non-mixing remains green, cleanup precedes capacity return, diagnostics expose mode plus
-    nullable profile, and provider/primary capacity totals are unchanged.
+  - Carry TI02's policy through `ExecutionRequest`, runner contracts, owner-bound cache matching, events, snapshots, and
+    `RunnerMetrics`; keep compatible host reuse, retain logical-agent containers only for the exact session/agent principal,
+    and make authority end perform confirmed termination, invocation of a release-hook seam (no-op default in this story;
+    S02 registers pipe/authority revocation into it), container destruction, and safe capacity accounting.
+  - **Verify**: Coordinator/observer tests prove host and container workers never cross-reuse, logical-agent containers
+    persist only for their exact owner, task containers do not persist, workspace/restricted non-mixing remains green,
+    cleanup precedes replacement, diagnostics expose mode plus nullable profile, and capacity totals remain correct.
 
 - [x] **TI04** Primary and logical-agent lifecycles honor their effective policy across reconstruction
   - Use TI02 in `HarnessWiring`, persist the complete resolved routing needed by logical-agent sessions, and make
@@ -181,7 +182,7 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
     without profile; a pinned non-`workspace` profile without containers fails closed at resume with the agent-level
     diagnostic and remediation. The derived mode persists forward; a missing mode field alone is never a rejection.
   - **Verify**: Wiring and session-restart tests prove inheritance/override behavior, mixed same-provider boundaries,
-    persisted continuation through a fresh container harness, no shared live namespace, pre-turn failure when a
+    persisted continuation through the same owner-bound container harness, no shared live namespace, pre-turn failure when a
     dedicated container cannot be created, and ACP worker construction consuming the shared resolver rather than a
     local profile mapping.
 
@@ -196,7 +197,7 @@ file | dev/adrs/012-per-type-container-isolation.md#decision | Amend shared prof
 - [x] **TI07** ADR-012 records authority-owned container lifecycle before gateway implementation
   - Amend ADR-012 (status becomes Accepted, with explicit lineage) and `dev/state/DECISIONS.md` so profiles remain
     filesystem/capability templates, while each live container authority receives a dedicated container/harness and no
-    container runner is cached across release; amend the matching cross-lease amortization statements in
+    container runner is reusable across principals or after release; amend the matching cross-lease amortization statements in
     `dev/architecture/security-architecture.md`, `dev/architecture/task-execution-architecture.md`, and
     `dev/architecture/configuration-architecture.md` in the same change, leaving full documentation synchronization to S04.
   - **Verify**: ADR status/lineage and reference scans reject the superseded shared per-profile runtime-container claim
@@ -362,15 +363,26 @@ Evidence: Re-check found no TI04 coverage for the conversion.
 
 Old:
 ```
-    persisted continuation through a fresh container harness, no shared live namespace, and pre-turn failure when a
+    persisted continuation through the same owner-bound container harness, no shared live namespace, and pre-turn failure when a
     dedicated container cannot be created.
 ```
 New:
 ```
-    persisted continuation through a fresh container harness, no shared live namespace, pre-turn failure when a
+    persisted continuation through the same owner-bound container harness, no shared live namespace, pre-turn failure when a
     dedicated container cannot be created, and ACP worker construction consuming the shared resolver rather than a
     local profile mapping.
 ```
+
+#### DECISION NOTE: owner-bound-logical-agent-container-lifetime
+Decision-Key: owner-bound-logical-agent-container-lifetime
+Altitude: prd
+Affected surface: S03; TI03; TI04; architecture references
+Decision: A logical-agent session is a standing execution owner. Its dedicated container persists across that owner's turns,
+is never reused by another principal, and is destroyed on discard, eviction, or shutdown. Task and workflow owner lifetimes
+remain turn and step respectively.
+Rationale: Re-creating the container per turn destroys provider-native continuation state and contradicts the ratified
+per-owner lifetime model.
+Evidence: `prd.md` amendment dated 2026-08-13 and `0.24-execution-isolation-remediation-decisions.md` decided model.
 
 ### Run: 2026-08-11 20:01 UTC – observations
 

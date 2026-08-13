@@ -55,43 +55,39 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test(
-    'the review agent shell resolves \$DARTCLAW_STEP_ARTIFACTS_DIR from the spawn env',
-    () async {
-      if (!codexReady) {
-        markTestSkipped('codex binary not available – run with Codex CLI installed');
-        return;
-      }
+  test('the review agent shell resolves \$DARTCLAW_STEP_ARTIFACTS_DIR from the spawn env', () async {
+    if (!codexReady) {
+      markTestSkipped('codex binary not available – run with Codex CLI installed');
+      return;
+    }
 
-      // A path that does not yet exist; only a real shell expansion of the
-      // exported var can create it at exactly this absolute location (an unset
-      // var would `mkdir -p ""` → nothing created here).
-      final stepArtifactsDir = p.join(tempDir.path, 'runtime-artifacts', 'steps', 'review');
-      expect(Directory(stepArtifactsDir).existsSync(), isFalse, reason: 'precondition: dir must not pre-exist');
+    // A path that does not yet exist; only a real shell expansion of the
+    // exported var can create it at exactly this absolute location (an unset
+    // var would `mkdir -p ""` → nothing created here).
+    final stepArtifactsDir = p.join(tempDir.path, 'runtime-artifacts', 'steps', 'review');
+    expect(Directory(stepArtifactsDir).existsSync(), isFalse, reason: 'precondition: dir must not pre-exist');
 
-      final turnResult = await runner.executeTurn(
-        provider: 'codex',
-        prompt:
-            'Run exactly this one shell command, then stop and report its output:\n'
-            '  mkdir -p "\$DARTCLAW_STEP_ARTIFACTS_DIR" && echo "\$DARTCLAW_STEP_ARTIFACTS_DIR"\n'
-            'Do not create any other directory.',
-        workingDirectory: tempDir.path,
-        policy: const ExecutionPolicy.host(),
-        stepTimeout: const Duration(minutes: 2),
-        stepName: 'step-artifacts-env-canary',
-        extraEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir},
-      );
+    final turnResult = await runner.executeTurn(
+      provider: 'codex',
+      prompt:
+          'Run exactly this one shell command, then stop and report its output:\n'
+          '  mkdir -p "\$DARTCLAW_STEP_ARTIFACTS_DIR" && echo "\$DARTCLAW_STEP_ARTIFACTS_DIR"\n'
+          'Do not create any other directory.',
+      workingDirectory: tempDir.path,
+      policy: const ExecutionPolicy.host(),
+      stepTimeout: const Duration(minutes: 2),
+      stepName: 'step-artifacts-env-canary',
+      extraEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir},
+    );
 
-      expect(
-        Directory(stepArtifactsDir).existsSync(),
-        isTrue,
-        reason:
-            'Expected the agent shell to expand \$DARTCLAW_STEP_ARTIFACTS_DIR to $stepArtifactsDir '
-            '(proving the var was exported, not just present in prompt text). '
-            'Response: ${turnResult.responseText}',
-      );
-      expect(turnResult.responseText, contains(stepArtifactsDir));
-    },
-    timeout: const Timeout(Duration(minutes: 3)),
-  );
+    expect(
+      Directory(stepArtifactsDir).existsSync(),
+      isTrue,
+      reason:
+          'Expected the agent shell to expand \$DARTCLAW_STEP_ARTIFACTS_DIR to $stepArtifactsDir '
+          '(proving the var was exported, not just present in prompt text). '
+          'Response: ${turnResult.responseText}',
+    );
+    expect(turnResult.responseText, contains(stepArtifactsDir));
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }

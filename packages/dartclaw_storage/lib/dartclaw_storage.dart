@@ -31,7 +31,7 @@ export 'src/search/search_backend_factory.dart' show createSearchBackend;
 export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
 export 'src/search/qmd_manager.dart' show QmdManager;
 export 'src/search/wiki_search_source.dart' show WikiSearchSource, WikiSearchScan;
-export 'src/search/composed_search_backend.dart' show ComposedSearchBackend;
+export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, SearchIndexHealthProbe;
 
 // Knowledge
 export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;

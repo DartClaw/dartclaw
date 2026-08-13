@@ -410,7 +410,14 @@ final class WorkflowOneShotRunner {
         completedAt: DateTime.now(),
       );
     } finally {
-      await stepContainer?.release();
+      if (stepContainer != null) {
+        try {
+          await runner.releaseStepContainer(provider, stepContainer);
+        } catch (_) {
+          await observeRootProcessTermination(false);
+          rethrow;
+        }
+      }
     }
   }
 

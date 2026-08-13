@@ -23,11 +23,17 @@ void main() {
       observed: 9,
       limit: 8,
     );
-    const outcome = MemorySearchOutcome(results: [result], degradedLayers: ['qmd'], degradations: [degradation]);
+    const outcome = MemorySearchOutcome(
+      results: [result],
+      degradedLayers: ['qmd'],
+      degradations: [degradation],
+      canonicalRevision: 41,
+    );
 
     expect(outcome.single.text, 'Falcon');
     expect(outcome.degradedLayers, ['qmd']);
     expect(outcome.degradations, [degradation]);
+    expect(outcome.canonicalRevision, 41);
     expect(degradation.toJson(), {
       'layer': 'wiki',
       'locator': 'wiki/oversized.md',

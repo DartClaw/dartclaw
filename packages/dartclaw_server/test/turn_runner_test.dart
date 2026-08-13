@@ -2027,13 +2027,13 @@ void main() {
       {'role': 'user', 'content': 'keep the idle timer alive'},
     ]);
     final outcome = await resetAwareRunner.waitForOutcome(session.id, turnId);
-
     expect(outcome.status, TurnStatus.completed);
-    expect(
-      resetService.touchedSessions,
-      [session.id, session.id, session.id, session.id],
-      reason: 'reserveTurn should touch once and every progress event should refresh activity',
-    );
+    expect(resetService.touchedSessions, [
+      session.id,
+      session.id,
+      session.id,
+      session.id,
+    ], reason: 'reserveTurn should touch once and every progress event should refresh activity');
   });
 
   test('failed tool call produces ToolCallRecord with success: false and errorType: tool_error', () async {

@@ -7,6 +7,7 @@ final _recognizedClaudeModels = RegExp(
 );
 final _mcpServersHeaderPattern = RegExp(r'''^(?:"mcp_servers"|'mcp_servers'|mcp_servers)\s*:\s*(.*)$''');
 final _yamlBlockScalarHeaderValuePattern = RegExp(r'^[|>](?:[+-]?\d*|\d+[+-]?)$');
+const _invalidYamlRoot = FormatException('YAML configuration root must be a map — refusing to start with defaults');
 const _recognizedCodexModels = <String>{
   'gpt-5.4',
   'gpt-5.4-mini',
@@ -145,8 +146,7 @@ Map<String, dynamic> _loadYaml(
 
   if (doc == null) return {};
   if (doc is! YamlMap && doc is! Map) {
-    warns.add('YAML root is not a map — using defaults');
-    return {};
+    throw _invalidYamlRoot;
   }
 
   final map = doc as Map;

@@ -242,6 +242,76 @@ void main() {
       await eventBus.dispose();
     });
 
+    test('slow health checks stay single-flight across timer ticks and timeouts', () async {
+      final inspectResult = Completer<ProcessResult>();
+      var inspectCalls = 0;
+      final manager = ContainerManager(
+        config: const ContainerConfig(enabled: true, image: 'test:latest'),
+        containerName: 'test-slow-health',
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        generatedStateDir: '/tmp/dartclaw-state-slow-health',
+        runCommand: (executable, arguments) async {
+          if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
+          inspectCalls++;
+          return inspectResult.future;
+        },
+      );
+      final eventBus = EventBus();
+      final monitor =
+          ContainerHealthMonitor(
+              eventBus: eventBus,
+              interval: const Duration(milliseconds: 5),
+              healthCheckTimeout: const Duration(milliseconds: 15),
+            )
+            ..watch(manager.containerName, manager)
+            ..start();
+
+      await Future<void>.delayed(const Duration(milliseconds: 45));
+      expect(inspectCalls, 1, reason: 'a timed-out Docker inspect must not overlap a later poll');
+
+      await monitor.stop();
+      inspectResult.complete(ProcessResult(0, 0, 'true\n', ''));
+      await pumpEventQueue();
+      expect(monitor.watchedContainers, isEmpty);
+      await eventBus.dispose();
+    });
+
+    test('stop does not launch health checks from a stale multi-authority snapshot', () async {
+      final firstInspectStarted = Completer<void>();
+      var inspectCalls = 0;
+      ContainerManager slowManager(String name) => ContainerManager(
+        config: const ContainerConfig(enabled: true, image: 'test:latest'),
+        containerName: name,
+        profileId: 'workspace',
+        workspaceMounts: const [],
+        generatedStateDir: '/tmp/dartclaw-state-$name',
+        runCommand: (executable, arguments) async {
+          if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
+          inspectCalls++;
+          if (!firstInspectStarted.isCompleted) firstInspectStarted.complete();
+          return Completer<ProcessResult>().future;
+        },
+      );
+      final managers = [slowManager('slow-a'), slowManager('slow-b'), slowManager('slow-c')];
+      final eventBus = EventBus();
+      final monitor = ContainerHealthMonitor(
+        eventBus: eventBus,
+        interval: const Duration(milliseconds: 1),
+        healthCheckTimeout: const Duration(milliseconds: 20),
+      );
+      for (final manager in managers) {
+        monitor.watch(manager.containerName, manager);
+      }
+      monitor.start();
+      await firstInspectStarted.future;
+
+      await monitor.stop();
+
+      expect(inspectCalls, 1, reason: 'stop clears ownership before a stale poll can launch later inspections');
+      await eventBus.dispose();
+    });
+
     test('stop cancels periodic timer', () async {
       final manager = _makeManager(profileId: 'workspace', isRunning: () => true);
       final eventBus = EventBus();

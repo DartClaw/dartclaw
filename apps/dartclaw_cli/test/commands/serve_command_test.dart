@@ -665,15 +665,24 @@ channels:
     });
 
     test('search database open failure boots degraded and reports search unavailable', () async {
+      final worker = _FakeWorkerService();
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
-        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        workspace: const WorkspaceConfig(gitSyncEnabled: false),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          staticDir: _staticDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
       );
 
       final command = ServeCommand(
         config: config,
         searchDbFactory: (_) => throw FileSystemException('open failed'),
+        harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async => throw SocketException('stop after degraded boot'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
@@ -695,6 +704,8 @@ channels:
         ),
         isTrue,
       );
+      expect(worker.started, isTrue);
+      expect(worker.stopped, isTrue);
     });
 
     test('task database open failure prints clear startup error', () async {

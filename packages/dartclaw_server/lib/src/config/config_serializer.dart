@@ -149,6 +149,7 @@ class ConfigSerializer {
           'retryAttempts': config.knowledge.inbox.retryAttempts,
           'processedRetentionDays': config.knowledge.inbox.processedRetentionDays,
           'deliveryMode': config.knowledge.inbox.deliveryMode,
+          'effort': config.knowledge.inbox.effort,
         },
         'wikiLint': {
           'enabled': config.knowledge.wikiLint.enabled,

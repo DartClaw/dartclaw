@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 import 'behavior/behavior_file_service.dart';
 import 'behavior/self_improvement_service.dart';
 import 'concurrency/session_lock_manager.dart';
+import 'concurrency/session_mutation_coordinator.dart';
 import 'context/context_monitor.dart';
 import 'context/exploration_summarizer.dart';
 import 'execution_coordinator.dart';
@@ -105,6 +106,11 @@ class TurnManager implements core.TurnManager, Reconfigurable {
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
+
+  // Same-session reservations run one at a time in arrival order: every await
+  // before the session lock (session read, governance checks, rate-limit wait)
+  // is a gap in which a later caller can reach the lock first.
+  final _sessionReservations = SessionMutationCoordinator();
 
   /// Composes a single primary harness for SDK and test hosts.
   ///
@@ -241,12 +247,15 @@ class TurnManager implements core.TurnManager, Reconfigurable {
     List<String>? allowedTools,
     bool readOnly = false,
   }) async {
-    final lease = await _reserveExecutionForSession(
+    final lease = await _sessionReservations.run(
       sessionId,
-      workerPolicy: workerPolicy,
-      taskId: taskId,
-      isHumanInput: isHumanInput,
-      agentName: agentName,
+      () => _reserveExecutionForSession(
+        sessionId,
+        workerPolicy: workerPolicy,
+        taskId: taskId,
+        isHumanInput: isHumanInput,
+        agentName: agentName,
+      ),
     );
     final runner = lease.runner!;
     try {

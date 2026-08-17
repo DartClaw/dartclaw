@@ -523,6 +523,45 @@ Falcon wiki detail
     expect(decoded['truncated'], isTrue);
   });
 
+  // A wiki page grows by appending supplement sections, so a head-only cut of
+  // an oversized read drops exactly the newest knowledge on the page.
+  test('an oversized native read keeps the newest appended content, not only the head', () async {
+    Directory('${workspace.path}/wiki').createSync();
+    File('${workspace.path}/wiki/grown.md').writeAsStringSync(
+      '# Grown\n\nOldest synthesis paragraph.\n\n'
+      '${'filler line\n' * 6000}'
+      '\n## Supplement from latest.md (2026-08-01)\n\nNewest supplement paragraph.\n',
+    );
+
+    final raw = await handlers.onRead({'locator': 'wiki/grown.md'});
+    final decoded = _json(raw);
+    final content = ((decoded['results'] as List).single as Map<String, dynamic>)['content'] as String;
+
+    expect(
+      utf8.encode(((raw['content'] as List).single as Map<String, dynamic>)['text'] as String).length,
+      lessThanOrEqualTo(maxMemoryReadResponseBytes),
+    );
+    expect(decoded['truncated'], isTrue);
+    expect(content, contains('Oldest synthesis paragraph.'));
+    expect(content, contains('Newest supplement paragraph.'));
+  });
+
+  // The tail window opens mid-character here (3-byte scalars against an even
+  // split), so a cut that ignores UTF-8 boundaries fails to decode at all.
+  test('an oversized read splits multibyte content on UTF-8 boundaries', () async {
+    Directory('${workspace.path}/wiki').createSync();
+    File('${workspace.path}/wiki/multibyte.md').writeAsStringSync('# T\n${'€' * 30000}');
+
+    final raw = await handlers.onRead({'locator': 'wiki/multibyte.md'});
+    final decoded = _json(raw);
+
+    expect(
+      utf8.encode(((raw['content'] as List).single as Map<String, dynamic>)['text'] as String).length,
+      lessThanOrEqualTo(maxMemoryReadResponseBytes),
+    );
+    expect(decoded['truncated'], isTrue);
+  });
+
   test('read rejects metadata that cannot fit and MCP returns a bounded application error', () async {
     Directory('${workspace.path}/wiki').createSync();
     File('${workspace.path}/wiki/oversized.md').writeAsStringSync('''
@@ -532,7 +571,10 @@ provenance: ${'p' * (maxMemoryReadResponseBytes + 1)}
 small body
 ''');
 
-    await expectLater(handlers.onRead({'locator': 'wiki/oversized.md'}), throwsA(isA<ArgumentError>()));
+    await expectLater(
+      handlers.onRead({'locator': 'wiki/oversized.md'}),
+      throwsA(isA<ArgumentError>().having((error) => '${error.message}', 'message', contains('memory_read'))),
+    );
     final protocol = McpProtocolHandler()..registerTool(MemoryReadTool(handler: handlers.onRead));
     final response = await protocol.handleRequest(
       jsonEncode({

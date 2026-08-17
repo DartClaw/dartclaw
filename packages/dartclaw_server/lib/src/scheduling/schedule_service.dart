@@ -287,6 +287,12 @@ class ScheduleService implements Reconfigurable {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final result = await _runJobTurn(job);
+        // Callback jobs report on durable state the operator has to audit later,
+        // so their result is logged independently of delivery: `DeliveryMode.none`
+        // returns immediately and `announce` reaches nothing when no channel
+        // session is open. Prompt-job responses are not logged – they are model
+        // output the operator routed deliberately.
+        if (job.onExecute != null) _log.info('Job "${job.id}": result\n$result');
         await _delivery.deliver(mode: job.deliveryMode, jobId: job.id, result: result, webhookUrl: job.webhookUrl);
         _log.info('Job "${job.id}": completed (attempt $attempt/$maxAttempts)');
         return;

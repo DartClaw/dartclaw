@@ -6,7 +6,17 @@ void main() {
     const config = DartclawConfig.defaults();
 
     expect(config.knowledge.inbox.enabled, isFalse);
+    expect(config.knowledge.inbox.effort, 'medium');
     expect(config.knowledge.wikiLint.enabled, isFalse);
+  });
+
+  test('blank inbox effort falls back to the default', () {
+    final config = DartclawConfig.load(
+      configPath: 'dartclaw.yaml',
+      fileReader: (path) => path == 'dartclaw.yaml' ? 'knowledge:\n  inbox:\n    effort: "   "\n' : null,
+    );
+
+    expect(config.knowledge.inbox.effort, 'medium');
   });
 
   test('parses typed knowledge scheduler config', () {
@@ -22,6 +32,7 @@ knowledge:
     retry_attempts: 4
     processed_retention_days: 9
     delivery_mode: none
+    effort: high
   wiki_lint:
     enabled: true
     interval_minutes: 90
@@ -36,6 +47,7 @@ knowledge:
     expect(config.knowledge.inbox.retryAttempts, 4);
     expect(config.knowledge.inbox.processedRetentionDays, 9);
     expect(config.knowledge.inbox.deliveryMode, 'none');
+    expect(config.knowledge.inbox.effort, 'high');
     expect(config.knowledge.wikiLint.enabled, isTrue);
     expect(config.knowledge.wikiLint.intervalMinutes, 90);
     expect(config.knowledge.wikiLint.deliveryMode, 'webhook');

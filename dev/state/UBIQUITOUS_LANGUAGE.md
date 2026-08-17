@@ -134,6 +134,12 @@
 | `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a compact citation-backed packet | context engine tool, research outpost, search summary | Knowledge synthesis |
 | egress guard | Guard boundary that evaluates outbound MCP calls before external network or subprocess dispatch and records allow/deny audit evidence | network filter, outbound policy | Security / outbound MCP |
 | citation packet | Compact synthesized response where claims carry source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet | Knowledge synthesis |
+| wiki provenance | Frontmatter field recording who authored a wiki page's content. `human-authored` and `hybrid` rank as search-trusted; `llm-authored` ranks trusted while `sources` is populated; any other stored value is preserved untouched and reported by wiki lint | authorship, page origin | Knowledge / wiki |
+| `hybrid` | The wiki provenance a page takes on when a `human-authored` or `hybrid` page gains machine-synthesized content, so it is neither relabelled as machine-authored nor claimed as sole machine authorship | mixed, merged provenance | Knowledge / wiki |
+| supplement section | A `## Supplement from <source> (<date>)` block appended to an existing wiki page by an ingestion that collided with its slug. The prior content is never replaced | append block, merge section | Knowledge / wiki |
+| wiki collision | An ingestion whose chosen slug already has a stored page. Reported as *supplemented* (content appended) or *refreshed* (the page already carried the synthesis, so nothing was written) | overwrite, merge conflict | Knowledge inbox |
+| consolidation debt | Wiki-lint category naming pages carrying enough supplement sections to want manual consolidation | page bloat, stale page | Knowledge / wiki lint |
+| declared drop | A source topic the extraction turn reports it deliberately left out. A self-declaration, not a measurement – the turn cannot re-read the source to diff its output | coverage gap, measured loss | Knowledge inbox |
 
 ## Governance
 

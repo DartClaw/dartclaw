@@ -273,6 +273,12 @@ bash dev/testing/profiles/workflow-live/run.sh --e2e
 # Run live core integration tests (requires real claude binary + API credentials)
 dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_core
 
+# Knowledge-hub corpus integration (no credentials, no server — seeded in-process).
+# Walks one seeded wiki/KG/memory/inbox corpus through search, the hub, and lint.
+# The Knowledge Hub has no UI-smoke coverage, so this is its proof surface.
+dart test --run-skipped -t integration \
+  packages/dartclaw_server/test/integration/knowledge_hub_corpus_integration_test.dart
+
 # Per-package coverage
 dart test --coverage=coverage/ packages/dartclaw_core
 dart pub global run coverage:format_coverage \

@@ -383,7 +383,29 @@ SessionLockManager
 
 **Behavior**:
 - Same-session contention: the caller `await`s the existing `Completer.future`,
-  then retries. This queues turns behind each other per-session.
+  then retries. This queues turns behind each other per-session, in the order
+  the callers reached `acquire()`.
+- Arrival order is guaranteed one level up: `TurnManager.reserveTurn` runs each
+  session's reservations through a per-session `SessionMutationCoordinator`
+  chain (`concurrency/session_mutation_coordinator.dart`), so the session read
+  and governance checks that precede `acquire()` cannot let a later request
+  overtake an earlier one. The lock manager itself only orders callers that
+  have already reached it. This is the canonical statement of the guarantee;
+  package rules and dartdocs point here.
+- The chain spans the whole reservation (session read, governance checks,
+  session lock, lane or worker permit), by design: ending it at the lock would
+  need the coordinator to signal admission mid-`acquire`. Consequences that are
+  accepted, not defects: a same-session successor waits behind its
+  predecessor's governance side effects and lane wait rather than overtaking
+  them and then blocking at the lock; a successor is not visible to
+  `ExecutionCoordinator`'s busy checks (`_acquiring`/`_active`) until its
+  predecessor's reservation completes, so `resetSessionContinuity` can succeed
+  in that window and the successor simply starts on the fresh continuity –
+  the same window a lone caller already had during its own session read; a
+  queued successor is not cancellable (it has no turn id), exactly as a lock
+  waiter was not. `TaskExecutor` and the advisor take leases via
+  `ExecutionCoordinator.acquire` + `reserveAdmittedTurn` directly and are
+  outside the chain.
 - Global cap: if `_activeCount >= _maxParallel`, throws `BusyTurnException`
   with `isSameSession: false`.
 - Implements `Reconfigurable` -- watches `server.*` config keys and updates

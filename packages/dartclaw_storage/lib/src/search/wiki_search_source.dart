@@ -6,6 +6,17 @@ import 'package:path/path.dart' as p;
 
 import 'search_file_io.dart';
 
+/// Wiki frontmatter `provenance` values this source ranks and labels as trusted.
+///
+/// A writer must never move a page into this set on the strength of not
+/// recognizing its stored value: that is how a page nothing can classify ends up
+/// ranked above the corpus.
+const trustedWikiProvenance = {'human-authored', 'hybrid'};
+
+/// Every `provenance` value the wiki pipeline authors and this source
+/// interprets. Anything else is stored data the pipeline must leave alone.
+const knownWikiProvenance = {...trustedWikiProvenance, 'llm-authored'};
+
 /// Reads synthesized wiki pages as a high-priority memory search source.
 class WikiSearchSource {
   /// Workspace root that contains the `wiki/` directory.
@@ -95,7 +106,7 @@ class WikiSearchSource {
 
       final source = locator;
       final provenance = _frontmatterValue(raw, 'provenance');
-      final isTrusted = provenance == 'human-authored' || provenance == 'hybrid';
+      final isTrusted = trustedWikiProvenance.contains(provenance);
       final isSourceBacked = provenance == 'llm-authored' && _hasSourceFrontmatter(raw);
       results.add(
         MemorySearchResult(
@@ -264,36 +275,62 @@ class WikiSearchSource {
     );
   }
 
+  /// The frontmatter block of a stored wiki page, or `null` when it has none.
+  ///
+  /// Accepts CRLF because the writer does: a page recovered from a Windows
+  /// checkout must rank as the page it is, not as one with no frontmatter.
+  static String? _frontmatter(String text) {
+    if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) return null;
+    final rest = text.substring(text.indexOf('\n') + 1);
+    final end = RegExp(r'^---[ \t]*\r?$', multiLine: true).firstMatch(rest);
+    return end == null ? null : rest.substring(0, end.start);
+  }
+
   static String _stripFrontmatter(String text) {
-    if (!text.startsWith('---\n')) return text;
-    final end = text.indexOf('\n---', 4);
-    if (end == -1) return text;
-    return text.substring(end + 4).trimLeft();
+    if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) return text;
+    final rest = text.substring(text.indexOf('\n') + 1);
+    final end = RegExp(r'^---[ \t]*\r?$', multiLine: true).firstMatch(rest);
+    return end == null ? text : rest.substring(end.end).trimLeft();
   }
 
   static String? _frontmatterValue(String text, String key) {
-    if (!text.startsWith('---\n')) return null;
-    final end = text.indexOf('\n---', 4);
-    if (end == -1) return null;
-    final pattern = RegExp('^${RegExp.escape(key)}:\\s*(.+)\$', multiLine: true);
-    return pattern.firstMatch(text.substring(4, end))?.group(1)?.replaceAll('"', '').trim();
+    final frontmatter = _frontmatter(text);
+    if (frontmatter == null) return null;
+    final pattern = RegExp('^${RegExp.escape(key)}:\\s*(.+?)\\r?\$', multiLine: true);
+    return pattern.firstMatch(frontmatter)?.group(1)?.replaceAll('"', '').trim();
   }
 
+  /// Whether the page records at least one source.
+  ///
+  /// Accepts the block, flow, and single-scalar shapes the writer accepts, so a
+  /// hand-edited or foreign-tool-written page is not demoted for its YAML style.
   static bool _hasSourceFrontmatter(String text) {
-    if (!text.startsWith('---\n')) return false;
-    final end = text.indexOf('\n---', 4);
-    if (end == -1) return false;
-    final frontmatter = text.substring(4, end);
-    final sourcesIndex = frontmatter.indexOf(RegExp(r'^sources:\s*$', multiLine: true));
-    if (sourcesIndex == -1) return false;
+    final frontmatter = _frontmatter(text);
+    if (frontmatter == null) return false;
+    final match = RegExp(r'^sources:[ \t]*(.*?)\r?$', multiLine: true).firstMatch(frontmatter);
+    if (match == null) return false;
+    final raw = match.group(1)!.trim();
+    // A trailing comment is not a source, and neither is an empty or explicitly
+    // null list: ranking such a page source-backed is the same laundering the
+    // writer refuses to do.
+    final commented = raw.indexOf(RegExp(r'(^|\s)#'));
+    final inline = (commented == -1 ? raw : raw.substring(0, commented)).trim();
+    if (inline.startsWith('[')) return inline.replaceAll(RegExp('[\\[\\]"\',\\s]'), '').isNotEmpty;
+    if (inline.isNotEmpty && inline != 'null' && inline != '~') return true;
     return frontmatter
-        .substring(sourcesIndex)
+        .substring(match.end)
         .split('\n')
         .skip(1)
         .takeWhile((line) => line.startsWith(RegExp(r'\s')))
         .any((line) => line.trim().startsWith('- ') && line.trim().length > 2);
   }
 
+  /// A wiki page grows by appending supplement sections, so the first and the
+  /// last match can sit many sections apart. Anchored only on the first match,
+  /// the snippet would show the oldest section for every query and hide
+  /// everything appended since; when the last match falls outside the window at
+  /// the first, the budget is split between a window at each so the newest
+  /// matching content is visible from the search result itself.
   static String _snippet(String text, List<String> terms) {
     final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     final runes = compact.runes.toList(growable: false);
@@ -305,8 +342,16 @@ class WikiSearchSource {
     });
     final firstRune = first == null ? 0 : compact.substring(0, first).runes.length;
     final start = (firstRune - 80).clamp(0, runes.length);
-    final end = (start + 240).clamp(0, runes.length);
-    return String.fromCharCodes(runes.sublist(start, end));
+    final last = terms.map(lower.lastIndexOf).fold(-1, (best, index) => index > best ? index : best);
+    final lastRune = last < 0 ? 0 : compact.substring(0, last).runes.length;
+    if (lastRune < start + 240) {
+      return String.fromCharCodes(runes.sublist(start, (start + 240).clamp(0, runes.length)));
+    }
+    final headStart = (firstRune - 40).clamp(0, runes.length);
+    final tailStart = (lastRune - 40).clamp(0, runes.length);
+    final head = runes.sublist(headStart, (headStart + 118).clamp(0, runes.length));
+    final tail = runes.sublist(tailStart, (tailStart + 118).clamp(0, runes.length));
+    return '${String.fromCharCodes(head)} … ${String.fromCharCodes(tail)}';
   }
 }
 

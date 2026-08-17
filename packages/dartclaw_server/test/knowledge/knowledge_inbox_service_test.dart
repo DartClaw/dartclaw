@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show MemoryOriginKind, MemoryResourceLimits;
+import 'package:dartclaw_core/dartclaw_core.dart' show MemoryOriginKind;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager, SessionService, TurnOutcome, TurnStatus;
@@ -77,7 +77,7 @@ void main() {
     expect(turns.startTurnCallCount, 1);
     expect(turns.startedTurns.single.source, 'cron');
     expect(turns.startedTurns.single.agentName, 'cron:knowledge-inbox');
-    expect(turns.startedTurns.single.effort, 'low');
+    expect(turns.startedTurns.single.effort, 'medium');
     expect(turns.startedTurns.single.maxTurns, 1);
     expect(turns.startedTurns.single.allowedTools, ['__knowledge_inbox_no_tools__']);
     expect(turns.startedTurns.single.readOnly, isTrue);
@@ -158,36 +158,107 @@ void main() {
     expect(await reader.read('inbox/secret.bin'), isNull);
   });
 
-  test('inbox retry reuses the exact capture source identity', () async {
-    var calls = 0;
-    service = KnowledgeInboxService(
-      workspaceDir: workspace.path,
-      wiki: WikiPageStore(workspaceDir: workspace.path),
-      turns: turns,
-      sessions: sessions,
-      kg: kg,
-      maxBytes: 4096,
-      retryAttempts: 1,
-      stabilityWindow: const Duration(milliseconds: 20),
-      onMemoryObserve: (args, context) async {
-        captureContexts.add(context);
-        if (calls++ == 0) throw StateError('injected post-capture failure');
-        return const {};
-      },
-    );
+  test('inbox capture carries the content-addressed source identity', () async {
     Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
     File(p.join(workspace.path, 'inbox', 'retry.md')).writeAsStringSync('Retryable source body.');
 
     final report = await service.runOnce(requireStable: false);
 
     expect(report.processed, ['retry.md']);
-    expect(captureContexts, hasLength(2));
     expect(captureContexts.map((context) => context.originKind).toSet(), {MemoryOriginKind.inbox});
     expect(captureContexts.map((context) => context.sourceLocator).toSet(), {'inbox/retry.md'});
     expect(captureContexts.map((context) => context.sourceEvent).toSet(), hasLength(1));
     expect(captureContexts.first.sourceEvent, startsWith('sha256:'));
     expect(captureContexts.map((context) => context.caller).toSet(), {'knowledge-inbox'});
     expect(captureContexts.map((context) => context.sessionRef).toSet(), {'knowledge-inbox'});
+  });
+
+  // Everything after the extraction turn is durable. Replaying it is what left
+  // three copies of one file's findings in memory and three in the KG while the
+  // run reported the file as quarantined and nothing as processed.
+  test('a failure during the durable commit is quarantined, not replayed', () async {
+    var calls = 0;
+    final failing = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: turns,
+      sessions: sessions,
+      kg: kg,
+      maxBytes: 4096,
+      retryAttempts: 2,
+      stabilityWindow: const Duration(milliseconds: 20),
+      now: () => DateTime.utc(2026, 5),
+      onMemoryObserve: (args, context) async {
+        calls++;
+        throw StateError('injected durable-write failure');
+      },
+    );
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'commit.md')).writeAsStringSync('Committable source body.');
+
+    final report = await failing.runOnce(requireStable: false);
+
+    expect(calls, 1);
+    expect(report.quarantined.single.file, 'commit.md');
+    expect(report.processed, isEmpty);
+    expect(kg.timeline(entity: 'Dart SDK'), isEmpty);
+  });
+
+  // The extraction turn is the one step that writes nothing, so it is the only
+  // one worth retrying.
+  test('a failing extraction turn is retried without duplicating anything durable', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'flaky.md')).writeAsStringSync('Flaky source body.');
+    var turnCalls = 0;
+    final flaky = FakeTurnManager(
+      onStartTurn: (
+        sessionId,
+        messages, {
+        source,
+        agentName = 'main',
+        model,
+        effort,
+        systemPromptOverride,
+        maxTurns,
+        taskId,
+        isHumanInput = false,
+        allowedTools,
+        readOnly = false,
+        promptScope,
+      }) async => 'extract-turn',
+      onWaitForOutcome: (sessionId, turnId) async {
+        if (turnCalls++ == 0) throw StateError('injected extraction failure');
+        return TurnOutcome(
+          turnId: turnId,
+          sessionId: sessionId,
+          status: TurnStatus.completed,
+          responseText: _extractionPayload(),
+          completedAt: DateTime.utc(2026, 5),
+        );
+      },
+    );
+
+    final retrying = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: flaky,
+      sessions: sessions,
+      kg: kg,
+      maxBytes: 4096,
+      retryAttempts: 1,
+      stabilityWindow: const Duration(milliseconds: 20),
+      now: () => DateTime.utc(2026, 5),
+      onMemoryObserve: (args, context) async {
+        saved.add(args);
+        return const {};
+      },
+    );
+
+    final report = await retrying.runOnce(requireStable: false);
+
+    expect(turnCalls, 2);
+    expect(report.processed, ['flaky.md']);
+    expect(saved, hasLength(1));
   });
 
   test('read-only list tolerates preview caps that split UTF-8 characters', () async {
@@ -383,129 +454,15 @@ Celebrity gossip should be excluded.
     expect(recentFile.existsSync(), isTrue);
   });
 
-  test('S07 wiki lint reports categorized provenance and link findings without mutating pages', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
-    final page = File(p.join(workspace.path, 'wiki', 'broken.md'))
-      ..writeAsStringSync('# Broken\n\n[Missing](missing.md)\n');
-    final before = page.readAsStringSync();
-
-    final report = await wiki.lint();
-
-    expect(report.provenanceInconsistencies.join('\n'), contains('broken.md: missing YAML frontmatter'));
-    expect(report.summary(), contains('provenance-inconsistency=1 [broken.md: missing YAML frontmatter]'));
-    expect(page.readAsStringSync(), before);
-  });
-
-  test('wiki lint stops at the fixed file ceiling and reports degraded coverage', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
-    for (var index = 0; index < MemoryResourceLimits.recursiveFiles; index++) {
-      File(p.join(wiki.wikiDir.path, 'page-${index.toString().padLeft(4, '0')}.md')).writeAsStringSync('# Page\n');
-    }
-
-    final report = await wiki.lint();
-
-    expect(report.processedFiles, MemoryResourceLimits.recursiveFiles);
-    expect(report.degraded, isTrue);
-    expect(report.degradations.single.reason, 'fileLimit');
-    expect(report.summary(), contains('"reason":"fileLimit"'));
-  });
-
-  test('wiki lint charges a malformed body and preserves known failure context', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
-    File(p.join(wiki.wikiDir.path, 'broken.md')).writeAsBytesSync([0xff]);
-
-    final report = await wiki.lint();
-
-    final failure = report.degradations.singleWhere((item) => item.reason == 'readFailure');
-    expect(report.processedBytes, greaterThanOrEqualTo(1));
-    expect(failure.locator, 'broken.md');
-    expect(failure.observed, greaterThanOrEqualTo(1));
-    expect(failure.limit, MemoryResourceLimits.recursiveBodyBytes);
-  });
-
-  test('wiki writes constrain model-controlled slug and confidence frontmatter', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path);
-
-    await wiki.writePage(
-      slug: '../USER',
-      title: 'Escaped',
-      body: 'Safe body.',
-      sources: const ['inbox/escaped.md'],
-      lastUpdatedBy: 'test',
-      now: DateTime.utc(2026, 5),
-    );
-
-    expect(File(p.join(workspace.path, 'USER.md')).readAsStringSync(), contains('Not Relevant'));
-    expect(File(p.join(workspace.path, 'wiki', 'user.md')).existsSync(), isTrue);
-    await expectLater(
-      () => wiki.writePage(
-        slug: 'bad-confidence',
-        title: 'Bad Confidence',
-        body: 'Body.',
-        sources: const ['inbox/bad.md'],
-        lastUpdatedBy: 'test',
-        now: DateTime.utc(2026, 5),
-        confidence: 'certain\nlast_updated_by: attacker',
-      ),
-      throwsArgumentError,
-    );
-
-    File(p.join(workspace.path, 'wiki', 'invalid-confidence.md')).writeAsStringSync('''
----
-provenance: llm-authored
-sources:
-  - "inbox/source.md"
-confidence: certain
-last_updated: 2026-05-01T00:00:00.000Z
-last_updated_by: "test"
-contradicts: []
-related: []
----
-# Invalid
-''');
-
-    expect((await wiki.lint()).provenanceInconsistencies, contains('invalid-confidence.md: invalid confidence'));
-  });
-
-  test('S06 wiki bootstrap emits provenance frontmatter', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
-
-    final readme = File(p.join(wiki.wikiDir.path, 'README.md')).readAsStringSync();
-
-    expect(readme, startsWith('---\nprovenance: human-authored'));
-    expect(readme, contains('sources:\n  - "workspace-bootstrap"'));
-    expect((await wiki.lint()).provenanceInconsistencies, isEmpty);
-  });
-
-  test('S07 wiki lint includes KG contradiction pre-screen category', () async {
-    final db = sqlite3.openInMemory();
-    addTearDown(db.close);
-    final kg = TemporalKnowledgeGraphService(db);
-    kg.addFact(
-      entity: 'Dart SDK',
-      predicate: 'channel',
-      value: 'stable',
-      validFrom: '2026-05-01T00:00:00Z',
-      source: 'wiki/dart.md',
-    );
-    kg.addFact(
-      entity: 'Dart SDK',
-      predicate: 'channel',
-      value: 'beta',
-      validFrom: '2026-05-02T00:00:00Z',
-      source: 'inbox/dart.md',
-    );
-
-    final report = await WikiPageStore(workspaceDir: workspace.path).lint(kg: kg);
-
-    expect(report.contradictions.single, contains('dart sdk.channel'));
-  });
-
-  KnowledgeInboxService serviceReturning(String responseText, {TemporalKnowledgeGraphService? graph}) {
+  KnowledgeInboxService serviceReturning(
+    String responseText, {
+    TemporalKnowledgeGraphService? graph,
+    FakeTurnManager? turns,
+  }) {
     return KnowledgeInboxService(
       workspaceDir: workspace.path,
       wiki: WikiPageStore(workspaceDir: workspace.path),
-      turns: _turnsReturning(responseText),
+      turns: turns ?? _turnsReturning(responseText),
       sessions: sessions,
       kg: graph ?? kg,
       maxBytes: 4096,
@@ -742,21 +699,414 @@ related: []
     expect(report.processed, contains('survivor.md'));
   });
 
-  test('S07 wiki lint reports stale pages from last_updated frontmatter', () async {
-    final wiki = WikiPageStore(workspaceDir: workspace.path);
-    await wiki.writePage(
-      slug: 'old',
-      title: 'Old',
-      body: 'Old knowledge.',
-      sources: const ['inbox/old.md'],
-      lastUpdatedBy: 'test',
-      now: DateTime.utc(2026, 3),
+  test('a later batch on a stored slug keeps prior content, prior sources, and reports the merge', () async {
+    final inbox = Directory(p.join(workspace.path, 'inbox'))..createSync(recursive: true);
+    File(p.join(inbox.path, 'first.md')).writeAsStringSync('First batch source.');
+    await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+    File(p.join(inbox.path, 'second.md')).writeAsStringSync('Supplement batch source.');
+
+    final report = await serviceReturning(
+      _extractionPayload(wikiBody: 'Follow-up governance detail carried by the supplement batch.'),
+    ).runOnce(requireStable: false);
+
+    final page = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md')).readAsStringSync();
+    expect(page, contains('Dart roadmap synthesis with source-backed package governance notes.'));
+    expect(page, contains('Follow-up governance detail carried by the supplement batch.'));
+    expect(page, contains('sources:\n  - "inbox/first.md"\n  - "inbox/second.md"'));
+    expect(RegExp(r'^# ', multiLine: true).allMatches(page), hasLength(1));
+    expect(report.wikiMerges.single.file, 'second.md');
+    expect(report.wikiMerges.single.slug, 'dart-roadmap');
+    expect(report.wikiMerges.single.outcome, WikiPageOutcome.supplemented);
+    expect(report.summary, contains('wiki merges: second.md -> wiki/dart-roadmap.md (supplement 1)'));
+  });
+
+  // A collision that added nothing has to read differently from no collision at
+  // all, or the operator cannot tell a duplicate batch from a fresh one.
+  test('a batch whose synthesis the page already carries is reported as a refresh, not as a merge', () async {
+    final inbox = Directory(p.join(workspace.path, 'inbox'))..createSync(recursive: true);
+    File(p.join(inbox.path, 'first.md')).writeAsStringSync('First batch source.');
+    await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+    final page = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md'));
+    final before = page.readAsStringSync();
+    File(p.join(inbox.path, 'second.md')).writeAsStringSync('Duplicate batch source.');
+
+    final report = await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+
+    expect(report.wikiMerges.single.outcome, WikiPageOutcome.refreshed);
+    expect(report.summary, contains('wiki merges: second.md -> wiki/dart-roadmap.md (refresh, no new content)'));
+    final after = page.readAsStringSync();
+    // No content and no authorship moved; only the source that contributed it is
+    // now accounted for in the provenance chain.
+    expect(after, isNot(contains('## Supplement')));
+    expect(after, contains(r'last_updated: "2026-05-01T00:00:00.000Z"'));
+    expect(after, contains('sources:\n  - "inbox/first.md"\n  - "inbox/second.md"'));
+    expect(_body(after), _body(before));
+  });
+
+  // A durable write already landed, so re-running the file would re-extract with
+  // a reworded body and append a second supplement section for one source.
+  // A source left in the inbox is re-ingested on the next scheduled run, and a
+  // fresh extraction rewords the body, so the page grows a supplement per run
+  // forever while every report says the file was processed.
+  test('a source that cannot leave the inbox is quarantined so the next run cannot ingest it again', () async {
+    final inbox = Directory(p.join(workspace.path, 'inbox'))..createSync(recursive: true);
+    File(p.join(inbox.path, 'first.md')).writeAsStringSync('First batch source.');
+    await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+    File(p.join(inbox.path, 'batch.md')).writeAsStringSync('Supplement batch source.');
+    // Renaming onto a non-empty directory fails, so the move throws after the
+    // durable writes have all landed.
+    final blocker = Directory(p.join(workspace.path, 'processed', 'batch.md'))..createSync(recursive: true);
+    File(p.join(blocker.path, 'occupied')).writeAsStringSync('x');
+    final varying = _turnsCycling([
+      _extractionPayload(wikiBody: 'Follow-up governance detail carried by the supplement batch.'),
+      _extractionPayload(wikiBody: 'Follow-up governance detail, carried by the supplement batch.'),
+    ]);
+
+    final first = await serviceReturning(_extractionPayload(), turns: varying).runOnce(requireStable: false);
+    final second = await serviceReturning(_extractionPayload(), turns: varying).runOnce(requireStable: false);
+
+    // Reported once, as a quarantine, so the count matches what is on disk. It
+    // was ingested, so it stays in `processed` too – but it is never also
+    // reported as skipped, which would read as two terminal outcomes.
+    expect(first.processed, ['batch.md']);
+    expect(first.skipped, isEmpty);
+    expect(first.quarantined.single.file, 'batch.md');
+    expect(first.quarantined.single.error, startsWith('ingested but could not leave the inbox'));
+    expect(first.summary, contains('quarantined=1'));
+    expect(File(p.join(inbox.path, 'batch.md')).existsSync(), isFalse);
+    expect(File(p.join(workspace.path, 'quarantine', 'batch.md')).existsSync(), isTrue);
+    expect(second.processed, isEmpty);
+    expect(varying.startedTurns, hasLength(1));
+    final page = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md')).readAsStringSync();
+    expect('## Supplement'.allMatches(page), hasLength(1));
+  });
+
+  // Validating the model-controlled confidence inside the store would reject it
+  // only after the memory findings were already stored.
+  test('an unsupported wiki confidence is rejected before anything durable is written', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'bad.md')).writeAsStringSync('Curated batch source.');
+
+    final report = await serviceReturning(
+      _extractionPayload().replaceFirst('"confidence": "medium"', '"confidence": "very high"'),
+    ).runOnce(requireStable: false);
+
+    expect(report.quarantined.single.file, 'bad.md');
+    expect(saved, isEmpty);
+    expect(kg.timeline(entity: 'Dart SDK'), isEmpty);
+  });
+
+  // The wiki page must be the last durable write, so that a `wiki-merges=0`
+  // report is always true: a KG failure must mean the page was never touched.
+  // The failure has to come from the insert itself – a malformed fact date is
+  // rejected while the extraction is still being parsed, before either write,
+  // so it cannot tell the two orderings apart.
+  test('a KG insert failure leaves no wiki page behind', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'rejected.md')).writeAsStringSync('Curated batch source.');
+    final rejectingDb = sqlite3.openInMemory();
+    addTearDown(rejectingDb.close);
+
+    final report = await serviceReturning(
+      _extractionPayload(),
+      graph: _RejectingKnowledgeGraph(rejectingDb),
+    ).runOnce(requireStable: false);
+
+    expect(report.quarantined.single.file, 'rejected.md');
+    expect(report.wikiMerges, isEmpty);
+    expect(File(p.join(workspace.path, 'wiki', 'dart-roadmap.md')).existsSync(), isFalse);
+  });
+
+  // A quarantined file must never leave a mutated page behind: the collision
+  // would be invisible in the run report exactly when something went wrong.
+  test('a stored page the store cannot read quarantines the source and is left untouched', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'batch.md')).writeAsStringSync('Batch source.');
+    final wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
+    final page = File(p.join(wiki.wikiDir.path, 'dart-roadmap.md'))
+      ..writeAsStringSync('---\nprovenance: llm-authored\nsources:\n  - "inbox/prior.md"\n');
+    final before = page.readAsStringSync();
+
+    final report = await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+
+    expect(page.readAsStringSync(), before);
+    expect(report.wikiMerges, isEmpty);
+    expect(report.processed, isEmpty);
+    expect(report.quarantined.single.file, 'batch.md');
+    expect(report.quarantined.single.error, contains('dart-roadmap.md'));
+    expect(report.quarantined.single.error, contains('unterminated YAML frontmatter'));
+  });
+
+  // A reworded body from a second extraction would defeat the store's
+  // already-carries check and append a duplicate supplement, so a run that has
+  // nothing to retry must extract exactly once.
+  test('a successful extraction runs once, so a second wording never reaches the page', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'retry.md')).writeAsStringSync('Retryable source body.');
+    final varying = _turnsCycling([
+      _extractionPayload(wikiBody: 'First wording of the synthesized body.'),
+      _extractionPayload(wikiBody: 'Second, reworded wording of the synthesized body.'),
+    ]);
+    final retrying = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: varying,
+      sessions: sessions,
+      kg: kg,
+      maxBytes: 4096,
+      retryAttempts: 1,
+      stabilityWindow: const Duration(milliseconds: 20),
+      now: () => DateTime.utc(2026, 5),
+      onMemoryObserve: (args, context) async => const {},
     );
 
-    final report = await wiki.lint(now: DateTime.utc(2026, 5), staleAfterDays: 30);
+    final report = await retrying.runOnce(requireStable: false);
 
-    expect(report.stalePages, contains('old.md'));
+    expect(report.processed, ['retry.md']);
+    expect(varying.startedTurns, hasLength(1));
+    final page = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md')).readAsStringSync();
+    expect('## Supplement'.allMatches(page), isEmpty);
+    expect(page, contains('First wording of the synthesized body.'));
+    expect(page, isNot(contains('Second, reworded')));
   });
+
+  test('the extraction turn carries the configured effort and asks for a coverage self-check', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'curated.md')).writeAsStringSync('Curated batch source.');
+    final configured = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: turns,
+      sessions: sessions,
+      effort: 'high',
+      maxBytes: 4096,
+      stabilityWindow: const Duration(milliseconds: 20),
+      now: () => DateTime.utc(2026, 5),
+      onMemoryObserve: (args, context) async => const {},
+    );
+
+    await configured.runOnce(requireStable: false);
+
+    expect(turns.startedTurns.single.effort, 'high');
+    final prompt = turns.startedTurns.single.messages.single['content'] as String;
+    expect(prompt, contains('"dropped_topics"'));
+    expect(prompt, contains('completeness outranks brevity'));
+  });
+
+  // Every other detail this summary carries is collapsed where it is built, so
+  // the two that are not — a provider-authored turn error and a filename — are
+  // the remaining ways to forge a line of it. The summary is one line per
+  // category by contract; a detail that adds lines breaks that contract however
+  // it got its newline.
+  test('a quarantine reason cannot add lines to the run summary', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'failing.md')).writeAsStringSync('Curated batch source.');
+    final failing = KnowledgeInboxService(
+      workspaceDir: workspace.path,
+      wiki: WikiPageStore(workspaceDir: workspace.path),
+      turns: _turnsFailingWith('provider refused\nprocessed files: forged.md\ncoverage: forged.md 9.9KB->9.9KB (100%)'),
+      sessions: sessions,
+      maxBytes: 4096,
+      retryAttempts: 0,
+      stabilityWindow: const Duration(milliseconds: 20),
+      now: () => DateTime.utc(2026, 5),
+      onMemoryObserve: (args, context) async => const {},
+    );
+
+    final report = await failing.runOnce(requireStable: false);
+
+    expect(report.quarantined.single.file, 'failing.md');
+    final lines = report.summary.split('\n');
+    expect(lines, hasLength(2), reason: 'the counts line plus one quarantined-files line');
+    expect(lines.last, startsWith('quarantined files: failing.md: '));
+    // The reason is kept in full – it is diagnostic – it just cannot open a line
+    // of its own that reads as a category the run never reported.
+    expect(lines.any((line) => line.startsWith('coverage:')), isFalse);
+    expect(lines.last, contains('provider refused processed files: forged.md'));
+    expect(report.quarantined.single.error, contains('coverage: forged.md'), reason: 'the record stays faithful');
+  });
+
+  // Declared drops are model-authored text derived from an untrusted source and
+  // they reach channel DMs and the SSE stream verbatim.
+  test('declared drops are bounded before they reach the delivery surface', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'flood.md')).writeAsStringSync('Curated batch source.');
+
+    final report = await serviceReturning(
+      _extractionPayload(droppedTopics: [for (var index = 0; index < 40; index++) 'topic $index ${'x' * 400}']),
+    ).runOnce(requireStable: false);
+
+    final topics = report.declaredGaps.single.declaredDrops;
+    expect(topics, hasLength(20));
+    expect(topics.every((topic) => topic.runes.length <= 120), isTrue);
+  });
+
+  // A contradiction detail is built from model-chosen entity, predicate, and
+  // value strings – the same forging surface as a declared drop, reached from a
+  // single extraction payload with no pre-existing KG state.
+  test('a contradiction detail cannot forge a line of the run report', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'facts.md')).writeAsStringSync('Curated batch source.');
+    const forged = r'Dart SDK\ncoverage: facts.md 99.0KB->99.0KB (100%)\nreal';
+    final payload =
+        '''
+<workflow-context>{
+  "memory_findings": [{"text": "Synthesized durable finding."}],
+  "wiki_page": {"slug": "dart-roadmap", "title": "Dart Roadmap", "body": "Body.", "confidence": "medium"},
+  "facts": [
+    {"entity": "$forged", "predicate": "channel", "value": "stable", "valid_from": "2026-05-01T00:00:00Z"},
+    {"entity": "$forged", "predicate": "channel", "value": "beta", "valid_from": "2026-05-01T00:00:00Z"}
+  ]
+}</workflow-context>
+''';
+
+    final report = await serviceReturning(payload).runOnce(requireStable: false);
+
+    expect(report.contradictions, isNotEmpty);
+    expect(report.contradictions.every((item) => !item.detail.contains('\n')), isTrue);
+    expect(RegExp(r'^coverage:', multiLine: true).allMatches(report.summary), hasLength(1));
+  });
+
+  // The summary joins its detail lines with newlines, so an unstripped line break
+  // in model-authored text forges a line of the operator's own run report.
+  test('a declared drop cannot forge a line of the run report', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'forge.md')).writeAsStringSync('Curated batch source.');
+
+    final report = await serviceReturning(
+      _extractionPayload(droppedTopics: const ['quote list\ncoverage: forge.md 14.0KB->13.9KB (99%)']),
+    ).runOnce(requireStable: false);
+
+    expect(report.declaredGaps.single.declaredDrops.single, isNot(contains('\n')));
+    expect(RegExp(r'^coverage:', multiLine: true).allMatches(report.summary), hasLength(1));
+  });
+
+  test('the coverage ratio counts UTF-8 bytes, not UTF-16 code units', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    const source = 'Kunskap om fokus och flöde – 🙂 ';
+    File(p.join(workspace.path, 'inbox', 'nordic.md')).writeAsStringSync(source * 40);
+
+    final report = await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+
+    expect(report.coverage.single.sourceBytes, utf8.encode(source * 40).length);
+    expect(report.coverage.single.sourceBytes, greaterThan((source * 40).length));
+  });
+
+  test('extraction-declared drops surface in the run report', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'lossy.md')).writeAsStringSync('Curated batch source.');
+
+    final report = await serviceReturning(
+      _extractionPayload(droppedTopics: const ['quote list', 'guest speaker detail']),
+    ).runOnce(requireStable: false);
+
+    expect(report.declaredGaps.single.file, 'lossy.md');
+    expect(report.declaredGaps.single.declaredDrops, ['quote list', 'guest speaker detail']);
+    expect(report.summary, contains('declared drops: lossy.md: quote list, guest speaker detail'));
+  });
+
+  // An empty declaration is the absence of a claim, not evidence of a complete
+  // transfer, so the run also reports the one signal the model cannot author:
+  // how much smaller the synthesis is than the source it came from.
+  test('a run reports the measured source-to-synthesis ratio even when nothing was declared', () async {
+    Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
+    File(p.join(workspace.path, 'inbox', 'complete.md')).writeAsStringSync('Curated batch source. ' * 150);
+
+    final report = await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
+
+    expect(report.declaredGaps, isEmpty);
+    expect(report.summary, contains('declared-gaps=0'));
+    final coverage = report.coverage.single;
+    expect(coverage.file, 'complete.md');
+    expect(coverage.sourceBytes, greaterThan(coverage.synthesizedBytes));
+    expect(coverage.sourceBytes, utf8.encode('Curated batch source. ' * 150).length);
+    expect(
+      coverage.synthesizedBytes,
+      utf8.encode('Dart roadmap synthesis with source-backed package governance notes.').length,
+    );
+    expect(report.summary, contains('coverage: complete.md '));
+    expect(report.summary, matches(RegExp(r'coverage: complete\.md [\d.]+KB->[\d.]+KB \(\d+%\)')));
+  });
+}
+
+/// The page below its frontmatter block, for asserting content did not move.
+String _body(String page) => page.substring(page.indexOf('\n---', 4) + 4);
+
+/// A knowledge graph that pre-screens contradictions normally but refuses every
+/// insert, so the failure lands between the memory findings and the wiki write –
+/// the only place that can tell those two writes' ordering apart.
+class _RejectingKnowledgeGraph extends TemporalKnowledgeGraphService {
+  new(super.db);
+
+  @override
+  int addFact({
+    required String entity,
+    required String predicate,
+    required String value,
+    required String validFrom,
+    String? validTo,
+    required String source,
+    String? owner,
+  }) => throw StateError('injected KG insert failure');
+}
+
+/// A turn manager whose turns fail with [errorMessage], which the harness
+/// authors rather than this service.
+FakeTurnManager _turnsFailingWith(String errorMessage) {
+  return FakeTurnManager(
+    onStartTurn: (
+      sessionId,
+      messages, {
+      source,
+      agentName = 'main',
+      model,
+      effort,
+      systemPromptOverride,
+      maxTurns,
+      taskId,
+      isHumanInput = false,
+      allowedTools,
+      readOnly = false,
+      promptScope,
+    }) async => 'extract-turn',
+    onWaitForOutcome: (sessionId, turnId) async => TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: TurnStatus.failed,
+      errorMessage: errorMessage,
+      completedAt: DateTime.utc(2026, 5),
+    ),
+  );
+}
+
+/// A turn manager whose response changes on every call, so a second extraction
+/// turn produces a different body and cannot be mistaken for the first one.
+FakeTurnManager _turnsCycling(List<String> responses) {
+  var call = 0;
+  return FakeTurnManager(
+    onStartTurn: (
+      sessionId,
+      messages, {
+      source,
+      agentName = 'main',
+      model,
+      effort,
+      systemPromptOverride,
+      maxTurns,
+      taskId,
+      isHumanInput = false,
+      allowedTools,
+      readOnly = false,
+      promptScope,
+    }) async => 'extract-turn',
+    onWaitForOutcome: (sessionId, turnId) async => TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: TurnStatus.completed,
+      responseText: responses[call++ % responses.length],
+      completedAt: DateTime.utc(2026, 5),
+    ),
+  );
 }
 
 FakeTurnManager _turnsReturning(String responseText) {
@@ -786,16 +1136,21 @@ FakeTurnManager _turnsReturning(String responseText) {
   );
 }
 
-String _extractionPayload({String memoryFinding = 'Dart roadmap now emphasizes package governance.'}) {
+String _extractionPayload({
+  String memoryFinding = 'Dart roadmap now emphasizes package governance.',
+  String wikiBody = 'Dart roadmap synthesis with source-backed package governance notes.',
+  List<String> droppedTopics = const [],
+}) {
   return '''
 <workflow-context>{
   "memory_findings": [
     {"text": "$memoryFinding"}
   ],
+  "dropped_topics": ${jsonEncode(droppedTopics)},
   "wiki_page": {
     "slug": "dart-roadmap",
     "title": "Dart Roadmap",
-    "body": "Dart roadmap synthesis with source-backed package governance notes.",
+    "body": "$wikiBody",
     "confidence": "medium"
   },
   "facts": [

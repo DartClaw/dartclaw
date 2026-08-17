@@ -9,6 +9,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/request_auth_context.dart';
+import '../concurrency/session_mutation_coordinator.dart';
 import '../execution_coordinator.dart';
 import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;

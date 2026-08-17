@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-08-13 22:57 CEST
+Last Updated: 2026-08-17 07:20 CEST
 
 ## Current Phase
 
@@ -13,7 +13,7 @@ Last Updated: 2026-08-13 22:57 CEST
 
 ## Current Focus
 
-- Run the final clean-HEAD release check, squash-merge the scope-frozen 0.24 commit, and tag `v0.24.0`.
+- Run the final clean-HEAD release check, squash-merge the scope-frozen 0.24.1 commit, and tag `v0.24.1`.
 - Continue paired-device Signal and WhatsApp DM/group typing checks as non-blocking field validation.
 
 ## Active Stories
@@ -21,6 +21,20 @@ Last Updated: 2026-08-13 22:57 CEST
 - None.
 
 ## Recently Completed
+
+- **0.24.1 knowledge-inbox hardening** (2026-08-15): SecondBrain-reported wiki overwrite and lossy extraction fixed,
+  then two review rounds and a mutation sweep over the result. Wiki writes merge instead of replacing and are atomic;
+  unreadable pages are refused rather than rewritten; only the extraction turn is retried. Wiki lint's `orphan`
+  category was inverted (read outbound links, so every inbox-written leaf was flagged every run) and is now inbound;
+  anchored links are parsed. Three invariants the suite claimed but did not hold — the callback-only result log, the
+  wiki-write-last ordering, and created-page permissions — survived mutation and are now pinned. 20+ mutants killed.
+- **0.24.1 same-session turn admission** (2026-08-16): concurrent turn requests for one session could execute out of
+  order (IO-pool completion order decided who took the session lock; measured 3–20%). `TurnManager.reserveTurn` now runs
+  each session's reservations through a per-session `SessionMutationCoordinator` chain, so every `TurnManager` caller
+  gets arrival order without per-caller serialization. Pinned by a test that fails deterministically without the chain;
+  `andthen:review` (code+doc+security, four passes, devil's-advocate filter) found only doc-accuracy findings, all
+  remediated; the coordinator gained its own unit test (three mutants killed). Private record:
+  `dartclaw-private/docs/specs/0.24.1/prd.md`.
 
 - **0.24 Memory Model plan** (2026-08-12): S01–S12 delivered the canonical corpus, atomic mutation and migration,
   bounded prompt/retrieval/resource paths, search/index recovery, explicit curation, lifecycle visibility, and governance.
@@ -44,6 +58,11 @@ Last Updated: 2026-08-13 22:57 CEST
   (Ubuntu 24.04.3 aarch64, as root) and Docker Desktop 29.4.2 (macOS). Automated workspace, architecture, fitness,
   workflow-live (51/51), and UI smoke (TC-01–29, TC-31, R-01–14) gates are green. The scope-frozen release-prep snapshot
   is complete; `release_check.sh` must pass on that clean commit before the tag.
+- 0.24.1 carries no execution-isolation, container, or provider-protocol change, so the 0.24 dual-engine, workflow-live,
+  and Windows evidence still stands. Operator decision (2026-08-17): the 0.24.1 live-integration and UI-smoke gates are
+  **not** re-run for this patch; the tag rests on the 0.24 manual evidence plus the automated gates (full workspace suite
+  green on 2026-08-16 before three doc/test-only commits, each re-verified per file; `release_check.sh --quick` on the
+  final commit).
 
 ## Recent Decisions
 

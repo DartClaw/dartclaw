@@ -1175,6 +1175,7 @@ KnowledgeConfig _parseKnowledge(Map<String, dynamic> yaml, KnowledgeConfig defau
               .clamp(0, 3650)
               .toInt(),
       deliveryMode: _knowledgeDeliveryMode(inboxMap['delivery_mode'], inbox.deliveryMode, 'knowledge.inbox', warns),
+      effort: _knowledgeEffort(readString('effort', inboxMap, warns), inbox.effort),
     );
   }
 
@@ -1198,6 +1199,11 @@ KnowledgeConfig _parseKnowledge(Map<String, dynamic> yaml, KnowledgeConfig defau
   }
 
   return KnowledgeConfig(inbox: inbox, wikiLint: wikiLint);
+}
+
+String _knowledgeEffort(String? raw, String fallback) {
+  final effort = raw?.trim();
+  return effort == null || effort.isEmpty ? fallback : effort;
 }
 
 String _knowledgeDeliveryMode(Object? raw, String fallback, String path, List<String> warns) {

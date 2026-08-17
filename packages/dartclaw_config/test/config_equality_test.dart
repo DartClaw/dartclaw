@@ -184,9 +184,27 @@ void main() {
             retryAttempts: 2,
             processedRetentionDays: 30,
             deliveryMode: 'announce',
+            effort: 'medium',
           ),
         );
         expect(a, isNot(equals(b)));
+      });
+
+      test('extraction effort alone changes equality', () {
+        const a = KnowledgeConfig(inbox: KnowledgeInboxConfig.defaults());
+        const b = KnowledgeConfig(
+          inbox: KnowledgeInboxConfig(
+            enabled: false,
+            intervalMinutes: 5,
+            maxBytes: 1024 * 1024,
+            retryAttempts: 2,
+            processedRetentionDays: 30,
+            deliveryMode: 'announce',
+            effort: 'high',
+          ),
+        );
+        expect(a, isNot(equals(b)));
+        expect(a.hashCode, isNot(equals(b.hashCode)));
       });
     });
 

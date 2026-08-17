@@ -744,6 +744,9 @@ void main() {
   });
 
   test('dispose() cancels active-run tasks, leaves inactive-run tasks untouched, and drains executors', () async {
+    final queuedTasks = QueuedTaskGate(harness);
+    addTearDown(queuedTasks.dispose);
+
     final definition = makeDefinition();
     final runA = await workflowService.start(definition, {});
     final runB = await workflowService.start(definition, {});
@@ -756,19 +759,8 @@ void main() {
       workflowRunId: 'run-C',
     );
 
-    Future<List<String>> taskIdsForRun(String runId) async {
-      for (var attempt = 0; attempt < 20; attempt += 1) {
-        final ids = (await taskService.listByWorkflowRunIds([runId])).map((task) => task.id).toList();
-        if (ids.isNotEmpty) {
-          return ids;
-        }
-        await Future<void>.delayed(Duration.zero);
-      }
-      return const [];
-    }
-
-    final runATasks = await taskIdsForRun(runA.id);
-    final runBTasks = await taskIdsForRun(runB.id);
+    final runATasks = await queuedTasks.taskIdsForRun(runA.id);
+    final runBTasks = await queuedTasks.taskIdsForRun(runB.id);
     expect(runATasks, isNotEmpty);
     expect(runBTasks, isNotEmpty);
 
@@ -903,28 +895,26 @@ void main() {
       executionTransactor: disposeTransactor,
       eventBus: disposeEventBus,
     );
+    // Mutate _activeExecutors while the lookup is suspended by starting a
+    // second run; a lazily-evaluated argument would then include it. Executor
+    // exit is not observable from outside, and after dispose() sets the cancel
+    // flag the first run exits with no status transition, so no run or task
+    // event could release this hook deterministically.
     final lookupStarted = Completer<void>();
-    final disposeRepository = SqliteWorkflowRunRepository(disposeDb);
-    late WorkflowRun disposeRun;
+    late final WorkflowService disposeWorkflowService;
     final disposeRecordingTasks = _RecordingWorkflowTaskService(
       disposeTaskService,
       beforeListByWorkflowRunIds: () async {
         if (!lookupStarted.isCompleted) {
           lookupStarted.complete();
-        }
-        for (var attempt = 0; attempt < 20; attempt += 1) {
-          final stored = await disposeRepository.getById(disposeRun.id);
-          if (stored?.status.terminal ?? false) {
-            return;
-          }
-          await Future<void>.delayed(Duration.zero);
+          await disposeWorkflowService.start(makeDefinition(), {});
         }
       },
     );
     final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-snapshot-sessions'));
     final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-snapshot-kv.json'));
-    final disposeWorkflowService = WorkflowService(
-      repository: disposeRepository,
+    disposeWorkflowService = WorkflowService(
+      repository: SqliteWorkflowRunRepository(disposeDb),
       taskService: disposeRecordingTasks,
       messageService: disposeMessages,
       persistencePorts: WorkflowPersistencePorts(
@@ -954,7 +944,7 @@ void main() {
     addTearDown(disposeEventBus.dispose);
     addTearDown(disposeDb.close);
 
-    disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
 
     final disposeFuture = disposeWorkflowService.dispose();
     await lookupStarted.future;

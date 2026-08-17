@@ -9,7 +9,7 @@ import 'package:dartclaw_server/src/turn_wait_status.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/sqlite3.dart' hide Session;
 import 'package:test/test.dart';
 
 import 'turn_manager_test_support.dart';
@@ -188,13 +188,14 @@ void main() {
       ], sessions: sessionService);
       addTearDown(providerTurns.executions.dispose);
 
-      final firstFuture = providerTurns.startTurn(session.id, []);
+      // Arrival ordering is pinned by 'concurrent same-session startTurn calls
+      // reserve in arrival order'; this test only cares about runner sharing.
+      final firstTurnId = await providerTurns.startTurn(session.id, []);
       var secondReserved = false;
       final secondFuture = providerTurns.startTurn(session.id, []).then((turnId) {
         secondReserved = true;
         return turnId;
       });
-      final firstTurnId = await firstFuture;
       final activeWorker = await Future.any<FakeWorkerService>([
         firstCodexWorker.turnInvoked.then((_) => firstCodexWorker),
         secondCodexWorker.turnInvoked.then((_) => secondCodexWorker),
@@ -433,6 +434,42 @@ void main() {
       await worker.turnInvoked;
       worker.completeSuccess();
       await turns.waitForOutcome('s1', turnId2);
+    });
+
+    test('concurrent same-session startTurn calls reserve in arrival order', () async {
+      // The reservation path awaits SessionService.getSession before taking the
+      // session lock. Hold the first caller's read until the second caller has
+      // had every chance to overtake it: arrival order must still win.
+      final sessionService = _HeldReadSessionService();
+      final session = await sessionService.createSession();
+      final orderedTurns = TurnManager(
+        messages: messages,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        sessions: sessionService,
+      );
+
+      final releaseFirstRead = sessionService.holdNextRead();
+      String? firstTurnId;
+      String? secondTurnId;
+      final firstFuture = orderedTurns.startTurn(session.id, []).then((id) => firstTurnId = id);
+      final secondFuture = orderedTurns.startTurn(session.id, []).then((id) => secondTurnId = id);
+      await pumpEventQueue();
+      releaseFirstRead();
+      await pumpEventQueue();
+
+      expect(firstTurnId, isNotNull, reason: 'first arrival must hold the session');
+      expect(secondTurnId, isNull, reason: 'second arrival must queue behind the first');
+      expect(orderedTurns.activeTurnId(session.id), firstTurnId);
+
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await orderedTurns.waitForOutcome(session.id, await firstFuture);
+      final queuedTurnId = await secondFuture;
+      expect(orderedTurns.activeTurnId(session.id), queuedTurnId);
+      await worker.turnInvoked;
+      worker.completeSuccess();
+      await orderedTurns.waitForOutcome(session.id, queuedTurnId);
     });
 
     test('global busy (different session) throws BusyTurnException with isSameSession=false', () async {
@@ -1174,6 +1211,28 @@ Future<void> _primeWorker(ExecutionCoordinator executions, {required String prov
     ),
   );
   await lease!.release();
+}
+
+/// In-memory session reads that can hold the next `getSession` until released –
+/// a deterministic stand-in for the IO-pool completion reordering the
+/// reservation path is exposed to.
+class _HeldReadSessionService extends InMemorySessionService {
+  Completer<void>? _hold;
+
+  void Function() holdNextRead() {
+    final hold = _hold = Completer<void>();
+    return hold.complete;
+  }
+
+  @override
+  Future<Session?> getSession(String id) async {
+    final hold = _hold;
+    if (hold != null) {
+      _hold = null;
+      await hold.future;
+    }
+    return super.getSession(id);
+  }
 }
 
 class _ThrowingTurnStateStore implements TurnStateStore {

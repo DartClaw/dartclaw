@@ -43,6 +43,9 @@ class KnowledgeInboxConfig {
   /// Scheduled report delivery mode.
   final String deliveryMode;
 
+  /// Reasoning effort for the extraction turn.
+  final String effort;
+
   /// Creates a [KnowledgeInboxConfig] value.
   const new({
     required this.enabled,
@@ -51,6 +54,7 @@ class KnowledgeInboxConfig {
     required this.retryAttempts,
     required this.processedRetentionDays,
     required this.deliveryMode,
+    required this.effort,
   });
 
   /// Creates a [KnowledgeInboxConfig.defaults] value.
@@ -60,7 +64,8 @@ class KnowledgeInboxConfig {
       maxBytes = 1024 * 1024,
       retryAttempts = 2,
       processedRetentionDays = 30,
-      deliveryMode = 'announce';
+      deliveryMode = 'announce',
+      effort = 'medium';
 
   @override
   bool operator ==(Object other) =>
@@ -71,11 +76,12 @@ class KnowledgeInboxConfig {
           maxBytes == other.maxBytes &&
           retryAttempts == other.retryAttempts &&
           processedRetentionDays == other.processedRetentionDays &&
-          deliveryMode == other.deliveryMode;
+          deliveryMode == other.deliveryMode &&
+          effort == other.effort;
 
   @override
   int get hashCode =>
-      Object.hash(enabled, intervalMinutes, maxBytes, retryAttempts, processedRetentionDays, deliveryMode);
+      Object.hash(enabled, intervalMinutes, maxBytes, retryAttempts, processedRetentionDays, deliveryMode, effort);
 }
 
 /// Wiki lint scheduler settings.

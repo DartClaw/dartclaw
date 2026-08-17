@@ -12,7 +12,7 @@
 # serialize_remaining_escalation_test.dart.
 
 packages/dartclaw_workflow/test/workflow/foreach_iteration_runner_test.dart  # 2583 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
-packages/dartclaw_workflow/test/workflow/workflow_service_test.dart  # 2208 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_workflow/test/workflow/workflow_service_test.dart  # 2198 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/turn_runner_test.dart  # 2275 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/task/task_executor_workflow_oneshot_test.dart  # 2059 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_server/test/api/session_routes_test.dart  # 2037 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md

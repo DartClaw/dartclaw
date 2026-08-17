@@ -534,7 +534,7 @@ Map<String, dynamic> _boundedReadResult(List<Map<String, Object?>> records, {req
     final content = retained.single['content'] as String;
     var budget = maxMemoryReadResponseBytes - 512;
     while (budget > 0) {
-      retained.single['content'] = truncateUtf8Bytes(content, budget);
+      retained.single['content'] = _headTailTruncateUtf8(content, budget);
       truncated = true;
       if (utf8.encode(encode()).length <= maxMemoryReadResponseBytes) break;
       budget -= 128;
@@ -544,4 +544,21 @@ Map<String, dynamic> _boundedReadResult(List<Map<String, Object?>> records, {req
     throw ArgumentError('selected record metadata exceeds the memory_read response limit');
   }
   return _toolJson({'collectionRevision': collectionRevision, 'results': retained, 'truncated': truncated});
+}
+
+/// Keeps the head and the tail of an over-budget [content], marking the cut in
+/// the middle. Native sources grow by appending – a wiki page gains supplement
+/// sections at its end – so a head-only cut would drop exactly the newest
+/// content from every oversized read.
+String _headTailTruncateUtf8(String content, int budget) {
+  final encoded = utf8.encode(content);
+  if (encoded.length <= budget) return content;
+  final tailBudget = budget ~/ 2;
+  var tailStart = encoded.length - tailBudget;
+  while (tailStart < encoded.length && (encoded[tailStart] & 0xC0) == 0x80) {
+    tailStart++;
+  }
+  return '${truncateUtf8Bytes(content, budget - tailBudget)}\n'
+      '...[truncated ${encoded.length - budget} bytes]...\n'
+      '${utf8.decode(encoded.sublist(tailStart))}';
 }

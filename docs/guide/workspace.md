@@ -142,7 +142,15 @@ stopped if index health is still degraded.
 Use `wiki/` for durable, source-backed pages that organize knowledge from memory, user-provided documents, and explicit
 sources. Canonical personal memory records user context and experience; `wiki/` pages are curated summaries and references.
 Treat the inbox as a curated source queue for bounded corpora such as a project, meeting set, or product spec set, not
-as a firehose for unrelated material.
+as a firehose for unrelated material. A knowledge-inbox write never replaces a page that already exists: the stored
+content is kept, the new synthesis is appended as a supplement section, and the frontmatter `sources` list keeps every
+prior source it can read. A page whose frontmatter the pipeline cannot parse is refused rather than rewritten, and the
+inbox source that hit it quarantines with an error naming the page.
+
+Pages accumulate: each colliding batch adds a supplement section, and nothing consolidates them for you. Every run's
+merge line carries the running count (`(supplement 7)`), and the optional `knowledge.wiki_lint` job – off by default –
+reports a page carrying ten or more supplements under `consolidation-debt`, so the growth reads as a level rather than
+as the same line every run.
 
 ### ONBOARDING.md -- Personalization Sentinel
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Human conversations in web chat and configured messaging

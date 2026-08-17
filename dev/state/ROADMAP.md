@@ -6,7 +6,9 @@
 
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-**Status: Release-ready, awaiting tag.** Logical-agent execution,
+**Status: 0.24.1 release-ready, awaiting tag.** 0.24.0 shipped 2026-08-13; 0.24.1 is a correctness patch on top of
+it (knowledge-inbox wiki merge/atomicity, retry scope, wiki-lint orphan inversion; same-session turn admission in
+arrival order) with no execution-isolation, container, or provider-protocol change. Logical-agent execution,
 scheduling, the canonical memory model, and the execution-isolation correction are complete. The transient public
 implementation bundles have been consolidated into the private canonical PRD and removed. Automated, live-workflow, and
 UI release gates are green. STATE records the completed compatibility evidence; the final clean-HEAD release check runs

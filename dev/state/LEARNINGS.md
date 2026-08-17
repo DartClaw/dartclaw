@@ -61,6 +61,7 @@
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
 - **`includeParentEnvironment: false` is load-bearing whenever passing an explicit `environment:` map.** `Process.start` re-inherits parent env by default → sanitized overlays silently leak. `SafeProcess` exists to make this non-optional.
 - **Sanitize git subprocess env, not just the binary.** `.git/config` can route through `core.sshCommand`, hooks, filters, and credential helpers that spawn shell children.
+- **Collapse whitespace where a one-line report is assembled, not per text source.** A provider error, filename, or OS string the pipeline never authored can otherwise forge a report line.
 
 ## Package Architecture
 
@@ -79,27 +80,7 @@
 
 ## Channel Integration
 
-### Google Chat
-- **Config keys use `google_chat`, not `googlechat`.** Even though `ChannelType.googlechat` omits the underscore. Mismatch → channel wiring silently disappears.
-- **Use `argumentText`, not `message.text`.** `message.text` includes the `@mention` prefix.
-- **`spaces.members.get` uses bare numeric ID, not the `users/` prefix.** Strip `users/` from sender JIDs before constructing member URLs.
-- **`quotedMessageMetadata` requires user OAuth.** `chat.bot` returns 403. When quoting fails with a typing placeholder present, *edit* the placeholder — *deleting* it leaves a permanent "message deleted by its author" tombstone.
-- **Reactions also require user OAuth.** `chat.bot` cannot create or delete.
-- **Quoting unsupported in unthreaded spaces.** Check `spaceType` against `UNTHREADED_MESSAGES` (`DM`, `GROUP_CHAT`) before building the quote.
-- **`CARD_CLICKED` payload is flat `Map<String, String>`, not nested JSON.** `invokedFunction` + flat string parameters.
-- **Slash commands have two event shapes.** `MESSAGE` with `message.slashCommand` AND `APP_COMMAND` with `appCommandMetadata` — write a compatibility parser.
-- **Thread binding endpoints must share the live `ThreadBindingStore` instance.** Per-request reconstruction reads stale file state.
-
-### Workspace Events / Pub/Sub
-- **Workspace Events scopes differ from Chat API scopes.** Service account auth needs `chat.app.spaces` + `chat.app.memberships`; standard `chat.bot` is insufficient.
-- **Workspace Events service account auth is Developer Preview.** Even with correct scopes, a Workspace admin must grant one-time approval. User OAuth (GA) does not need admin approval.
-- **Workspace Events API must be enabled separately** from Pub/Sub and the Chat API. Missing enablement → `403 SERVICE_DISABLED`.
-- **Pub/Sub Publisher and Subscriber are separate grants on different resources.** `chat-api-push@system.gserviceaccount.com` needs Publisher on the topic; your service account needs Subscriber on the subscription. Easy to confuse the two `403`s.
-- **Pub/Sub shutdown must `dispose()`, not just `stop()`.** `stop()` is restart-safe and won't abort in-flight HTTP pulls; process shutdown without `dispose()` hits the 5-second timeout.
-
-### Signal
-- **Sealed-sender: pairing UUID vs later `sourceNumber`.** Allowlist must handle both forms and self-heal on first dual-form message.
-- **UUIDs are mixed-case.** Lowercase before storage and lookup.
+→ learnings/channel-integration.md – Config keys use `google_chat`, not `googlechat`
 
 ## Workflow Engine
 
@@ -114,6 +95,10 @@
 - **Legacy task-table migrations must guard missing columns at every SQL touch point.** Branching only the backfill INSERT is insufficient; index creation and `INSERT ... SELECT` also need conditional column references.
 - **Validate untrusted-ingestion payloads before the first durable write, and never treat LLM text as a control boundary.** Order all checks before any sink (else retries re-run committed writes); parse structured output from a delimiter-safe channel, not free text that source-embedded fences can forge.
 - **Webhook pending-state TTL must move forward on successful commit.** Reclaiming an old pending row and then marking it processed without refreshing the TTL anchor lets the next purge delete the dedupe marker immediately.
+- **Parse-then-rewrite makes a lenient parser destructive.** The parse result is written back, so unknown shapes are deleted, not ignored; unparseable must refuse. `_readPage`: CRLF, flow YAML.
+- **A write that becomes read-modify-write needs `secureWriteFile`.** The file is the sole copy; truncating `writeAsString` turns any interruption into total loss. `storage/atomic_write.dart:13`.
+- **A reachability category must count inbound links, not the page's own.** Wiki `orphan` read each page's outbound links, so a leaf-only corpus flagged every page every run – no signal.
+- **A markdown link regex must split `#fragment`/`?query` off the path.** `](page.md#section)` matched `\]\(([^)]+\.md)\)` not at all: target never link-checked, page counted linkless.
 
 ## Container / Deployment
 
@@ -144,3 +129,8 @@
 ## Testing
 
 - **Bound-asserting tests must enumerate the set** – a test named 'only/every/no other' must assert with unorderedEquals/containsAll, never isNot(contains(...)); recurred in both 0.24 gap reviews.
+- **Fixtures built by the code under test never exercise its parser.** `writePage`-built fixtures meant `_readPage` never parsed foreign input – four data-loss bugs, suite green. Write raw literals.
+- **A fake returning a constant response makes retry tests vacuous.** The retry is byte-identical by construction, so no test can observe non-idempotent post-write effects; vary it per call.
+- **A guard test must assert the value the guard suppresses, not the input.** Asserting the prompt job's *prompt* stayed unlogged left the `onExecute` guard unpinned – deleting it passed 49 tests.
+- **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first" – both orderings passed 115 tests.
+- **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.

@@ -10,8 +10,14 @@ typedef SessionLockNow = DateTime Function();
 /// Per-session Completer-based locks with a global concurrency cap.
 ///
 /// Prevents concurrent turns on the same session and limits overall parallel
-/// turn count across all sessions. Same-session requests queue behind the
-/// active turn instead of failing.
+/// turn count across all sessions. Same-session callers that reach [acquire]
+/// while the lock is held wait instead of failing and are resumed in the order
+/// they began waiting; a caller that reaches [acquire] while the lock is
+/// momentarily free takes it at once, even if earlier waiters have not resumed
+/// yet. That is the whole guarantee: callers still upstream of [acquire] (in an
+/// async gap such as a session read) are not ordered here. Arrival-order
+/// serialization of same-session turn requests lives at the `TurnManager`
+/// reservation funnel.
 class SessionLockManager implements Reconfigurable {
   static final _log = Logger('SessionLockManager');
 

@@ -9,5 +9,7 @@ export 'knowledge_inbox_service.dart'
         KnowledgeInboxSkip,
         KnowledgeInboxQuarantine,
         KnowledgeInboxContradiction,
-        WikiLintReport,
-        WikiPageStore;
+        KnowledgeInboxWikiMerge,
+        KnowledgeInboxCoverage;
+export 'wiki_lint.dart' show WikiLintReport, lintWikiPages;
+export 'wiki_page_store.dart' show WikiPageOutcome, WikiPageStore, WikiPageUnreadable, WikiPageWrite;

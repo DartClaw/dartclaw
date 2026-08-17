@@ -232,6 +232,7 @@ class SchedulingWiring {
         maxBytes: inboxConfig.maxBytes,
         retryAttempts: inboxConfig.retryAttempts,
         processedRetentionDays: inboxConfig.processedRetentionDays,
+        effort: inboxConfig.effort,
         workerProviderId: config.agent.provider,
         workerPolicy: backgroundPolicy,
       );
@@ -258,7 +259,7 @@ class SchedulingWiring {
           scheduleType: ScheduleType.interval,
           intervalMinutes: wikiLintConfig.intervalMinutes,
           deliveryMode: _knowledgeDeliveryMode(wikiLintConfig.deliveryMode),
-          onExecute: () async => (await wiki.lint(kg: _storage.kg)).summary(),
+          onExecute: () async => (await lintWikiPages(wiki, kg: _storage.kg)).summary(),
         ),
       );
       _displayJobs.add({

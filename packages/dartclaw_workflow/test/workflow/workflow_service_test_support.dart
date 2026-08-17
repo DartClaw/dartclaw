@@ -192,3 +192,37 @@ final class WorkflowServiceTestHarness {
     return run;
   }
 }
+
+/// Resolves a run's queued step-task ids, gated on the creation event: the
+/// executor does filesystem work before it creates a step task, so a fixed
+/// number of event-loop pumps is not a bound. Construct before `start()`.
+final class QueuedTaskGate {
+  new(WorkflowServiceTestHarness harness) {
+    _subscription = harness.eventBus
+        .on<TaskStatusChangedEvent>()
+        .where((event) => event.newStatus == TaskStatus.queued)
+        .listen((event) async {
+          final task = await harness.taskService.get(event.taskId);
+          final runId = task?.workflowRunId;
+          if (runId == null) return;
+          (_taskIdsByRun[runId] ??= <String>[]).add(task!.id);
+          _created.add(runId);
+        });
+  }
+
+  final Map<String, List<String>> _taskIdsByRun = {};
+  final StreamController<String> _created = StreamController<String>.broadcast();
+  late final StreamSubscription<TaskStatusChangedEvent> _subscription;
+
+  Future<List<String>> taskIdsForRun(String runId) async {
+    final alreadyCreated = _taskIdsByRun[runId];
+    if (alreadyCreated != null && alreadyCreated.isNotEmpty) return alreadyCreated;
+    await _created.stream.firstWhere((createdRunId) => createdRunId == runId);
+    return _taskIdsByRun[runId]!;
+  }
+
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    await _created.close();
+  }
+}

@@ -564,20 +564,21 @@ A complete turn flows through multiple layers. The following diagram shows the f
 User (Web/Channel/Cron/Task)
   │
   ▼
-TurnGovernanceEnforcer admits the turn globally
-  │
+TurnManager.startTurn(sessionId, messages) → reserveTurn(sessionId)
+  │ same-session reservations run one at a time, in arrival order
+  │ (per-session SessionMutationCoordinator chain; see session-state-architecture § 6)
+  │ (TaskExecutor and the advisor skip this box and call the coordinator directly)
   ▼
 ExecutionCoordinator.acquire(request)
+  │ admission: TurnGovernanceEnforcer checks (budget, loop, rate limit),
+  │            then ① acquire session lock (SessionLockManager)
   │ fixed primary lease for main user/channel turns
   │ provider worker lease for cron/system/advisor/task/logical-agent turns
   ├─ capacity-only provider lease ──► WorkflowCliRunner (workflow one-shots)
   │
   │ runner-backed lease
   ▼
-TurnManager.startTurn(sessionId, messages) on the leased runner
-  ▼
-TurnRunner.reserveTurn(sessionId)
-  │ ① Acquire session lock (SessionLockManager)
+TurnRunner.reserveAdmittedTurn(sessionId) on the leased runner
   │ ② Generate turnId (UUID v4)
   │ ③ Persist turn state to TurnStateStore (`state.db`) for crash recovery
   ▼

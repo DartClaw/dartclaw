@@ -62,6 +62,7 @@ void main() {
               retryAttempts: 5,
               processedRetentionDays: 7,
               deliveryMode: 'announce',
+              effort: 'medium',
             ),
           ),
         );

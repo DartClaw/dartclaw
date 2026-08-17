@@ -4,6 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import '../delivery_test_support.dart';
@@ -195,6 +196,35 @@ void main() {
         'schedule': {'type': 'interval', 'minutes': 60},
         'delivery': 'none',
       });
+    });
+
+    // A prompt job's response is model output the operator routed deliberately;
+    // `delivery_mode: none` has to mean it goes nowhere. A callback job reports
+    // on durable state that has to stay auditable after `processed/` purges.
+    test('a callback job logs its result and a prompt job does not', () async {
+      final records = <String>[];
+      final subscription = Logger.root.onRecord.listen((record) => records.add(record.message));
+      addTearDown(subscription.cancel);
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+      service.start();
+      addTearDown(service.stop);
+      turns.responseText = 'prompt job response detail';
+
+      await service.executeJobForTesting(intervalJob);
+      await service.executeJobForTesting(
+        ScheduledJob(
+          id: 'callback-job',
+          scheduleType: ScheduleType.interval,
+          intervalMinutes: 60,
+          deliveryMode: DeliveryMode.none,
+          onExecute: () async => 'callback result detail',
+        ),
+      );
+
+      expect(records.where((message) => message.contains('callback result detail')), hasLength(1));
+      // The prompt job's *result*, not its prompt: the prompt was never at risk
+      // of being logged, so asserting on it leaves the guard unpinned.
+      expect(records.where((message) => message.contains('prompt job response detail')), isEmpty);
     });
 
     test('executeJobForTesting runs the job and records execution', () async {

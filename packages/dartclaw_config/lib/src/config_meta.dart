@@ -734,6 +734,12 @@ abstract final class ConfigMeta {
       mutability: ConfigMutability.restart,
       allowedValues: ['none', 'announce', 'webhook'],
     ),
+    'knowledge.inbox.effort': FieldMeta(
+      yamlPath: 'knowledge.inbox.effort',
+      jsonKey: 'knowledge.inbox.effort',
+      type: ConfigFieldType.string,
+      mutability: ConfigMutability.restart,
+    ),
     'knowledge.wiki_lint.enabled': FieldMeta(
       yamlPath: 'knowledge.wiki_lint.enabled',
       jsonKey: 'knowledge.wikiLint.enabled',

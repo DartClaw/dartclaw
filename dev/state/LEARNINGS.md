@@ -118,6 +118,7 @@
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** It can go unrun until the final checkbox pass — verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type declared, exported and caught whose only `throw` was a fake – grep the producer before done.
+- **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates) – 0.25 PRD review F1/F6: two false dead claims.
 
 ## CSS
 

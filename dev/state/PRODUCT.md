@@ -15,12 +15,14 @@ DartClaw is in **early, experimental development** — soft-published only (pre-
 
 A ground-up agent runtime leveraging Dart's strengths. Guiding principles: security by design, security in depth, developer ergonomics, pragmatic lightweight architecture. DartClaw should not only be secure and efficient but also a joy to use and build upon.
 
-**Single-user personal AI assistant.** DartClaw targets one user, one deployment, daily-driver utility. Inspired by NanoClaw's minimalism — ship what makes it genuinely useful, defer what doesn't. Multi-user, multi-tenant, and enterprise features are explicitly deferred.
+**Four pillars.** DartClaw is (1) a **personal daily-driver assistant** — message it from your phone, have it safely search the web, remember things across sessions, run scheduled jobs; (2) an **agentic work runtime** — coding tasks and a workflow engine whose definitions DartClaw's own agents can compose dynamically (validated data, never model-authored code); (3) a **glass-box knowledge system** — memory corpus, wiki, and temporal knowledge graph with a steward loop, **shareable as a context engine to other users, agents, and tools over MCP**; (4) **real security boundaries** — OS isolation, guard chain, audit — not prompt-level policy.
 
-**What makes it useful daily:** being able to message your AI from your phone (WhatsApp/Telegram), have it safely search the web for you, remember things across sessions, and run scheduled tasks — all with real security boundaries, not just prompt-level guardrails.
+**Single-owner, multi-client.** One person owns the assistant, its chat identity, and its writes. Its knowledge surface may serve many clients read-only over MCP. Multi-tenant deployment, per-sender arbitration in chat, and team/crowd features are explicitly out of scope (group-chat use is a recipe, not a product pillar).
 
 **Guiding principles:**
-- **OS boundaries over application boundaries** — containers and process isolation, not just prompt-level policy
-- **Minimal viable scope per milestone** — NanoClaw proved 3.9K LOC can be a daily-driver; resist feature creep
-- **Claude-native** — leverage Claude Agent SDK, `.claude/skills/`, and the `claude` binary directly; don't re-invent what the SDK provides
-- **Auditable** — codebase fits in a context window; dependencies stay minimal
+- **OS boundaries over application boundaries** — containers and process isolation are the default posture where a runtime exists; guards are defence in depth, not the boundary
+- **Model-first** — judgment belongs to the model behind a schema/tool contract; Dart validates once, bounds, persists, enforces. Never re-derive, repair, default, or overrule a model-supplied value
+- **One authority per concern** — one composition root, one execution stack, one workflow runtime, one config schema source, one process-ownership primitive. A second implementation of an existing seam is a defect unless an ADR names why
+- **Minimal viable scope per milestone** — resist feature creep; cut scope before adding abstraction
+- **Claude-native** — leverage the harness (Claude Code, Codex, ACP agents), `.claude/skills/`, and the native binaries directly; don't re-invent what they provide
+- **Auditable, enforced** — per-package lib LOC ceilings that only go down; every subsystem has one owner; prompt-surface inventory tracked; dependencies stay minimal

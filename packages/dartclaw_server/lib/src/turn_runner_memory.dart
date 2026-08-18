@@ -156,23 +156,6 @@ extension _TurnRunnerMemory on TurnRunner {
       return '';
     }
   }
-
-  String? _lastToolFileHint(ToolUseEvent? last) {
-    if (last == null) return null;
-    final name = last.toolName.toLowerCase();
-    if (name == 'read' || name == 'view') {
-      final path = last.input['file_path'];
-      if (path is String) return path;
-    }
-    if (name == 'bash' || name == 'shell') {
-      final cmd = last.input['command'];
-      if (cmd is String) {
-        final match = RegExp(r'[\w./\-]+\.\w+').firstMatch(cmd);
-        if (match != null) return match.group(0);
-      }
-    }
-    return null;
-  }
 }
 
 final class _DailyLogValueSerializer {

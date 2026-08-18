@@ -8,6 +8,14 @@ final _log = Logger('ClaudeProtocol');
 /// Shared between [ClaudeCodeHarness] and [ClaudeBinaryClassifier].
 const claudeNestingEnvVars = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'];
 
+/// Env var the `claude` CLI reads a subscription `setup-token` from.
+///
+/// Written into a *host* spawn environment after the sensitive-name sanitize,
+/// so the token DartClaw stores is what the CLI authenticates on and an
+/// inherited shell value never is. Containerized spawns never carry it: the
+/// container is mediated by the host gateway and holds no credential.
+const claudeOauthTokenEnvVar = 'CLAUDE_CODE_OAUTH_TOKEN';
+
 /// Security-hardening env vars applied to every *host* (direct-spawn) Claude
 /// harness launch. Containerized spawns use [claudeContainerHardeningEnvVars].
 ///

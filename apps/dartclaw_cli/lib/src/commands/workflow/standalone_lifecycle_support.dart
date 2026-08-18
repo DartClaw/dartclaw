@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ProviderIdentity;
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, LoginStoreCollisionError;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -155,6 +155,11 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
         for (final item in error.errors) {
           stderrLine(item.message);
         }
+        exitFn(1);
+      } on LoginStoreCollisionError catch (error) {
+        // A store DartClaw must not use is an operator configuration error, not
+        // a crash: it takes the same printed-remediation, exit-1 path.
+        stderrLine(error.toString());
         exitFn(1);
       }
 

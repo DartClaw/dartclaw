@@ -637,6 +637,12 @@ abstract final class ConfigMeta {
       type: ConfigFieldType.string,
       mutability: ConfigMutability.restart,
     ),
+    'guards.content.fail_open': FieldMeta(
+      yamlPath: 'guards.content.fail_open',
+      jsonKey: 'guards.content.failOpen',
+      type: ConfigFieldType.bool_,
+      mutability: ConfigMutability.restart,
+    ),
     'guards.content.max_bytes': FieldMeta(
       yamlPath: 'guards.content.max_bytes',
       jsonKey: 'guards.content.maxBytes',

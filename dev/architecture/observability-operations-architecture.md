@@ -72,8 +72,12 @@ Pure function that maps `DartclawEvent` subtypes to alert type identifiers and s
 | `EmergencyStopEvent` | `emergency_stop` | critical |
 | `AdvisorInsightEvent` (status `stuck`) | `advisor_insight` | warning |
 | `AdvisorInsightEvent` (status `concerning`) | `advisor_insight` | critical |
+| `CredentialHealthChangedEvent` (`nearing-expiry`) | `credential_expiry` | warning |
+| `CredentialHealthChangedEvent` (`refresh-failure`) | `credential_refresh_failure` | warning |
+| `CredentialHealthChangedEvent` (`reauth-required`) | `credential_reauth_required` | critical |
+| `CredentialHealthChangedEvent` (`contract-break`) | `credential_contract_break` | critical |
 
-Non-alertable events return `null` and are silently dropped.
+Non-alertable events return `null` and are silently dropped -- including the `healthy` and `unknown` credential-health states, since a recovery message is noise and an uncheckable credential is not a fault.
 
 **Non-channel filter**: Task failure alerts for tasks originating from DM or group channel sessions are suppressed -- those users are already notified via `TaskNotificationSubscriber`. Tasks with web/cron/API origin always generate alerts. On malformed `SessionKey`, the filter fails open (alert delivered rather than silently dropped).
 

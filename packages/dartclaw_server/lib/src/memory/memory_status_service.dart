@@ -286,6 +286,7 @@ class MemoryStatusService {
       final snapshot = _workspaceFiles.read('MEMORY.md', role: MemoryRole.indexDocument);
       if (snapshot == null) return _emptyMemoryMdStatus();
       final content = snapshot.content;
+      if (content.startsWith(canonicalMemoryHeader)) return _canonicalMemoryMdStatus(content, snapshot.sizeBytes);
       final entries = parseMemoryEntries(content);
 
       // Category breakdown
@@ -333,6 +334,35 @@ class MemoryStatusService {
     }
   }
 
+  /// Reads a canonical index document; the legacy line parser matches none of
+  /// its records and would report an empty, `exact` status.
+  Map<String, dynamic> _canonicalMemoryMdStatus(String content, int sizeBytes) {
+    final document = const MemoryMarkdownCodec().parse(content);
+    if (document is! MemoryIndexDocument) throw const FormatException('Expected index document');
+    final entries = document.entries;
+    final categoryMap = <String, int>{};
+    for (final entry in entries) {
+      categoryMap[entry.topic] = (categoryMap[entry.topic] ?? 0) + 1;
+    }
+    final updated = entries.map((entry) => entry.updated).toList()..sort();
+    return {
+      'sizeBytes': sizeBytes,
+      'entryCount': entries.length,
+      'oldestEntry': updated.isEmpty ? null : updated.first.toIso8601String(),
+      'newestEntry': updated.isEmpty ? null : updated.last.toIso8601String(),
+      'budgetBytes': config.memory.maxBytes,
+      'categories': categoryMap.entries.map((e) => {'name': e.key, 'count': e.value}).toList(),
+      'undatedCount': 0,
+      'coverage': 'exact',
+    };
+  }
+
+  int _canonicalArchiveEntryCount(String content) {
+    final document = const MemoryMarkdownCodec().parse(content);
+    if (document is! MemoryArchiveDocument) throw const FormatException('Expected archive document');
+    return document.entries.length;
+  }
+
   Map<String, dynamic> _emptyMemoryMdStatus() => {
     'sizeBytes': 0,
     'entryCount': 0,
@@ -348,8 +378,10 @@ class MemoryStatusService {
       final snapshot = _workspaceFiles.read('MEMORY.archive.md', role: MemoryRole.archive);
       if (snapshot == null) return {'sizeBytes': 0, 'entryCount': 0, 'coverage': 'exact'};
       final content = snapshot.content;
-      final entries = parseMemoryEntries(content);
-      return {'sizeBytes': snapshot.sizeBytes, 'entryCount': entries.length, 'coverage': 'exact'};
+      final entryCount = content.startsWith(canonicalMemoryHeader)
+          ? _canonicalArchiveEntryCount(content)
+          : parseMemoryEntries(content).length;
+      return {'sizeBytes': snapshot.sizeBytes, 'entryCount': entryCount, 'coverage': 'exact'};
     } catch (e) {
       _log.warning('Failed to read MEMORY.archive.md: $e');
       return {

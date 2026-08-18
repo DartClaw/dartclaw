@@ -27,7 +27,14 @@ export 'src/storage/session_service.dart' show SessionService;
 export 'src/storage/message_service.dart' show MessageService;
 export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart'
-    show atomicWriteJson, secureWriteFile, secureWriteFileSync, chmodOwnerOnly, chmodOwnerOnlySync;
+    show
+        atomicWriteJson,
+        secureWriteFile,
+        secureWriteFileSync,
+        chmodOwnerOnly,
+        chmodOwnerOnlySync,
+        chmodOwnerOnlyDirSync;
+export 'src/storage/subscription_credential_store.dart' show LoginStoreCollisionError, SubscriptionCredentialStore;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
 export 'src/bridge/bridge_events.dart'
@@ -109,6 +116,7 @@ export 'src/harness/acp_target_validation.dart'
         acpSecurityClassificationId;
 export 'src/harness/provider_execution_compatibility.dart'
     show
+        ProviderCredentialGate,
         ProviderExecutionInventory,
         ProviderExecutionSupport,
         ProviderExecutionVerdict,
@@ -135,7 +143,11 @@ export 'src/harness/merge_resolve_env_vars.dart'
         mergeResolveEnvVarNames;
 export 'src/harness/mcp_tool.dart' show McpTool;
 export 'src/harness/claude_protocol.dart'
-    show claudeContainerHardeningEnvVars, claudeHardeningEnvVars, containerClaudePlaceholderApiKey;
+    show
+        claudeContainerHardeningEnvVars,
+        claudeHardeningEnvVars,
+        claudeOauthTokenEnvVar,
+        containerClaudePlaceholderApiKey;
 export 'src/harness/process_lifecycle.dart' show ProcessTerminationResult, SequentialLock, killWithEscalation;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
 export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
@@ -185,7 +197,7 @@ export 'src/memory/memory_documents.dart'
         MemoryObservationDocument,
         MemoryLearningDocument,
         MemoryAuditDocument;
-export 'src/memory/memory_markdown_codec.dart' show MemoryMarkdownCodec;
+export 'src/memory/memory_markdown_codec.dart' show MemoryMarkdownCodec, canonicalMemoryHeader;
 export 'src/memory/memory_corpus.dart'
     show VerbatimMemoryMember, CanonicalMemoryCorpus, MemoryCorpusValidationException, MemoryCorpusValidator;
 export 'src/memory/memory_apply_schema.dart' show memoryApplyOperationSchema;
@@ -285,6 +297,8 @@ export 'src/events/dartclaw_event.dart'
         ContainerStartedEvent,
         ContainerStoppedEvent,
         ContainerCrashedEvent,
+        CredentialHealthChangedEvent,
+        CredentialHealthState,
         RunnerLifecycleEvent,
         RunnerStateChangedEvent,
         AdvisorInsightEvent,

@@ -92,6 +92,12 @@ class HarnessFactoryConfig {
   /// History replay configuration for Claude harnesses.
   final HistoryConfig historyConfig;
 
+  /// Makes the DartClaw-dedicated subscription home usable before a host spawn
+  /// and answers its path, or `null` when this deployment presents an API key.
+  /// Wired in `HarnessWiring`, which owns the stores and the one refresh
+  /// authority per store.
+  final Future<String?> Function()? prepareSubscriptionHome;
+
   /// Creates an immutable harness-construction configuration.
   const new({
     required this.cwd,
@@ -116,6 +122,7 @@ class HarnessFactoryConfig {
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
+    this.prepareSubscriptionHome,
   });
 }
 
@@ -292,5 +299,6 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     adapter: CodexProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
     containerManager: config.containerManager,
+    prepareSubscriptionHome: config.prepareSubscriptionHome,
   );
 }

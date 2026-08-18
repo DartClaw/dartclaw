@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -452,6 +453,62 @@ void main() {
   });
 
   group('project-backed accept', () {
+    test('default git runner carries GIT_CONFIG_NOSYSTEM=1 into accept-path commits', () async {
+      // Accept stages and commits inside the task worktree. Without the flag,
+      // system-level git config (hooks, filters, sshCommand) runs in-band for
+      // that child — WorktreeManager sets it, this runner did not.
+      final tempDir = await Directory.systemTemp.createTemp('dartclaw_review_nosystem_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final repo = Directory(p.join(tempDir.path, 'worktree'))..createSync(recursive: true);
+      Future<ProcessResult> git(List<String> args) => Process.run('git', args, workingDirectory: repo.path);
+      await git(['init', '--initial-branch=main']);
+      await git(['config', 'user.email', 'test@example.com']);
+      await git(['config', 'user.name', 'Test']);
+      File(p.join(repo.path, 'seed.txt')).writeAsStringSync('seed\n');
+      await git(['add', '-A']);
+      await git(['commit', '-m', 'seed']);
+
+      final sentinel = File(p.join(tempDir.path, 'git-config-nosystem.txt'));
+      final hookPath = p.join(repo.path, '.git', 'hooks', 'pre-commit');
+      File(hookPath)
+          .writeAsStringSync('#!/bin/sh\nprintf "%s" "\${GIT_CONFIG_NOSYSTEM:-unset}" > "${sentinel.path}"\n');
+      await Process.run('chmod', ['+x', hookPath]);
+
+      // An uncommitted change, so the accept path reaches `git add` + `git commit`.
+      File(p.join(repo.path, 'work.txt')).writeAsStringSync('agent output\n');
+
+      await _putProjectTaskInReview(tasks, 'task-nosystem');
+      await tasks.updateFields(
+        'task-nosystem',
+        worktreeJson: {
+          'path': repo.path,
+          'branch': 'dartclaw/task-task-nosystem',
+          'createdAt': '2026-03-13T10:00:00.000Z',
+        },
+      );
+
+      final service = TaskReviewService(
+        tasks: tasks,
+        remotePushService: FakeRemotePushService(result: const PushSuccess()),
+        prCreator: FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/1')),
+        projectService: _projectService(
+          project: _makeProject(
+            id: 'my-app',
+            pr: const PrConfig(strategy: PrStrategy.githubPr),
+          ),
+        ),
+        worktreeManager: RecordingWorktreeManager(),
+        dataDir: tempDir.path,
+      );
+
+      await service.review('task-nosystem', 'accept');
+
+      expect(sentinel.existsSync(), isTrue, reason: 'pre-commit hook did not run — the accept path never committed');
+      expect(sentinel.readAsStringSync(), '1');
+    });
+
     test('push + PR created → task accepted, PR URL artifact stored', () async {
       final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
       addTearDown(() async {

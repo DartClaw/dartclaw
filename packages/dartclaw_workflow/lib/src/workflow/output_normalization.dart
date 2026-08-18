@@ -4,7 +4,6 @@ import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, W
 
 import 'package:logging/logging.dart';
 
-import 'context_output_defaults.dart';
 import 'json_extraction.dart';
 import 'review_finding_derivations.dart' as rfd;
 import 'schema_presets.dart';
@@ -116,7 +115,7 @@ dynamic deriveFromStructuredOutputs(
   for (final value in outputs.values) {
     if (value is Map && value.containsKey(outputKey)) return value[outputKey];
   }
-  return defaultContextOutput(step, outputs, outputKey);
+  return null;
 }
 
 /// Derives review count outputs before trusting direct model-emitted counters.

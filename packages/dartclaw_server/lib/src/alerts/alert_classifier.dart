@@ -23,6 +23,8 @@ typedef AlertClassification = ({String alertType, AlertSeverity severity});
 /// - [LoopDetectedEvent]             → `loop_detected` / critical
 /// - [EmergencyStopEvent]            → `emergency_stop` / critical
 /// - [AdvisorInsightEvent]           → `advisor_insight` / warning|critical by status
+/// - [CredentialHealthChangedEvent]   → one alert type per degraded credential
+///   state; the healthy and unknown states are not alertable
 AlertClassification? classifyAlert(DartclawEvent event) {
   return switch (event) {
     GuardBlockEvent() => (alertType: 'guard_block', severity: AlertSeverity.warning),
@@ -40,6 +42,25 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     AdvisorInsightEvent(status: 'stuck') => (alertType: 'advisor_insight', severity: AlertSeverity.warning),
     AdvisorInsightEvent(status: 'concerning') => (alertType: 'advisor_insight', severity: AlertSeverity.critical),
     AdvisorInsightEvent(status: final status) => _logUnknownAdvisorStatus(status),
+    CredentialHealthChangedEvent(state: CredentialHealthState.nearingExpiry) => (
+      alertType: 'credential_expiry',
+      severity: AlertSeverity.warning,
+    ),
+    CredentialHealthChangedEvent(state: CredentialHealthState.refreshFailure) => (
+      alertType: 'credential_refresh_failure',
+      severity: AlertSeverity.warning,
+    ),
+    CredentialHealthChangedEvent(state: CredentialHealthState.reauthRequired) => (
+      alertType: 'credential_reauth_required',
+      severity: AlertSeverity.critical,
+    ),
+    CredentialHealthChangedEvent(state: CredentialHealthState.contractBreak) => (
+      alertType: 'credential_contract_break',
+      severity: AlertSeverity.critical,
+    ),
+    // Healthy and unknown are recorded and rendered, never alerted: a recovery
+    // message is noise and an uncheckable credential is not a fault.
+    CredentialHealthChangedEvent() => null,
     TaskStatusChangedEvent() => null,
     ProjectStatusChangedEvent() => null,
     FailedAuthEvent() => null,

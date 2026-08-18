@@ -44,6 +44,23 @@ void main() {
       expect(notifier.current, same(base));
     });
 
+    test('a reloadable alerts change reaches its watchers', () {
+      // alerts.* is ConfigMutability.reloadable and three Reconfigurables watch
+      // it, but reload() never diffed the section, so none of them ever fired.
+      // The other undiffed sections (harness, knowledge, workflow, mcpServers)
+      // are restart-tier with no watchers — diffing them would falsely report
+      // that a restart-only change had been applied live.
+      final service = _FakeReconfigurable({'alerts.*'});
+      notifier.register(service);
+
+      final delta = notifier.reload(const DartclawConfig(alerts: AlertsConfig(enabled: true)));
+
+      expect(delta, isNotNull);
+      expect(delta!.changedKeys, contains('alerts.*'));
+      expect(service.received, hasLength(1));
+      expect(service.received.first.current.alerts.enabled, isTrue);
+    });
+
     test('reload with no changes returns null', () {
       final delta = notifier.reload(const DartclawConfig.defaults());
       expect(delta, isNull);

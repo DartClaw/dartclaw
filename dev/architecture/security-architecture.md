@@ -50,7 +50,7 @@ runtime locks protect crash consistency and cooperating DartClaw writers; they a
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 4: CONTENT CLASSIFICATION                   │
 │  ContentClassifier (LLM-based) · ContentGuard (agent boundaries)        │
-│  MessageRedactor (proportional redaction) · CloudflareDetector          │
+│  MessageRedactor (proportional redaction)                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 3: APPLICATION GUARDS                       │
 │  InputSanitizer · CommandGuard · FileGuard · NetworkGuard               │
@@ -398,7 +398,6 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 **Behavior**:
 - Truncates content to 50KB (UTF-8 safe) before classification
-- Skips Cloudflare challenge pages (`CloudflareDetector.isCloudflareChallenge`) to avoid false positives
 - Configurable fail behavior: fail-closed (default) or fail-open
 - 15-second classification timeout
 
@@ -550,6 +549,7 @@ Container (network:none)                     Host
                                        │                      │
                                        │   → api.anthropic.com│
                                        │   → api.openai.com   │
+                                       │   → chatgpt.com/codex│
                                        └──────────────────────┘
 ```
 
@@ -566,16 +566,41 @@ Container (network:none)                     Host
   connectors) host-side, because those run at the provider where `network:none` cannot contain them. Each adapter counts
   them in its own protocol shape; a request body the host cannot decode is refused rather than forwarded unchecked
 
-### Provider Authentication in Container Mode
+### Provider Authentication per Execution Cell
 
-| Provider | Container mode | Host mode |
-|----------|----------------|-----------|
-| Claude | Host-held `ANTHROPIC_API_KEY` only, injected by the Anthropic Messages adapter | API key, OAuth, or setup token |
-| Codex | Generated auth-clean home selecting a custom Responses provider at the gateway with `requires_openai_auth = false`; the OpenAI Responses adapter supplies the upstream key | API key or Codex CLI auth |
+Since 0.24.2 (ADR-053) subscription authentication is the default on **both** boundaries; API key is the alternative,
+selected by `providers.<id>.auth` (`auto` | `subscription` | `api_key`, default `auto` = subscription-when-stored, else
+API key). `CredentialRegistry.resolve` produces exactly one `CredentialResolution` per authority and never falls back
+across modes.
 
-Containerized Claude supports API-key mediation only: OAuth and setup-token logins have no credential-free mediation
-contract, so those container executions are rejected at admission rather than downgraded, and the host `~/.claude.json`
-is no longer mounted anywhere.
+| Provider | Host mode | Container mode |
+|----------|-----------|----------------|
+| Claude | Stored `setup-token` injected as `CLAUDE_CODE_OAUTH_TOKEN` on the sanitized spawn env; the real CLI authenticates itself | Anthropic Messages adapter sets `authorization: Bearer <setup-token>` and adds `anthropic-beta: oauth-2025-04-20`, upstream pinned to `api.anthropic.com` |
+| Codex | Dedicated `CODEX_HOME` under `<data_dir>/credentials/codex`; the vendor CLI owns refresh in that store | OpenAI Responses adapter re-pins upstream to `https://chatgpt.com/backend-api/codex` and sets `authorization: Bearer <access token>`, `chatgpt-account-id`, `originator: codex_cli_rs` |
+| Either, API key | Injected into the harness subprocess environment | Claude: `x-api-key` at `api.anthropic.com`. Codex: `authorization: Bearer` at `api.openai.com` |
+
+Both stores are DartClaw-owned and single-writer: `SubscriptionCredentialStore.open` is the only construction seam, it
+creates `0700` directories and writes the Claude token `0600` through `secureWriteFileSync`, and it refuses at open
+when any dedicated path resolves onto an operator login store (`~/.claude`, `~/.codex`, or the `CLAUDE_CONFIG_DIR` /
+`CODEX_HOME` overrides). The container boundary is unchanged from 0.24 – `network:none`, no credential in container
+env, filesystem, arguments, or generated configuration; only the injected credential and the pinned upstream differ.
+
+The host `~/.claude.json` is not mounted anywhere, and the containerized Codex home is still never seeded (below).
+
+> **Open pre-ship gate.** The raw-Bearer `setup-token` wire check
+> (`packages/dartclaw_server/test/integration/anthropic_setup_token_bearer_wire_check_test.dart`) has never been run
+> against a real token, so container-mode Claude on subscription is not yet cleared to ship as the default. There is no
+> runtime fallback: the adapter selects its header purely from `CredentialResolution.mode`, so an upstream refusal
+> surfaces as a failed turn, not a silent downgrade. If the gate fails, the documented response is to ship the container
+> arm on `x-api-key` mediation with a remediation naming the raw-Bearer rejection; host mode is unaffected either way.
+
+Codex is the only provider with upstream-rejection classification: `classifyCodexRejection` separates `authExpired`
+(401), `usageLimit` (429 or a usage marker), `contractBreak` (an auth-scheme marker under any other status) and
+`modelUnsupported` (a model marker under a 4xx, or under host mode's absent status), so an unpinnable-backend contract
+break alerts distinctly from expiry. The status is read first and outranks whatever else the body names — backends write
+one prose body for several conditions, and both `usageLimit` and `modelUnsupported` map to no credential health at all,
+so a 401 reaching either bucket would leave an expired credential with no reauth state and no alert. There is no
+Anthropic-side equivalent.
 
 Containerized Codex uses a third home lifecycle, distinct from the host system home and the isolated seeded home: it is
 created fresh per execution in the authority's generated-state directory, never seeded with authentication, and deleted
@@ -586,13 +611,19 @@ a custom provider even with client authentication disabled, so only a never-seed
 
 DartClaw resolves credentials per provider family through `CredentialRegistry`, which is keyed by provider ID/family rather than by a single global provider assumption. The registry maps Claude to Anthropic credentials and Codex to OpenAI credentials, with environment-variable fallback when configured secrets are not present.
 
+`resolve(providerId, family:)` applies `providers.<id>.auth` first: an alias with no `auth` of its own inherits the resolved family's value, while an explicit per-alias value – including an explicit `auto` – always wins, so code that rebuilds a `ProviderEntry` must copy `auth` verbatim rather than materializing `auto` for an unset value. An unrecognized value parses to `ProviderAuth.unrecognized` and is recorded as a *blocking* (non-advisory) load warning: `DartclawConfig.load` still returns, but the provider presents no credential, and `ProviderValidator` then routes the unsatisfied resolution to `errors` for the default provider (which `HarnessWiring` turns into a `serve` exit) or `warnings` for a secondary. A subsequent hot reload that would introduce the value is rejected by `ConfigNotifier.reload`.
+
 Credential handling is then adapted to the execution boundary rather than to the provider:
 
 - Container executions of either provider are mediated by their host adapter and receive no credential.
-- Host executions of either provider use direct environment-variable injection at subprocess startup.
+- Host executions inject at subprocess startup: Claude as `CLAUDE_CODE_OAUTH_TOKEN` or the API-key variable in the sanitized spawn env, Codex as `CODEX_HOME` pointing at the dedicated store (the secret itself stays on disk, owned by the vendor CLI).
+- ACP registrations are credential-isolated: `harness.acp.agents.<id>` resolves no credential at all — its `model_provider` selects validation and routing only, and a subscription credential is never presented to a third-party client. The single injection path is `harness.acp.agents.<id>.credential`, naming a `credentials.<name>` API-key entry whose secret is injected under the environment variable names that entry captured. `SafeProcess.sanitize` still strips the agent's own inherited `*_API_KEY`/`*_TOKEN`, so an uncredentialed ACP agent authenticates from its own configuration, keyring, or login rather than the operator's exported variables.
 - Startup validation checks that required provider credentials are available before a harness is started, so a missing provider secret fails fast instead of surfacing as a late request-time error. A container execution whose adapter has no host credential is refused at authority registration, before any container exists.
+- `credentialRemediationFor(reason, providerId:, family:)` is the single author of refusal remediation text; container admission, the `ProviderValidator` startup gate, and the workflow one-shot preflight all consume it rather than writing their own.
 
-**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
+`CredentialHealthMonitor` probes hourly (built-in `credential-health` job) and once during wiring, emitting the credential-health `DartclawEvent` consumed by `AlertRouter` and surfaced on `/settings` and `GET /api/providers`. Renewal deadlines are derived, not stated: Claude is ingestion time plus the documented 365-day `setup-token` lifetime; Codex is the store's last write plus the 8-day refresh-token staleness window, deliberately not the access token's minutes-scale JWT `exp`. A Claude provider running on the vendor CLI's own login classifies `unknown` and does not alert, because `probeAuthStatus` can prove that login is live; Codex has no such exemption – its probe only proves `auth.json` parses – so the same position classifies `reauthRequired` and alerts.
+
+**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/alerts/credential_health_monitor.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
 
 ### Git Credential Integration
 
@@ -837,7 +868,6 @@ The `web_fetch` MCP tool fetches URLs on behalf of the agent. SSRF protection pr
 **Additional protections**:
 - Only `http` and `https` schemes allowed
 - Content classified via `ContentClassifier` before returning to the agent
-- Cloudflare challenge pages detected and skipped
 - Response length capped (default 50,000 chars)
 
 **Source**: `packages/dartclaw_server/lib/src/mcp/web_fetch_tool.dart`

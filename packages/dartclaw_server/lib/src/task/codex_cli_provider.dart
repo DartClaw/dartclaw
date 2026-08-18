@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor;
 
+import '../codex_rejection.dart';
 import 'claude_cli_provider.dart'
     show
         containerExtraEnvironment,
@@ -64,6 +65,10 @@ class CodexCliProvider extends ProcessBackedCliProvider {
         resolveCliExecutable(req.providerConfig.executable, container, containerCodexExecutable),
       );
     }
+    // A host turn that presents the subscription runs against the
+    // DartClaw-dedicated store, never the operator's own `~/.codex` login and
+    // never a home seeded from it.
+    final subscriptionHome = container == null ? await req.prepareSubscriptionHome?.call() : null;
     await codexHome?.setup();
     final built = _buildCommand(req);
     final command = built.command;
@@ -75,9 +80,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     // login state, or shared MCP bearer can reach it through the spawn env.
     final env = container != null
         ? {...codexHome!.environmentOverrides(), ...containerExtraEnvironment(req.extraEnvironment, container)}
-        : req.extraEnvironment == null || req.extraEnvironment!.isEmpty
-        ? req.providerConfig.environment
-        : {...req.providerConfig.environment, ...req.extraEnvironment!};
+        : {...req.providerConfig.environment, ...?req.extraEnvironment, 'CODEX_HOME': ?subscriptionHome};
 
     final stopwatch = Stopwatch()..start();
     Process? process;
@@ -172,7 +175,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
           stopwatch.stop();
           final stdout = stdoutBuffer.toString();
           if (_hasCodexFailureEvidence(stdout, stderrBuffer.toString())) {
-            throw _codexNonZeroExitError(exitCode, stdout, stderrBuffer.toString());
+            throw _codexNonZeroExitError(exitCode, stdout, stderrBuffer.toString(), model: req.model);
           }
           return WorkflowCliTurnResult.cancelled(duration: stopwatch.elapsed);
         }
@@ -203,7 +206,7 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       if (cancellationResult != null) return cancellationResult;
       if (exitCode != 0) {
         if (hasProviderFailureEvidence || shouldThrowForNonZeroExit(process, supervisor)) {
-          throw _codexNonZeroExitError(exitCode, stdout, stderr);
+          throw _codexNonZeroExitError(exitCode, stdout, stderr, model: req.model);
         }
       }
 
@@ -290,8 +293,9 @@ class CodexCliProvider extends ProcessBackedCliProvider {
     return _buildCommand(req).command;
   }
 
-  StateError _codexNonZeroExitError(int exitCode, String stdout, String stderr) {
+  StateError _codexNonZeroExitError(int exitCode, String stdout, String stderr, {String? model}) {
     final errorDetails = <String>[
+      ?_codexBackendRejection(stdout, model)?.describe(),
       ?_codexErrorEventDiagnostic(stdout),
       if (stderr.trim().isNotEmpty) 'provider stderr reported failure details',
     ];
@@ -299,6 +303,35 @@ class CodexCliProvider extends ProcessBackedCliProvider {
       'Workflow one-shot codex command failed with exit code $exitCode'
       '${errorDetails.isEmpty ? '' : ': ${errorDetails.join('; ')}'}',
     );
+  }
+
+  /// The vendor CLI relays the backend's own refusal, so a host turn reports the
+  /// same classification a mediated container turn does — including the model a
+  /// ChatGPT account cannot run, which no DartClaw-side list pre-empted.
+  ///
+  /// Only the structured error event is matched, never stderr: the markers are
+  /// substrings, and an unrelated `disk quota exceeded` on stderr would
+  /// otherwise be reported to the operator as a ChatGPT plan limit. The vendor
+  /// text is matched against but never emitted — only DartClaw's own wording
+  /// and the caller's own model name reach the diagnostic.
+  CodexRejection? _codexBackendRejection(String stdout, String? model) {
+    final payload = _codexErrorPayload(stdout);
+    if (payload.isEmpty) return null;
+    return classifyCodexRejection(body: payload, requestedModel: model);
+  }
+
+  String _codexErrorPayload(String stdout) {
+    for (final line in const LineSplitter().convert(stdout)) {
+      try {
+        final decoded = jsonDecode(line);
+        if (decoded is! Map<String, dynamic>) continue;
+        final type = stringValue(decoded['type']);
+        if (type == 'error' || type == 'turn.failed') return line;
+      } on FormatException {
+        continue;
+      }
+    }
+    return '';
   }
 
   String? _codexErrorEventDiagnostic(String stdout) {

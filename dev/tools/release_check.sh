@@ -182,6 +182,43 @@ if [[ ${#FAILED[@]} -eq 0 ]]; then
 Manual gates still required before tagging:
   - Integration tests:   bash dev/testing/profiles/workflow-live/run.sh --full
                          plus any package-specific --run-skipped live files
+  - Container conformance (needs a running Docker engine). Nothing above runs
+    these: the package skips the `integration` tag by default, so the boundary
+    claims — a container-readable surface holding no host credential, and
+    Claude/Codex parity inside the shipped image — are proven here or nowhere.
+    Run on Linux Docker *and* on Docker Desktop/OrbStack and record both results
+    (engine, host OS, date, pass counts) in the release PR:
+        (cd packages/dartclaw_server && dart test --run-skipped -t integration \
+          test/integration/container_provider_parity_integration_test.dart \
+          test/integration/mediated_provider_turn_integration_test.dart \
+          test/integration/mediated_codex_turn_integration_test.dart \
+          test/integration/scoped_host_gateway_integration_test.dart)
+  - Anthropic raw-Bearer wire check (needs a stored Claude setup-token; no
+    Docker). It decides whether container-mode Claude on a subscription is
+    correct to ship as the default at all: there is NO runtime x-api-key
+    fallback, so a rejection fails the turn rather than degrading. It reports
+    exactly four outcomes, and only one of them clears the gate:
+      ACCEPTED     the raw Bearer carried the call – ship as-is.
+      REJECTED     the credential was turned away: a 401, or any 403. The
+                   classifier is status-only, so read the printed body and error
+                   type before acting – a 403 naming a plan or organization
+                   restriction is a different problem from a token the API will
+                   not authenticate. Once the body confirms the raw Bearer was
+                   refused, this blocks shipping subscription-default container
+                   Claude until the container arm is changed to x-api-key
+                   mediation, and re-running that refusal answers the same.
+      INCONCLUSIVE the upstream answered something that is not about the
+                   credential. Re-run only for a rate limit or an outage: a 4xx
+                   other than 401/403 (400 malformed, 404 unknown model) is
+                   deterministic and means the request minimalMessagesRequest()
+                   builds is wrong – fix it before the gate can answer.
+      SKIP         the gate did not run – no stored setup-token, or the stored
+                   one is at or past its renewal deadline. Never read it as
+                   acceptance: store or renew the token (claude setup-token,
+                   then dartclaw auth claude) and re-run.
+    Record the outcome in the release PR:
+        (cd packages/dartclaw_server && dart test --run-skipped -t integration \
+          test/integration/anthropic_setup_token_bearer_wire_check_test.dart)
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)
 

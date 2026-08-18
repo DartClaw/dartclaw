@@ -200,6 +200,15 @@ class WorkflowService {
        _bashProcessOwner = debugBashProcessOwner ?? BashProcessOwner(),
        _uuid = options.uuid ?? const Uuid();
 
+  /// The provider-auth gate every executor this service spawns applies, or
+  /// `null` when the host lane installed none.
+  ///
+  /// The in-engine preflight is skipped outright when this is `null`, so a lane
+  /// that installs none spawns provider CLIs with no credential gate and no
+  /// remediation — and nothing else about the service differs until a real turn
+  /// spawns. Readable so a host lane can assert on the gate it installed.
+  ProviderAuthPreflight? get providerAuthPreflight => _providerAuthPreflight;
+
   /// Starts a new workflow run from a parsed definition.
   ///
   /// Validates required variables, creates the run, and spawns the executor

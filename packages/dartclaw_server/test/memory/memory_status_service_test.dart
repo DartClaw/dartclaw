@@ -375,6 +375,71 @@ Another error
       expect(memoryMd['undatedCount'], 1);
     });
 
+    test('canonical MEMORY.md is read by the canonical parser, not the legacy line parser', () async {
+      // The legacy parser matches `- [YYYY-MM-DD HH:MM] ` lines, of which a
+      // canonical document has none — it reported an empty index as `exact`.
+      final document = MemoryIndexDocument(
+        metadata: MemoryCollectionMetadata(collectionId: 'c0ffee00-0000-4000-8000-000000000001', revision: 3),
+        entries: [
+          MemoryIndexEntry(
+            id: '11111111-1111-4111-8111-111111111111',
+            revision: 1,
+            topic: 'general',
+            summary: 'First canonical entry',
+            updated: DateTime.utc(2026, 1, 15, 8, 30),
+          ),
+          MemoryIndexEntry(
+            id: '22222222-2222-4222-8222-222222222222',
+            revision: 1,
+            topic: 'general',
+            summary: 'Second canonical entry',
+            updated: DateTime.utc(2026, 3, 3, 14, 22),
+          ),
+          MemoryIndexEntry(
+            id: '33333333-3333-4333-8333-333333333333',
+            revision: 2,
+            topic: 'debugging',
+            summary: 'Canonical debug note',
+            updated: DateTime.utc(2026, 2, 20, 10),
+          ),
+        ],
+      );
+      File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync(const MemoryMarkdownCodec().render(document));
+
+      final memoryMd = (await makeService().getStatus())['memoryMd'] as Map<String, dynamic>;
+
+      expect(memoryMd['entryCount'], 3);
+      expect(memoryMd['undatedCount'], 0);
+      expect(memoryMd['oldestEntry'], DateTime.utc(2026, 1, 15, 8, 30).toIso8601String());
+      expect(memoryMd['newestEntry'], DateTime.utc(2026, 3, 3, 14, 22).toIso8601String());
+      final catMap = {
+        for (final c in memoryMd['categories'] as List<dynamic>)
+          (c as Map<String, dynamic>)['name'] as String: c['count'] as int,
+      };
+      expect(catMap, {'general': 2, 'debugging': 1});
+      expect(memoryMd['coverage'], 'exact');
+    });
+
+    test('canonical MEMORY.archive.md is counted by the canonical parser', () async {
+      final entry = CanonicalMemoryEntry(
+        id: '44444444-4444-4444-8444-444444444444',
+        revision: 1,
+        topic: 'general',
+        summary: 'Archived canonical entry',
+        content: 'Body text',
+        created: DateTime.utc(2025, 10, 1, 12),
+        updated: DateTime.utc(2025, 10, 1, 12),
+        provenance: MemorySourceRef(sourceLocator: 'test-fixture', caller: 'test'),
+      );
+      File(p.join(workspaceDir, 'MEMORY.archive.md'))
+          .writeAsStringSync(const MemoryMarkdownCodec().render(MemoryArchiveDocument(entries: [entry])));
+
+      final archiveMd = (await makeService().getStatus())['archiveMd'] as Map<String, dynamic>;
+
+      expect(archiveMd['entryCount'], 1);
+      expect(archiveMd['coverage'], 'exact');
+    });
+
     test('fixed-file status rejects symlink leaves without reading their targets', () async {
       final external = File(p.join(tempDir.path, 'outside.md'))..writeAsStringSync('## [2026-01-01] external-secret');
       for (final target in [

@@ -34,7 +34,20 @@ enum ProviderUnavailability {
 
   /// Container execution has no credential or host-capability mediation.
   containerMediation,
+
+  /// The credential `providers.<id>.auth` selects cannot be presented.
+  credential,
 }
+
+/// Reports why [providerId] cannot present the credential this deployment
+/// selected for it, or `null` when it can present one.
+///
+/// Credential state is live — a dedicated store is re-read per spawn and a
+/// token can be re-issued without a restart — so admission consults a callback
+/// rather than the startup snapshot the rest of the inventory holds. The
+/// composition root owns the resolution and authors the message; this library
+/// only carries the verdict.
+typedef ProviderCredentialGate = String? Function(String providerId);
 
 /// The compatibility verdict every launch surface consumes.
 ///
@@ -54,6 +67,12 @@ final class ProviderExecutionVerdict {
           '${surface.label} surface.';
 
   new _containerMediation(this.message) : reason = ProviderUnavailability.containerMediation;
+
+  /// The deployment cannot present the credential selected for the provider.
+  ///
+  /// [message] comes from the composition root's single remediation author, so
+  /// an operator meets the same fix here as at every other refusal.
+  const new credentialUnavailable(this.message) : reason = ProviderUnavailability.credential;
 
   /// Why the combination is unavailable, or `null` when it is supported.
   final ProviderUnavailability? reason;
@@ -140,14 +159,20 @@ final class ProviderExecutionSupport {
   }
 }
 
-/// Startup-computed launch compatibility for every configured provider.
+/// Launch compatibility for every configured provider, and the deployment's
+/// live credential gate.
 ///
-/// Built once from the resolved deployment configuration and consumed by both
-/// launch surfaces and by operator diagnostics, so no entry point re-derives
-/// compatibility locally.
+/// The per-provider records are built once from the resolved deployment
+/// configuration; the optional [ProviderCredentialGate] is consulted per
+/// verdict because credential state changes under a running process. Both
+/// launch surfaces and operator diagnostics consume this one object, so no
+/// entry point re-derives compatibility — or admissibility — locally.
 final class ProviderExecutionInventory {
-  /// Creates an inventory over per-provider [supports], keyed by provider ID.
-  new(Map<String, ProviderExecutionSupport> supports) : _supports = Map.unmodifiable(supports);
+  /// Creates an inventory over per-provider [supports], keyed by provider ID,
+  /// consulting [credentialGate] before admitting any supported combination.
+  new(Map<String, ProviderExecutionSupport> supports, {ProviderCredentialGate? credentialGate})
+    : _supports = Map.unmodifiable(supports),
+      _credentialGate = credentialGate;
 
   /// Builds the inventory for a deployment.
   ///
@@ -158,7 +183,11 @@ final class ProviderExecutionInventory {
   /// construction still rejects it by identity. Both sets are normalized to
   /// canonical provider identity, so lookups match however a caller spelled
   /// the ID.
-  factory of({required Iterable<String> providerIds, required Set<String> acpProviderIds}) {
+  factory of({
+    required Iterable<String> providerIds,
+    required Set<String> acpProviderIds,
+    ProviderCredentialGate? credentialGate,
+  }) {
     const builtInFamilies = {ProviderIdentity.claude, ProviderIdentity.codex};
     final acp = acpProviderIds.map(ProviderIdentity.normalize).toSet();
     return ProviderExecutionInventory({
@@ -167,27 +196,33 @@ final class ProviderExecutionInventory {
           providerId: ProviderExecutionSupport.acp(providerId)
         else if (builtInFamilies.contains(ProviderIdentity.family(providerId)))
           providerId: ProviderExecutionSupport.builtIn(providerId),
-    });
+    }, credentialGate: credentialGate);
   }
 
   final Map<String, ProviderExecutionSupport> _supports;
+  final ProviderCredentialGate? _credentialGate;
 
   /// Compatibility records keyed by provider ID.
   Map<String, ProviderExecutionSupport> get supports => _supports;
 
   /// Returns the verdict for launching [providerId] on [surface] under [policy].
   ///
-  /// An unknown provider is reported as supported: an unregistered provider
-  /// identity is rejected by harness construction, and inventing a second
-  /// rejection here would mask that error.
+  /// A provider with no record is reported as supported for the *surface*: an
+  /// unregistered provider identity is rejected by harness construction, and
+  /// inventing a second rejection here would mask that error. The credential
+  /// gate is consulted regardless, because a provider alias resolving to a
+  /// built-in family carries no record — which is exactly the shape a forced
+  /// `providers.<id>.auth` on an alias takes.
   ProviderExecutionVerdict verdictFor({
     required String providerId,
     required ProviderLaunchSurface surface,
     required ExecutionPolicy policy,
   }) {
     final support = _supports[ProviderIdentity.normalize(providerId)];
-    if (support == null) return const ProviderExecutionVerdict.supported();
-    return support.verdictFor(surface: surface, policy: policy);
+    final verdict = support?.verdictFor(surface: surface, policy: policy) ?? const ProviderExecutionVerdict.supported();
+    if (!verdict.isSupported) return verdict;
+    final refusal = _credentialGate?.call(providerId);
+    return refusal == null ? verdict : ProviderExecutionVerdict.credentialUnavailable(refusal);
   }
 }
 

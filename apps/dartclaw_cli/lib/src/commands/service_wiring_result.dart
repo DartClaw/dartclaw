@@ -41,6 +41,7 @@ WiringResult _assembleWiringResult(
     configNotifier: ctx.configNotifier,
     outboundMcpPool: outboundMcpPool,
     workflowRegistry: workflowRegistry,
+    workflowService: workflowService,
     prepareExecutionShutdown: task.prepareExecutionShutdown,
     shutdownExtras: () async {
       try {

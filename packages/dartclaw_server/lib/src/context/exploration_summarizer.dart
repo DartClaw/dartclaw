@@ -19,6 +19,12 @@ class ExplorationSummarizer {
 
   new({ResultTrimmer? trimmer, this.thresholdTokens = 25000}) : _trimmer = trimmer ?? ResultTrimmer();
 
+  /// Applies only the byte-cap trim, without structural summarization.
+  ///
+  /// For prose the caller must not reshape — a schema digest of an assistant
+  /// reply is not a shorter reply, it is a different document.
+  String trim(String content) => _trimmer.trim(content);
+
   /// Summarize [content] if it exceeds the token threshold, otherwise
   /// apply the byte-cap trim from [ResultTrimmer].
   ///

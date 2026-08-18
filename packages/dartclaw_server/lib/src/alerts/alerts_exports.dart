@@ -2,3 +2,4 @@ export 'alert_classifier.dart' show AlertSeverity, classifyAlert, shouldAlertTas
 export 'alert_delivery_adapter.dart' show AlertDeliveryAdapter;
 export 'alert_formatter.dart' show AlertFormatter;
 export 'alert_router.dart' show AlertRouter;
+export 'credential_health_monitor.dart' show CredentialHealthMonitor, CredentialResolutionSource;

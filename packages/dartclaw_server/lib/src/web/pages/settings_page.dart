@@ -157,10 +157,7 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
     },
     'credentialValueClass': credentialOk ? 'detail-value-ok' : 'detail-value-error',
     'credentialDotClass': credentialOk ? 'credential-dot-ok' : 'credential-dot-missing',
-    'credentialEnvVarDisplay': switch (provider.credentialStatus) {
-      'oauth' => 'OAuth / subscription login',
-      _ => provider.credentialEnvVar ?? 'Credential source not configured',
-    },
+    'credentialEnvVarDisplay': _credentialSourceLabel(provider),
     'capacityUsageText': '${provider.activeWorkers} of ${provider.effectiveWorkers} worker leases active',
     'capacityUsageLabel': '$capacityUsagePercent% of worker capacity in use',
     'capacityUsageWidthStyle': 'width: $capacityUsagePercent%;',
@@ -171,7 +168,116 @@ Map<String, Object?> _buildProviderCard(ProviderStatus provider) {
     'hasError': provider.errorMessage != null,
     'errorTitle': _providerErrorTitle(provider),
     'errorMessage': provider.errorMessage,
+    ..._credentialHealthEntries(provider),
   };
+}
+
+/// Where the presented credential comes from, rendered directly above the
+/// recorded mode.
+///
+/// The recorded mode decides before the presence answer does: `present` says
+/// only that some credential resolved, so naming the API-key env var there puts
+/// `ANTHROPIC_API_KEY` one line above `Subscription` on a card presenting a
+/// stored subscription.
+String _credentialSourceLabel(ProviderStatus provider) {
+  if (provider.credentialStatus == 'oauth') {
+    return 'OAuth / subscription login';
+  }
+  if (provider.credentialMode == 'subscription') {
+    return 'Stored subscription credential';
+  }
+  return provider.credentialEnvVar ?? 'Credential source not configured';
+}
+
+/// Credential-health entries for the provider card's credential section.
+///
+/// Nothing here is rendered until health is recorded, and within a recorded
+/// block the mode, expiry and remediation are each independently optional — so
+/// every element carries its own `has*` boolean rather than sharing one.
+Map<String, Object?> _credentialHealthEntries(ProviderStatus provider) {
+  final health = _credentialHealthState(provider.credentialHealth);
+  final state = _credentialStateUi(health);
+  final mode = switch (provider.credentialMode) {
+    'subscription' => 'Subscription',
+    'api_key' => 'API key',
+    _ => null,
+  };
+  final countdown = _credentialCountdown(
+    mode: provider.credentialMode,
+    expiresAt: provider.credentialExpiresAt,
+    // Presenting a derived estimate as exact is the harmful direction.
+    derived: provider.credentialExpiryDerived ?? true,
+  );
+  final lastChecked = provider.credentialLastChecked;
+  // `unknown` keeps its command even though CredentialHealthState.isDegraded
+  // excludes it: there the command upgrades an unmanaged vendor login to
+  // DartClaw-managed auth rather than repairing a fault.
+  final remediation = state == null ? null : absentValue(provider.credentialRemediation).value as String?;
+
+  return <String, Object?>{
+    'hasCredentialMode': mode != null,
+    'credentialModeLabel': mode ?? '',
+    'hasCredentialCountdown': countdown != null,
+    'credentialCountdownLabel': countdown?.label ?? '',
+    'credentialCountdownClass': countdown?.styleClass ?? '',
+    'hasCredentialState': state != null,
+    'credentialStateLabel': state?.label ?? '',
+    'credentialStateVariant': state?.variant ?? '',
+    'hasCredentialLastChecked': lastChecked != null,
+    'credentialLastCheckedLabel': lastChecked == null ? '' : 'Checked ${formatRelativeTime(lastChecked)}',
+    'credentialLastCheckedIso': isoTitle(lastChecked?.toIso8601String()),
+    'credentialExpiresAtIso': isoTitle(provider.credentialExpiresAt?.toIso8601String()),
+    'hasCredentialRemediation': remediation != null,
+    'credentialRemediationLabel': health == CredentialHealthState.unknown ? 'DartClaw-managed auth:' : 'Fix:',
+    'credentialRemediation': remediation ?? '',
+  };
+}
+
+/// Resolves the wire string `ProviderStatus` carries back to its state.
+///
+/// Recovering the enum is what makes [_credentialStateUi] exhaustive, so a
+/// seventh state cannot reach this page rendering as a healthy one.
+CredentialHealthState? _credentialHealthState(String? jsonName) {
+  for (final state in CredentialHealthState.values) {
+    if (state.jsonName == jsonName) {
+      return state;
+    }
+  }
+  return null;
+}
+
+/// The credential state's badge, or `null` where no state line is shown.
+///
+/// `unknown` takes the neutral badge deliberately: an uncheckable credential is
+/// not degraded (for Claude it means an interactive vendor login DartClaw does
+/// not manage), so it must not borrow a warning hue.
+({String label, String variant})? _credentialStateUi(CredentialHealthState? health) => switch (health) {
+  CredentialHealthState.nearingExpiry => (label: 'Nearing expiry', variant: 'warning'),
+  CredentialHealthState.refreshFailure => (label: 'Refresh failed', variant: 'warning'),
+  CredentialHealthState.reauthRequired => (label: 'Re-authentication required', variant: 'error'),
+  CredentialHealthState.contractBreak => (label: 'Mediation contract broken', variant: 'error'),
+  CredentialHealthState.unknown => (label: 'Lifetime not checkable', variant: 'muted'),
+  CredentialHealthState.healthy || null => null,
+};
+
+/// The renewal countdown, or `null` for a provider whose credential does not
+/// age out (an API key) or whose mode was never recorded.
+({String label, String styleClass})? _credentialCountdown({
+  required String? mode,
+  required DateTime? expiresAt,
+  required bool derived,
+}) {
+  if (mode != 'subscription') {
+    return null;
+  }
+  if (expiresAt == null) {
+    return (label: 'Renewal deadline unknown', styleClass: 'value-absent');
+  }
+  final remaining = formatRemainingTimeIso(expiresAt.toIso8601String());
+  // Colon, not a bare join: past 30 elapsed days formatRelativeTime answers an
+  // absolute date, and "passed 12 Jul" would read as a typo.
+  final label = remaining.isEmpty ? 'Renewal deadline passed: ${formatRelativeTime(expiresAt)}' : 'Renewal $remaining';
+  return (label: derived ? '$label · derived' : label, styleClass: '');
 }
 
 int _capacityUsagePercent({required int activeWorkers, required int effectiveWorkers}) {

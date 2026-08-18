@@ -1,1 +1,1 @@
-const dartclawVersion = '0.24.1';
+const dartclawVersion = '0.24.2';

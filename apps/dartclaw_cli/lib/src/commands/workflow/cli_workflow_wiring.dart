@@ -4,7 +4,15 @@ import 'dart:io';
 import 'package:dartclaw_config/dartclaw_config.dart'
     show CredentialRegistry, DartclawConfig, ProviderEntry, ProviderIdentity;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ArtifactKind, EventBus, HarnessFactory, KvService, MessageService, ProviderExecutionInventory, SessionService;
+    show
+        ArtifactKind,
+        EventBus,
+        HarnessFactory,
+        KvService,
+        MessageService,
+        ProviderExecutionInventory,
+        SessionService,
+        SubscriptionCredentialStore;
 import 'package:dartclaw_security/dartclaw_security.dart' show MessageRedactor, SafeProcess, normalizeGitRefOperand;
 import 'package:dartclaw_server/dartclaw_server.dart'
     show
@@ -12,6 +20,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         AssetResolutionRequest,
         ArtifactCollector,
         BehaviorFileService,
+        CodexRefreshAuthority,
         DiffGenerator,
         ExecutionCoordinator,
         ProjectServiceImpl,
@@ -30,6 +39,7 @@ import 'package:dartclaw_server/dartclaw_server.dart'
         WorkflowGitPortProcess,
         TaskService,
         TurnManager,
+        refreshCodexAuth,
         WorkflowCliProcessStarter;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -73,9 +83,11 @@ import 'package:dartclaw_storage/dartclaw_storage.dart'
         openSearchDb,
         openTaskDb;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show Database;
 
+import '../codex_subscription_home.dart';
 import '../workflow_materializer.dart';
 import '../workflow_asset_source_resolver.dart';
 import 'workflow_skill_bootstrap.dart';
@@ -168,6 +180,12 @@ class CliWorkflowWiring {
   late final RemotePushService remotePushService;
 
   late final CredentialRegistry _credentialRegistry;
+
+  /// The only thing that rotates this process's dedicated Codex store. One per
+  /// process, constructed beside the store it rotates — single-flight is a
+  /// property of the instance.
+  late final CodexRefreshAuthority _codexRefresh;
+
   late final SqliteWorkflowRunRepository _workflowRunRepository;
 
   // Two-phase wiring state. Base services are ready before provider auth is
@@ -320,7 +338,24 @@ class CliWorkflowWiring {
         processRunner: skillProvisionerProcessRunner,
       );
     }
-    _credentialRegistry = CredentialRegistry(credentials: config.credentials, env: environment);
+    // The standalone one-shot is its own process, so it opens the dedicated
+    // stores itself — the collision guard still fires exactly once per run, and
+    // a subscription credential must not read as a logged-out provider here.
+    final subscriptions = SubscriptionCredentialStore.open(
+      credentialsDir: config.credentialsDir,
+      environment: environment,
+    );
+    _credentialRegistry = CredentialRegistry(
+      credentials: config.credentials,
+      env: environment,
+      providers: config.providers,
+      subscriptions: subscriptions.readAll(),
+    );
+    _codexRefresh = CodexRefreshAuthority(
+      store: subscriptions,
+      vendorRefresh: (codexHome) =>
+          refreshCodexAuth(codexHome, executable: resolveWorkflowProviderExecutable(config, ProviderIdentity.codex)),
+    );
     return _CliWorkflowWiringCtx(workspaceSkillLinker: workspaceSkillLinker);
   }
 
@@ -427,6 +462,7 @@ class CliWorkflowWiring {
       diagnosticRedactor: MessageRedactor(extraPatterns: config.logging.redactPatterns),
       eventBus: eventBus,
       processStarter: workflowCliProcessStarter,
+      subscriptionHomeResolver: _subscriptionHomeFor,
     );
     taskExecutor = TaskExecutor(
       services: TaskExecutorServices(
@@ -461,6 +497,65 @@ class CliWorkflowWiring {
     return ctx.withTurns(turns);
   }
 
+  /// Answers the dedicated `CODEX_HOME` for a workflow spawn, or `null` for a
+  /// family with no dedicated store lane and for an API-key deployment.
+  /// Resolved per spawn, not at wiring time, so the freshness gate runs against
+  /// the store the vendor CLI is about to be handed.
+  ///
+  /// Keyed on the executing provider id, not only its family: an alias with its
+  /// own `providers.<id>.auth` selects its own credential, and a family-keyed
+  /// decision here would hand it the other one.
+  ///
+  /// No credential-health sink: this lane is its own process and builds no
+  /// `ProviderStatusService`, so there is no monitor to announce through and a
+  /// second one would have no reader.
+  Future<String?> _subscriptionHomeFor(String providerId, String providerFamily) async {
+    if (providerFamily != ProviderIdentity.codex) return null;
+    return prepareCodexSubscriptionHome(
+      registry: _credentialRegistry,
+      authority: _codexRefresh,
+      providerId: providerId,
+      family: providerFamily,
+      credentialsDir: config.credentialsDir,
+    );
+  }
+
+  /// The registry the auth preflight gates on.
+  ///
+  /// Deliberately the same snapshot the execution lane spawns from — this lane
+  /// is one short-lived process that freezes its spawn env into
+  /// [WorkflowCliProviderConfig] at wiring time, so re-resolving here would
+  /// admit a step whose spawn env cannot present the credential that admitted
+  /// it. The gate must answer exactly what the executor behind it will use.
+  CredentialRegistry _resolveCredentials() => _credentialRegistry;
+
+  /// The environment the skill-introspection and auth probes spawn the vendor
+  /// CLI with.
+  ///
+  /// Separate from the execution lane's [WorkflowCliProviderConfig] environment:
+  /// a probe has no provider driver downstream to hand it the dedicated
+  /// `CODEX_HOME`, so it resolves one itself — per probe, for the same
+  /// no-restart reason [_subscriptionHomeFor] resolves per spawn.
+  ///
+  /// Exposed for tests because both probes spawn through `SafeProcess.run` with
+  /// no injectable starter, so there is no process seam downstream to observe
+  /// what they were handed.
+  @visibleForTesting
+  Future<Map<String, String>> providerProbeEnvironment(String providerId) {
+    return buildWorkflowProbeEnvironment(
+      providerId: providerId,
+      providerFamily: ProviderIdentity.resolveFamily(
+        providerId,
+        options: _providerOptions(config, providerId),
+        executable: _resolveProviderExecutable(config, providerId),
+      ),
+      registry: _credentialRegistry,
+      baseEnvironment: Platform.environment,
+      codexRefresh: _codexRefresh,
+      credentialsDir: config.credentialsDir,
+    );
+  }
+
   WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
     return buildWorkflowSkillPreflightConfig(config);
   }
@@ -493,16 +588,13 @@ class CliWorkflowWiring {
         roleDefaults: workflowRoleDefaults,
         approvalPolicyDefault: config.workflow.approvals,
         structuredOutputFallbackRecorder: taskHandles.taskEventRecorder.recordStructuredOutputFallbackUsed,
-        skillIntrospector:
-            skillIntrospector ??
-            CliSkillIntrospector(
-              environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
-            ),
+        skillIntrospector: skillIntrospector ?? CliSkillIntrospector(environmentForProvider: providerProbeEnvironment),
         providerAuthPreflight:
             providerAuthPreflight ??
             CliProviderAuthPreflight(
-              credentials: _credentialRegistry,
-              environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
+              credentials: _resolveCredentials,
+              environmentForProvider: providerProbeEnvironment,
+              credentialsDir: config.credentialsDir,
             ),
         skillPreflightConfig: _buildSkillPreflightConfig(),
         outputTransformer: workflowStepOutputTransformer,
@@ -574,8 +666,9 @@ class CliWorkflowWiring {
     final preflight =
         providerAuthPreflight ??
         CliProviderAuthPreflight(
-          credentials: _credentialRegistry,
-          environmentForProvider: (providerId) => _providerEnvironment(config, providerId, _credentialRegistry),
+          credentials: _resolveCredentials,
+          environmentForProvider: providerProbeEnvironment,
+          credentialsDir: config.credentialsDir,
         );
     for (final provider in providers.map(ProviderIdentity.normalize).toSet()) {
       final result = await preflight.evaluate(

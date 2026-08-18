@@ -352,6 +352,14 @@ final class CliTurnRequest {
   /// Logger for the provider implementation.
   final Logger log;
 
+  /// Makes a provider's DartClaw-dedicated subscription home usable and returns
+  /// its path, or `null` when this deployment presents an API key instead.
+  ///
+  /// Awaited before a host spawn so the vendor CLI starts on a credential that
+  /// is not about to expire. Ignored in container mode, which holds no
+  /// credential at all.
+  final Future<String?> Function()? prepareSubscriptionHome;
+
   const new({
     required this.prompt,
     required this.workingDirectory,
@@ -381,5 +389,6 @@ final class CliTurnRequest {
     this.eventBus,
     required this.uuid,
     required this.log,
+    this.prepareSubscriptionHome,
   });
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted – 2026-06-05; amended 2026-07-13
+Accepted – 2026-06-05; amended 2026-07-13 and 2026-08-17
 
 The amendment withdraws ACP terminal capability advertisement on every host until complete process-tree containment is
 implemented. Guard mediation remains available for turn-scoped filesystem reverse-calls. The earlier terminal spike is
@@ -18,7 +18,32 @@ registration to host execution on the long-lived surface. Because containerized 
 handler suppression `AcpHarness` applies under a container manager cannot downgrade a direct agent's guard mediation,
 and §3's claims stand as written.
 
-**Related:** [ADR-016](016-multi-provider-harness-architecture.md) (multi-provider harness — **this amends it**: ACP is one universal adapter, not another per-provider custom adapter), [ADR-035](035-cross-harness-task-capability-trust-mapping.md) (precedent for explicit per-harness security asymmetry), [ADR-007](007-system-prompt-architecture.md) (`AgentHarness` interface), [ADR-001](001-sdk-integration-and-security-architecture.md) (security-by-design).
+**2026-08-17 amendment — ACP registrations are credential-isolated.** A `harness.acp.agents.<id>` registration receives
+**no DartClaw-managed provider credential**. Two things end here: an ACP agent is never presented a Claude or Codex
+subscription token, and the implicit `model_provider` → provider/credential mapping (`anthropic` → `providers.claude` +
+`credentials.anthropic`, `openai` → `providers.codex` + `credentials.openai`) is removed. `model_provider` keeps its
+validation and routing meaning only, `providers.<id>.auth` does not apply to an ACP registration, and no dedicated
+`CODEX_HOME` is prepared for one. The single injection path is explicit and API-key-only —
+`harness.acp.agents.<id>.credential: <credentials.<name>>`, mirroring `mcp_servers.<id>.credential`. An ACP agent is
+still never refused on credential grounds; it authenticates itself, as ACP clients do elsewhere (Zed,
+`claude-agent-acp`, Goose ACP mode).
+
+*Why this belongs here rather than in ADR-053:* §3 above already establishes that an ACP agent is a third-party
+process whose behavior DartClaw cannot guarantee, which is exactly why a subscription credential must not reach it.
+A subscription token authenticates as the operator's **whole account**, is long-lived, and is harder to revoke than a
+scoped key — and current vendor terms sanction subscription auth for the operator's own tooling, not for routing
+through arbitrary third-party clients. Handing one to an unverified-topology agent would extend account-wide
+authority past the boundary §3 draws. This is a **breaking** change to a documented posture; migration is in the
+0.24.2 CHANGELOG.
+
+*Alternatives considered and rejected:* (a) keep the one-credential rule and let ACP inherit whatever the family
+resolves — rejected, it is the posture that leaks a subscription token to a third-party client; (b) let a registration
+declare its own `providers.<id>.auth` — rejected, it makes an account-wide credential reachable by configuration and
+adds a second auth axis to a surface that should have none; (c) isolate but keep an implicit key mapping — rejected,
+implicit is what made the leak invisible. The chosen form makes every credential an ACP agent receives explicit in
+configuration.
+
+**Related:** [ADR-016](016-multi-provider-harness-architecture.md) (multi-provider harness — **this amends it**: ACP is one universal adapter, not another per-provider custom adapter), [ADR-035](035-cross-harness-task-capability-trust-mapping.md) (precedent for explicit per-harness security asymmetry), [ADR-007](007-system-prompt-architecture.md) (`AgentHarness` interface), [ADR-001](001-sdk-integration-and-security-architecture.md) (security-by-design), [ADR-053](053-subscription-default-provider-authentication.md) (subscription-default provider auth — the credential model the 2026-08-17 amendment excludes ACP from).
 
 ## Context
 

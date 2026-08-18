@@ -173,9 +173,11 @@ void main() {
       expect(codex.credentialStatus, 'missing');
       expect(codex.credentialEnvVar, 'CODEX_API_KEY');
       expect(codex.binaryFound, isTrue);
-      expect(codex.errorMessage, contains("Credentials missing for provider 'codex'"));
+      // The refusal text has one author in dartclaw_config, so the card cannot
+      // name a fix the admission gate does not.
+      expect(codex.errorMessage, contains('Provider "codex" has no credential configured'));
+      expect(codex.errorMessage, contains('dartclaw auth codex'));
       expect(codex.errorMessage, contains('CODEX_API_KEY'));
-      expect(codex.errorMessage, contains('credentials section'));
 
       final ghost = statuses['ghost']!;
       expect(ghost.health, 'unavailable');
@@ -373,6 +375,155 @@ void main() {
       expect(statuses['ghost']!.errorMessage, contains("Binary 'ghost' for provider 'ghost' was not found."));
     });
 
+    test('reports an aliased provider against the credential of its resolved family', () async {
+      const providers = ProvidersConfig(
+        entries: {
+          'my_claude': ProviderEntry(executable: 'claude', poolSize: 1),
+          'my_codex': ProviderEntry(executable: 'codex', poolSize: 1),
+        },
+      );
+      final service = ProviderStatusService(
+        providers: providers,
+        registry: _registry(
+          providers: providers,
+          subscriptions: const {'claude': CredentialEntry.subscription(token: 'sk-ant-oat01-stored')},
+        ),
+        defaultProvider: 'my_claude',
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0'), 'codex': probeOk('Codex CLI 0.9.0')}),
+        authProbe: _authFails,
+      );
+
+      final statuses = {for (final status in service.all) status.id: status};
+
+      // The alias presents the stored claude subscription, so it is neither
+      // credential-missing nor degraded.
+      expect(statuses['my_claude']!.credentialStatus, 'present');
+      expect(statuses['my_claude']!.health, 'healthy');
+      expect(statuses['my_claude']!.errorMessage, isNull);
+
+      // The resolved family decides: a codex alias must not read the stored
+      // claude subscription as its own.
+      expect(statuses['my_codex']!.credentialStatus, 'missing');
+      expect(statuses['my_codex']!.health, 'degraded');
+    });
+
+    test('reports a canonical provider against a stored subscription unchanged', () async {
+      const providers = ProvidersConfig(
+        entries: {
+          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
+          'codex': ProviderEntry(executable: 'codex', poolSize: 1),
+        },
+      );
+      final service = ProviderStatusService(
+        providers: providers,
+        registry: _registry(
+          providers: providers,
+          subscriptions: const {'claude': CredentialEntry.subscription(token: 'sk-ant-oat01-stored')},
+        ),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0'), 'codex': probeOk('Codex CLI 0.9.0')}),
+        authProbe: _authFails,
+      );
+
+      final statuses = {for (final status in service.all) status.id: status};
+
+      expect(statuses['claude']!.credentialStatus, 'present');
+      expect(statuses['claude']!.health, 'healthy');
+      expect(statuses['codex']!.credentialStatus, 'missing');
+      expect(statuses['codex']!.health, 'degraded');
+    });
+
+    test('a forced subscription selection is missing while only an API key is configured', () async {
+      const providers = ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1, auth: ProviderAuth.subscription)},
+      );
+      var authProbeCalls = 0;
+      final service = ProviderStatusService(
+        providers: providers,
+        registry: _registry(anthropicApiKey: 'anthropic-key', providers: providers),
+        defaultProvider: 'claude',
+        credentialsDir: '/data/credentials',
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0')}),
+        authProbe: (executable, {String? providerId}) async {
+          authProbeCalls++;
+          return true;
+        },
+      );
+
+      // Admission refuses this provider: the configured key is not the
+      // credential `auth: subscription` selects. A card reading `present` here
+      // would promise an execution the gate will not start.
+      final status = service.all.single;
+      expect(status.credentialStatus, 'missing');
+      expect(status.health, 'degraded');
+      expect(status.errorMessage, contains('auth: subscription'));
+      expect(status.errorMessage, contains('claude setup-token'));
+      expect(status.errorMessage, contains('/data/credentials'), reason: 'the refusal names the store it searched');
+      expect(authProbeCalls, 0, reason: 'a vendor login rescues only a provider with nothing configured');
+    });
+
+    test('a forced api_key selection is missing while only a subscription is stored', () async {
+      const providers = ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1, auth: ProviderAuth.apiKey)},
+      );
+      var authProbeCalls = 0;
+      final service = ProviderStatusService(
+        providers: providers,
+        registry: _registry(
+          providers: providers,
+          subscriptions: const {'claude': CredentialEntry.subscription(token: 'sk-ant-oat01-stored')},
+        ),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0')}),
+        authProbe: (executable, {String? providerId}) async {
+          authProbeCalls++;
+          return true;
+        },
+      );
+
+      final status = service.all.single;
+      expect(status.credentialStatus, 'missing');
+      expect(status.health, 'degraded');
+      expect(status.errorMessage, contains('auth: api_key'));
+      expect(status.errorMessage, contains('ANTHROPIC_API_KEY'));
+      expect(authProbeCalls, 0, reason: 'a vendor login rescues only a provider with nothing configured');
+    });
+
+    test('a provider with nothing configured still reports the vendor login it probed', () async {
+      var authProbeCalls = 0;
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+        registry: _registry(),
+        defaultProvider: 'claude',
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0')}),
+        authProbe: (executable, {String? providerId}) async {
+          authProbeCalls++;
+          return true;
+        },
+      );
+
+      final status = service.all.single;
+      expect(authProbeCalls, 1, reason: 'nothing configured is the one refusal a vendor login may answer');
+      expect(status.credentialStatus, 'oauth');
+      expect(status.health, 'healthy');
+      expect(status.errorMessage, isNull);
+    });
+
     test('normalizes noisy version output to the first non-empty line', () async {
       final service = ProviderStatusService(
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),
@@ -391,7 +542,13 @@ void main() {
   });
 }
 
-CredentialRegistry _registry({String? anthropicApiKey, String? openAiApiKey, Map<String, String>? env}) {
+CredentialRegistry _registry({
+  String? anthropicApiKey,
+  String? openAiApiKey,
+  Map<String, String>? env,
+  ProvidersConfig providers = const ProvidersConfig.defaults(),
+  Map<String, CredentialEntry> subscriptions = const {},
+}) {
   return CredentialRegistry(
     credentials: CredentialsConfig(
       entries: {
@@ -400,6 +557,8 @@ CredentialRegistry _registry({String? anthropicApiKey, String? openAiApiKey, Map
       },
     ),
     env: env,
+    providers: providers,
+    subscriptions: subscriptions,
   );
 }
 

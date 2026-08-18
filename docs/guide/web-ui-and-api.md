@@ -68,6 +68,10 @@ The interface has three main areas:
 - **Fail-closed + activation status**: Invalid changes are rejected before save; responses separate immediately-active from pending-restart changes
 - **Admin-gated**: Editing and testing require admin access, enforced server-side – see [Security § Guard Editor](security.md#guard-editor-web-ui)
 
+**Provider credentials** (Settings page)
+- **Per-provider cards**: Each provider card shows which credential is presented, its renewal countdown, health state, when it was last checked, and the command that fixes a degraded state
+- **Always available**: The same values are served as JSON by `GET /api/providers`, so credential health is visible without any alert channel configured – see [Provider credential health](#provider-credential-health)
+
 **Knowledge Hub**
 - **Browse**: Open `/knowledge` to inspect wiki, temporal KG, memory, and inbox/search-derived knowledge in one read-only view
 - **Filter**: Use `q` and `layer` query parameters, for example `/knowledge?q=release&layer=kg`
@@ -629,6 +633,59 @@ static pool slots; configured/effective/active/queued/cached/quarantined counts 
 ```
 
 After reconnect, clients should refresh the displayed session through `GET /api/sessions/:id/turn-status`.
+
+#### Provider credential health
+
+```
+GET /api/providers
+```
+
+Returns one entry per configured provider. When DartClaw has probed the provider's credential, the entry carries these
+additional fields – individually `null` where that particular value is not known. A provider with no credential-health
+information at all omits the whole block rather than emitting seven null keys.
+
+| Field | Meaning |
+|-------|---------|
+| `credentialMode` | `subscription` or `api_key` – which credential is being presented |
+| `credentialHealth` | `healthy`, `nearing-expiry`, `refresh-failure`, `reauth-required`, `contract-break`, or `unknown` |
+| `credentialReauthRequired` | `true` when the operator must re-authenticate before executions can run |
+| `credentialExpiresAt` | ISO-8601 renewal deadline, when one can be computed |
+| `credentialExpiryDerived` | `true` when the deadline is a best-effort derivation rather than a value the credential states |
+| `credentialLastChecked` | ISO-8601 timestamp of the last probe |
+| `credentialRemediation` | The exact command or configuration change that resolves the current state |
+
+The entry's top-level `health` field folds this in: a provider whose `credentialHealth` needs operator attention –
+anything but `healthy` and `unknown` – reports `"health": "degraded"`, and is counted as degraded in the summary, even
+though its binary was found and its credential is `present`. Presence answers whether a credential was found, never
+whether it still works, so the two fields would otherwise contradict each other in the same object. `credentialStatus`
+is unaffected: it keeps reporting presence – specifically, whether the credential `providers.<id>.auth` selects can be
+presented, which is the same question execution admission asks. A provider forced to `auth: subscription` with only an
+API key configured therefore reports `missing`, and its `errorMessage` carries the same fix the startup gate prints.
+
+Renewal deadlines are best-effort and marked as derived. A Claude `setup-token` states no expiry, so its deadline is
+derived from the ingestion time plus the documented ~1-year lifetime, and `nearing-expiry` starts 30 days out. For Codex
+the deadline is the refresh-token renewal deadline – eight days from the store's last write – deliberately *not* the
+access token's `exp` claim, which is minutes away and replaced by refresh without any operator action; its
+`nearing-expiry` window is the final 48 hours.
+
+`unknown` is informational, not a fault. A provider reports it when no renewal deadline can be computed, and also when a
+Claude provider is authenticated through the vendor CLI's own login rather than through DartClaw's store: that case is
+verifiable – DartClaw can confirm the login is live – so it raises no alert. Codex has no equivalent exemption. Its
+probe only proves that an `auth.json` parses, not that the credential still works, so a Codex provider without a
+DartClaw-held credential reports `reauth-required` and alerts instead.
+
+The same values render on the per-provider cards on `/settings`: the credential mode (**Subscription** / **API key**), a
+renewal countdown suffixed `· derived` (shown for a subscription credential only, and reading **Renewal deadline
+unknown** or **Renewal deadline passed: …** at the edges), a state badge (**Nearing expiry** and **Refresh failed** as warnings,
+**Re-authentication required** and **Mediation contract broken** as errors, **Lifetime not checkable** as a neutral
+informational badge for `unknown`), a **Checked …** relative timestamp, and the remediation command – labelled **Fix:**
+when action is needed, or **DartClaw-managed auth:** for the `unknown` case. A healthy credential shows no badge. The
+card's own **Degraded** badge follows the same state, so the card's headline never reads healthy while the credential
+section says otherwise.
+
+With no alert target configured, these two surfaces plus a stderr warning line from the `serve` process are what remain:
+degraded credential health is logged independently of alert routing, so turning alerts off does not silence it. The line
+is an ordinary `WARNING`, so a `logging.level` above that suppresses it along with every other warning.
 
 ### Web Pages
 

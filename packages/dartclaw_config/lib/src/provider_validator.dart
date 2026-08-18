@@ -112,14 +112,32 @@ class ProviderValidator {
   /// Missing binary/credential entries for the default provider are errors;
   /// the same problems for secondary providers are warnings.
   ///
-  /// When no API key is configured, the validator checks whether the binary
-  /// itself is authenticated (e.g. via `claude auth status` for OAuth/
-  /// subscription logins). A binary-authenticated provider is accepted.
+  /// Credentials resolve through [CredentialRegistry.resolve], so a provider is
+  /// admitted on whichever credential `providers.<id>.auth` selects. When
+  /// nothing is configured at all, the binary's own login (`claude auth status`,
+  /// the Codex auth file) still counts — DartClaw presents nothing in that case,
+  /// so there is no promise to break. A *forced* selection is never rescued that
+  /// way: an absent forced credential refuses even with the other credential
+  /// present and the CLI logged in.
+  ///
+  /// [isHostExecution] reports whether this deployment's resolved execution for
+  /// a provider places it on the host; container execution needs a
+  /// host-presentable credential, so the binary's own login cannot stand in for
+  /// one. It is a deployment-level answer, not a per-agent one — a container
+  /// execution is refused at authority registration regardless. Defaults to
+  /// host.
+  ///
+  /// [credentialsDir] is the dedicated subscription store this deployment
+  /// resolved; passing it lets a refusal name the directory it searched, which
+  /// is the only diagnostic that distinguishes "never stored" from "stored
+  /// under a different `data_dir`".
   static Future<({List<String> errors, List<String> warnings})> validate({
     required ProvidersConfig providers,
     required CredentialRegistry registry,
     required String defaultProvider,
     String? homePath,
+    String? credentialsDir,
+    bool Function(String providerId)? isHostExecution,
   }) async {
     final errors = <String>[];
     final warnings = <String>[];
@@ -146,22 +164,41 @@ class ProviderValidator {
         continue;
       }
 
-      if (!registry.hasCredential(providerId)) {
-        // No API key — check if the binary itself is authenticated (OAuth/subscription).
-        final binaryAuthed =
-            version != null && await probeAuthStatus(provider.executable, providerId: providerId, homePath: homePath);
-        if (binaryAuthed) {
-          _log.info("Provider '$providerId': using binary's own authentication");
+      final family = ProviderIdentity.resolveFamily(
+        providerId,
+        executable: provider.executable,
+        options: provider.options,
+      );
+      final resolution = registry.resolve(providerId, family: family);
+      if (resolution.isPresent) {
+        continue;
+      }
+
+      // Only "nothing is configured" leaves room for the binary's own login: a
+      // forced auth selection that cannot be satisfied must not be rescued by a
+      // credential the operator did not choose.
+      final reason = resolution.reason!;
+      final rescuable =
+          reason == CredentialUnavailableReason.noneConfigured && (isHostExecution?.call(providerId) ?? true);
+      final binaryAuthed =
+          rescuable &&
+          version != null &&
+          await probeAuthStatus(provider.executable, providerId: providerId, homePath: homePath);
+      if (binaryAuthed) {
+        _log.info("Provider '$providerId': using binary's own authentication");
+      } else {
+        // No 'Provider <id>:' prefix here: unlike the binary-probe message, the
+        // remediation already opens by naming the provider.
+        final message = credentialRemediationFor(
+          reason,
+          providerId: providerId,
+          family: family,
+          credentialsDir: credentialsDir,
+        );
+        if (isDefaultProvider) {
+          errors.add(message);
         } else {
-          final envVar = CredentialRegistry.envVarFor(providerId);
-          final message = envVar == null
-              ? "Provider '$providerId': credentials not configured (set API key or add to credentials section)"
-              : "Provider '$providerId': credentials not configured (set $envVar or add to credentials section)";
-          if (isDefaultProvider) {
-            errors.add(message);
-          } else {
-            warnings.add(message);
-          }
+          warnings.add(message);
         }
       }
     }

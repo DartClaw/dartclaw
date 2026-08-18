@@ -91,13 +91,17 @@ void main() {
     expect(outputs['research_notes'], equals('JSON extracted value'));
   });
 
-  test('defaults missing source outputs to synthesized', () async {
+  test('leaves an unclaimed source output unset rather than asserting a provenance', () async {
+    // A blank `*_source` used to be back-filled with 'synthesized', so a step
+    // that never claimed provenance still satisfied `entryGate: "x_source ==
+    // synthesized"`. Absence is now absence, like any other declared output.
     final task = await harness.createTask();
     final step = harness.makeStep(outputs: {'plan_source': OutputConfig()});
 
     final outputs = await extractor.extract(step, task);
 
-    expect(outputs['plan_source'], 'synthesized');
+    expect(outputs['plan_source'], isNot('synthesized'));
+    expect(outputs['plan_source'], isEmpty);
   });
 
   test('throws MissingArtifactFailure for missing path outputs', () async {
@@ -1512,7 +1516,10 @@ steps:
       expect(outputs['summary'], 'X');
     });
 
-    test('an omitted spec_source still falls back to the synthesized default', () async {
+    test('an omitted spec_source stays unset instead of defaulting to synthesized', () async {
+      // spec_source rides the main prompt, not the envelope, so an omission
+      // here means the model never claimed one — inventing 'synthesized' told
+      // the entry gate a new spec had been authored when none had.
       final task = await harness.buildTaskWithEnvelope('task-source-omitted-default', {
         'outputs': {'summary': 'X'},
         'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
@@ -1521,7 +1528,8 @@ steps:
 
       final outputs = await extractor.extract(harness.makeStep(outputs: sourceOutputs), task);
 
-      expect(outputs['spec_source'], 'synthesized');
+      expect(outputs['spec_source'], isNot('synthesized'));
+      expect(outputs['spec_source'], isEmpty);
       expect(outputs['summary'], 'X');
     });
   });

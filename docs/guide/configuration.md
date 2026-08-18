@@ -155,6 +155,7 @@ harness:
         requires_guard_mediation: true
         required_builtins: [developer, fs, terminal]
         container_isolation_required: false   # true has no runnable execution — see the note below
+        credential: anthropic    # optional: a credentials.<name> API-key entry presented to this agent; nothing else is
       vibe:
         binary: vibe-acp
         args: []
@@ -176,7 +177,7 @@ gateway:
 container:
   enabled: true                  # POSIX only; false = pragmatic mode (guards only)
   image: dartclaw-sandbox:latest
-  mount_allowlist:
+  mounts:
     - ~/projects
 
 # --- Guards ---
@@ -197,6 +198,7 @@ guards:
     enabled: true
     model: haiku
     max_bytes: 51200             # 50KB truncation before classification
+    fail_open: false             # true lets unscorable content through unchecked
 
 guard_audit:
   max_retention_days: 30         # delete dated audit partitions older than this
@@ -436,6 +438,9 @@ providers:
     executable: claude           # path or binary name
     pool_size: 2                 # hard limit: 2 concurrent background worker leases
     inherit_user_settings: true  # default: load user + project + local Claude settings; false = project-only
+  #   auth: auto                 # auto (default) | subscription | api_key
+  #                              # auto uses a stored subscription credential when present,
+  #                              #   otherwise the configured API key.
   #   approval: on-request       # on-request | unless-allow-listed | never (prompt-gating axis)
   #   sandbox: workspace-write   # read-only | workspace-write | danger-full-access (OS-isolation axis)
   #                              # approval and sandbox are independent: sandbox never relaxes
@@ -446,6 +451,7 @@ providers:
   # codex:                       # uncomment to enable Codex (OpenAI models)
   #   executable: codex          # path to codex binary
   #   pool_size: 2               # hard limit: 2 concurrent background worker leases
+  #   auth: auto                 # auto (default) | subscription | api_key
   #   sandbox: workspace-write   # workspace-write | danger-full-access
   #   approval: on-request       # on-request | unless-allow-listed | never
   #                              # IMPORTANT: on-request is the broadest host interception;
@@ -459,6 +465,10 @@ providers:
   #                              #   See: docs/guide/agents.md § Providers
 
 # --- Credentials (0.13) ---
+# Provider API keys. Since 0.24.2 an API key is the alternative to a subscription
+# credential, not the default: subscription credentials live in DartClaw's own
+# stores under <data_dir>/credentials/ and are written by `dartclaw auth claude` /
+# `dartclaw auth codex` – never here. See security.md for setup and trade-offs.
 credentials:
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
@@ -587,6 +597,37 @@ Effort buys the turn more deliberation. It does not raise an output ceiling: the
 
 **Note on `providers` section:** When omitted, DartClaw configures the selected default provider with its normal executable and worker capacity `1`. Add an explicit `providers:` section for multi-provider deployments or to customize capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one. `pool_size` is the hard concurrent worker-lease limit for that provider across tasks, schedules, system/advisor work, logical agents, and capacity-only workflow one-shots. Workers start lazily; healthy compatible workers may be cached, but cache size does not define capacity. Container/profile lifecycle is independent, so enabling both `workspace` and `restricted` does not require reserved worker capacity for each profile. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
+#### Provider authentication
+
+`providers.<id>.auth` selects which credential DartClaw presents for that provider. It takes three values:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Default. Uses the stored subscription credential when one is present, otherwise the configured API key |
+| `subscription` | Always the subscription credential from DartClaw's dedicated store |
+| `api_key` | Always the configured API key (`credentials:` entry or its environment variable) |
+
+Exactly one credential is presented upstream per execution authority, and a forced value never silently falls back to
+the other kind: if `auth: subscription` is set and no subscription credential is stored – or `auth: api_key` is set with
+no key configured – it is refused with a remediation naming the command or variable that fixes it, rather than quietly
+running on whatever else happens to be available. On the default provider that refusal stops `dartclaw serve`; on a
+secondary provider it is a startup warning plus a refusal at execution admission. Under `auto`, a deployment with only
+an API key keeps working exactly as before.
+
+A provider alias inherits the `auth` of the family it resolves to when it sets none of its own. An explicit per-alias
+value always wins – including an explicit `auth: auto`, which is a deliberate choice to resolve independently of the
+family rather than an absent setting. The alias's own setting binds both execution boundaries: a host spawn and a
+containerized execution of the same provider present the same credential.
+
+An unrecognized value is reported as a configuration warning, and that provider presents no credential. Reading the
+config file still succeeds, but startup validation then refuses: `dartclaw serve` exits when the affected provider is
+the default one, and warns while refusing that provider's mediated executions when it is a secondary. A live config
+reload that would introduce the bad value is rejected outright and the running configuration stays active.
+
+Subscription credentials are stored and renewed with `dartclaw auth claude` / `dartclaw auth codex` – see
+[Security § Setting Up Subscription Authentication](security.md#setting-up-subscription-authentication) for the setup
+steps, store locations, and the security trade-offs between the two credential kinds.
+
 **Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
 
 - `approval` — the **prompt-gating** axis (Claude permission-mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. Claude's one-shot path has no interactive prompt channel, so `on-request`/`unless-allow-listed` keep the default `dontAsk` + static allow-list; only `approval: never` opts a trusted run into **full access** (permission bypass, no allow-list). Full access is refused under the restricted container profile, where hooks are disabled and a bypass cannot fail closed.
@@ -603,6 +644,7 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 - Missing `topology` defaults to `unverified`; unverified and relay ACP agents claim no guard mediation, so a container is the only boundary they could have. `topology: direct` is an operator declaration — DartClaw validates it (verification evidence, a non-relay `model_provider`, required builtins) only when the registration also sets `requires_guard_mediation: true`. Declaring `direct` without that moves the agent onto the host with no boundary and no verified claim; do it only for an agent you have established is safe to run there.
 - **ACP runs on the host only.** DartClaw mediates no provider credential or host capability for an ACP client inside a container, so every ACP container combination is unavailable. `container_isolation_required: true` — which relay and unverified topologies must set — is rejected at startup with its exact configuration path. Every other ACP registration runs only where the resolved execution policy selects host execution: on a container-enabled deployment, set `execution: host` for the agent or task type that uses it, or the turn is refused before it starts. ACP is also unavailable on the workflow one-shot surface, which implements `claude` and `codex` only.
 - Guarded Goose registrations require the `developer` builtin.
+- **ACP agents are credential-isolated.** `model_provider` selects validation and routing, never a credential: no DartClaw-managed provider credential reaches an ACP spawn, and a subscription token is never presented to a third-party client. The optional `credential` key is the one injection path — it names a `credentials.<name>` **API-key** entry, whose secret is injected under the environment variable name(s) that entry declares (e.g. an entry sourced from `${ANTHROPIC_API_KEY}` injects `ANTHROPIC_API_KEY`). A reference to an unknown name, to a `github-token` entry, to an entry that resolves empty, or to a literal key declaring no variable name warns at load and presents nothing. Without it, the agent authenticates itself from its own configuration, keyring, or login — as with other ACP hosts. See [Security § Authentication Modes](security.md#authentication-modes).
 - Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default worker-lease capacity `1`.
 
 **Note on `mcp_servers`:** Each entry configures one external MCP server for hosts that instantiate the outbound MCP

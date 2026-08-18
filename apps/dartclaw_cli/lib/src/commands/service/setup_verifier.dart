@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show LoginStoreCollisionError, SubscriptionCredentialStore;
 import 'package:yaml/yaml.dart';
 
 import '../config_loader.dart';
@@ -232,17 +233,52 @@ class SetupVerifier {
     }
   }
 
+  /// Verification resolves the same credential admission will, so an instance
+  /// whose only credential is a stored subscription token is not reported as
+  /// unverified. The vendor login is consulted only for `noneConfigured` —
+  /// mirroring [ProviderValidator], where a forced-but-absent selection is
+  /// never rescued by a credential the operator did not choose.
   static Future<bool> _defaultProviderVerified(String providerId, String providerBinary, String configPath) async {
     final config = loadCliConfig(configPath: configPath);
-    final registry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
-    if (registry.hasCredential(providerId)) {
+    final registry = CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+      providers: config.providers,
+      subscriptions: _storedSubscriptions(config),
+    );
+    final family = ProviderIdentity.resolveFamily(
+      providerId,
+      options: config.providers[providerId]?.options ?? const {},
+      executable: providerBinary,
+    );
+    final resolution = registry.resolve(providerId, family: family);
+    if (resolution.isPresent) {
       return true;
+    }
+    if (resolution.reason != CredentialUnavailableReason.noneConfigured) {
+      return false;
     }
     return ProviderValidator.probeAuthStatus(
       providerBinary,
       providerId: providerId,
       homePath: Platform.environment['HOME'],
     );
+  }
+
+  /// An unusable store is no store: verification must report on the credential
+  /// state, not fail the run, and every other refusal path already tells the
+  /// operator what is wrong with the store itself.
+  static Map<String, CredentialEntry> _storedSubscriptions(DartclawConfig config) {
+    try {
+      return SubscriptionCredentialStore.open(
+        credentialsDir: config.credentialsDir,
+        environment: Platform.environment,
+      ).readAll();
+    } on LoginStoreCollisionError {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    }
   }
 
   static String _defaultBinaryFor(String providerId) {

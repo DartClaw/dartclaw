@@ -76,6 +76,12 @@ class AlertFormatter {
     'job_failure' => 'Scheduled Job Failure',
     'budget_warning' => 'Budget Warning',
     'compaction' => 'Context Compaction',
+    'credential_expiry' => 'Credential Nearing Expiry',
+    'credential_refresh_failure' => 'Credential Refresh Failed',
+    'credential_reauth_required' => 'Re-authentication Required',
+    // A backend auth-scheme change, not an expiry: this wording is the contract
+    // that keeps the operator from being sent to a login that cannot help.
+    'credential_contract_break' => 'Mediation Contract Broken',
     _ => alertType,
   };
 
@@ -100,6 +106,9 @@ class AlertFormatter {
     EmergencyStopEvent() =>
       'Emergency stop by ${event.stoppedBy} — ${event.turnsCancelled} turn(s), ${event.tasksCancelled} task(s) cancelled',
     AdvisorInsightEvent() => 'Advisor flagged status "${event.status}" — ${event.observation}',
+    CredentialHealthChangedEvent() =>
+      "Provider '${event.providerId}': ${event.detail}"
+          '${event.remediation == null ? "" : " Remediation: ${event.remediation}"}',
     ProjectStatusChangedEvent() => event.runtimeType.toString(),
     FailedAuthEvent() => event.runtimeType.toString(),
     ToolPermissionDeniedEvent() => event.runtimeType.toString(),
@@ -152,6 +161,13 @@ class AlertFormatter {
       'Trigger': event.triggerType,
       'Tasks': event.taskIds.join(', '),
       'Session': event.sessionKey,
+    },
+    CredentialHealthChangedEvent() => {
+      'Provider': event.providerId,
+      'State': event.state.jsonName,
+      if (event.remediation != null) 'Remediation': event.remediation!,
+      if (event.expiry != null)
+        'Expires': '${event.expiry!.expiresAt.toIso8601String()}${event.expiry!.derived ? " (estimated)" : ""}',
     },
     ContainerCrashedEvent() => null, // alerts without additional detail fields
     ProjectStatusChangedEvent() => null,

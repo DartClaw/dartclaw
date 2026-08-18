@@ -155,8 +155,13 @@ Future<String> _post(int port, String path, Map<String, dynamic> body) async {
   }
 }
 
+// 30s of polling, comfortably inside the 60s test timeout so a genuine stall
+// still fails with the subprocess stderr rather than a bare harness timeout.
+// The helper is a nested `dart run`: on a slow host it blocks on the build-hook
+// cache the parent `dart test` already holds, which alone can outlast a 10s
+// budget (measured ~4.8s standalone on an ARM VM, longer under contention).
 Future<void> _until(Future<bool> Function() condition, {String Function()? onTimeout}) async {
-  for (var i = 0; i < 1000; i++) {
+  for (var i = 0; i < 3000; i++) {
     if (await condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }

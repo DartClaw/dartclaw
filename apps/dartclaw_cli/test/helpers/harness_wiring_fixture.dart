@@ -63,7 +63,9 @@ Future<HarnessWiring> wireTestHarness({
   required SecurityWiring security,
   required EventBus eventBus,
   required DartclawServer Function() serverRefGetter,
+  Map<String, CredentialEntry> Function()? subscriptionCredentials,
   int port = 3333,
+  Map<String, String>? environment,
 }) async {
   final harnessWiring = HarnessWiring(
     config: config,
@@ -75,6 +77,8 @@ Future<HarnessWiring> wireTestHarness({
     security: security,
     messageRedactor: MessageRedactor(),
     eventBus: eventBus,
+    subscriptionCredentials: subscriptionCredentials,
+    environment: environment,
   );
   await harnessWiring.wire(serverRefGetter: serverRefGetter);
   return harnessWiring;

@@ -802,6 +802,169 @@ void main() {
       expect(arguments, isNot(contains('--full-auto')));
     });
   });
+
+  group('CodexCliProvider subscription host lane', () {
+    /// Runs one host turn against an injected process, capturing the spawn
+    /// environment. The vendor binary is never resolved: the starter answers
+    /// with a fake, so this proves nothing about what is installed.
+    Future<Map<String, String>?> spawnEnvironment({
+      Future<String?> Function(String providerId, String providerFamily)? subscriptionHomeResolver,
+      Map<String, String> providerEnvironment = const {},
+      String provider = 'codex',
+    }) async {
+      Map<String, String>? captured;
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: {provider: WorkflowCliProviderConfig(executable: 'codex', environment: providerEnvironment)},
+        subscriptionHomeResolver: subscriptionHomeResolver,
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          captured = environment;
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: provider,
+        prompt: 'Test',
+        workingDirectory: Directory.systemTemp.path,
+        policy: const ExecutionPolicy.host(),
+      );
+      await pumpEventQueue();
+      process.emitStdout(jsonEncode({'type': 'turn.completed', 'usage': <String, Object?>{}}));
+      process.exit(0);
+      await turn;
+      return captured;
+    }
+
+    test('a subscription-resolved host spawn receives CODEX_HOME pointing at the dedicated store', () async {
+      final environment = await spawnEnvironment(
+        subscriptionHomeResolver: (providerId, family) async => family == 'codex' ? '/data/credentials/codex' : null,
+        providerEnvironment: const {'PATH': '/usr/bin'},
+      );
+
+      expect(environment?['CODEX_HOME'], '/data/credentials/codex');
+      expect(environment?['PATH'], '/usr/bin');
+    });
+
+    test('the executing provider id reaches the resolver, not only its family', () async {
+      // `providers.<id>.auth` is per provider id, so an alias that selects its
+      // own credential must be the thing the dedicated-home decision is keyed
+      // on — a family-keyed resolver would answer for `codex` instead.
+      final seen = <String>[];
+      await spawnEnvironment(
+        provider: 'my_codex',
+        subscriptionHomeResolver: (providerId, family) async {
+          seen.addAll([providerId, family]);
+          return null;
+        },
+      );
+
+      expect(seen, ['my_codex', 'codex']);
+    });
+
+    test('an api-key-resolved host spawn keeps its current home behavior', () async {
+      final environment = await spawnEnvironment(
+        subscriptionHomeResolver: (providerId, family) async => null,
+        providerEnvironment: const {'OPENAI_API_KEY': 'sk-configured'},
+      );
+
+      expect(environment?.containsKey('CODEX_HOME'), isFalse);
+      expect(environment?['OPENAI_API_KEY'], 'sk-configured');
+    });
+
+    test('a deployment with no dedicated store lane spawns exactly as before', () async {
+      final environment = await spawnEnvironment(providerEnvironment: const {'OPENAI_API_KEY': 'sk-configured'});
+
+      expect(environment?.containsKey('CODEX_HOME'), isFalse);
+    });
+  });
+
+  group('CodexCliProvider backend refusal diagnostics', () {
+    Future<String> diagnosticFor(Map<String, Object?> errorEvent, {String? model}) async {
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Test',
+        model: model,
+        workingDirectory: Directory.systemTemp.path,
+        policy: const ExecutionPolicy.host(),
+      );
+      await pumpEventQueue();
+      process.emitStdout(jsonEncode(errorEvent));
+      await pumpEventQueue();
+      await runner.cancelInflight();
+
+      try {
+        await turn;
+        fail('a failed turn must not resolve');
+      } on StateError catch (error) {
+        return '$error';
+      }
+    }
+
+    test('a backend model rejection surfaces the same diagnostic container mode produces', () async {
+      final diagnostic = await diagnosticFor({
+        'type': 'turn.failed',
+        'error': {'message': 'The model gpt-5.1-codex is not supported for a ChatGPT account'},
+      }, model: 'gpt-5.1-codex');
+
+      expect(diagnostic, contains('does not support the configured model'));
+      expect(diagnostic, contains('gpt-5.1-codex'));
+      expect(diagnostic, isNot(contains('ChatGPT account')), reason: 'the backend text itself is never relayed');
+    });
+
+    test('an unrelated stderr line is never classified as a backend refusal', () async {
+      // The markers are substrings, so classifying the concatenated stderr
+      // would report `disk quota exceeded` as a ChatGPT plan limit.
+      late FakeProcess process;
+      final runner = WorkflowCliRunner(
+        providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
+        processStarter: (exe, args, {workingDirectory, environment}) async {
+          process = FakeProcess(completeExitOnKill: true, killExitCode: 143);
+          return process;
+        },
+      );
+
+      final turn = runner.executeTurn(
+        provider: 'codex',
+        prompt: 'Test',
+        workingDirectory: Directory.systemTemp.path,
+        policy: const ExecutionPolicy.host(),
+      );
+      await pumpEventQueue();
+      process.emitStderr('Error: disk quota exceeded while writing the model cache');
+      await pumpEventQueue();
+      await runner.cancelInflight();
+
+      try {
+        await turn;
+        fail('a failed turn must not resolve');
+      } on StateError catch (error) {
+        expect('$error', isNot(contains('usage limit')));
+        expect('$error', isNot(contains('does not support the configured model')));
+        expect('$error', contains('provider stderr reported failure details'));
+      }
+    });
+
+    test('an unrelated vendor error is not classified as model-unsupported', () async {
+      final diagnostic = await diagnosticFor({
+        'type': 'error',
+        'error': {'code': 'stream_disconnected'},
+      }, model: 'gpt-5-codex');
+
+      expect(diagnostic, isNot(contains('does not support the configured model')));
+      expect(diagnostic, contains('event=error'));
+    });
+  });
 }
 
 final class _TestProcessOwner extends ProcessBackedCliProvider {

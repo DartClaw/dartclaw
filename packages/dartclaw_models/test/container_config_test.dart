@@ -28,6 +28,18 @@ void main() {
       expect(config.extraMounts, ['/data:/data:ro']);
     });
 
+    test('fromYaml reports an unknown key instead of ignoring it', () {
+      // examples/production.yaml shipped `mount_allowlist`, which this parser
+      // never read — the documented allowlist was a silent no-op.
+      final warns = <String>[];
+      final config = ContainerConfig.fromYaml({
+        'enabled': true,
+        'mount_allowlist': ['~/projects'],
+      }, warns);
+      expect(config.extraMounts, isEmpty);
+      expect(warns, contains('Unknown config key: container.mount_allowlist'));
+    });
+
     test('fromYaml handles invalid types gracefully', () {
       final warns = <String>[];
       final config = ContainerConfig.fromYaml({'enabled': 'yes', 'image': 123, 'mounts': 'not-a-list'}, warns);

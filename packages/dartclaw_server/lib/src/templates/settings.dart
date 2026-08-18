@@ -63,7 +63,16 @@ String settingsTemplate({
     final badgeClass = p['healthBadgeClass']?.toString() ?? 'status-badge-muted';
     final badgeVariant = badgeClass.startsWith(badgePrefix) ? badgeClass.substring(badgePrefix.length) : 'muted';
     final badgeLabel = p['healthLabel']?.toString() ?? '';
-    return {...p, 'statusBadgeHtml': statusBadgeTemplate(variant: badgeVariant, text: badgeLabel)};
+    return {
+      ...p,
+      'statusBadgeHtml': statusBadgeTemplate(variant: badgeVariant, text: badgeLabel),
+      'credentialStateBadgeHtml': p['hasCredentialState'] == true
+          ? statusBadgeTemplate(
+              variant: p['credentialStateVariant']?.toString() ?? 'muted',
+              text: p['credentialStateLabel']?.toString() ?? '',
+            )
+          : '',
+    };
   }).toList();
 
   final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);

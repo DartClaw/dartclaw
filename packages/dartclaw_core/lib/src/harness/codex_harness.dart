@@ -78,6 +78,13 @@ class CodexHarness extends BaseHarness {
   /// on the host. There is no third behavior.
   final ContainerExecutor? containerManager;
 
+  /// Makes the DartClaw-dedicated `CODEX_HOME` usable and returns its path, or
+  /// `null` when this deployment presents an API key instead. Awaited before
+  /// every host spawn so the vendor CLI starts on a token that is not about to
+  /// expire; the refresh authority behind it is the only thing that rotates the
+  /// store.
+  final Future<String?> Function()? prepareSubscriptionHome;
+
   static final _log = Logger('CodexHarness');
 
   final Map<String, ({String threadId, String? instructions})> _threads = {};
@@ -112,6 +119,7 @@ class CodexHarness extends BaseHarness {
     CodexProtocolAdapter? adapter,
     PlatformCapabilities? platformCapabilities,
     this.containerManager,
+    this.prepareSubscriptionHome,
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
@@ -174,13 +182,25 @@ class CodexHarness extends BaseHarness {
   Future<void> _prepareEnvironment() async {
     final container = containerManager;
     if (container == null) {
-      _environment = CodexEnvironment(
-        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
-        mcpServerUrl: harnessConfig.mcpServerUrl,
-        mcpGatewayToken: harnessConfig.mcpGatewayToken,
-        useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
-        platformCapabilities: platformCapabilities,
-      );
+      // A subscription-resolved deployment runs against the DartClaw-dedicated
+      // store instead of the operator's login or a home seeded from it, so
+      // `use_system_codex_home` does not apply and no seeding step runs.
+      final dedicatedHome = await prepareSubscriptionHome?.call();
+      _environment = dedicatedHome != null
+          ? CodexEnvironment.dedicated(
+              developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+              homePath: dedicatedHome,
+              mcpServerUrl: harnessConfig.mcpServerUrl,
+              mcpGatewayToken: harnessConfig.mcpGatewayToken,
+              platformCapabilities: platformCapabilities,
+            )
+          : CodexEnvironment(
+              developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+              mcpServerUrl: harnessConfig.mcpServerUrl,
+              mcpGatewayToken: harnessConfig.mcpGatewayToken,
+              useSystemCodexHome: _boolProviderOption('use_system_codex_home', defaultValue: true),
+              platformCapabilities: platformCapabilities,
+            );
       return;
     }
 

@@ -6,13 +6,15 @@
 
 ### 0.24 — Logical-Agent Correctness & Scheduling Operability
 
-**Status: 0.24.1 release-ready, awaiting tag.** 0.24.0 shipped 2026-08-13; 0.24.1 is a correctness patch on top of
-it (knowledge-inbox wiki merge/atomicity, retry scope, wiki-lint orphan inversion; same-session turn admission in
-arrival order) with no execution-isolation, container, or provider-protocol change. Logical-agent execution,
-scheduling, the canonical memory model, and the execution-isolation correction are complete. The transient public
-implementation bundles have been consolidated into the private canonical PRD and removed. Automated, live-workflow, and
-UI release gates are green. STATE records the completed compatibility evidence; the final clean-HEAD release check runs
-on the scope-frozen commit before squash-merge and tagging.
+**Status: 0.24.2 release-ready, awaiting tag.** 0.24.0 shipped 2026-08-13 and 0.24.1 on 2026-08-17 (knowledge-inbox
+wiki merge/atomicity, retry scope, wiki-lint orphan inversion; same-session turn admission in arrival order).
+0.24.2 makes provider authentication default to the operator's subscription on both execution boundaries
+(ADR-053): dedicated credential stores fed by `dartclaw auth`, the `providers.<id>.auth` selector, fail-closed
+admission, credential-health visibility, and credential-isolated ACP registrations. Unlike 0.24.1 it *does* change
+provider protocol and the credential boundary, so the container-conformance, live-workflow, and UI gates are re-run
+rather than inherited. Logical-agent execution, scheduling, the canonical memory model, and the execution-isolation
+correction are complete. The transient public implementation bundles are consolidated into the private canonical PRD
+and removed. The final clean-HEAD release check runs on the scope-frozen commit before squash-merge and tagging.
 
 ## Planned
 

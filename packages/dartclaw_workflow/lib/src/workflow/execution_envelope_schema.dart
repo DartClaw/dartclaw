@@ -53,7 +53,7 @@ List<String> modelDerivedFinalizerKeys(WorkflowStep step, Map<String, OutputConf
 bool isModelDerivedFinalizerOutput(String key, OutputConfig config) {
   if (config.hasSetValue) return false; // literal write — host-owned
   if (config.source != null) return false; // task-metadata read — host-owned
-  if (key.endsWith('_source')) return false; // canonical `synthesized` default — host-owned
+  if (key.endsWith('_source')) return false; // instructed in the main prompt, not the envelope
   if (_isPromptOptOut(config)) return false; // explicit user-facing finalizer opt-out
   final resolver = outputResolverFor(key, config);
   if (resolver is FileSystemOutput) return true; // nullable path claim — always schemable

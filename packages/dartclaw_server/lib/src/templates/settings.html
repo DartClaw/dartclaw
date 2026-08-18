@@ -479,8 +479,19 @@
                 <div class="credential-status">
                   <span class="credential-dot" tl:classappend="${provider.credentialDotClass}"></span>
                   <span class="detail-value" tl:classappend="${provider.credentialValueClass}" tl:text="${provider.credentialStatusLabel}">Present</span>
+                  <tl:block tl:if="${provider.hasCredentialState}" tl:utext="${provider.credentialStateBadgeHtml}">badge</tl:block>
                 </div>
                 <div class="credential-env" tl:text="${provider.credentialEnvVarDisplay}">ANTHROPIC_API_KEY</div>
+                <div tl:if="${provider.hasCredentialMode}" class="credential-env" tl:text="${provider.credentialModeLabel}">Subscription</div>
+                <div tl:if="${provider.hasCredentialCountdown}" class="credential-env"
+                     tl:classappend="${provider.credentialCountdownClass}"
+                     tl:attr="title=${provider.credentialExpiresAtIso}" tl:text="${provider.credentialCountdownLabel}">Renewal in 20d · derived</div>
+                <div tl:if="${provider.hasCredentialLastChecked}" class="credential-env"
+                     tl:attr="title=${provider.credentialLastCheckedIso}" tl:text="${provider.credentialLastCheckedLabel}">Checked 3h ago</div>
+                <div tl:if="${provider.hasCredentialRemediation}" class="credential-env">
+                  <span tl:text="${provider.credentialRemediationLabel}">Fix:</span>
+                  <code tl:text="${provider.credentialRemediation}">claude setup-token</code>
+                </div>
               </div>
 
               <div class="provider-detail-item">

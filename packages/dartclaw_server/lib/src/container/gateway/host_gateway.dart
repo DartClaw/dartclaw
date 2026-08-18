@@ -13,6 +13,18 @@ import 'provider_adapter.dart';
 /// Reports a host-side refusal for auditing. Carries no request content.
 typedef GatewayDenialSink = void Function(GatewayPrincipal principal, String reason);
 
+/// Reports that a provider credential the host must present is unusable.
+///
+/// The single credential-health producer owns the alert — it dedups per state
+/// change and updates the rendered provider status, so a refusal path reports
+/// here instead of firing an event of its own. One alert per state change, not
+/// one per detecting path. [remediation] names a command, never a credential.
+typedef CredentialRefusalSink = void Function(String providerId, String detail, {String? remediation});
+
+/// Releases the authority whose credential turned terminally unusable, revoking
+/// its mediation and destroying its container.
+typedef GatewayAuthorityTeardown = Future<void> Function(GatewayAuthority authority);
+
 /// One live container authority's host-side registration.
 ///
 /// Created before its container's bridges start and revoked when the authority
@@ -61,11 +73,15 @@ final class HostGateway {
     McpProtocolHandler Function()? mcpHandler,
     Map<String, CanonicalTool> Function()? mcpToolCanonicals,
     GatewayDenialSink? onDenied,
+    CredentialRefusalSink? onCredentialRefused,
+    GatewayAuthorityTeardown? onCredentialUnusable,
     this.limits = BridgeLimits.defaults,
   }) : _providerAdapters = Map.unmodifiable(providerAdapters),
        _mcpHandler = mcpHandler,
        _mcpToolCanonicals = mcpToolCanonicals,
-       _onDenied = onDenied;
+       _onDenied = onDenied,
+       _onCredentialRefused = onCredentialRefused,
+       _onCredentialUnusable = onCredentialUnusable;
 
   static final _log = Logger('HostGateway');
 
@@ -78,8 +94,11 @@ final class HostGateway {
   final McpProtocolHandler Function()? _mcpHandler;
   final Map<String, CanonicalTool> Function()? _mcpToolCanonicals;
   final GatewayDenialSink? _onDenied;
+  final CredentialRefusalSink? _onCredentialRefused;
+  final GatewayAuthorityTeardown? _onCredentialUnusable;
 
   final Map<String, GatewayAuthority> _authorities = {};
+  final Set<String> _credentialFailedAuthorities = {};
   int _nextAuthorityId = 1;
   bool _disposed = false;
 
@@ -104,6 +123,7 @@ final class HostGateway {
     // mediation the host already knows it cannot perform.
     final unavailable = adapter.unavailableReason;
     if (unavailable != null) {
+      _onCredentialRefused?.call(principal.providerId, unavailable, remediation: adapter.credentialRemediation);
       throw StateError(unavailable);
     }
     if (allowedMcpTools.isNotEmpty && _mcpHandler == null) {
@@ -140,6 +160,7 @@ final class HostGateway {
       handler: _handlerFor(authority, surface),
       limits: limits,
       onDenied: _onDenied,
+      onCredentialUnusable: (failure) => _onTerminalCredentialFailure(authority, failure),
     );
     authority._pipes[surface] = pipe;
     return pipe;
@@ -153,6 +174,7 @@ final class HostGateway {
     if (authority._revoked) return;
     authority._revoked = true;
     _authorities.remove(authority.id);
+    _credentialFailedAuthorities.remove(authority.id);
     for (final pipe in authority._pipes.values) {
       try {
         await pipe.revoke();
@@ -173,6 +195,26 @@ final class HostGateway {
     for (final adapter in _providerAdapters.values) {
       await adapter.dispose();
     }
+  }
+
+  /// Ends [authority] because its credential can no longer be presented.
+  ///
+  /// Nothing further is mediated on it: the operator is told once through the
+  /// credential-health producer, and the authority is released so its container
+  /// is destroyed rather than left waiting on mediation that cannot resume.
+  void _onTerminalCredentialFailure(GatewayAuthority authority, GatewayCredentialUnusable failure) {
+    // Concurrent in-flight requests on the same authority all fail on the same
+    // dead credential; teardown is async, so the revocation check alone would
+    // let each of them announce it. One authority, one announcement.
+    if (authority.isRevoked || !_credentialFailedAuthorities.add(authority.id)) return;
+    _log.severe('Authority ${authority.id} lost its ${failure.providerId} credential: ${failure.remediation}');
+    _onCredentialRefused?.call(
+      failure.providerId,
+      'the host-held credential became unusable during a turn',
+      remediation: failure.remediation,
+    );
+    final teardown = _onCredentialUnusable;
+    unawaited(teardown == null ? revoke(authority) : teardown(authority));
   }
 
   GatewaySurfaceHandler _handlerFor(GatewayAuthority authority, BridgeSurface surface) => switch (surface) {

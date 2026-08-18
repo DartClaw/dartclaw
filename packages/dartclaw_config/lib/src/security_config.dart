@@ -49,6 +49,11 @@ class SecurityConfig {
   /// contentGuardMaxBytes.
   final int contentGuardMaxBytes;
 
+  /// Whether a classification failure passes content through.
+  ///
+  /// False fails closed: content the classifier could not score is blocked.
+  final bool contentGuardFailOpen;
+
   /// inputSanitizerEnabled.
   final bool inputSanitizerEnabled;
 
@@ -65,6 +70,7 @@ class SecurityConfig {
     this.bashStep = const SecurityBashStepConfig(),
     this.contentGuardEnabled = true,
     this.contentGuardClassifier = 'claude_binary',
+    this.contentGuardFailOpen = false,
     this.contentGuardModel = 'haiku',
     this.contentGuardMaxBytes = 50 * 1024,
     this.inputSanitizerEnabled = true,
@@ -82,6 +88,7 @@ class SecurityConfig {
     SecurityBashStepConfig? bashStep,
     bool? contentGuardEnabled,
     String? contentGuardClassifier,
+    bool? contentGuardFailOpen,
     String? contentGuardModel,
     int? contentGuardMaxBytes,
     bool? inputSanitizerEnabled,
@@ -94,6 +101,7 @@ class SecurityConfig {
       bashStep: bashStep ?? this.bashStep,
       contentGuardEnabled: contentGuardEnabled ?? this.contentGuardEnabled,
       contentGuardClassifier: contentGuardClassifier ?? this.contentGuardClassifier,
+      contentGuardFailOpen: contentGuardFailOpen ?? this.contentGuardFailOpen,
       contentGuardModel: contentGuardModel ?? this.contentGuardModel,
       contentGuardMaxBytes: contentGuardMaxBytes ?? this.contentGuardMaxBytes,
       inputSanitizerEnabled: inputSanitizerEnabled ?? this.inputSanitizerEnabled,
@@ -111,6 +119,7 @@ class SecurityConfig {
           bashStep == other.bashStep &&
           contentGuardEnabled == other.contentGuardEnabled &&
           contentGuardClassifier == other.contentGuardClassifier &&
+          contentGuardFailOpen == other.contentGuardFailOpen &&
           contentGuardModel == other.contentGuardModel &&
           contentGuardMaxBytes == other.contentGuardMaxBytes &&
           inputSanitizerEnabled == other.inputSanitizerEnabled &&
@@ -124,6 +133,7 @@ class SecurityConfig {
     bashStep,
     contentGuardEnabled,
     contentGuardClassifier,
+    contentGuardFailOpen,
     contentGuardModel,
     contentGuardMaxBytes,
     inputSanitizerEnabled,

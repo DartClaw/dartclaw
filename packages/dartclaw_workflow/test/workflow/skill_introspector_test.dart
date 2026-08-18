@@ -138,7 +138,7 @@ void main() {
   test('passes provider-specific probe environment to runner', () async {
     late Map<String, String>? capturedEnvironment;
     final introspector = CliSkillIntrospector(
-      environmentForProvider: (provider) => {'PROVIDER': provider, 'PATH': '/bin'},
+      environmentForProvider: (provider) async => {'PROVIDER': provider, 'PATH': '/bin'},
       runner: (executable, arguments, {environment}) async {
         capturedEnvironment = environment;
         return ProcessResult(1, 0, 'dartclaw-discover-andthen-spec\n', '');
@@ -155,7 +155,7 @@ void main() {
     late List<String> capturedArguments;
     late Map<String, String>? capturedEnvironment;
     final introspector = CliSkillIntrospector(
-      environmentForProvider: (provider) => {'PROVIDER_ID': provider},
+      environmentForProvider: (provider) async => {'PROVIDER_ID': provider},
       runner: (executable, arguments, {environment}) async {
         capturedArguments = arguments;
         capturedEnvironment = environment;

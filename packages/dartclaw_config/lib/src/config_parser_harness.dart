@@ -4,6 +4,7 @@ const _acpRelayProviderSelectors = {'claude-acp', 'codex-acp'};
 
 HarnessConfig _parseHarness(
   Map<String, dynamic> yaml,
+  CredentialsConfig credentials,
   HarnessConfig defaults,
   List<String> warns, {
   required int workerTimeoutSeconds,
@@ -55,10 +56,15 @@ HarnessConfig _parseHarness(
     turnMonitor = TurnMonitorConfig(waitWarningAfter: waitWarningAfter, stuckAfter: stuckAfter);
   }
 
-  return HarnessConfig(turnMonitor: turnMonitor, acp: _parseAcpConfig(harnessMap, defaults.acp, warns));
+  return HarnessConfig(turnMonitor: turnMonitor, acp: _parseAcpConfig(harnessMap, credentials, defaults.acp, warns));
 }
 
-AcpConfig _parseAcpConfig(Map<String, dynamic> harnessMap, AcpConfig defaults, List<String> warns) {
+AcpConfig _parseAcpConfig(
+  Map<String, dynamic> harnessMap,
+  CredentialsConfig credentials,
+  AcpConfig defaults,
+  List<String> warns,
+) {
   final acpMap = readMap('acp', harnessMap, warns);
   if (acpMap == null) return defaults;
   final agentsMap = readMap('agents', acpMap, warns);
@@ -105,6 +111,7 @@ AcpConfig _parseAcpConfig(Map<String, dynamic> harnessMap, AcpConfig defaults, L
       requiredBuiltins: List<String>.unmodifiable(requiredBuiltins),
       containerIsolationRequired: readBool('container_isolation_required', map, warns, defaultValue: false) ?? false,
       containerProfile: containerProfile,
+      credential: _parseAcpCredentialReference(agentId, readString('credential', map, warns), credentials, warns),
     );
     final errors = _validateAcpAgentConfig(agentId, config);
     if (errors.isNotEmpty) {
@@ -115,6 +122,36 @@ AcpConfig _parseAcpConfig(Map<String, dynamic> harnessMap, AcpConfig defaults, L
   }
 
   return AcpConfig(agents: agents);
+}
+
+/// The `credentials.<name>` entry [raw] names, or `null` when it names nothing
+/// presentable — in which case the ACP agent spawns with no DartClaw-managed
+/// credential and a warning says so.
+///
+/// Only an API-key entry carrying a `${VAR}` reference can be presented: the
+/// injection is by environment variable name, and a subscription credential is
+/// never forwarded to a third-party client. Dropping an unusable reference here
+/// keeps the parsed config an honest record of what a spawn will carry.
+String? _parseAcpCredentialReference(String agentId, String? raw, CredentialsConfig credentials, List<String> warns) {
+  if (raw == null) return null;
+  const path = 'harness.acp.agents';
+  final name = raw.trim();
+  if (name.isEmpty) {
+    warns.add('Invalid $path.$agentId.credential: must name a credentials entry — presenting no credential');
+    return null;
+  }
+  final entry = credentials[name];
+  final problem = switch (entry) {
+    null => 'is not a configured credentials entry',
+    CredentialEntry(isApiKeyCredential: false) => 'is not an api_key credential',
+    CredentialEntry(isPresent: false) => 'resolves to an empty value',
+    CredentialEntry(envVars: final envVars) when envVars.isEmpty =>
+      'is a literal value with no environment variable name to present it under',
+    _ => null,
+  };
+  if (problem == null) return name;
+  warns.add('$path.$agentId.credential "$name" $problem — presenting no credential');
+  return null;
 }
 
 AcpAgentTopology _parseAcpTopology(String agentId, String? raw, List<String> warns) {

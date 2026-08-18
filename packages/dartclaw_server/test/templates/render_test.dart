@@ -716,6 +716,29 @@ void main() {
       ]);
     });
 
+    test('a provider card whose credential-health values are all null renders no empty rows', () async {
+      // The default context omits `providers` entirely, so the card subtree is
+      // removed before any per-card condition evaluates. Supplying one card is
+      // what makes this a real null-safety gate for that markup.
+      final html = await engine.renderFileFragment(
+        'settings',
+        fragment: 'settings',
+        context: _settingsContext({
+          'hasProviders': true,
+          'providers': [
+            {'id': 'claude', 'statusBadgeHtml': '', 'credentialStatusLabel': 'Missing'},
+          ],
+        }),
+      );
+
+      final cardStart = html.indexOf('data-provider-id="claude"');
+      expect(cardStart, greaterThan(-1));
+      final card = html.substring(cardStart, html.indexOf('</article>', cardStart));
+
+      expect(card, contains('Missing'));
+      _expectNone(card, ['Renewal', 'Subscription', 'API key', 'Checked ', 'Fix:', 'DartClaw-managed auth:', '<code>']);
+    });
+
     test('shows WhatsApp configure link when enabled', () async {
       final html = await engine.renderFileFragment(
         'settings',

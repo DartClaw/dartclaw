@@ -13,7 +13,13 @@ typedef SkillProbeRunner = Future<ProcessResult> Function(
   Map<String, String>? environment,
 });
 
-typedef SkillProbeEnvironmentBuilder = Map<String, String> Function(String provider);
+/// Builds the probe's spawn environment for a provider.
+///
+/// Asynchronous because presenting a subscription credential can require
+/// preparing a dedicated provider home before the probe runs; a builder that
+/// cannot present the selected credential throws rather than answering an
+/// environment the probe would spawn uncredentialed on.
+typedef SkillProbeEnvironmentBuilder = Future<Map<String, String>> Function(String provider);
 
 /// CLI-backed [SkillIntrospector] with per-provider/executable in-flight caching.
 final class CliSkillIntrospector implements SkillIntrospector {
@@ -100,7 +106,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
       ],
       _ => throw StateError('No skill introspection command is configured for provider "$provider".'),
     };
-    final environment = _environmentForProvider?.call(providerId) ?? _environment;
+    final environment = await _environmentForProvider?.call(providerId) ?? _environment;
     final result = await _runner(executable, args, environment: environment.isEmpty ? null : environment);
     if (result.exitCode != 0) {
       // The real failure (e.g. an auth error) is reported on stdout; stderr

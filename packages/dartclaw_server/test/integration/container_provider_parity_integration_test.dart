@@ -7,12 +7,12 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         CodexEnvironment,
+        SubscriptionCredentialStore,
         containerClaudeExecutable,
         containerCodexExecutable,
         containerExecutableRuns,
         containerGeneratedStatePath;
-import 'package:dartclaw_models/dartclaw_models.dart' show ContainerConfig;
-import 'package:dartclaw_server/src/container/container_manager.dart';
+import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -48,17 +48,19 @@ void main() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
-  Future<ContainerManager> startContainer({String profile = 'workspace', bool hasMcpBridge = false}) async {
-    final name = 'dartclaw-parity-${DateTime.now().microsecondsSinceEpoch}';
+  /// Builds an unstarted manager, so a test can observe what starting it — or
+  /// being refused before it starts — leaves behind.
+  ContainerManager buildContainer({String profile = 'workspace', bool hasMcpBridge = false, String? name}) {
+    final containerName = name ?? 'dartclaw-parity-${DateTime.now().microsecondsSinceEpoch}';
     // The workspace profile mounts a project; the restricted one deliberately
     // mounts nothing and works out of the container's own tmpfs.
-    final workspace = Directory(p.join(dataDir.path, 'workspaces', name))..createSync(recursive: true);
+    final workspace = Directory(p.join(dataDir.path, 'workspaces', containerName))..createSync(recursive: true);
     final manager = ContainerManager(
       config: const ContainerConfig(enabled: true, image: agentProbeImage),
-      containerName: name,
+      containerName: containerName,
       profileId: profile,
       workspaceMounts: profile == 'restricted' ? const [] : ['${workspace.path}:/project:rw'],
-      generatedStateDir: p.join(dataDir.path, 'containers', name),
+      generatedStateDir: p.join(dataDir.path, 'containers', containerName),
       hasMcpBridge: hasMcpBridge,
       buildContextDir: checkoutRoot,
       workingDir: profile == 'restricted' ? '/tmp' : '/project',
@@ -68,6 +70,11 @@ void main() {
         await manager.stop();
       } catch (_) {} // Teardown is best-effort; the assertions already ran.
     });
+    return manager;
+  }
+
+  Future<ContainerManager> startContainer({String profile = 'workspace', bool hasMcpBridge = false}) async {
+    final manager = buildContainer(profile: profile, hasMcpBridge: hasMcpBridge);
     await manager.start();
     return manager;
   }
@@ -202,15 +209,49 @@ void main() {
   });
 
   test('no host credential is readable from inside the container', () async {
+    // The dedicated stores are written under this run's data dir — the same
+    // parent that holds the workspace and generated-state directories the
+    // container *does* get. Absence of the variable names alone would pass
+    // against a container that never had a credential to lose; planting the
+    // real values here is what makes the sweep able to fail, and what turns
+    // "no host provider home is mounted" into an observed fact.
+    final store = openSentinelCredentialStore(dataDir);
+    writeSentinelClaudeCredential(store);
+    writeSentinelCodexCredential(store);
+    expect(
+      File(store.codexAuthPath).readAsStringSync(),
+      allOf(contains(sentinelCodexAccessToken), contains(sentinelCodexRefreshToken)),
+      reason: 'the fixture planted nothing, so the sweep below would prove nothing',
+    );
+
     final manager = await startContainer();
 
-    final environment = await execOutput(manager, ['env']);
-    final processEnviron = await execOutput(manager, ['sh', '-c', 'tr "\\0" "\\n" < /proc/1/environ']);
+    final environment = await _readContainer(manager, ['env'], 'the container environment');
+    final processEnviron = await _readContainer(manager, [
+      'sh',
+      '-c',
+      'tr "\\0" "\\n" < /proc/1/environ',
+    ], 'PID 1 environ');
+    // `grep -r`, never `-l`: the list form prints only file *paths*, so a
+    // sentinel-absence assertion over it could never fail.
+    final readable = <String, String>{};
+    for (final sentinel in subscriptionSentinels) {
+      readable['container filesystem ($sentinel)'] = await _readContainer(manager, [
+        'sh',
+        '-c',
+        'grep -r "$sentinel" /tmp /home/dartclaw /project 2>/dev/null || true',
+      ], 'the container filesystem');
+    }
 
-    // Secret-absence is proved with planted sentinels in the harness unit
-    // suites, which control the host environment. What only a real container
-    // can show is that `docker exec` grants no inherited host environment at
-    // all, so no credential variable exists here to leak in the first place.
+    expectSentinelsAbsent({
+      'container env': environment,
+      '/proc/1/environ': processEnviron,
+      'docker inspect': await _inspect(manager.containerName, '{{json .}}'),
+      ...readable,
+    }, subscriptionSentinels);
+
+    // `docker exec` grants no inherited host environment at all, so the
+    // credential variables have no value to carry in the first place.
     for (final surface in [environment, processEnviron]) {
       expect(surface, isNot(contains('OPENAI_API_KEY')));
       expect(surface, isNot(contains('CLAUDE_CODE_OAUTH_TOKEN')));
@@ -218,6 +259,96 @@ void main() {
     // The one provider-facing variable is the loopback bridge, not a credential.
     expect(environment, contains('ANTHROPIC_BASE_URL=http://127.0.0.1:8080'));
   });
+
+  group('fail-closed admission', () {
+    /// Registers [manager]'s principal the way production does — registration
+    /// first, container second — so a refusal is observably artifact-free.
+    Future<void> registerThenStart(HostGateway gateway, ContainerManager manager) async {
+      gateway.register(
+        principal: GatewayPrincipal(
+          sessionId: 'admission-${manager.containerName}',
+          providerId: 'codex',
+          policy: const ExecutionPolicy.container('workspace'),
+        ),
+      );
+      await manager.start();
+    }
+
+    test('a refused registration leaves no container, no generated state, and no authority', () async {
+      final store = openSentinelCredentialStore(dataDir);
+      // `providers.codex.auth: subscription` with nothing stored: the forced
+      // selection cannot be satisfied, so the host has no credential to mediate
+      // with and must refuse before anything is created.
+      final gateway = _codexGateway(store);
+      final manager = buildContainer(name: 'dartclaw-refused-${DateTime.now().microsecondsSinceEpoch}');
+
+      // The reason is pinned, not just the type: `register` throws `StateError`
+      // for a disposed gateway and a missing adapter too, and `start()` throws
+      // its own — any of which would leave the absence assertions below green
+      // while proving nothing about the credential gate.
+      await expectLater(
+        registerThenStart(gateway, manager),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('no host-held credential'), contains('codex login'), contains('auth: subscription')),
+          ),
+        ),
+      );
+
+      expect(await containerExists(manager.containerName), isFalse, reason: 'a refused execution created a container');
+      expect(
+        Directory(manager.generatedStateDir).existsSync(),
+        isFalse,
+        reason: 'a refused execution created its generated-state directory',
+      );
+      expect(gateway.liveAuthorityCount, 0);
+    });
+
+    test('the same fixture with a stored credential is admitted and does create both', () async {
+      // The discriminating half: without it, the absence assertions above would
+      // hold for a fixture too broken to create anything either way.
+      final store = openSentinelCredentialStore(dataDir);
+      writeSentinelCodexCredential(store);
+      final gateway = _codexGateway(store);
+      final manager = buildContainer(name: 'dartclaw-admitted-${DateTime.now().microsecondsSinceEpoch}');
+
+      await registerThenStart(gateway, manager);
+
+      expect(await containerExists(manager.containerName), isTrue);
+      expect(Directory(manager.generatedStateDir).existsSync(), isTrue);
+      expect(gateway.liveAuthorityCount, 1);
+    });
+  });
+}
+
+/// A gateway whose Codex adapter resolves through [store] under a forced
+/// `providers.codex.auth: subscription`, exactly as the deployment wires it.
+HostGateway _codexGateway(SubscriptionCredentialStore store) {
+  final registry = CredentialRegistry(
+    credentials: const CredentialsConfig(),
+    env: const {},
+    providers: const ProvidersConfig(
+      entries: {'codex': ProviderEntry(executable: 'codex', auth: ProviderAuth.subscription)},
+    ),
+    subscriptions: store.readAll(),
+  );
+  return HostGateway(
+    providerAdapters: {
+      'codex': OpenAiResponsesAdapter(credential: ProviderCredentialSource(() => registry.resolve('codex'))),
+    },
+  );
+}
+
+/// Reads a container surface, failing loudly when it cannot be read at all.
+///
+/// A dead container returns empty stdout, which would otherwise satisfy every
+/// absence assertion built on it.
+Future<String> _readContainer(ContainerManager manager, List<String> command, String label) async {
+  final result = await Process.run('docker', ['exec', manager.containerName, ...command]);
+  expect(result.exitCode, 0, reason: 'could not read $label: ${result.stderr}');
+  return result.stdout as String;
 }
 
 /// The exact Codex release `docker/Dockerfile` pins.

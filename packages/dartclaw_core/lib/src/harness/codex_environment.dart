@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../container/container_executor.dart' show containerImageUidGid;
+import '../storage/atomic_write.dart';
 import 'codex_config_generator.dart';
 
 final _log = Logger('CodexEnvironment');
@@ -13,7 +14,7 @@ const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartC
 
 /// Manages a Codex worker home directory and its config files.
 ///
-/// Three distinct lifecycles, and they must stay distinct:
+/// Four distinct lifecycles, and they must stay distinct:
 ///
 /// - **System home** ([useSystemCodexHome] = `true`, the default): the worker
 ///   subprocess inherits the user's standard `~/.codex/` – no temp dir, no
@@ -26,6 +27,10 @@ const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartC
 ///   directory that is *never* seeded and holds only generated client
 ///   configuration. Seeding it would hand the container a reusable login, which
 ///   is exactly the boundary container mode exists to keep.
+/// - **Dedicated store home** ([CodexEnvironment.dedicated]): the DartClaw-owned
+///   `CODEX_HOME` the operator logged the vendor CLI into. It is persistent and
+///   holds the subscription credential the vendor refreshes in place, so it is
+///   never seeded and never deleted — only generated configuration is written.
 class CodexEnvironment {
   final String developerInstructions;
   final String? mcpServerUrl;
@@ -53,6 +58,9 @@ class CodexEnvironment {
   /// Whether Codex keeps its provider-side web search in container mode.
   final bool _nativeWebSearch;
 
+  /// Path of the DartClaw-owned dedicated store home, or `null` otherwise.
+  final String? _dedicatedHome;
+
   Directory? _tempDirectory;
   Directory? _containerDirectory;
 
@@ -67,6 +75,27 @@ class CodexEnvironment {
        _containerHostHome = null,
        _containerHomePath = null,
        _gatewayBaseUrl = null,
+       _dedicatedHome = null,
+       _nativeWebSearch = true;
+
+  /// The DartClaw-dedicated `CODEX_HOME` at [homePath], DartClaw-owned but not
+  /// DartClaw-written: the vendor CLI logs in and refreshes there, so this
+  /// lifecycle has no seeding step, no recreate and no cleanup. Seeding would
+  /// both read the operator's own login and overwrite a rotated token with a
+  /// stale copy.
+  new dedicated({
+    required this.developerInstructions,
+    required String homePath,
+    this.mcpServerUrl,
+    this.mcpGatewayToken,
+    this.agentsMdContent,
+    PlatformCapabilities? platformCapabilities,
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       useSystemCodexHome = false,
+       _containerHostHome = null,
+       _containerHomePath = null,
+       _gatewayBaseUrl = null,
+       _dedicatedHome = homePath,
        _nativeWebSearch = true;
 
   /// A never-seeded home for one containerized execution.
@@ -90,11 +119,16 @@ class CodexEnvironment {
        _containerHostHome = hostHomePath,
        _containerHomePath = containerHomePath,
        _gatewayBaseUrl = gatewayBaseUrl,
+       _dedicatedHome = null,
        _nativeWebSearch = nativeWebSearch;
 
   bool get isContainerAuthClean => _containerHostHome != null;
 
-  bool get isSetup => isContainerAuthClean ? _containerDirectory != null : useSystemCodexHome || _tempDirectory != null;
+  /// Whether this home is the DartClaw-owned dedicated subscription store.
+  bool get isDedicated => _dedicatedHome != null;
+
+  bool get isSetup =>
+      isContainerAuthClean ? _containerDirectory != null : isDedicated || useSystemCodexHome || _tempDirectory != null;
 
   /// Prepares the Codex worker home for the configured lifecycle.
   ///
@@ -104,6 +138,7 @@ class CodexEnvironment {
     if (isContainerAuthClean) {
       return _setupContainerHome();
     }
+    if (isDedicated) return _setupDedicatedHome();
     if (useSystemCodexHome) {
       final home = platformCapabilities.homeDirectory;
       if (home == null) {
@@ -134,21 +169,9 @@ class CodexEnvironment {
 
       await _seedAuthentication(tempDirectory.path);
 
-      final configFile = File(p.join(tempDirectory.path, 'config.toml'));
-      final generatedConfig = CodexConfigGenerator.generate(
-        developerInstructions: developerInstructions,
-        mcpServerUrl: mcpServerUrl,
-        mcpBearerTokenEnvVar: mcpGatewayToken?.trim().isNotEmpty ?? false
-            ? CodexConfigGenerator.defaultMcpBearerTokenEnvVar
-            : null,
-      );
-      await configFile.writeAsString(generatedConfig, flush: true);
+      await File(p.join(tempDirectory.path, 'config.toml')).writeAsString(_generateHostConfig(), flush: true);
 
-      final agentsContent = agentsMdContent;
-      if (agentsContent != null) {
-        final agentsFile = File(p.join(tempDirectory.path, 'AGENTS.md'));
-        await agentsFile.writeAsString(agentsContent, flush: true);
-      }
+      await _writeAgentsMd(tempDirectory.path);
 
       _tempDirectory = tempDirectory;
       return tempDirectory.path;
@@ -161,6 +184,38 @@ class CodexEnvironment {
       } catch (_) {} // Best-effort cleanup on setup failure; original error is reraised below.
       rethrow;
     }
+  }
+
+  /// Writes generated configuration into the dedicated store, leaving whatever
+  /// the vendor CLI persisted there — above all `auth.json` — untouched.
+  Future<String> _setupDedicatedHome() async {
+    final home = _dedicatedHome!;
+    final directory = Directory(home);
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+      await _chmod700(home);
+    }
+    // The dedicated store is shared by every host worker, so a plain write
+    // would let one Codex process read a half-written config; temp+rename makes
+    // each write whole. Content is still last-writer-wins.
+    secureWriteFileSync(File(p.join(home, 'config.toml')), _generateHostConfig());
+    final agentsContent = agentsMdContent;
+    if (agentsContent != null) secureWriteFileSync(File(p.join(home, 'AGENTS.md')), agentsContent);
+    return home;
+  }
+
+  String _generateHostConfig() => CodexConfigGenerator.generate(
+    developerInstructions: developerInstructions,
+    mcpServerUrl: mcpServerUrl,
+    mcpBearerTokenEnvVar: mcpGatewayToken?.trim().isNotEmpty ?? false
+        ? CodexConfigGenerator.defaultMcpBearerTokenEnvVar
+        : null,
+  );
+
+  Future<void> _writeAgentsMd(String directory) async {
+    final agentsContent = agentsMdContent;
+    if (agentsContent == null) return;
+    await File(p.join(directory, 'AGENTS.md')).writeAsString(agentsContent, flush: true);
   }
 
   /// Creates the auth-clean container home and writes only generated config.
@@ -189,10 +244,7 @@ class CodexEnvironment {
         ),
         flush: true,
       );
-      final agentsContent = agentsMdContent;
-      if (agentsContent != null) {
-        await File(p.join(directory.path, 'AGENTS.md')).writeAsString(agentsContent, flush: true);
-      }
+      await _writeAgentsMd(directory.path);
       // The home is chmod 700 and written by the host service uid, so on native
       // Linux the container's uid-1000 user cannot read it (bind-mount ownership
       // is verbatim; no Docker Desktop uid remapping). Chown the home and its
@@ -235,6 +287,8 @@ class CodexEnvironment {
         ? <String, String>{CodexConfigGenerator.defaultMcpBearerTokenEnvVar: mcpGatewayToken!}
         : const <String, String>{};
 
+    if (isDedicated) return {'CODEX_HOME': _dedicatedHome!, ...mcpBearerEntry};
+
     if (useSystemCodexHome) {
       return mcpBearerEntry;
     }
@@ -248,7 +302,10 @@ class CodexEnvironment {
   }
 
   /// Deletes the generated home. Safe to call repeatedly.
-  /// No-op when [useSystemCodexHome] is `true`.
+  ///
+  /// No-op for the system home and for the dedicated store: neither was created
+  /// here, and deleting the dedicated store would destroy the credential the
+  /// operator logged the vendor CLI in with.
   Future<void> cleanup() async {
     final directories = [_tempDirectory, _containerDirectory].nonNulls.toList(growable: false);
     _tempDirectory = null;

@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SubscriptionCredentialStore;
+import 'package:dartclaw_server/dartclaw_server.dart' show CodexRefreshAuthority, refreshCodexAuth;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         CliSkillIntrospector,
@@ -121,21 +122,42 @@ class WorkflowValidateCommand extends Command<void> {
     }
   }
 
+  /// Opens the dedicated store once per command rather than per provider:
+  /// opening it creates and chmods directories and runs the login-collision
+  /// guard, none of which belongs in a per-provider closure. The refresh
+  /// authority is built beside it — this is its own process and its own store,
+  /// and single-flight is a property of the instance.
+  CliSkillIntrospector _buildIntrospector(DartclawConfig config) {
+    final store = SubscriptionCredentialStore.open(credentialsDir: config.credentialsDir);
+    final registry = CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+      providers: config.providers,
+      subscriptions: store.readAll(),
+    );
+    final codexRefresh = CodexRefreshAuthority(
+      store: store,
+      vendorRefresh: (codexHome) =>
+          refreshCodexAuth(codexHome, executable: resolveWorkflowProviderExecutable(config, ProviderIdentity.codex)),
+    );
+    return CliSkillIntrospector(
+      environmentForProvider: (providerId) => buildWorkflowProbeEnvironment(
+        providerId: providerId,
+        providerFamily: ProviderIdentity.resolveFamily(
+          providerId,
+          options: workflowProviderOptions(config, providerId),
+          executable: resolveWorkflowProviderExecutable(config, providerId),
+        ),
+        registry: registry,
+        baseEnvironment: Platform.environment,
+        codexRefresh: codexRefresh,
+        credentialsDir: config.credentialsDir,
+      ),
+    );
+  }
+
   Future<WorkflowSkillCheckResult> _checkSkills(DartclawConfig config, WorkflowDefinition definition) {
-    final introspector =
-        _introspector ??
-        CliSkillIntrospector(
-          environmentForProvider: (providerId) => buildWorkflowProviderEnvironment(
-            providerId: providerId,
-            providerFamily: ProviderIdentity.resolveFamily(
-              providerId,
-              options: workflowProviderOptions(config, providerId),
-              executable: resolveWorkflowProviderExecutable(config, providerId),
-            ),
-            registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
-            baseEnvironment: Platform.environment,
-          ),
-        );
+    final introspector = _introspector ?? _buildIntrospector(config);
     return checkWorkflowSkillRefs(
       definition: definition,
       introspector: introspector,

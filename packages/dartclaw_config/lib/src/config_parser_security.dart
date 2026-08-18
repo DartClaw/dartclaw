@@ -18,6 +18,7 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
   var contentGuardClassifier = defaults.contentGuardClassifier;
   var contentGuardModel = defaults.contentGuardModel;
   var contentGuardMaxBytes = defaults.contentGuardMaxBytes;
+  var contentGuardFailOpen = defaults.contentGuardFailOpen;
   final contentMap = guardsMap != null ? readMap('content', guardsMap, warns) : null;
   if (contentMap != null) {
     contentGuardEnabled =
@@ -35,6 +36,8 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
     contentGuardMaxBytes =
         readInt('max_bytes', contentMap, warns, defaultValue: defaults.contentGuardMaxBytes) ??
         defaults.contentGuardMaxBytes;
+    contentGuardFailOpen =
+        readBool('fail_open', contentMap, warns, defaultValue: contentGuardFailOpen) ?? contentGuardFailOpen;
   }
 
   var inputSanitizerEnabled = defaults.inputSanitizerEnabled;
@@ -95,6 +98,7 @@ SecurityConfig _parseSecurity(Map<String, dynamic> yaml, SecurityConfig defaults
       extraStripPatterns: bashStepExtraStripPatterns,
     ),
     contentGuardEnabled: contentGuardEnabled,
+    contentGuardFailOpen: contentGuardFailOpen,
     contentGuardClassifier: contentGuardClassifier,
     contentGuardModel: contentGuardModel,
     contentGuardMaxBytes: contentGuardMaxBytes,

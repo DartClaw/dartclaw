@@ -19,10 +19,16 @@ void main() {
       );
     });
 
-    test('rejects containerized Claude at admission when the host holds no API key', () {
-      // OAuth/setup-token: the host CLI is logged in, but no key exists for the
-      // adapter to mediate with. Nothing may be admitted on that promise.
-      final gateway = HostGateway(providerAdapters: {'claude': AnthropicMessagesAdapter(apiKey: () => null)});
+    test('rejects containerized Claude at admission when the host holds no credential', () {
+      // The host CLI may well be logged in interactively, but nothing the
+      // adapter can mediate with exists. Nothing may be admitted on that
+      // promise, and the refusal must name both ways to fix it.
+      final refusals = <({String providerId, String detail, String? remediation})>[];
+      final gateway = HostGateway(
+        providerAdapters: {'claude': AnthropicMessagesAdapter(credential: ProviderCredentialSource.apiKey(() => null))},
+        onCredentialRefused: (providerId, detail, {remediation}) =>
+            refusals.add((providerId: providerId, detail: detail, remediation: remediation)),
+      );
 
       expect(
         () => gateway.register(principal: principal(providerId: 'claude')),
@@ -32,18 +38,72 @@ void main() {
             'message',
             allOf(
               contains('no host-held credential'),
+              contains('claude setup-token'),
               contains('ANTHROPIC_API_KEY'),
               contains('execution: host'),
-              contains('OAuth'),
             ),
           ),
         ),
       );
+      // Refused before any authority exists, and announced once, with the fix.
       expect(gateway.liveAuthorityCount, 0);
+      expect(refusals.single.providerId, 'claude');
+      expect(refusals.single.remediation, contains('claude setup-token'));
+      expect(refusals.single.detail, isNot(contains('sk-ant')));
+    });
+
+    test('refuses a forced selection by naming the setting, not the other credential', () {
+      final gateway = HostGateway(
+        providerAdapters: {
+          'claude': AnthropicMessagesAdapter(
+            credential: ProviderCredentialSource(
+              () => const CredentialResolution.unavailable(CredentialUnavailableReason.subscriptionAbsent),
+            ),
+          ),
+        },
+      );
+
+      expect(
+        () => gateway.register(principal: principal(providerId: 'claude')),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('auth: subscription'),
+              isNot(contains('ANTHROPIC_API_KEY')),
+              // Host mode refuses a forced selection just the same, so naming it
+              // here would send the operator to a documented dead end.
+              isNot(contains('execution: host')),
+            ),
+          ),
+        ),
+      );
     });
 
     test('admits containerized Claude once a host API key exists', () {
-      final gateway = HostGateway(providerAdapters: {'claude': AnthropicMessagesAdapter(apiKey: () => 'sk-ant-host')});
+      final gateway = HostGateway(
+        providerAdapters: {
+          'claude': AnthropicMessagesAdapter(credential: ProviderCredentialSource.apiKey(() => 'sk-ant-host')),
+        },
+      );
+
+      expect(gateway.register(principal: principal(providerId: 'claude')).isRevoked, isFalse);
+    });
+
+    test('admits containerized Claude on a stored subscription credential alone', () {
+      // The 0.24 rule was API-key-only; a subscription-mediated deployment must
+      // now be admitted without one, or the secure boundary stays the
+      // expensive one.
+      final gateway = HostGateway(
+        providerAdapters: {
+          'claude': AnthropicMessagesAdapter(
+            credential: ProviderCredentialSource(
+              () => CredentialResolution.subscription(CredentialEntry.subscription(token: 'sk-ant-oat01-stored')),
+            ),
+          ),
+        },
+      );
 
       expect(gateway.register(principal: principal(providerId: 'claude')).isRevoked, isFalse);
     });
@@ -308,7 +368,10 @@ void main() {
       final upstream = await _ForbiddenUpstream.start();
       addTearDown(upstream.close);
       final harness = await _GatewayHarness.start(
-        adapter: AnthropicMessagesAdapter(apiKey: () => 'sk-ant-host', upstream: upstream.uri),
+        adapter: AnthropicMessagesAdapter(
+          credential: ProviderCredentialSource.apiKey(() => 'sk-ant-host'),
+          upstream: upstream.uri,
+        ),
       );
       addTearDown(harness.dispose);
 
@@ -330,6 +393,153 @@ void main() {
       expect(upstream.requestCount, 0);
     });
   });
+
+  group('HostGateway terminal credential failure', () {
+    const remediation = 'Provider "claude" has no credential configured – run `claude setup-token`.';
+
+    test('ends the turn with the remediation and never passes the upstream answer through', () async {
+      final adapter = _CredentialFailureAdapter(remediation);
+      final harness = await _GatewayHarness.start(adapter: adapter);
+      addTearDown(harness.dispose);
+
+      final exchange = await harness.provider.request(1, path: '/v1/messages', body: '{}');
+
+      expect(exchange.isDenied, isTrue);
+      // The container is answered by the host, in the host's words: the whole
+      // exchange is a `failure` frame carrying the remediation, so no upstream
+      // status line or body reaches it.
+      expect(exchange.failure, remediation);
+      expect(exchange.status, 502);
+      expect(harness.refusals.single.remediation, remediation);
+    });
+
+    test('tears the authority down through the release path so nothing more is mediated on it', () async {
+      final released = <String>[];
+      final adapter = _CredentialFailureAdapter(remediation);
+      final harness = await _GatewayHarness.start(adapter: adapter, onCredentialUnusable: released.add);
+      addTearDown(harness.dispose);
+
+      await harness.provider.request(1, path: '/v1/messages', body: '{}');
+
+      // The release path owns revocation, so the gateway must hand the authority
+      // over rather than revoking it itself — a gateway-side revoke here would
+      // leave the container running with nothing left to stop it.
+      expect(released, [harness.authority.id]);
+      expect(harness.authority.isRevoked, isFalse);
+    });
+
+    test('revokes the authority itself when no release path is wired', () async {
+      final harness = await _GatewayHarness.start(adapter: _CredentialFailureAdapter(remediation));
+      addTearDown(harness.dispose);
+
+      await harness.provider.request(1, path: '/v1/messages', body: '{}');
+      await pumpEventQueue();
+
+      expect(harness.authority.isRevoked, isTrue);
+      expect(harness.gateway.liveAuthorityCount, 0);
+    });
+
+    test('announces one authority once, however many requests hit the dead credential', () async {
+      // Teardown is async, so without a latch each concurrent request would
+      // announce the same dead credential again. Wiring a release that does not
+      // revoke keeps both requests eligible, so only the latch can dedup them.
+      final released = <String>[];
+      final harness = await _GatewayHarness.start(
+        adapter: _CredentialFailureAdapter(remediation),
+        onCredentialUnusable: released.add,
+      );
+      addTearDown(harness.dispose);
+
+      await Future.wait([
+        harness.provider.request(1, path: '/v1/messages', body: '{}'),
+        harness.provider.request(2, path: '/v1/messages', body: '{}'),
+      ]);
+      await pumpEventQueue();
+
+      expect(harness.refusals, hasLength(1));
+      expect(released, hasLength(1));
+    });
+
+    test('leaves the authority live for a refusal that is not a credential fault', () async {
+      final harness = await _GatewayHarness.start(adapter: _RateLimitedAdapter());
+      addTearDown(harness.dispose);
+
+      final exchange = await harness.provider.request(1, path: '/v1/messages', body: '{}');
+
+      expect(exchange.status, 429);
+      expect(harness.authority.isRevoked, isFalse);
+      expect(harness.refusals, isEmpty);
+    });
+
+    test('a plan restriction on a live subscription neither ends the authority nor pages the operator', () async {
+      // 403 `permission_error` means authenticated but not permitted: the token
+      // is fine and re-authenticating fixes nothing, so the container gets the
+      // backend's own answer and the authority keeps mediating.
+      final upstream = await _RefusingUpstream.start(
+        status: 403,
+        body: '{"type":"error","error":{"type":"permission_error"}}',
+      );
+      addTearDown(upstream.close);
+      final harness = await _GatewayHarness.start(adapter: _subscriptionAdapter(upstream));
+      addTearDown(harness.dispose);
+
+      final exchange = await harness.provider.request(1, path: '/v1/messages', body: '{}');
+      await pumpEventQueue();
+
+      expect(exchange.status, 403);
+      expect(exchange.isDenied, isFalse);
+      expect(harness.refusals, isEmpty);
+      expect(harness.authority.isRevoked, isFalse);
+    });
+
+    test('a 401 on the same subscription still ends the authority and reports the refusal', () async {
+      final upstream = await _RefusingUpstream.start(
+        status: 401,
+        body: '{"type":"error","error":{"type":"authentication_error"}}',
+      );
+      addTearDown(upstream.close);
+      final harness = await _GatewayHarness.start(adapter: _subscriptionAdapter(upstream));
+      addTearDown(harness.dispose);
+
+      final exchange = await harness.provider.request(1, path: '/v1/messages', body: '{}');
+      await pumpEventQueue();
+
+      expect(exchange.isDenied, isTrue);
+      expect(harness.refusals.single.providerId, 'claude');
+      expect(harness.authority.isRevoked, isTrue);
+    });
+  });
+}
+
+/// A real Claude adapter on a stored `setup-token`, so the classification under
+/// test is the shipped one rather than a stand-in.
+AnthropicMessagesAdapter _subscriptionAdapter(_RefusingUpstream upstream) => AnthropicMessagesAdapter(
+  credential: ProviderCredentialSource(
+    () => CredentialResolution.subscription(CredentialEntry.subscription(token: 'sk-ant-oat01-LIVE-SENTINEL')),
+  ),
+  upstream: upstream.uri,
+);
+
+/// An upstream that answers every request with one configured refusal.
+final class _RefusingUpstream {
+  new _(this._server);
+
+  final HttpServer _server;
+
+  Uri get uri => Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${_server.port}');
+
+  static Future<_RefusingUpstream> start({required int status, required String body}) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response.statusCode = status;
+      request.response.write(body);
+      await request.response.close();
+    });
+    return _RefusingUpstream._(server);
+  }
+
+  Future<void> close() => _server.close(force: true);
 }
 
 /// A provider upstream that must never be reached.
@@ -358,32 +568,90 @@ final class _ForbiddenUpstream {
 
 /// One registered authority with a live provider pipe, ready to serve.
 final class _GatewayHarness {
-  new _(this.gateway, this.authority, this.providerChannel, this.providerPipe, this.denials);
+  new _(this.gateway, this.authority, this.providerChannel, this.providerPipe, this.denials, this.refusals);
 
   final HostGateway gateway;
   final GatewayAuthority authority;
   final FakeBridgeChannel providerChannel;
   final GatewayPipe providerPipe;
   final List<String> denials;
+  final List<({String providerId, String detail, String? remediation})> refusals;
 
   FakeBridgeChannel get provider => providerChannel;
 
-  static Future<_GatewayHarness> start({ProviderMediator? adapter, BridgeLimits limits = BridgeLimits.defaults}) async {
+  static Future<_GatewayHarness> start({
+    ProviderMediator? adapter,
+    BridgeLimits limits = BridgeLimits.defaults,
+    void Function(String authorityId)? onCredentialUnusable,
+  }) async {
     final denials = <String>[];
+    final refusals = <({String providerId, String detail, String? remediation})>[];
     final gateway = HostGateway(
       providerAdapters: {'claude': adapter ?? _EchoAdapter()},
       limits: limits,
       onDenied: (_, reason) => denials.add(reason),
+      onCredentialRefused: (providerId, detail, {remediation}) =>
+          refusals.add((providerId: providerId, detail: detail, remediation: remediation)),
+      onCredentialUnusable: onCredentialUnusable == null
+          ? null
+          : (authority) async => onCredentialUnusable(authority.id),
     );
     final authority = gateway.register(principal: principal());
     final channel = FakeBridgeChannel(limits: limits);
     final pipe = gateway.attach(authority, BridgeSurface.provider, channel);
     await channel.handshake(BridgeSurface.provider);
     await authority.ready;
-    return _GatewayHarness._(gateway, authority, channel, pipe, denials);
+    return _GatewayHarness._(gateway, authority, channel, pipe, denials, refusals);
   }
 
   Future<void> dispose() => gateway.dispose();
+}
+
+/// Stands in for the adapter's upstream classification: the host-held
+/// credential is gone and no retry repairs it.
+final class _CredentialFailureAdapter implements ProviderMediator {
+  new(this.remediation);
+
+  final String remediation;
+
+  @override
+  BridgeSurface get surface => BridgeSurface.provider;
+
+  @override
+  Future<GatewayResponse> handle(GatewayRequest request) async {
+    await request.readBody(maxBytes: 4096);
+    throw GatewayCredentialUnusable(providerId: 'claude', remediation: remediation);
+  }
+
+  @override
+  String? get unavailableReason => null;
+
+  @override
+  String? get credentialRemediation => null;
+
+  @override
+  Future<void> dispose() async {}
+}
+
+/// A usage limit: transient, not a credential fault, so the authority lives on.
+final class _RateLimitedAdapter implements ProviderMediator {
+  @override
+  BridgeSurface get surface => BridgeSurface.provider;
+
+  @override
+  Future<GatewayResponse> handle(GatewayRequest request) async {
+    await request.readBody(maxBytes: 4096);
+    throw const GatewayDenied(status: 429, reason: 'provider usage limit reached');
+  }
+
+  @override
+  String? get unavailableReason => null;
+
+  @override
+  String? get credentialRemediation => null;
+
+  @override
+  Future<void> dispose() async {}
 }
 
 /// Echoes the request body, standing in for a provider upstream.
@@ -399,6 +667,9 @@ final class _EchoAdapter implements ProviderMediator {
 
   @override
   String? get unavailableReason => null;
+
+  @override
+  String? get credentialRemediation => null;
 
   @override
   Future<void> dispose() async {}
@@ -417,6 +688,9 @@ final class _PrincipalEchoAdapter implements ProviderMediator {
 
   @override
   String? get unavailableReason => null;
+
+  @override
+  String? get credentialRemediation => null;
 
   @override
   Future<void> dispose() async {}
@@ -440,6 +714,9 @@ final class _BlockingAdapter implements ProviderMediator {
 
   @override
   String? get unavailableReason => null;
+
+  @override
+  String? get credentialRemediation => null;
 
   @override
   Future<void> dispose() async {}

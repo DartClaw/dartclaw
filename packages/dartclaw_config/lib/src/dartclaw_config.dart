@@ -198,6 +198,9 @@ class DartclawConfig {
   /// projectsClonesDir.
   String get projectsClonesDir => p.join(server.dataDir, 'projects');
 
+  /// Directory holding DartClaw's dedicated provider credential stores.
+  String get credentialsDir => p.join(server.dataDir, 'credentials');
+
   /// Creates a [DartclawConfig] value.
   const new({
     this.server = const ServerConfig.defaults(),
@@ -405,12 +408,6 @@ class DartclawConfig {
     final advisor = _parseAdvisor(yaml, const AdvisorConfig.defaults(), warns);
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
-    final harness = _parseHarness(
-      yaml,
-      const HarnessConfig.defaults(),
-      warns,
-      workerTimeoutSeconds: server.workerTimeout,
-    );
     final sessions = _parseSessions(yaml, const SessionConfig.defaults(), warns);
     final context = _parseContext(yaml, const ContextConfig.defaults(), warns);
     final workspace = _parseWorkspace(yaml, const WorkspaceConfig.defaults(), warns);
@@ -419,6 +416,14 @@ class DartclawConfig {
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
     final credentials = _parseCredentials(yaml, environment, const CredentialsConfig.defaults(), warns);
+    // Both sections reference credentials by name, so they parse after it.
+    final harness = _parseHarness(
+      yaml,
+      credentials,
+      const HarnessConfig.defaults(),
+      warns,
+      workerTimeoutSeconds: server.workerTimeout,
+    );
     final mcpServers = _parseMcpServers(yaml, credentials, const McpServersConfig.defaults(), warns);
     final providers = _parseProviders(yaml, environment, const ProvidersConfig.defaults(), warns);
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);

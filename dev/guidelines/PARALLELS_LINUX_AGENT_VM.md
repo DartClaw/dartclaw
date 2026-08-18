@@ -779,6 +779,23 @@ curl -fsSL "$url" | tar -xz -C /tmp && sudo install -m 755 "/tmp/codex-${arch}" 
 Note: Docker Engine inside the Linux guest needs no nested virtualization — containers share the guest kernel. Only
 Docker Desktop (which boots its own VM) would; do not install it in the guest.
 
+Before the first bridge-using or sqlite-using run in a **fresh** checkout, materialize the Dart native assets once:
+
+```bash
+# The sqlite3 hook downloads/builds a precompiled library on first use. A bare
+# `dart test <one directory>` in a virgin checkout does not reliably produce it,
+# and every sqlite-touching test then dies on `Couldn't resolve native function
+# 'sqlite3_initialize' ... No available native assets`. One `dart run` of any
+# script that imports sqlite3 populates .dart_tool/native_assets.yaml for the
+# whole checkout; `bash dev/tools/test_workspace.sh` does it as a side effect.
+dart run packages/dartclaw_server/bin/<any script importing sqlite3>.dart   # or:
+bash dev/tools/test_workspace.sh
+ls .dart_tool/native_assets.yaml   # must exist before the integration run
+```
+
+This is a first-run ordering trap, not a toolchain fault: `gcc`/`make` and network egress to pub.dev are all that the
+hook needs, and it succeeds the moment it is invoked through `dart run`.
+
 After syncing a checkout onto the VM, open its permissions before running bridge-using suites: a `0700` checkout (the
 default for a home-dir rsync) blocks the container's uid-1000 user from traversing to the bind-mounted bridge binary,
 failing every gateway/mediated fixture with permission errors that look like bridge defects. On the checkout root run

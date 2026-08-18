@@ -60,6 +60,11 @@ void main() {
       ),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       gateway: const GatewayConfig(authMode: 'none'),
+      // No usable content classifier here (claudeExecutable is not claude), and
+      // the product default is now fail-closed. Keep these wiring tests on the
+      // old effective posture so a classifier error does not block every handoff;
+      // the content-guard test below copyWiths this and still blocks on a verdict.
+      security: const SecurityConfig(contentGuardFailOpen: true),
     );
 
     writeWorkspacePromptFiles(config.workspaceDir);
@@ -1034,56 +1039,6 @@ void main() {
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('operation probe evidence'))),
     );
     expect(factory.supports('goose'), isFalse);
-  });
-
-  test('ACP model_provider credentials are passed to the ACP process environment', () async {
-    final envFile = File(p.join(tempDir.path, 'acp-env.txt'));
-    final shimFile = File(p.join(tempDir.path, 'fake_acp.dart'));
-    shimFile.writeAsStringSync('''
-import 'dart:convert';
-import 'dart:io';
-
-void main(List<String> args) async {
-  File(args.single).writeAsStringSync(Platform.environment['ANTHROPIC_API_KEY'] ?? '');
-  await for (final line in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
-    final message = jsonDecode(line) as Map<String, dynamic>;
-    if (message['method'] == 'initialize') {
-      stdout.writeln(jsonEncode({
-        'jsonrpc': '2.0',
-        'id': message['id'],
-        'result': {
-          'protocolVersion': 1,
-          'auth': {'status': 'authenticated'},
-        },
-      }));
-    }
-  }
-}
-''');
-    config = config.copyWith(
-      agent: const AgentConfig(provider: 'goose'),
-      harness: HarnessConfig(
-        acp: AcpConfig(
-          agents: {
-            'goose': AcpAgentConfig(
-              binary: Platform.resolvedExecutable,
-              args: [shimFile.path, envFile.path],
-              topology: AcpAgentTopology.direct,
-              modelProvider: 'anthropic',
-              verification: 'a0_1_goose_direct',
-              requiresGuardMediation: false,
-              requiredBuiltins: const ['developer'],
-            ),
-          },
-        ),
-      ),
-      providers: const ProvidersConfig(),
-    );
-
-    await wireStorageAndSecurity();
-    await wireHarness(HarnessFactory());
-
-    expect(envFile.readAsStringSync(), 'anthropic-key');
   });
 
   test('ACP agents are included in task capacity when providers section is absent', () async {

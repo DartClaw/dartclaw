@@ -55,7 +55,10 @@ void main() {
     }
     final gateway = HostGateway(
       providerAdapters: {
-        'claude': AnthropicMessagesAdapter(apiKey: () => sentinelAnthropicCredential, upstream: upstream.uri),
+        'claude': AnthropicMessagesAdapter(
+          credential: ProviderCredentialSource.apiKey(() => sentinelAnthropicCredential),
+          upstream: upstream.uri,
+        ),
       },
       mcpHandler: () => registry,
       mcpToolCanonicals: () => const {'brave_search': CanonicalTool.webSearch, 'web_fetch': CanonicalTool.webFetch},
@@ -94,6 +97,36 @@ void main() {
       expect(probe.stdout.toString(), contains('"ok":true'));
       expect(upstream.requestCount, 1);
       expect(upstream.lastHeaders['x-api-key'], sentinelAnthropicCredential);
+    });
+
+    test('a credential reflected in an upstream response header never reaches the container', () async {
+      // Every other assertion in this gate covers what *leaves* the host. The
+      // pipe's return path is the only channel entering a `network:none`
+      // container, so an upstream, intermediary, WAF, or error page echoing the
+      // request `Authorization` back is the one way a host-held credential can
+      // be handed into the boundary — and it is read here from inside it.
+      upstream.responseHeaders = {
+        'authorization': 'Bearer $sentinelAnthropicCredential',
+        'x-api-key': sentinelAnthropicCredential,
+        'proxy-authenticate': 'Basic realm="$sentinelAnthropicCredential"',
+        'set-cookie': 'session=$sentinelAnthropicCredential',
+        'x-request-id': 'req-return-path-control',
+      };
+      final authority = await startAuthority();
+
+      final probe = await authority.curlResponseHeaders(
+        'http://127.0.0.1:$providerBridgePort/v1/messages',
+        body: '{"model":"x"}',
+      );
+
+      expect(probe.exitCode, 0, reason: probe.stderr.toString());
+      final received = probe.stdout.toString();
+      // Two positive controls: the container really read a header block off the
+      // pipe, and the host really presented the credential upstream — without
+      // both, the absence assertion below would pass on an empty exchange.
+      expect(received, contains('req-return-path-control'), reason: 'no response headers crossed, so this is vacuous');
+      expect(upstream.lastHeaders['x-api-key'], sentinelAnthropicCredential);
+      expectSentinelsAbsent({'gateway response headers': received}, const [sentinelAnthropicCredential]);
     });
 
     test('inspect shows network none and only the two sanctioned host mounts', () async {

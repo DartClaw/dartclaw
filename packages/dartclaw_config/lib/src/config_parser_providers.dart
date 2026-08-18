@@ -136,9 +136,21 @@ ProvidersConfig _parseProviders(
       poolSize = 0;
     }
 
+    // reason: dynamic key interpolation — per-provider auth can't use readX helpers
+    final authRaw = providerMap['auth'];
+    // Absent stays null so an alias can inherit its family's selection.
+    final auth = authRaw == null ? null : ProviderAuth.fromYaml(authRaw);
+    if (auth == ProviderAuth.unrecognized) {
+      warns.add(
+        'Invalid value for providers.$providerId.auth: "$authRaw" — presenting no credential '
+        '(accepted: ${ProviderAuth.acceptedValues.join(', ')})',
+      );
+    }
+
     final options = Map<String, dynamic>.from(providerMap)
       ..remove('executable')
-      ..remove('pool_size');
+      ..remove('pool_size')
+      ..remove('auth');
     if (ProviderIdentity.family(providerId) == ProviderIdentity.claude) {
       final inheritUserSettingsRaw = providerMap[ClaudeProviderOptions.inheritUserSettingsKey];
       if (inheritUserSettingsRaw != null && inheritUserSettingsRaw is! bool) {
@@ -157,6 +169,7 @@ ProvidersConfig _parseProviders(
     entries[providerId] = ProviderEntry(
       executable: expandHome(executableRaw.trim(), env: env),
       poolSize: poolSize,
+      auth: auth,
       options: options,
     );
   }
@@ -372,21 +385,9 @@ CredentialsConfig _parseCredentials(
     }
 
     final credentialMap = Map<String, dynamic>.from(value);
-    final credentialTypeRaw = credentialMap['type'];
-    final credentialType = switch (credentialTypeRaw) {
-      null => null,
-      'api-key' || 'apiKey' => CredentialType.apiKey,
-      'github-token' || 'githubToken' => CredentialType.githubToken,
-      _ => null,
-    };
-
-    if (credentialTypeRaw != null && credentialType == null) {
-      warns.add('credentials.$credentialName has unknown "type" "$credentialTypeRaw" — skipping');
-      continue;
-    }
-
-    switch (credentialType ?? CredentialType.apiKey) {
-      case CredentialType.apiKey:
+    // Subscription credentials live in DartClaw's dedicated stores, never in YAML.
+    switch (credentialMap['type']) {
+      case null || 'api-key' || 'apiKey':
         final apiKeyRaw = credentialMap['api_key'];
         if (apiKeyRaw is! String) {
           warns.add('credentials.$credentialName missing "api_key" — skipping');
@@ -397,7 +398,7 @@ CredentialsConfig _parseCredentials(
           envVars: envReferences(apiKeyRaw),
         );
 
-      case CredentialType.githubToken:
+      case 'github-token' || 'githubToken':
         final tokenRaw = credentialMap['token'];
         if (tokenRaw is! String) {
           warns.add('credentials.$credentialName missing "token" — skipping');
@@ -410,6 +411,10 @@ CredentialsConfig _parseCredentials(
           repository: repository == null || repository.isEmpty ? null : repository,
           envVars: envReferences(tokenRaw),
         );
+
+      case final unknownType:
+        warns.add('credentials.$credentialName has unknown "type" "$unknownType" — skipping');
+        continue;
     }
   }
 

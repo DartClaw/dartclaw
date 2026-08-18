@@ -90,6 +90,7 @@ void main() {
         (name: 'logsDir', actual: config.logsDir, expected: '/data/logs'),
         (name: 'projectsJsonPath', actual: config.projectsJsonPath, expected: '/data/projects.json'),
         (name: 'projectsClonesDir', actual: config.projectsClonesDir, expected: '/data/projects'),
+        (name: 'credentialsDir', actual: config.credentialsDir, expected: '/data/credentials'),
       ];
 
       for (final testCase in cases) {

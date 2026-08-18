@@ -49,7 +49,7 @@ dartclaw init --launch=service   # Set up and install + start the service
 
 `dartclaw init` completes with one of two states before any launch handoff:
 
-- `verified`: local checks passed and the selected provider already has usable credentials or CLI login.
+- `verified`: local checks passed and the selected provider already has a credential DartClaw can resolve – an API key, a subscription credential stored by `dartclaw auth claude` / `dartclaw auth codex`, or the provider CLI's own login. A forced `providers.<id>.auth` that cannot be satisfied is not rescued by the CLI login, exactly as at admission.
 - `configured but unverified`: local checks passed, but provider verification was skipped (`--skip-verify`) or still needs login/API-key setup.
 
 Launch handoff options are `--launch=foreground`, `--launch=background`, `--launch=service`, and `--launch=skip` (default).

@@ -18,6 +18,11 @@ void main() {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_session_restart_');
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
+      // No usable content classifier here (claudeExecutable is not claude), and
+      // the product default is now fail-closed. Keep these wiring tests on the
+      // old effective posture so a classifier error does not block every handoff;
+      // the content-guard test below copyWiths this and still blocks on a verdict.
+      security: const SecurityConfig(contentGuardFailOpen: true),
       agent: const AgentConfig(
         provider: 'claude',
         definitions: [

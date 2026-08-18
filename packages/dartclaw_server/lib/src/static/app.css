@@ -3223,6 +3223,14 @@ input.form-input--search::-webkit-search-cancel-button {
   font-family: var(--font-mono);
 }
 
+/* Canon's .value-absent loses to both rules above — .detail-value outranks it
+   and .credential-env ties while loading later — so an unknown value would read
+   as an ordinary one. */
+.provider-detail-item .detail-value.value-absent,
+.credential-env.value-absent {
+  color: var(--fg-sub0);
+}
+
 .credential-status {
   display: flex;
   align-items: center;

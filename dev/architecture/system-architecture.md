@@ -59,7 +59,7 @@ DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (ful
 | Security | Guard chain, container orchestration, host gateway mediation, audit | Tool execution inside the active provider boundary |
 | Networking | HTTP server, SSE streaming, channel webhooks, MCP endpoint | Constrained by the active boundary (Claude container or Codex sandbox/runtime) |
 | Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, logical-agent session admission | LLM reasoning, tool selection and execution inside the provider boundary |
-| Credentials | Owns all API keys; container executions reach their provider only through the host gateway, host executions receive their provider-scoped credential directly (ACP is host-only) | Provider binaries receive only the credentials required for their family |
+| Credentials | Owns all API keys; container executions reach their provider only through the host gateway, host executions receive their provider-scoped credential directly, and an ACP registration (host-only) receives nothing unless it names a `credential:` API key | Provider binaries receive only the credentials required for their family |
 
 Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
 
@@ -865,7 +865,7 @@ Runtime governance protects deployments from cost overruns, abuse, and runaway a
 | `BudgetConfig` | `dartclaw_config` | Daily token budget sub-config: threshold, action, timezone |
 | `LoopDetectionConfig` | `dartclaw_config` | Loop detection thresholds and action |
 | `TurnProgressConfig` | `dartclaw_config` | Stall-timeout sub-config: `stall_timeout` and `stall_action` |
-| `SlidingWindowRateLimiter` | `dartclaw_core` | In-memory sliding window rate limiter utility |
+| `SlidingWindowRateLimiter` | `dartclaw_config` | In-memory sliding window rate limiter utility |
 
 ### Integration Points
 

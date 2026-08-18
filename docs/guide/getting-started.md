@@ -35,7 +35,11 @@ goose --version
 vibe-acp --version
 ```
 
-Auth: for Claude, run `claude auth login` or `claude setup-token`, or export `ANTHROPIC_API_KEY`. For Codex (`provider: codex`), use the Codex CLI's normal sign-in flow or export `CODEX_API_KEY`.
+Auth: subscription credentials are the default, and storing one is a step of [Quick Start](#quick-start) rather than a
+prerequisite – `dartclaw auth` writes into the instance's own credential store, which does not exist until `dartclaw
+init` has chosen the instance's `data_dir`. Exporting `ANTHROPIC_API_KEY` / `CODEX_API_KEY` instead keeps the API-key
+path, which is the recommended choice for host-mode deployments running less-trusted agents – see
+[Security § Authentication Modes](security.md#authentication-modes).
 
 The provider-native installers give the simplest maintenance path. Package-manager installations are also supported,
 but must be updated through the same package manager that installed them. Claude's stable channel is typically about
@@ -90,14 +94,38 @@ All command examples below use `dartclaw`. If you have not installed it onto `PA
 The fastest path to a running DartClaw instance:
 
 ```bash
-# 1. Set up the instance (config, workspace, onboarding sentinel)
+# 1. Set up the instance. It finishes by printing: Done. Config written to <path>
 dartclaw init
 
-# 2. Start the server
-dartclaw serve
+# 2. Store a provider credential against the instance step 1 just wrote.
+#    CONFIG is the path step 1 printed — ~/.dartclaw/dartclaw.yaml unless you chose another instance directory.
+CONFIG=~/.dartclaw/dartclaw.yaml
+claude setup-token
+dartclaw --config "$CONFIG" auth claude
 
-# 3. Open http://127.0.0.1:3333
+# 3. Start the server
+dartclaw serve --config "$CONFIG"
+
+# 4. Open http://127.0.0.1:3333
 ```
+
+Step 2 must come after step 1, and both must resolve the same store. `dartclaw auth` writes into
+`<data_dir>/credentials/`, and `data_dir` is written by `init` — running `auth` first stores the credential against
+whatever `data_dir` was in effect then, which `init` may change underneath you. Two more things decide which store is
+resolved:
+
+- **Use the `--config` path `init` printed**, not an assumed one. A different instance directory means a different
+  `data_dir`, and therefore a different credential store.
+- **Pass `--data-dir` whenever `serve` does.** A `serve --data-dir` overrides the YAML value, so
+  `dartclaw --config "$CONFIG" auth claude --data-dir <same path>` is what puts the credential where that server reads.
+  The same applies when `data_dir` is relative (`dartclaw init --workflow` writes `data_dir: .`): run `auth` from the
+  same working directory the server runs in, or pass an absolute `--data-dir`.
+
+A credential written against a different `data_dir` is invisible to the server, which then refuses the provider as if
+nothing were stored. The refusal names the directory it searched — compare it against the path `dartclaw auth` printed.
+
+For Codex (`provider: codex`), step 2 is `dartclaw --config "$CONFIG" auth codex`, which runs `codex login` against
+DartClaw's own credential store instead of `~/.codex`.
 
 `dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal, or accepts all inputs via flags with `--non-interactive`. All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running it against an existing instance shows current values as defaults.
 
@@ -123,9 +151,13 @@ dartclaw init --non-interactive \
 dartclaw setup
 ```
 
+`--auth-claude` / `--auth-codex` choose between an API key (`env`) and the provider CLI's own login (`oauth`). Neither
+selects DartClaw's own credential store: `dartclaw auth claude` / `dartclaw auth codex` are a separate step that `init`
+does not perform. Verification does read that store, so an instance whose only credential was stored there verifies.
+
 Setup reports one of two completion states:
 
-- `Status: verified` means local checks passed and the selected provider already has usable credentials or CLI login.
+- `Status: verified` means local checks passed and the selected provider already has a credential DartClaw can resolve – an API key, a subscription credential stored by `dartclaw auth`, or the provider CLI's own login.
 - `Status: configured but unverified` means the instance is valid, but provider verification was skipped or still needs login/API-key setup.
 
 Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.

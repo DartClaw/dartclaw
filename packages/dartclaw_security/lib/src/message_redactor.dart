@@ -123,6 +123,13 @@ class MessageRedactor {
       (pattern: r'(?:sk|pk)_(?:live|test)_\w+', isPem: false, caseSensitive: true, dotAll: false),
       // Anthropic API keys
       (pattern: r'sk-ant-[a-zA-Z0-9_-]+', isPem: false, caseSensitive: true, dotAll: false),
+      // JWT-shaped tokens, matched whole so no payload segment survives
+      (
+        pattern: r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}',
+        isPem: false,
+        caseSensitive: true,
+        dotAll: false,
+      ),
       // AWS access key ID
       (pattern: r'AKIA[0-9A-Z]{16}', isPem: false, caseSensitive: true, dotAll: false),
       // Bearer tokens

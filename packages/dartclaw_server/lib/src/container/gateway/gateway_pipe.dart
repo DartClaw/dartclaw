@@ -19,9 +19,11 @@ final class GatewayPipe {
     required GatewaySurfaceHandler handler,
     this.limits = BridgeLimits.defaults,
     void Function(GatewayPrincipal principal, String reason)? onDenied,
+    void Function(GatewayCredentialUnusable failure)? onCredentialUnusable,
   }) : _channel = channel,
        _handler = handler,
        _onDenied = onDenied,
+       _onCredentialUnusable = onCredentialUnusable,
        _reader = BridgeFrameReader(limits: limits) {
     if (handler.surface != surface) {
       throw ArgumentError('Handler serves ${handler.surface.name}, not ${surface.name}');
@@ -49,6 +51,7 @@ final class GatewayPipe {
   final BridgeChannel _channel;
   final GatewaySurfaceHandler _handler;
   final void Function(GatewayPrincipal principal, String reason)? _onDenied;
+  final void Function(GatewayCredentialUnusable failure)? _onCredentialUnusable;
   final BridgeFrameReader _reader;
 
   final Map<int, _InFlightRequest> _inFlight = {};
@@ -224,6 +227,13 @@ final class GatewayPipe {
       }
       if (inFlight.isCancelled) return;
       await _write(BridgeFrame(type: BridgeFrameType.responseEnd, requestId: inFlight.id));
+    } on GatewayCredentialUnusable catch (failure) {
+      // The container is told the turn failed, and why, before the authority is
+      // torn down: a revoked pipe stops writing, so reacting first would leave
+      // the container reading a silent close instead of an actionable fix. The
+      // upstream's own answer is discarded here and never forwarded.
+      await _denyAndFlush(inFlight.id, 502, failure.remediation);
+      _onCredentialUnusable?.call(failure);
     } on GatewayDenied catch (denied) {
       _deny(inFlight.id, denied.status, denied.reason);
     } on TimeoutException {
@@ -238,17 +248,15 @@ final class GatewayPipe {
     }
   }
 
-  void _deny(int requestId, int status, String reason) {
+  void _deny(int requestId, int status, String reason) => unawaited(_denyAndFlush(requestId, status, reason));
+
+  /// Completes once the refusal has been handed to the channel, so a caller that
+  /// must act only after the container has been told can await it.
+  Future<void> _denyAndFlush(int requestId, int status, String reason) {
     _onDenied?.call(principal, '${surface.name}: $reason');
     _log.info('Gateway denied ${surface.name} request for ${principal.describe()}: $reason');
-    unawaited(
-      _write(
-        BridgeFrame(
-          type: BridgeFrameType.failure,
-          requestId: requestId,
-          metadata: {'status': status, 'message': reason},
-        ),
-      ),
+    return _write(
+      BridgeFrame(type: BridgeFrameType.failure, requestId: requestId, metadata: {'status': status, 'message': reason}),
     );
   }
 

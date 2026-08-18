@@ -2,6 +2,17 @@ export 'runner_observer.dart' show RunnerObserver, RunnerMetrics, RunnerState;
 export 'artifact_collector.dart' show ArtifactCollector;
 export 'task_cancellation_subscriber.dart' show TaskCancellationSubscriber;
 export 'compaction_task_event_subscriber.dart' show CompactionTaskEventSubscriber;
+export 'codex_refresh_authority.dart'
+    show
+        CodexCredentialPresented,
+        CodexCredentialRotatedAway,
+        CodexReauthRequired,
+        CodexRefreshAuthority,
+        CodexRefreshFailed,
+        CodexRefreshOutcome,
+        CodexSubscriptionCredential,
+        CodexVendorRefresh;
+export 'codex_vendor_refresh.dart' show refreshCodexAuth;
 export 'container_task_failure_subscriber.dart' show ContainerTaskFailureSubscriber;
 export 'diff_generator.dart' show DiffGenerator, DiffResult, DiffFileEntry, DiffHunk, DiffFileStatus;
 export 'goal_service.dart' show GoalService;

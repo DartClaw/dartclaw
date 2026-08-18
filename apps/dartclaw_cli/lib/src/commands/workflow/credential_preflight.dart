@@ -125,6 +125,8 @@ abstract final class CredentialPreflight {
     return switch (entry.type) {
       CredentialType.githubToken => const ['GITHUB_TOKEN'],
       CredentialType.apiKey => _credentialEnvFallbacks[credentialRef] ?? const <String>[],
+      // Subscription credentials come from the dedicated store, never the environment.
+      CredentialType.subscription => const <String>[],
     };
   }
 }

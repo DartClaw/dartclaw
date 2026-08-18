@@ -5,7 +5,13 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, WorkflowApprovalPolicy, WorkflowRunStatus;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show HarnessFactory, MapIterationCompletedEvent, TaskStatus, WorkflowLifecycleEvent, WorkflowStepCompletedEvent;
+    show
+        HarnessFactory,
+        LoginStoreCollisionError,
+        MapIterationCompletedEvent,
+        TaskStatus,
+        WorkflowLifecycleEvent,
+        WorkflowStepCompletedEvent;
 import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -249,6 +255,11 @@ class WorkflowRunCommand extends Command<void> {
       for (final item in error.errors) {
         _stderrLine(item.message);
       }
+      _exitFn(1);
+    } on LoginStoreCollisionError catch (error) {
+      // A store DartClaw must not use is an operator configuration error, not a
+      // crash: it takes the same printed-remediation, exit-1 path.
+      _stderrLine(error.toString());
       _exitFn(1);
     }
 

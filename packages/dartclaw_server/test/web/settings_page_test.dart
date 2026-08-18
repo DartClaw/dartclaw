@@ -115,6 +115,269 @@ void main() {
       expect(html, contains('<div class="tabs" role="tablist" aria-label="Guard types" data-guard-editor-tabs='));
     });
 
+    test('a nearing-expiry subscription credential is fully readable on its card', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.nearingExpiry,
+        checkedAt: DateTime.now().subtract(const Duration(hours: 3)),
+        mode: CredentialMode.subscription,
+        expiry: CredentialExpiry(
+          issuedAt: DateTime.now().subtract(const Duration(days: 345)),
+          expiresAt: DateTime.now().add(const Duration(days: 20, hours: 1)),
+          derived: true,
+        ),
+        remediation: 'claude setup-token',
+      );
+      final html = await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions);
+      final card = _credentialSection(html, 'claude');
+
+      expect(card, contains('Subscription'));
+      expect(card, contains('Renewal in 20d · derived'));
+      expect(card, contains('Nearing expiry'));
+      expect(card, contains('status-badge-warning'));
+      expect(card, contains('Checked 3h ago'));
+      expect(card, contains('<code>claude setup-token</code>'));
+      expect(card, contains('Fix:'));
+      // The card's top-level badge follows the credential state rather than
+      // contradicting it. This assertion previously pinned the opposite
+      // (`status-badge-success` beside a "Nearing expiry" warning), which left
+      // the most-read element on the surface an operator with no alert target
+      // is left with reading green while the section under it did not.
+      final cardHtml = _providerCardHtml(html, 'claude');
+      expect(cardHtml, isNot(contains('status-badge-success')));
+      expect(cardHtml, contains('Degraded'));
+    });
+
+    test('a card presenting a stored subscription names the store, not an API-key env var', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.healthy,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'claude',
+      );
+
+      // The env-var line sits directly above the mode label, so naming the
+      // API-key variable here told the operator the card presented a key while
+      // the next line read "Subscription".
+      expect(card, contains('Stored subscription credential'));
+      expect(card, contains('Subscription'));
+      expect(card, isNot(contains('ANTHROPIC_API_KEY')));
+    });
+
+    test('an API-key card still names the environment variable its key comes from', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.healthy,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.apiKey,
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'claude',
+      );
+
+      expect(card, contains('ANTHROPIC_API_KEY'));
+      expect(card, isNot(contains('Stored subscription credential')));
+    });
+
+    test('an API-key provider gains a mode label and nothing that ages', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.healthy,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.apiKey,
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'claude',
+      );
+
+      expect(card, contains('API key'));
+      expect(card, isNot(contains('Renewal')));
+      expect(card, isNot(contains('unknown')));
+      expect(card, isNot(contains('status-badge')));
+      expect(card, isNot(contains('<code>')));
+    });
+
+    test('reauth-required is readable with its fix without any alert configuration', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'codex',
+        state: CredentialHealthState.reauthRequired,
+        checkedAt: DateTime.now(),
+        remediation: 'codex login',
+      );
+      // No AlertRouter, no channel and no alert config is wired into this page;
+      // the rendering must not depend on one.
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'codex',
+      );
+
+      expect(card, contains('Re-authentication required'));
+      expect(card, contains('status-badge-error'));
+      expect(card, contains('<code>codex login</code>'));
+    });
+
+    test('a transient refresh failure reads as a warning, not as a lost credential', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'codex',
+        state: CredentialHealthState.refreshFailure,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'codex',
+      );
+
+      expect(card, contains('Refresh failed'));
+      expect(card, contains('status-badge-warning'));
+      expect(card, isNot(contains('status-badge-error')));
+    });
+
+    test('a renewal deadline already gone by reads as passed, never as time remaining', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'codex',
+        state: CredentialHealthState.reauthRequired,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+        expiry: CredentialExpiry(
+          issuedAt: DateTime.now().subtract(const Duration(days: 10)),
+          expiresAt: DateTime.now().subtract(const Duration(days: 2)),
+          derived: true,
+        ),
+        remediation: 'codex login',
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'codex',
+      );
+
+      expect(card, contains('Renewal deadline passed: 2d ago · derived'));
+      expect(card, isNot(contains('Renewal in')));
+    });
+
+    test('a contract break reads as a broken contract, never as an expiry', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'codex',
+        state: CredentialHealthState.contractBreak,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'codex',
+      );
+
+      expect(card, contains('Mediation contract broken'));
+      expect(card, contains('status-badge-error'));
+      expect(card, isNot(contains('expired')));
+      expect(card, isNot(contains('Re-authentication')));
+    });
+
+    // The monitor emits `unknown` in exactly two shapes, and neither carries
+    // both a mode and a remediation: the no-computable-deadline arm records a
+    // subscription mode with no command, the vendor-login arm a command with no
+    // mode. Each is seeded here as the monitor would record it.
+    test('a subscription credential with no computable deadline renders unknown, not a fault', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.unknown,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+      );
+      final response = await SettingsPage(providerStatus: providerStatus)
+          .handler(Request('GET', Uri.parse('http://localhost/settings')), _pageContext(sessions));
+      final html = await response.readAsString();
+      final card = _credentialSection(html, 'claude');
+
+      expect(response.statusCode, 200);
+      expect(card, contains('Renewal deadline unknown'));
+      expect(card, contains('value-absent'));
+      expect(card, contains('status-badge-muted'));
+      expect(card, isNot(contains('status-badge-warning')));
+      expect(card, isNot(contains('status-badge-error')));
+      expect(card, isNot(contains('<code>')));
+      // Every other card still renders.
+      expect(html, _hasMatchCount('data-provider-id="', 3));
+    });
+
+    test('an interactive vendor login reads as informational, not as a fault', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.unknown,
+        checkedAt: DateTime.now(),
+        remediation: 'claude setup-token',
+      );
+      final card = _credentialSection(
+        await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions),
+        'claude',
+      );
+
+      expect(card, contains('Lifetime not checkable'));
+      expect(card, contains('status-badge-muted'));
+      expect(card, isNot(contains('status-badge-warning')));
+      expect(card, isNot(contains('status-badge-error')));
+      // DartClaw holds no credential of its own here, so naming a mode or a
+      // deadline would invent data the monitor never observed.
+      expect(card, isNot(contains('Subscription')));
+      expect(card, isNot(contains('Renewal')));
+      // The credential works; its command is the route to DartClaw-managed auth
+      // rather than a repair.
+      expect(card, contains('DartClaw-managed auth:'));
+      expect(card, contains('<code>claude setup-token</code>'));
+      expect(card, isNot(contains('Fix:')));
+    });
+
+    test('a provider with no recorded credential health renders exactly as before', () async {
+      final providerStatus = await _seededProviderStatus();
+      providerStatus.recordCredentialHealth(
+        providerId: 'claude',
+        state: CredentialHealthState.nearingExpiry,
+        checkedAt: DateTime.now(),
+        mode: CredentialMode.subscription,
+        expiry: CredentialExpiry(
+          issuedAt: DateTime.now(),
+          expiresAt: DateTime.now().add(const Duration(days: 3)),
+          derived: true,
+        ),
+        remediation: 'claude setup-token',
+      );
+      final html = await _renderHtml(SettingsPage(providerStatus: providerStatus), sessions);
+
+      // ghost_ai has no recorded health, so its credential section must carry
+      // the pre-monitor markup and nothing else: the existing dot, status label
+      // and env line, with no empty row left behind by a suppressed element.
+      // Pinned against the rendered content — a suppressed element still leaves
+      // its (inert) indentation behind, which is all this collapse discards.
+      expect(
+        _collapseWhitespace(_credentialSection(html, 'ghost_ai')),
+        '<div class="detail-label">Credentials</div> '
+        '<div class="credential-status"> '
+        '<span class="credential-dot credential-dot-missing"></span> '
+        '<span class="detail-value detail-value-error">Missing</span> '
+        '</div> '
+        '<div class="credential-env">Credential source not configured</div> '
+        '</div>',
+      );
+      // The seeded secret never reaches the page.
+      expect(html, isNot(contains('anthropic-key')));
+    });
+
     test('related fields read as labelled groups and short numerics are capped', () async {
       final html = await _renderHtml(page, sessions);
 
@@ -136,18 +399,39 @@ void main() {
 }
 
 Future<String> _renderHtml(SettingsPage page, SessionService sessions) async {
-  final response = await page.handler(
-    Request('GET', Uri.parse('http://localhost/settings')),
-    PageContext(
-      sessions: sessions,
-      appDisplay: const AppDisplayParams(),
-      sidebarData: () async => _emptySidebarData,
-      restartBannerHtml: () => '',
-      buildNavItems: ({required String activePage}) => const [],
-    ),
-  );
+  final response = await page.handler(Request('GET', Uri.parse('http://localhost/settings')), _pageContext(sessions));
 
   return response.readAsString();
+}
+
+PageContext _pageContext(SessionService sessions) => PageContext(
+  sessions: sessions,
+  appDisplay: const AppDisplayParams(),
+  sidebarData: () async => _emptySidebarData,
+  restartBannerHtml: () => '',
+  buildNavItems: ({required String activePage}) => const [],
+);
+
+/// The rendered `<article>` body for one provider card.
+String _providerCardHtml(String html, String providerId) {
+  final start = html.indexOf('data-provider-id="$providerId"');
+  expect(start, greaterThan(-1), reason: 'no card rendered for $providerId');
+  return html.substring(start, html.indexOf('</article>', start));
+}
+
+/// Renders a markup run comparable across template edits that only change the
+/// indentation of suppressed elements.
+String _collapseWhitespace(String html) => html.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+/// The credential `provider-detail-item` of one provider card, isolated so a
+/// parity assertion cannot be satisfied by unrelated markup elsewhere on the
+/// card.
+String _credentialSection(String html, String providerId) {
+  final items = _providerCardHtml(html, providerId).split('<div class="provider-detail-item">');
+  return items.firstWhere(
+    (item) => item.contains('>Credentials<'),
+    orElse: () => fail('no credential detail item rendered for $providerId'),
+  );
 }
 
 Future<ProviderStatusService> _seededProviderStatus() async {

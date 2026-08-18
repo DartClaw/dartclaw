@@ -34,6 +34,19 @@ void main() {
   });
 
   group('guards config', () {
+    test('guards.content.fail_open defaults to false', () {
+      // The default classifier used to force fail-open with no key and no log,
+      // so an unscorable payload reached the agent on a stock install.
+      final config = loadNoFile();
+      expect(config.security.contentGuardFailOpen, isFalse);
+    });
+
+    test('guards.content.fail_open parses when configured', () {
+      final config = loadYaml('guards:\n  content:\n    fail_open: true\n');
+      expect(config.security.contentGuardFailOpen, isTrue);
+      expect(config.warnings, isEmpty);
+    });
+
     test('missing guards section uses GuardConfig.defaults()', () {
       final config = loadNoFile();
       expect(config.security.guards.failOpen, isFalse);

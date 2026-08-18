@@ -669,6 +669,14 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
   Future<void> _verifyAuth() async {
     final hasApiKey = _environment['ANTHROPIC_API_KEY']?.trim().isNotEmpty ?? false;
     if (hasApiKey) return;
+    // A host-injected subscription token is authentication the CLI performs
+    // itself, and it outranks an interactive `~/.claude`/keychain login rather
+    // than losing to one: verified against Claude Code 2.1.233, where `auth
+    // status` reports authMethod `oauth_token` and a turn on a bad token fails
+    // 401 instead of falling back to a logged-in account. Probing anyway would
+    // answer from that login and mask a broken injected token with someone
+    // else's session.
+    if (_environment[claudeOauthTokenEnvVar]?.trim().isNotEmpty ?? false) return;
 
     final result = await commandProbe(claudeExecutable, ['auth', 'status']);
     if (result.exitCode == 0) {
@@ -687,7 +695,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       'No authentication configured. Either:\n'
       '  1. Export ANTHROPIC_API_KEY:  export ANTHROPIC_API_KEY=sk-ant-...\n'
       '  2. Use Claude CLI OAuth:     claude auth login\n'
-      '  3. Use a setup token:        claude setup-token',
+      '  3. Use a setup token:        claude setup-token, then dartclaw auth claude',
     );
   }
 

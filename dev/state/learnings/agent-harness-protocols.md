@@ -23,7 +23,8 @@
 - **Standalone harness startup is deferred behind the auth preflight.** CLI wiring splits into `wirePreHarness()` (no spawn) and `startHarnesses(providers)`; run/resume/retry derive the referenced-provider set, run `preflightProviderAuth`, then start only those — an unreferenced logged-out default is never started or probed. The executor-level preflight stays as the in-engine backstop for connected mode.
 
 ### Codex
-- **Codex reads `config.toml` only at app-server startup.** Write `CODEX_HOME/config.toml` before spawning; later changes have no effect.
+- **Write `CODEX_HOME/config.toml` before spawning.** Later edits are unreliable as a control surface; see the `developer_instructions` precedence entry below for what the file does *not* govern.
+- **`thread/start` `developerInstructions` overrides `config.toml`.** `developer_instructions.or(cfg.developer_instructions)` (`codex-rs/core/src/config/mod.rs:3807`, rust-v0.146.0, reached from app-server `thread_processor.rs` `build_thread_config_overrides`; the config is re-read per thread start). `CodexHarness` passes the composed system prompt on every `thread/start`, so the file's value never governs a worker's thread — which is why workers sharing one dedicated `CODEX_HOME` do *not* race on it.
 - **Crash recovery must clear cached `_threadIds`.** All thread IDs are stale after process exit. Continuity comes from DartClaw's NDJSON history replay, not Codex resume.
 - **`thread/start` returns a `thread_id` that must be reused** on every subsequent `turn/start`, or you silently start an orphan thread.
 - **Per-turn model override needs `harnessConfig.model` fallback.** Otherwise the configured default model is silently ignored.

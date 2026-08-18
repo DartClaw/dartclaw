@@ -25,8 +25,14 @@ class ContainerConfig {
   /// Creates a disabled container configuration.
   const new disabled() : this();
 
+  /// Keys this parser reads; anything else is reported rather than ignored.
+  static const _knownKeys = {'enabled', 'image', 'mounts', 'extra_args'};
+
   /// Parses container configuration from YAML, appending warnings to [warns].
   factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
+    for (final key in yaml.keys) {
+      if (!_knownKeys.contains(key)) warns.add('Unknown config key: container.$key');
+    }
     final enabled = yaml['enabled'];
     if (enabled != null && enabled is! bool) {
       warns.add('Invalid type for container.enabled: "${enabled.runtimeType}" — using default');

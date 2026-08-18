@@ -1,4 +1,5 @@
 export 'asset_resolver.dart' show AssetResolver, ResolvedAssets, AssetResolutionRequest, AssetSource;
+export 'codex_rejection.dart' show CodexRejection, CodexRejectionKind, classifyCodexRejection;
 export 'concurrency/session_lock_manager.dart' show SessionLockManager;
 export 'emergency/emergency_stop_handler.dart' show EmergencyStopHandler, EmergencyStopResult;
 export 'maintenance/session_maintenance_service.dart'

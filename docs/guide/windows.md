@@ -33,15 +33,32 @@ scoop update dartclaw
 
 ## Provider Setup
 
-Install Claude Code or Codex separately, complete its normal sign-in flow, and verify it before starting DartClaw:
+Install Claude Code or Codex separately and confirm the binary runs before starting DartClaw:
 
 ```powershell
-claude auth login
-claude auth status
-
-codex login
-codex login status
+claude --version
+codex --version
 ```
+
+Then store a subscription credential in DartClaw's own credential store, which is what the default authentication mode
+presents:
+
+```powershell
+claude setup-token
+dartclaw auth claude
+
+dartclaw auth codex
+```
+
+Under DartClaw-managed auth the vendor CLIs stay signed out, and `claude auth status` reporting not-logged-in is
+expected. Signing in only with the vendor's own flow (`claude auth login`, a bare `codex login`) leaves DartClaw without
+a credential of its own: for Claude that still works and reports as *Lifetime not checkable*, but for Codex it is
+reported as requiring re-authentication and raises a critical alert. Exporting `ANTHROPIC_API_KEY` / `CODEX_API_KEY`
+instead keeps the API-key path.
+
+Windows applies no owner-only permissions to the credential store – it inherits the data directory's ACLs, so restrict
+that directory to your account. See
+[Security § Setting Up Subscription Authentication](security.md#setting-up-subscription-authentication).
 
 ### Codex project trust
 

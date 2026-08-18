@@ -2,8 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show
+        CredentialEntry,
+        CredentialMode,
+        CredentialResolution,
+        CredentialUnavailableReason,
+        ProviderIdentity,
+        credentialRemediationFor,
+        credentialRenewalFor;
 import 'package:logging/logging.dart';
 
+import '../../codex_rejection.dart';
+import '../../task/codex_refresh_authority.dart' show CodexSubscriptionCredential;
 import 'gateway_models.dart';
 
 /// What the gateway needs from a provider surface: it answers requests and owns
@@ -19,7 +30,40 @@ abstract interface class ProviderMediator implements GatewaySurfaceHandler {
   /// remedy without naming any credential.
   String? get unavailableReason;
 
+  /// The operator command that would make this adapter mediable, or `null` when
+  /// it already can. Reported alongside a refusal so the credential-health
+  /// surfaces can render the fix on its own.
+  String? get credentialRemediation;
+
   Future<void> dispose();
+}
+
+/// Where an adapter's presented credential comes from.
+///
+/// Two views of one source. [resolve] answers admission synchronously — is a
+/// credential configured for this provider at all — while [present] is awaited
+/// immediately before injection, so a source whose token rotates can refresh it
+/// there without admission having to wait on a network round-trip. The default
+/// [present] has nothing to refresh and returns what [resolve] returns.
+class ProviderCredentialSource {
+  new(this._resolve);
+
+  /// A source presenting a configured API key, and nothing when [key] is absent.
+  new apiKey(String? Function() key)
+    : this(() {
+        final value = key();
+        return value == null || value.isEmpty
+            ? const CredentialResolution.unavailable(CredentialUnavailableReason.noneConfigured)
+            : CredentialResolution.apiKey(value);
+      });
+
+  final CredentialResolution Function() _resolve;
+
+  /// The credential resolvable without refreshing anything.
+  CredentialResolution resolve() => _resolve();
+
+  /// The credential to present on the request being handled now.
+  Future<CredentialResolution> present() async => resolve();
 }
 
 /// Host-side provider mediation for one container authority's provider pipe.
@@ -33,19 +77,42 @@ abstract interface class ProviderMediator implements GatewaySurfaceHandler {
 /// [handle], and a subclass that replaced it would quietly reopen the boundary.
 /// Subclasses supply protocol details, never request flow.
 abstract base class ProviderAdapter implements ProviderMediator {
-  new({required this.providerId, required this.upstream, required String? Function() apiKey, HttpClient? client})
-    : _apiKey = apiKey,
-      _client = client ?? HttpClient();
+  new({
+    required this.providerId,
+    required this.upstream,
+    required ProviderCredentialSource credential,
+    this.credentialsDir,
+    HttpClient? client,
+  }) : _credential = credential,
+       _client = client ?? HttpClient();
 
   static final _log = Logger('ProviderAdapter');
 
   /// Provider whose containerized clients this adapter serves.
+  ///
+  /// The configured provider id, not its family: an alias resolves its own
+  /// `providers.<id>.auth` and its refusals name the entry an operator would
+  /// edit.
   final String providerId;
+
+  /// The credential family [providerId] resolves to, which names the operator
+  /// command a refusal points at when the provider is an alias.
+  String get providerFamily;
+
+  /// The dedicated subscription store this adapter's credential is resolved
+  /// from, when the deployment knows it.
+  ///
+  /// `data_dir` selects that directory, so a refusal that names no path cannot
+  /// distinguish "never stored" from "stored under a different `data_dir`".
+  final String? credentialsDir;
 
   /// Fixed upstream origin, pinned when the adapter is built.
   final Uri upstream;
 
-  final String? Function() _apiKey;
+  /// The single credential this authority presents, resolved per
+  /// `providers.<id>.auth`. Subscription and API key are both mediable — what
+  /// admission requires is that exactly one of them is presentable.
+  final ProviderCredentialSource _credential;
   final HttpClient _client;
 
   @override
@@ -54,18 +121,73 @@ abstract base class ProviderAdapter implements ProviderMediator {
   /// Request paths this provider's protocol defines. Anything else is refused.
   Set<String> get allowedPaths;
 
-  /// How an operator configures the host credential this adapter injects.
-  String get credentialRemediation;
+  /// Every origin this adapter may send [credential] to, as `scheme://host:port`.
+  ///
+  /// A composed target outside the set is refused before a connection is
+  /// opened, so a protocol subclass that got its own composition wrong cannot
+  /// widen where a container's request can land. Scoped to the presented
+  /// credential because an adapter with one backend per mode would otherwise
+  /// accept either backend under either mode — sending a subscription token to
+  /// the API-key upstream, or the reverse.
+  Set<String> pinnedOriginsFor(CredentialResolution credential) => {originOf(upstream)};
+
+  /// `scheme://host:port`, the comparable identity of a destination.
+  static String originOf(Uri uri) => '${uri.scheme}://${uri.host}:${uri.port}';
+
+  @override
+  String? get credentialRemediation {
+    final resolution = _credential.resolve();
+    return resolution.isPresent ? null : _remediationFor(resolution.reason!);
+  }
 
   @override
   String? get unavailableReason {
-    final key = _apiKey();
-    if (key != null && key.isNotEmpty) return null;
-    return 'containerized "$providerId" has no host-held credential to mediate with. $credentialRemediation';
+    final resolution = _credential.resolve();
+    if (resolution.isPresent) return null;
+    final remediation = _remediationFor(resolution.reason!);
+    // Host execution is an alternative only where nothing is configured at all:
+    // that is the one case the host gate lets the provider CLI's own login
+    // rescue. A forced selection and an unrecognized `auth` value both refuse on
+    // every boundary, so offering host mode there is a documented dead end.
+    final hostAlternative = resolution.reason == CredentialUnavailableReason.noneConfigured
+        ? ' Or select execution: host for this agent.'
+        : '';
+    return 'containerized "$providerId" has no host-held credential to mediate with. $remediation$hostAlternative';
   }
 
+  String _remediationFor(CredentialUnavailableReason reason) =>
+      credentialRemediationFor(reason, providerId: providerId, family: providerFamily, credentialsDir: credentialsDir);
+
   /// Applies the provider's authentication to a host-to-provider request.
-  void authenticate(HttpClientRequest request, String apiKey);
+  ///
+  /// [credential] always carries a secret, and its mode selects the scheme the
+  /// provider accepts it under.
+  void authenticate(HttpClientRequest request, CredentialResolution credential);
+
+  /// Composes the upstream target for an already-allowed [path].
+  ///
+  /// The default replaces the whole upstream path, which is correct only for an
+  /// upstream with no base path of its own. An adapter whose upstream carries
+  /// one must override this — a whole-path replacement would silently drop it
+  /// and send the request to the wrong place on the right host.
+  ///
+  /// [credential] is the one being presented on this request, so an adapter that
+  /// speaks to different backends per credential mode can pick here.
+  Uri composeTarget(String path, String? query, CredentialResolution credential) =>
+      upstream.replace(path: path, query: query);
+
+  /// Inspects an upstream refusal so the adapter can classify why it failed.
+  ///
+  /// [body] is backend-authored text and [requestBody] is container-authored:
+  /// neither may reach a log, an audit entry, or a diagnostic verbatim.
+  /// [credential] is the one the refused request presented, so a refusal can be
+  /// read against the mode it was made under.
+  ///
+  /// Throwing [GatewayCredentialUnusable] here declares the credential
+  /// terminally dead: the upstream's own answer is then discarded rather than
+  /// forwarded, and the authority is torn down instead of left to re-fail every
+  /// later request.
+  void inspectRejection(int status, String body, List<int> requestBody, CredentialResolution credential) {}
 
   /// How many provider-side network-reaching tools [body] declares, in this
   /// adapter's own protocol shape.
@@ -84,8 +206,12 @@ abstract base class ProviderAdapter implements ProviderMediator {
       throw GatewayDenied(status: 404, reason: 'path is not part of the $providerId provider surface');
     }
 
-    final key = _apiKey();
-    if (key == null || key.isEmpty) {
+    final credential = await _credential.present();
+    // Emptiness is checked here, not left to the resolution: a present-but-blank
+    // secret would otherwise be injected as `Bearer null` or an empty key
+    // instead of failing closed.
+    final secret = credential.secret;
+    if (secret == null || secret.isEmpty) {
       throw GatewayDenied(status: 502, reason: 'no host credential is configured for provider "$providerId"');
     }
 
@@ -102,19 +228,31 @@ abstract base class ProviderAdapter implements ProviderMediator {
       }
     }
 
-    final target = upstream.replace(path: path, query: _queryOnly(request.path));
+    final target = composeTarget(path, _queryOnly(request.path), credential);
+    if (!pinnedOriginsFor(credential).contains(originOf(target))) {
+      throw GatewayDenied(status: 403, reason: 'request destination is not a pinned $providerId upstream');
+    }
     final outbound = await _client.openUrl(request.method, target);
     outbound.followRedirects = false;
     _copyHeaders(request.headers, outbound);
     // Injection happens last and unconditionally: a client-supplied credential
     // was already dropped by _copyHeaders, so nothing it sent can survive here.
-    authenticate(outbound, key);
+    authenticate(outbound, credential);
     outbound.contentLength = rawBody.length;
     outbound.add(rawBody);
 
     final response = await outbound.close();
     _log.fine('Gateway $providerId ${request.method} $path -> ${response.statusCode}');
-    return GatewayResponse(status: response.statusCode, headers: _responseHeaders(response), body: response);
+    final headers = _responseHeaders(response);
+    if (response.statusCode < 400) {
+      return GatewayResponse(status: response.statusCode, headers: headers, body: response);
+    }
+    // A refusal is read here rather than streamed through: the reason it names
+    // is what tells an operator which of several unrelated things went wrong,
+    // and the client still receives the same bytes.
+    final refusal = await response.fold(<int>[], (bytes, chunk) => bytes..addAll(chunk));
+    inspectRejection(response.statusCode, utf8.decode(refusal, allowMalformed: true), rawBody, credential);
+    return GatewayResponse(status: response.statusCode, headers: headers, body: Stream.value(refusal));
   }
 
   @override
@@ -130,7 +268,10 @@ abstract base class ProviderAdapter implements ProviderMediator {
 
   void _copyHeaders(Map<String, List<String>> headers, HttpClientRequest outbound) {
     for (final entry in headers.entries) {
-      if (_droppedRequestHeaders.contains(entry.key)) continue;
+      // Lowercased here rather than relying on the caller: the strip is this
+      // adapter's own guarantee, and a producer that handed over raw header
+      // casing would otherwise forward `X-Api-Key` untouched.
+      if (_droppedRequestHeaders.contains(entry.key.toLowerCase())) continue;
       for (final value in entry.value) {
         outbound.headers.add(entry.key, value);
       }
@@ -186,6 +327,10 @@ abstract base class ProviderAdapter implements ProviderMediator {
     'api-key',
     'proxy-authorization',
     'cookie',
+    // The account the credential belongs to: the host sets it from the token it
+    // presents, and when that token carries none the container's own value
+    // would otherwise be the one the backend read.
+    'chatgpt-account-id',
     'host',
     'connection',
     'keep-alive',
@@ -200,7 +345,17 @@ abstract base class ProviderAdapter implements ProviderMediator {
     'x-forwarded-proto',
   };
 
+  /// Upstream response headers that must never be written back down the pipe.
+  ///
+  /// The pipe is the only channel that enters a `network:none` container, so a
+  /// credential-bearing header an upstream, intermediary, or error page
+  /// reflected back would be handed straight into the boundary the rest of this
+  /// adapter exists to keep it out of. Dropped whether or not any known
+  /// upstream reflects one.
   static const _droppedResponseHeaders = {
+    'authorization',
+    'x-api-key',
+    'proxy-authenticate',
     // The client decoded the body on the way in (`autoUncompress`), so keeping
     // the encoding headers would describe bytes that no longer exist.
     'content-encoding',
@@ -218,26 +373,87 @@ abstract base class ProviderAdapter implements ProviderMediator {
 
 /// Anthropic Messages mediation for containerized Claude.
 final class AnthropicMessagesAdapter extends ProviderAdapter {
-  new({required super.apiKey, Uri? upstream, super.client, super.providerId = 'claude'})
-    : super(upstream: upstream ?? defaultUpstream);
+  new({
+    required super.credential,
+    Uri? upstream,
+    super.client,
+    super.credentialsDir,
+    super.providerId = ProviderIdentity.claude,
+  }) : super(upstream: upstream ?? defaultUpstream);
 
   static final Uri defaultUpstream = Uri.https('api.anthropic.com');
 
   @override
+  String get providerFamily => ProviderIdentity.claude;
+
+  /// The Messages beta under which a subscription token is accepted as a raw
+  /// Bearer rather than an API key.
+  static const oauthBeta = 'oauth-2025-04-20';
+
+  static const _betaHeader = 'anthropic-beta';
+
+  @override
   Set<String> get allowedPaths => const {'/v1/messages', '/v1/messages/count_tokens'};
 
-  /// OAuth and setup-token logins are deliberately absent here: neither has a
-  /// mediation contract that keeps the login material on the host, so
-  /// containerized Claude supports host-held API-key mediation only.
   @override
-  String get credentialRemediation =>
-      'Set ANTHROPIC_API_KEY on the host for container execution, or select execution: host for this agent – '
-      'OAuth and setup-token authentication are supported for host execution only.';
-
-  @override
-  void authenticate(HttpClientRequest request, String apiKey) {
-    request.headers.set('x-api-key', apiKey);
+  void authenticate(HttpClientRequest request, CredentialResolution credential) {
+    if (credential.mode == CredentialMode.subscription) {
+      request.headers.set('authorization', 'Bearer ${credential.secret!}');
+      // Added rather than set: the client declares its own betas, and replacing
+      // them would silently drop capabilities the turn was built around. Adding
+      // is skipped when the client already named this one, so the value is not
+      // sent twice.
+      if (!(request.headers[_betaHeader]?.any((value) => value.split(',').map((v) => v.trim()).contains(oauthBeta)) ??
+          false)) {
+        request.headers.add(_betaHeader, oauthBeta);
+      }
+      return;
+    }
+    request.headers.set('x-api-key', credential.secret!);
   }
+
+  /// A subscription credential the API refuses to *authenticate* is terminal,
+  /// and is the only thing that makes a hard-expired `setup-token` fail closed.
+  ///
+  /// The stored Claude expiry is derived from a documented lifetime rather than
+  /// read off the token, so the live refusal — not the expiry — is what a wrong
+  /// derivation is caught by. Forwarding it would hand the container a bare 401
+  /// and leave the authority mediating on a credential that can no longer work.
+  ///
+  /// An API-key deployment keeps forwarding the upstream's answer: DartClaw
+  /// tracks no lifetime for an operator-managed key, and a refusal there is as
+  /// likely to be about the request as about the credential.
+  @override
+  void inspectRejection(int status, String body, List<int> requestBody, CredentialResolution credential) {
+    if (credential.mode != CredentialMode.subscription) return;
+    if (!_refusesTheCredential(status, body)) return;
+    final renewal = credentialRenewalFor(providerFamily, credentialsDir: credentialsDir);
+    throw GatewayCredentialUnusable(
+      providerId: providerId,
+      remediation:
+          'the Anthropic API refused the stored subscription credential for "$providerId"'
+          '${renewal == null ? '.' : ' – $renewal'}',
+    );
+  }
+
+  /// Whether the API's refusal is about the credential itself rather than what
+  /// the account is allowed to do with it.
+  ///
+  /// A 401 is unambiguous and decides on its own. A 403 is not: Anthropic
+  /// answers one as `permission_error` for a plan or organization restriction on
+  /// a token that authenticated fine, so it is terminal only where the body
+  /// names the authentication error — reading every 403 as a dead credential is
+  /// how a plan restriction starts telling operators to run `claude setup-token`
+  /// again. Same status-then-marker discipline as [classifyCodexRejection], so
+  /// the two mediation boundaries answer this question the same way.
+  static bool _refusesTheCredential(int status, String body) =>
+      status == HttpStatus.unauthorized ||
+      (status == HttpStatus.forbidden && body.toLowerCase().contains(_authenticationErrorMarker));
+
+  /// Anthropic's error type for a credential it will not authenticate, as
+  /// distinct from `permission_error`, which means authenticated but not
+  /// permitted.
+  static const _authenticationErrorMarker = 'authentication_error';
 
   /// Messages declares provider-hosted remote MCP connectors in a top-level
   /// `mcp_servers` array, separate from the client tools in `tools`.
@@ -252,23 +468,121 @@ final class AnthropicMessagesAdapter extends ProviderAdapter {
   }
 }
 
+/// A Codex subscription credential and the ChatGPT account it belongs to.
+///
+/// The account id travels with the token rather than being read again at
+/// injection time, so the two headers a mediated request carries always come
+/// from one read of a store whose token rotates one-time-use.
+final class CodexSubscriptionResolution extends CredentialResolution {
+  new(CodexSubscriptionCredential credential)
+    : accountId = credential.accountId,
+      super.subscription(CredentialEntry.subscription(token: credential.accessToken));
+
+  final String? accountId;
+}
+
 /// OpenAI Responses mediation for containerized Codex.
+///
+/// Two backends, selected by what the host presents and by nothing else: an API
+/// key goes to the OpenAI Platform, a ChatGPT subscription credential goes to
+/// the ChatGPT backend, which refuses a Platform-scoped call and vice versa.
 final class OpenAiResponsesAdapter extends ProviderAdapter {
-  new({required super.apiKey, Uri? upstream, super.client, super.providerId = 'codex'})
-    : super(upstream: upstream ?? defaultUpstream);
+  new({
+    required super.credential,
+    Uri? upstream,
+    Uri? subscriptionUpstream,
+    super.client,
+    super.credentialsDir,
+    super.providerId = ProviderIdentity.codex,
+    this.onRejection,
+  }) : subscriptionUpstream = subscriptionUpstream ?? defaultSubscriptionUpstream,
+       super(upstream: upstream ?? defaultUpstream);
 
   static final Uri defaultUpstream = Uri.https('api.openai.com');
 
   @override
+  String get providerFamily => ProviderIdentity.codex;
+
+  /// The ChatGPT backend. It carries a base path, so a target composed against
+  /// it must extend that path rather than replace it.
+  static final Uri defaultSubscriptionUpstream = Uri.https('chatgpt.com', '/backend-api/codex');
+
+  /// Client identity the ChatGPT backend expects from a Codex client.
+  static const originator = 'codex_cli_rs';
+
+  static const _accountHeader = 'chatgpt-account-id';
+  static const _originatorHeader = 'originator';
+
+  /// The container is configured against `<provider bridge>/v1`, so it sends
+  /// `/v1/responses` while the ChatGPT backend serves `/responses`. The mapping
+  /// belongs to the host-side pin: an unmapped path is refused, not forwarded.
+  static const _backendPaths = {'/v1/responses': '/responses'};
+
+  final Uri subscriptionUpstream;
+
+  /// Where a classified backend refusal is reported, fire-and-forget.
+  final void Function(CodexRejection rejection)? onRejection;
+
+  @override
   Set<String> get allowedPaths => const {'/v1/responses'};
 
+  /// One origin per mode, never both at once: the two backends refuse each
+  /// other's credential, so a target composed for the wrong one is a bug the
+  /// pin must catch rather than forward.
   @override
-  String get credentialRemediation =>
-      'Set OPENAI_API_KEY on the host for container execution, or select execution: host for this agent.';
+  Set<String> pinnedOriginsFor(CredentialResolution credential) => {
+    ProviderAdapter.originOf(credential.mode == CredentialMode.subscription ? subscriptionUpstream : upstream),
+  };
 
   @override
-  void authenticate(HttpClientRequest request, String apiKey) {
-    request.headers.set('authorization', 'Bearer $apiKey');
+  Uri composeTarget(String path, String? query, CredentialResolution credential) {
+    if (credential.mode != CredentialMode.subscription) {
+      return super.composeTarget(path, query, credential);
+    }
+    final backendPath = _backendPaths[path];
+    if (backendPath == null) {
+      throw GatewayDenied(status: 404, reason: 'path is not part of the $providerId subscription surface');
+    }
+    return subscriptionUpstream.replace(path: '${subscriptionUpstream.path}$backendPath', query: query);
+  }
+
+  @override
+  void authenticate(HttpClientRequest request, CredentialResolution credential) {
+    request.headers.set('authorization', 'Bearer ${credential.secret!}');
+    if (credential.mode != CredentialMode.subscription) return;
+    final accountId = credential is CodexSubscriptionResolution ? credential.accountId : null;
+    if (accountId != null) request.headers.set(_accountHeader, accountId);
+    request.headers.set(_originatorHeader, originator);
+  }
+
+  /// Only a subscription refusal is classified.
+  ///
+  /// Every bucket [classifyCodexRejection] names is a ChatGPT-backend
+  /// condition, and an API key is mediated against the OpenAI Platform instead
+  /// — a different upstream, reached over a different scheme. Reporting a
+  /// Platform refusal through that vocabulary would tell an operator their
+  /// *stored subscription* was refused and send them to `dartclaw auth codex`,
+  /// which writes a store this deployment never presents. An API-key deployment
+  /// therefore keeps the upstream's own answer, exactly as the Claude boundary
+  /// does: DartClaw tracks no lifetime for an operator-managed key, and a
+  /// refusal there is as likely to be about the request as about the credential.
+  @override
+  void inspectRejection(int status, String body, List<int> requestBody, CredentialResolution credential) {
+    if (credential.mode != CredentialMode.subscription) return;
+    final rejection = classifyCodexRejection(status: status, body: body, requestedModel: _requestedModel(requestBody));
+    if (rejection != null) onRejection?.call(rejection);
+  }
+
+  /// The model the turn asked for, taken from the request the container sent —
+  /// naming it back is exact, where parsing it out of the refusal would not be.
+  static String? _requestedModel(List<int> requestBody) {
+    try {
+      final decoded = jsonDecode(utf8.decode(requestBody, allowMalformed: true));
+      final model = decoded is Map<Object?, Object?> ? decoded['model'] : null;
+      return model is String && model.isNotEmpty ? model : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   /// Responses has no `mcp_servers` array: it declares provider-hosted remote

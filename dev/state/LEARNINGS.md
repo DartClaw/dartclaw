@@ -77,6 +77,7 @@
 - **Resolved step config has multiple consumers.** New inherited step fields must flow through dispatch, follow-up prompts, extraction, and resolved-YAML export.
 - **Pub workspace build hooks honor the workspace ROOT pubspec's `hooks.user_defines`, not member pubspecs.** A root-level override wins; any per-platform override must neutralize the root block too.
 - **Share the verdict object, not its message.** `resolveFamily` aliases unknown providers onto `claude`/`codex`; re-deriving availability per surface isn't parity — gate on the configured identity.
+- **`CredentialRegistry.resolve()` without `family:` misfires on aliases.** Four sites, four failure modes. Pass `resolveFamily(providerId, executable:, options:)`, not `ProviderIdentity.family`.
 
 ## Channel Integration
 
@@ -116,6 +117,7 @@
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** It can go unrun until the final checkbox pass — verify the artifact exists before relying on it; absence is a gate defect.
+- **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type declared, exported and caught whose only `throw` was a fake – grep the producer before done.
 
 ## CSS
 

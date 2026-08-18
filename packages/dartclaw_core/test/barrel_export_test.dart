@@ -235,5 +235,22 @@ void main() {
       expect(ToolApprovalPolicy.allowAll, ToolApprovalPolicy.allowAll);
       expect(WorkerState.idle.name, 'idle');
     });
+
+    test('subscription credential store symbols importable', () {
+      final directory = Directory.systemTemp.createTempSync('barrel-credential-store');
+      addTearDown(() => directory.deleteSync(recursive: true));
+
+      final store = SubscriptionCredentialStore.open(
+        credentialsDir: '${directory.path}/credentials',
+        environment: {'HOME': directory.path},
+      );
+
+      expect(store, isA<SubscriptionCredentialStore>());
+      expect(chmodOwnerOnlyDirSync, isA<void Function(String)>());
+      expect(
+        const LoginStoreCollisionError(providerId: 'codex', dedicatedPath: '/a', loginPath: '/b'),
+        isA<Exception>(),
+      );
+    });
   });
 }

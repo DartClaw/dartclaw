@@ -130,6 +130,25 @@ final class GatewayDenied implements Exception {
   String toString() => 'GatewayDenied($status): $reason';
 }
 
+/// The host-held credential for [providerId] can no longer be presented, and no
+/// retry or refresh will repair it.
+///
+/// Distinct from [GatewayDenied], which refuses one request and leaves the
+/// authority live: this ends the authority. A rate or usage limit is *not* this
+/// — those are transient conditions the operator waits out, and tearing an
+/// authority down over one would turn a wait into a lost turn.
+///
+/// [remediation] is operator-facing and names a command, never a credential.
+final class GatewayCredentialUnusable implements Exception {
+  const new({required this.providerId, required this.remediation});
+
+  final String providerId;
+  final String remediation;
+
+  @override
+  String toString() => 'GatewayCredentialUnusable($providerId): $remediation';
+}
+
 /// One host-enforced service a pipe can be bound to.
 abstract interface class GatewaySurfaceHandler {
   /// The surface this handler serves. A pipe accepts only its own.

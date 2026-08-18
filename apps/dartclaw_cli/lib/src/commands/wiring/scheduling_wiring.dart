@@ -27,6 +27,7 @@ class SchedulingWiring {
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
     required MemoryHandlers memoryHandlers,
+    required CredentialHealthMonitor credentialHealth,
     BehaviorFileService? behavior,
     ConfigNotifier? configNotifier,
   }) : _eventBus = eventBus,
@@ -35,6 +36,7 @@ class SchedulingWiring {
        _security = security,
        _sseBroadcast = sseBroadcast,
        _memoryHandlers = memoryHandlers,
+       _credentialHealth = credentialHealth,
        _behavior = behavior,
        _configNotifier = configNotifier;
 
@@ -45,6 +47,7 @@ class SchedulingWiring {
   final SecurityWiring _security;
   final SseBroadcast _sseBroadcast;
   final MemoryHandlers _memoryHandlers;
+  final CredentialHealthMonitor _credentialHealth;
   final BehaviorFileService? _behavior;
   final ConfigNotifier? _configNotifier;
 
@@ -62,6 +65,11 @@ class SchedulingWiring {
   late List<String> _systemJobNames;
   ChannelManager? _fallbackDeliveryChannelManager;
   late List<ScheduledJob> _scheduledJobs;
+
+  /// The single writer of per-provider credential health. Detecting paths other
+  /// than the scheduled probe report through this instance rather than firing
+  /// their own event.
+  CredentialHealthMonitor get credentialHealth => _credentialHealth;
 
   ScheduleService? get scheduleService => _scheduleService;
   HeartbeatScheduler? get heartbeat => _heartbeat;
@@ -218,6 +226,16 @@ class SchedulingWiring {
         'archive after ${config.memory.archiveAfterDays}d)',
       );
     }
+
+    // Register credential health as a built-in scheduled job, and probe once
+    // here so a serve started with an already-degraded credential reports it
+    // immediately instead of an hour later.
+    final credentialHealthJob = buildCredentialHealthJob(_credentialHealth);
+    _scheduledJobs.add(credentialHealthJob.job);
+    _displayJobs.add(credentialHealthJob.displayJob);
+    _systemJobNames.add(credentialHealthJob.job.id);
+    _log.info('Credential health scheduled (every $credentialHealthIntervalMinutes minutes)');
+    _log.info('Credential health: ${_credentialHealth.probe()}');
 
     final wiki = WikiPageStore(workspaceDir: config.workspaceDir);
     final inboxConfig = config.knowledge.inbox;
@@ -530,6 +548,31 @@ class SchedulingWiring {
 
     await kv.set('prune_history', jsonEncode(history));
   }
+}
+
+/// Probe interval for the built-in credential-health job.
+///
+/// Well below the Codex refresh-token lifetime and inside both per-provider
+/// warning windows, so a state change is surfaced within an hour of becoming
+/// true.
+const credentialHealthIntervalMinutes = 60;
+
+/// Builds the built-in `credential-health` job and its scheduling-UI row.
+({ScheduledJob job, Map<String, dynamic> displayJob}) buildCredentialHealthJob(CredentialHealthMonitor monitor) {
+  return (
+    job: ScheduledJob(
+      id: 'credential-health',
+      scheduleType: ScheduleType.interval,
+      intervalMinutes: credentialHealthIntervalMinutes,
+      onExecute: () async => monitor.probe(),
+    ),
+    displayJob: {
+      'name': 'credential-health',
+      'schedule': 'every $credentialHealthIntervalMinutes minutes',
+      'delivery': 'none',
+      'status': 'active',
+    },
+  );
 }
 
 CronExpression? validateMemoryJournalConfig(DartclawConfig config) {

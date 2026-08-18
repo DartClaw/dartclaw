@@ -14,8 +14,15 @@ export 'src/config_meta.dart' show ConfigMeta, ConfigMutability, ConfigFieldType
 export 'src/config_validator.dart' show ConfigValidator, ValidationError;
 export 'src/config_writer.dart' show ConfigWriter;
 export 'src/context_config.dart' show ContextConfig;
-export 'src/credential_registry.dart' show CredentialRegistry;
-export 'src/credentials_config.dart' show CredentialsConfig, CredentialEntry, CredentialType;
+export 'src/credential_registry.dart'
+    show
+        CredentialMode,
+        CredentialRegistry,
+        CredentialResolution,
+        CredentialUnavailableReason,
+        credentialRemediationFor,
+        credentialRenewalFor;
+export 'src/credentials_config.dart' show CredentialEntry, CredentialExpiry, CredentialType, CredentialsConfig;
 export 'src/dartclaw_config.dart' show DartclawConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
@@ -60,7 +67,7 @@ export 'src/project_config.dart'
     show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;
 export 'src/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
-export 'src/providers_config.dart' show ProviderEntry, ProvidersConfig;
+export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersConfig;
 export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/scheduling_config.dart' show SchedulingConfig;

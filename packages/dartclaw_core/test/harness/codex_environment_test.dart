@@ -258,5 +258,80 @@ void main() {
         expect(Directory(home).existsSync(), isFalse);
       });
     });
+
+    group('dedicated store mode', () {
+      late Directory root;
+      late String dedicatedHome;
+
+      setUp(() {
+        root = Directory.systemTemp.createTempSync('codex-dedicated-');
+        dedicatedHome = p.join(root.path, 'data', 'credentials', 'codex');
+        Directory(dedicatedHome).createSync(recursive: true);
+      });
+      tearDown(() {
+        if (root.existsSync()) root.deleteSync(recursive: true);
+      });
+
+      CodexEnvironment build({String? mcpServerUrl, String? mcpGatewayToken}) => CodexEnvironment.dedicated(
+        developerInstructions: 'be careful',
+        homePath: dedicatedHome,
+        mcpServerUrl: mcpServerUrl,
+        mcpGatewayToken: mcpGatewayToken,
+        // The operator's own login sits under this HOME; nothing on this
+        // lifecycle may read or copy from it.
+        platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path}),
+      );
+
+      /// The operator's interactive login, planted where the *seeded* lifecycle
+      /// copies from — without it, "was not copied" would pass vacuously.
+      Future<void> plantOperatorLogin() async {
+        Directory(p.join(root.path, '.codex')).createSync(recursive: true);
+        File(p.join(root.path, '.codex', 'auth.json')).writeAsStringSync('{"token":"OPERATOR-LOGIN"}');
+
+        final seeded = CodexEnvironment(
+          developerInstructions: 'control',
+          useSystemCodexHome: false,
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path}),
+        );
+        final seededHome = await seeded.setup();
+        addTearDown(seeded.cleanup);
+        expect(
+          File(p.join(seededHome, 'auth.json')).readAsStringSync(),
+          contains('OPERATOR-LOGIN'),
+          reason: 'control: the seeded lifecycle must copy this source, or the dedicated assertion proves nothing',
+        );
+      }
+
+      test('writes only generated configuration and never seeds the operator login', () async {
+        await plantOperatorLogin();
+        File(p.join(dedicatedHome, 'auth.json')).writeAsStringSync('{"tokens":{"access_token":"DEDICATED"}}');
+        final environment = build(mcpServerUrl: 'http://127.0.0.1:8081/mcp', mcpGatewayToken: 'test-token');
+
+        final home = await environment.setup();
+
+        expect(home, dedicatedHome);
+        expect(File(p.join(home, 'auth.json')).readAsStringSync(), contains('DEDICATED'));
+        expect(File(p.join(home, 'auth.json')).readAsStringSync(), isNot(contains('OPERATOR-LOGIN')));
+        expect(File(p.join(home, 'config.toml')).readAsStringSync(), contains('[mcp_servers.dartclaw]'));
+      });
+
+      test('points CODEX_HOME at the dedicated store', () async {
+        final environment = build(mcpGatewayToken: 'test-token');
+        await environment.setup();
+
+        expect(environment.environmentOverrides(), {'CODEX_HOME': dedicatedHome, 'DARTCLAW_MCP_TOKEN': 'test-token'});
+      });
+
+      test('cleanup leaves the store and its credential intact', () async {
+        File(p.join(dedicatedHome, 'auth.json')).writeAsStringSync('{"tokens":{"access_token":"DEDICATED"}}');
+        final environment = build();
+        await environment.setup();
+
+        await environment.cleanup();
+
+        expect(File(p.join(dedicatedHome, 'auth.json')).existsSync(), isTrue);
+        expect(Directory(dedicatedHome).existsSync(), isTrue);
+      });
+    });
   });
 }

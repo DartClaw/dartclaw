@@ -138,13 +138,21 @@ class TaskReviewService {
        _eventRecorder = eventRecorder,
        _runProcess = processRunner ?? _defaultProcessRunner;
 
+  // Accept stages and commits in the task worktree, so system-level git config
+  // (hooks, filters, sshCommand) would otherwise run in-band for the child.
+  // Matches WorktreeManager's default runner.
   static Future<ProcessResult> _defaultProcessRunner(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
   }) {
     if (executable == 'git') {
-      return SafeProcess.git(arguments, plan: const GitCredentialPlan.none(), workingDirectory: workingDirectory);
+      return SafeProcess.git(
+        arguments,
+        plan: const GitCredentialPlan.none(),
+        workingDirectory: workingDirectory,
+        noSystemConfig: true,
+      );
     }
     return Process.run(executable, arguments, workingDirectory: workingDirectory);
   }

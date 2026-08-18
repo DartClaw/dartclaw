@@ -4,8 +4,11 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillInventory, WorkspaceSkillLinker;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../codex_subscription_home.dart';
+import '../provider_credential_environment.dart';
 import 'project_wiring.dart';
 import 'storage_wiring.dart';
 
@@ -72,7 +75,11 @@ class TaskWiring {
     Set<String> Function(List<String>? allowedTools)? bridgedMcpToolsResolver,
     required ProviderExecutionInventory executionInventory,
     required MessageRedactor messageRedactor,
-  }) : _dataDir = dataDir,
+    Map<String, CredentialEntry> Function()? subscriptionCredentials,
+    CodexRefreshAuthority? codexRefresh,
+  }) : _codexRefresh = codexRefresh,
+       _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
+       _dataDir = dataDir,
        _eventBus = eventBus,
        _storage = storage,
        _project = project,
@@ -89,6 +96,73 @@ class TaskWiring {
   final ContainerAuthorityProvider? _containerAuthorities;
   final ProviderExecutionInventory _executionInventory;
   final MessageRedactor _messageRedactor;
+
+  /// Dedicated subscription stores, read when the workflow spawn environment is
+  /// built rather than cached at wiring time.
+  final Map<String, CredentialEntry> Function() _subscriptionCredentials;
+
+  /// The only thing that rotates the dedicated Codex store, shared with the
+  /// long-lived harness lane and the gateway so one refresh serves all three.
+  final CodexRefreshAuthority? _codexRefresh;
+
+  static Map<String, CredentialEntry> _noSubscriptionCredentials() => const {};
+
+  CredentialHealthMonitor? _credentialHealth;
+
+  /// Binds the single credential-health writer, built several wiring steps
+  /// after this class and therefore not a constructor argument.
+  set credentialHealth(CredentialHealthMonitor value) => _credentialHealth = value;
+
+  /// Announces a host-boundary credential condition through that writer.
+  ///
+  /// The in-`serve` workflow one-shot spawns on the host, so its refusals reach
+  /// no gateway and would otherwise produce no FR6 event at all. The severe
+  /// line is the degradation FR6 requires while no monitor is bound.
+  void _reportHostCredentialHealth({
+    required String providerId,
+    required CredentialHealthState state,
+    required String detail,
+    String? remediation,
+  }) {
+    final monitor = _credentialHealth;
+    if (monitor == null) {
+      _log.severe('Provider "$providerId" credential unusable: $detail${remediation == null ? '' : ' $remediation'}');
+      return;
+    }
+    monitor.report(providerId: providerId, state: state, detail: detail, remediation: remediation);
+  }
+
+  /// Answers the dedicated `CODEX_HOME` for a workflow spawn, or `null` for a
+  /// family with no dedicated store lane. Resolved per spawn, not at wiring
+  /// time, so a credential stored later needs no restart.
+  ///
+  /// Keyed on the executing provider id, not only its family: an alias with its
+  /// own `providers.<id>.auth` selects its own credential, and a family-keyed
+  /// decision here would hand it the other one.
+  ///
+  /// Exposed for tests because the refusal it raises precedes every spawn, so
+  /// there is no process seam downstream to observe it at.
+  @visibleForTesting
+  Future<String?> Function(String providerId, String providerFamily)? get subscriptionHomeResolver {
+    final authority = _codexRefresh;
+    if (authority == null) return null;
+    return (providerId, providerFamily) async {
+      if (providerFamily != ProviderIdentity.codex) return null;
+      return prepareCodexSubscriptionHome(
+        registry: CredentialRegistry(
+          credentials: config.credentials,
+          env: Platform.environment,
+          providers: config.providers,
+          subscriptions: _subscriptionCredentials(),
+        ),
+        authority: authority,
+        providerId: providerId,
+        family: providerFamily,
+        credentialsDir: config.credentialsDir,
+        onCredentialHealth: _reportHostCredentialHealth,
+      );
+    };
+  }
 
   /// Derives a containerized workflow step's bridged-MCP grant. Owned by
   /// `HarnessWiring`; injected here so the workflow runner uses the single
@@ -206,7 +280,12 @@ class TaskWiring {
     _compactionTaskEventSubscriber.subscribe(_eventBus);
 
     _runnerObserver = RunnerObserver(executions: executions, eventBus: _eventBus);
-    final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
+    final credentialRegistry = CredentialRegistry(
+      credentials: config.credentials,
+      env: Platform.environment,
+      providers: config.providers,
+      subscriptions: _subscriptionCredentials(),
+    );
     final workflowProviderIds = <String>{
       config.agent.provider,
       ...config.providers.entries.keys,
@@ -216,7 +295,7 @@ class TaskWiring {
         for (final providerId in workflowProviderIds)
           providerId: WorkflowCliProviderConfig(
             executable: _resolveWorkflowProviderExecutable(config, providerId),
-            environment: _providerEnvironmentForWorkflow(providerId, credentialRegistry),
+            environment: _providerEnvironmentForWorkflow(config, providerId, credentialRegistry),
             options: _providerOptionsForWorkflow(config, providerId),
           ),
       },
@@ -225,6 +304,7 @@ class TaskWiring {
       executionInventory: _executionInventory,
       diagnosticRedactor: _messageRedactor,
       eventBus: _eventBus,
+      subscriptionHomeResolver: subscriptionHomeResolver,
     );
 
     _taskExecutor = TaskExecutor(
@@ -313,15 +393,24 @@ class TaskWiring {
   }
 }
 
-Map<String, String> _providerEnvironmentForWorkflow(String providerId, CredentialRegistry registry) {
+Map<String, String> _providerEnvironmentForWorkflow(
+  DartclawConfig config,
+  String providerId,
+  CredentialRegistry registry,
+) {
   final environment = SafeProcess.sanitize(baseEnvironment: Platform.environment);
-  final apiKey = registry.getApiKey(providerId);
-  if (apiKey != null) {
-    for (final envVar in CredentialRegistry.envVarsFor(providerId)) {
-      environment[envVar] = apiKey;
-    }
-  }
-  return environment;
+  return overlayProviderCredential(
+    environment: environment,
+    registry: registry,
+    providerId: providerId,
+    // resolveFamily, not family: the latter is plain normalization, so a
+    // provider alias would never be recognized as the claude CLI it runs.
+    providerFamily: ProviderIdentity.resolveFamily(
+      providerId,
+      executable: _resolveWorkflowProviderExecutable(config, providerId),
+      options: _providerOptionsForWorkflow(config, providerId),
+    ),
+  );
 }
 
 String _resolveWorkflowProviderExecutable(DartclawConfig config, String providerId) {

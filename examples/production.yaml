@@ -38,7 +38,7 @@ guards:
 container:
   enabled: true
   image: dartclaw-sandbox:latest
-  mount_allowlist:
+  mounts:
     - ~/projects
 
 # One worker for each enabled isolation profile (workspace + restricted).

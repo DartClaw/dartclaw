@@ -6,6 +6,8 @@ import 'package:dartclaw_storage/dartclaw_storage.dart' show WikiSearchSource;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../codex_subscription_home.dart';
+import '../provider_credential_environment.dart';
 import '../serve_command.dart' show ExitFn, mcpDisallowedTools;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
@@ -30,7 +32,12 @@ class HarnessWiring {
     required MessageRedactor messageRedactor,
     required EventBus eventBus,
     ConfigNotifier? configNotifier,
-  }) : _dataDir = dataDir,
+    Map<String, CredentialEntry> Function()? subscriptionCredentials,
+    CodexRefreshAuthority? codexRefresh,
+    Map<String, String>? environment,
+  }) : _codexRefresh = codexRefresh,
+       _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
+       _dataDir = dataDir,
        _port = port,
        _harnessFactory = harnessFactory,
        _exitFn = exitFn,
@@ -38,7 +45,8 @@ class HarnessWiring {
        _security = security,
        _messageRedactor = messageRedactor,
        _eventBus = eventBus,
-       _configNotifier = configNotifier;
+       _configNotifier = configNotifier,
+       _environment = environment ?? Platform.environment;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -51,6 +59,29 @@ class HarnessWiring {
   final EventBus _eventBus;
   final ConfigNotifier? _configNotifier;
 
+  /// Process environment credential resolution and provider spawns read.
+  final Map<String, String> _environment;
+
+  /// Snapshot of the dedicated subscription stores, read when a spawn
+  /// environment is built rather than cached at wiring time.
+  final Map<String, CredentialEntry> Function() _subscriptionCredentials;
+
+  /// The only thing that rotates the dedicated Codex store, shared with the
+  /// gateway so DartClaw's own refreshes stay single-flight across host spawns
+  /// and mediated container requests alike.
+  final CodexRefreshAuthority? _codexRefresh;
+
+  static Map<String, CredentialEntry> _noSubscriptionCredentials() => const {};
+
+  /// A registry over the current credential state, rebuilt per use because
+  /// workers spawn long after wiring and the stored token can be re-issued.
+  CredentialRegistry _credentialRegistry() => CredentialRegistry(
+    credentials: config.credentials,
+    env: _environment,
+    providers: config.providers,
+    subscriptions: _subscriptionCredentials(),
+  );
+
   static final _log = Logger('HarnessWiring');
 
   late AgentHarness _harness;
@@ -62,6 +93,31 @@ class HarnessWiring {
   final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
       Map<TurnRunner, ContainerAuthorityLease>.identity();
   ContainerAuthorityLease? _primaryContainer;
+  CredentialHealthMonitor? _credentialHealth;
+
+  /// Binds the single credential-health writer, built several wiring steps
+  /// after this class and therefore not a constructor argument.
+  set credentialHealth(CredentialHealthMonitor value) => _credentialHealth = value;
+
+  /// Announces a host-boundary credential condition through that writer.
+  ///
+  /// The container boundary reports every refusal through the gateway's sink;
+  /// this is the same announcement for the host boundary, which reaches no
+  /// gateway at all. Until the monitor is bound — the primary lane's own spawn
+  /// precedes it — the severe line is the degradation FR6 requires.
+  void _reportHostCredentialHealth({
+    required String providerId,
+    required CredentialHealthState state,
+    required String detail,
+    String? remediation,
+  }) {
+    final monitor = _credentialHealth;
+    if (monitor == null) {
+      _log.severe('Provider "$providerId" credential unusable: $detail${remediation == null ? '' : ' $remediation'}');
+      return;
+    }
+    monitor.report(providerId: providerId, state: state, detail: detail, remediation: remediation);
+  }
 
   /// The primary authority's container name, captured on acquisition so a crash
   /// event can be attributed to the primary lane specifically.
@@ -241,7 +297,6 @@ class HarnessWiring {
       mcpGatewayToken: _resolvedGatewayToken,
     );
 
-    final credentialRegistry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
     final acpAgents = ProviderIdentity.normalizeKeys(config.harness.acp.agents, subject: 'Configured ACP provider IDs');
     final acpRequirementErrors = [
@@ -253,23 +308,27 @@ class HarnessWiring {
     _executionInventory = ProviderExecutionInventory.of(
       providerIds: {defaultProviderId, ...ProviderIdentity.normalizeKeys(config.providers.entries).keys},
       acpProviderIds: acpAgents.keys.toSet(),
+      credentialGate: (providerId) => _credentialRefusalFor(config, _credentialRegistry(), providerId),
     );
     // One startup emission point for every execution-boundary diagnostic:
     // deliberate weakenings, contexts that fail closed at first dispatch, and
-    // combinations this deployment resolves to but cannot run.
-    for (final warning in _policyResolver.hostOverrideWarnings()) {
-      _log.warning(warning);
+    // combinations this deployment resolves to but cannot run. The compatibility
+    // pass and the provider gate below both surface an unpresentable credential
+    // in the single author's words, so the same line is logged once.
+    final emittedWarnings = <String>{};
+    void warn(String warning) {
+      if (emittedWarnings.add(warning)) _log.warning(warning);
     }
-    for (final warning in _policyResolver.failClosedWarnings(agents: _agentDefs)) {
-      _log.warning(warning);
-    }
-    for (final warning in _policyResolver.providerCompatibilityWarnings(
-      inventory: _executionInventory,
-      defaultProviderId: defaultProviderId,
-      agents: _agentDefs,
-    )) {
-      _log.warning(warning);
-    }
+
+    _policyResolver.hostOverrideWarnings().forEach(warn);
+    _policyResolver.failClosedWarnings(agents: _agentDefs).forEach(warn);
+    _policyResolver
+        .providerCompatibilityWarnings(
+          inventory: _executionInventory,
+          defaultProviderId: defaultProviderId,
+          agents: _agentDefs,
+        )
+        .forEach(warn);
     // Reports an agent allowed a host tool this deployment cannot serve at
     // startup rather than at that agent's first container turn.
     for (final definition in _agentDefs) {
@@ -308,12 +367,12 @@ class HarnessWiring {
       );
       final validation = await ProviderValidator.validate(
         providers: validationProviders,
-        registry: credentialRegistry,
+        registry: _credentialRegistry(),
         defaultProvider: defaultProviderId,
+        credentialsDir: config.credentialsDir,
+        isHostExecution: (providerId) => !_policyResolver.resolveForPrimary(providerId: providerId).isContainer,
       );
-      for (final warning in validation.warnings) {
-        _log.warning(warning);
-      }
+      validation.warnings.forEach(warn);
       if (validation.errors.isNotEmpty) {
         throw StateError(validation.errors.join('\n'));
       }
@@ -338,12 +397,8 @@ class HarnessWiring {
           providerOptions: _providerOptions(config, defaultProviderId),
           containerManager: await _primaryContainerManager(defaultProviderId, allowedMcpTools: primaryBridgedMcpTools),
           guardChain: _primaryGuardChain,
-          environment: _providerEnvironment(
-            config,
-            defaultProviderId,
-            _credentialProviderIdForProvider(config, defaultProviderId),
-            credentialRegistry,
-          ),
+          environment: _providerEnvironment(config, defaultProviderId, _credentialRegistry(), _environment),
+          prepareSubscriptionHome: _subscriptionHomeFor(defaultProviderId),
         ),
       );
       _wireCompactionCallbacks(_harness);
@@ -599,6 +654,14 @@ class HarnessWiring {
           policy: request.policy,
         );
         if (!verdict.isSupported) {
+          if (verdict.reason == ProviderUnavailability.credential) {
+            _reportHostCredentialHealth(
+              providerId: request.providerId,
+              state: CredentialHealthState.reauthRequired,
+              detail: 'Host execution was refused at admission because the selected credential cannot be presented.',
+              remediation: verdict.message,
+            );
+          }
           throw WorkerCreationException(verdict.message);
         }
         final bridgedMcpTools = _bridgedMcpToolsFor(
@@ -650,12 +713,8 @@ class HarnessWiring {
               providerOptions: entry.options,
               containerManager: containerManager,
               guardChain: workerGuardChain,
-              environment: _providerEnvironment(
-                config,
-                request.providerId,
-                _credentialProviderIdForProvider(config, request.providerId),
-                credentialRegistry,
-              ),
+              environment: _providerEnvironment(config, request.providerId, _credentialRegistry(), _environment),
+              prepareSubscriptionHome: _subscriptionHomeFor(request.providerId),
             ),
           );
           _wireCompactionCallbacks(workerHarness);
@@ -839,6 +898,29 @@ class HarnessWiring {
     }
   }
 
+  /// The dedicated-home preparation for [providerId], or `null` for a provider
+  /// family with no dedicated store lane, for an API-key deployment, and for an
+  /// ACP registration — a dedicated `CODEX_HOME` is how a Codex subscription is
+  /// presented, and no subscription credential reaches an ACP agent.
+  Future<String?> Function()? _subscriptionHomeFor(String providerId) {
+    final authority = _codexRefresh;
+    if (authority == null || config.harness.acp[providerId] != null) return null;
+    final family = ProviderIdentity.resolveFamily(
+      providerId,
+      executable: _resolveProviderExecutable(config, providerId),
+      options: _providerOptions(config, providerId),
+    );
+    if (family != ProviderIdentity.codex) return null;
+    return () => prepareCodexSubscriptionHome(
+      registry: _credentialRegistry(),
+      authority: authority,
+      providerId: providerId,
+      family: family,
+      credentialsDir: config.credentialsDir,
+      onCredentialHealth: _reportHostCredentialHealth,
+    );
+  }
+
   HarnessFactoryConfig _buildFactoryConfig({
     required String executable,
     required HarnessConfig harnessConfig,
@@ -846,6 +928,7 @@ class HarnessWiring {
     required ContainerExecutor? containerManager,
     required GuardChain guardChain,
     required Map<String, String> environment,
+    Future<String?> Function()? prepareSubscriptionHome,
   }) => HarnessFactoryConfig(
     cwd: Directory.current.path,
     executable: executable,
@@ -870,6 +953,7 @@ class HarnessWiring {
     acpPermissionDecision: (request) => _acpPermissionDecision(guardChain, request),
     acpReverseCallAudit: _auditAcpReverseCall,
     environment: environment,
+    prepareSubscriptionHome: prepareSubscriptionHome,
   );
 
   MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {
@@ -1034,8 +1118,8 @@ GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter, 
 Map<String, String> _providerEnvironment(
   DartclawConfig config,
   String providerId,
-  String credentialProviderId,
   CredentialRegistry registry,
+  Map<String, String> baseEnvironment,
 ) {
   final providerFamily = ProviderIdentity.resolveFamily(
     providerId,
@@ -1043,27 +1127,50 @@ Map<String, String> _providerEnvironment(
     options: _providerOptions(config, providerId),
   );
   final environment = SafeProcess.sanitize(
-    baseEnvironment: Platform.environment,
+    baseEnvironment: baseEnvironment,
     extraEnvironment: providerFamily == ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
   );
-  final apiKey = registry.getApiKey(credentialProviderId);
-  if (apiKey != null) {
-    for (final envVar in CredentialRegistry.envVarsFor(credentialProviderId)) {
-      environment[envVar] = apiKey;
-    }
+  // An ACP agent owns its own authentication: nothing DartClaw resolves is
+  // presented to it, only the API key its registration explicitly names.
+  final acpAgent = config.harness.acp[providerId];
+  if (acpAgent != null) {
+    return overlayAcpCredential(environment: environment, credentials: config.credentials, agent: acpAgent);
   }
-  return environment;
+  return overlayProviderCredential(
+    environment: environment,
+    registry: registry,
+    providerId: providerId,
+    providerFamily: providerFamily,
+  );
 }
 
-String _credentialProviderIdForProvider(DartclawConfig config, String providerId) {
-  final acpEntry = config.harness.acp[providerId];
-  final modelProvider = acpEntry?.modelProvider?.trim().toLowerCase();
-  return switch (modelProvider) {
-    'anthropic' => 'claude',
-    'openai' => 'codex',
-    String value when value.isNotEmpty => value,
-    _ => providerId,
-  };
+/// Why [providerId] cannot present the credential selected for it, or `null`
+/// when it can — the credential half of every execution-admission verdict.
+///
+/// [CredentialUnavailableReason.noneConfigured] is not a refusal: nothing was
+/// selected, DartClaw presents nothing, and the vendor CLI's own login stays
+/// admissible. Every other reason means the operator forced a credential this
+/// deployment cannot present, and spawning anyway would authenticate the turn on
+/// the ambient login they ruled out — not injecting one is not the same as
+/// refusing one. A provider that declares it supplies its own credentials is
+/// left alone, matching the startup gate; so is an ACP registration, which is
+/// credential-isolated and therefore has no first-party selection to fail.
+String? _credentialRefusalFor(DartclawConfig config, CredentialRegistry registry, String providerId) {
+  final options = _providerOptions(config, providerId);
+  if (options['credentials_required'] == false || config.harness.acp[providerId] != null) return null;
+  final family = ProviderIdentity.resolveFamily(
+    providerId,
+    executable: _resolveProviderExecutable(config, providerId),
+    options: options,
+  );
+  final reason = registry.resolve(providerId, family: family).reason;
+  if (reason == null || reason == CredentialUnavailableReason.noneConfigured) return null;
+  return credentialRemediationFor(
+    reason,
+    providerId: providerId,
+    family: family,
+    credentialsDir: config.credentialsDir,
+  );
 }
 
 String _resolveProviderExecutable(DartclawConfig config, String providerId) {
@@ -1092,18 +1199,14 @@ Map<String, ProviderEntry> _effectiveWorkerProviderEntries(
 ) {
   final entries = <String, ProviderEntry>{
     for (final entry in ProviderIdentity.normalizeKeys(config.providers.entries).entries)
-      entry.key: ProviderEntry(
-        executable: entry.value.executable,
-        poolSize: entry.value.poolSize,
-        options: _withoutAcpValidationOptions(entry.value.options),
-      ),
+      entry.key: entry.value.copyWith(options: _withoutAcpValidationOptions(entry.value.options)),
   };
   for (final acpEntry in acpAgents.entries) {
     final providerId = acpEntry.key;
     final providerOverride = entries[providerId];
     final validation = acpValidationResults[providerId];
     final validationJson = validation?.toJson();
-    entries[providerId] = ProviderEntry(
+    entries[providerId] = (providerOverride ?? ProviderEntry(executable: acpEntry.value.binary)).copyWith(
       executable: acpEntry.value.binary,
       poolSize: validation?.status == AcpTargetValidationStatus.passed ? providerOverride?.poolSize ?? 0 : 0,
       options: {

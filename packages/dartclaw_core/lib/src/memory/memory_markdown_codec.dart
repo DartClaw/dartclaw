@@ -3,6 +3,12 @@ import 'dart:convert';
 import 'canonical_memory.dart';
 import 'memory_documents.dart';
 
+/// First line of every canonical memory document.
+///
+/// A reader that must distinguish canonical from legacy Markdown before
+/// choosing a parser tests for this prefix.
+const canonicalMemoryHeader = '# DartClaw Canonical Memory';
+
 /// Parses and renders deterministic, LF-terminated canonical memory Markdown.
 final class MemoryMarkdownCodec {
   const new();
@@ -10,7 +16,7 @@ final class MemoryMarkdownCodec {
   /// Renders [document] in stable field and record order with one final LF.
   String render(CanonicalMemoryDocument document) {
     final lines = <String>[
-      '# DartClaw Canonical Memory',
+      canonicalMemoryHeader,
       'Format-Version: $canonicalMemoryFormatVersion',
       'Role: ${document.role.wireName}',
     ];
@@ -40,7 +46,7 @@ final class MemoryMarkdownCodec {
     if (!markdown.endsWith('\n')) throw const FormatException('Canonical Markdown must end with LF');
     if (markdown.contains('\r')) throw const FormatException('Canonical Markdown must use LF line endings');
     final lines = markdown.substring(0, markdown.length - 1).split('\n');
-    if (lines.length < 3 || lines[0] != '# DartClaw Canonical Memory') {
+    if (lines.length < 3 || lines[0] != canonicalMemoryHeader) {
       throw const FormatException('Not canonical memory Markdown');
     }
     final formatVersion = _integer(_field(lines[1], 'Format-Version'), 'Format-Version');

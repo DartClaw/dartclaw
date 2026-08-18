@@ -207,5 +207,73 @@ harness:
       expect(accepted.harness.acp['goose']!.securityClassification, AcpSecurityClassification.hostOnly);
       expect(accepted.warnings, isEmpty);
     });
+
+    /// `credential` is the only path by which a DartClaw-managed credential
+    /// reaches an ACP agent, so a reference that cannot be presented has to be
+    /// visible at load — the spawn itself is silent about it.
+    group('credential reference', () {
+      String yamlWithCredential(String reference) =>
+          '''
+credentials:
+  anthropic:
+    api_key: \${ANTHROPIC_API_KEY}
+  literal:
+    api_key: sk-literal
+  project:
+    type: github-token
+    token: \${GITHUB_TOKEN}
+harness:
+  acp:
+    agents:
+      goose:
+        binary: goose
+        topology: direct
+        credential: $reference
+''';
+
+      const env = {'HOME': defaultTestHome, 'ANTHROPIC_API_KEY': 'sk-ant-configured', 'GITHUB_TOKEN': 'ghp-configured'};
+
+      test('an api_key entry parses and survives an equality round-trip', () {
+        final config = loadYaml(yamlWithCredential('anthropic'), env: env);
+
+        expect(config.harness.acp['goose']!.credential, 'anthropic');
+        expect(config.warnings, isEmpty);
+        expect(
+          config.harness.acp['goose'],
+          const AcpAgentConfig(binary: 'goose', topology: AcpAgentTopology.direct, credential: 'anthropic'),
+        );
+        expect(
+          const AcpAgentConfig(binary: 'goose', credential: 'anthropic'),
+          isNot(const AcpAgentConfig(binary: 'goose')),
+          reason: 'a dropped field in == would let a credentialed registration compare equal to an isolated one',
+        );
+      });
+
+      test('an unpresentable reference warns and leaves the agent uncredentialed', () {
+        final cases = {
+          'openai': 'is not a configured credentials entry',
+          'project': 'is not an api_key credential',
+          'literal': 'is a literal value with no environment variable name',
+        };
+
+        for (final entry in cases.entries) {
+          final config = loadYaml(yamlWithCredential(entry.key), env: env);
+
+          expect(config.harness.acp['goose']!.credential, isNull, reason: entry.key);
+          expect(
+            config.warnings,
+            anyElement(allOf(contains('harness.acp.agents.goose.credential'), contains(entry.value))),
+            reason: entry.key,
+          );
+        }
+      });
+
+      test('an entry whose environment variable is unset warns rather than presenting an empty key', () {
+        final config = loadYaml(yamlWithCredential('anthropic'), env: const {'HOME': defaultTestHome});
+
+        expect(config.harness.acp['goose']!.credential, isNull);
+        expect(config.warnings, anyElement(contains('resolves to an empty value')));
+      });
+    });
   });
 }

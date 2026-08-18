@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/runners/runners_command.dart';
+import 'package:dartclaw_cli/src/commands/auth/auth_command.dart';
 import 'package:dartclaw_cli/src/commands/config/config_command.dart';
 import 'package:dartclaw_cli/src/commands/deploy/deploy_command.dart';
 import 'package:dartclaw_cli/src/commands/google_auth_command.dart';
@@ -23,6 +24,7 @@ import 'package:dartclaw_cli/src/runner.dart';
 Future<void> main(List<String> args) async {
   final runner = DartclawRunner()
     ..addCommand(RunnersCommand())
+    ..addCommand(AuthCommand())
     ..addCommand(ConfigCommand())
     ..addCommand(DeployCommand())
     ..addCommand(GoogleAuthCommand())

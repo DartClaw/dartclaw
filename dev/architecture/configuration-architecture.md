@@ -80,7 +80,7 @@ Key characteristics:
 - **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
 - **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
 - **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
-- **Derived path getters** (`workspaceDir`, `sessionsDir`, `logsDir`, `searchDbPath`, `tasksDbPath`, etc.) computed from `server.dataDir`
+- **Derived path getters** (`workspaceDir`, `sessionsDir`, `logsDir`, `searchDbPath`, `tasksDbPath`, `credentialsDir`, etc.) computed from `server.dataDir`
 
 ### Section Config Classes
 
@@ -687,7 +687,7 @@ Comprehensive listing of all sections with hot-reload status:
 |---------|-------------|---------------|---------------------|
 | `agent` | `AgentConfig` | No | Default model, effort, max turns |
 | `advisor` | `AdvisorConfig` | No | Self-reflection triggers, model, effort |
-| `providers` | `ProvidersConfig` | No | Provider binary paths, hard worker-execution `pool_size`, provider-specific adapter options |
+| `providers` | `ProvidersConfig` | No | Provider binary paths, hard worker-execution `pool_size`, credential selection `auth` (`auto`/`subscription`/`api_key`; unset on an entry, so an alias whose resolved family differs from its own id inherits that family's selection, while an explicit value on the alias — including `auto` — wins), provider-specific adapter options |
 | `credentials` | `CredentialsConfig` | No | API key entries |
 
 ### Sessions & Governance

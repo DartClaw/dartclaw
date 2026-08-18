@@ -379,3 +379,19 @@ Last reviewed: 2026-06-27
 **Needs decision**: multi-instance safety of a `dartclaw-<hash(dataDir)>-` prefix sweep when instances share a data dir.
 
 **Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).
+
+## TD-122 – Workflow one-shot steps bypass the guard chain entirely
+
+**Severity**: High (on a default install, a workflow step's only tool gating is its own `allowedTools` allow-list)
+**Found**: 2026-08-18, verified from the Lean Runtime handoff's 0.24.2 candidate list
+**Affects**: `packages/dartclaw_server/lib/src/task/task_executor.dart` (`_isWorkflowOrchestrated` routing), `task/workflow_one_shot_runner.dart`, `task/cli_provider.dart`, `task/claude_cli_provider.dart`, `task/codex_cli_provider.dart`
+
+**Context**: `task_executor` routes a workflow-orchestrated task to `_workflowOneShotRunner`, which spawns the provider CLI directly. A repo-wide sweep for `GuardChain` / `TurnGuardEvaluator` / `evaluateGuards` across that whole path returns exactly one hit — a comment in `claude_cli_provider.dart` conceding the gap. So `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, `InputSanitizer`, and the guard audit log never evaluate a workflow step. What does constrain it: the step's `allowedTools` allow-list rendered into `--settings permissions.allow`, the read-only deny patterns, the denied native web tools, and container isolation when enabled. A step declaring no `allowedTools` and running outside a container builds no policy at all (`_ClaudeTaskPolicy.hasPolicy == false`) and is bounded only by the provider's defaults.
+
+**Why not fixed in 0.24.2**: the guard chain reaches the long-lived harness through the bidirectional control protocol (`--input-format stream-json` plus `hook_pre_tool` callbacks). The one-shot spawn is `--output-format stream-json` **output-only**, so there is no channel for a guard verdict to travel on, and `TurnGuardEvaluator` is additionally session-shaped (it needs `MessageService`/`SessionService` and inserts blocked-turn messages). Attaching it is not a wiring change.
+
+**Needs decision**: merge the one-shot and harness execution stacks (tracked as B2 in the private Lean Runtime brief), or give the one-shot path its own guard evaluation channel. Either is an architecture decision, not an incremental fix.
+
+**Mitigated in 0.24.2**: the container-disabled startup warning now says guards are not the boundary for workflow one-shot steps and names what is, and `docs/guide/security.md` § Guard System documents the exclusion and the safe configuration (container isolation + explicit `allowedTools` per step).
+
+Last reviewed: 2026-08-18

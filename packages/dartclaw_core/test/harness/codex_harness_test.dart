@@ -54,11 +54,13 @@ CodexHarness _buildHarness({
   Duration killGracePeriod = Duration.zero,
   Duration initializeTimeout = const Duration(seconds: 10),
   Duration turnTimeout = const Duration(seconds: 600),
+  Future<String?> Function()? prepareSubscriptionHome,
 }) {
   final fake = process ?? FakeCodexProcess(completeExitOnKill: true);
   return CodexHarness(
     cwd: '/tmp',
     executable: 'codex',
+    prepareSubscriptionHome: prepareSubscriptionHome,
     processFactory:
         processFactory ?? (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => fake,
     commandProbe: commandProbe ?? defaultCommandProbe,
@@ -72,6 +74,34 @@ CodexHarness _buildHarness({
     initializeTimeout: initializeTimeout,
     turnTimeout: turnTimeout,
   );
+}
+
+/// Builds a harness over a fresh fake process, starts it, and registers disposal.
+Future<({CodexHarness harness, FakeCodexProcess fake})> _startedHarness({
+  FakeCodexProcess? process,
+  HarnessConfig harnessConfig = const HarnessConfig(),
+  Map<String, dynamic>? providerOptions,
+  GuardChain? guardChain,
+  Duration turnTimeout = const Duration(seconds: 600),
+}) async {
+  final fake = process ?? FakeCodexProcess(completeExitOnKill: true);
+  final harness = _buildHarness(
+    process: fake,
+    harnessConfig: harnessConfig,
+    providerOptions: providerOptions,
+    guardChain: guardChain,
+    turnTimeout: turnTimeout,
+  );
+  addTearDown(() async => harness.dispose());
+  await startHarness(harness, fake);
+  return (harness: harness, fake: fake);
+}
+
+/// Records every bridge event the harness emits until the test tears down.
+List<BridgeEvent> _collectEvents(CodexHarness harness) {
+  final events = <BridgeEvent>[];
+  addTearDown(harness.events.listen(events.add).cancel);
+  return events;
 }
 
 Future<void> _pumpUntilSentMessageCount(FakeCodexProcess process, String method, int count) async {
@@ -220,10 +250,7 @@ void main() {
       });
 
       test('turn timeout bounds an unanswered thread start', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake, turnTimeout: const Duration(milliseconds: 20));
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness(turnTimeout: const Duration(milliseconds: 20));
 
         final turn = harness.turn(
           sessionId: 'unanswered-thread',
@@ -244,9 +271,7 @@ void main() {
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         final startFuture = harness.start();
         await waitForSentMessage(fake, 'initialize');
@@ -261,9 +286,7 @@ void main() {
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         await startHarnessV118(harness, fake);
 
@@ -342,14 +365,9 @@ void main() {
       test(
         'lazily creates a thread on first turn, streams events, auto-approves requests, and returns usage',
         () async {
-          final fake = FakeCodexProcess(completeExitOnKill: true);
-          final harness = _buildHarness(process: fake);
-          addTearDown(() async => harness.dispose());
-          await startHarness(harness, fake);
+          final (:harness, :fake) = await _startedHarness();
 
-          final events = <BridgeEvent>[];
-          final sub = harness.events.listen(events.add);
-          addTearDown(() async => sub.cancel());
+          final events = _collectEvents(harness);
 
           final turnFuture = harness.turn(
             sessionId: 'sess-1',
@@ -419,12 +437,8 @@ void main() {
 
       test('does not emit approval resolved when approval response write fails', () async {
         final fake = _FailingWriteCodexProcess();
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final harness = (await _startedHarness(process: fake)).harness;
+        final events = _collectEvents(harness);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-approval-write-fails',
@@ -457,10 +471,7 @@ void main() {
       });
 
       test('reuses the same thread for repeated turns in the same session', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final firstTurn = harness.turn(
           sessionId: 'sess-thread',
@@ -497,13 +508,9 @@ void main() {
       });
 
       test('scoped instructions create and replace only the session thread', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
+        final (:harness, :fake) = await _startedHarness(
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
         );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
 
         final logicalAgentTurn = harness.turn(
           sessionId: 'sess-persona',
@@ -542,13 +549,9 @@ void main() {
       });
 
       test('primary memory revision replaces only its stale thread with full developer instructions', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
+        final (:harness, :fake) = await _startedHarness(
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'SAFE STATIC CONTENT'),
         );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
 
         Future<void> completeTurn(String sessionId, String prompt, String threadId) async {
           final expectedThreadStarts =
@@ -587,13 +590,9 @@ void main() {
       });
 
       test('explicit non-primary instructions displace configured primary memory', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
+        final (:harness, :fake) = await _startedHarness(
           harnessConfig: const HarnessConfig(appendSystemPrompt: 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42'),
         );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
 
         final turn = harness.turn(
           sessionId: 'restricted',
@@ -615,10 +614,7 @@ void main() {
       });
 
       test('resetSessionContinuity starts a fresh thread for the session', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final firstTurn = harness.turn(
           sessionId: 'sess-reset',
@@ -656,10 +652,7 @@ void main() {
       });
 
       test('creates separate threads for different sessions', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final firstTurn = harness.turn(
           sessionId: 'sess-a',
@@ -694,13 +687,9 @@ void main() {
       });
 
       test('derives previous_response_items from prior messages and uses provider settings', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
+        final (:harness, :fake) = await _startedHarness(
           providerOptions: const {'sandbox': ' workspace-write ', 'approval': ' on-request '},
         );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-history',
@@ -753,14 +742,10 @@ void main() {
       });
 
       test('falls back to harnessConfig.model when per-turn model is null', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
+        final (:harness, :fake) = await _startedHarness(
           harnessConfig: const HarnessConfig(model: 'gpt-5-default'),
           providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
         );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
 
         final turnFuture = harness.turn(
           sessionId: 'sess-default-model',
@@ -787,10 +772,7 @@ void main() {
       });
 
       test('includes duration_ms and error details for turn/failed without cost fields', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final resultFuture = harness.turn(
           sessionId: 'sess-failed',
@@ -814,10 +796,7 @@ void main() {
       });
 
       test('failed completed turn preserves detail and does not poison the next turn', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final failedTurn = harness.turn(
           sessionId: 'sess-auth',
@@ -863,10 +842,7 @@ void main() {
       });
 
       test('rejects a concurrent first turn while lazy thread creation is in progress', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
         final firstTurn = harness.turn(
           sessionId: 'sess-3',
@@ -952,14 +928,8 @@ void main() {
       });
 
       test('passes the turn sessionId into approval guard evaluation', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
         final guard = _PassGuard();
-        final harness = _buildHarness(
-          process: fake,
-          guardChain: GuardChain(guards: [guard]),
-        );
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness(guardChain: GuardChain(guards: [guard]));
 
         final turnFuture = harness.turn(
           sessionId: 'sess-guard',
@@ -1073,14 +1043,9 @@ void main() {
 
     group('compaction events', () {
       test('emits CompactionStartingBridgeEvent on contextCompaction item/started', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         await pumpEventLoop();
         fake.emitItemStarted('contextCompaction', 'compact-1');
@@ -1091,14 +1056,9 @@ void main() {
       });
 
       test('emits CompactionCompletedBridgeEvent on contextCompaction item/completed', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         await pumpEventLoop();
         fake.emitItemCompleted('contextCompaction', 'compact-1');
@@ -1109,14 +1069,9 @@ void main() {
       });
 
       test('emits both compaction events for a full compaction cycle', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         await pumpEventLoop();
         fake.emitItemStarted('contextCompaction', 'compact-2');
@@ -1132,14 +1087,9 @@ void main() {
       });
 
       test('thread/compactedNotification produces no bridge event', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
+        final (:harness, :fake) = await _startedHarness();
 
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(() async => sub.cancel());
+        final events = _collectEvents(harness);
 
         await pumpEventLoop();
         fake.emitLine({
@@ -1152,13 +1102,8 @@ void main() {
       });
 
       test('surfaces the project-trust warning once and still completes the turn', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake);
-        addTearDown(() async => harness.dispose());
-        await startHarness(harness, fake);
-        final events = <BridgeEvent>[];
-        final sub = harness.events.listen(events.add);
-        addTearDown(sub.cancel);
+        final (:harness, :fake) = await _startedHarness();
+        final events = _collectEvents(harness);
 
         fake.emitLine({
           'method': 'configWarning',
@@ -1261,6 +1206,72 @@ void main() {
           ),
           isTrue,
         );
+      });
+    });
+
+    group('dedicated subscription home', () {
+      test('a subscription-resolved host spawn runs against the dedicated store, not the operator login', () async {
+        final root = Directory.systemTemp.createTempSync('codex-harness-dedicated-');
+        addTearDown(() {
+          if (root.existsSync()) root.deleteSync(recursive: true);
+        });
+        // The operator's own login, which no code path in a subscription spawn
+        // may read, copy, or write.
+        Directory(p.join(root.path, '.codex')).createSync(recursive: true);
+        final operatorLogin = File(p.join(root.path, '.codex', 'auth.json'))
+          ..writeAsStringSync('{"token":"OPERATOR-LOGIN"}');
+        final dedicatedHome = Directory(p.join(root.path, 'credentials', 'codex'))..createSync(recursive: true);
+        File(p.join(dedicatedHome.path, 'auth.json')).writeAsStringSync('{"tokens":{"access_token":"DEDICATED"}}');
+
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        Map<String, String>? capturedEnvironment;
+        var gateCalls = 0;
+        final harness = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedEnvironment = environment == null ? null : Map<String, String>.from(environment);
+            return fake;
+          },
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path}),
+          // Default provider option, so the dedicated store wins over the
+          // system home rather than needing use_system_codex_home: false.
+          prepareSubscriptionHome: () async {
+            gateCalls++;
+            return dedicatedHome.path;
+          },
+        );
+        addTearDown(() async => harness.dispose());
+
+        await startHarness(harness, fake);
+
+        expect(gateCalls, 1, reason: 'the freshness gate runs before the spawn');
+        expect(capturedEnvironment!['CODEX_HOME'], dedicatedHome.path);
+        expect(
+          File(p.join(dedicatedHome.path, 'auth.json')).readAsStringSync(),
+          contains('DEDICATED'),
+          reason: 'the stored credential is left exactly as the vendor persisted it',
+        );
+        expect(operatorLogin.readAsStringSync(), '{"token":"OPERATOR-LOGIN"}');
+        expect(Directory(p.join(root.path, '.codex')).listSync().map((entry) => p.basename(entry.path)), [
+          'auth.json',
+        ], reason: 'nothing was written under the operator login either');
+      });
+
+      test('an api-key-resolved host spawn keeps the system home behavior', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        Map<String, String>? capturedEnvironment;
+        final harness = _buildHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            capturedEnvironment = environment == null ? null : Map<String, String>.from(environment);
+            return fake;
+          },
+          prepareSubscriptionHome: () async => null,
+        );
+        addTearDown(() async => harness.dispose());
+
+        await startHarness(harness, fake);
+
+        expect(capturedEnvironment!.containsKey('CODEX_HOME'), isFalse);
+        expect(capturedEnvironment!['OPENAI_API_KEY'], 'sk-test-key');
       });
     });
   });

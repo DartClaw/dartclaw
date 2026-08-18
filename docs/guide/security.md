@@ -19,6 +19,16 @@ User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider
 
 Guards evaluate tool calls, messages, and agent responses. First block wins. Exceptions = block (fail-closed).
 
+> **Workflow one-shot steps do not pass through the guard chain.** A workflow step runs as a single
+> non-interactive provider invocation rather than through the long-lived harness, and that path has no hook
+> channel for guards to evaluate on — so `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, and the
+> guard audit log do not apply to it. What does constrain such a step: the step's own `allowedTools` allow-list
+> (enforced by the provider), the read-only tool denials, the denied native web tools, and — when enabled —
+> container isolation with its `network:none` boundary and mount allowlist. A step that declares no
+> `allowedTools` and runs outside a container is therefore constrained only by the provider's own defaults.
+> Run workflows under container isolation, and declare `allowedTools` on every step, if a workflow may act on
+> untrusted input.
+
 ### Built-in Guards
 
 | Guard | Category | What It Blocks |
@@ -167,7 +177,8 @@ Container (network:none)                          Host
 │                            │             │          │            │
 └────────────────────────────┘             │          ▼            │
                                            │  api.anthropic.com /  │
-                                           │  api.openai.com       │
+                                           │  api.openai.com /     │
+                                           │  chatgpt.com backend  │
                                            └───────────────────────┘
 ```
 
@@ -180,26 +191,160 @@ Container (network:none)                          Host
 3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
    pipe the host opened. It chooses no destination and holds no credential.
 4. On the host, the adapter bound to that pipe pins the upstream origin, drops any client-supplied credential header,
-   and injects the host-held key before forwarding over HTTPS.
+   and injects the host-held credential before forwarding over HTTPS. The answer is filtered the same way on the way
+   back: the pipe is the only channel into the container, so credential-bearing response headers (`authorization`,
+   `x-api-key`, `proxy-authenticate`, `set-cookie`) are dropped before anything is written back — an upstream or error
+   page that reflects a request header would otherwise hand the host's credential into the boundary.
 
 ### Authentication Modes
 
-| Provider | Container mode | Host mode |
-|----------|----------------|-----------|
-| **Claude** | Host-held `ANTHROPIC_API_KEY` only. The adapter injects `x-api-key`; the container sees neither the key nor `~/.claude.json` | API key, OAuth login, or setup token |
-| **Codex** | A generated auth-clean home selects a custom Responses provider pointed at the host gateway with client authentication disabled. The host adapter supplies the upstream key | API key or the Codex CLI's own auth |
+**Subscription authentication is the default for both providers, on both execution boundaries.** When a subscription
+credential is stored, DartClaw presents it; an API key is used when no subscription credential is present, and stays a
+fully supported choice you can select explicitly. Exactly one credential is presented upstream per execution.
 
-Containerized Claude supports **API-key mediation only**. OAuth and setup-token logins have no credential-free
-mediation contract, so a container execution configured that way is rejected before the turn starts, naming host
-execution as the supported alternative – it is never silently downgraded. Set `ANTHROPIC_API_KEY` on the host for
-container mode, or select `execution: host` for that agent.
+| Provider | Host mode | Container mode |
+|----------|-----------|----------------|
+| **Claude** | The stored `setup-token` is passed to the real `claude` CLI as `CLAUDE_CODE_OAUTH_TOKEN`; the CLI makes its own calls | The host adapter injects `Authorization: Bearer <setup-token>` plus `anthropic-beta: oauth-2025-04-20`, drops any client-supplied auth header, and pins `api.anthropic.com`. The container holds no credential |
+| **Codex** | The real `codex` CLI runs against DartClaw's dedicated `CODEX_HOME` and owns refresh in that store | The host adapter re-pins the upstream to `https://chatgpt.com/backend-api/codex` and injects `Authorization: Bearer <access token>` plus `ChatGPT-Account-ID`, read from the dedicated store per request |
+| **Either, on an API key** | The key is injected into the harness subprocess environment | The adapter injects `x-api-key` (Claude, `api.anthropic.com`) or `Authorization: Bearer` (Codex, `api.openai.com`) |
+
+The Codex host row covers every host lane: the interactive and workflow lanes a running `dartclaw serve` owns, and a
+standalone `dartclaw workflow` run outside the server. All of them spawn the vendor CLI against the dedicated
+`CODEX_HOME`, never your own `~/.codex` login.
+
+The container boundary is unchanged by this. A containerized execution still runs with `network:none` and still holds no
+credential in its environment, filesystem, arguments, or generated configuration – only *which* credential the host
+injects on the outbound leg, and which upstream it is pinned to, differ between subscription and API-key mode.
+
+> **Note – container-mode Claude on a subscription.** The raw-`Authorization: Bearer` `setup-token` path is verified
+> against a real token: Anthropic accepted a stored `setup-token` presented as a raw Bearer under the
+> `oauth-2025-04-20` beta (pre-ship gate, 2026-08-17). There is no runtime `x-api-key` fallback: the Anthropic adapter selects its
+> header from the resolved credential mode alone, so an upstream refusal fails the turn rather than silently degrading
+> to a key. A 401 or 403 answered to a subscription turn is treated as the credential itself being refused — the
+> container is told why, the execution's container is destroyed, and the provider is marked `reauth-required` — rather
+> than being forwarded as a bare 401. Host-mode Claude is unaffected.
 
 The containerized Codex home is created fresh for each execution, contains only generated client configuration, and is
 deleted when the authority is released. The host's `~/.codex/` is never mounted or copied: a logged-in Codex will
 forward its saved bearer even when the client is told not to authenticate, so the only safe container home is one that
 was never seeded.
 
-For production, prefer API keys managed by the service environment or a secret manager over interactive login state.
+### Setting Up Subscription Authentication
+
+DartClaw keeps its own credential stores. When it resolves a subscription credential it takes the one in its own store,
+and it never writes back to your personal `~/.claude` or `~/.codex` login. (Two paths still *read* your own login: the
+startup auth-status probe, and `providers.codex.use_system_codex_home: false`, which seeds an isolated home from
+`~/.codex/auth.json`.) Store a credential per provider:
+
+```bash
+# Claude – issue a setup token with the vendor CLI, then hand it to DartClaw over stdin
+claude setup-token
+dartclaw auth claude          # prompts with hidden input, or accepts the token piped on stdin
+```
+
+`dartclaw auth claude` takes no argument. A token passed on a command line lands in your shell history and in the
+process list, so the command refuses positional arguments and reads the value only from stdin.
+
+```bash
+# Codex – DartClaw runs the vendor login against its own home
+dartclaw auth codex           # runs `codex login` with CODEX_HOME set to DartClaw's dedicated store
+```
+
+**Addressing the right instance.** The store is derived from `data_dir`, so `dartclaw auth` must resolve the same one
+`dartclaw serve` reads. Pass the global `--config` for the instance's YAML, and `--data-dir` whenever `serve` is started
+with a `--data-dir` that overrides the YAML value:
+
+```bash
+dartclaw --config /etc/dartclaw/dartclaw.yaml auth claude --data-dir /var/lib/dartclaw
+```
+
+A credential written against a different `data_dir` is invisible to the server, which refuses the provider as if none
+were stored – the refusal names the directory it searched, so compare that against the path `dartclaw auth` printed.
+
+**Where credentials live.** Both stores sit under the instance data directory (`~/.dartclaw` by default, or
+`$DARTCLAW_HOME` / the configured `data_dir`):
+
+| Provider | Path | Written by |
+|----------|------|------------|
+| Claude | `<data_dir>/credentials/claude/setup-token.json` | DartClaw, atomically (temp file + rename) |
+| Codex | `<data_dir>/credentials/codex/` – used as `CODEX_HOME`, holding the vendor's own `auth.json` | The `codex` CLI |
+
+On POSIX hosts, store directories are created `0700` and the Claude token file is written `0600`, owner-only. Windows
+has no equivalent step – the store inherits the data directory's ACLs, so restrict that directory yourself. Credential
+values never enter logs, `dartclaw status`, or the audit journal.
+
+**Collision refusal.** If a dedicated store path resolves onto one of your interactive login stores – `~/.claude`,
+`~/.codex`, or wherever `CLAUDE_CONFIG_DIR` / `CODEX_HOME` points – DartClaw refuses to open it rather than share a
+store with a second writer, and names the two colliding paths. Point `data_dir` – or `CODEX_HOME` / `CLAUDE_CONFIG_DIR`
+– somewhere distinct.
+
+**Renewal.** A Claude `setup-token` is static and lasts about a year: re-run `claude setup-token` and
+`dartclaw auth claude` before it lapses; DartClaw starts warning 30 days out. Codex rotates its own token in the
+dedicated store, but its refresh token goes stale eight days after the last write – re-run `dartclaw auth codex` then,
+and note the warning window is only the last 48 hours of that, so a Codex instance left idle for more than a week needs
+a re-login. Each command prints the store it used, and `dartclaw auth claude` also prints the derived expiry date.
+
+**Fail-closed admission.** An absent, expired, or refresh-failed credential is refused with a remediation naming the
+exact command to run, and a forced `auth` selection is never silently satisfied with the other credential type. The
+refusal lands at execution admission – container-authority registration or host-worker startup – before any turn runs.
+Startup validation treats the **default** provider strictly: an unsatisfiable credential there stops `dartclaw serve`.
+For a **secondary** provider startup only warns – but admission still refuses, so the first task, schedule, or logical-
+agent session that needs it fails with the same remediation instead of running on something else.
+
+A host-mode turn falls through to the agent binary's own login – Claude's `claude auth login`, Codex's `~/.codex`, or
+whatever an ACP agent authenticates with – in exactly three cases: when you have forced nothing (`auth: auto` with no
+credential configured, so DartClaw presents nothing and the CLI authenticates itself); when `credentials_required: false`
+skips the gate outright; and when the provider is a registered ACP agent (`harness.acp.agents.<id>`), which is never
+refused on credential grounds whatever its `auth:` says – including a forced `subscription` or `api_key`. An ACP agent
+is also **credential-isolated**: it receives no DartClaw-managed provider credential at all – not a subscription token,
+which is never forwarded to a third-party client, and not `credentials.anthropic`/`credentials.openai` – unless its
+registration names one explicitly with `harness.acp.agents.<id>.credential` (an API-key entry only). `model_provider`
+routes and validates; it selects no credential. Otherwise the agent authenticates itself from its own configuration,
+keyring, or login, as with other ACP hosts. Outside those, a forced `auth: subscription` or `auth: api_key` is never rescued that way. So configure the
+credential you intend rather than relying on the fall-through. See
+[Configuration § Provider authentication](configuration.md#provider-authentication) for the selection key.
+
+### Choosing Between Subscription and API Key
+
+A subscription credential is convenient and needs no metered API account, but it is a materially broader credential than
+a scoped API key. Read this before making subscription the credential your deployment runs on.
+
+- **Host-mode exposure.** The container boundary protects container mode only. In host mode the credential is present to
+  the agent's own subprocess – Claude as `CLAUDE_CODE_OAUTH_TOKEN` in its environment, Codex as the dedicated
+  `CODEX_HOME` on disk – so a host-mode agent with shell access can read and exfiltrate it. **Use an API key for
+  host-mode deployments running less-trusted agents**: losing a scoped, individually revocable key is a far smaller
+  event than losing a year-long full-account token.
+- **Blast radius.** A subscription Bearer authenticates as your whole account, is long-lived (~1 year for Claude), and
+  is harder to revoke than a scoped API key. Container isolation and execution-scoped authorities bound the window, but
+  a compromise anywhere drives calls under the broader credential. Choose an API key when you want least privilege or
+  independent revocation and billing.
+- **Terms-of-service residual on the container path.** Host-mode Claude runs the real CLI, which is the vendor-sanctioned
+  path. Container mode instead replays the token directly as a Bearer. DartClaw treats that form as permitted by
+  equivalence to the sanctioned Agent SDK path, but no primary source names it – and on a container-enabled deployment,
+  container is the default boundary. **An API key is
+  the ToS-conservative choice** and carries no such ambiguity. If the provider refuses the mediated form, the turn fails
+  with that rejection; DartClaw does not quietly retry under a different credential. Switch that provider to
+  `auth: api_key`, or give the affected agents `execution: host`.
+- **The Codex backend contract is not pinnable.** Container-mode Codex depends on the ChatGPT backend's Bearer contract,
+  which lives server-side at `chatgpt.com`. The container image pins the `codex` *binary*, not that behavior, so a
+  server-side change can break container-mode Codex regardless of the pinned binary. DartClaw detects a contract break
+  as a signature distinct from expiry and alerts on it separately, but the fallback is an API key.
+- **Subscription usage limits.** Subscription traffic draws on your plan's rate and usage limits rather than metered API
+  capacity, and the available model set differs from the platform API. A `429` is a usage condition, not a credential
+  fault – for Codex it is classified as one, so hitting a plan limit does not report as an expired credential.
+
+For production deployments, an API key managed by the service environment or a secret manager remains the most
+predictable choice: it is scoped, individually revocable, independently billed, and free of the container-path ToS
+residual.
+
+### Credential Health
+
+DartClaw probes credential health hourly and on startup, and surfaces it in three places: per-provider cards on
+`/settings`, the same fields as JSON on `GET /api/providers`, and – whenever health is degraded – a warning line on the
+`serve` process's stderr, written whether or not an alert target is configured (raising `logging.level` above `WARNING`
+suppresses it like any other warning). Degradation also raises a routed alert
+(nearing expiry and refresh failure as warnings; required re-authentication and a broken mediation contract as
+critical). See [Web UI and API § Provider credential health](web-ui-and-api.md#provider-credential-health).
 
 ### Security Properties
 

@@ -95,6 +95,7 @@ class ConfigNotifier {
     _detectChangedSimple('governance', old.governance, newConfig.governance, changedKeys);
     _detectChangedSimple('features', old.features, newConfig.features, changedKeys);
     _detectChangedSimple('projects', old.projects, newConfig.projects, changedKeys);
+    _detectChangedSimple('alerts', old.alerts, newConfig.alerts, changedKeys);
     if (changedKeys.isEmpty) return null;
 
     final restartFieldsChanged =

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../serve_command.dart' show ExitFn;
@@ -35,7 +36,11 @@ class SecurityWiring implements Reconfigurable {
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
     McpProtocolHandler Function()? mcpHandlerRef,
+    Map<String, CredentialEntry> Function()? subscriptionCredentials,
+    CodexRefreshAuthority? codexRefresh,
   }) : _dataDir = dataDir,
+       _codexRefresh = codexRefresh,
+       _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
        _mcpHandlerRef = mcpHandlerRef,
        _eventBus = eventBus,
        _exitFn = exitFn,
@@ -51,6 +56,17 @@ class SecurityWiring implements Reconfigurable {
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
+  /// Re-read per resolution rather than snapshotted at wiring time, so a
+  /// re-issued token reaches the next mediated request without a restart.
+  final Map<String, CredentialEntry> Function() _subscriptionCredentials;
+
+  /// The only thing that rotates the dedicated Codex store, shared with the
+  /// host lanes so DartClaw's own refreshes stay single-flight across both
+  /// execution boundaries. `null` leaves mediation on whatever the store holds.
+  final CodexRefreshAuthority? _codexRefresh;
+
+  static Map<String, CredentialEntry> _noSubscriptionCredentials() => const {};
+
   /// Resolved lazily: the MCP handler exists only after the server is built,
   /// while authorities are created at turn time.
   final McpProtocolHandler Function()? _mcpHandlerRef;
@@ -63,6 +79,9 @@ class SecurityWiring implements Reconfigurable {
   ContainerHealthMonitor? _containerHealthMonitor;
   final Map<String, _ContainerTemplate> _containerTemplates = {};
   final ContainerAuthorityCleanupOwner _containerAuthorities = ContainerAuthorityCleanupOwner();
+  // Lets a credential failure raised on an authority's own pipe find the lease
+  // that owns its container; entries live exactly as long as the lease does.
+  final Map<String, ContainerAuthorityLease> _authorityLeases = {};
   // Authority suffixes must not repeat across process restarts: ContainerManager
   // adopts a healthy same-named container, so a recycled name could hand a new
   // authority an orphan from a previous run.
@@ -99,6 +118,29 @@ class SecurityWiring implements Reconfigurable {
   /// Harness wiring owns the mapping and sets it during its own wire, which
   /// still precedes any container authority.
   set mcpToolCanonicals(Map<String, CanonicalTool> value) => _mcpToolCanonicals = Map.unmodifiable(value);
+
+  CredentialHealthMonitor? _credentialHealth;
+
+  /// Binds the single credential-health writer, which is built several wiring
+  /// steps after this class and cannot be a constructor argument.
+  ///
+  /// Until it is bound — the window before the monitor exists, and any
+  /// composition that has none — the refusal and classification paths degrade
+  /// to their log lines rather than losing the signal.
+  set credentialHealth(CredentialHealthMonitor value) => _credentialHealth = value;
+
+  /// The sink [HostGateway] announces every credential refusal through, both at
+  /// admission and mid-turn.
+  ///
+  /// Exposed because the gateway itself only exists in a Docker-enabled
+  /// deployment, and this seam must be provable without one.
+  @visibleForTesting
+  CredentialRefusalSink get credentialRefusalSink => _reportCredentialRefusal;
+
+  /// The sink the mediated Codex credential source reports refresh outcomes
+  /// through. Exposed for the same reason: the source is private to its adapter.
+  @visibleForTesting
+  void Function(CodexRefreshOutcome outcome) get codexRefreshOutcomeSink => _reportCodexRefreshOutcome;
 
   /// Creates a container dedicated to one live execution authority, with its
   /// host mediation established.
@@ -137,8 +179,10 @@ class SecurityWiring implements Reconfigurable {
         gateway: gateway,
         eventBus: _eventBus,
         monitor: _containerHealthMonitor,
+        onReleased: () => _authorityLeases.remove(authority.id),
       ),
     );
+    _authorityLeases[authority.id] = lease;
     try {
       await manager.start();
       _eventBus.fire(
@@ -191,7 +235,8 @@ class SecurityWiring implements Reconfigurable {
       if (_platformCapabilities.containerIsolationAvailable) {
         _log.warning(
           'Container isolation disabled — agent has full host access. '
-          'Guards are the only security boundary. '
+          'Guards are the only security boundary, and workflow one-shot steps do not pass through them: '
+          'their tool gating is the step\'s own allowedTools allow-list. '
           'Enable container isolation for production use (see docs/guide/security.md).',
         );
       } else {
@@ -272,20 +317,16 @@ class SecurityWiring implements Reconfigurable {
       _exitFn(1);
     }
 
-    // Containerized Claude is mediated by the host adapter, which needs a
-    // host-held API key. OAuth/setup-token has no credential-free mediation
-    // contract, so it is a host-execution mode only. This is a warning, not a
-    // startup failure: a deployment may legitimately run only Codex or only
-    // host Claude. The rejection itself happens at authority registration.
-    final claudeApiKey = CredentialRegistry(
-      credentials: config.credentials,
-      env: Platform.environment,
-    ).getApiKey('claude');
-    if (claudeApiKey == null || claudeApiKey.isEmpty) {
+    // Containerized Claude is mediated by the host adapter, which presents
+    // either a stored subscription credential or a host-held API key — never
+    // anything the container holds. This is a warning, not a startup failure: a
+    // deployment may legitimately run only Codex or only host Claude. The
+    // rejection itself happens at authority registration.
+    if (!_resolveCredential(ProviderIdentity.claude).isPresent) {
       _log.warning(
-        'No host-held Claude API key is configured – containerized Claude executions will be rejected. '
-        'Set ANTHROPIC_API_KEY for container mode, or select execution: host for Claude agents '
-        '(OAuth/setup-token authentication is supported for host execution only).',
+        'No host-held Claude credential is configured – containerized Claude executions will be rejected. '
+        'Run "claude setup-token" and store it with "dartclaw auth claude", set ANTHROPIC_API_KEY, '
+        'or select execution: host for Claude agents.',
       );
     }
 
@@ -361,10 +402,12 @@ class SecurityWiring implements Reconfigurable {
 
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
-      providerAdapters: _buildProviderAdapters(),
+      providerAdapters: buildProviderAdapters(),
       mcpHandler: _mcpHandlerRef,
       mcpToolCanonicals: () => _mcpToolCanonicals,
       onDenied: _auditGatewayDenial,
+      onCredentialRefused: _reportCredentialRefusal,
+      onCredentialUnusable: _tearDownAuthority,
     );
 
     _log.info(
@@ -373,15 +416,166 @@ class SecurityWiring implements Reconfigurable {
     );
   }
 
-  Map<String, ProviderMediator> _buildProviderAdapters() {
-    final registry = CredentialRegistry(credentials: config.credentials, env: Platform.environment);
-    // Each adapter owns one fixed upstream. Nothing downstream — least of all a
-    // container — can retarget it, and there is deliberately no configuration
-    // knob to point a credentialed adapter somewhere else.
-    return {
-      'claude': AnthropicMessagesAdapter(apiKey: () => registry.getApiKey('claude')),
-      'codex': OpenAiResponsesAdapter(apiKey: () => registry.getApiKey('codex')),
+  /// Builds the provider mediation adapters this deployment's gateway installs,
+  /// keyed by the provider id an execution actually names.
+  ///
+  /// One adapter per mediable provider id rather than one per family: a
+  /// container authority registers under the id its execution names, and the
+  /// credential it presents must come from *that* entry's `providers.<id>.auth`
+  /// — a family-keyed adapter would mediate an alias on the family's selection
+  /// and silently ignore an opt-out the host spawn path honors.
+  ///
+  /// Exposed so a test can assert what a configuration actually presents
+  /// upstream without standing up Docker.
+  @visibleForTesting
+  Map<String, ProviderMediator> buildProviderAdapters() {
+    // The two canonical ids are always mediable: a deployment that configures
+    // no `providers` entry at all still runs them.
+    final providerIds = {
+      ProviderIdentity.claude,
+      ProviderIdentity.codex,
+      ...config.providers.entries.keys.map(ProviderIdentity.normalize),
     };
+    return {for (final providerId in providerIds) providerId: ?_buildProviderAdapter(providerId)};
+  }
+
+  /// The adapter mediating [providerId], or `null` for a provider family this
+  /// build speaks no protocol for — which stays a registration refusal rather
+  /// than becoming an unmediated container.
+  ProviderMediator? _buildProviderAdapter(String providerId) {
+    final entry = config.providers[providerId];
+    // resolveFamily, not family: plain normalization reads an alias as its own
+    // family, which is how an aliased Claude provider ends up resolving no
+    // credential at all.
+    final family = ProviderIdentity.resolveFamily(providerId, options: entry?.options, executable: entry?.executable);
+    // Each adapter owns its fixed upstreams. Nothing downstream — least of all a
+    // container — can retarget one, and there is deliberately no configuration
+    // knob to point a credentialed adapter somewhere else.
+    return switch (family) {
+      ProviderIdentity.claude => AnthropicMessagesAdapter(
+        providerId: providerId,
+        credentialsDir: config.credentialsDir,
+        credential: ProviderCredentialSource(() => _resolveCredential(providerId, family: family)),
+      ),
+      ProviderIdentity.codex => OpenAiResponsesAdapter(
+        providerId: providerId,
+        credentialsDir: config.credentialsDir,
+        credential: CodexCredentialSource(
+          providerId: providerId,
+          resolve: () => _resolveCredential(providerId, family: family),
+          authority: _codexRefresh,
+          onRefreshOutcome: (outcome) => _reportCodexRefreshOutcome(outcome, providerId: providerId),
+        ),
+        onRejection: (rejection) => _reportCodexRejection(rejection, providerId: providerId),
+      ),
+      _ => null,
+    };
+  }
+
+  void _reportCodexRefreshOutcome(CodexRefreshOutcome outcome, {String providerId = ProviderIdentity.codex}) {
+    switch (outcome) {
+      case CodexCredentialPresented():
+        break;
+      case CodexCredentialRotatedAway():
+        // Losing the rotation race is the designed outcome of concurrent
+        // demand on a one-time-use token, not a degradation to announce.
+        _log.fine('Codex credential was rotated by another writer; continuing on the current token');
+      case CodexReauthRequired(:final detail, :final remediation):
+        _reportCodexCredentialHealth(
+          detail,
+          providerId: providerId,
+          state: CredentialHealthState.reauthRequired,
+          remediation: remediation,
+        );
+      case CodexRefreshFailed(:final detail):
+        _reportCodexCredentialHealth(detail, providerId: providerId, state: CredentialHealthState.refreshFailure);
+    }
+  }
+
+  void _reportCodexRejection(CodexRejection rejection, {String providerId = ProviderIdentity.codex}) {
+    // A plan limit resets on its own and a rejected model is a configuration
+    // choice: neither says anything about the credential, and reporting either
+    // as credential health would page the operator to re-authenticate one that
+    // works. Both still reach the operator through the log below.
+    final state = switch (rejection.kind) {
+      CodexRejectionKind.authExpired => CredentialHealthState.reauthRequired,
+      CodexRejectionKind.contractBreak => CredentialHealthState.contractBreak,
+      CodexRejectionKind.usageLimit || CodexRejectionKind.modelUnsupported => null,
+    };
+    _reportCodexCredentialHealth(rejection.describe(), providerId: providerId, state: state);
+  }
+
+  /// The one place a Codex credential signal leaves the mediation adapters.
+  ///
+  /// A [state] reports through the single credential-health writer, which owns
+  /// the transition dedup, the alert and the provider-status update — so a
+  /// refresh outage announces once rather than once per mediated request. A
+  /// null [state], or an unbound monitor, falls back to the log line: FR6
+  /// requires credential health to degrade rather than go silent.
+  void _reportCodexCredentialHealth(
+    String detail, {
+    required String providerId,
+    CredentialHealthState? state,
+    String? remediation,
+  }) {
+    final monitor = _credentialHealth;
+    if (state == null || monitor == null) {
+      _log.warning('Provider "$providerId": $detail${remediation == null ? '' : ' $remediation'}');
+      return;
+    }
+    monitor.report(providerId: providerId, state: state, detail: detail, remediation: remediation);
+  }
+
+  /// Resolves what the host presents for [providerId], honoring
+  /// `providers.<id>.auth` and the dedicated subscription stores.
+  ///
+  /// [family] is the provider's resolved credential family, so an alias reads
+  /// its own `auth` first and inherits the family's only when it sets none.
+  CredentialResolution _resolveCredential(String providerId, {String? family}) => CredentialRegistry(
+    credentials: config.credentials,
+    env: Platform.environment,
+    providers: config.providers,
+    subscriptions: _subscriptionCredentials(),
+  ).resolve(providerId, family: family);
+
+  /// Announces a credential the host cannot present, at the point of refusal.
+  ///
+  /// Every refusal path meets the operator here, so the announcement is one
+  /// decision rather than one per detecting path. A refused credential is one
+  /// the operator must re-authenticate, so it enters the credential-health
+  /// writer as [CredentialHealthState.reauthRequired]; that writer dedups the
+  /// transition and updates the provider cards as well as alerting. With no
+  /// monitor bound the severe line stays the degradation — the fail-closed
+  /// diagnostic itself still reaches the caller as the refusal's own error.
+  void _reportCredentialRefusal(String providerId, String detail, {String? remediation}) {
+    final monitor = _credentialHealth;
+    if (monitor == null) {
+      final fix = remediation == null || detail.contains(remediation) ? '' : ' $remediation';
+      _log.severe('Provider "$providerId" credential unusable: $detail$fix');
+      return;
+    }
+    monitor.report(
+      providerId: providerId,
+      state: CredentialHealthState.reauthRequired,
+      detail: detail,
+      remediation: remediation,
+    );
+  }
+
+  /// Ends the authority whose credential turned unusable mid-turn, through the
+  /// same lease path a normal release takes: revoke the mediation, then destroy
+  /// the container.
+  Future<void> _tearDownAuthority(GatewayAuthority authority) async {
+    final lease = _authorityLeases.remove(authority.id);
+    if (lease == null) {
+      await _gateway?.revoke(authority);
+      return;
+    }
+    try {
+      await lease.release();
+    } catch (error, stackTrace) {
+      _log.severe('Failed to release authority ${authority.id} after a credential failure', error, stackTrace);
+    }
   }
 
   /// Routes a bridge refusal into the existing guard audit trail.
@@ -500,10 +694,16 @@ class SecurityWiring implements Reconfigurable {
         claudeExecutable: config.server.claudeExecutable,
         model: config.security.contentGuardModel,
       );
-      _contentGuardFailOpen = true;
     }
 
     if (_contentClassifier != null) {
+      _contentGuardFailOpen = config.security.contentGuardFailOpen;
+      if (_contentGuardFailOpen) {
+        _log.warning(
+          'guards.content.fail_open is true — content the classifier cannot score reaches the agent unchecked. '
+          'Set guards.content.fail_open: false to block it instead.',
+        );
+      }
       _contentGuard = ContentGuard(
         classifier: _contentClassifier!,
         maxContentBytes: config.security.contentGuardMaxBytes,
@@ -539,9 +739,11 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
     required HostGateway gateway,
     required EventBus eventBus,
     required ContainerHealthMonitor? monitor,
+    void Function()? onReleased,
   }) : _gateway = gateway,
        _eventBus = eventBus,
-       _monitor = monitor;
+       _monitor = monitor,
+       _onReleased = onReleased;
 
   static final _log = Logger('ContainerAuthorityLease');
 
@@ -550,12 +752,14 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
   final HostGateway _gateway;
   final EventBus _eventBus;
   final ContainerHealthMonitor? _monitor;
+  final void Function()? _onReleased;
 
   @override
   ContainerExecutor get container => manager;
 
   @override
   Future<void> release() async {
+    _onReleased?.call();
     _monitor?.unwatch(manager.containerName);
     try {
       await _gateway.revoke(authority);

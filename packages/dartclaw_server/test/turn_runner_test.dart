@@ -617,6 +617,40 @@ void main() {
     expect(dailyLog.lengthSync(), lessThan(80 * 1024));
   });
 
+  test('a long assistant reply is persisted verbatim, not summarized or trimmed', () async {
+    // `accumulated` is the assistant's own reply. It used to run through
+    // ExplorationSummarizer — built for tool output — so a JSON-ish answer came
+    // back as a schema digest and anything over the byte cap as head+tail.
+    final runner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      explorationSummarizer: ExplorationSummarizer(trimmer: ResultTrimmer(maxBytes: 1024), thresholdTokens: 10),
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    final longJsonReply = '[${List.generate(400, (i) => '{"id":$i,"name":"row-$i"}').join(',')}]';
+    expect(longJsonReply.length, greaterThan(4096));
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent(longJsonReply));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'give me the rows'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.responseText, longJsonReply);
+    final persisted = await messages.getMessages(session.id);
+    expect(persisted.last.content, longJsonReply);
+  });
+
   test('daily log entry construction bounds title, user, and result before JSON encoding', () async {
     final memoryFile = MemoryFileService(baseDir: workspaceDir);
     addTearDown(memoryFile.dispose);

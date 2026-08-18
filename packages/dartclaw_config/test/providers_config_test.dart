@@ -230,4 +230,124 @@ providers:
       expect(config.warnings, anyElement(contains('Invalid type for providers')));
     });
   });
+
+  group('providers.<id>.auth', () {
+    test('parses the three accepted values and defaults to auto', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    auth: subscription
+  codex:
+    executable: codex
+    auth: api_key
+  other:
+    executable: other
+    auth: auto
+  unset:
+    executable: unset
+''');
+
+      expect(config.providers['claude']?.auth, ProviderAuth.subscription);
+      expect(config.providers['codex']?.auth, ProviderAuth.apiKey);
+      expect(config.providers['other']?.auth, ProviderAuth.auto);
+      // Unset stays null and is distinct from an explicit `auto`, so an alias
+      // can inherit its family's selection.
+      expect(config.providers['unset']?.auth, isNull);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('auth is a typed field, not an untyped option', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    auth: subscription
+''');
+
+      expect(config.providers['claude']?.options, isNot(contains('auth')));
+    });
+
+    test('an unrecognized value blocks reload and names the accepted values', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    auth: nonsense
+''');
+
+      // Blocking (`warns.add`), not advisory — a typo must not be reloadable.
+      expect(
+        config.reloadBlockingWarnings,
+        anyElement(
+          allOf(contains('providers.claude.auth: "nonsense"'), contains('accepted: auto, subscription, api_key')),
+        ),
+      );
+      expect(config.providers['claude']?.auth, ProviderAuth.unrecognized);
+    });
+
+    test('casing and surrounding whitespace are normalized, not treated as typos', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    auth: "  Subscription "
+  codex:
+    executable: codex
+    auth: API_KEY
+''');
+
+      expect(config.providers['claude']?.auth, ProviderAuth.subscription);
+      expect(config.providers['codex']?.auth, ProviderAuth.apiKey);
+      expect(config.reloadBlockingWarnings, isEmpty);
+    });
+
+    test('a non-string value is unrecognized rather than silently defaulted', () {
+      final config = loadYaml('''
+providers:
+  claude:
+    executable: claude
+    auth: true
+''');
+
+      expect(config.providers['claude']?.auth, ProviderAuth.unrecognized);
+      expect(config.reloadBlockingWarnings, anyElement(contains('providers.claude.auth')));
+    });
+
+    test('entries differing only in auth are unequal', () {
+      const unset = ProviderEntry(executable: 'claude');
+      const forced = ProviderEntry(executable: 'claude', auth: ProviderAuth.subscription);
+      const explicitAuto = ProviderEntry(executable: 'claude', auth: ProviderAuth.auto);
+
+      expect(unset.auth, isNull);
+      expect(unset, isNot(equals(forced)));
+      expect(unset.hashCode, isNot(equals(forced.hashCode)));
+      // An explicit `auto` is the operator's own choice, not an unset value.
+      expect(unset, isNot(equals(explicitAuto)));
+      expect(forced.toString(), contains('auth: subscription'));
+    });
+
+    test('copyWith carries every unnamed field, so a rebuild cannot drop auth', () {
+      const forced = ProviderEntry(
+        executable: 'codex',
+        poolSize: 3,
+        auth: ProviderAuth.subscription,
+        options: {'sandbox': 'workspace-write'},
+      );
+
+      final rebuilt = forced.copyWith(options: const {'sandbox': 'read-only'});
+
+      // A rebuild site that dropped `auth` would present the wrong credential
+      // while every other field still looked right.
+      expect(rebuilt.auth, ProviderAuth.subscription);
+      expect(rebuilt.executable, 'codex');
+      expect(rebuilt.poolSize, 3);
+      expect(rebuilt.options, {'sandbox': 'read-only'});
+
+      // An unset `auth` stays unset — materializing `auto` here would defeat
+      // the family inheritance an alias depends on.
+      const unset = ProviderEntry(executable: 'codex');
+      expect(unset.copyWith(options: const {'sandbox': 'read-only'}).auth, isNull);
+    });
+  });
 }

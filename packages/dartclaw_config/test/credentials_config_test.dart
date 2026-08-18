@@ -164,4 +164,71 @@ credentials:
       expect(config.warnings, anyElement(contains('credentials.github-main missing "token"')));
     });
   });
+
+  group('subscription credentials', () {
+    final issuedAt = DateTime.utc(2026, 8, 14, 9);
+    final expiry = CredentialExpiry(issuedAt: issuedAt, expiresAt: DateTime.utc(2027, 8, 14, 9), derived: true);
+
+    test('round-trips issued-at, expiry and derived flag through equality', () {
+      final entry = CredentialEntry.subscription(token: 'sk-ant-oat01-secret', expiry: expiry);
+      final same = CredentialEntry.subscription(
+        token: 'sk-ant-oat01-secret',
+        expiry: CredentialExpiry(issuedAt: issuedAt, expiresAt: DateTime.utc(2027, 8, 14, 9), derived: true),
+      );
+
+      expect(entry.expiry?.issuedAt, issuedAt);
+      expect(entry.expiry?.expiresAt, DateTime.utc(2027, 8, 14, 9));
+      expect(entry.expiry?.derived, isTrue);
+      expect(entry, equals(same));
+      expect(entry.hashCode, equals(same.hashCode));
+    });
+
+    test('a differing derived flag or expiry makes entries unequal', () {
+      final derived = CredentialEntry.subscription(token: 'token', expiry: expiry);
+      final exact = CredentialEntry.subscription(
+        token: 'token',
+        expiry: CredentialExpiry(issuedAt: issuedAt, expiresAt: DateTime.utc(2027, 8, 14, 9), derived: false),
+      );
+      final later = CredentialEntry.subscription(
+        token: 'token',
+        expiry: CredentialExpiry(issuedAt: issuedAt, expiresAt: DateTime.utc(2027, 9, 14, 9), derived: true),
+      );
+
+      expect(derived, isNot(equals(exact)));
+      expect(derived, isNot(equals(later)));
+    });
+
+    test('reports itself as a subscription credential', () {
+      final entry = CredentialEntry.subscription(token: 'token', expiry: expiry);
+
+      expect(entry.type, CredentialType.subscription);
+      expect(entry.isSubscriptionCredential, isTrue);
+      expect(entry.isApiKeyCredential, isFalse);
+      expect(entry.isPresent, isTrue);
+      expect(const CredentialEntry(apiKey: 'k').isSubscriptionCredential, isFalse);
+    });
+
+    test('toString leaks neither the token nor its prefix', () {
+      final claude = CredentialEntry.subscription(token: 'sk-ant-oat01-abcdef123456', expiry: expiry);
+      final codex = CredentialEntry.subscription(token: 'eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.signature');
+
+      expect(claude.toString(), isNot(contains('sk-ant')));
+      expect(claude.toString(), isNot(contains('abcdef123456')));
+      expect(claude.toString(), contains('***'));
+      expect(claude.toString(), contains('derived: true'));
+      expect(codex.toString(), isNot(contains('eyJ')));
+    });
+
+    test('YAML cannot declare a subscription credential', () {
+      final config = _loadYaml('''
+credentials:
+  anthropic:
+    type: subscription
+    api_key: sk-ant-oat01-from-yaml
+''');
+
+      expect(config.credentials.isEmpty, isTrue);
+      expect(config.warnings, anyElement(contains('credentials.anthropic has unknown "type" "subscription"')));
+    });
+  });
 }

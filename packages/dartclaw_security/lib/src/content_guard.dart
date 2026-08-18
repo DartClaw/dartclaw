@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
-import 'cloudflare_detector.dart';
 import 'content_classifier.dart';
 import 'guard.dart';
 import 'guard_verdict.dart';
@@ -57,12 +56,6 @@ class ContentGuard extends Guard {
 
     // Truncate to max bytes (UTF-8 safe)
     final truncated = truncateUtf8Bytes(content, maxContentBytes);
-
-    // Skip Cloudflare challenge pages
-    if (CloudflareDetector.isCloudflareChallenge(truncated)) {
-      _log.fine('Cloudflare challenge detected — skipping classification');
-      return GuardVerdict.pass();
-    }
 
     // Classify content
     try {

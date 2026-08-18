@@ -97,6 +97,12 @@ Future<void> chmodOwnerOnly(String path) => Platform.isWindows ? Future.value() 
 /// Synchronous counterpart to [chmodOwnerOnly].
 void chmodOwnerOnlySync(String path) => _chmodModeSync(path, Platform.isWindows ? null : 0x180);
 
+/// Restricts the directory at [path] to mode 700 on POSIX; no-op on Windows.
+///
+/// Directories need the execute bit to stay traversable, so [chmodOwnerOnlySync]
+/// (mode 600) must not be used on one.
+void chmodOwnerOnlyDirSync(String path) => _chmodModeSync(path, Platform.isWindows ? null : 0x1c0);
+
 Future<void> _chmodMode(String path, int mode) async {
   final modeText = mode.toRadixString(8).padLeft(3, '0');
   final result = await Process.run('chmod', [modeText, path]);

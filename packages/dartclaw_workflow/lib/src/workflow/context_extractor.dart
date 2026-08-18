@@ -9,7 +9,6 @@ import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, W
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'context_output_defaults.dart';
 import 'diff_artifact_reader.dart';
 import 'filesystem_output_resolver.dart' as fs;
 import 'json_extraction.dart';
@@ -277,8 +276,6 @@ class ContextExtractor {
       );
       outputs[outputKey] = '';
     }
-
-    applyContextOutputDefaults(step, outputs);
 
     for (final entry in outputs.entries) {
       final value = entry.value?.toString() ?? '';

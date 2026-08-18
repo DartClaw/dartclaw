@@ -7,10 +7,48 @@ enum CredentialType {
 
   /// GitHub token used for project automation.
   githubToken,
+
+  /// Subscription/OAuth token held in a DartClaw-owned dedicated store.
+  subscription,
 }
 
 const _credentialEntriesEquality = MapEquality<String, CredentialEntry>();
 const _envVarsEquality = ListEquality<String>();
+
+/// Resolved lifetime of a subscription credential.
+class CredentialExpiry {
+  /// When the credential was issued into the dedicated store.
+  final DateTime issuedAt;
+
+  /// When the credential stops being accepted upstream.
+  final DateTime expiresAt;
+
+  /// Whether [expiresAt] is a best-effort estimate rather than a value read
+  /// from the credential itself.
+  ///
+  /// A derived expiry drives proactive warnings only — a hard expiry the
+  /// derivation misses is still caught by the live authentication failure.
+  final bool derived;
+
+  /// Creates a resolved expiry, flagged [derived] when estimated.
+  const new({required this.issuedAt, required this.expiresAt, required this.derived});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CredentialExpiry &&
+          issuedAt == other.issuedAt &&
+          expiresAt == other.expiresAt &&
+          derived == other.derived;
+
+  @override
+  int get hashCode => Object.hash(issuedAt, expiresAt, derived);
+
+  @override
+  String toString() =>
+      'CredentialExpiry(issuedAt: ${issuedAt.toIso8601String()}, '
+      'expiresAt: ${expiresAt.toIso8601String()}, derived: $derived)';
+}
 
 /// A single credential entry with a resolved secret value.
 class CredentialEntry {
@@ -29,16 +67,28 @@ class CredentialEntry {
   /// Empty when the credential was configured with a literal value.
   final List<String> envVars;
 
-  /// const CredentialEntry({required String apiKey, this.envVars .
+  /// Resolved lifetime, present only for subscription credentials whose expiry
+  /// could be resolved.
+  final CredentialExpiry? expiry;
+
+  /// Creates an API-key credential.
   const new({required String apiKey, this.envVars = const <String>[]})
     : type = CredentialType.apiKey,
       secret = apiKey,
-      repository = null;
+      repository = null,
+      expiry = null;
 
   /// Creates a first-class GitHub token credential.
   const new githubToken({required String token, this.repository, this.envVars = const <String>[]})
     : type = CredentialType.githubToken,
-      secret = token;
+      secret = token,
+      expiry = null;
+
+  /// Creates a subscription credential read from a dedicated store.
+  const new subscription({required String token, this.expiry, this.envVars = const <String>[]})
+    : type = CredentialType.subscription,
+      secret = token,
+      repository = null;
 
   /// Backward-compatible API-key getter used by provider credential lookup.
   String get apiKey => secret;
@@ -55,6 +105,9 @@ class CredentialEntry {
   /// Whether this entry is a GitHub token credential.
   bool get isGitHubToken => type == CredentialType.githubToken;
 
+  /// Whether this entry is a subscription credential.
+  bool get isSubscriptionCredential => type == CredentialType.subscription;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -62,15 +115,17 @@ class CredentialEntry {
           type == other.type &&
           secret == other.secret &&
           repository == other.repository &&
+          expiry == other.expiry &&
           _envVarsEquality.equals(envVars, other.envVars);
 
   @override
-  int get hashCode => Object.hash(type, secret, repository, _envVarsEquality.hash(envVars));
+  int get hashCode => Object.hash(type, secret, repository, expiry, _envVarsEquality.hash(envVars));
 
   @override
   String toString() =>
       'CredentialEntry(type: ${type.name}, secret: ${secret.isEmpty ? "<empty>" : "***"}'
       '${repository == null ? "" : ", repository: $repository"}'
+      '${expiry == null ? "" : ", expiry: $expiry"}'
       '${envVars.isEmpty ? "" : ", envVars: $envVars"})';
 }
 

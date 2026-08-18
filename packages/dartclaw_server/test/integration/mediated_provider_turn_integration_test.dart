@@ -5,7 +5,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeCodeHarness;
+import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeCodeHarness, containerClaudeExecutable;
 import 'package:dartclaw_server/dartclaw_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -27,6 +27,10 @@ import 'container_integration_support.dart';
 const _proofFileName = 'mediated-proof.txt';
 const _proofContent = 'mediated-write-ok';
 const _scriptedToolUseId = 'toolu_mediated_write';
+
+/// Every header either credential mode could authenticate with, so a per-mode
+/// assertion can bound the set rather than deny one name at a time.
+const _credentialHeaders = {'authorization', 'x-api-key'};
 
 void main() {
   late String checkoutRoot;
@@ -53,15 +57,41 @@ void main() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
+  /// Resolves a stored `setup-token` exactly as the deployment's own wiring
+  /// does: a dedicated store snapshot plus `providers.claude.auth: subscription`
+  /// through the shipped registry, never a hand-built resolution.
+  ProviderCredentialSource subscriptionCredentialSource() {
+    final store = openSentinelCredentialStore(dataDir);
+    writeSentinelClaudeCredential(store);
+    final registry = CredentialRegistry(
+      credentials: const CredentialsConfig(),
+      env: const {},
+      providers: const ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: 'claude', auth: ProviderAuth.subscription)},
+      ),
+      subscriptions: store.readAll(),
+    );
+    return ProviderCredentialSource(() => registry.resolve('claude'));
+  }
+
   /// Assembles one real container authority with a Claude harness bound to it.
-  Future<_MediatedClaude> assembleMediatedClaude() async {
+  Future<_MediatedClaude> assembleMediatedClaude({bool subscription = false}) async {
     final name = 'dartclaw-mediated-claude-${DateTime.now().microsecondsSinceEpoch}';
     final workspace = await createImageOwnedWorkspace(p.join(dataDir.path, 'workspaces', name));
     final generatedStateDir = p.join(dataDir.path, 'containers', name);
+    // An execution with an artifacts contract gets this mounted read-write, so
+    // the boundary under test is the one a workflow step really runs behind —
+    // and the sweep below covers that mount rather than skipping it.
+    final artifactsDir = Directory(p.join(dataDir.path, 'artifacts', name))..createSync(recursive: true);
 
     final gateway = HostGateway(
       providerAdapters: {
-        'claude': AnthropicMessagesAdapter(apiKey: () => sentinelAnthropicCredential, upstream: upstream.uri),
+        'claude': AnthropicMessagesAdapter(
+          credential: subscription
+              ? subscriptionCredentialSource()
+              : ProviderCredentialSource.apiKey(() => sentinelAnthropicCredential),
+          upstream: upstream.uri,
+        ),
       },
     );
     final manager = ContainerManager(
@@ -70,6 +100,7 @@ void main() {
       profileId: 'workspace',
       workspaceMounts: ['${workspace.path}:/project:rw'],
       generatedStateDir: generatedStateDir,
+      artifactsDir: artifactsDir.path,
       bridgeBinaryPath: bridgeBinary,
       buildContextDir: checkoutRoot,
       workingDir: '/project',
@@ -89,10 +120,12 @@ void main() {
     final harness = ClaudeCodeHarness(
       cwd: workspace.path,
       containerManager: manager,
-      // Planted exactly where production holds the real host key. The sweep
-      // below then proves the container spawn *drops* it, rather than proving
-      // it was never anywhere to begin with.
-      environment: const {'ANTHROPIC_API_KEY': sentinelAnthropicCredential},
+      // Planted exactly where production holds the real host credential for
+      // this mode. The sweep below then proves the container spawn *drops* it,
+      // rather than proving it was never anywhere to begin with.
+      environment: subscription
+          ? const {'CLAUDE_CODE_OAUTH_TOKEN': sentinelClaudeSetupToken}
+          : const {'ANTHROPIC_API_KEY': sentinelAnthropicCredential},
       initializeTimeout: const Duration(seconds: 90),
       turnTimeout: const Duration(minutes: 4),
     );
@@ -165,6 +198,92 @@ void main() {
 
     // 4. And it exists on no surface the container can read.
     await fixture.expectSentinelUnreadable();
+  });
+
+  test('a containerized claude turn on a stored setup-token completes credential-free', () async {
+    upstream.script([
+      UpstreamReply.sse(
+        anthropicToolUseTurn(
+          toolName: 'Write',
+          toolUseId: _scriptedToolUseId,
+          input: {'file_path': '/project/$_proofFileName', 'content': _proofContent},
+        ),
+      ),
+    ]);
+    upstream.defaultTurnReply = UpstreamReply.sse(anthropicTextTurn('wrote the proof file'));
+    final fixture = await assembleMediatedClaude(subscription: true);
+
+    final result = await fixture.turn('Write the proof file.');
+
+    expect(result['is_error'], isFalse, reason: 'the mediated subscription turn must complete: $result');
+
+    // 1. The turn really ran: the container wrote through the mount, and the
+    //    scripted tool round-trip came back. Without this the sweep below would
+    //    be sweeping a container that never did any provider work.
+    final proof = File(p.join(fixture.workspace.path, _proofFileName));
+    expect(proof.existsSync(), isTrue, reason: 'the container-side write never reached the host workspace');
+    expect(proof.readAsStringSync(), _proofContent);
+    expect(fixture.toolResultIds(upstream), contains(_scriptedToolUseId));
+
+    // 2. Every hop to the upstream carries the subscription scheme — the raw
+    //    Bearer plus the beta that makes it acceptable — and never the API-key
+    //    header. Asserted per request: one correctly-shaped call among several
+    //    would still mean the others went out wrong.
+    expect(upstream.requests, isNotEmpty);
+    for (final request in upstream.requests) {
+      expect(request.headers['authorization'], 'Bearer $sentinelClaudeSetupToken');
+      expect(
+        request.headers['anthropic-beta']?.split(',').map((value) => value.trim()),
+        contains(AnthropicMessagesAdapter.oauthBeta),
+      );
+      // Enumerated rather than an absence check: exactly one credential-bearing
+      // header is presented, so an API key riding alongside the Bearer fails
+      // here even though each header on its own would look correct.
+      expect(request.headers.keys.toSet().intersection(_credentialHeaders), {'authorization'});
+    }
+
+    // 3. And the stored token exists on no surface the container can read,
+    //    including the state it was reading mid-turn.
+    await fixture.expectSentinelUnreadable(sentinels: const [sentinelClaudeSetupToken]);
+  });
+
+  test('the container surface is the same under subscription auth as under an API key', () async {
+    // Both arms run a real turn: an empty generated-state directory would make
+    // the file-name comparison below hold between two containers that never
+    // wrote anything, which is the vacuous version of this test.
+    upstream.defaultTurnReply = UpstreamReply.sse(anthropicTextTurn('mediation reached the upstream'));
+    final apiKey = await assembleMediatedClaude();
+    expect((await apiKey.turn('Reply with a short greeting.'))['is_error'], isFalse);
+    final subscription = await assembleMediatedClaude(subscription: true);
+    expect((await subscription.turn('Reply with a short greeting.'))['is_error'], isFalse);
+
+    final surfaces = <String, ContainerSurface>{
+      for (final arm in {'api-key': apiKey, 'subscription': subscription}.entries)
+        arm.key: await ContainerSurface.read(arm.value.authority),
+    };
+    final apiKeySurface = surfaces['api-key']!;
+    final subscriptionSurface = surfaces['subscription']!;
+    final generatedStateNames = {
+      for (final arm in {'api-key': apiKey, 'subscription': subscription}.entries)
+        arm.key: readAllFiles(arm.value.generatedStateDir).keys.map(withoutRunIdentifiers).toSet(),
+    };
+
+    // 1. `network:none` and nothing else attached, in both modes.
+    for (final entry in surfaces.entries) {
+      expect(entry.value.networkNames, {'none'}, reason: '${entry.key} attached a network beyond none');
+    }
+
+    // 2-4. Each set is enumerated and compared whole: an absence check would
+    //      pass for a subscription container that had gained a mount, an
+    //      environment variable, or a generated file the API-key one lacks.
+    expect(subscriptionSurface.mounts, apiKeySurface.mounts);
+    expect(subscriptionSurface.environmentNames, apiKeySurface.environmentNames);
+    expect(generatedStateNames['subscription'], generatedStateNames['api-key']);
+
+    // Positive controls: three empty sets would compare equal and prove nothing.
+    expect(apiKeySurface.mounts, isNotEmpty);
+    expect(apiKeySurface.environmentNames, isNotEmpty);
+    expect(generatedStateNames['api-key'], isNotEmpty, reason: 'neither turn generated state, so this is vacuous');
   });
 
   test('an upstream failure mid-turn surfaces as a failed turn, never a silent success', () async {
@@ -249,37 +368,71 @@ final class _MediatedClaude {
     if (generatedStateSnapshot.isEmpty) generatedStateSnapshot = readAllFiles(generatedStateDir);
   }
 
-  /// Fails when the host credential is readable from inside the boundary.
+  /// Fails when any of [sentinels] is readable from inside the boundary.
   ///
   /// The generated-state mount is swept host-side because it is the CLI's
   /// `CLAUDE_CONFIG_DIR` — whatever the client persisted there during the turn
   /// is exactly what a later container process could read back.
-  Future<void> expectSentinelUnreadable() async {
+  Future<void> expectSentinelUnreadable({List<String> sentinels = const [sentinelAnthropicCredential]}) async {
     final containerEnv = await _read(['env'], 'the container environment');
     final processEnviron = await _read(['sh', '-c', 'tr "\\0" "\\n" < /proc/1/environ'], 'PID 1 environ');
+    // The CLI is still running here — it is stopped in teardown — so this dump
+    // carries its own command line, the surface `docker inspect` cannot show
+    // because it reports only PID 1's `sleep infinity`.
+    final processArgv = await _read(['sh', '-c', containerArgvSweep], 'container process argv');
+    expect(
+      processArgv,
+      contains(containerArgvSweepMarker),
+      reason: 'the argv sweep did not read even its own command line, so its absences prove nothing',
+    );
+    expect(
+      processArgv,
+      contains(containerClaudeExecutable),
+      reason: 'the argv sweep did not capture the running CLI, so its absences prove nothing about the CLI',
+    );
     // `grep -r`, never `-l`: the list form prints only file *paths*, so a
-    // sentinel-absence assertion over it could never fail.
-    final tmp = await _read(['sh', '-c', 'grep -r "$sentinelAnthropicCredential" /tmp 2>/dev/null || true'], '/tmp');
+    // sentinel-absence assertion over it could never fail. One pattern per
+    // sentinel, because a leak of any one of them is a leak.
+    final scanned = <String>[];
+    for (final sentinel in sentinels) {
+      scanned.add(
+        await _read(['sh', '-c', 'grep -r "$sentinel" $sweptContainerPathArgs 2>/dev/null || true'], 'the swept paths'),
+      );
+    }
+    // Positive controls for the grep itself: a marker planted under every
+    // writable swept path proves it reaches all of them, and the proof file
+    // proves it also reads what the turn itself wrote.
+    await expectGrepReachesSweptPaths(authority);
+    expect(
+      await _read([
+        'sh',
+        '-c',
+        'grep -r "$_proofContent" $sweptContainerPathArgs 2>/dev/null || true',
+      ], 'the swept paths'),
+      contains(_proofContent),
+      reason: 'the in-container grep found nothing it should have found, so its absences prove nothing',
+    );
     final inspect = jsonEncode(await authority.inspect());
 
     final workspaceFiles = readAllFiles(workspace);
-    // Positive control: a sweep that reads nothing would pass vacuously, and
-    // this turn is known to have written the proof file.
+    // Positive controls: a sweep that reads nothing would pass vacuously, and
+    // this turn is known to have written the proof file and to have been
+    // mid-turn when the snapshot was taken.
     expect(workspaceFiles, isNotEmpty, reason: 'the workspace sweep read no files, so it proves nothing');
+    expect(generatedStateSnapshot, isNotEmpty, reason: 'the mid-turn sweep read no files, so it proves nothing');
 
     final surfaces = <String, String>{
       'container env': containerEnv,
       '/proc/1/environ': processEnviron,
-      '/tmp': tmp,
+      'container process argv': processArgv,
+      sweptContainerPathArgs: scanned.join('\n'),
       'docker inspect': inspect,
       for (final entry in workspaceFiles.entries) 'workspace/${entry.key}': entry.value,
       for (final entry in readAllFiles(generatedStateDir).entries) 'generated-state/${entry.key}': entry.value,
       for (final entry in generatedStateSnapshot.entries) 'generated-state (mid-turn)/${entry.key}': entry.value,
     };
 
-    surfaces.forEach((name, contents) {
-      expect(contents, isNot(contains(sentinelAnthropicCredential)), reason: 'the host credential leaked into $name');
-    });
+    expectSentinelsAbsent(surfaces, sentinels);
   }
 
   /// Reads a container surface, failing loudly when it cannot be read at all.

@@ -9,6 +9,7 @@ import 'package:dartclaw_storage/dartclaw_storage.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProcessRunner,
+        CliProviderAuthPreflight,
         CliSkillIntrospector,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
@@ -31,6 +32,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTurnOutcome,
         resolveIntegrationBranchName;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -44,6 +46,7 @@ import 'workflow/project_definition_paths.dart';
 import 'workflow/workflow_config_support.dart';
 import 'workflow/workflow_git_support.dart';
 import 'workflow/workflow_local_path_preflight.dart';
+import 'workflow/workflow_provider_environment.dart';
 import 'workflow/workflow_skill_preflight_config.dart';
 import 'wiring/scheduling_wiring.dart';
 import 'wiring/security_wiring.dart';
@@ -58,6 +61,25 @@ part 'service_wiring_result.dart';
 part 'service_wiring_builder.dart';
 
 typedef PostMcpStartupHook = Future<void> Function(ChannelWiring channel);
+
+/// The providers that present a credential, each mapped to the family whose
+/// credential it presents.
+///
+/// A provider declaring `credentials_required: false` — an ACP agent — is
+/// omitted: it has no credential to age, and reporting it unauthenticated would
+/// page the operator for a login that does not exist. This is the exemption
+/// `ProviderValidator` already applies at startup. The family is resolved
+/// (honoring a `family` option and the executable name) so a provider alias is
+/// aged against its vendor's window instead of falling through as unknown.
+Map<String, String> credentialedProviderFamilies(Map<String, ProviderEntry> entries) => {
+  for (final entry in entries.entries)
+    if (entry.value.options['credentials_required'] != false)
+      entry.key: ProviderIdentity.resolveFamily(
+        entry.key,
+        options: entry.value.options,
+        executable: entry.value.executable,
+      ),
+};
 
 /// Immutable holder for services produced by [ServiceWiring.wire].
 ///
@@ -97,6 +119,11 @@ class WiringResult {
   /// registry.
   final WorkflowRegistry workflowRegistry;
 
+  /// The in-`serve` workflow one-shot lane. Exposed so tests can assert on the
+  /// gates it was wired with — notably its provider-auth preflight, whose
+  /// absence silently disables the engine's own backstop.
+  final WorkflowService workflowService;
+
   const new({
     required this.server,
     required this.searchDb,
@@ -121,6 +148,7 @@ class WiringResult {
     required this.configNotifier,
     this.outboundMcpPool,
     required this.workflowRegistry,
+    required this.workflowService,
   });
 }
 
@@ -138,6 +166,17 @@ final class _WiringContext {
   final String? builtInSkillsSourceDir;
   final MessageRedactor messageRedactor;
 
+  /// Dedicated subscription credential stores, read per use so a re-issued
+  /// token reaches the next spawn or mediated request without a restart.
+  final SubscriptionCredentialStore subscriptions;
+
+  /// One refresh authority per dedicated Codex store for the whole process.
+  ///
+  /// Single-flight is a property of this instance, so a second one would be a
+  /// second refresher — exactly what the design forbids. Every DartClaw lane
+  /// that touches the store shares this one.
+  final CodexRefreshAuthority codexRefresh;
+
   late DartclawServerBuilder builder;
   late DartclawServer _serverRef;
   late TurnManager _serverTurns;
@@ -150,6 +189,8 @@ final class _WiringContext {
     required this.resolvedAssets,
     required this.builtInSkillsSourceDir,
     required this.messageRedactor,
+    required this.subscriptions,
+    required this.codexRefresh,
   });
 
   void bindServer(DartclawServer server) => _serverRef = server;
@@ -200,6 +241,22 @@ class ServiceWiring {
   /// Child-process seam passed to [SkillProvisioner] for deterministic tests.
   final ProcessRunner? skillProvisionerProcessRunner;
 
+  /// Environment the dedicated credential stores resolve the operator's own
+  /// login paths from, as [HarnessWiring] holds its own.
+  ///
+  /// Replaces the process environment rather than overlaying it, so a partial
+  /// map silently narrows the login-collision guard: without `HOME` the guard
+  /// stops covering `~/.codex` and `~/.claude` and checks only the relocation
+  /// variables it was given. Pass a complete environment or none.
+  final Map<String, String> _environment;
+
+  /// Bound at step 8 of [wire] — the monitor needs the built
+  /// `ProviderStatusService` — and read only by closures the probe lanes invoke
+  /// long afterwards.
+  CredentialHealthMonitor? _credentialHealth;
+
+  late _WiringContext _ctx;
+
   static final _log = Logger('ServiceWiring');
 
   new({
@@ -222,7 +279,9 @@ class ServiceWiring {
     this.runWorkflowSkillsBootstrap = true,
     this.skillProvisionerEnvironment,
     this.skillProvisionerProcessRunner,
+    @visibleForTesting Map<String, String>? environment,
   }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _environment = environment ?? Platform.environment,
        postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
 
   /// Constructs all services, wires them together via [DartclawServerBuilder],
@@ -238,6 +297,9 @@ class ServiceWiring {
     // 0.5. Skill bootstrap – must run before workflow execution so native
     // DartClaw skills are on disk for provider introspection and invocation.
     await _wireWorkflowSkillsBootstrap(builtInSkillsSourceDir);
+    // Opened once, before any consumer, so the login-collision guard runs
+    // ahead of every credential read this deployment performs.
+    final subscriptions = _openSubscriptionStore();
     final ctx = _WiringContext(
       eventBus: EventBus(),
       configNotifier: ConfigNotifier(config, platformCapabilities: platformCapabilities),
@@ -246,7 +308,16 @@ class ServiceWiring {
       resolvedAssets: resolvedAssets,
       builtInSkillsSourceDir: builtInSkillsSourceDir,
       messageRedactor: messageRedactor,
+      subscriptions: subscriptions,
+      codexRefresh: CodexRefreshAuthority(
+        store: subscriptions,
+        vendorRefresh: (codexHome) => refreshCodexAuth(
+          codexHome,
+          executable: resolveWorkflowProviderExecutable(config, config_tools.ProviderIdentity.codex),
+        ),
+      ),
     );
+    _ctx = ctx;
 
     // 0. Projects
     final project = await _wireProjects(ctx);
@@ -264,7 +335,7 @@ class ServiceWiring {
     final alertRouter = _wireAlertRouter(ctx, storage, channel);
     // 6. Build server – restart sentinel, provider status, builder pre-server cascade
     _wireRestartSentinel(ctx);
-    final providerStatus = await _wireProviderStatus(harness, security);
+    final providerStatus = await _wireProviderStatus(ctx, harness, security);
     ctx.builder = _buildServerBuilderPreServer(config, ctx, storage, harness, task, channel, security);
     ctx.bindTurns(ctx.builder.buildTurns());
     await ctx._serverTurns.detectAndCleanOrphanedTurns();
@@ -281,7 +352,20 @@ class ServiceWiring {
     final (lifecycleManager, pushBackFeedback) = await _wireThreadBinding(ctx, storage, channel);
     task.setPushBackFeedbackDelivery(pushBackFeedback);
     // 8. Scheduling
-    final scheduling = await _wireScheduling(ctx, storage, channel, harness, security);
+    final credentialHealth = _wireCredentialHealth(ctx, harness, providerStatus);
+    // Bound here rather than constructed with the security and harness layers:
+    // the monitor needs the ProviderStatusService the API reads, which exists
+    // only once the server builder has run. Both boundaries announce through it
+    // — the container's refusals via the gateway, the host's via admission and
+    // the dedicated-home preparation. The workflow one-shot lane is a third
+    // host producer: it prepares its own dedicated home per spawn, and those
+    // spawns happen long after this step. The probe lane is the fourth, for the
+    // same reason and with the same timing.
+    security.credentialHealth = credentialHealth;
+    harness.credentialHealth = credentialHealth;
+    task.credentialHealth = credentialHealth;
+    _credentialHealth = credentialHealth;
+    final scheduling = await _wireScheduling(ctx, storage, channel, harness, security, credentialHealth);
     final scopeReconciler = _wireScopeReconciler(ctx);
     final groupSessionInit = await _wireGroupSessionInit(ctx, storage, channel);
     final restartService = _buildRestartService(ctx, harness);
@@ -347,6 +431,17 @@ class ServiceWiring {
     );
   }
 
+  /// The collision guard is a security refusal, so it must reach the operator
+  /// as an actionable line rather than an unhandled stack trace out of `wire()`.
+  SubscriptionCredentialStore _openSubscriptionStore() {
+    try {
+      return SubscriptionCredentialStore.open(credentialsDir: config.credentialsDir, environment: _environment);
+    } on LoginStoreCollisionError catch (error) {
+      stderrLine(error.toString());
+      exitFn(1);
+    }
+  }
+
   static Future<void> _startSpaceEvents(ChannelWiring channel) async {
     if (channel.spaceEventsWiring != null) {
       await channel.spaceEventsWiring!.start();
@@ -394,6 +489,8 @@ class ServiceWiring {
       platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
+      subscriptionCredentials: ctx.subscriptions.readAll,
+      codexRefresh: ctx.codexRefresh,
       // Server ref resolved lazily – the MCP registry exists only after the
       // server is built, while authorities are created at turn time.
       mcpHandlerRef: () => ctx.serverRefGetter().mcpHandler,
@@ -414,6 +511,8 @@ class ServiceWiring {
       messageRedactor: ctx.messageRedactor,
       eventBus: ctx.eventBus,
       configNotifier: ctx.configNotifier,
+      subscriptionCredentials: ctx.subscriptions.readAll,
+      codexRefresh: ctx.codexRefresh,
     );
     // Server ref resolved lazily – closures in harness capture the getter.
     await harness.wire(serverRefGetter: ctx.serverRefGetter);
@@ -440,6 +539,8 @@ class ServiceWiring {
       bridgedMcpToolsResolver: security.containersEnabled ? harness.workflowBridgedMcpTools : null,
       executionInventory: harness.executionInventory,
       messageRedactor: ctx.messageRedactor,
+      subscriptionCredentials: ctx.subscriptions.readAll,
+      codexRefresh: ctx.codexRefresh,
     );
     await task.wirePreServer();
     return task;
@@ -517,38 +618,108 @@ class ServiceWiring {
     restartPendingFile.deleteSync();
   }
 
-  Future<ProviderStatusService> _wireProviderStatus(HarnessWiring harness, SecurityWiring security) async {
+  Future<ProviderStatusService> _wireProviderStatus(
+    _WiringContext ctx,
+    HarnessWiring harness,
+    SecurityWiring security,
+  ) async {
     final providerStatus = ProviderStatusService(
       providers: ProvidersConfig(entries: harness.providerStatusEntries),
-      registry: CredentialRegistry(credentials: config.credentials, env: Platform.environment),
+      registry: _credentialRegistry(ctx),
       defaultProvider: config.agent.provider,
       executions: harness.executions,
+      credentialsDir: config.credentialsDir,
     );
     await providerStatus.probe();
     return providerStatus;
+  }
+
+  /// A registry over the current credential state, including the dedicated
+  /// subscription stores, rebuilt per use so a re-issued token needs no restart.
+  config_tools.CredentialRegistry _credentialRegistry(_WiringContext ctx, {config_tools.ProvidersConfig? providers}) =>
+      config_tools.CredentialRegistry(
+        credentials: config.credentials,
+        env: Platform.environment,
+        providers: providers ?? config.providers,
+        subscriptions: ctx.subscriptions.readAll(),
+      );
+
+  CredentialHealthMonitor _wireCredentialHealth(
+    _WiringContext ctx,
+    HarnessWiring harness,
+    ProviderStatusService providerStatus,
+  ) {
+    final providers = ProvidersConfig(entries: harness.providerStatusEntries);
+    final credentialed = credentialedProviderFamilies(providers.entries);
+    return CredentialHealthMonitor(
+      eventBus: ctx.eventBus,
+      providerStatus: providerStatus,
+      credentialsDir: config.credentialsDir,
+      // Re-read per probe: a credential renewed between runs must be seen
+      // without a restart, and the registry holds a snapshot.
+      resolveCredentials: () {
+        final registry = _credentialRegistry(ctx, providers: providers);
+        return {
+          for (final entry in credentialed.entries)
+            entry.key: (family: entry.value, resolution: registry.resolve(entry.key, family: entry.value)),
+        };
+      },
+    );
   }
 
   WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
     return buildWorkflowSkillPreflightConfig(config);
   }
 
-  Map<String, String> _providerProbeEnvironment(String providerId, config_tools.CredentialRegistry registry) {
-    final providerFamily = config_tools.ProviderIdentity.resolveFamily(
-      providerId,
-      executable: resolveWorkflowProviderExecutable(config, providerId),
-      options: workflowProviderOptions(config, providerId),
-    );
-    final environment = SafeProcess.sanitize(
+  /// The environment the skill-introspection and auth probes spawn the vendor
+  /// CLI with. The registry is built here rather than passed in, so a credential
+  /// stored or rotated after wiring is the one the probe presents.
+  Future<Map<String, String>> _providerProbeEnvironment(_WiringContext ctx, String providerId) {
+    return buildWorkflowProbeEnvironment(
+      providerId: providerId,
+      providerFamily: config_tools.ProviderIdentity.resolveFamily(
+        providerId,
+        executable: resolveWorkflowProviderExecutable(config, providerId),
+        options: workflowProviderOptions(config, providerId),
+      ),
+      registry: _credentialRegistry(ctx),
       baseEnvironment: Platform.environment,
-      extraEnvironment: providerFamily == config_tools.ProviderIdentity.claude ? claudeHardeningEnvVars : const {},
+      codexRefresh: ctx.codexRefresh,
+      credentialsDir: config.credentialsDir,
+      onCredentialHealth: _reportProbeCredentialHealth,
     );
-    final apiKey = registry.getApiKey(providerId);
-    if (apiKey != null) {
-      for (final envVar in config_tools.CredentialRegistry.envVarsFor(providerId)) {
-        environment[envVar] = apiKey;
-      }
+  }
+
+  /// The probe environment for [providerId], for tests.
+  ///
+  /// Both probes spawn through `SafeProcess.run` with no injectable starter, so
+  /// there is no process seam downstream to observe what they were handed — the
+  /// same reason `CliWorkflowWiring` exposes its own.
+  @visibleForTesting
+  Future<Map<String, String>> providerProbeEnvironment(String providerId) =>
+      _providerProbeEnvironment(_ctx, providerId);
+
+  /// Announces a probe-lane Codex credential condition through the deployment's
+  /// single credential-health writer.
+  ///
+  /// The probes run the vendor CLI on the host, so their refusals reach no
+  /// gateway; and the hourly probe drives no refresh, so a spent or unreachable
+  /// refresh lineage discovered while preparing a probe's dedicated `CODEX_HOME`
+  /// would otherwise produce no FR6 event at all. The severe line is the
+  /// degradation FR6 requires while no monitor is bound — probes run long after
+  /// wiring, so that is only the case for a probe during startup.
+  void _reportProbeCredentialHealth({
+    required String providerId,
+    required CredentialHealthState state,
+    required String detail,
+    String? remediation,
+  }) {
+    final monitor = _credentialHealth;
+    if (monitor == null) {
+      _log.severe('Provider "$providerId" credential unusable: $detail${remediation == null ? '' : ' $remediation'}');
+      return;
     }
-    return environment;
+    monitor.report(providerId: providerId, state: state, detail: detail, remediation: remediation);
   }
 
   Future<WorkflowService> _wireWorkflowService(
@@ -558,10 +729,6 @@ class ServiceWiring {
     ProjectWiring project,
     WorkflowRoleDefaults workflowRoleDefaults,
   ) async {
-    final credentialRegistry = config_tools.CredentialRegistry(
-      credentials: config.credentials,
-      env: Platform.environment,
-    );
     final workflowService = WorkflowService(
       repository: storage.workflowRunRepository,
       taskService: storage.taskService,
@@ -587,7 +754,21 @@ class ServiceWiring {
         approvalPolicyDefault: config.workflow.approvals,
         structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
         skillIntrospector: CliSkillIntrospector(
-          environmentForProvider: (providerId) => _providerProbeEnvironment(providerId, credentialRegistry),
+          environmentForProvider: (providerId) => _providerProbeEnvironment(ctx, providerId),
+        ),
+        // The in-engine backstop is inert without this, so an in-`serve`
+        // workflow step assigned to a provider with no usable credential would
+        // otherwise spawn its host CLI ungated. The standalone lane injects the
+        // same preflight; both must gate or the two lanes disagree.
+        //
+        // The registry is resolved per evaluation, like the `TaskWiring` spawn
+        // this gate guards: a boot-time snapshot would refuse a step whose
+        // credential the operator stored after `serve` started, while the
+        // executor behind it would have run it.
+        providerAuthPreflight: CliProviderAuthPreflight(
+          credentials: () => _credentialRegistry(ctx),
+          environmentForProvider: (providerId) => _providerProbeEnvironment(ctx, providerId),
+          credentialsDir: config.credentialsDir,
         ),
         skillPreflightConfig: _buildSkillPreflightConfig(),
       ),
@@ -685,6 +866,7 @@ class ServiceWiring {
     ChannelWiring channel,
     HarnessWiring harness,
     SecurityWiring security,
+    CredentialHealthMonitor credentialHealth,
   ) async {
     final scheduling = SchedulingWiring(
       config: config,
@@ -694,6 +876,7 @@ class ServiceWiring {
       security: security,
       sseBroadcast: harness.sseBroadcast,
       memoryHandlers: harness.memoryHandlers,
+      credentialHealth: credentialHealth,
       behavior: harness.behavior,
       configNotifier: ctx.configNotifier,
     );

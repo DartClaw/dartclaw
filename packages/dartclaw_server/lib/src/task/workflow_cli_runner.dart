@@ -281,11 +281,23 @@ class WorkflowCliRunner {
   /// manufacture support this deployment does not have.
   final ProviderExecutionInventory? executionInventory;
 
+  /// Makes the DartClaw-dedicated subscription home usable before a host spawn
+  /// and answers its path, or `null` when this deployment presents an API key.
+  ///
+  /// Receives the execution's provider id as well as its resolved family: the
+  /// credential is selected per `providers.<id>.auth`, so an alias that
+  /// configures its own must not have this decided by its family's setting.
+  ///
+  /// Injected because the credential stores and the one refresh authority per
+  /// store are composed in `dartclaw_cli`, which this package cannot import.
+  final Future<String?> Function(String providerId, String providerFamily)? subscriptionHomeResolver;
+
   new({
     required this.providers,
     this.containerAuthorities,
     this.bridgedMcpToolsResolver,
     this.executionInventory,
+    this.subscriptionHomeResolver,
     EventBus? eventBus,
     WorkflowCliProcessStarter? processStarter,
     Uuid? uuid,
@@ -467,6 +479,10 @@ class WorkflowCliRunner {
         eventBus: _eventBus,
         uuid: _uuid,
         log: Logger('WorkflowCliRunner'),
+        prepareSubscriptionHome: switch (subscriptionHomeResolver) {
+          final resolve? => () => resolve(provider, providerFamily),
+          null => null,
+        },
       );
       return await impl.run(req);
     } finally {

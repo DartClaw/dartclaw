@@ -52,6 +52,12 @@ void main() {
         const b = SecurityConfig(contentGuardEnabled: false);
         expect(a, isNot(equals(b)));
       });
+
+      test('different contentGuardFailOpen are not equal', () {
+        const a = SecurityConfig(contentGuardFailOpen: true);
+        const b = SecurityConfig(contentGuardFailOpen: false);
+        expect(a, isNot(equals(b)));
+      });
     });
 
     group('AgentConfig', () {
@@ -274,6 +280,20 @@ void main() {
         final delta = ConfigNotifier(base).reload(updated);
 
         expect(delta, isNull);
+      });
+    });
+
+    group('ProvidersConfig', () {
+      test('auth participates in equality so ConfigNotifier sees a change', () {
+        const a = ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')});
+        const b = ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')});
+        const c = ProvidersConfig(
+          entries: {'claude': ProviderEntry(executable: 'claude', auth: ProviderAuth.subscription)},
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
       });
     });
 

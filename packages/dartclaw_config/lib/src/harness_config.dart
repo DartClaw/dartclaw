@@ -234,6 +234,14 @@ class AcpAgentConfig {
   /// Required container profile for relay/unverified agents.
   final AcpContainerProfile? containerProfile;
 
+  /// Name of the `credentials.<name>` API-key entry presented to this agent, or
+  /// `null` when the agent authenticates itself.
+  ///
+  /// The only path by which a DartClaw-managed credential reaches an ACP spawn:
+  /// nothing is presented implicitly, and a subscription credential is never
+  /// presented at all.
+  final String? credential;
+
   /// Creates an ACP agent registration.
   const new({
     required this.binary,
@@ -245,6 +253,7 @@ class AcpAgentConfig {
     this.requiredBuiltins = const [],
     this.containerIsolationRequired = false,
     this.containerProfile,
+    this.credential,
   });
 
   /// Derived security classification.
@@ -263,7 +272,8 @@ class AcpAgentConfig {
           requiresGuardMediation == other.requiresGuardMediation &&
           _stringListEquality.equals(requiredBuiltins, other.requiredBuiltins) &&
           containerIsolationRequired == other.containerIsolationRequired &&
-          containerProfile == other.containerProfile;
+          containerProfile == other.containerProfile &&
+          credential == other.credential;
 
   @override
   int get hashCode => Object.hash(
@@ -276,6 +286,7 @@ class AcpAgentConfig {
     _stringListEquality.hash(requiredBuiltins),
     containerIsolationRequired,
     containerProfile,
+    credential,
   );
 
   @override
@@ -283,5 +294,5 @@ class AcpAgentConfig {
       'AcpAgentConfig(binary: $binary, args: $args, topology: $topology, modelProvider: $modelProvider, '
       'verification: $verification, requiresGuardMediation: $requiresGuardMediation, '
       'requiredBuiltins: $requiredBuiltins, containerIsolationRequired: $containerIsolationRequired, '
-      'containerProfile: $containerProfile)';
+      'containerProfile: $containerProfile, credential: $credential)';
 }

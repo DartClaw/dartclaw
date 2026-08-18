@@ -316,11 +316,10 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
           return;
         }
 
-        final summary = _explorationSummarizer.summarizeOrTrim(
-          accumulated,
-          fileHint: _lastToolFileHint(toolHooks.lastToolEvent),
-        );
-        final persistedResponse = _redactor?.redact(summary) ?? summary;
+        // `accumulated` is the assistant's own reply, not explored tool output:
+        // summarizing it replaced a long answer with a schema digest, and the
+        // trim cut anything over context.max_result_bytes to head+tail.
+        final persistedResponse = _redactor?.redact(accumulated) ?? accumulated;
         await _messages.insertMessage(sessionId: sessionId, role: 'assistant', content: persistedResponse);
         await _sessions?.touchUpdatedAt(sessionId);
         outcome = TurnOutcome(
@@ -346,7 +345,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             userMessage: userMessageFull,
             toolEvents: toolHooks.toolEvents,
             toolEventCount: toolHooks.toolCallCount,
-            result: summary,
+            result: _explorationSummarizer.trim(accumulated),
           );
         } catch (e) {
           TurnRunner._log.warning('Failed to write daily log', e);

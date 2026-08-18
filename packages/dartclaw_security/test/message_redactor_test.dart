@@ -337,5 +337,83 @@ void main() {
       expect(latest.redact('FIRST=secret'), 'FIRST=secret');
       expect(latest.redact('SECOND=secret'), contains('***'));
     });
+
+    group('subscription tokens', () {
+      const header = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9';
+      const payload = 'eyJleHAiOjE3NzYyNDgwMDAsInN1YiI6ImNoYXRncHQtYWNjb3VudCJ9';
+      const signature = 'c2lnbmF0dXJlLWJ5dGVzLWhlcmU';
+      const jwt = '$header.$payload.$signature';
+
+      test('a bare JWT is redacted whole, leaving no segment intact', () {
+        final result = redactor.redact('codex store holds $jwt for the account');
+
+        expect(result, contains('***'));
+        expect(result, contains('codex store holds'));
+        expect(result, contains('for the account'));
+        for (final segment in [header, payload, signature]) {
+          expect(result, isNot(contains(segment)), reason: 'segment survived: $segment');
+        }
+      });
+
+      test('a JWT inside structured output is redacted by the pattern, not by the key name', () {
+        // Deliberately non-secret keys: `isSecretKey` rejects both, so the
+        // assignment passes leave these alone and only the JWT pattern can
+        // produce the redaction.
+        expect(MessageRedactor.isSecretKey('note'), isFalse);
+        expect(MessageRedactor.isSecretKey('id'), isFalse);
+
+        final result = redactor.redact('{"note": "$jwt"}\n- id = $jwt');
+
+        expect(result, contains('***'));
+        expect(result, isNot(contains(payload)));
+        expect(result, isNot(contains(signature)));
+      });
+
+      test('a Claude setup-token stays redacted', () {
+        final result = redactor.redact('CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-AbCdEf123456ZyXw');
+
+        expect(result, contains('***'));
+        expect(result, isNot(contains('AbCdEf123456ZyXw')));
+        expect(result, isNot(contains('sk-ant-oat01-A')));
+      });
+
+      test('dotted identifiers and short base64url triples are not mistaken for a JWT', () {
+        // Each of these is three dot-separated base64url-legal runs; only a real
+        // JWT header (`eyJ` + a decodable segment) may be redacted.
+        for (final safe in const [
+          'lib/src/storage/store.dart uses config.section.value',
+          'version 1.24.2 shipped',
+          'com.example.app started',
+          'eyJa.b.c is too short to be a token',
+        ]) {
+          expect(redactor.redact(safe), safe, reason: safe);
+        }
+      });
+    });
+  });
+
+  group('Codex dedicated-store credentials', () {
+    // The vendor writes the whole credential set under a `tokens` object, so
+    // the one shape DartClaw could ever emit is covered as a unit.
+    const authJson =
+        '{"OPENAI_API_KEY":null,"tokens":{"id_token":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhIn0.sig",'
+        '"access_token":"eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjE4MDB9.sig2",'
+        '"refresh_token":"rt-OPAQUE-SENTINEL-9zx","account_id":"acct-SENTINEL"},'
+        '"last_refresh":"2026-08-14T09:30:00Z"}';
+
+    test('an auth.json record leaves no token, refresh token, or account id behind', () {
+      final redacted = MessageRedactor().redact(authJson);
+
+      expect(redacted, isNot(contains('rt-OPAQUE-SENTINEL-9zx')));
+      expect(redacted, isNot(contains('acct-SENTINEL')));
+      expect(redacted, isNot(contains('eyJhbGciOiJSUzI1NiJ9')));
+      expect(redacted, contains('last_refresh'), reason: 'non-credential metadata stays readable');
+    });
+
+    test('a bare access token is redacted on its JWT shape alone', () {
+      final redacted = MessageRedactor().redact('presented eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjE4MDB9.sig2 upstream');
+
+      expect(redacted, isNot(contains('eyJleHAiOjE4MDB9')));
+    });
   });
 }

@@ -13,6 +13,7 @@ dartclaw --server localhost:4000 workflow runs
 
 Top-level command families:
 
+- `auth`
 - `runners`
 - `config`
 - `deploy`
@@ -49,6 +50,48 @@ dartclaw status
 Reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
 canonical role counts, exact observation usage and warning, and derived-index state. Missing or unreadable evidence is
 shown as `unknown`, never as zero or healthy.
+
+## Auth
+
+Stores provider subscription credentials for this DartClaw instance, in DartClaw's own credential stores under
+`<data_dir>/credentials/`. Your personal `~/.claude` and `~/.codex` logins are never read, written, or migrated. Both
+subcommands refuse positional arguments: a credential passed on a command line is recorded in shell history and visible
+in the process list.
+
+The store is derived from `data_dir`, so both subcommands must address the same instance the server reads. Pass the
+global `--config` for the instance's YAML, and `--data-dir` whenever `serve` is started with a `--data-dir` that
+overrides the YAML value – otherwise the credential lands in a store the server never opens.
+
+```bash
+dartclaw --config /etc/dartclaw/dartclaw.yaml auth claude --data-dir /var/lib/dartclaw
+```
+
+### `auth claude`
+
+```bash
+claude setup-token            # issue the token with the vendor CLI
+dartclaw auth claude          # then hand it to DartClaw
+```
+
+Reads a `setup-token` from stdin only – a masked prompt on a terminal, showing one `*` per typed character and never the
+value, or a piped value. Interrupting the prompt with Ctrl-C restores your terminal, stores nothing, and exits `130`.
+Writes the token to `<data_dir>/credentials/claude/setup-token.json` (owner-only, atomically) and reports the derived
+renewal date. Re-run both commands to renew.
+
+### `auth codex`
+
+```bash
+dartclaw auth codex
+```
+
+Runs `codex login` with `CODEX_HOME` pointed at `<data_dir>/credentials/codex/`, so the vendor CLI writes its
+credential into DartClaw's dedicated store instead of your own. The binary is `providers.codex.executable` when that is
+configured, so a non-PATH Codex is signed in with the same binary that runs the turns. The vendor CLI owns the
+credential and its refresh; DartClaw writes nothing itself. Re-run when the refresh token goes stale – re-running while
+already signed in is not an error; it reports that the existing credential was left in place and exits `0`.
+
+See [Security § Setting Up Subscription Authentication](security.md#setting-up-subscription-authentication) for store
+locations, renewal, and the trade-offs against API-key authentication.
 
 ## Runners
 

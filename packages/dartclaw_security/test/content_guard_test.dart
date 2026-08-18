@@ -40,11 +40,14 @@ void main() {
       expect(verdict.isBlock, isTrue);
     });
 
-    test('Cloudflare challenge passes (skipped)', () async {
-      // Even though classifier would classify as harmful, CF detection short-circuits
+    test('challenge-page markers do not exempt content from classification', () async {
+      // These markers used to short-circuit to pass, so any payload carrying one
+      // ('ray id:' is enough) reached the agent unclassified.
       classifier.result = 'harmful_content';
-      final verdict = await guard.evaluate(boundary('<title>Just a moment...</title><div>Checking your browser</div>'));
-      expect(verdict.isPass, isTrue);
+      final verdict = await guard.evaluate(
+        boundary('<title>Just a moment...</title><div>Checking your browser</div> ray id: 8f2c'),
+      );
+      expect(verdict.isBlock, isTrue);
     });
 
     test('classification error blocks (fail-closed, default)', () async {

@@ -356,7 +356,12 @@ that host interception is active.
 
 Codex CLI exposes installed skills through a `<skills_instructions>` available-skills index in the initial model context. Codex 0.121+ loads only skill metadata (name, description, and path), not full skill bodies. Full `SKILL.md` instructions are read from disk only when a skill is invoked or opened. If you are running an older Codex release without this optimization, every workflow turn pays the full skill-body cost; upgrade to 0.121+ to restore the metadata-only behavior.
 
-DartClaw therefore uses Codex's native skill loading directly. Runtime-provisioned workflow skills are installed under `<dataDir>/.agents/skills/` with the `dartclaw-` prefix, AndThen-provided Codex agents are installed under `<dataDir>/.codex/agents/`, and each configured project/worktree receives per-skill links into those data-dir payloads. Spawned Codex workflow one-shot turns run with the normal Codex profile and OAuth state. DartClaw does not create an isolated `CODEX_HOME` for workflow one-shot execution, does not symlink Codex auth files, and does not inline skill bodies into prompts. (The long-lived `dartclaw_core` Codex harness used for interactive sessions can establish its own `CODEX_HOME` isolation when `providers.codex.use_system_codex_home: false` is set; that isolated home seeds only `auth.json` and generates a standalone DartClaw config, while the default inherits the system home.)
+DartClaw therefore uses Codex's native skill loading directly. Runtime-provisioned workflow skills are installed under `<dataDir>/.agents/skills/` with the `dartclaw-` prefix, AndThen-provided Codex agents are installed under `<dataDir>/.codex/agents/`, and each configured project/worktree receives per-skill links into those data-dir payloads. DartClaw does not symlink Codex auth files and does not inline skill bodies into prompts.
+
+Which Codex home a host turn runs against depends on the credential the host presents:
+
+- **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Workflow one-shot turns run with the normal Codex profile and OAuth state and get no isolated `CODEX_HOME`; the long-lived harness used for interactive sessions inherits the system home unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
+- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host turn — interactive and workflow one-shot alike — runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; DartClaw never reads, copies, or writes your own `~/.codex` login, and `use_system_codex_home` does not apply.
 
 This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage while keeping DartClaw-managed skill payloads scoped to the configured data directory.
 
@@ -382,6 +387,8 @@ Check provider health at `GET /api/providers` or on the Settings page. DartClaw 
 - Whether the binary was found on `$PATH` (or at the configured executable path)
 - Detected version (from `--version` probe at startup)
 - Credential status (API key present/missing)
+- Credential health once it has been checked: credential mode, expiry (flagged when derived), last-checked time,
+  health state, and the remediation command when action is needed
 - Lease-derived configured/effective/active/queued/cached/quarantined worker counts
 
 ## Choosing the Right Model

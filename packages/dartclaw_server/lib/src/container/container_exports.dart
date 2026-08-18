@@ -17,6 +17,7 @@ export 'docker_validator.dart' show DockerValidator;
 export 'gateway/gateway_models.dart'
     show
         BridgeChannel,
+        GatewayCredentialUnusable,
         GatewayDenied,
         GatewayPrincipal,
         GatewayRequest,
@@ -26,9 +27,17 @@ export 'gateway/gateway_models.dart'
         mcpBridgePort,
         providerBridgePort;
 export 'gateway/gateway_pipe.dart' show GatewayPipe;
-export 'gateway/host_gateway.dart' show GatewayAuthority, GatewayDenialSink, HostGateway;
+export 'gateway/host_gateway.dart'
+    show CredentialRefusalSink, GatewayAuthority, GatewayAuthorityTeardown, GatewayDenialSink, HostGateway;
 export 'gateway/process_bridge_channel.dart' show ProcessBridgeChannel;
 export 'gateway/mcp_bridge_surface.dart' show McpBridgeSurface;
+export 'gateway/codex_credential_source.dart' show CodexCredentialSource;
 export 'gateway/provider_adapter.dart'
-    show AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProviderAdapter, ProviderMediator;
+    show
+        AnthropicMessagesAdapter,
+        CodexSubscriptionResolution,
+        OpenAiResponsesAdapter,
+        ProviderAdapter,
+        ProviderCredentialSource,
+        ProviderMediator;
 export 'security_profile.dart' show SecurityProfile;

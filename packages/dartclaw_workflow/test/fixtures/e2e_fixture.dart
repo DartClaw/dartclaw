@@ -601,6 +601,8 @@ extension on CredentialEntry {
           repository: repository,
           envVars: envVars,
         ),
+        // Subscription credentials come from the dedicated store, never the environment.
+        CredentialType.subscription => this,
       };
     }
     return this;

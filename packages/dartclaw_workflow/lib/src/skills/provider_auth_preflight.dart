@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, ProviderIdentity;
+import 'package:dartclaw_config/dartclaw_config.dart'
+    show CredentialRegistry, CredentialUnavailableReason, ProviderIdentity, credentialRemediationFor;
 import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess;
 
 /// Outcome of evaluating one referenced provider's authentication state.
@@ -39,7 +40,12 @@ typedef AuthProbeRunner = Future<ProcessResult> Function(
   Map<String, String>? environment,
 });
 
-typedef AuthProbeEnvironmentBuilder = Map<String, String> Function(String provider);
+/// Builds the probe's spawn environment for a provider.
+///
+/// Asynchronous for the same reason as `SkillProbeEnvironmentBuilder`: the
+/// lanes share one builder, and presenting a subscription credential can
+/// require preparing a dedicated provider home first.
+typedef AuthProbeEnvironmentBuilder = Future<Map<String, String>> Function(String provider);
 
 /// CLI-backed [ProviderAuthPreflight].
 ///
@@ -50,19 +56,29 @@ typedef AuthProbeEnvironmentBuilder = Map<String, String> Function(String provid
 /// never spawn a real provider CLI.
 final class CliProviderAuthPreflight implements ProviderAuthPreflight {
   final AuthProbeRunner _runner;
-  final CredentialRegistry _credentials;
+  final CredentialRegistry Function() _credentials;
   final AuthProbeEnvironmentBuilder? _environmentForProvider;
   final Map<String, String> _environment;
+  final String? _credentialsDir;
 
+  /// [credentials] answers a registry per [evaluate], not one snapshot: a lane
+  /// whose executor rebuilds its registry per spawn would otherwise be gated by
+  /// a boot-time view and refuse a step the executor itself would run — sending
+  /// the operator back to a `dartclaw auth …` they already ran successfully.
+  ///
+  /// [credentialsDir] is the dedicated subscription store those registries read;
+  /// it names the searched directory in every remediation this preflight emits.
   new({
-    required CredentialRegistry credentials,
+    required CredentialRegistry Function() credentials,
     AuthProbeRunner? runner,
     AuthProbeEnvironmentBuilder? environmentForProvider,
     Map<String, String> environment = const <String, String>{},
+    String? credentialsDir,
   }) : _credentials = credentials,
        _runner = runner ?? _defaultRunner,
        _environmentForProvider = environmentForProvider,
-       _environment = Map.unmodifiable(environment);
+       _environment = Map.unmodifiable(environment),
+       _credentialsDir = credentialsDir;
 
   @override
   Future<ProviderAuthResult> evaluate({
@@ -71,15 +87,23 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
     Map<String, dynamic> providerOptions = const <String, dynamic>{},
   }) async {
     final family = ProviderIdentity.resolveFamily(provider, options: providerOptions, executable: executable);
-    // API-key presence wins before any spawn: an API-key user may have no
-    // logged-in CLI, so probing the CLI first would false-fail. Family-aware
-    // resolution is shared with the spawn-env builder (CredentialRegistry) so
-    // the short-circuit decision can never disagree with key injection.
-    if (_credentials.getApiKeyForFamily(provider, family) != null) {
+    // A presentable credential of either mode wins before any spawn: a
+    // subscription token in DartClaw's own store, like an API key, leaves the
+    // vendor CLI's own login irrelevant, so probing it first would false-fail.
+    // The resolution is the same one the spawn-env builder uses, so the
+    // short-circuit can never disagree with what is actually presented.
+    final resolution = _credentials().resolve(provider, family: family);
+    if (resolution.isPresent) {
       return ProviderAuthResult.authenticated(provider);
     }
+    final reason = resolution.reason!;
+    // A forced auth selection is not up for rescue by the vendor CLI's login:
+    // the operator named the credential to present, and it is absent.
+    if (reason != CredentialUnavailableReason.noneConfigured) {
+      return ProviderAuthResult.unauthenticated(provider, _remediation(provider, family, reason));
+    }
     final resolvedExecutable = executable?.trim().isNotEmpty == true ? executable!.trim() : _defaultExecutable(family);
-    final environment = _environmentForProvider?.call(provider) ?? _environment;
+    final environment = await _environmentForProvider?.call(provider) ?? _environment;
     return switch (family) {
       ProviderIdentity.claude => _probeClaude(provider, family, resolvedExecutable, environment),
       ProviderIdentity.codex => _probeCodex(provider, family, resolvedExecutable, environment),
@@ -106,7 +130,10 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
         // Non-JSON output means the probe could not confirm an OAuth session.
       }
     }
-    return ProviderAuthResult.unauthenticated(provider, _remediation(provider, family));
+    return ProviderAuthResult.unauthenticated(
+      provider,
+      _remediation(provider, family, CredentialUnavailableReason.noneConfigured),
+    );
   }
 
   Future<ProviderAuthResult> _probeCodex(
@@ -127,7 +154,10 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
     if (result.exitCode == 0 && loggedIn && !loggedOut) {
       return ProviderAuthResult.authenticated(provider);
     }
-    return ProviderAuthResult.unauthenticated(provider, _remediation(provider, family));
+    return ProviderAuthResult.unauthenticated(
+      provider,
+      _remediation(provider, family, CredentialUnavailableReason.noneConfigured),
+    );
   }
 
   Future<ProcessResult> _run(String executable, List<String> arguments, Map<String, String> environment) async {
@@ -138,16 +168,10 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
     }
   }
 
-  static String _remediation(String provider, String family) {
-    final envVars = CredentialRegistry.envVarsForFamily(provider, family);
-    final envHint = envVars.isEmpty ? '' : ' or set ${envVars.join(' / ')}';
-    final cliHint = switch (family) {
-      ProviderIdentity.claude => 'run `claude auth login` or `claude setup-token`',
-      ProviderIdentity.codex => 'run `codex login`',
-      _ => 'log in to the "$provider" CLI',
-    };
-    return 'Workflow provider "$provider" is not authenticated: $cliHint$envHint, then re-run.';
-  }
+  String _remediation(String provider, String family, CredentialUnavailableReason reason) =>
+      'Workflow provider "$provider" is not authenticated. '
+      '${credentialRemediationFor(reason, providerId: provider, family: family, credentialsDir: _credentialsDir)} '
+      'Then re-run.';
 
   static String _defaultExecutable(String family) => switch (family) {
     ProviderIdentity.claude => 'claude',

@@ -53,8 +53,6 @@ Content-guard scans search results at the `sessions_spawn` and `sessions_send` b
 | `exfiltration_attempt` | Block with warning |
 | API error/timeout | Block (fail-closed) |
 
-Cloudflare challenge pages are detected and skipped (not classified).
-
 Content is truncated to 50KB before classification.
 
 ## Memory Search

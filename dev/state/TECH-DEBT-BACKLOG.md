@@ -395,3 +395,17 @@ Last reviewed: 2026-06-27
 **Mitigated in 0.24.2**: the container-disabled startup warning now says guards are not the boundary for workflow one-shot steps and names what is, and `docs/guide/security.md` § Guard System documents the exclusion and the safe configuration (container isolation + explicit `allowedTools` per step).
 
 Last reviewed: 2026-08-18
+
+## TD-123 – Google Chat Space Events (Pub/Sub) inbound path applies no access control
+
+**Severity**: Medium (opt-in path only – no shipped config enables it; when enabled, inbound Pub/Sub messages reach the agent with no DM, group, or mention gating)
+**Found**: 2026-08-19, during 0.25 Lean Runtime planning (FR13 shared-channel-base analysis)
+**Affects**: `packages/dartclaw_google_chat/lib/src/google_chat_space_events_wiring.dart:112`, `cloud_event_adapter.dart`, contrast with `google_chat_webhook.dart`
+
+**Context**: the Space Events wiring reaches `handleInboundMessage` directly, with no group-access check, no DM-access check, and no mention gating; `cloud_event_adapter.dart` applies no access control either. The HTTP webhook path (`google_chat_webhook.dart`) does gate. The 0.25 package review recorded Google Chat as "running the same pipeline twice more", which overstates it by one copy and obscures that one of the paths runs no pipeline at all. Reachable only with `space_events.enabled: true`; no example or testing-profile config sets it.
+
+**Needs decision**: whether the Pub/Sub path is *intended* to bypass gating (e.g. because Workspace Events subscriptions are themselves scoped per space) or whether it should adopt the same inbound gate as the webhook path. Adopting the gate is a behaviour change for anyone running the opt-in path, so it cannot ride the 0.25 FR13 extraction, which is behaviour-preserving.
+
+**Not fixed in 0.25**: FR13's shared inbound gating pipeline (plan story S46) explicitly preserves this path as-is under a named criterion, so the extraction cannot silently alter access control. The Google Chat package re-cut (story S35) records it as a NOTICED item.
+
+Last reviewed: 2026-08-19

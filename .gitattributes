@@ -1,0 +1,10 @@
+# Deliberately narrow: only paths whose bytes on disk are load-bearing.
+# No `* text=auto` line — that would renormalize the whole tree.
+
+# Generated JSON artifacts are byte-compared against freshly generated output by
+# `--check` gates. The generators emit LF, so a CRLF checkout (core.autocrlf=true,
+# the Windows default) would fail those gates for reasons unrelated to drift.
+*.json text eol=lf
+
+# Shell scripts must reach Linux CI and git-bash with LF; CRLF breaks the shebang.
+*.sh text eol=lf

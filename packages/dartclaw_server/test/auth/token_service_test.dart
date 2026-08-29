@@ -71,6 +71,34 @@ void main() {
         final service = TokenService(token: 'secret123');
         expect(service.validateToken('short'), isFalse);
       });
+
+      // `Authorization: Bearer ` and `?token=` both arrive as an empty
+      // candidate. Neither may authenticate against any configured token.
+      test('returns false for an empty candidate', () {
+        final service = TokenService(token: 'secret123');
+        expect(service.validateToken(''), isFalse);
+      });
+
+      test('returns false for an empty candidate against a generated token', () {
+        expect(TokenService().validateToken(''), isFalse);
+      });
+    });
+
+    group('blank configured token', () {
+      // A blank token is what an unresolvable `\${DARTCLAW_TOKEN}` degrades
+      // into. It authenticates an empty bearer header and signs session cookies
+      // with an empty HMAC key, so it must never reach the auth pipeline.
+      test('constructor rejects an empty token', () {
+        expect(() => TokenService(token: ''), throwsArgumentError);
+      });
+
+      test('constructor rejects a whitespace-only token', () {
+        expect(() => TokenService(token: '   '), throwsArgumentError);
+      });
+
+      test('omitted token still generates rather than throwing', () {
+        expect(TokenService().token.length, 64);
+      });
     });
   });
 }

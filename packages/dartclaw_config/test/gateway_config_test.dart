@@ -107,6 +107,53 @@ gateway:
     });
   });
 
+  group('gateway.token env substitution', () {
+    // An undefined `${VAR}` resolves to an empty string. Storing that as the
+    // token hands the gateway a credential an empty bearer header satisfies and
+    // an empty HMAC key that signs forgeable session cookies, so the reference
+    // must read as absent and let the generated token file take over.
+    test('unresolved reference reads as unset, not as an empty token', () {
+      final config = loadYaml('gateway:\n  auth_mode: token\n  token: \${DARTCLAW_TOKEN}\n');
+      expect(config.gateway.token, isNull);
+      expect(config.warnings, anyElement(allOf(contains('gateway.token'), contains('\${DARTCLAW_TOKEN}'))));
+    });
+
+    test('unresolved reference blocks hot reload', () {
+      final config = loadYaml('gateway:\n  auth_mode: token\n  token: \${DARTCLAW_TOKEN}\n');
+      expect(config.reloadBlockingWarnings, anyElement(contains('gateway.token')));
+    });
+
+    test('resolved reference becomes the token', () {
+      final config = loadYaml(
+        'gateway:\n  auth_mode: token\n  token: \${DARTCLAW_TOKEN}\n',
+        env: const {'HOME': defaultTestHome, 'DARTCLAW_TOKEN': 'resolved-token'},
+      );
+      expect(config.gateway.token, 'resolved-token');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('reference resolving to whitespace reads as unset', () {
+      final config = loadYaml(
+        'gateway:\n  auth_mode: token\n  token: "\${DARTCLAW_TOKEN} "\n',
+        env: const {'HOME': defaultTestHome},
+      );
+      expect(config.gateway.token, isNull);
+      expect(config.warnings, anyElement(contains('gateway.token')));
+    });
+
+    test('literal token is preserved', () {
+      final config = loadYaml('gateway:\n  auth_mode: token\n  token: literal-token\n');
+      expect(config.gateway.token, 'literal-token');
+      expect(config.warnings, isEmpty);
+    });
+
+    test('omitted token stays unset without warning', () {
+      final config = loadYaml('gateway:\n  auth_mode: token\n');
+      expect(config.gateway.token, isNull);
+      expect(config.warnings, isEmpty);
+    });
+  });
+
   group('gateway/auth flat keys', () {
     test('gateway.hsts defaults to false when unset', () {
       final config = loadNoFile();

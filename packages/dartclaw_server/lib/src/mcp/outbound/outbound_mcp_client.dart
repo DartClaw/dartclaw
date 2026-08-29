@@ -152,6 +152,15 @@ ToolResult toToolResult(OutboundMcpCallResult result) {
   if (!result.isSuccess) {
     return ToolResult.error(result.error!.message);
   }
-  final text = result.content.map((item) => item['text']?.toString()).whereType<String>().join('\n');
+  final text = outboundResultText(result);
   return result.isError ? ToolResultError(text) : ToolResultText(text);
 }
+
+/// The text a successful [result] forwards to an agent — the `text` of every
+/// content block that carries one, joined with newlines.
+///
+/// Deliberately does not filter on `type == 'text'`: the scan and the forward
+/// must see the same string, or a non-text-typed block carrying `text` would
+/// reach the agent unscanned.
+String outboundResultText(OutboundMcpCallResult result) =>
+    result.content.map((item) => item['text']?.toString()).whereType<String>().join('\n');

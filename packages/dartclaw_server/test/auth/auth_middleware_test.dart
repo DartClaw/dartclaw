@@ -158,6 +158,41 @@ void main() {
       expect(body['error'], 'Unauthorized');
     });
 
+    // The three credential shapes that carry no secret at all. Each reached the
+    // middleware as an empty string once `gateway.token` degraded to `''`, and
+    // each authenticated against it. None may authenticate against any token.
+    test('empty bearer credential returns 401 rather than authenticating', () async {
+      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
+      final handler = mw(makeOk());
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/sessions'), headers: {'authorization': 'Bearer '}),
+      );
+      expect(response.statusCode, 401);
+    });
+
+    test('empty query token does not bootstrap a session', () async {
+      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
+      final handler = mw(makeOk());
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/?token='), headers: {'accept': 'application/json'}),
+      );
+      expect(response.statusCode, 401);
+      expect(response.headers['set-cookie'], isNull);
+    });
+
+    test('cookie signed with an empty key is rejected', () async {
+      final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
+      final handler = mw(makeOk());
+      final response = await handler(
+        Request(
+          'GET',
+          Uri.parse('http://localhost/api/sessions'),
+          headers: {'cookie': '$sessionCookieName=${createSessionToken('')}'},
+        ),
+      );
+      expect(response.statusCode, 401);
+    });
+
     test('query token bootstrap sets cookie and redirects to token-stripped URL', () async {
       final mw = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken);
       final handler = mw(makeOk());

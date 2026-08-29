@@ -7,6 +7,7 @@
 ## Boundaries
 - Runtime dependencies: `collection` only. Do not add `path`, `yaml`, `sqlite3`, `dart:io`, or anything pulling them in transitively. These types must be importable from any environment (server, CLI, future Flutter clients).
 - Services, repositories, parsers, validators, and persistence logic do **not** live here. Models own data shape + JSON/Map (de)serialization only. Service layer = `dartclaw_core`. SQLite repositories = `dartclaw_storage`. Parsing/validation of YAML config = `dartclaw_config`.
+  - **Carve-out (0.24.3)**: validation of *this package's own value types* lives here — `output_schema.dart` holds the closed JSON Schema subset `AgentDefinition.outputSchema` is expressed in, because `dartclaw_models` is the bottom of the DAG and both the enforcement site (`dartclaw_core`) and `dartclaw_workflow` already depend on it. YAML parsing still stays in `dartclaw_config`; `AgentDefinition.fromYaml` calls in, it does not read files. `dartclaw_workflow`'s soft `SchemaValidator` is a separate, warn-only validator — do not import or rebase it from here.
 - Do not import from any other `dartclaw_*` package. This is the bottom of the DAG.
 
 ## Conventions
@@ -27,4 +28,5 @@
 - `lib/src/models.dart` — `Session` / `Message` / `MemorySearchResult` / `MemorySearchOutcome` / structured search-degradation value types.
 - `lib/src/session_key.dart` — encoding contract; touch with care.
 - `lib/src/agent_definition.dart`, `lib/src/container_config.dart` — runtime-adjacent shared value types.
+- `lib/src/output_schema.dart` — the closed JSON Schema subset for logical-agent output: deep-close transform (rejects unenforceable keywords at config load), hard first-violation validator (never warns, never repairs), and the persona contract renderer.
 - `lib/src/channel_config.dart`, `lib/src/channel_type.dart`, `lib/src/session_scope_config.dart` — channel/scoping shared types.

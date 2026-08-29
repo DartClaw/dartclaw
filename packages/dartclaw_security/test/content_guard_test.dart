@@ -8,7 +8,7 @@ void main() {
 
   setUp(() {
     classifier = FakeContentClassifier();
-    guard = ContentGuard(classifier: classifier);
+    guard = ContentGuard(scan: ContentScan(classifier: classifier));
   });
 
   GuardContext boundary(String content) =>
@@ -58,7 +58,7 @@ void main() {
     });
 
     test('classification error passes when failOpen is true', () async {
-      final failOpenGuard = ContentGuard(classifier: classifier, failOpen: true);
+      final failOpenGuard = ContentGuard(scan: ContentScan(classifier: classifier, failOpen: true));
       classifier.shouldThrow = true;
       final verdict = await failOpenGuard.evaluate(boundary('Some content'));
       expect(verdict.isPass, isTrue);
@@ -77,7 +77,7 @@ void main() {
     });
 
     test('disabled guard passes', () async {
-      final disabledGuard = ContentGuard(classifier: classifier, enabled: false);
+      final disabledGuard = ContentGuard(scan: ContentScan(classifier: classifier), enabled: false);
       classifier.result = 'harmful_content';
       final verdict = await disabledGuard.evaluate(boundary('harmful'));
       expect(verdict.isPass, isTrue);
@@ -101,7 +101,9 @@ void main() {
       // Create emoji content >50KB — the guard should truncate without crashing
       final emoji = '🎉' * 20000; // 80KB in UTF-8
       classifier.result = 'safe';
-      final guard50k = ContentGuard(classifier: classifier, maxContentBytes: 50 * 1024);
+      final guard50k = ContentGuard(
+        scan: ContentScan(classifier: classifier, maxContentBytes: 50 * 1024),
+      );
       final verdict = await guard50k.evaluate(boundary(emoji));
       expect(verdict.isPass, isTrue);
     });

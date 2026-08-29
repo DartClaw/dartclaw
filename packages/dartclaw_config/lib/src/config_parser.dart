@@ -697,7 +697,21 @@ GatewayConfig _parseGateway(
     }
     final tokenVal = readString('token', gMap, warns);
     if (tokenVal != null && tokenVal.isNotEmpty) {
-      token = envSubstitute(tokenVal, env: env);
+      // A `${VAR}` that envSubstitute could not resolve yields a blank value.
+      // Keeping it would hand the gateway a credential an empty bearer header
+      // satisfies, so drop it and let the generated token file take over.
+      final resolved = envSubstitute(tokenVal, env: env);
+      if (resolved.trim().isEmpty) {
+        final refs = envReferences(tokenVal);
+        final unresolved = refs.map((name) => '\${$name}').join(', ');
+        warns.add(
+          'gateway.token resolves to an empty value'
+          '${refs.isEmpty ? '' : ' (unset $unresolved)'}'
+          ' — ignoring it and using the generated token file instead',
+        );
+      } else {
+        token = resolved;
+      }
     }
     hsts = readBool('hsts', gMap, warns, defaultValue: hsts) ?? hsts;
   }

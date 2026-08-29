@@ -91,6 +91,7 @@ class SecurityWiring implements Reconfigurable {
   late GuardAuditLogger _auditLogger;
   ContentGuard? _contentGuard;
   ContentClassifier? _contentClassifier;
+  ContentScan? _contentScan;
   bool _contentGuardFailOpen = false;
   late ToolPolicyCascade _toolPolicyCascade;
   GuardAuditSubscriber? _guardAuditSubscriber;
@@ -105,6 +106,10 @@ class SecurityWiring implements Reconfigurable {
   GuardAuditLogger get auditLogger => _auditLogger;
   ContentGuard? get contentGuard => _contentGuard;
   ContentClassifier? get contentClassifier => _contentClassifier;
+
+  /// The one scan every classification site shares, or null when no classifier
+  /// is configured — a null scan means "no classification", never an implicit block.
+  ContentScan? get contentScan => _contentScan;
   bool get contentGuardFailOpen => _contentGuardFailOpen;
   ToolPolicyCascade get toolPolicyCascade => _toolPolicyCascade;
 
@@ -686,7 +691,9 @@ class SecurityWiring implements Reconfigurable {
       } else {
         _log.warning(
           'ANTHROPIC_API_KEY not set — content guard disabled. '
-          'Set the environment variable or switch to classifier: claude_binary.',
+          'Set the environment variable or switch to classifier: claude_binary. '
+          'With no classifier configured, web_fetch results and tool results from MCP servers '
+          'declared network_class: public are not classified.',
         );
       }
     } else {
@@ -704,11 +711,12 @@ class SecurityWiring implements Reconfigurable {
           'Set guards.content.fail_open: false to block it instead.',
         );
       }
-      _contentGuard = ContentGuard(
+      _contentScan = ContentScan(
         classifier: _contentClassifier!,
         maxContentBytes: config.security.contentGuardMaxBytes,
         failOpen: _contentGuardFailOpen,
       );
+      _contentGuard = ContentGuard(scan: _contentScan!);
     }
   }
 

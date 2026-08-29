@@ -11,6 +11,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ProcessRunner,
         CliProviderAuthPreflight,
         CliSkillIntrospector,
+        WorkspaceSkillInventory,
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowRegistry,
@@ -755,6 +756,7 @@ class ServiceWiring {
         structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
         skillIntrospector: CliSkillIntrospector(
           environmentForProvider: (providerId) => _providerProbeEnvironment(ctx, providerId),
+          provisionedSkills: WorkspaceSkillInventory.fromDataDir(ctx.dataDir).skillNames.toSet(),
         ),
         // The in-engine backstop is inert without this, so an in-`serve`
         // workflow step assigned to a provider with no usable credential would

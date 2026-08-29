@@ -503,7 +503,9 @@ final myConfig = config.extension<MyCustomConfig>('myCustomSection');
 
 ## 8. Credential Management
 
-Credentials follow a reference-based model: API keys are **never** stored in `dartclaw.yaml`. They are resolved at runtime from environment variables or the `credentials:` config section (which itself typically references env vars or files).
+Credentials follow a reference-based model. The `credentials:` config section may hold a literal but should normally
+reference environment variables; `dartclaw secrets` keeps named values outside `dartclaw.yaml` entirely. Consumers
+resolve a credential name at runtime rather than embedding its value in their own config.
 
 ### CredentialsConfig
 
@@ -512,6 +514,12 @@ packages/dartclaw_config/lib/src/credentials_config.dart
 ```
 
 Maps credential names to `CredentialEntry` objects. The `credentials:` YAML section provides named API key entries that `CredentialRegistry` can look up.
+
+`NamedCredentialStore` persists operator-named API keys and GitHub tokens as one `0600` JSON file per name under
+`<data_dir>/credentials/named/`, with owner-only directories. Each config load reads the store and overlays it onto the
+YAML declarations by name; a stored entry wins. Search providers may use `credential: <name>` instead of `api_key`,
+and blank, missing, or non-API-key entries are refused. Config reload repeats the same merge, so rotation takes effect
+without restart. `dartclaw secrets audit` opens the store without provisioning missing paths.
 
 ### CredentialRegistry
 
@@ -527,8 +535,9 @@ final apiKey = registry.getApiKey('claude');  // returns String?
 ```
 
 Resolution order:
-1. Check `CredentialsConfig` entries by provider-to-credential mapping (`claude` -> `anthropic`, `codex` -> `openai`)
-2. Fall back to environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
+1. Overlay stored named credentials onto YAML entries by name; the stored entry wins
+2. Check `CredentialsConfig` entries by provider-to-credential mapping (`claude` -> `anthropic`, `codex` -> `openai`)
+3. Fall back to environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
 ### ProviderValidator
 

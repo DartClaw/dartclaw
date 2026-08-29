@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.24.3] - 2026-08-27
+
+### Added
+
+- **Content classification for outbound MCP results** – a successful `tools/call` against an outbound MCP server declared `network_class: public` is now classified before its result reaches an agent; a block, a fail-closed classification failure, or a result whose text exceeds `guards.content.max_bytes` returns a denied result instead of the content. Declare a content-bearing server `public` to get the scanning; `local` and `private` results stay unscanned, and tool descriptions from `tools/list` are not classified. See [Security](docs/guide/security.md#built-in-guards).
+
+- **`agent.agents.<id>.output_schema`** – bind a logical agent's answer to an inline JSON Schema. The rendered contract is appended to the agent's prompt (or becomes the whole persona when the prompt is blank), and the host parses and validates the result at the agent boundary, after content classification. A result that is not exactly one JSON value, carries an undeclared property, is missing a required one, or exceeds `max_response_bytes` fails the turn with an error naming the first violation and its JSON pointer — never repaired, defaulted, truncated, or partially returned. Every object level is closed (`additionalProperties` is forced to `false`), and a keyword outside the enforced subset — `$ref`, `oneOf`, `format`, numeric bounds, `const`, `default`, type arrays, tuple-form `items` — is rejected when the config loads rather than silently unenforced. Agents without an `output_schema` are unchanged. See [Configuration](docs/guide/configuration.md#full-config-reference) and [Agents](docs/guide/agents.md#logical-agent-configuration-reference).
+
+- **Named credential store and `dartclaw secrets`** – `dartclaw secrets set <name> --type api-key|github-token [--repository org/app]` stores a credential at `<data_dir>/credentials/named/<name>.json`, owner-only, atomically, with the value read from stdin only (masked prompt or pipe) and never from argv. A stored entry resolves as `credentials.<name>` at **every** config load — including every live-reload path — so it needs no `credentials:` block, survives `dartclaw service install` regenerating the unit or plist, and takes effect at the next reload without a restart. A name held in both the store and `credentials:` resolves from the store. `secrets list` reports names, types and provenance (`store` / `config` / `env`) and marks shadowed names, never printing a value or a value prefix; `secrets rm` removes the stored entry only and reports a surviving config entry of the same name. Names must match `^[a-z0-9][a-z0-9_-]{0,63}$`, validated before any path is built. The store is not a vault: no encryption at rest, no OS keychain — see [Security § Named Credential Storage](docs/guide/security.md#named-credential-storage). See [CLI Reference § Secrets](docs/guide/cli-reference.md#secrets) and [Deployment § Secrets and the Service Unit](docs/guide/deployment.md#secrets-and-the-service-unit).
+
+- **`search.providers.<id>.credential`** – a search provider can authenticate from a `credentials.<name>` entry instead of an inline `api_key`, so `dartclaw secrets set brave-search --type api-key` plus `credential: brave-search` leaves no key in config and none in the service unit. Exactly one of the two keys may be present; declaring both warns and skips the provider rather than applying a silent precedence rule. A reference to an unknown name, a `github-token` entry, or an entry resolving blank warns and skips the provider — it is never left enabled with an empty key. See [Configuration § `search.providers`](docs/guide/configuration.md#full-config-reference).
+
+- **`dartclaw secrets audit`** – read-only report of every place a secret lives that is not the store: literals in config (`credentials.<name>`, `search.providers.<id>.api_key`, `github.webhook_secret`), `${VAR}` references resolving to nothing (named with the variable), names shadowed between store and config, `credentials.<name>` entries no `credential:` reference consumes, and files under `<data_dir>/credentials/` or the config file readable beyond their owner. It makes no network or provider call, prints no value or value prefix, and exits non-zero on any finding so it can gate a deploy. The permissions class is reported as not applicable on Windows, where POSIX modes are not the access boundary.
+
+### Changed
+
+- **One content-scan authority.** Content classification and its fail policy — truncate, classify, decide — now live in a single helper shared by every scanning site, so `guards.content.fail_open` is the only input deciding fail-open vs fail-closed. Three behavior changes follow: `web_fetch` classifies with the 15-second content-guard timeout rather than its 30-second HTTP timeout; `web_fetch` now returns exactly the span it scanned, so its output is capped at `guards.content.max_bytes` UTF-8 bytes as well as `maxLength` characters (raise `max_bytes` to fetch more) when content classification is configured; and a `WebFetchTool` constructed outside the server wiring now fails closed on a classification error instead of open. Wired deployments are unaffected by the last one.
+
+---
+
 ## [0.24.2] - 2026-08-18
 
 ### Added

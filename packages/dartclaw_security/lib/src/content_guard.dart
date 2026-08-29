@@ -1,42 +1,31 @@
 import 'dart:convert';
 
-import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
-import 'content_classifier.dart';
+import 'content_scan.dart';
 import 'guard.dart';
 import 'guard_verdict.dart';
 
 /// Guard that scans content at inter-agent boundaries using classification.
 ///
 /// Fires only at `beforeAgentSend` hook points (search → main agent handoff).
-/// Fail behavior is configurable: [failOpen] controls whether classification
-/// errors result in pass (true) or block (false, default).
+/// Classification and its fail policy belong to the injected [ContentScan];
+/// this guard adds only the hook-point gate and the [enabled] check.
+///
+/// At this hook point an over-cap message is prefix-scanned and passed whole:
+/// the content is an agent's own output, not raw third-party content.
 class ContentGuard extends Guard {
-  static final _log = Logger('ContentGuard');
-
-  /// Classifier used to score outbound agent content.
-  final ContentClassifier _classifier;
-
-  /// Maximum UTF-8 payload size sent to the classifier.
-  final int maxContentBytes;
-
-  /// Timeout for the classifier call.
-  final Duration timeout;
+  final ContentScan _scan;
 
   /// Whether the guard runs at all.
   final bool enabled;
 
-  /// Whether classifier failures should pass instead of block.
-  final bool failOpen;
+  /// Creates a content guard over an injected [ContentScan].
+  new({required ContentScan scan, this.enabled = true}) : _scan = scan;
 
-  /// Creates a content guard around a concrete [ContentClassifier].
-  new({
-    required ContentClassifier classifier,
-    this.maxContentBytes = 50 * 1024,
-    this.timeout = const Duration(seconds: 15),
-    this.enabled = true,
-    this.failOpen = false,
-  }) : _classifier = classifier;
+  /// The injected scan instance.
+  @visibleForTesting
+  ContentScan get scan => _scan;
 
   @override
   String get name => 'content-guard';
@@ -54,27 +43,12 @@ class ContentGuard extends Guard {
     final content = context.messageContent;
     if (content == null || content.isEmpty) return GuardVerdict.pass();
 
-    // Truncate to max bytes (UTF-8 safe)
-    final truncated = truncateUtf8Bytes(content, maxContentBytes);
-
-    // Classify content
-    try {
-      final classification = await _classifier.classify(truncated, timeout: timeout);
-
-      if (classification == 'safe') {
-        return GuardVerdict.pass();
-      }
-
-      _log.warning('Content blocked: classification=$classification');
-      return GuardVerdict.block('Content classified as $classification');
-    } catch (e) {
-      if (failOpen) {
-        _log.warning('Content classification failed (fail-open): $e');
-        return GuardVerdict.pass();
-      }
-      _log.warning('Content classification failed (fail-closed): $e');
-      return GuardVerdict.block('Content classification failed (fail-closed)');
-    }
+    final verdict = await _scan.evaluate(content);
+    if (!verdict.blocked) return GuardVerdict.pass();
+    final classification = verdict.classification;
+    return GuardVerdict.block(
+      classification != null ? 'Content classified as $classification' : 'Content classification failed (fail-closed)',
+    );
   }
 }
 

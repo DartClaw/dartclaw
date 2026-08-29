@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.24 worker-capacity execution architecture
+**Current through**: 0.24.3 logical-agent output schema validation; one content-scan authority (`ContentScan`)
 
 ---
 
@@ -162,7 +162,7 @@ Provider branching is confined to protocol adapters and composition/wiring. Secu
 | **FileGuard** | `beforeToolCall` (Bash, write_file, edit_file) | File operations | Glob-based path protection with 3 access levels, provider-`cwd` relative resolution, symlink resolution |
 | **NetworkGuard** | `beforeToolCall` (Bash, web_fetch) | Network operations | Domain allowlist, IP blocking, exfiltration pattern detection |
 | **EgressGuard** | `outboundMcpToolsCall` | Outbound MCP `tools/call` dispatch | Default-deny per-server/per-tool allowlist for external MCP calls |
-| **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration) |
+| **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration); schema validation runs at the same `beforeAgentSend` boundary, after the guard, for agents declaring `output_schema` |
 | **ToolPolicyGuard** | `beforeToolCall` | Logical-agent tool calls | 3-layer policy cascade: global deny, agent deny, sandbox allow |
 | **TaskToolFilterGuard** | `beforeToolCall` | Per-task tool allowlist | Restricts tool use to the current task's allowlist; optional read-only mode blocks mutating file/shell calls |
 
@@ -183,6 +183,21 @@ Dispatch is default-deny:
    `token_budget.tokens` / `token_budget.window_seconds`.
 4. The pool writes a guard audit entry before successful external dispatch, and also audits guard/governance denials.
    If the guard or audit path throws, the call fails closed with an `Egress denied: guard/audit failure` result.
+5. For a server declared `network_class: public`, a successful result is scanned through `ContentScan` before it
+   reaches the caller. Usage (`_recordGovernanceUsage`) is charged first: the server served the call, and a budget that
+   only counted delivered content would never bound a repeatedly-blocked server. Text over `guards.content.max_bytes`
+   is denied before any classifier call — the pool accepts results up to 1 MiB, so prefix-scan-and-pass would leave the
+   bulk unscanned, and returning only the scanned span would ship partial structured content. `local` and `private`
+   servers and failed calls are not scanned; a null `ContentScan` means classification is not configured and nothing is
+   scanned.
+
+**Content denials share the egress audit codes on purpose.** A content block goes through the same
+`_denyWithAudit`/`_deniedResult` path as an allowlist denial, so it carries `guard: 'EgressGuard'`,
+`hook: 'outbound_mcp_tools_call'`, and `error.code: 'egress_denied'`. Auditing the verdict on the path that already
+exists is the requirement; the **reason string** is the discriminator (`Content blocked: classified as <label>`,
+`Content classification failed (fail-closed)`, `Content blocked: result exceeds guards.content.max_bytes (<cap> bytes)`
+— the configured cap, never the result's attacker-influenced length). A blocked call writes one pass entry (egress)
+plus one block entry (content).
 
 Outbound audit records extend the normal guard audit shape with the external MCP fields needed for incident review:
 `server`, `tool`, `decision`, `principal`, `sessionId`, and the configured `credentialRef`. The `principal` falls back
@@ -396,10 +411,27 @@ LLM-based content classification at inter-agent boundaries. Fires only at the `b
 
 **Classification categories**: `safe`, `prompt_injection`, `harmful_content`, `exfiltration_attempt`.
 
-**Behavior**:
-- Truncates content to 50KB (UTF-8 safe) before classification
-- Configurable fail behavior: fail-closed (default) or fail-open
+**Behavior**: the truncate → classify → fail-policy sequence belongs to `ContentScan`, not to this guard. `ContentGuard` holds the injected scan, the `beforeAgentSend` hook-point gate, and its `enabled` check, and formats a verdict into a `GuardBlock` message. See [ContentScan](#contentscan) for the sequence and the fail policy.
+
+What did **not** change when the sequence moved: at `beforeAgentSend` the guard still scans the first `max_bytes` and passes the whole agent result. Prefix-scan-and-pass is deliberate here — that content is an agent's own output, not raw third-party content — and it is the opposite of the two paths that scan third-party content (`web_fetch` returns only the scanned span; an over-cap `public` MCP result is denied).
+
+### ContentScan
+
+The one place a classification and its fail policy are decided, for every scanning site: `ContentGuard`, the `web_fetch` MCP tool, and outbound MCP results from `network_class: public` servers. Built once in `SecurityWiring` from `guards.content.*` and injected at all three; a null instance means classification is not configured, never an implicit block.
+
+- Truncates to `guards.content.max_bytes` (50KB default, UTF-8 safe) and classifies exactly that span
 - 15-second classification timeout
+- `guards.content.fail_open` is the only input deciding fail-open vs fail-closed; the constructor default is fail-closed
+- Empty input passes without reaching a classifier
+- Returns a verdict as data — blocked, label, failure reason, and the scanned span. Each call site formats its own message and decides what to do with an over-cap input; `exceedsCap` answers that question without invoking a classifier
+
+**Source**: `packages/dartclaw_security/lib/src/content_scan.dart`
+
+### Output schema validation at the same boundary
+
+`beforeAgentSend` carries a second, independent check for logical agents declaring `agent.agents.<id>.output_schema`. The two bound different things and neither substitutes for the other: ContentGuard *classifies* the text up to its byte cap, while schema validation *bounds its shape* — the result must be exactly one JSON value conforming to a deep-closed schema (every object level `additionalProperties: false`), or the turn fails. Order in `LogicalAgentSessionService._run` is guard, then schema validation, then the response-size decision; a schema-bound result over `max_response_bytes` fails rather than being truncated, because a truncated value is not the declared contract. A schema failure is not a guard verdict and writes no audit entry.
+
+**Source**: `packages/dartclaw_models/lib/src/output_schema.dart`, `packages/dartclaw_core/lib/src/agents/logical_agent_session_service.dart`
 
 **Source**: `packages/dartclaw_security/lib/src/content_guard.dart`, `packages/dartclaw_security/lib/src/content_classifier.dart`
 
@@ -585,6 +617,13 @@ when any dedicated path resolves onto an operator login store (`~/.claude`, `~/.
 `CODEX_HOME` overrides). The container boundary is unchanged from 0.24 – `network:none`, no credential in container
 env, filesystem, arguments, or generated configuration; only the injected credential and the pinned upstream differ.
 
+Named API keys and GitHub tokens use a separate `NamedCredentialStore` under
+`<data_dir>/credentials/named/<name>.json`. It is not an encrypted vault: its boundary is `0700` directories, `0600`
+files, collision refusal against operator login stores, validated filenames, and atomic replacement. The store entry
+overlays a same-named YAML credential on every load and reload. `dartclaw secrets audit` is network-free and
+value-free; it reports literals, unresolved references, shadowed entries, orphans, and loose file or directory modes,
+and its read-only open does not create a missing store.
+
 The host `~/.claude.json` is not mounted anywhere, and the containerized Codex home is still never seeded (below).
 
 > **Open pre-ship gate.** The raw-Bearer `setup-token` wire check
@@ -623,7 +662,7 @@ Credential handling is then adapted to the execution boundary rather than to the
 
 `CredentialHealthMonitor` probes hourly (built-in `credential-health` job) and once during wiring, emitting the credential-health `DartclawEvent` consumed by `AlertRouter` and surfaced on `/settings` and `GET /api/providers`. Renewal deadlines are derived, not stated: Claude is ingestion time plus the documented 365-day `setup-token` lifetime; Codex is the store's last write plus the 8-day refresh-token staleness window, deliberately not the access token's minutes-scale JWT `exp`. A Claude provider running on the vendor CLI's own login classifies `unknown` and does not alert, because `probeAuthStatus` can prove that login is live; Codex has no such exemption – its probe only proves `auth.json` parses – so the same position classifies `reauthRequired` and alerts.
 
-**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/alerts/credential_health_monitor.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
+**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart`, `packages/dartclaw_core/lib/src/storage/named_credential_store.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/alerts/credential_health_monitor.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
 
 ### Git Credential Integration
 
@@ -806,7 +845,7 @@ The EventBus also surfaces security-relevant infrastructure events:
 
 ### ContentClassifier
 
-Abstract interface for LLM-based content classification at agent boundaries. Returns one of: `safe`, `prompt_injection`, `harmful_content`, `exfiltration_attempt`. Throws on error — the caller decides fail-open vs fail-closed behavior.
+Abstract interface for LLM-based content classification at agent boundaries. Returns one of: `safe`, `prompt_injection`, `harmful_content`, `exfiltration_attempt`. Throws on error; the fail policy is owned by `ContentScan`, the single authority every call site scans through.
 
 **Source**: `packages/dartclaw_security/lib/src/content_classifier.dart`
 
@@ -863,12 +902,17 @@ The `web_fetch` MCP tool fetches URLs on behalf of the agent. SSRF protection pr
 | `fc00::/7` | IPv6 ULA |
 | `::ffff:0:0/96` (mapped to private IPv4) | IPv4-mapped IPv6 |
 
-**DNS resolution check**: Hostnames are resolved via `InternetAddress.lookup()` and all resolved addresses are checked against the blocked ranges. This catches DNS rebinding attacks where a hostname resolves to an internal IP.
+**DNS resolution check**: Hostnames are resolved via `InternetAddress.lookup()` and all resolved addresses are checked
+against the blocked ranges. The protected client's connection factory repeats that check and opens the socket to the
+checked address while preserving the original hostname for TLS, so policy and connection cannot use different DNS
+answers.
 
 **Additional protections**:
 - Only `http` and `https` schemes allowed
+- Redirects are returned as local status-only errors rather than followed
 - Content classified via `ContentClassifier` before returning to the agent
-- Response length capped (default 50,000 chars)
+- Successful bodies are bounded while streaming, before decode; non-success bodies are never returned
+- Response length capped (default and maximum 50,000 chars)
 
 **Source**: `packages/dartclaw_server/lib/src/mcp/web_fetch_tool.dart`
 

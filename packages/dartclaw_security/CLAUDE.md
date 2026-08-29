@@ -5,7 +5,8 @@
 ## Architecture
 - **Guard chain** — `Guard` (interface), `GuardChain` (sequential evaluator: first-block-wins, 5s `.timeout()`, fail-closed default), `GuardContext` (canonical tool name + args + raw provider name, active session, and logical-agent identity), `GuardVerdict` (sealed `Pass` / `Warn` / `Block`), `GuardVerdictCallback` (the seam upstream uses to translate verdicts to events).
 - **Built-in guards** — `CommandGuard` (regex policy on shell commands; quote-stripping, subshell-aware), `FileGuard` (glob policy on resolved paths; symlink-aware; self-protection mode), `NetworkGuard` (global + agent-scoped URL allowlists), `InputSanitizer` (prompt-injection patterns), `ContentGuard` (classifier-driven), `TaskToolFilterGuard` (provider tool gating). Agent policy composition is owned by `ToolPolicyGuard` in `dartclaw_core` to preserve this package's leaf boundary.
-- **Classifiers** — pluggable content scanners. `ContentClassifier` (interface), `AnthropicApiClassifier`, `ClaudeBinaryClassifier`. Throws are the caller's contract — `ContentGuard` decides fail-open vs fail-closed.
+- **Classifiers** — pluggable content scanners. `ContentClassifier` (interface), `AnthropicApiClassifier`, `ClaudeBinaryClassifier`. Throws are the caller's contract — the fail policy is decided by `ContentScan`.
+- **Content scan** — `ContentScan` is the single truncate → classify → fail-policy authority for every scanning site (`ContentGuard` here, `web_fetch` and outbound `public` MCP results in `dartclaw_server`). Built once in `SecurityWiring` and injected; `ContentGuard` holds only the injected instance, the hook-point gate, and `enabled`.
 - **Redaction** — `MessageRedactor` (proportional redaction at the agent boundary; preserves shape for audit).
 - **Audit trail** — `GuardAuditLogger` (NDJSON appender; appends are fire-and-forget, so hosts must `await flush()` at shutdown or lose queued entries — it drains only what is queued at call time, so quiesce producers first; it is not a global barrier and never throws) + `AuditEntry` (record schema).
 - **Process safety** — `SafeProcess` (the only sanctioned subprocess spawner), `EnvPolicy.sanitize()` (env allowlist + sensitive-name strip), `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` / `defaultSensitivePatterns` (defaults).
@@ -18,7 +19,7 @@
 ## Conventions
 - New guard: extend `Guard`, return `GuardPass` / `GuardWarn(message)` / `GuardBlock(reason)`. Set stable `name` and `category` strings — they appear in audit NDJSON and config keys.
 - Guards must **not throw** from `evaluate`. Catch internally and return `GuardBlock`. The chain's 5s `.timeout()` + fail-closed default exists as a backstop, not the primary error path.
-- New classifier: implement `ContentClassifier`. Throws are the caller's contract (`ContentGuard` decides fail-open vs fail-closed) — do not swallow inside the classifier.
+- New classifier: implement `ContentClassifier`. Throws are the caller's contract (the fail policy is decided by `ContentScan`) — do not swallow inside the classifier. Never add a truncate/classify/catch block outside `content_scan.dart`: one authority is what makes `guards.content.fail_open` the only fail-policy input.
 - Pattern lists in `CommandGuard` / `InputSanitizer` are extended via config-driven extras (`extra_patterns`, `extra_rules`); don't hardcode policy that an operator should be able to adjust.
 - Subprocess env: route everything through `SafeProcess` with an explicit `EnvPolicy.sanitize(...)`. Use `defaultBashStepEnvAllowlist` / `defaultGitEnvAllowlist` as starting points — `defaultSensitivePatterns` strips credential-shaped names and inherited `CLAUDE_CODE_SUBAGENT_MODEL` control. SSH-agent vars are intentionally allowlisted for git only.
 
@@ -43,6 +44,7 @@
 - `lib/src/guard.dart` — `Guard`, `GuardChain`, `GuardContext`, `GuardVerdictCallback`.
 - `lib/src/guard_verdict.dart` — sealed `GuardVerdict` (`Pass`/`Warn`/`Block`).
 - `lib/src/{command,file,network,content}_guard.dart`, `input_sanitizer.dart`, `task_tool_filter_guard.dart` — built-in guards. `network_guard.dart` also owns the shared `isLoopbackHost(host)` predicate for inbound unauthenticated host/origin decisions (bare host, case-insensitive, literal-only — no DNS resolution). Outbound MCP TLS policy deliberately uses broader IP loopback semantics.
+- `lib/src/content_scan.dart` — `ContentScan` / `ContentScanVerdict`; the one classification + fail-policy authority.
 - `lib/src/content_classifier.dart` + `anthropic_api_classifier.dart` / `claude_binary_classifier.dart` — classifier interface + impls.
 - `lib/src/safe_process.dart` — `SafeProcess`, `EnvPolicy`, env allowlists, sensitive-name patterns.
 - `lib/src/guard_audit.dart` — `GuardAuditLogger`, `AuditEntry` (NDJSON, fire-and-forget).

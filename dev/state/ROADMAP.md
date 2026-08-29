@@ -4,23 +4,20 @@
 
 ## Active Milestone
 
-### 0.24 — Logical-Agent Correctness & Scheduling Operability
+### 0.24.3 — Trust Boundaries and Credential Delivery
 
-**Status: 0.24.2 release-ready, awaiting tag.** 0.24.0 shipped 2026-08-13 and 0.24.1 on 2026-08-17 (knowledge-inbox
-wiki merge/atomicity, retry scope, wiki-lint orphan inversion; same-session turn admission in arrival order).
-0.24.2 makes provider authentication default to the operator's subscription on both execution boundaries
-(ADR-053): dedicated credential stores fed by `dartclaw auth`, the `providers.<id>.auth` selector, fail-closed
-admission, credential-health visibility, and credential-isolated ACP registrations. Unlike 0.24.1 it *does* change
-provider protocol and the credential boundary, so the container-conformance, live-workflow, and UI gates are re-run
-rather than inherited. Logical-agent execution, scheduling, the canonical memory model, and the execution-isolation
-correction are complete. The transient public implementation bundles are consolidated into the private canonical PRD
-and removed. The final clean-HEAD release check runs on the scope-frozen commit before squash-merge and tagging.
+**Status: release candidate dated 2026-08-27, awaiting pre-tag gates.** Strict schema-bound logical-agent output, one
+content-scan authority with public outbound-MCP coverage, and named credential storage with `dartclaw secrets`,
+search-provider references, and a read-only secret-location audit are implemented. See `CHANGELOG.md` for details.
 
 ## Planned
 
-### 0.25 — Pluggable Database Backend & Multi-Language Search
+### 0.25 — Lean Runtime: Simplification, Model-First Delegation & Ownership Integrity
 
-ADR-045 (Accepted 2026-07-24; schema strategy amended 2026-07-30): `DatabaseBackend` abstraction + current-schema bootstrap/compatibility gate (SQLite-only refactor first; no versioned migration runner during pre-alpha), then the opt-in `PostgresBackend` with core-PG `tsvector` language-aware FTS (Swedish/multi-language — the milestone's driving requirement), credential-reference `DATABASE_URL`, and a dual-backend contract-test suite. Native hybrid search including `pgvector` follows in Phase B under ADR-050. It must preserve 0.24 canonical identity, revisions, provenance, natural-language query input, stable locators, corpus authority, and index-health/rebuild semantics. QMD remains supported through 0.24, is deprecated in Phase B, and is removed in the following milestone. Backend track, parallel to the UI track.
+Train 1 removes repair-ladder and overrule machinery, converges duplicated runtime authorities, simplifies the package
+topology, and reduces the test surface after those deletions. Decision-gated cuts cover alerts/advisor, task types,
+deployment commands, ACP extraction, and a client-tier SDK. The later ownership/cancellation and lean-workflow-binary
+train receives its own version when scheduled.
 
 ### 0.26 — Chat & Session Experience
 

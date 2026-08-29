@@ -25,7 +25,7 @@ class _TrackingConfigNotifier extends ConfigNotifier {
 /// its five writes cannot straddle it under load.
 const _debounceMs = 1000;
 
-DartclawConfig _defaultConfig() => DartclawConfig.load();
+DartclawConfig _defaultConfig() => DartclawConfig.load(env: const {}, fileReader: (_) => null);
 
 void main() {
   group('ReloadTriggerService', () {

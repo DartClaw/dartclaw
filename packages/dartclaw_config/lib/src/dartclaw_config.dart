@@ -199,7 +199,13 @@ class DartclawConfig {
   String get projectsClonesDir => p.join(server.dataDir, 'projects');
 
   /// Directory holding DartClaw's dedicated provider credential stores.
-  String get credentialsDir => p.join(server.dataDir, 'credentials');
+  String get credentialsDir => credentialsDirFor(server.dataDir);
+
+  /// The credential store root under [dataDir].
+  ///
+  /// Exists so [load] can name the same directory as [credentialsDir] before a
+  /// [DartclawConfig] is built to ask.
+  static String credentialsDirFor(String dataDir) => p.join(dataDir, 'credentials');
 
   /// Creates a [DartclawConfig] value.
   const new({
@@ -342,6 +348,28 @@ class DartclawConfig {
   @visibleForTesting
   static void clearExtensionParsers() => _clearExtensionParsers();
 
+  /// Registers the source of credentials DartClaw stores on disk.
+  ///
+  /// Call this before [DartclawConfig.load] — typically in the CLI bootstrap,
+  /// mirroring the [registerExtensionParser] pattern. [load] invokes the
+  /// provider on *every* call, passing that load's [credentialsDir], and merges
+  /// the result into `credentials` with the store winning; a re-read therefore
+  /// picks up a credential stored since the last one, and no re-read path can
+  /// forget the snapshot.
+  ///
+  /// This package opens no credential file: the registered closure owns the
+  /// store, and owns the contract that an unusable one reads as no credentials.
+  static void registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir) provider) {
+    _registerStoredCredentialProvider(provider);
+  }
+
+  /// Removes the registered stored-credential provider.
+  ///
+  /// Only for use in tests — call in [setUp]/[tearDown] to avoid cross-test
+  /// registration leakage.
+  @visibleForTesting
+  static void clearStoredCredentialProvider() => _clearStoredCredentialProvider();
+
   /// Built-in top-level config keys known to the parser.
   @visibleForTesting
   static Set<String> knownTopLevelKeysForTesting() => _knownConfigKeys();
@@ -414,9 +442,15 @@ class DartclawConfig {
     final onboarding = _parseOnboarding(yaml, const OnboardingConfig.defaults(), warns);
     final workflow = parseWorkflowConfig(_sectionMap('workflow', yaml, warns), warns, env: environment);
     final scheduling = _parseScheduling(yaml, const SchedulingConfig.defaults(), warns);
-    final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns);
-    final credentials = _parseCredentials(yaml, environment, const CredentialsConfig.defaults(), warns);
-    // Both sections reference credentials by name, so they parse after it.
+    final credentials = _parseCredentials(
+      yaml,
+      environment,
+      const CredentialsConfig.defaults(),
+      warns,
+      stored: _storedCredentials(credentialsDirFor(server.dataDir), warns),
+    );
+    // These sections reference credentials by name, so they parse after it.
+    final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns, credentials);
     final harness = _parseHarness(
       yaml,
       credentials,

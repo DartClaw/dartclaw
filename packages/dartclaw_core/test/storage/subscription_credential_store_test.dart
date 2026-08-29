@@ -5,10 +5,10 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-/// The store's own source lines, located by walking up from the test's CWD so
+/// A store's own source lines, located by walking up from the test's CWD so
 /// the scan works whichever directory the runner was launched from.
-List<String> _storeSource() {
-  const relative = 'packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart';
+List<String> _storeSource(String fileName) {
+  final relative = p.join('packages', 'dartclaw_core', 'lib', 'src', 'storage', fileName);
   for (var current = Directory.current.absolute; ; current = current.parent) {
     final candidate = File(p.join(current.path, relative));
     if (candidate.existsSync()) return candidate.readAsLinesSync();
@@ -17,6 +17,17 @@ List<String> _storeSource() {
     }
   }
 }
+
+/// Every source file that holds or guards a DartClaw-owned credential store.
+///
+/// The no-keychain invariant is a property of the whole store surface, not of
+/// one file, so a new store joins this list rather than growing its own copy of
+/// the assertions.
+const _credentialStoreSources = [
+  'subscription_credential_store.dart',
+  'named_credential_store.dart',
+  'login_store_guard.dart',
+];
 
 /// Builds a JWT carrying [claims] as its payload.
 String _jwtWithClaims(Map<String, Object?> claims) {
@@ -385,19 +396,21 @@ void main() {
 
     // The macOS Keychain login item is unreachable by path, so it is protected
     // by the store never touching a keychain at all rather than by a comparison.
-    test('the store introduces no keychain access', () {
-      final code = _storeSource().where((line) => !line.trimLeft().startsWith('///')).join('\n');
+    for (final fileName in _credentialStoreSources) {
+      test('$fileName introduces no keychain access', () {
+        final code = _storeSource(fileName).where((line) => !line.trimLeft().startsWith('///')).join('\n');
 
-      // Quoted form only, so a future `package:dartclaw_security` import does
-      // not read as a `security` binary invocation.
-      expect(code, isNot(contains("'security'")), reason: 'no `security` binary invocation');
-      expect(code.toLowerCase(), isNot(contains('keychain')), reason: 'no keychain API use');
-      expect(
-        code,
-        isNot(contains('Process.')),
-        reason: 'the store spawns nothing directly; permission changes go through atomic_write.dart',
-      );
-    });
+        // Quoted form only, so a future `package:dartclaw_security` import does
+        // not read as a `security` binary invocation.
+        expect(code, isNot(contains("'security'")), reason: 'no `security` binary invocation');
+        expect(code.toLowerCase(), isNot(contains('keychain')), reason: 'no keychain API use');
+        expect(
+          code,
+          isNot(contains('Process.')),
+          reason: 'the store spawns nothing directly; permission changes go through atomic_write.dart',
+        );
+      });
+    }
   });
 
   group('dedicated Codex store contents', () {

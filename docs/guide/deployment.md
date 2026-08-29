@@ -192,6 +192,42 @@ If container isolation is enabled and the unit runs as a user other than uid 100
 directories need a uid alignment the service cannot perform unprivileged — grant `CAP_CHOWN` or use rootless/
 userns-remapped Docker. See [File Ownership on Native Linux](security.md#file-ownership-on-native-linux).
 
+## Secrets and the Service Unit
+
+A generated LaunchAgent or systemd unit is **regenerated** by the next `dartclaw service install`. A secret hand-added
+to its `EnvironmentVariables` dict or an `Environment=` line is therefore lost on the next install, silently, and the
+service comes back up without the credential it had.
+
+Since 0.24.3 that is avoidable: store the secret instead.
+
+```bash
+dartclaw secrets set brave-search --type api-key       # masked prompt; nothing in argv or shell history
+```
+
+Then reference it from config:
+
+```yaml
+search:
+  providers:
+    brave:
+      enabled: true
+      credential: brave-search
+```
+
+The value lives at `<data_dir>/credentials/named/brave-search.json`, outside the generated unit, so a reinstall cannot
+lose it and no key appears in `dartclaw.yaml`. `dartclaw secrets set` also takes effect at the next config reload —
+SIGUSR1, a file-watch reload, or a web-UI edit — without restarting the service. See
+[Security § Named Credential Storage](security.md#named-credential-storage) for what the store does and does not
+protect, and [CLI Reference § Secrets](cli-reference.md#secrets) for the commands.
+
+**`${VAR}` delivery keeps working unchanged.** Nothing about environment-delivered secrets is deprecated or removed: a
+deployment that injects secrets from an external secret manager into the serve process environment should keep doing
+so. The store is the answer for a secret that had nowhere better to live than a generated unit file. Run
+`dartclaw secrets audit` to see which of your secrets are in which place; it exits non-zero on any finding, so it can
+gate a deploy.
+
+`dartclaw deploy secrets` belongs to the superseded `deploy` path and is unchanged — prefer `dartclaw secrets set`.
+
 ## Egress Firewall
 
 Restrict outbound network access to only required services:

@@ -14,7 +14,16 @@ import 'auth_utils.dart';
 class TokenService {
   String? _token;
 
-  new({String? token}) : _token = token;
+  /// Creates a service holding [token], generating one lazily when omitted.
+  ///
+  /// Throws [ArgumentError] when [token] is blank: an empty gateway token
+  /// authenticates an empty candidate and signs session cookies with an empty
+  /// HMAC key, so it must never reach the auth pipeline.
+  new({String? token}) : _token = token {
+    if (token != null && token.trim().isEmpty) {
+      throw ArgumentError.value(token, 'token', 'gateway token must not be blank');
+    }
+  }
 
   /// Returns the current token, generating one if not yet set.
   String get token => _token ??= generate();
@@ -53,6 +62,10 @@ class TokenService {
     return newToken;
   }
 
-  /// Constant-time comparison to prevent timing attacks.
+  /// Whether [candidate] is the configured token, compared in constant time.
+  ///
+  /// A blank [candidate] never validates — [constantTimeEquals] refuses empty
+  /// operands, so a bearer header of `Bearer ` or a `?token=` with no value is
+  /// rejected rather than matched against a degraded credential.
   bool validateToken(String candidate) => constantTimeEquals(candidate, token);
 }

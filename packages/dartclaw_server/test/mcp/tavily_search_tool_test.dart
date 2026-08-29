@@ -135,7 +135,7 @@ void main() {
     group('ContentGuard integration', () {
       test('safe content passes through', () async {
         final classifier = FakeContentClassifier(result: 'safe');
-        final guard = ContentGuard(classifier: classifier);
+        final guard = ContentGuard(scan: ContentScan(classifier: classifier));
         final provider = _MockProvider(
           results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text')],
         );
@@ -148,7 +148,7 @@ void main() {
 
       test('blocked content returns error result', () async {
         final classifier = FakeContentClassifier(result: 'harmful_content');
-        final guard = ContentGuard(classifier: classifier);
+        final guard = ContentGuard(scan: ContentScan(classifier: classifier));
         final provider = _MockProvider(
           results: [SearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Harmful content')],
         );

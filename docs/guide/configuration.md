@@ -171,7 +171,7 @@ auth:
   cookie_secure: false          # add Secure to the session cookie when served over HTTPS
 gateway:
   auth_mode: token               # token | none
-  token: ${DARTCLAW_TOKEN}       # auto-generated if omitted
+  token: ${DARTCLAW_TOKEN}       # auto-generated if omitted or if the variable is unset
 
 # --- Container Isolation ---
 container:
@@ -197,7 +197,7 @@ guards:
   content:
     enabled: true
     model: haiku
-    max_bytes: 51200             # 50KB truncation before classification
+    max_bytes: 51200             # 50KB truncation before classification; also caps web_fetch when classification is on
     fail_open: false             # true lets unscorable content through unchecked
 
 guard_audit:
@@ -379,6 +379,24 @@ agent:
       effort: low                # per-agent effort override
       tools: [web_search, web_fetch]
       max_response_bytes: 5242880
+    researcher:                  # reads untrusted web content, returns only schema-conforming JSON
+      description: "Researches a question and returns structured findings"
+      security_profile: restricted
+      tools: [web_search, web_fetch]
+      prompt: "Research the question and report what you found."
+      output_schema:
+        type: object
+        properties:
+          answer: {type: string}
+          sources:
+            type: array
+            items:
+              type: object
+              properties:
+                url: {type: string}
+                title: {type: string}
+              required: [url]
+        required: [answer, sources]
     # Custom logical agents – define any number with unique IDs:
     # summarizer:
     #   description: "Summarizes documents"
@@ -469,6 +487,10 @@ providers:
 # credential, not the default: subscription credentials live in DartClaw's own
 # stores under <data_dir>/credentials/ and are written by `dartclaw auth claude` /
 # `dartclaw auth codex` – never here. See security.md for setup and trade-offs.
+# Since 0.24.3 any named credential can live in the store instead of this block:
+# `dartclaw secrets set <name> --type api-key` writes it to
+# <data_dir>/credentials/named/, and it resolves as credentials.<name> at every
+# config load. A name held in both wins from the store.
 credentials:
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
@@ -509,6 +531,13 @@ search:
     host: 127.0.0.1              # literal loopback only: localhost, 127.x.x.x, or ::1
     port: 8181
   default_depth: standard        # fast | standard | deep
+  providers:                     # web-search providers; `brave` and `tavily` are the recognized ids
+    brave:
+      enabled: true
+      credential: brave-search   # a credentials.<name> api-key entry; exclusive with api_key
+    # tavily:
+    #   enabled: true
+    #   api_key: ${TAVILY_API_KEY}   # the alternative to credential:
 
 # --- Governance (0.12) --- rate limits, token budgets, loop detection
 governance:
@@ -591,6 +620,12 @@ Effort buys the turn more deliberation. It does not raise an output ceiling: the
 
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 
+**Note on `agent.agents.<id>.output_schema`:** An inline JSON Schema object that binds the agent's answer to a shape. When declared, the rendered contract is appended to the agent's `prompt` (or becomes the whole persona when `prompt` is blank), and the agent's result is parsed and validated on the host before it reaches the caller. A result that is not exactly one JSON value, or that does not conform, **fails the turn** with an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an unknown property uses a non-semantic fingerprint so rejected content is not echoed. The result is never repaired, defaulted, truncated, or partially returned. Enforcement is host-side only; no provider structured-output mode is involved, and this is unrelated to the workflow `schema:` presets, which only warn.
+
+Supported keywords: `type` (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`), `properties`, `required`, `items`, `enum`, and `additionalProperties`, plus `title`/`description`/`$schema` accepted as ignored annotations. Every object level is closed: `additionalProperties` is forced to `false` whether or not you declare it, so an unknown property fails. The root schema must be `type: object`; every schema map needs a single-string `type` (write `type: "null"` quoted for the null type — bare `type: null` is YAML's null, not a type name); `type: array` requires an `items` schema; `required` names must all appear in `properties`; `integer` accepts only whole numbers (`3.0` is a `number`, not an `integer`); and an `enum` must be non-empty with every member satisfying the declared type. Anything outside that set — `$ref`, `oneOf`/`anyOf`/`allOf`, `format`, `minimum`/`maxLength` and other bounds, `const`, `default`, `$id`, type arrays, tuple-form `items` — is **rejected when the config loads**, naming the keyword and its position in your schema. A constraint DartClaw cannot enforce is never silently ignored.
+
+Do not put an `output_schema` on the built-in `search` agent: DartClaw's own `context_research` tool spawns it internally and expects its own result packet. Define a separate agent, as `researcher` does above.
+
 **Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Logical agents under `agent.agents` can override the model individually. Background tasks also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
 **Note on `agent.provider`:** This is the fixed provider for the serialized primary lane used by main user/channel sessions, and the default provider for background routing. Interactive session creation does not accept a provider override. Logical agents may select a provider and provider-independent `security_profile` (`workspace` or `restricted`); tasks may select a provider at creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
@@ -628,6 +663,26 @@ Subscription credentials are stored and renewed with `dartclaw auth claude` / `d
 [Security § Setting Up Subscription Authentication](security.md#setting-up-subscription-authentication) for the setup
 steps, store locations, and the security trade-offs between the two credential kinds.
 
+**Note on `search.providers`:** Each `search.providers.<id>` entry configures one web-search provider for the
+harness's search tools. The recognized ids are `brave` and `tavily`; an entry under any other id parses but wires no
+tool. `enabled` is required and must be a boolean.
+
+Exactly one of `api_key` and `credential` must be present:
+
+| Key | Meaning |
+|---|---|
+| `api_key` | The key itself, or a `${VAR}` reference resolved from the serve process environment. A value resolving blank warns and skips the provider. |
+| `credential` | The name of a `credentials.<name>` entry, resolved after the credentials registry is built. |
+
+Declaring both warns and **skips the provider** — a silent precedence rule is how an operator ends up authenticating
+with the key they believed they had removed. A `credential` naming an unknown entry, a `github-token` entry, or an entry
+that resolves blank likewise warns and skips the provider; it is never left enabled with an empty key, which would make
+the provider disappear with no warning at all.
+
+The referenced entry may come from the credential store rather than the `credentials:` block:
+`dartclaw secrets set brave-search --type api-key` is enough, with nothing about the key in YAML and nothing in the
+service unit. See [CLI Reference § Secrets](cli-reference.md#secrets).
+
 **Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
 
 - `approval` — the **prompt-gating** axis (Claude permission-mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. Claude's one-shot path has no interactive prompt channel, so `on-request`/`unless-allow-listed` keep the default `dontAsk` + static allow-list; only `approval: never` opts a trusted run into **full access** (permission bypass, no allow-list). Full access is refused under the restricted container profile, where hooks are disabled and a bypass cannot fail closed.
@@ -660,7 +715,9 @@ environment variable name(s) the referenced credential declares (e.g. a credenti
 injects `ACME_API_KEY`); the secret never appears in argv, the inherited parent environment, logs, or the audit record.
 A credentialed stdio server whose credential declares no env var name fails closed rather than guessing one. `network_class` is
 required classification metadata and must be `local`, `private`, or `public`; the default HTTP transport applies the
-blocked-range/DNS egress policy to `public` servers before sending request bodies. `allow_tools` is the outbound egress
+blocked-range/DNS egress policy to `public` servers before sending request bodies. When content classification is
+configured, a `public` server's successful tool results are also content-classified before reaching an agent, and a
+result whose text exceeds `guards.content.max_bytes` is denied. `allow_tools` is the outbound egress
 allowlist: an empty list denies all calls for that server. `surface_tools` controls only harness-facing tool-list
 visibility: an empty list exposes no external tools through that pool's filter, and each listed tool must exist in the
 server's `tools/list` response. A tool can be allowed without being surfaced, preserving explicit-policy dispatch
@@ -775,6 +832,12 @@ relative to cwd unless you override them explicitly. See [Deployment § Running 
 `dartclaw token show` prints a warning instead of a token until one is configured or generated by `dartclaw serve`.
 When `gateway.token` is set in YAML, rotate that config value instead of relying on the generated token file. A running
 server resolves its gateway token at startup, so token rotation takes effect after restart.
+
+**`gateway.token` with an unset environment variable.** A `${VAR}` reference that resolves to nothing is treated as if
+`gateway.token` were absent: startup logs a warning naming the variable, falls back to the generated `gateway_token`
+file, and blocks a hot reload that would apply the unresolved value. An empty token is never accepted as a credential —
+it would authenticate a bearer header carrying no token at all and sign session cookies with an empty key. Run
+`dartclaw token show` to read the token the server actually resolved.
 
 ### `dartclaw sessions cleanup`
 

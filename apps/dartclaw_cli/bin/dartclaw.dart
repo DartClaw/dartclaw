@@ -11,6 +11,7 @@ import 'package:dartclaw_cli/src/commands/jobs/jobs_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_command.dart';
 import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
 import 'package:dartclaw_cli/src/commands/release_sqlite_check_command.dart';
+import 'package:dartclaw_cli/src/commands/secrets/secrets_command.dart';
 import 'package:dartclaw_cli/src/commands/service/service_command.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/commands/sessions_command.dart';
@@ -39,6 +40,7 @@ Future<void> main(List<String> args) async {
     ..addCommand(TasksCommand())
     ..addCommand(RebuildIndexCommand())
     ..addCommand(ReleaseSqliteCheckCommand())
+    ..addCommand(SecretsCommand())
     ..addCommand(TokenCommand())
     ..addCommand(TracesCommand())
     ..addCommand(WorkflowCommand());

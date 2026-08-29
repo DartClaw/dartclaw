@@ -93,6 +93,81 @@ already signed in is not an error; it reports that the existing credential was l
 See [Security § Setting Up Subscription Authentication](security.md#setting-up-subscription-authentication) for store
 locations, renewal, and the trade-offs against API-key authentication.
 
+## Secrets
+
+Stores named credentials for this DartClaw instance under `<data_dir>/credentials/named/`, one owner-only JSON file per
+name. A stored credential resolves as `credentials.<name>` at every config load, so it needs no `credentials:` block in
+YAML and survives `dartclaw service install` regenerating the unit or plist file.
+
+The store is derived from `data_dir`, exactly as `auth`'s is: pass the global `--config` for the instance's YAML, and
+`--data-dir` whenever `serve` is started with a `--data-dir` that overrides the YAML value.
+
+A name must match `^[a-z0-9][a-z0-9_-]{0,63}$`. The store is addressed by filename, so a name outside that pattern is
+refused before any path is built from it.
+
+The store is not a vault: its protection is file permissions. See
+[Security § Named Credential Storage](security.md#named-credential-storage).
+
+### `secrets set`
+
+```bash
+dartclaw secrets set brave-search --type api-key
+printf '%s' "$KEY" | dartclaw secrets set brave-search --type api-key
+dartclaw secrets set github-main --type github-token --repository org/app
+```
+
+Reads the value from stdin only – a masked prompt on a terminal, showing one `*` per typed character and never the
+value, or a piped value with its trailing newline stripped. No option carries the value: a secret on a command line is
+recorded in shell history and visible in the process list. Interrupting the prompt with Ctrl-C restores your terminal,
+stores nothing, and exits `130`.
+
+| Flag | Meaning |
+|---|---|
+| `--type api-key\|github-token` | Required. Inferring the type from the value would let a rotated token in a new format silently change an entry's type. |
+| `--repository org/name` | Repository policy, valid only with `--type github-token`. |
+| `--data-dir <path>` | The instance's data directory, when `serve` overrides the YAML value. |
+
+Writing an existing name overwrites it silently. Exits `0` on success. An invalid `--type` value uses package:args'
+usage exit code `64`; a missing `--type`, invalid name, incompatible option, empty value, or unwritable store exits `1`.
+
+### `secrets list`
+
+```bash
+dartclaw secrets list
+```
+
+Prints one row per credential name with its type and where its value comes from – `store`, `config` (a literal in
+YAML), or `env` (a `${VAR}` reference, named). A name held in both the store and `credentials:` is marked as shadowing
+the config entry, which the store's entry wins over. No value and no value prefix is ever printed: a prefix is enough to
+confirm a guess, and the name already identifies the entry. Exits `0`.
+
+### `secrets rm`
+
+```bash
+dartclaw secrets rm brave-search
+```
+
+Removes the stored entry only. A `credentials.<name>` block of the same name in YAML is untouched and reported, and it
+resolves again at the next config load. Exits `0` on success, `1` on an invalid name or a name that is not stored.
+
+### `secrets audit`
+
+```bash
+dartclaw secrets audit
+```
+
+Read-only. Makes no network call and no provider call, and prints no value or value prefix. Reports five classes:
+
+| Class | What it finds |
+|---|---|
+| Literals in config | A `credentials.<name>`, `search.providers.<id>.api_key`, or `github.webhook_secret` holding a literal value rather than a `${VAR}` reference or a stored entry. |
+| Unresolvable references | A `${VAR}` that resolves to nothing, named with the variable. |
+| Shadowed entries | A name present in both the store and `credentials:`. |
+| Orphans | A `credentials.<name>` entry no `credential:` reference consumes. `anthropic` and `openai` are consumed by name, so they are never orphans. |
+| Permissions | The config file, a credential directory, or a file under `<data_dir>/credentials/` accessible beyond its owner. Not applicable on Windows, where POSIX modes are not the access boundary; the class is reported as such and the exit code does not differ by platform for the same logical state. |
+
+Exits `0` when nothing is found, `1` on any finding – so it can gate a deployment.
+
 ## Runners
 
 Runner output is derived from active execution leases plus healthy cached workers. IDs identify observed runtime runners,

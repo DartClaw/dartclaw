@@ -7,6 +7,7 @@ SearchConfig _parseSearch(
   Map<String, String> env,
   SearchConfig defaults,
   List<String> warns,
+  CredentialsConfig credentials,
 ) {
   final providers = <String, SearchProviderEntry>{};
   var backend = defaults.backend;
@@ -54,11 +55,28 @@ SearchConfig _parseSearch(
           continue;
         }
         final rawKey = value['api_key'];
+        final rawCredential = value['credential'];
+        if (value.containsKey('api_key') && value.containsKey('credential')) {
+          // Silent precedence is how an operator ends up authenticating with the
+          // key they believe they removed.
+          warns.add('search.providers.$name declares both "api_key" and "credential" — skipping');
+          continue;
+        }
+        if (rawCredential != null) {
+          final apiKey = _resolveSearchCredential(name, rawCredential, credentials, warns);
+          if (apiKey == null) continue;
+          providers[name] = SearchProviderEntry(enabled: enabled, apiKey: apiKey);
+          continue;
+        }
         if (rawKey == null || rawKey is! String || rawKey.isEmpty) {
-          warns.add('search.providers.$name missing "api_key" — skipping');
+          warns.add('search.providers.$name missing "api_key" or "credential" — skipping');
           continue;
         }
         final apiKey = envSubstitute(rawKey, env: env);
+        if (apiKey.trim().isEmpty) {
+          warns.add('search.providers.$name "api_key" resolves to an empty value — skipping');
+          continue;
+        }
         providers[name] = SearchProviderEntry(enabled: enabled, apiKey: apiKey);
       }
     }
@@ -71,6 +89,37 @@ SearchConfig _parseSearch(
     defaultDepth: defaultDepth,
     providers: providers,
   );
+}
+
+/// The value a `search.providers.<id>.credential` reference resolves to, or
+/// `null` after warning about why it does not.
+///
+/// R7's three refusal reasons only — unknown name, non-`api-key` type, blank
+/// value. The ACP reference check adds a fourth (a literal with no `${VAR}`
+/// name to present it under), which does not apply here: a search provider is
+/// handed the value, not an environment variable, and a stored entry carries no
+/// env provenance by construction.
+String? _resolveSearchCredential(String providerName, Object? raw, CredentialsConfig credentials, List<String> warns) {
+  const path = 'search.providers';
+  if (raw is! String || raw.trim().isEmpty) {
+    warns.add('Invalid $path.$providerName.credential: must name a credentials entry — skipping');
+    return null;
+  }
+  final name = raw.trim();
+  final entry = credentials[name];
+  final problem = switch (entry) {
+    null => 'is not a configured credentials entry',
+    CredentialEntry(isApiKeyCredential: false) => 'is not an api_key credential',
+    CredentialEntry(secret: final secret) when secret.trim().isEmpty => 'resolves to an empty value',
+    _ => null,
+  };
+  if (problem != null || entry == null) {
+    warns.add(
+      '$path.$providerName.credential "$name" ${problem ?? 'is not a configured credentials entry'} — skipping',
+    );
+    return null;
+  }
+  return entry.apiKey;
 }
 
 String? _normalizeQmdLoopbackHost(String host) {
@@ -369,10 +418,15 @@ CredentialsConfig _parseCredentials(
   Map<String, dynamic> yaml,
   Map<String, String> env,
   CredentialsConfig defaults,
-  List<String> warns,
-) {
+  List<String> warns, {
+  Map<String, CredentialEntry> stored = const {},
+}) {
   final credentialsRaw = readMap('credentials', yaml, warns);
-  if (credentialsRaw == null) return defaults;
+  // A stored entry needs no `credentials:` block, so an absent section is still
+  // a merge when the store holds anything.
+  if (credentialsRaw == null) {
+    return stored.isEmpty ? defaults : CredentialsConfig(entries: {...defaults.entries, ...stored});
+  }
 
   final entries = <String, CredentialEntry>{};
   for (final entry in credentialsRaw.entries) {
@@ -418,7 +472,9 @@ CredentialsConfig _parseCredentials(
     }
   }
 
-  return CredentialsConfig(entries: entries);
+  // The store wins: an operator who ran `dartclaw secrets set` moved the
+  // credential out of config, and a leftover YAML block must not shadow it.
+  return CredentialsConfig(entries: {...entries, ...stored});
 }
 
 String? _readOptionalMcpString(Map<String, dynamic> serverMap, String key, String serverName) {

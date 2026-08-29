@@ -13,6 +13,10 @@ void main() {
 
     _collectAssets(Directory('$packageRoot/lib/src/templates'), 'templates', expectedText, excludeDart: true);
     _collectAssets(Directory('$packageRoot/lib/src/static'), 'static', expectedText, binary: expectedBinary);
+    final bridgeEmbed = Directory('$packageRoot/../../build/bridge-embed');
+    if (bridgeEmbed.existsSync()) {
+      _collectAssets(bridgeEmbed, 'bridge', expectedText, binary: expectedBinary);
+    }
 
     expect(embeddedServerAssets.keys.toSet(), expectedText.keys.toSet());
     for (final entry in expectedText.entries) {
@@ -30,7 +34,7 @@ void main() {
 }
 
 /// Mirrors `_binaryAssetExtensions` in `dev/tools/embed_assets.dart`; both must change together.
-const _binaryAssetExtensions = <String>{'.png', '.woff2'};
+const _binaryAssetExtensions = <String>{'.png', '.woff2', '.gz'};
 
 void _collectAssets(
   Directory root,

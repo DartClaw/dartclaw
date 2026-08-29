@@ -1,7 +1,13 @@
 import 'dart:async';
 
 import 'package:dartclaw_config/dartclaw_config.dart'
-    show CredentialEntry, CredentialsConfig, McpServerEntry, McpServersConfig, SlidingWindowRateLimiter;
+    show
+        CredentialEntry,
+        CredentialsConfig,
+        McpNetworkClass,
+        McpServerEntry,
+        McpServersConfig,
+        SlidingWindowRateLimiter;
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, OutboundMcpGovernanceEvent;
 import 'package:dartclaw_security/dartclaw_security.dart';
 
@@ -29,6 +35,7 @@ final class OutboundMcpPool {
   final OutboundMcpTimerFactory _timerFactory;
   final OutboundMcpClock _clock;
   final CredentialsConfig _credentials;
+  final ContentScan? _contentScan;
   final Map<String, _PooledConnection> _connections = {};
   final Map<String, _ServerGovernanceState> _governance = {};
   var _closed = false;
@@ -47,6 +54,7 @@ final class OutboundMcpPool {
     OutboundMcpTimerFactory? timerFactory,
     OutboundMcpClock? clock,
     CredentialsConfig credentials = const CredentialsConfig.defaults(),
+    ContentScan? contentScan,
   }) : _registry = mcpServers.enabledRegistry,
        _idleTtl = idleTtl,
        _timeout = timeout,
@@ -59,7 +67,8 @@ final class OutboundMcpPool {
        _observer = observer,
        _timerFactory = timerFactory ?? Timer.new,
        _clock = clock ?? DateTime.now,
-       _credentials = credentials;
+       _credentials = credentials,
+       _contentScan = contentScan;
 
   /// Lists tools exposed by an enabled outbound MCP server.
   ///
@@ -143,7 +152,13 @@ final class OutboundMcpPool {
       _touch(serverName, connection);
       final result = await connection.client.callTool(toolName: toolName, arguments: arguments, caller: caller);
       if (result.isSuccess) {
+        // Usage is charged before the verdict: the server served the call, and a
+        // budget that only counts delivered content never bounds a blocked server.
         _recordGovernanceUsage(serverName, result.outboundCallTokens);
+        final denial = await _contentDenialReason(serverName, result);
+        if (denial != null) {
+          return await _denyWithAudit(guardRequest, OutboundMcpGuardDecision.deny(denial));
+        }
       }
       return result;
     } on OutboundMcpException catch (error) {
@@ -341,6 +356,32 @@ final class OutboundMcpPool {
         );
       }
     }
+  }
+
+  /// Reason a `public` server's successful [result] must not reach the caller,
+  /// or null when it may pass.
+  ///
+  /// Only servers declared `network_class: public` are scanned; a null scan means
+  /// classification is not configured, never an implicit block.
+  Future<String?> _contentDenialReason(String serverName, OutboundMcpCallResult result) async {
+    final scan = _contentScan;
+    if (scan == null) return null;
+    if (_registry[serverName]!.networkClass != McpNetworkClass.public) return null;
+
+    final text = outboundResultText(result);
+    if (text.isEmpty) return null;
+    if (scan.exceedsCap(text)) {
+      // The cap, not the result's length — the length is attacker-influenced and
+      // would echo a payload size into the audit trail.
+      return 'Content blocked: result exceeds guards.content.max_bytes (${scan.maxContentBytes} bytes)';
+    }
+
+    final verdict = await scan.evaluate(text);
+    if (!verdict.blocked) return null;
+    final classification = verdict.classification;
+    return classification != null
+        ? 'Content blocked: classified as $classification'
+        : 'Content classification failed (fail-closed)';
   }
 
   Future<OutboundMcpCallResult> _denyWithAudit(

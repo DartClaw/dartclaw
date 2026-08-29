@@ -1,6 +1,7 @@
 import 'package:collection/collection.dart';
 
 import 'execution_policy.dart';
+import 'output_schema.dart';
 
 /// Configuration for a logical agent (e.g. search agent).
 ///
@@ -49,6 +50,14 @@ class AgentDefinition {
   /// Optional reasoning effort override for this agent.
   final String? effort;
 
+  /// Optional deep-closed output schema the agent's result must conform to.
+  ///
+  /// Null leaves the agent's output unconstrained. When set, it is the enforced
+  /// form produced by [parseOutputSchema] — every object level already carries
+  /// `additionalProperties: false` — and a result that does not conform fails
+  /// the turn rather than being repaired or truncated.
+  final Map<String, dynamic>? outputSchema;
+
   /// Creates a logical-agent definition.
   const new({
     required this.id,
@@ -63,6 +72,7 @@ class AgentDefinition {
     this.maxResponseBytes = 5 * 1024 * 1024,
     this.model,
     this.effort,
+    this.outputSchema,
   });
 
   /// Default search agent with web_search + web_fetch only.
@@ -135,6 +145,10 @@ class AgentDefinition {
         'execution: container.',
       );
     }
+    final outputSchema = yaml.containsKey('output_schema')
+        ? parseOutputSchema(yaml['output_schema'], yamlPath: 'agent.agents.$id.output_schema')
+        : null;
+
     final providerValue = yaml['provider'];
     String? provider;
     if (providerValue is String) {
@@ -160,7 +174,19 @@ class AgentDefinition {
       securityProfile: securityProfile,
       profileIsOperatorConfigured: profileIsOperatorConfigured,
       execution: execution,
+      outputSchema: outputSchema,
     );
+  }
+
+  /// System prompt actually sent to the worker, including the output contract.
+  ///
+  /// Equals [prompt] when no [outputSchema] is declared. With one, the rendered
+  /// contract is appended — or is the whole persona when [prompt] is blank.
+  String get personaPrompt {
+    final schema = outputSchema;
+    if (schema == null) return prompt;
+    final contract = renderOutputSchemaContract(schema);
+    return prompt.trim().isEmpty ? contract : '$prompt\n\n$contract';
   }
 
   /// Parses an `execution:` scalar at [yamlPath], rejecting unknown values.
@@ -196,7 +222,8 @@ class AgentDefinition {
           const SetEquality<String>().equals(deniedTools, other.deniedTools) &&
           maxResponseBytes == other.maxResponseBytes &&
           model == other.model &&
-          effort == other.effort;
+          effort == other.effort &&
+          const DeepCollectionEquality().equals(outputSchema, other.outputSchema);
 
   @override
   int get hashCode => Object.hash(
@@ -212,6 +239,7 @@ class AgentDefinition {
     maxResponseBytes,
     model,
     effort,
+    const DeepCollectionEquality().hash(outputSchema),
   );
 
   static const _defaultSearchPrompt =

@@ -126,6 +126,7 @@ Future<OutboundMcpPool?> _registerOutboundMcpTools(
     guardDecisionHook: policy.decide,
     auditLogger: security.auditLogger,
     eventBus: ctx.eventBus,
+    contentScan: security.contentScan,
   );
   try {
     var registered = 0;

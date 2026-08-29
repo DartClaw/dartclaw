@@ -228,7 +228,7 @@ void main() {
     fetchServer = await _startKnowledgeInboxServer();
 
     final classifier = _PromptInjectionClassifier();
-    final tavilyGuard = ContentGuard(classifier: classifier, failOpen: false);
+    final tavilyGuard = ContentGuard(scan: ContentScan(classifier: classifier));
 
     provider = _KnowledgeInboxSearchProvider(safeUrl: 'http://127.0.0.1:${fetchServer.port}/safe');
 
@@ -238,8 +238,7 @@ void main() {
     worker = _KnowledgeInboxWorker(
       searchTool: TavilySearchTool(provider: provider, contentGuard: tavilyGuard),
       fetchTool: WebFetchTool(
-        classifier: classifier,
-        failOpenOnClassification: false,
+        scan: ContentScan(classifier: classifier),
         ssrfProtectionEnabled: false, // allow localhost in tests — SSRF protection blocks loopback by default
       ),
       onMemoryObserve: memoryHandlers.observe,
@@ -254,7 +253,7 @@ void main() {
             patterns: InputSanitizerConfig.defaults().patterns,
           ),
         ),
-        ContentGuard(classifier: classifier, failOpen: false),
+        ContentGuard(scan: ContentScan(classifier: classifier)),
       ],
     );
 

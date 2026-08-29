@@ -588,7 +588,12 @@ class CliWorkflowWiring {
         roleDefaults: workflowRoleDefaults,
         approvalPolicyDefault: config.workflow.approvals,
         structuredOutputFallbackRecorder: taskHandles.taskEventRecorder.recordStructuredOutputFallbackUsed,
-        skillIntrospector: skillIntrospector ?? CliSkillIntrospector(environmentForProvider: providerProbeEnvironment),
+        skillIntrospector:
+            skillIntrospector ??
+            CliSkillIntrospector(
+              environmentForProvider: providerProbeEnvironment,
+              provisionedSkills: WorkspaceSkillInventory.fromDataDir(dataDir).skillNames.toSet(),
+            ),
         providerAuthPreflight:
             providerAuthPreflight ??
             CliProviderAuthPreflight(

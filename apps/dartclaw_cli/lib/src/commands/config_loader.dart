@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -17,6 +18,27 @@ void ensureCliChannelConfigsRegistered() {
   ensureDartclawWhatsappRegistered();
   ensureDartclawSignalRegistered();
   ensureGitHubWebhookConfigRegistered();
+}
+
+/// Registers the named credential store as the source of stored credentials.
+///
+/// `DartclawConfig.load` calls the registered closure on every load, passing
+/// that load's credentials directory, so every re-read path — the config API,
+/// the guard editor, the reload trigger — resolves a credential stored since
+/// the last one without knowing the store exists. An unusable store is no
+/// store: it degrades to no stored credentials rather than failing the load,
+/// the same way `setup_verifier` treats the subscription store.
+void ensureStoredCredentialProviderRegistered({Map<String, String>? env}) {
+  final environment = env ?? Platform.environment;
+  DartclawConfig.registerStoredCredentialProvider((credentialsDir) {
+    try {
+      return NamedCredentialStore.open(credentialsDir: credentialsDir, environment: environment).readAll();
+    } on LoginStoreCollisionError {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    }
+  });
 }
 
 String defaultInstanceDir({Map<String, String>? env}) {
@@ -87,5 +109,6 @@ DartclawConfig loadCliConfig({
   String? Function(String path)? fileReader,
 }) {
   ensureCliChannelConfigsRegistered();
+  ensureStoredCredentialProviderRegistered(env: env);
   return DartclawConfig.load(configPath: configPath, cliOverrides: cliOverrides, env: env, fileReader: fileReader);
 }

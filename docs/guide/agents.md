@@ -95,14 +95,17 @@ Each entry under `agent.agents.<id>` supports:
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `description` | `"Agent: <id>"` | Human-readable description exposed in the `sessions_spawn` tool schema |
-| `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. Blank means the worker's configured default |
+| `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. Blank means the worker's configured default — except with an `output_schema`, where a blank prompt makes the rendered output contract the whole persona |
 | `provider` | `agent.provider` | Harness provider for this agent's conversations; IDs are trimmed and lowercased |
 | `security_profile` | `restricted` for `search`; otherwise provider default or `workspace` | Worker isolation profile: `workspace` or `restricted` |
 | `tools` | `[]` | Optional closed allowlist; empty or absent means no sandbox allowlist |
 | `denied_tools` | `[]` | Explicitly blocked tools (overrides allowlist) |
 | `model` | *(provider default)* | Model override for this logical agent |
 | `effort` | *(provider default)* | Reasoning-effort override for Claude and Codex |
-| `max_response_bytes` | `5242880` (5MB) | Response size cap before truncation |
+| `max_response_bytes` | `5242880` (5MB) | Response size cap. Without an `output_schema` the response is truncated to it; with one the turn fails instead, since a truncated value is not the declared contract |
+| `output_schema` | *(none)* | Inline JSON Schema the agent's answer must conform to; a non-conforming answer fails the turn. Read once at startup when agent definitions are built — restart to change it. Never set it on `search`, which `context_research` spawns internally and whose own result packet it would break. See [Configuration](configuration.md#full-config-reference) for the supported keyword set |
+
+**Schema-bound output**: With `output_schema` set, the agent's persona carries a rendered contract — every property name and type, the required set, the closed-object rule, and the instruction to answer with only the JSON value — and the host parses and validates the result at the agent boundary, after the content guard. A result that is not exactly one JSON value (prose, or JSON inside a code fence), that carries an undeclared property, that is missing a required one, or that is over `max_response_bytes` is returned to the caller as an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an undeclared property name is replaced by a non-semantic fingerprint so rejected content is not echoed. Nothing is repaired, defaulted, or partially salvaged, and there is no automatic retry — re-asking is the caller's decision.
 
 **Tools default behavior**: The built-in `search` agent defaults to the canonical allowlist `[web_search, web_fetch]`. Other agents default to an empty list. Empty or absent `tools` means no sandbox allowlist is enforced, so all tools remain available except explicit denies. A startup warning calls out this fail-open posture.
 

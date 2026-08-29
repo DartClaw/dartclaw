@@ -34,7 +34,9 @@ export 'src/storage/atomic_write.dart'
         chmodOwnerOnly,
         chmodOwnerOnlySync,
         chmodOwnerOnlyDirSync;
-export 'src/storage/subscription_credential_store.dart' show LoginStoreCollisionError, SubscriptionCredentialStore;
+export 'src/storage/login_store_guard.dart' show LoginStoreCollisionError;
+export 'src/storage/named_credential_store.dart' show NamedCredentialStore;
+export 'src/storage/subscription_credential_store.dart' show SubscriptionCredentialStore;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
 export 'src/bridge/bridge_events.dart'

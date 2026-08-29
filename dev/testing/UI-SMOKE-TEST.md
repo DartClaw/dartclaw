@@ -77,7 +77,7 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 - CRT mascot and `DartClaw` wordmark
 - Card with visible border/shadow
 - Token input (type=password), "Remember this device" checkbox, "Sign In ❯" button
-- Footer hint with `<code>`-styled token path
+- Footer hint with the `<code>`-styled `dartclaw token show` retrieval command
 
 **Fail:** Missing any of the above; hard-coded colors instead of tokens
 

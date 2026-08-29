@@ -9,6 +9,17 @@ final _envPattern = RegExp(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}');
 ///
 /// Only resolves `${VAR}` — NOT `$VAR` (explicit syntax, avoids accidental
 /// substitution). Undefined vars resolve to empty string with a warning.
+///
+/// Substitution stays deliberately lenient: it also fills log paths, base URLs
+/// and directory names, where a partially-resolved template is a legitimate
+/// value and a throw would turn a cosmetic omission into a failed startup.
+/// **A caller that consumes the result as a credential must therefore treat a
+/// blank result as absent, never as a secret** — `''` is what an empty bearer
+/// header or `?secret=` matches. The credential-shaped callers all do:
+/// `gateway.token` and `search.providers.*.api_key` drop a blank value with a
+/// warning, `credentials:` entries carry [envReferences] provenance and answer
+/// `CredentialEntry.isPresent`, and `github.webhook_secret` resolves undefined
+/// to `null`.
 String envSubstitute(String input, {Map<String, String>? env}) {
   final environment = env ?? Platform.environment;
   return input.replaceAllMapped(_envPattern, (match) {

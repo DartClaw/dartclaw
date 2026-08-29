@@ -9,6 +9,8 @@
 /// - [ChannelType] / [ChannelConfig] / [SessionScopeConfig] -- shared channel and scoping types
 /// - [AgentDefinition] / [ContainerConfig] / [TaskType] -- shared runtime-adjacent value types
 /// - [ExecutionPolicy] / [ExecutionMode] -- host/container execution placement
+/// - [parseOutputSchema] / [validateOutputSchema] / [renderOutputSchemaContract] -- the closed JSON Schema
+///   subset a logical agent's output is held to
 library;
 
 export 'src/models.dart'
@@ -19,6 +21,8 @@ export 'src/channel_config_provider.dart' show ChannelConfigProvider;
 export 'src/channel_type.dart' show ChannelType;
 export 'src/container_config.dart' show ContainerConfig;
 export 'src/execution_policy.dart' show ExecutionMode, ExecutionPolicy;
+export 'src/output_schema.dart'
+    show OutputSchemaViolation, parseOutputSchema, renderOutputSchemaContract, validateOutputSchema;
 export 'src/session_key.dart' show SessionKey;
 export 'src/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
 export 'src/task_type.dart' show TaskType;

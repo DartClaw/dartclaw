@@ -8,6 +8,7 @@ abstract interface class ContentClassifier {
   /// Returns one of: `safe`, `prompt_injection`, `harmful_content`,
   /// `exfiltration_attempt`.
   ///
-  /// Throws on error or timeout — the caller decides fail-open vs fail-closed.
+  /// Throws on error or timeout; `ContentScan` owns the fail policy — do not
+  /// swallow the failure here.
   Future<String> classify(String content, {Duration timeout});
 }

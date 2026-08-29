@@ -23,7 +23,7 @@ packages/dartclaw_server/lib/src/api/workflow_routes.dart  # 45 methods; shrink 
 packages/dartclaw_server/lib/src/mcp/context_research_tool.dart  # 47 methods (parser-counted citation candidate validation); shrink to <=40 by context research decomposition.
 packages/dartclaw_server/lib/src/memory/memory_apply_service.dart  # 68 methods (parser-counted closed apply parser, validator, staging authority, and typed result contract); shrink after the fitness parser stops counting fields, constructors, locals, and calls as methods.
 packages/dartclaw_server/lib/src/memory/memory_curation_service.dart  # 49 methods (bounded candidate rendering, lifecycle settlement, and one canonical apply coordinator); shrink to <=40 after extracting lifecycle persistence when the curation surface grows.
-packages/dartclaw_server/lib/src/mcp/outbound/outbound_mcp_pool.dart  # 59 methods; shrink to <=40 by outbound MCP pool decomposition (+2: credential ref fail-closed resolution before transport spawn).
+packages/dartclaw_server/lib/src/mcp/outbound/outbound_mcp_pool.dart  # 60 methods; shrink to <=40 by outbound MCP pool decomposition (+2: credential ref fail-closed resolution before transport spawn; +1: content scan of public-server results).
 packages/dartclaw_server/lib/src/project/project_service_impl.dart  # 50 methods; shrink to <=40 by 0.16.6 project service cleanup.
 packages/dartclaw_server/lib/src/server.dart  # 47 methods; shrink to <=40 by 0.16.6 server composition cleanup.
 packages/dartclaw_server/lib/src/task/merge_executor.dart  # 54 methods; shrink to <=40 by 0.16.6 merge executor cleanup.

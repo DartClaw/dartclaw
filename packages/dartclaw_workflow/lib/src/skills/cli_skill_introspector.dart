@@ -26,15 +26,18 @@ final class CliSkillIntrospector implements SkillIntrospector {
   final SkillProbeRunner _runner;
   final Map<String, String> _environment;
   final SkillProbeEnvironmentBuilder? _environmentForProvider;
+  final Set<String> _provisionedSkills;
   final _cache = <_SkillProbeKey, Future<Set<String>>>{};
 
   new({
     SkillProbeRunner? runner,
     Map<String, String> environment = const <String, String>{},
     SkillProbeEnvironmentBuilder? environmentForProvider,
+    Set<String> provisionedSkills = const <String>{},
   }) : _runner = runner ?? _defaultRunner,
        _environment = Map.unmodifiable(environment),
-       _environmentForProvider = environmentForProvider;
+       _environmentForProvider = environmentForProvider,
+       _provisionedSkills = Set.unmodifiable(provisionedSkills);
 
   @override
   Future<Set<String>> listAvailable({
@@ -126,7 +129,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
         '${detail.isEmpty ? '' : ': $detail'}',
       );
     }
-    return _parseSkillNames((result.stdout ?? '').toString());
+    return {..._parseSkillNames((result.stdout ?? '').toString()), ..._provisionedSkills};
   }
 
   static Set<String> _parseSkillNames(String stdout) {

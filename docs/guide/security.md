@@ -37,8 +37,20 @@ Guards evaluate tool calls, messages, and agent responses. First block wins. Exc
 | **CommandGuard** | command | Shell injection, dangerous commands (rm -rf, curl to untrusted hosts) |
 | **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape |
 | **NetworkGuard** | network | Connections to non-allowlisted hosts/ports |
-| **ContentGuard** | content | Prompt injection, harmful content at agent boundaries |
+| **ContentGuard** | content | Prompt injection and harmful content at agent boundaries, in `web_fetch` results, and in results from `network_class: public` MCP servers |
 | **TaskToolFilterGuard** | tool | Tools not in the task's allowlist; mutating tools while a task is read-only |
+
+When content classification is configured, a successful `tools/call` against an outbound MCP server declared
+`network_class: public` is classified before its result reaches an agent — declare a content-bearing server `public` to
+get that scanning; results from `local` and `private` servers are not scanned. Two limits are worth knowing:
+
+- The scan covers the `text` of every content block that carries one — the same string the agent receives. A result with
+  no text-carrying block has nothing to score and is passed unclassified.
+- A result whose text exceeds `guards.content.max_bytes` is **denied**, not prefix-scanned. Raise `max_bytes` for servers
+  with large payloads.
+
+The scope is `tools/call` results only. Tool *descriptions* a `public` server advertises through `tools/list` are not
+classified.
 
 ### Configuration
 
@@ -145,6 +157,10 @@ gateway:
   auth_mode: token    # token | none
   token: ${DARTCLAW_TOKEN}
 ```
+
+`${VAR}` references resolve at startup. If the variable is unset, DartClaw treats `gateway.token` as absent rather than
+as an empty token — it warns, falls back to the generated `gateway_token` file in the data directory, and refuses a hot
+reload of the unresolved value. See [Configuration](configuration.md#status-and-token-commands).
 
 ### CSRF and same-origin protection
 
@@ -346,6 +362,43 @@ suppresses it like any other warning). Degradation also raises a routed alert
 (nearing expiry and refresh failure as warnings; required re-authentication and a broken mediation contract as
 critical). See [Web UI and API § Provider credential health](web-ui-and-api.md#provider-credential-health).
 
+### Named Credential Storage
+
+`dartclaw secrets set <name> --type api-key|github-token` writes one owner-only JSON file per name under
+`<data_dir>/credentials/named/`. A stored entry resolves as `credentials.<name>` at every config load, so a secret
+never has to appear in `dartclaw.yaml` or in a service unit that `dartclaw service install` will regenerate. See
+[CLI Reference § Secrets](cli-reference.md#secrets) for the commands.
+
+**What the store protects.**
+
+- **File permissions.** Files are written `0600` and directories created `0700`, through the same atomic
+  temp-file-plus-rename path the subscription stores use. `dartclaw secrets audit` reports the credential directories,
+  any file under `<data_dir>/credentials/`, or the config file itself when accessible beyond its owner.
+- **No secret in argv.** The value is read from stdin only: a masked prompt or a pipe. No option carries it, so it
+  never enters shell history or the process list.
+- **Login-store collision refusal.** Opening the store refuses, before reading any credential, a path that
+  symlink-resolves onto `$CODEX_HOME`/`~/.codex` or `$CLAUDE_CONFIG_DIR`/`~/.claude`. The named store never reads,
+  writes, or probes those paths; provider auth-status probes and explicitly enabled Codex-home seeding are separate
+  pre-existing paths that can read an operator login.
+- **Path validation.** A name must match `^[a-z0-9][a-z0-9_-]{0,63}$`, checked before any path is constructed — the
+  store is addressed by filename, so an unvalidated name would be an arbitrary-path write.
+- **No echo over HTTP.** Stored credentials merge into the in-memory config, but the config API emits no `credentials`
+  key, so neither `GET /api/config` nor a `PATCH` read-before-merge returns one.
+
+**What the store does not do.** It is a store, not a vault. Read the following as a list of properties it deliberately
+lacks, not as an oversight:
+
+- **No encryption at rest.** The file holds the secret in plaintext. Anyone who can read the file, or a backup or
+  snapshot of it, has the secret. Its confidentiality is exactly the confidentiality of `<data_dir>`.
+- **No OS keychain integration.** Nothing here touches the macOS Keychain, the Secret Service API, or any credential
+  helper. That is a pinned invariant, not a gap awaiting an implementation.
+- **No rotation, expiry, or read auditing** for named entries. An API key carries no expiry to track, and the store
+  keeps no access log.
+
+For a deployment where those properties matter, keep delivering the secret from an external secret manager through a
+`${VAR}` reference — which keeps working unchanged — and use `dartclaw secrets audit` to confirm nothing drifted back
+into the config file.
+
 ### Security Properties
 
 - **Key isolation** – provider credentials never exist inside the container: not in environment variables, mounted or
@@ -353,9 +406,13 @@ critical). See [Web UI and API § Provider credential health](web-ui-and-api.md#
 - **No shared token** – containers receive no shared operator MCP bearer; the execution-scoped pipe is the identity
 - **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
   name where its traffic goes
-- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container, and the pipe refuses
-  any request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run
-  at the provider where `network:none` cannot reach it. This applies to every container profile, not just `restricted`
+- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container. The pipe refuses any
+  request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run at
+  the provider where `network:none` cannot reach it. The container's web path is instead the bridged canonical
+  `web_search` / `web_fetch` grant: those run host-side, under the SSRF and private-range policy, NetworkGuard's domain
+  allowlist (the built-in defaults plus `guards.network.extra_allowed_domains` and
+  `agent_overrides.<id>.extra_domains`), and content classification. This applies to every container profile, not just
+  `restricted`
 - **Non-replayable** – authority is bound to one execution and revoked on release; a captured pipe cannot be revived
 
 ## ACP and Logical-Agent Security Modes

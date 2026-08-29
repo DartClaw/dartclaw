@@ -24,6 +24,17 @@ void main() {
     expect(calls.every((call) => call.arguments.contains(skillIntrospectionPrompt)), isTrue);
   });
 
+  test('includes provisioned native skills that execution materializes into worktrees', () async {
+    final introspector = CliSkillIntrospector(
+      provisionedSkills: const {'dartclaw-discover-andthen-spec'},
+      runner: (executable, arguments, {environment}) async {
+        return ProcessResult(1, 0, 'andthen-review\n', '');
+      },
+    );
+
+    expect(await introspector.listAvailable(provider: 'codex'), {'andthen-review', 'dartclaw-discover-andthen-spec'});
+  });
+
   test('coalesces concurrent probes for the same provider executable', () async {
     final completer = Completer<ProcessResult>();
     var calls = 0;

@@ -59,8 +59,17 @@ import 'dart:io';
 // below actual usage since the 21003-line baseline, firing on every run and so
 // unable to signal an approach; it is now ~140 lines ahead of usage and ~340
 // ahead of the ceiling, restoring the early-warning band.
-const _coreLocCeiling = 21500;
-const _coreLocWarnThreshold = 21300;
+// 2026-08-25: bumped 21500 -> 21900, warn 21300 -> 21700, for the named
+// credential store and the login-collision guard extracted beside it. Same
+// ownership argument as the 2026-08-14 bump: filesystem-owning credential
+// storage cannot live in dartclaw_config, which must stay importable by core.
+// The extraction is a net reduction against the alternative — one shared guard
+// instead of a second copy in the new store. Usage at bump: 21668. The prior
+// ceiling had 8 lines of headroom left, so it was a tripwire again rather than
+// the headroom model this ratchet documents; the warn threshold moves with it
+// to restore the early-warning band.
+const _coreLocCeiling = 21900;
+const _coreLocWarnThreshold = 21700;
 // Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
 // at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
 // engine growth; the warn threshold fires before the cap so growth is planned or

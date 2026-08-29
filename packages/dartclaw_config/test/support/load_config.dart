@@ -1,4 +1,5 @@
 import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:test/test.dart';
 
 /// Default HOME used by the [loadYaml] builder; the config file is served from
 /// `<home>/.dartclaw/dartclaw.yaml`.
@@ -11,6 +12,19 @@ String? noFile(String path) => null;
 /// Loads a [DartclawConfig] with no config file present (pure defaults).
 DartclawConfig loadNoFile({Map<String, String> env = const {'HOME': defaultTestHome}}) =>
     DartclawConfig.load(fileReader: noFile, env: env);
+
+/// Registers a stored-credential provider answering [entries] for the duration
+/// of the current test, clearing it in a [addTearDown] callback.
+///
+/// The registration is process-global, exactly as the real CLI bootstrap's is,
+/// so a test that forgets to clear it would leak into every later load.
+void registerStoredCredentials(Map<String, CredentialEntry> entries, {void Function(String credentialsDir)? onInvoke}) {
+  DartclawConfig.registerStoredCredentialProvider((credentialsDir) {
+    onInvoke?.call(credentialsDir);
+    return entries;
+  });
+  addTearDown(DartclawConfig.clearStoredCredentialProvider);
+}
 
 /// Loads a [DartclawConfig] from an in-memory [yaml] string, served at the
 /// default discovery path (`<home>/.dartclaw/dartclaw.yaml`) unless a

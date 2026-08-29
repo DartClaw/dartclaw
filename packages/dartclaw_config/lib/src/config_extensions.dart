@@ -43,3 +43,34 @@ Map<String, Object?> _parseExtensions(Map<String, dynamic> yaml, List<String> wa
   }
   return extensions;
 }
+
+/// Registered snapshot source for credentials DartClaw stores on disk.
+///
+/// A closure, not a path: this package reads no credential file, and the store
+/// it answers from is opened by whichever bootstrap registered it.
+Map<String, CredentialEntry> Function(String credentialsDir)? _storedCredentialProvider;
+
+void _registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir) provider) {
+  _storedCredentialProvider = provider;
+}
+
+void _clearStoredCredentialProvider() => _storedCredentialProvider = null;
+
+/// The stored snapshot for a load rooted at [credentialsDir].
+///
+/// An unusable store is no store: the provider owns the absent-not-throw
+/// contract, but a bootstrap that lets something escape must not take the whole
+/// config down with it — every other credential in the file would go with it.
+Map<String, CredentialEntry> _storedCredentials(String credentialsDir, List<String> warns) {
+  final provider = _storedCredentialProvider;
+  if (provider == null) return const {};
+  try {
+    return provider(credentialsDir);
+  } catch (error) {
+    // The type only: these paths hold credentials, and an error built from one
+    // (`ArgumentError.value` embeds the value it rejected) must not be echoed
+    // into a warning that reaches the logs.
+    warns.add('Could not read stored credentials from "$credentialsDir" (${error.runtimeType}) — continuing without');
+    return const {};
+  }
+}

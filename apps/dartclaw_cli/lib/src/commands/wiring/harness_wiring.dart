@@ -203,7 +203,7 @@ class HarnessWiring {
     );
 
     final semanticMcpTools = <McpTool>[
-      WebFetchTool(classifier: _security.contentClassifier, failOpenOnClassification: _security.contentGuardFailOpen),
+      WebFetchTool(scan: _security.contentScan),
       MemoryApplyTool(handler: _memoryHandlers.onApply, contextualHandler: _memoryHandlers.apply),
       MemoryObserveTool(handler: _memoryHandlers.onObserve, contextualHandler: _memoryHandlers.observe),
       MemorySearchTool(handler: _memoryHandlers.onSearch),
@@ -252,7 +252,12 @@ class HarnessWiring {
     final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
     _authEnabled = config.gateway.authMode != 'none';
     if (_authEnabled) {
-      _resolvedGatewayToken = config.gateway.token ?? TokenService.loadFromFile(_dataDir);
+      // A blank configured token authenticates an empty bearer header and signs
+      // session cookies with an empty HMAC key — take the generated token file.
+      final configuredToken = config.gateway.token;
+      _resolvedGatewayToken = configuredToken != null && configuredToken.trim().isNotEmpty
+          ? configuredToken
+          : TokenService.loadFromFile(_dataDir);
       if (_resolvedGatewayToken == null) {
         final ts = TokenService();
         _resolvedGatewayToken = ts.token;
@@ -473,7 +478,8 @@ class HarnessWiring {
     _logicalAgentSessions = LogicalAgentSessionService(
       dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
         final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
-        final persona = definition.prompt.trim().isEmpty ? null : definition.prompt;
+        final personaPrompt = definition.personaPrompt;
+        final persona = personaPrompt.trim().isEmpty ? null : personaPrompt;
         final trimmedModel = definition.model?.trim();
         final trimmedEffort = definition.effort?.trim();
         final configuredProvider = definition.provider?.trim();

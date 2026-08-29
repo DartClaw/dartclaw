@@ -14,6 +14,7 @@ export 'src/input_sanitizer.dart' show InputSanitizer, InputSanitizerConfig;
 export 'src/message_redactor.dart' show MessageRedactor;
 export 'src/content_classifier.dart' show ContentClassifier;
 export 'src/content_guard.dart' show ContentGuard, truncateUtf8Bytes;
+export 'src/content_scan.dart' show ContentScan, ContentScanVerdict;
 export 'src/anthropic_api_classifier.dart' show AnthropicApiClassifier;
 export 'src/claude_binary_classifier.dart' show ClaudeBinaryClassifier;
 export 'src/env_substitute.dart' show envReferences, envSubstitute;

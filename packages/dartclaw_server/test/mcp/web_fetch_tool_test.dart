@@ -25,16 +25,10 @@ String _text(ToolResult result) => switch (result) {
 };
 
 /// Creates a [WebFetchTool] with SSRF protection disabled for local test servers.
-WebFetchTool _noSsrfTool({
-  ContentClassifier? classifier,
-  Duration? timeout,
-  int? defaultMaxLength,
-  bool failOpenOnClassification = true,
-}) => WebFetchTool(
-  classifier: classifier,
+WebFetchTool _noSsrfTool({ContentScan? scan, Duration? timeout, int? defaultMaxLength}) => WebFetchTool(
+  scan: scan,
   timeout: timeout ?? const Duration(seconds: 30),
   defaultMaxLength: defaultMaxLength ?? 50000,
-  failOpenOnClassification: failOpenOnClassification,
   ssrfProtectionEnabled: false,
 );
 
@@ -113,6 +107,22 @@ void main() {
         expect(result, isNotNull);
         expect(result, contains('Blocked'));
       });
+
+      test('connection-time DNS is rechecked before a socket is opened', () async {
+        var lookups = 0;
+        final tool = WebFetchTool(
+          addressLookup: (_) async {
+            lookups++;
+            return [InternetAddress(lookups == 1 ? '8.8.8.8' : '127.0.0.1')];
+          },
+        );
+
+        final result = await tool.call({'url': 'http://rebind.test/'});
+
+        expect(result, isA<ToolResultError>());
+        expect(lookups, 2);
+        expect(_text(result), contains('Blocked'));
+      });
     });
 
     group('checkIpv4Octets', () {
@@ -175,6 +185,10 @@ void main() {
       test('blocks IPv6 loopback', () {
         final addr = InternetAddress('::1');
         expect(WebFetchTool.checkResolvedAddress(addr), contains('loopback'));
+      });
+
+      test('blocks IPv6 unspecified', () {
+        expect(WebFetchTool.checkResolvedAddress(InternetAddress('::')), contains('unspecified'));
       });
 
       test('blocks RFC1918 via resolved address', () {
@@ -270,7 +284,7 @@ void main() {
         server = await _startServer((req) async {
           req.response
             ..statusCode = 404
-            ..write('Not Found');
+            ..write('UNTRUSTED-ERROR-BODY');
           await req.response.close();
         });
 
@@ -278,6 +292,37 @@ void main() {
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());
         expect(_text(result), contains('404'));
+        expect(_text(result), isNot(contains('UNTRUSTED-ERROR-BODY')));
+      });
+
+      test('redirects are not followed', () async {
+        server = await _startServer((req) async {
+          req.response
+            ..statusCode = HttpStatus.found
+            ..headers.set(HttpHeaders.locationHeader, 'http://127.0.0.1:1/internal')
+            ..write('redirect body');
+          await req.response.close();
+        });
+
+        final result = await _noSsrfTool().call({'url': _serverUrl(server)});
+
+        expect(result, isA<ToolResultError>());
+        expect(_text(result), contains('302'));
+        expect(_text(result), isNot(contains('redirect body')));
+      });
+
+      test('response buffering stops at the configured bound', () async {
+        server = await _startServer((req) async {
+          req.response
+            ..headers.contentType = ContentType.text
+            ..write('x' * 100000);
+          await req.response.close();
+        });
+
+        final result = await _noSsrfTool(defaultMaxLength: 100).call({'url': _serverUrl(server)});
+
+        expect(result, isA<ToolResultText>());
+        expect(_text(result), hasLength(100));
       });
 
       test('connection refused returns descriptive error', () async {
@@ -343,7 +388,7 @@ void main() {
 
       test('safe content returns text result', () async {
         final classifier = FakeContentClassifier(result: 'safe');
-        final tool = _noSsrfTool(classifier: classifier);
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier));
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
         expect(_text(result), contains('Some content'));
@@ -351,7 +396,7 @@ void main() {
 
       test('blocked content returns error result', () async {
         final classifier = FakeContentClassifier(result: 'prompt_injection');
-        final tool = _noSsrfTool(classifier: classifier);
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier));
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());
         expect(_text(result), contains('Content blocked'));
@@ -360,7 +405,7 @@ void main() {
 
       test('classifier error with failOpen=true returns content', () async {
         final classifier = FakeContentClassifier(shouldThrow: true);
-        final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: true);
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier, failOpen: true));
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
         expect(_text(result), contains('Some content'));
@@ -368,7 +413,7 @@ void main() {
 
       test('classifier error with failOpen=false returns error', () async {
         final classifier = FakeContentClassifier(shouldThrow: true);
-        final tool = _noSsrfTool(classifier: classifier, failOpenOnClassification: false);
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier));
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultError>());
         expect(_text(result), contains('classification failed'));
@@ -379,6 +424,67 @@ void main() {
         final result = await tool.call({'url': _serverUrl(server)});
         expect(result, isA<ToolResultText>());
         expect(_text(result), contains('Some content'));
+      });
+
+      // A construction that bypasses wiring gets ContentScan's fail-closed
+      // default — WebFetchTool no longer carries a fail policy of its own.
+      test('a scan constructed without an explicit fail policy fails closed', () async {
+        final tool = _noSsrfTool(scan: ContentScan(classifier: FakeContentClassifier(shouldThrow: true)));
+        final result = await tool.call({'url': _serverUrl(server)});
+        expect(result, isA<ToolResultError>());
+        expect(_text(result), contains('Content classification failed'));
+      });
+
+      // Behavior change: the classify timeout is the scan's 15s, not the tool's
+      // 30s HTTP timeout, which it used to pass through.
+      test('classification uses the scan timeout, not the HTTP timeout', () async {
+        final classifier = FakeContentClassifier(result: 'safe');
+        final tool = _noSsrfTool(
+          scan: ContentScan(classifier: classifier),
+          timeout: const Duration(seconds: 30),
+        );
+        await tool.call({'url': _serverUrl(server)});
+        expect(classifier.lastTimeout, const Duration(seconds: 15));
+      });
+    });
+
+    group('content scan span', () {
+      late HttpServer server;
+
+      tearDown(() async {
+        await server.close(force: true);
+      });
+
+      // The tool returns exactly the span the classifier saw, so no unscanned
+      // byte reaches the agent.
+      test('returned body is byte-identical to the scanned span and within the byte cap', () async {
+        server = await _startServer((req) async {
+          req.response
+            ..headers.contentType = ContentType.text
+            ..write('A' * 500);
+          await req.response.close();
+        });
+
+        final classifier = FakeContentClassifier(result: 'safe');
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier, maxContentBytes: 100));
+        final result = await tool.call({'url': _serverUrl(server), 'maxLength': 400});
+        expect(result, isA<ToolResultText>());
+        expect(_text(result), classifier.lastContent);
+        expect(utf8.encode(_text(result)).length, lessThanOrEqualTo(100));
+      });
+
+      // Intended, not user-visible: an empty body has nothing to score.
+      test('an empty body reaches no classifier', () async {
+        server = await _startServer((req) async {
+          req.response.headers.contentType = ContentType.text;
+          await req.response.close();
+        });
+
+        final classifier = FakeContentClassifier(result: 'safe');
+        final tool = _noSsrfTool(scan: ContentScan(classifier: classifier));
+        final result = await tool.call({'url': _serverUrl(server)});
+        expect(result, isA<ToolResultText>());
+        expect(classifier.callCount, 0);
       });
     });
 

@@ -7,7 +7,7 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('GoogleChatRestClient.sendMessageInThread', () {
+  group('GoogleChatRestClient.send with threadKey', () {
     test('sends request with thread.threadKey and messageReplyOption', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
@@ -24,7 +24,7 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final result = await client.sendMessageInThread('spaces/AAA', 'Hello', threadKey: 'task-123');
+      final result = await client.send(spaceName: 'spaces/AAA', text: 'Hello', threadKey: 'task-123');
 
       expect(result.messageName, equals('spaces/AAA/messages/BBB'));
       expect(result.threadName, equals('spaces/AAA/threads/CCC'));
@@ -41,7 +41,7 @@ void main() {
         authClient: MockClient((req) async => http.Response('error', 500)),
         apiBase: 'https://chat.googleapis.com/v1',
       );
-      final result = await client.sendMessageInThread('spaces/AAA', 'Hello', threadKey: 'task-1');
+      final result = await client.send(spaceName: 'spaces/AAA', text: 'Hello', threadKey: 'task-1');
       expect(result.messageName, isNull);
       expect(result.threadName, isNull);
     });
@@ -51,7 +51,7 @@ void main() {
         authClient: MockClient((req) async => throw const SocketException('boom')),
         apiBase: 'https://chat.googleapis.com/v1',
       );
-      final result = await client.sendMessageInThread('spaces/AAA', 'Hello', threadKey: 'task-1');
+      final result = await client.send(spaceName: 'spaces/AAA', text: 'Hello', threadKey: 'task-1');
       expect(result.messageName, isNull);
       expect(result.threadName, isNull);
     });
@@ -65,14 +65,14 @@ void main() {
         }),
         apiBase: 'https://chat.googleapis.com/v1',
       );
-      final result = await client.sendMessageInThread('users/123', 'Hello', threadKey: 'key');
+      final result = await client.send(spaceName: 'users/123', text: 'Hello', threadKey: 'key');
       expect(result.messageName, isNull);
       expect(result.threadName, isNull);
       expect(calls, equals(0));
     });
   });
 
-  group('GoogleChatRestClient.sendCardInThread', () {
+  group('GoogleChatRestClient.send card with threadKey', () {
     test('sends card payload with thread fields merged', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
@@ -98,7 +98,7 @@ void main() {
         ],
       };
 
-      final result = await client.sendCardInThread('spaces/AAA', cardPayload, threadKey: 'task-456');
+      final result = await client.send(spaceName: 'spaces/AAA', card: cardPayload, threadKey: 'task-456');
 
       expect(result.messageName, equals('spaces/AAA/messages/DDD'));
       expect(result.threadName, equals('spaces/AAA/threads/EEE'));
@@ -113,7 +113,7 @@ void main() {
         authClient: MockClient((req) async => http.Response('error', 500)),
         apiBase: 'https://chat.googleapis.com/v1',
       );
-      final result = await client.sendCardInThread('spaces/AAA', {'cardsV2': []}, threadKey: 'key');
+      final result = await client.send(spaceName: 'spaces/AAA', card: {'cardsV2': []}, threadKey: 'key');
       expect(result.messageName, isNull);
       expect(result.threadName, isNull);
     });
@@ -127,7 +127,7 @@ void main() {
         }),
         apiBase: 'https://chat.googleapis.com/v1',
       );
-      final result = await client.sendCardInThread('users/123', {}, threadKey: 'key');
+      final result = await client.send(spaceName: 'users/123', card: {}, threadKey: 'key');
       expect(result.messageName, isNull);
       expect(calls, equals(0));
     });
@@ -147,7 +147,7 @@ void main() {
       );
 
       final originalPayload = <String, dynamic>{'cardsV2': []};
-      await client.sendCardInThread('spaces/AAA', originalPayload, threadKey: 'key');
+      await client.send(spaceName: 'spaces/AAA', card: originalPayload, threadKey: 'key');
       // Original payload must not have thread fields added.
       expect(originalPayload.containsKey('thread'), isFalse);
       expect(originalPayload.containsKey('messageReplyOption'), isFalse);
@@ -155,7 +155,7 @@ void main() {
   });
 
   group('GoogleChatRestClient thread-name delivery', () {
-    test('sendMessageToThread targets an existing thread name', () async {
+    test('a text send targets an existing thread name', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
         authClient: MockClient((request) async {
@@ -165,11 +165,11 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final messageName = await client.sendMessageToThread(
-        'spaces/AAA',
-        'Hello again',
+      final messageName = (await client.send(
+        spaceName: 'spaces/AAA',
+        text: 'Hello again',
         threadName: 'spaces/AAA/threads/CCC',
-      );
+      )).messageName;
 
       expect(messageName, 'spaces/AAA/messages/FFF');
       final body = jsonDecode(captured.body) as Map<String, dynamic>;
@@ -177,7 +177,7 @@ void main() {
       expect(body['text'], 'Hello again');
     });
 
-    test('sendCardToThread targets an existing thread name', () async {
+    test('a card send targets an existing thread name', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
         authClient: MockClient((request) async {
@@ -187,16 +187,20 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final messageName = await client.sendCardToThread('spaces/AAA', {
-        'cardsV2': [
-          {
-            'cardId': 'advisor',
-            'card': {
-              'header': {'title': 'Advisor Insight'},
+      final messageName = (await client.send(
+        spaceName: 'spaces/AAA',
+        card: {
+          'cardsV2': [
+            {
+              'cardId': 'alert',
+              'card': {
+                'header': {'title': 'Alert'},
+              },
             },
-          },
-        ],
-      }, threadName: 'spaces/AAA/threads/CCC');
+          ],
+        },
+        threadName: 'spaces/AAA/threads/CCC',
+      )).messageName;
 
       expect(messageName, 'spaces/AAA/messages/GGG');
       final body = jsonDecode(captured.body) as Map<String, dynamic>;

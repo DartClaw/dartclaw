@@ -27,9 +27,14 @@ String workflowDefinitionsDir() =>
 String workflowRepositoryRoot() => p.dirname(p.dirname(findAncestorDir(['packages/dartclaw_workflow'])));
 
 /// Returns `true` when the `codex` binary is on PATH and exits cleanly.
-Future<bool> codexAvailable() async {
+Future<bool> codexAvailable() => _binaryAvailable('codex');
+
+/// Returns `true` when the `claude` binary is on PATH and exits cleanly.
+Future<bool> claudeAvailable() => _binaryAvailable('claude');
+
+Future<bool> _binaryAvailable(String executable) async {
   try {
-    final result = await Process.run('codex', ['--version']);
+    final result = await Process.run(executable, ['--version']);
     return result.exitCode == 0;
   } catch (_) {
     return false;

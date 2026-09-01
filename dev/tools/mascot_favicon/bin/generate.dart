@@ -8,7 +8,7 @@ import 'package:image/image.dart' as image;
 void main() {
   final repositoryRoot = _repositoryRoot();
   final source = File('$repositoryRoot/assets/logo-avatar-512-8bit.png');
-  final staticDir = Directory('$repositoryRoot/packages/dartclaw_server/lib/src/static')..createSync(recursive: true);
+  final staticDir = Directory('$repositoryRoot/packages/dartclaw_runtime/lib/src/static')..createSync(recursive: true);
   final decoded = image.decodePng(source.readAsBytesSync());
   if (decoded == null) {
     throw StateError('Could not decode ${source.path}');

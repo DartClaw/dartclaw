@@ -78,27 +78,23 @@ variables:
 | `provider` | string | default | AI provider override for agent steps |
 | `model` | string | default | Provider-specific model override for agent steps |
 | `effort` | string | none | Provider-specific reasoning effort override |
-| `entryGate` | string | none | Condition expression; false skips the step and continues |
+| `entryGate` | string | none | Condition expression; false skips the step and continues. Not evaluated on a `foreach` controller – put it on the controller's first per-item step |
 | `inputs` | list | `[]` | Context keys this step reads and auto-frames unless already referenced |
 | `outputs` | map | none | Output format configs; keys are the step's context-write set |
-| `gatingSeverity` | string | `high` | Review-step threshold for `gating_findings_count`; one of `low`, `medium`, `high`, `critical` |
 | `continueSession` | bool or string | `false` | Reuse the preceding agent step's root session, or target an explicit earlier step ID |
-| `maxTokens` | int | none | Per-step token budget |
 | `maxRetries` | int | none | Workflow-owned retry budget used by `onFailure: retry` |
 | `allowedTools` | list | none | Restrict available agent tools |
-| `timeout` / `timeoutSeconds` / `timeout_seconds` | int or duration string | 60 for bash, none for agents | Step timeout |
+| `turn_timeout` | int or duration string | `governance.turn_limits.turn_timeout` for agents | Agent-turn wall-clock limit; `0` disables it |
+| `timeout` / `timeoutSeconds` / `timeout_seconds` | int or duration string | 60 for bash | Bash and approval timeout; not accepted on agent steps |
 | `parallel` | bool | `false` | Run concurrently with adjacent parallel steps |
 | `mapOver` / `map_over` | string | none | Context key naming a JSON array; step runs once per element |
-| `as` / `mapAlias` / `map_alias` | string | none | Loop variable name for map/foreach controllers |
 | `maxParallel` / `max_parallel` | int or string | `1` | Max concurrent iterations; accepts `"unlimited"` or a template string |
-| `maxItems` / `max_items` | int | none | Optional cap for mapped items; omitted means uncapped |
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
 | `exitGate` | string | required for loops | Loop early-exit condition |
 | `onMaxIterations` | string | `fail` | Loop exhaustion policy: `fail`, top-level-only `continue`, or foreach/map-nested-only `escalate` |
 | `onFailure` | string | `fail` | Step outcome policy: `fail`, `continue`, `retry`, or `pause` |
-| `onError` / `on_error` | string | `pause` | Legacy error policy: `pause` or `continue`; legacy `fail` parses as `pause` |
+| `onError` / `on_error` | string | `pause` | Engine-level error policy: `pause` or `continue`; legacy `fail` parses as `pause` |
 | `workdir` | string | workspace root | Working directory for `bash` steps |
-| `finally` | string or step mapping | none | Inline-loop finalizer step ID or inline finalizer step |
 | `auto_frame_context` / `autoFrameContext` | bool | `true` | Disable XML auto-framing of declared inputs and workflow variables when false |
 | `emitsOwnOutcome` / `emits_own_outcome` | bool | `false` | Skip automatic step-outcome framing; the skill emits its own marker |
 | `workflow_variables` / `workflowVariables` | list | `[]` | Workflow variables to auto-frame as inert data |
@@ -141,6 +137,12 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `memory_observe` | Capturing observations or learnings |
 | `memory_search` | Searching memory |
 | `memory_read` | Reading canonical memory or native wiki/KG/inbox/QMD sources by stable locator |
+| `task_create` | Creating a task |
+| `task_review` | Accepting, rejecting or pushing back a task in review |
+| `task_list` | Listing tasks |
+| `review_list` | Listing the tasks awaiting review |
+| `task_bind` | Binding a named channel thread to a task session |
+| `task_unbind` | Removing a task's thread bindings |
 | `mcp_call` | Other tools routed through an MCP server |
 
 Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
@@ -152,7 +154,7 @@ declared in `providers.claude.permissions.allow` or its structured `settings` bl
 `mcp__github__*`; it never broadens the policy to the rejected `mcp__*` rule. User, project, and managed Claude settings
 still participate according to Claude's settings precedence.
 
-DartClaw's own fetch, configured search, and memory MCP tools are recognized by exact server/tool identity and evaluate as `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, or `memory_read`. A step allowlist containing only `mcp_call` therefore does not admit them; list the required semantic categories explicitly.
+DartClaw's own fetch, configured search, memory, and task MCP tools are recognized by exact server/tool identity and evaluate as `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, `memory_read`, `task_create`, `task_review`, `task_list`, `review_list`, `task_bind`, or `task_unbind`. A step allowlist containing only `mcp_call` therefore does not admit them; list the required semantic categories explicitly.
 
 One Claude-specific gotcha: under the non-interactive permission mode workflow steps run with, Claude's `Edit` and `NotebookEdit` tools are hard-denied unless the step grants `file_edit` — `file_write` alone permits creating files but not in-place edits of existing ones.
 
@@ -208,7 +210,7 @@ restarts. Commands that require process-tree containment belong on POSIX.
 
 ### `onFailure` and `onError` Policies
 
-`onFailure` is the preferred outcome policy:
+`onFailure` reclassifies a **modeled** step outcome – the `failed` / `needsInput` result the step itself reports:
 
 | Value | Behavior |
 |---|---|
@@ -217,7 +219,9 @@ restarts. Commands that require process-tree containment belong on POSIX.
 | `retry` | Re-attempts the workflow step up to `maxRetries` times, then fails |
 | `pause` | Transitions the run to `awaitingApproval` |
 
-`onError` is a legacy field still honored for executor errors, primarily bash failures. It accepts `pause` and `continue`; legacy `fail` parses as `pause`. Prefer `onFailure` for new authoring.
+`onError` covers **engine-level** errors – a non-zero bash exit, a harness or task error – which carry no modeled outcome at all, so no `onFailure` branch ever sees them. `onError: continue` is therefore the only way to advance a run past a step that errored; it accepts `pause` (default) and `continue`, and the legacy `fail` spelling parses as `pause`. The two fields are complementary, not alternatives: author `onFailure` for outcomes the step reports and `onError` for errors it cannot.
+
+A cancelled step pauses at its cursor ahead of either policy – cancellation is an interruption, never a failure.
 
 ### `outputs` Fields
 
@@ -233,8 +237,6 @@ outputs:
     pathPattern: '**/*.md'
   branch_name:
     source: worktree.branch
-  reset_flag:
-    setValue: null
 ```
 
 | Field | Type | Default | Description |
@@ -242,12 +244,9 @@ outputs:
 | `format` | string | inferred, then `text` | Output format: `text`, `json`, `lines`, or `path`. If omitted and `schema:` names a preset, the preset format is used |
 | `schema` | string or object | none | Preset name or inline JSON Schema object |
 | `source` | string | none | Explicit output source such as `worktree.branch` or `worktree.path` |
-| `outputMode` / `output_mode` | string | depends | `structured` when `format: json` + `schema` are present; otherwise `prompt`, unless explicitly set |
 | `description` | string | none | One-sentence output meaning, woven into the prompt contract |
-| `setValue` / `set_value` | any literal | unset | Writes this literal to the context key on step success and skips extraction |
-| `resolver` | string or object | inferred | Extraction policy. `format: path` with `pathPattern` infers filesystem resolution; omit when determinable |
-| `pathPattern` / `path_pattern` | string | `**/*` for filesystem outputs | Glob narrowing which produced file matches |
-| `preferPatterns` / `prefer_patterns` | list | `[]` | Ordered basename preferences for single-file filesystem resolution |
+| `pathPattern` / `path_pattern` | string | `**/*` for `format: path` outputs | Glob selecting which file in the step's artifacts directory satisfies an unclaimed path output (matched against the basename); also the only way to declare filesystem resolution. Never applied to a path the step claimed explicitly |
+| `preferPatterns` / `prefer_patterns` | list | `[]` | Ordered basename preferences breaking a tie between several step-artifacts candidates; most-recently-modified is the last tie-break |
 
 When `schema` names a preset, the parser uses that preset's `format`. For example, `schema: non_negative_integer` is enough to produce a structured JSON integer output; no explicit `format: json` is needed.
 
@@ -268,9 +267,8 @@ stepDefaults:
   - match: "implement*"
     provider: claude
     model: claude-sonnet-4
-    maxTokens: 100000
     maxRetries: 2
-    timeout_seconds: 1800
+    turn_timeout: 1800
     allowedTools: [shell, file_read, file_write, file_edit]
 ```
 
@@ -282,7 +280,7 @@ First matching entry wins. `"*"` matches all steps and should appear last.
 |---|---|---|
 | `integrationBranch` / `integration_branch` | bool | Create/use a workflow-owned integration branch |
 | `bootstrap` | bool | Compatibility alias for `integrationBranch` |
-| `worktree` | string or map | `inline`, `shared`, `per-task`, `per-map-item`, or `auto`; map form also accepts `externalArtifactMount` |
+| `worktree` | string or map | `inline`, `shared`, `per-task`, `per-map-item`, or `auto`; the map form accepts only `mode` |
 | `promotion` | string | Promotion policy, commonly `merge` |
 | `publish.enabled` | bool | Publish the workflow branch when complete |
 | `cleanup.enabled` | bool | Clean up workflow git resources after completion |
@@ -290,8 +288,6 @@ First matching entry wins. `"*"` matches all steps and should appear last.
 | `artifacts.commitMessage` / `commit_message` | string | Commit message for artifact commits |
 | `artifacts.project` | string | Project binding for artifact commits |
 | `merge_resolve` / `mergeResolve` | map | Merge-resolve retry/escalation settings |
-
-Split-repo workflows can declare `gitStrategy.worktree.externalArtifactMount` with `mode`, `fromProject`, `source`, `fromPath`, `toPath`, and `readonly`. The legacy flat location is not accepted.
 
 ### Built-In Schema Presets
 
@@ -307,7 +303,7 @@ Use these by name in `schema:` or as string shorthand under `outputs:`. Defined 
 | `validation_summary` | Single string | Validation/lint/test summaries |
 | `gating_findings_count` | Scalar integer `>= 0` | Count of findings at or above gating severity |
 | `findings_count` | Scalar integer `>= 0` | Total issue count |
-| `review_report_path` | Path string | Host-derived review report artifact path |
+| `review_report_path` | Path string | Review report artifact path: the step's own path when it exists inside the workspace, otherwise captured from the step's artifacts directory |
 
 Framework-specific output shapes are not engine presets. Built-in workflows declare them inline with generic fields such as `schema: narrative_text`, `description: ...`, `format: path`, and `pathPattern: ...`; determinable `format` and filesystem resolver values are inferred.
 
@@ -326,8 +322,6 @@ Templates in `prompt`, `project`, and similar fields resolve through these names
 | `{{map.item}}` / `{{map.item.field}}` | Current mapped item or field |
 | `{{map.index}}` / `{{map.display_index}}` / `{{map.length}}` | Current map iteration metadata |
 | `{{context.key[map.index]}}` | Indexed lookup into a list-valued context key |
-| `{{<alias>.item}}` / `{{<alias>.item.field}}` | Named variant when the controller declares `as: <alias>` |
-| `{{<alias>.index}}` / `{{<alias>.display_index}}` / `{{<alias>.length}}` | Named map metadata variants |
 | `{{workflow.runtime_artifacts_dir}}` | Absolute runtime-artifacts root for the run |
 
 Use the `context.` prefix when reading another step's output. Without it, the engine treats the name as a workflow variable.

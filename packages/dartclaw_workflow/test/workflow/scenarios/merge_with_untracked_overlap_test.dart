@@ -1,5 +1,5 @@
-import 'package:dartclaw_server/src/task/merge_executor.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway;
+import 'package:dartclaw_runtime/src/task/merge_executor.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
 // scenario-types: loop, plain

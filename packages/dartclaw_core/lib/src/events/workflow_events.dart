@@ -184,7 +184,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
       'success: $success${outcome != null ? ', outcome: $outcome' : ''}, tokens: $tokenCount)';
 }
 
-/// Fired when a workflow-owned one-shot CLI provider finishes a turn.
+/// Fired when a workflow-owned harness worker finishes a turn.
 // NOT_ALERTABLE: workflow progress telemetry — surfaced via SSE only
 final class WorkflowCliTurnProgressEvent extends DartclawEvent {
   /// Task whose workflow-owned CLI invocation emitted the progress signal.
@@ -196,7 +196,7 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
   /// Provider ID (`codex`, `claude`, ...).
   final String provider;
 
-  /// 1-based turn index within the one-shot invocation.
+  /// 1-based turn index within the workflow prompt chain.
   final int turnIndex;
 
   /// Cumulative provider-reported tokens after this turn completed.

@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted — 2026-05-31 (implemented in 0.16.4; recorded retroactively during an ADR-gap review of 0.16.4–0.16.6)
+Accepted — 2026-05-31; amended 2026-08-19, 2026-08-20 and 2026-08-21
 
-**Related:** [ADR-024](024-workflow-step-semantics.md) (step semantics / output declaration), [ADR-023](023-workflow-task-boundary.md) (workflow/task boundary and worktree model), [ADR-031](031-native-first-structured-outputs.md) (the complementary small-payload inline path).
+**Related:** [ADR-024](024-workflow-step-semantics.md) (step semantics / output declaration), [ADR-023](023-workflow-task-boundary.md) (workflow/task boundary and worktree model), [ADR-031](031-native-first-structured-outputs.md) (the complementary structured-output path).
 
 ## Context
 
@@ -12,7 +12,7 @@ As workflows grew multi-step and multi-story, steps began producing large or per
 
 ## Decision
 
-Large/persistent step outputs are written to disk and transported downstream as **file-path references** in `<workflow-context>` rather than inlined:
+Large/persistent step outputs are written to disk and transported downstream as file-path references rather than inlined. The original 0.16.4 transport carried those references in the then-current inline payload; the 0.25 amendment below supersedes that channel.
 
 - The `dartclaw-prd` / `dartclaw-plan` / `dartclaw-spec` skills write artifacts to disk and emit their paths; discovery publishes `artifact_locations`.
 - An artifact auto-commit hook (`gitStrategy.artifacts.commit: true`) lands generated artifacts on the workflow branch *before* per-map-item worktrees are created, so stories inherit them via a standard `git checkout`.
@@ -31,13 +31,43 @@ Large/persistent step outputs are written to disk and transported downstream as 
 
 - Downstream steps must read files rather than receive inline content (added indirection).
 - Artifact-directory lifecycle, retention, and cleanup must be managed.
-- Cross-clone visibility needs the explicit `externalArtifactMount` mechanism for split-repo profiles.
+- Cross-clone visibility is not provided; see the 0.25 amendment below.
 
 ## Alternatives Considered
 
 1. **Inline all artifacts in context** — rejected: unbounded prompt growth and token cost.
 2. **Truncate large outputs** — rejected: silent data loss; downstream steps need the full artifact.
 3. **External blob/object store** — rejected: adds an infrastructure dependency that violates the lean-dependency philosophy; the run's git branch + filesystem already provide durability and inheritance.
+
+## Amendment (0.25) – the cross-clone mount is removed from the mechanism list
+
+Recorded 2026-08-19 (0.25 Lean Runtime). This ADR listed `gitStrategy.worktree.externalArtifactMount` as the
+cross-clone visibility mechanism for split-repo profiles. No workflow in the repository ever declared it, so 0.25
+deletes the DSL field, its validator rules, its task-config key, the `WorktreeManager` copy path, and the
+`external_artifact_mount` column on `workflow_step_executions`. Authoring the field is now rejected as an unknown
+`gitStrategy.worktree` field.
+
+The rest of this decision stands: artifacts are still written to disk, referenced by workspace-relative path, and
+carried into per-map-item worktrees by the artifact auto-commit on the workflow branch – which is the inheritance
+path this ADR chose. Only the second, unused cross-clone mechanism is gone. A future split-repo need must be
+re-decided against a real profile rather than reinstated from this record.
+
+## Amendment (0.25) – transport narrowed to two sources: the claim and the host-owned step dir
+
+Recorded 2026-08-20 (0.25 Lean Runtime). A workspace-relative path a step emits still *is* the transport, but the
+host no longer second-guesses it against a `git diff --name-only` of the worktree, and no longer rewrites it by
+stripping a leading worktree/project segment. An existing, symlink-contained claim resolves to exactly that path;
+a claim that escapes the workspace fails the step with no substitute. When a step emits no usable path, the value
+is captured from the host-owned per-step artifacts dir (`$DARTCLAW_STEP_ARTIFACTS_DIR`), selected by the output's
+own declared `pathPattern`/`preferPatterns`. That capture — previously reserved for review reports — is now the
+single unclaimed-artifact source for every `format: path` output; no output is recognized as a review.
+
+The rest of this decision stands: artifacts are written to disk, referenced by path, and inherited by per-map-item
+worktrees through the artifact auto-commit.
+
+## Amendment (0.25) – path claims move to the execution envelope
+
+Recorded 2026-08-21 (0.25 Lean Runtime). A model-derived file path is declared under the validated execution envelope's `outputs` object. The engine no longer parses an inline workflow-context payload or substitutes a path from assistant prose. When the envelope carries no usable path claim, the host-owned per-step artifacts directory remains the single capture source described by the previous amendment. Host-owned `OutputConfig.source` metadata and the keyed `diff.json` summary remain separate deterministic sources.
 
 ## References
 

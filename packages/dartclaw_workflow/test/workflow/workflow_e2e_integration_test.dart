@@ -5,19 +5,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepCompletedEvent;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        EventBus,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowRunStatus,
-        WorkflowRunStatusChangedEvent,
-        WorkflowPublishStatus,
-        WorkflowStepOutputTransformer;
-import 'package:dartclaw_server/dartclaw_server.dart' show LogService;
+    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show DartclawRuntime, LogService, PrCreated, PrCreationFailed, PrCreationResult, PrCreator;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -33,39 +26,6 @@ typedef _WorkflowE2eProcessRunner = Future<ProcessResult> Function(
   String? workingDirectory,
   Map<String, String>? environment,
 });
-
-WorkflowStepOutputTransformer _forceSinglePlanReviewRemediationLoop({
-  required String remediationPlan,
-  required String implementationSummary,
-  required Set<String> targetReviews,
-}) {
-  final forcedTargets = <String>{};
-  final log = Logger('E2E.ForcedRemediation');
-  return (run, definition, step, task, outputs) {
-    if (definition.name != 'plan-and-implement' ||
-        !targetReviews.contains(step.id) ||
-        forcedTargets.contains(step.id)) {
-      return outputs;
-    }
-    final transformed = forcedReviewRemediationOutputs(
-      stepId: step.id,
-      outputs: outputs,
-      targetReviews: targetReviews,
-      remediationPlan: remediationPlan,
-      implementationSummary: implementationSummary,
-    );
-    if (identical(transformed, outputs)) {
-      return outputs;
-    }
-
-    forcedTargets.add(step.id);
-    log.info(
-      'Forcing a single remediation-loop iteration for workflow ${run.id} '
-      'by overriding clean ${step.id} outputs',
-    );
-    return transformed;
-  };
-}
 
 Future<void> _closePr(String prUrl) async {
   if (prUrl.isEmpty) return;
@@ -188,8 +148,8 @@ Future<void> _cloneTodoAppFixtureRepoWithRunner(
     }
     await _cloneCachedFixtureRepo(cacheDir, target);
     await _setOriginUrl(targetDir, publicCloneUri);
-    Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: targetDir);
-    Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: targetDir);
+    _fixtureGitSync(targetDir, ['config', 'user.name', 'Workflow E2E Test']);
+    _fixtureGitSync(targetDir, ['config', 'user.email', 'workflow-e2e@example.com']);
     assertKnownDefectsBacklogEntries(targetDir);
   } finally {
     credentialHelper?.dispose();
@@ -312,21 +272,44 @@ void _writeKnownDefectsFixture(String targetDir, {required String marker}) {
     ..parent.createSync(recursive: true)
     ..writeAsStringSync('BUG-001\nBUG-002\nBUG-003\n');
   File(p.join(dir.path, 'marker.txt')).writeAsStringSync(marker);
-  Process.runSync('git', ['init'], workingDirectory: dir.path);
-  Process.runSync('git', ['config', 'user.name', 'Workflow E2E Test'], workingDirectory: dir.path);
-  Process.runSync('git', ['config', 'user.email', 'workflow-e2e@example.com'], workingDirectory: dir.path);
-  Process.runSync('git', [
-    'remote',
-    'add',
-    'origin',
-    'https://github.com/DartClaw/workflow-test-todo-app.git',
-  ], workingDirectory: dir.path);
-  Process.runSync('git', ['add', '.'], workingDirectory: dir.path);
-  Process.runSync('git', ['commit', '-m', 'fixture'], workingDirectory: dir.path);
+  final init = Process.runSync('git', ['init'], workingDirectory: dir.path);
+  if (init.exitCode != 0) {
+    throw StateError('Failed to initialize fixture repo at ${dir.path}: ${init.stderr}');
+  }
+  _fixtureGitSync(dir.path, ['config', 'user.name', 'Workflow E2E Test']);
+  _fixtureGitSync(dir.path, ['config', 'user.email', 'workflow-e2e@example.com']);
+  _fixtureGitSync(dir.path, ['remote', 'add', 'origin', 'https://github.com/DartClaw/workflow-test-todo-app.git']);
+  _fixtureGitSync(dir.path, ['add', '.']);
+  _fixtureGitSync(dir.path, ['commit', '-m', 'fixture']);
+}
+
+/// Asserts [dir] is itself a repository root before a fixture git write runs there.
+///
+/// `git config` and `git remote set-url` locate their repository by walking up from
+/// the working directory. A fixture path that is not a repository root therefore
+/// rewrites the checkout containing it — which is how the workflows profile fixture
+/// path, nested inside this repo, can retarget the repo's own origin and identity.
+void _requireFixtureRepoRoot(String dir) {
+  final marker = p.join(dir, '.git');
+  if (Directory(marker).existsSync() || File(marker).existsSync()) return;
+  throw StateError(
+    'Refusing to run a git write in "$dir": it is not a repository root, so the write would '
+    'escape into the enclosing checkout.',
+  );
+}
+
+Future<ProcessResult> _fixtureGit(String dir, List<String> arguments) async {
+  _requireFixtureRepoRoot(dir);
+  return Process.run('git', ['-C', dir, ...arguments]);
+}
+
+ProcessResult _fixtureGitSync(String dir, List<String> arguments) {
+  _requireFixtureRepoRoot(dir);
+  return Process.runSync('git', ['-C', dir, ...arguments]);
 }
 
 Future<void> _setOriginUrl(String projectDir, String url) async {
-  final result = await Process.run('git', ['remote', 'set-url', 'origin', url], workingDirectory: projectDir);
+  final result = await _fixtureGit(projectDir, ['remote', 'set-url', 'origin', url]);
   if (result.exitCode != 0) {
     throw StateError('Failed to set fixture origin URL to "$url": ${result.stderr}');
   }
@@ -351,7 +334,7 @@ Future<void> _redirectOriginToLocalBareRemote(String projectDir) async {
 
   await _setOriginUrl(projectDir, originDir.path);
 
-  result = await Process.run('git', ['push', '-u', 'origin', 'HEAD:main'], workingDirectory: projectDir);
+  result = await _fixtureGit(projectDir, ['push', '-u', 'origin', 'HEAD:main']);
   if (result.exitCode != 0) {
     throw StateError('Failed to seed local fixture origin: ${result.stderr}');
   }
@@ -540,6 +523,33 @@ void main() {
 
       expect(calls.expand((arguments) => arguments).join('\n'), isNot(contains(token)));
     });
+
+    test('a fixture git write refuses a non-repository path instead of retargeting its parent', () async {
+      final enclosing = Directory(p.join(tempDir.path, 'enclosing'))..createSync(recursive: true);
+      expect(Process.runSync('git', ['init'], workingDirectory: enclosing.path).exitCode, 0);
+      expect(
+        Process.runSync('git', [
+          '-C',
+          enclosing.path,
+          'remote',
+          'add',
+          'origin',
+          'https://example.com/enclosing.git',
+        ]).exitCode,
+        0,
+      );
+
+      final missingFixture = Directory(p.join(enclosing.path, 'data', 'projects', 'fixture'))
+        ..createSync(recursive: true);
+
+      await expectLater(
+        () => _setOriginUrl(missingFixture.path, 'https://example.com/fixture.git'),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('not a repository root'))),
+      );
+
+      final origin = Process.runSync('git', ['-C', enclosing.path, 'remote', 'get-url', 'origin']);
+      expect((origin.stdout as String).trim(), 'https://example.com/enclosing.git');
+    });
   });
 
   late String fixtureDir;
@@ -552,7 +562,7 @@ void main() {
   late Map<String, String> fixtureEnvironment;
   late final bool requireCompleted;
 
-  CliWorkflowWiring? wiring;
+  DartclawRuntime? runtime;
   LogService? logService;
 
   final diagnosticSubs = <StreamSubscription<Object>>[];
@@ -610,9 +620,9 @@ void main() {
   });
 
   tearDown(() async {
-    if (wiring != null) {
-      await wiring!.dispose();
-      wiring = null;
+    if (runtime != null) {
+      await runtime!.shutdown();
+      runtime = null;
     }
 
     for (final url in createdPrUrls) {
@@ -653,32 +663,23 @@ void main() {
     return prUrl;
   }
 
-  Future<CliWorkflowWiring> wireUp({WorkflowStepOutputTransformer? outputTransformer, String? prTitle}) async {
+  Future<DartclawRuntime> wireUp({String? prTitle}) async {
     final resolvedTitle = prTitle ?? 'E2E workflow run ${DateTime.now().millisecondsSinceEpoch}';
-    final w = CliWorkflowWiring(
-      config: config,
+    final staging = await DartclawRuntime.stageHeadless(
+      config,
       dataDir: config.server.dataDir,
       runtimeCwd: fixture!.runtimeCwd,
+      harnessFactory: HarnessFactory(),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
-      workflowStepOutputTransformer: outputTransformer,
+      stderrLine: (_) {},
+      exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       prCreator: canCreateGitHubPr
-          ? ({required runId, required projectId, required branch}) async {
-              try {
-                final url = await createPr(branch: branch, title: resolvedTitle);
-                return CliWorkflowPrResult(status: WorkflowPublishStatus.success, prUrl: url);
-              } catch (e) {
-                return CliWorkflowPrResult(
-                  status: WorkflowPublishStatus.failed,
-                  prUrl: '',
-                  error: 'createPr failed: $e',
-                );
-              }
-            }
+          ? _E2ePrCreator(({required String branch}) => createPr(branch: branch, title: resolvedTitle))
           : null,
     );
-    await w.wire();
-    wiring = w;
+    final w = await staging.completeForExecution({config.agent.provider});
+    runtime = w;
 
     final diagLog = Logger('E2E.Diagnostics');
     diagnosticSubs.add(
@@ -778,7 +779,7 @@ void main() {
         fail('Failed to commit reusable spec fixture: ${commitSpec.stderr}');
       }
 
-      final definition = w.registry.getByName('spec-and-implement')!;
+      final definition = w.workflowRegistry.getByName('spec-and-implement')!;
 
       final recorder = WorkflowExecutionRecorder(
         w.eventBus,
@@ -809,9 +810,9 @@ void main() {
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
 
-      // The reuse path skips `spec` (its gate is false) but still implements,
-      // simplifies, and reviews against the reused spec.
-      expectStepOrder(recorder, const ['implement', 'simplify-code', 'integrated-review']);
+      // The reuse path skips `spec` (its gate is false) but still implements
+      // and reviews against the reused spec.
+      expectStepOrder(recorder, const ['implement', 'integrated-review']);
       expect(recorder.count('spec'), 0, reason: 'spec step must be skipped when reusing an existing FIS');
       expect(recorder.count('detect-spec-input'), 1, reason: 'detect-spec-input classifies the reused spec');
 
@@ -862,22 +863,11 @@ void main() {
     'plan-and-implement e2e with real Codex harness and per-story worktrees',
     () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final w = await wireUp(
-        outputTransformer: _forceSinglePlanReviewRemediationLoop(
-          remediationPlan:
-              'Synthetic test remediation: rerun one remediation iteration and confirm '
-              'the batch remains clean after re-validation and re-review.',
-          implementationSummary:
-              'Synthetic test summary: both story implementations merged cleanly, '
-              'but the E2E test is forcing one remediation iteration for coverage.',
-          targetReviews: const {'plan-review', 'architecture-review'},
-        ),
-        prTitle: 'E2E plan-and-implement $timestamp',
-      );
+      final w = await wireUp(prTitle: 'E2E plan-and-implement $timestamp');
       final artifactDir = createPreservedArtifactDir('plan-and-implement-e2e');
       Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
-      final definition = w.registry.getByName('plan-and-implement')!;
+      final definition = w.workflowRegistry.getByName('plan-and-implement')!;
 
       final recorder = WorkflowExecutionRecorder(
         w.eventBus,
@@ -1014,14 +1004,81 @@ void main() {
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
 
-      final coreSteps = ['discover-plan-state', 'implement', 'simplify-code', 'review-story', 'remediate', 're-review'];
+      final coreSteps = ['discover-plan-state', 'implement', 'review-story'];
       expectStepOrderSubsequence(recorder.stepOrder, coreSteps);
+      expect(recorder.stepOrder.indexOf('plan-review'), isNonNegative, reason: 'plan-review must run');
+      // The remediation loop is gated on `gating_findings_count`, which is a
+      // *running* per-step value: `re-review` overwrites it after remediation,
+      // and that is what lets the loop terminate. So the decision has to be
+      // judged on what the review steps reported *before* remediation, not on
+      // the context key's value once the loop has exited.
+      //
+      // Reading the exit state to judge the entry decision passed here for a
+      // milestone only because this branch never ran: the council step was
+      // broken, every review reported zero, remediation never happened, and the
+      // clean-aggregate branch was true for the wrong reason.
+      // Two remediation loops run here and each is judged by its own counters.
+      // The story pipeline remediates per story inside the foreach; the
+      // plan-level loop remediates what the *plan-level* reviews report. Summing
+      // across both makes a story's findings demand a plan-level `remediate`
+      // that its own loop already handled — which is how this assertion failed
+      // on a run where the product behaved correctly.
+      const planLevelReviews = {'plan-review', 'plan-review-council'};
+      int gatingReportedBy(Set<String> steps) {
+        var total = 0;
+        for (final trace in recorder.traces) {
+          if (!steps.contains(trace.stepKey)) continue;
+          for (final entry in trace.outputs.entries) {
+            if (!entry.key.endsWith('gating_findings_count')) continue;
+            final value = entry.value;
+            if (value is num) total += value.toInt();
+          }
+        }
+        return total;
+      }
+
       final remediateIndex = recorder.stepOrder.indexOf('remediate');
-      expect(remediateIndex, isNonNegative, reason: 'remediate should run after forced review findings');
-      for (final reviewStep in const ['plan-review', 'architecture-review']) {
-        final reviewIndex = recorder.stepOrder.indexOf(reviewStep);
-        expect(reviewIndex, isNonNegative, reason: '$reviewStep should run before remediation');
-        expect(reviewIndex, lessThan(remediateIndex), reason: '$reviewStep should run before remediation');
+      final planGatingCount = gatingReportedBy(planLevelReviews);
+      if (planGatingCount > 0) {
+        expect(
+          remediateIndex,
+          isNonNegative,
+          reason: 'plan-level reviews reported $planGatingCount gating finding(s), so plan remediation must run',
+        );
+        expectStepOrderSubsequence(recorder.stepOrder, const ['remediate', 're-review']);
+        expect(
+          recorder.stepOrder.indexOf('plan-review'),
+          lessThan(remediateIndex),
+          reason: 'plan-review should run before remediation',
+        );
+      } else {
+        expect(remediateIndex, -1, reason: 'no plan-level review reported a gating finding, so nothing may remediate');
+      }
+
+      // The story loop is judged where it lives: if it ran, it converged.
+      if (recorder.stepOrder.contains('remediate-story')) {
+        final storyReReviews = recorder.traces.where((trace) => trace.stepKey == 're-review-story').toList();
+        expect(storyReReviews, isNotEmpty, reason: 'story remediation must be followed by a story re-review');
+        final lastStoryCounts = storyReReviews.last.outputs.entries
+            .where((entry) => entry.key.endsWith('gating_findings_count'))
+            .map((entry) => entry.value)
+            .whereType<num>();
+        for (final count in lastStoryCounts) {
+          expect(count.toInt(), 0, reason: 'the story loop must exit with no gating finding left');
+        }
+      }
+
+      // Whatever the entry decision was, a completed run must exit the loop
+      // clean: the last re-review reports zero.
+      final lastReReview = recorder.traces.where((trace) => trace.stepKey == 're-review').toList();
+      if (lastReReview.isNotEmpty) {
+        final counts = lastReReview.last.outputs.entries
+            .where((entry) => entry.key.endsWith('gating_findings_count'))
+            .map((entry) => entry.value)
+            .whereType<num>();
+        for (final count in counts) {
+          expect(count.toInt(), 0, reason: 'a completed run leaves the remediation loop with no gating findings');
+        }
       }
 
       expect(
@@ -1048,15 +1105,16 @@ void main() {
         inInclusiveRange(1, 2),
         reason: 'plan-review should run once, with at most one configured retry',
       );
-      expect(
-        recorder.count('architecture-review'),
-        inInclusiveRange(1, 2),
-        reason: 'architecture-review should run once, with at most one configured retry',
-      );
-      expect(recorder.count('remediate'), greaterThanOrEqualTo(1), reason: 'remediate should run at least once');
-      expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 're-review should run at least once');
+      // Unconditional "remediate ran" assertions used to sit here, contradicting
+      // the gated branch above: a review run that legitimately finds nothing
+      // must not remediate. They passed only on runs where the reviews happened
+      // to find something. What remediation *does* when it runs is asserted
+      // below, under the same gate.
       final remediateInputs = recorder.tracesForStep('remediate').map((trace) => trace.inputs).toList(growable: false);
-      expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings input');
+      if (remediateIndex >= 0) {
+        expect(recorder.count('re-review'), greaterThanOrEqualTo(1), reason: 'remediation must be re-reviewed');
+        expect(remediateInputs, isNotEmpty, reason: 'remediate should receive review findings input');
+      }
       // remediate consumes the aggregated report via prompt interpolation of
       // the canonical bare key ({{context.review_report_path}}); its inputs:
       // declaration carries only story_results. Assert the interpolation
@@ -1069,11 +1127,9 @@ void main() {
         reason: 'aggregate should publish the canonical bare markdown review_report_path that remediate interpolates',
       );
       expect(
-        remediateInputs.any(
-          (inputs) => (inputs['architecture-review.review_report_path']?.toString().trim() ?? '').isNotEmpty,
-        ),
+        remediateInputs.any((inputs) => (inputs['plan-review.review_report_path']?.toString().trim() ?? '').isNotEmpty),
         isFalse,
-        reason: 'architecture findings should be represented in the aggregate review_report_path report',
+        reason: 'per-source findings should be represented in the aggregate review_report_path report',
       );
 
       expectWorktreeRecorded(recorder, 'implement');
@@ -1097,11 +1153,6 @@ void main() {
         'plan-review.review_report_path',
         'plan-review.findings_count',
         'plan-review.gating_findings_count',
-      });
-      expectStepArtifactOutputs(artifactDir, 'architecture-review', const {
-        'architecture-review.review_report_path',
-        'architecture-review.findings_count',
-        'architecture-review.gating_findings_count',
       });
       expectNoMissingFisFallbacks(artifactDir);
       expectIsolationDiagnostics(artifactDir, fixture!);
@@ -1152,4 +1203,26 @@ String? _findPublishedBranch(String projectDir, String runId) {
     if (result.exitCode == 0) return branch;
   }
   return null;
+}
+
+/// Test-only PR seam: delegates to the suite's `gh pr create` helper and maps
+/// its outcome onto the production [PrCreationResult] contract.
+final class _E2ePrCreator extends PrCreator {
+  new(this._createPr);
+
+  final Future<String> Function({required String branch}) _createPr;
+
+  @override
+  Future<PrCreationResult> create({
+    required Project project,
+    required Task task,
+    required String branch,
+    String? notes,
+  }) async {
+    try {
+      return PrCreated(await _createPr(branch: branch));
+    } catch (error) {
+      return PrCreationFailed(error: 'createPr failed', details: '$error');
+    }
+  }
 }

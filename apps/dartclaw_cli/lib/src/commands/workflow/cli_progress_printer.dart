@@ -1,7 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDuration;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine, scrubAgentReportedText;
 
-import '../serve_command.dart' show WriteLine;
-import 'agent_text_scrub.dart';
 import 'live_status_line.dart';
 
 /// Formats and writes structured workflow progress lines to a [WriteLine] sink.

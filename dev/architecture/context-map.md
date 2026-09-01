@@ -5,11 +5,12 @@ integrate them. Canonical source for context **ids** used by architecture/domain
 [Ubiquitous Language](../state/UBIQUITOUS_LANGUAGE.md).
 
 **Path**: brownfield – derived from observed code structure, `dev/architecture/*.md`, package `AGENTS.md` boundary
-rules, and the existing UL. **Current through**: 0.24.
+rules, and the existing UL. **Current through**: 0.25 bridge destination.
 
-> **Contexts are linguistic boundaries, not packages.** DartClaw has 14 workspace members and 15 contexts; the
-> mapping is many-to-many. `dartclaw_server` alone hosts eight contexts, and `dartclaw_storage` hosts none – it is the
-> SQLite adapter layer for four of them. See [Observed Structure vs. Contexts](#observed-structure-vs-contexts).
+> **Contexts are linguistic boundaries, not packages.** DartClaw has 12 packages, including the standing
+> zero-dependency `dartclaw_bridge`, plus one app and 15 contexts. The mapping is many-to-many. `dartclaw_runtime` alone
+> hosts eight contexts, while `dartclaw_core` hosts runtime fragments and the SQLite adapters for several contexts. See
+> [Observed Structure vs. Contexts](#observed-structure-vs-contexts).
 
 ---
 
@@ -29,7 +30,7 @@ rules, and the existing UL. **Current through**: 0.24.
 | Subdomain | Type | Rationale | Key invariant |
 |---|---|---|---|
 | Execution isolation & credential mediation | **core** | The product claim – "OS boundaries over application boundaries". High differentiation, high model complexity (principal, authority, single-use container, host-side credential injection) | A container never crosses principals; credentials never enter a container environment |
-| Provider control protocol | **core** | Reimplementing Claude JSONL / Codex JSON-RPC / ACP directly in Dart is what removes npm from the chain. High complexity: three incompatible vendor models normalized to one contract | One host-owned execution contract; provider branching stays inside adapters |
+| Provider control protocol | **core** | Reimplementing Claude JSONL / Codex JSON-RPC / ACP directly in Dart is what removes npm from the chain. Claude/Codex live in `dartclaw_core`; ACP has its own `dartclaw_acp` owner. High complexity: three incompatible vendor models normalized to one contract | One host-owned execution contract; provider branching stays inside adapters |
 | Tool-call guarding | **core** | Defense-in-depth Layer 3 is the security-conscious posture at application level. Moderate differentiation, high complexity (SSRF, pipe analysis, symlink resolution, LLM classification) | Fail-closed by default; every verdict is auditable |
 | Turn & execution orchestration | **core** | The runtime's heart: one serialized primary lane, hard per-provider lease capacity, knob-free reuse. High complexity | Capacity is lease-based; reuse is an optimization, never the capacity authority |
 | Durable knowledge & memory | **core** | "Remember things across sessions" is a named daily-driver differentiator. High complexity: canonical entries, temporal KG, citation synthesis | Search index is a rebuildable projection; authoritative KG facts live in durable storage |
@@ -57,24 +58,24 @@ Ids are stable and are the canonical names for downstream models and glossary cl
 | Context | Purpose | Subdomains owned | Code location | Sizing rationale |
 |---|---|---|---|---|
 | `provider-mediation` | Translate provider-native control protocols into one host-owned execution contract | Provider control protocol | `dartclaw_core/lib/src/harness/`, `bridge/`, `worker/` | ~8.1K LOC, one dominant abstraction (`AgentHarness` + `ProtocolAdapter`). Sized by the number of vendor protocols, not by feature growth |
-| `execution-isolation` | Bind each execution to exactly one trust principal and mediate its provider traffic host-side | Execution isolation & credential mediation | `dartclaw_server/lib/src/container/`, `execution_policy_resolver.dart`, `dartclaw_bridge/`, `dartclaw_core/lib/src/container/`, `CredentialRegistry` in `dartclaw_config` | Small in LOC (~2.9K), large in invariant density. Kept whole because Principal, Authority, Gateway, and Bridge are one indivisible trust story (ADR-012, ADR-051) |
-| `guarding-audit` | Evaluate every tool call, inbound message, and egress against policy, and record the verdict | Tool-call guarding | `dartclaw_security/`, `dartclaw_server/lib/src/security/`, `audit/`, `ToolPolicyGuard` in `dartclaw_core` | ~3.6K LOC. Deliberately EventBus-free leaf so guards run standalone; that constraint is what keeps the context from absorbing server wiring |
-| `turn-orchestration` | Admit, run, and observe one unit of agent work end to end | Turn & execution orchestration | `dartclaw_server/lib/src/turn_*.dart`, `execution_coordinator*.dart`, `worker_capacity_gate.dart`, `concurrency/`, `context/`, `behavior/`, `dartclaw_core/lib/src/turn/`, `agents/`, `concurrency/` | ~6K LOC across loose top-level files. The densest coupling cluster in the repo – correctly one context, incorrectly one flat directory (D-2) |
-| `runtime-governance` | Enforce pre-execution limits on cost, rate, and runaway autonomy | Runtime governance | `dartclaw_server/lib/src/governance/`, `emergency/`, `turn_governance_enforcer.dart`, `GovernanceConfig` and `SlidingWindowRateLimiter` in `dartclaw_config` | Small (~0.6K) but linguistically sharp. Separate from `turn-orchestration` because the UL draws the pre/post-governance line explicitly |
-| `conversation-session` | Own the durable conversation record and the rules deciding which conversation a message belongs to | Conversation & session routing | `dartclaw_core/lib/src/storage/`, `scoping/`, `dartclaw_server/lib/src/session/`, `maintenance/` | ~1.5K LOC. Distinct lifecycle (types, scopes, archival, prune protection) that `turn-orchestration` only consumes |
-| `channel-integration` | Normalize external messaging platforms into one inbound/outbound contract | Channel integration | `dartclaw_core/lib/src/channel/`, `dartclaw_whatsapp/`, `dartclaw_signal/`, `dartclaw_google_chat/`, webhook + pairing routes in `dartclaw_server` | ~10.8K LOC but naturally partitioned per platform behind one interface. Adding a platform adds an adapter, not context surface |
-| `task-review` | Run discrete reviewable units of work against a project checkout, with a git-backed review flow | Task & review lifecycle | `dartclaw_server/lib/src/task/`, `advisor/`, `scheduling/`, `dartclaw_core/lib/src/task/`, task repos in `dartclaw_storage` | ~13K LOC – the largest context inside `dartclaw_server`. Also absorbs Scheduling, which is too thin (~1.2K LOC) to stand alone |
-| `workflow-orchestration` | Execute declarative multi-step pipelines deterministically, including git branch topology and conflict resolution | Workflow orchestration | `dartclaw_workflow/`, workflow glue in `dartclaw_server`, workflow commands in `apps/dartclaw_cli` | ~25.9K LOC – the largest context in the repo, at a fitness ceiling of 30K. Sized by its own vocabulary (Run, Step, Promotion, Story Branch), which shares almost no terms with `task-review` |
-| `knowledge-memory` | Retain, curate, and synthesize durable knowledge; serve citation-backed context to agents | Durable knowledge & memory | `dartclaw_core/lib/src/memory/`, `dartclaw_storage/lib/src/{memory,search,knowledge}/`, `dartclaw_server/lib/src/{memory,knowledge}/`, `memory_handlers.dart` | ~10.7K LOC spread over four packages – the most physically scattered context (D-3) |
-| `tool-surface` | Publish host-owned tools to provider binaries and consume external MCP servers under guard | (shared: guarding, knowledge) | `dartclaw_server/lib/src/mcp/` | ~4K LOC. Kept separate from `provider-mediation` because it is the mirror direction (host serves the provider) with its own trust boundary (ADR-039) |
-| `project-registry` | Manage the git checkouts that tasks and workflows execute against | Project & source control | `dartclaw_server/lib/src/project/`, `ProjectConfig`, `Project` in `dartclaw_models` | ~1K LOC. Small, but a shared upstream of two contexts – folding it into either would hide a cross-context dependency |
-| `configuration-platform` | Single typed, validated, hot-reloadable source of operator intent, plus deterministic OS capability policy | Configuration & platform policy | `dartclaw_config/`, `dartclaw_server/lib/src/config/`, `ReloadTriggerService` in `apps/dartclaw_cli` | ~11.6K LOC, almost entirely typed sections and parsers. Grows linearly with config surface, not in complexity |
-| `operator-interface` | Give the single operator one coherent surface over every runtime capability | Operator interface, HTTP authentication | `dartclaw_server/lib/src/{api,web,templates,auth,params,health}/`, `server.dart`, `apps/dartclaw_cli/` | ~36K LOC (largest by volume). Presentation-heavy; the size is template and route surface, not model complexity |
-| `observability-alerting` | Record what the runtime did and route operational signals to the operator | Observability & alerting | `dartclaw_server/lib/src/{alerts,observability,health,logging}/`, trace/event writers in `dartclaw_storage` | ~1.5K LOC. Consumes the event bus rather than reaching into domains – the cleanest boundary in the repo |
+| `execution-isolation` | Bind each execution to exactly one trust principal and mediate its provider traffic host-side | Execution isolation & credential mediation | `dartclaw_runtime/lib/src/container/`, `execution_policy_resolver.dart`, `dartclaw_bridge/`, `dartclaw_core/lib/src/container/`, `CredentialRegistry` in `dartclaw_kernel` | Small in LOC (~2.9K), large in invariant density. Kept whole because Principal, Authority, Gateway, and Bridge are one indivisible trust story (ADR-012, ADR-051) |
+| `guarding-audit` | Evaluate every tool call, inbound message, and egress against policy, and record the verdict | Tool-call guarding | `dartclaw_kernel/`, `dartclaw_runtime/lib/src/security/`, `audit/`, `ToolPolicyGuard` in `dartclaw_core` | ~3.6K LOC. Deliberately EventBus-free leaf so guards run standalone; that constraint is what keeps the context from absorbing server wiring |
+| `turn-orchestration` | Admit, run, and observe one unit of agent work end to end | Turn & execution orchestration | `dartclaw_runtime/lib/src/turn_*.dart`, `execution_coordinator*.dart`, `worker_capacity_gate.dart`, `concurrency/`, `context/`, `behavior/`, `dartclaw_core/lib/src/turn/`, `agents/`, `concurrency/` | ~6K LOC across loose top-level files. The densest coupling cluster in the repo – correctly one context, incorrectly one flat directory (D-2) |
+| `runtime-governance` | Enforce pre-execution limits on cost, rate, and runaway autonomy | Runtime governance | `dartclaw_runtime/lib/src/governance/`, `emergency/`, `turn_governance_enforcer.dart`, `GovernanceConfig` and `SlidingWindowRateLimiter` in `dartclaw_kernel` | Small (~0.6K) but linguistically sharp. Separate from `turn-orchestration` because the UL draws the pre/post-governance line explicitly |
+| `conversation-session` | Own the durable conversation record and the rules deciding which conversation a message belongs to | Conversation & session routing | `dartclaw_core/lib/src/storage/`, `scoping/`, `dartclaw_runtime/lib/src/session/`, `maintenance/` | ~1.5K LOC. Distinct lifecycle (types, scopes, archival, prune protection) that `turn-orchestration` only consumes |
+| `channel-integration` | Normalize external messaging platforms into one inbound/outbound contract | Channel integration | `dartclaw_core/lib/src/channel/`, `dartclaw_whatsapp/`, `dartclaw_signal/`, `dartclaw_google_chat/`, webhook + pairing routes in `dartclaw_runtime` | ~10.8K LOC but naturally partitioned per platform behind one interface. Adding a platform adds an adapter, not context surface |
+| `task-review` | Run discrete reviewable units of work against a project checkout, with a git-backed review flow | Task & review lifecycle | `dartclaw_runtime/lib/src/task/`, `scheduling/`, `dartclaw_core/lib/src/task/`, task repos in `dartclaw_core` | ~13K LOC – the largest context inside `dartclaw_runtime`. Also absorbs Scheduling, which is too thin (~1.2K LOC) to stand alone |
+| `workflow-orchestration` | Execute declarative multi-step pipelines deterministically, including git branch topology and conflict resolution | Workflow orchestration | `dartclaw_workflow/`, workflow glue in `dartclaw_runtime`, workflow commands in `apps/dartclaw_cli` | ~25.9K LOC – the largest context in the repo, at a fitness ceiling of 30K. Sized by its own vocabulary (Run, Step, Promotion, Story Branch), which shares almost no terms with `task-review` |
+| `knowledge-memory` | Retain, curate, and synthesize durable knowledge; serve citation-backed context to agents | Durable knowledge & memory | `dartclaw_core/lib/src/{memory,search,knowledge,storage}/`, `dartclaw_runtime/lib/src/{memory,knowledge}/`, `memory_handlers.dart` | File and SQLite persistence now share one package; server owns curation and presentation |
+| `tool-surface` | Publish host-owned tools to provider binaries and consume external MCP servers under guard | (shared: guarding, knowledge) | `dartclaw_runtime/lib/src/mcp/` | ~4K LOC. Kept separate from `provider-mediation` because it is the mirror direction (host serves the provider) with its own trust boundary (ADR-039) |
+| `project-registry` | Manage the git checkouts that tasks and workflows execute against | Project & source control | `dartclaw_runtime/lib/src/project/`, `ProjectConfig`, `Project` in `dartclaw_kernel` | ~1K LOC. Small, but a shared upstream of two contexts – folding it into either would hide a cross-context dependency |
+| `configuration-platform` | Single typed, validated, hot-reloadable source of operator intent, plus deterministic OS capability policy | Configuration & platform policy | `dartclaw_kernel/`, `dartclaw_runtime/lib/src/config/`, `ReloadTriggerService` in `apps/dartclaw_cli` | ~11.6K LOC, almost entirely typed sections and parsers. Grows linearly with config surface, not in complexity |
+| `operator-interface` | Give the single operator one coherent surface over every runtime capability | Operator interface, HTTP authentication | `dartclaw_runtime/lib/src/{api,web,templates,auth,params,health}/`, `server.dart`, `apps/dartclaw_cli/` | ~36K LOC (largest by volume). Presentation-heavy; the size is template and route surface, not model complexity |
+| `observability-alerting` | Record what the runtime did and route operational signals to the operator | Observability & alerting | `dartclaw_runtime/lib/src/{alerts,observability,health,logging}/`, trace/event writers in `dartclaw_core` | ~1.5K LOC. Consumes the event bus rather than reaching into domains – the cleanest boundary in the repo |
 
-**Shared kernel** – `dartclaw_models` is not a context. It is an explicit Shared Kernel: zero-dependency value types
-(`Session`, `Message`, `SessionKey`, `Task`, `Project`, `TaskEvent`) shared verbatim by every context, with its
-leaf position enforced by fitness function.
+**Shared kernel** – `dartclaw_kernel` is not itself a context. It is an explicit Shared Kernel containing dependency-free
+values, typed configuration, guard contracts, and deterministic utilities shared verbatim across contexts. Its zero-workspace-dependency
+position is enforced by the exact dependency map and fitness suite.
 
 **Owning team** – all contexts: single maintainer. Contexts here are linguistic and documentation boundaries, not
 ownership boundaries; see [Recorded non-issues](#drift-findings).
@@ -89,7 +90,7 @@ Every ordered pair that exchanges data, with its named pattern. Rows where Curre
 
 | Upstream | Downstream | Pattern (Current) | Pattern (Target) | Notes |
 |---|---|---|---|---|
-| `dartclaw_models` (kernel) | all contexts | **Shared Kernel** | Shared Kernel | Zero-dep by rule; kernel stays small because services and parsers are forbidden in it |
+| `dartclaw_kernel` | all contexts | **Shared Kernel** | Shared Kernel | No DartClaw dependencies; shared values, config, guards, and deterministic utilities have one bottom-tier owner |
 | `configuration-platform` | all contexts | **Open Host Service** | OHS | Typed sections consumed everywhere; `registerExtensionParser()` is the published extension point |
 | `configuration-platform` | reconfigurable services | **Published Language** | Published Language | `ConfigDelta` + `Reconfigurable.watchKeys` is the exchange format for hot reload |
 | `provider-mediation` | `turn-orchestration` | **Open Host Service** | OHS | `AgentHarness` is the stable contract for many consumers; `BridgeEvent` is its published language |
@@ -102,8 +103,8 @@ Every ordered pair that exchanges data, with its named pattern. Rows where Curre
 | `runtime-governance` | `turn-orchestration` | **Customer/Supplier** | Customer/Supplier | Governance gates admission; the coordinator is explicitly the post-governance authority |
 | `conversation-session` | `channel-integration` | **Customer/Supplier** | Customer/Supplier | Scoping model exists to serve channel routing; session-key shapes are driven by channel needs |
 | `conversation-session` | `turn-orchestration` | **Customer/Supplier** | Customer/Supplier | Turn persistence and cursor-based crash recovery follow the session record's contract |
-| `task-review` | `channel-integration` | **Customer/Supplier** | Customer/Supplier | Task side injects `TaskCreator`/`TaskLister` callbacks shaped for channel triggers; `ChannelTaskBridge` is the seam |
-| `task-review` | `workflow-orchestration` | **Customer/Supplier** | Customer/Supplier | Workflow steps create coding tasks; authored step type survives as metadata (ADR-023, ADR-024) |
+| `task-review` | `channel-integration` | **Customer/Supplier** | Customer/Supplier | Task lifecycle notifications return through channel delivery; `ChannelTaskBridge` owns only deterministic inbound routing |
+| `task-review` | `workflow-orchestration` | **Customer/Supplier** | Customer/Supplier | Workflow steps create tasks carrying engine-computed execution declarations; authored step type remains only on workflow execution metadata (ADR-023, ADR-024) |
 | `workflow-orchestration` | `operator-interface` | **Open Host Service** | OHS | Inverted: the engine publishes `WorkflowGitPort` / `WorkflowTurnAdapter`; server and CLI adapt to them (ADR-034) |
 | `project-registry` | `task-review` | **Open Host Service** | OHS | `Task.projectId` is the consumer-side name |
 | `project-registry` | `workflow-orchestration` | **Open Host Service** | OHS | `WorkflowDefinition.project` is the second consumer-side name for the same upstream – deliberately distinct terms |
@@ -143,7 +144,7 @@ glossary's [Overloaded Terms](../state/UBIQUITOUS_LANGUAGE.md#overloaded-terms) 
 | `runtime-governance` | **Budget** (governance daily tokens vs. workflow step budget), Emergency Control, Loop Detector |
 | `conversation-session` | **Session** (record vs. platform chat thread), Session Key, Session Scope, Cursor |
 | `channel-integration` | **Thread** (Google Chat thread vs. Dart threading), **Message** (channel DTO vs. persisted record), Thread Binding, Sender Attribution |
-| `task-review` | **Type** (task type vs. workflow step type), **Merge** (task-to-main vs. workflow Promotion), Worktree, Task Project ID, Scheduled Job (the scheduling entity – not a Task) |
+| `task-review` | **Merge** (task-to-main vs. workflow Promotion), Worktree, Task Project ID, Scheduled Job (the scheduling entity – not a Task) |
 | `workflow-orchestration` | **Context**, **Drain**, **Project** (Workflow Project vs. Task Project ID), Promotion Conflict, Serialize-remaining |
 | `knowledge-memory` | **Context Engine** (synthesis layer, explicitly *not* the turn context assembler), Canonical Memory Entry, Memory Locator, Search Index, citation packet |
 | `tool-surface` | **Tool** (MCP tool vs. canonical taxonomy name), outbound MCP client, surface_tools |
@@ -160,21 +161,18 @@ Packages are the observed modules; contexts are the linguistic boundaries. Where
 
 | Package | Contexts hosted | Gap |
 |---|---|---|
-| `dartclaw_server` | `turn-orchestration`, `execution-isolation`, `task-review`, `tool-surface`, `operator-interface`, `observability-alerting`, `runtime-governance`, `project-registry` (+ parts of 4 more) | Eight contexts in one package with no intra-package boundary enforcement. The only structural signal is directory naming, and two directories are misnamed (D-2) |
-| `dartclaw_core` | `provider-mediation`, `conversation-session`, `channel-integration` (interfaces), plus fragments of `turn-orchestration`, `task-review`, `knowledge-memory`, `runtime-governance` | "Core" is a dependency-position name, not a context. Its real invariant is *sqlite3-free and Flutter-shareable*, which cuts across contexts |
-| `dartclaw_storage` | none | Pure adapter layer: SQLite implementations for `conversation-session`, `task-review`, `knowledge-memory`, `observability-alerting`. Correct as ports-and-adapters, but means "which context owns this table" is answerable only by reading imports |
-| `dartclaw_config` | `configuration-platform` | Clean 1:1 |
+| `dartclaw_runtime` | `turn-orchestration`, `execution-isolation`, `task-review`, `tool-surface`, `operator-interface`, `observability-alerting`, `runtime-governance`, `project-registry` (+ parts of 4 more) | Eight contexts in one package with no intra-package boundary enforcement. The only structural signal is directory naming, and two directories are misnamed (D-2) |
+| `dartclaw_core` | Claude/Codex `provider-mediation`, `conversation-session`, `channel-integration` (interfaces), plus fragments of `turn-orchestration`, `task-review`, `knowledge-memory`, `observability-alerting`, `runtime-governance` | "Core" is a dependency-position name, not a context. Runtime contracts and their persistence adapters share one physical owner where aggregate hydration requires it |
+| `dartclaw_acp` | ACP `provider-mediation` | Clean protocol-family owner: runtime, config parser, validation and registrar live together; the CLI composes it through the server's generic registrar seam |
+| `dartclaw_kernel` | shared kernel, `configuration-platform`, `guarding-audit` (partial) | One bottom-tier package for contracts consumed together; EventBus and runtime wiring remain above it |
 | `dartclaw_workflow` | `workflow-orchestration` | Clean 1:1 – the only large context with its own package |
-| `dartclaw_security` | `guarding-audit` (partial) | Clean, except `ToolPolicyGuard` sits in `dartclaw_core` to preserve the security package's leaf position – an acknowledged compromise |
 | `dartclaw_bridge` | `execution-isolation` (wire contract) | Clean 1:1, and the strictest boundary in the repo (zero dependencies) |
 | channel packages | `channel-integration` | Clean 1:3 – one context, three adapters |
-| `dartclaw_models` | shared kernel | Clean |
-| `dartclaw`, `dartclaw_testing` | none | Umbrella re-export and test doubles; no domain ownership |
+| `dartclaw_client` | none | Pure transport for the server's HTTP/SSE surface. Zero dependencies; owns no domain language, and deliberately mints no DTOs so the endpoint types keep one owner |
+| `dartclaw`, `dartclaw_testing` | none | Client-tier umbrella re-export and test doubles; no domain ownership |
 
-**Hard constraint on any restructuring**: the fitness ceilings are effectively at their limits – 14 workspace members
-against a ceiling of 14, and `dartclaw_core` at 20,944 LOC against a warn threshold of 20,700 and a hard fail at
-21,050. New packages and code migrations *into* core both require an owner decision to raise a ceiling first
-(`dev/tools/arch_check.dart`, ADR-033).
+**Hard constraint on any restructuring**: package count and core LOC are ratchets set to the shipped tree, not spare
+capacity. Any later package addition or core growth requires an explicit owner decision (`dev/tools/arch_check.dart`, ADR-033).
 
 ---
 
@@ -185,8 +183,8 @@ Findings survived an adversarial filter pass; downgraded items are stated at the
 | Id | Gap | Root cause | Smallest closing move |
 |---|---|---|---|
 | **D-1** _(note)_ | `operator-interface` is Conformist to every context it renders, with no translation layer: `api/` imports 13 sibling directories (21 references to `task/` alone), `web/` imports 11 (43 to `templates/`), and `templates/` reaches back into `task/`, `session/`, `audit/`, `scheduling/`, `knowledge/` | Server-rendered UI grew alongside the domains it renders. Normal for this stack – no read-model seam was ever needed | None now. Recorded as the shape to watch: if a domain rename starts rippling into templates, introduce view-model DTOs for the highest-traffic pages first |
-| **D-2** | Two `dartclaw_server` directories are misnamed relative to the contexts they serve: `config/` holds hot-reload *fan-out* wiring (it imports `behavior/`, `context/`, `workspace/`), not configuration; `emergency/` imports `../api/sse_broadcast.dart`, putting a safety-critical path downstream of the HTTP route layer | Vocabulary collision between `dartclaw_config` (the context) and `server/src/config/` (wiring), plus a transport helper filed under `api/` | Rename `server/src/config/` to `reconfiguration/`; move `sse_broadcast.dart` out of `api/` into a transport-neutral location. Both are renames – no behavior change |
-| **D-3** _(downgraded)_ | `knowledge-memory` is spread across four packages: file services in `dartclaw_core`, persistence and search in `dartclaw_storage`, curation and knowledge hub in `dartclaw_server`, tools in `mcp/`, plus a loose `memory_handlers.dart` at the server package root | Layered decomposition by technical concern, applied to a context that also wants a model owner | Move `memory_handlers.dart` under `server/src/memory/`. Consolidation beyond that is blocked by the core LOC ceiling and the sqlite3 rule, and is not worth forcing |
+| **D-2** | Two `dartclaw_runtime` directories are misnamed relative to the contexts they serve: `config/` holds hot-reload *fan-out* wiring (it imports `behavior/`, `context/`, `workspace/`), not configuration; `emergency/` imports `../api/sse_broadcast.dart`, putting a safety-critical path downstream of the HTTP route layer | Vocabulary collision between `dartclaw_kernel` (the context) and `server/src/config/` (wiring), plus a transport helper filed under `api/` | Rename `server/src/config/` to `reconfiguration/`; move `sse_broadcast.dart` out of `api/` into a transport-neutral location. Both are renames – no behavior change |
+| **D-3** ✅ _resolved 2026-08-21_ | `knowledge-memory` split file services from SQLite persistence and search across two runtime packages | A technical-layer split outlived its value and separated shared aggregate hydration | Closed: persistence and search were absorbed into `dartclaw_core`; server curation remains above the runtime boundary |
 | **D-4** ✅ _resolved 2026-08-14_ | The UL's `Bounded Context` column carried roughly 50 distinct ad-hoc labels ("Server orchestration", "Multi-provider", "Protocol spec", "Crash recovery", …) that mapped to no registered context | The glossary predated any context map – labels were invented per row | Closed: the glossary is regrouped one `##` section per context and the column is gone. Context identity now lives here, terms live there |
 | **D-5** ✅ _resolved 2026-08-14_ | Scheduling had substantial behavior (cron/interval/once jobs, delivery modes, heartbeat, `ScheduledTaskRunner`) across ~1.2K LOC and **zero** glossary presence | Capability grew without a naming pass; it sits in `task-review` by adjacency rather than by decision | Closed: six scheduling terms added under `task-review` (Scheduled Job, Schedule Type, Cron Expression, Delivery Mode, Scheduled Task Definition, Heartbeat). It stays inside `task-review` – its size does not justify a context of its own |
 
@@ -207,13 +205,13 @@ No drift against a previously registered Context Map – this is the first regis
 
 Ordered by value per unit of effort.
 
-1. **Close D-2 – both moves are renames.** `server/src/config/` vs. `dartclaw_config` is a live vocabulary collision,
+1. **Close D-2 – both moves are renames.** `server/src/config/` vs. `dartclaw_kernel` is a live vocabulary collision,
    and a safety path (`emergency/`) depending on the route layer is an inversion that will resist testing. Near-zero
    cost, immediate clarity.
 2. **Settle H-1 before the next workflow investment.** It is the one decision here with a real forcing function
    (a LOC ceiling already raised once) and it changes what the next raise means. Hand off:
    `andthen:architecture --mode decompose` scoped to `workflow-orchestration` vs. `task-review`.
-3. **Do not split `dartclaw_server`.** Eight contexts in one package is real, but the workspace package ceiling is
+3. **Do not split `dartclaw_runtime`.** Eight contexts in one package is real, but the workspace package ceiling is
    *at* 14, `dartclaw_core` is inside its warn band, and the philosophy is explicit about staying lean. This map is
    the boundary record; adding fitness machinery to police a map written today would be the ceremony the project
    rules out. Revisit only if a split is actually proposed.

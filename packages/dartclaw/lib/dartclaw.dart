@@ -1,26 +1,44 @@
-/// DartClaw — An experimental, security-conscious AI agent runtime built with Dart.
+/// DartClaw — the client tier for a running DartClaw server.
 ///
-/// Wraps the official `claude` CLI binary via JSONL control protocol,
-/// providing subprocess harness, guard chain, session management, and
-/// multi-channel messaging — all in AOT-compiled Dart with zero npm.
+/// Depend on this package to drive a server you already run: the HTTP API, the
+/// SSE event streams, and the DTO types those endpoints carry. Nothing here
+/// starts an agent, opens a DartClaw data directory, or pulls in the harness,
+/// guard chain, storage, or channel runtime.
 ///
-/// **Status: Pre-alpha.** API is unstable and will change. This is an early
-/// development release. See
+/// **Status: Pre-alpha.** API is unstable and will change. See the
 /// [repository](https://github.com/DartClaw/dartclaw) for current status.
 ///
-/// This umbrella package re-exports the full DartClaw SDK surface. For leaner
-/// dependency graphs, import individual packages directly.
+/// Client-tier abstractions:
 ///
-/// Core abstractions:
+/// - **DartclawApiClient** — requests, SSE streams, and the typed error envelope
+/// - **ApiTransport** — the wire seam, for fakes and non-`dart:io` transports
+/// - **Session** / **Message** — the shared DTOs the endpoints carry
 ///
-/// - **AgentHarness** — subprocess lifecycle, turn execution, event streaming
-/// - **Guard / GuardChain** — security policy evaluation
-/// - **Channel** — messaging interface primitives
-/// - **BridgeEvent** — sealed event hierarchy from the JSONL control protocol
+/// To embed the runtime itself rather than talk to one, fork the repository and
+/// depend on `dartclaw_core` and `dartclaw_kernel`
+/// directly — see `docs/sdk/packages.md`.
 library;
 
-export 'package:dartclaw_core/dartclaw_core.dart';
-export 'package:dartclaw_storage/dartclaw_storage.dart';
-export 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-export 'package:dartclaw_signal/dartclaw_signal.dart';
-export 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+export 'package:dartclaw_client/dartclaw_client.dart';
+export 'package:dartclaw_kernel/dartclaw_kernel.dart'
+    show
+        Session,
+        SessionType,
+        Message,
+        MemorySearchResult,
+        MemorySearchDegradation,
+        MemorySearchOutcome,
+        AgentDefinition,
+        ChannelConfig,
+        GroupAccessMode,
+        RetryPolicy,
+        ChannelType,
+        ContainerConfig,
+        ExecutionMode,
+        ExecutionPolicy,
+        SessionKey,
+        SessionScopeConfig,
+        ChannelScopeConfig,
+        DmScope,
+        GroupScope,
+        WorkflowStepExecution;

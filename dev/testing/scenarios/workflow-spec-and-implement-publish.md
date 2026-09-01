@@ -10,7 +10,7 @@ Consolidated live acceptance scenario for `spec-and-implement`. It validates the
 
 The engine mechanics — per-task worktree creation, branch push, GitHub PR creation and PR diff contents — are covered by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI03), which runs the same workflow against the same `workflow-test-todo-app` repository with a real harness, real `gh pr create`, and automatic PR cleanup. This scenario does **not** re-assert those mechanics; it confirms only that the run reaches a clean `completed` state and that the operator-facing surface reflects it. The run still publishes, so it closes the published PR as cleanup.
 
-**Workflow structure**: `detect-spec-input → spec → revise-spec → implement → simplify-code → integrated-review ∥ architecture-review → review-aggregate → remediation-loop`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
+**Workflow structure**: `detect-spec-input → spec → revise-spec → implement → integrated-review ∥ integrated-review-council → review-aggregate → remediation-loop`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 Server should be running: `bash dev/testing/profiles/workflows/run.sh`
 
@@ -122,7 +122,7 @@ workflow_cli() {
 ### Expected
 
 - The final workflow status is `completed`
-- The detail page shows semantically complete progress: every authored top-level step (`detect-spec-input`, `spec`, `revise-spec`, `implement`, `simplify-code`, `integrated-review`, `architecture-review`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
+- The detail page shows semantically complete progress: every authored top-level step (`detect-spec-input`, `spec`, `revise-spec`, `implement`, `integrated-review`, `integrated-review-council`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
 - `publish.status` is `success` and `publish.pr_url` is a non-empty GitHub pull request URL (the run reached and passed the publish step)
 - No generic server error banner is visible on the page
 - The workflow detail page remains usable after completion

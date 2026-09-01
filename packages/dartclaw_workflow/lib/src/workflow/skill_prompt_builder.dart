@@ -3,7 +3,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'workflow_definition.dart' show OutputConfig, WorkflowStep;
 
 import 'prompt_augmenter.dart';
-import 'review_scoring_fragment.dart';
 
 /// Builds the effective agent prompt for a skill-aware workflow step.
 ///
@@ -46,7 +45,6 @@ class SkillPromptBuilder {
     String? contextSummary,
     Map<String, OutputConfig>? outputs,
     List<String> outputKeys = const [],
-    List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
     List<String> finalizerCoveredKeys = const [],
     bool autoFrameContext = true,
@@ -55,7 +53,6 @@ class SkillPromptBuilder {
     Map<String, Object?> resolvedInputValues = const {},
     String? templatePrompt,
     String? provider,
-    String? gatingSeverity,
   }) {
     final String prompt;
     var caseUsedSummary = false;
@@ -105,10 +102,8 @@ class SkillPromptBuilder {
       framed,
       outputs: outputs,
       outputKeys: outputKeys,
-      outputExamples: outputExamples,
       emitStepOutcomeProtocol: emitStepOutcomeProtocol,
       finalizerCoveredKeys: finalizerCoveredKeys,
-      gatingSeverity: gatingSeverity ?? defaultGatingSeverity,
     );
   }
 

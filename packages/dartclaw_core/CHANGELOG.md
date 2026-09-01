@@ -8,12 +8,16 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 - `AgentExecutionStatusChangedEvent` for future execution lifecycle wiring
 - `Task.agentExecution` / `Task.workflowStepExecution` hydration with lazy accessors that resolve runtime fields through the shared execution tables
 - `RepoLock` for serializing shared repository metadata and `.session_keys.json` read-modify-write sections
+- `SqliteAgentExecutionRepository` with `agent_executions` schema bootstrap and filtering
+- SQLite-backed memory, search, task, goal, execution, trace, and event persistence previously provided by `dartclaw_storage`
 
 ### Changed
 - `Task.toJson()` / `Task.fromJson()` now use nested `agentExecution` and `workflowStepExecution` objects instead of re-emitting provider/session/budget/workflow fields at the top level
 - `Task.toJson()` emits `workflowStepExecution` only when a real hydrated `WorkflowStepExecution` is present. The legacy synthesis that fabricated a stand-in nested object from bare `workflowRunId`/`stepIndex` flat fields (producing `stepId: 'legacy-step-<n>'` and `agentExecutionId: 'legacy-ae:<id>'` placeholders) has been removed — the public task payload must reflect actual persistence state, not back-compat reconstruction
 - `SessionService.getOrCreateByKey` now uses `RepoLock` for deterministic concurrent session-key creation
 - Channel lifecycle logs say started rather than implying transport-specific readiness
+- `tasks.db` now treats agent and workflow-step executions as first-class tables with joined task hydration
+- `SqliteExecutionRepositoryTransactor` serializes concurrent transactions through a single-slot queue
 
 ## 0.9.0
 

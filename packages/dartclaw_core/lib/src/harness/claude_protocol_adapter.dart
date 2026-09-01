@@ -25,7 +25,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     return switch (message) {
       claude_protocol.StreamTextDelta(:final text) => TextDelta(text),
       claude_protocol.ToolUseBlock(:final name, :final id, :final input) => ToolUse(name: name, id: id, input: input),
-      claude_protocol.ToolResultBlock(:final toolId, :final output, :final isError) => ToolResult(
+      claude_protocol.ToolResultBlock(:final toolId, :final output, :final isError) => ToolResultMessage(
         toolId: toolId,
         output: output,
         isError: isError,
@@ -35,8 +35,10 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         subtype: subtype,
         data: data,
       ),
-      claude_protocol.TurnResult(
+      claude_protocol.TerminalResult(
         :final stopReason,
+        :final subtype,
+        :final structuredOutput,
         :final costUsd,
         :final durationMs,
         :final inputTokens,
@@ -46,6 +48,8 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
       ) =>
         TurnComplete(
           stopReason: stopReason,
+          subtype: subtype,
+          structuredOutput: structuredOutput,
           costUsd: costUsd,
           durationMs: durationMs,
           inputTokens: inputTokens,
@@ -80,7 +84,6 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
-    bool resume = false,
   }) {
     final payload = <String, dynamic>{
       'type': 'user',
@@ -88,9 +91,6 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     };
     if (systemPrompt != null) {
       payload['system_prompt'] = systemPrompt;
-    }
-    if (resume) {
-      payload['resume'] = true;
     }
     return payload;
   }

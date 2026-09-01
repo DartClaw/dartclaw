@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';

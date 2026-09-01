@@ -6,7 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import 'package:dartclaw_models/dartclaw_models.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'uuid_validation.dart';
 import 'write_op.dart';

@@ -5,55 +5,6 @@ void main() {
   final start = DateTime.utc(2026, 3, 24, 10, 0, 0);
   final end = DateTime.utc(2026, 3, 24, 10, 0, 5);
 
-  test('constructs with all required fields', () {
-    final trace = TurnTrace(id: 'id-1', sessionId: 'sess-1', startedAt: start, endedAt: end);
-    expect(trace.id, 'id-1');
-    expect(trace.sessionId, 'sess-1');
-    expect(trace.taskId, isNull);
-    expect(trace.runnerId, isNull);
-    expect(trace.model, isNull);
-    expect(trace.provider, isNull);
-    expect(trace.inputTokens, 0);
-    expect(trace.outputTokens, 0);
-    expect(trace.cacheReadTokens, 0);
-    expect(trace.cacheWriteTokens, 0);
-    expect(trace.isError, isFalse);
-    expect(trace.errorType, isNull);
-    expect(trace.toolCalls, isEmpty);
-  });
-
-  test('constructs with all optional fields', () {
-    final toolCalls = [ToolCallRecord(name: 'bash', success: true, durationMs: 100, context: 'dart test')];
-    final trace = TurnTrace(
-      id: 'id-2',
-      sessionId: 'sess-2',
-      taskId: 'task-1',
-      runnerId: 1,
-      model: 'claude-4-sonnet',
-      provider: 'anthropic',
-      startedAt: start,
-      endedAt: end,
-      inputTokens: 1200,
-      outputTokens: 350,
-      cacheReadTokens: 800,
-      cacheWriteTokens: 50,
-      isError: true,
-      errorType: 'timeout',
-      toolCalls: toolCalls,
-    );
-    expect(trace.taskId, 'task-1');
-    expect(trace.runnerId, 1);
-    expect(trace.model, 'claude-4-sonnet');
-    expect(trace.provider, 'anthropic');
-    expect(trace.inputTokens, 1200);
-    expect(trace.outputTokens, 350);
-    expect(trace.cacheReadTokens, 800);
-    expect(trace.cacheWriteTokens, 50);
-    expect(trace.isError, isTrue);
-    expect(trace.errorType, 'timeout');
-    expect(trace.toolCalls, hasLength(1));
-  });
-
   test('totalTokens computed correctly', () {
     final trace = TurnTrace(
       id: 'id-3',

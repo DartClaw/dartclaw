@@ -1,9 +1,10 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show WorkflowStepExecution, WorkflowStepExecutionRepository;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         BashStepPolicy,
@@ -16,16 +17,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputConfig,
         OutputFormat,
         OutputMode,
+        SqliteWorkflowRunRepository,
         StepExecutionContext,
         StepPromptConfiguration,
         TaskStatusChangedEvent,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowRoleDefaults,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep,
+        WorkflowStepExecutionRepository,
         WorkflowTaskConfig,
         WorkflowTaskType;
 import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart';
@@ -136,7 +137,6 @@ void main() {
         stepIndex: 0,
         title: 'Title',
         description: 'Prompt',
-        type: TaskType.coding,
         provider: 'codex',
         projectId: 'proj',
         maxTokens: 100,
@@ -165,7 +165,6 @@ void main() {
         stepIndex: 0,
         title: 'Review',
         description: '--auto --output-dir "\$DARTCLAW_STEP_ARTIFACTS_DIR" target',
-        type: TaskType.coding,
         provider: 'codex',
         projectId: 'proj',
         maxTokens: null,
@@ -200,7 +199,6 @@ void main() {
         stepIndex: 0,
         title: 'Plan',
         description: '--auto --mode plan target',
-        type: TaskType.coding,
         provider: 'codex',
         projectId: 'proj',
         maxTokens: null,
@@ -225,7 +223,6 @@ void main() {
         stepIndex: 0,
         title: 'Story Review',
         description: 'Review the story',
-        type: TaskType.coding,
         provider: 'codex',
         projectId: 'proj',
         maxTokens: null,
@@ -251,7 +248,6 @@ void main() {
         stepIndex: 0,
         title: 'Retry title',
         description: 'Prompt',
-        type: TaskType.coding,
         provider: 'codex',
         projectId: 'proj',
         maxTokens: 1000,
@@ -272,7 +268,6 @@ void main() {
         id: 'ordinary-task',
         title: 'Ordinary retry task',
         description: 'Created outside workflow dispatch.',
-        type: TaskType.automation,
         maxRetries: 2,
       );
 
@@ -306,7 +301,6 @@ void main() {
           stepIndex: 0,
           title: 'Title',
           description: 'Prompt',
-          type: TaskType.coding,
           provider: 'codex',
           projectId: null,
           maxTokens: null,
@@ -338,7 +332,7 @@ void main() {
       expect(followUps.last, contains('<step-outcome>'));
     });
 
-    test('builds last follow-up prompt with resolved gatingSeverity', () {
+    test('builds last follow-up prompt with the default gating severity', () {
       final followUps = buildOneShotFollowUpPrompts(
         const WorkflowStep(
           id: 'review-step',
@@ -349,14 +343,12 @@ void main() {
         WorkflowContext(),
         const {'gating_findings_count': OutputConfig(format: OutputFormat.json, schema: 'gating_findings_count')},
         outputKeys: const ['gating_findings_count'],
-        gatingSeverity: 'critical',
         templateEngine: WorkflowTemplateEngine(),
         skillPromptBuilder: StepPromptConfiguration().skillPromptBuilder,
       );
 
       expect(followUps.single, contains('## Review Finding Scoring'));
-      expect(followUps.single, contains('at or above `critical`'));
-      expect(followUps.single, isNot(contains('at or above `high`')));
+      expect(followUps.single, contains('at or above `high`'));
     });
 
     test('buildStepConfig and stripWorkflowStepConfig preserve public task config only', () {
@@ -376,7 +368,7 @@ void main() {
         workflowWorkspaceDir: '/tmp/workflow-workspace',
       );
 
-      expect(config['_workflowNeedsWorktree'], isTrue);
+      expect(config['needsWorktree'], isTrue);
       expect(config.keys.where((key) => key.contains('StepType')), isEmpty);
       expect(config['reviewMode'], equals('auto-accept'));
       expect(config['_baseRef'], equals('feature'));
@@ -425,18 +417,16 @@ void main() {
       expect((outputsOf(schema)['properties'] as Map).containsKey('summary'), isTrue);
     });
 
-    test('excludes host-owned outputs (setValue, source, canonical *_source defaults)', () {
+    test('excludes host-owned source outputs but claims *_source like any other', () {
       final schema = buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
         'summary': OutputConfig(format: OutputFormat.text),
-        'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
         'branch': OutputConfig(format: OutputFormat.text, source: 'worktree.branch'),
         'plan_source': OutputConfig(format: OutputFormat.text),
       });
 
       final outputs = outputsOf(schema);
-      expect(outputs['required'], equals(['summary']));
-      final keys = (outputs['properties'] as Map).keys;
-      expect(keys, isNot(anyElement(isIn(['pinned', 'branch', 'plan_source']))));
+      expect(outputs['required'], equals(['summary', 'plan_source']));
+      expect((outputs['properties'] as Map).keys, isNot(contains('branch')));
     });
 
     test('declares filesystem path claims as nullable so a no-claim null survives strict mode', () {
@@ -525,7 +515,7 @@ void main() {
       expect(buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {}), isNull);
       expect(
         buildExecutionEnvelopeSchema(const WorkflowStep(id: 's', name: 'S'), const {
-          'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
+          'branch': OutputConfig(format: OutputFormat.text, source: 'worktree.branch'),
         }),
         isNull,
       );
@@ -541,7 +531,7 @@ void main() {
       expect(stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S'), const {}), isFalse);
       expect(
         stepNeedsFinalizer(const WorkflowStep(id: 's', name: 'S'), const {
-          'pinned': OutputConfig(format: OutputFormat.text, setValue: 'x'),
+          'branch': OutputConfig(format: OutputFormat.text, source: 'worktree.branch'),
         }),
         isFalse,
       );

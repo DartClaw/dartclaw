@@ -200,23 +200,20 @@ This sub-scenario checks that missing routes still render a themed, user-facing 
 
 ## S9: Verify The Rich Chat Composer
 
-This sub-scenario checks the rich composer shell (command palette, reference palette, attachment chips, send/stop) on a seeded chat session. It uses the dedicated active `user`-type session `c0117005-0000-4000-8000-000000000009` ("Composer Smoke E2E") rather than the `main` session used in `S2`: keyed `main`/`channel`/`cron` sessions are rotated to archive by the daily reset, so the seeded `main` session (`f59ce127…`) renders read-only with no composer, while the rotated active `main` session has a non-deterministic id. The seeded `user` session is exempt from rotation and from age pruning (default `sessions.maintenance.mode: warn`), so it reliably exposes the composer at a stable id.
+This sub-scenario checks the rich composer shell (reference palette, attachment chips, send/stop) on a seeded chat session. It uses the dedicated active `user`-type session `c0117005-0000-4000-8000-000000000009` ("Composer Smoke E2E") rather than the `main` session used in `S2`: keyed `main`/`channel`/`cron` sessions are rotated to archive by the daily reset, so the seeded `main` session (`f59ce127…`) renders read-only with no composer, while the rotated active `main` session has a non-deterministic id. The seeded `user` session is exempt from rotation and from age pruning (default `sessions.maintenance.mode: warn`), so it reliably exposes the composer at a stable id.
 
 ### Steps
 
 1. Navigate to `http://localhost:3338/sessions/c0117005-0000-4000-8000-000000000009`
 2. Run `agent-browser snapshot -i` to capture the composer
-3. Focus the composer input and type `/`
-4. Run `agent-browser snapshot -i` to capture the command palette, then press `Escape` to dismiss it
-5. Type `@` in the composer
-6. Run `agent-browser snapshot -i` to capture the reference palette, then press `Escape` to dismiss it
+3. Focus the composer input and type `@`
+4. Run `agent-browser snapshot -i` to capture the reference palette, then press `Escape` to dismiss it
 
 ### Expected
 
 - The composer renders as the rich shell (toolbar/affordances around the input), not a bare textarea-only form
-- Typing `/` opens a command palette with keyboard-selectable command rows; `Escape` dismisses it cleanly with focus returned to the input
 - Typing `@` opens a reference palette with selectable context rows; `Escape` dismisses it cleanly
-- No palette leaves an orphaned overlay, and the composer does not overflow or break the desktop chat layout
+- The palette leaves no orphaned overlay, and the composer does not overflow or break the desktop chat layout
 - No error banner or raw stack trace appears while opening or dismissing the palettes
 
 
@@ -235,7 +232,7 @@ This sub-scenario checks the guard editor on the Settings page. The `visual` pro
 
 ### Expected
 
-- The settings page renders a guard editor section grouping the command, file, network, and input-sanitizer guards
+- The settings page renders a guard editor section grouping the command, file, and network guards
 - Built-in default rules are shown as read-only context, visually distinct from editable extension entries
 - Editable extension affordances are present for an admin session — add/edit/delete controls on the extension fields and a guard tester panel
 - Submitting a sample through the tester returns a structured verdict (an allowed/blocked result with a guard family and reason), not an error; a clearly dangerous command surfaces a blocked verdict

@@ -93,8 +93,7 @@ void main() {
     test('uses channels.google_chat.oauth_credentials from config as fallback', () async {
       final configFile = '${tempDir.path}/dartclaw.yaml';
       File(configFile).writeAsStringSync('''
-server:
-  data_dir: ${tempDir.path}
+data_dir: ${tempDir.path}
 channels:
   google_chat:
     oauth_credentials: /nonexistent/from-config.json
@@ -168,8 +167,7 @@ channels:
       writeClientCredentials(credPath);
       final configFile = '${tempDir.path}/dartclaw.yaml';
       File(configFile).writeAsStringSync('''
-server:
-  data_dir: ${tempDir.path}
+data_dir: ${tempDir.path}
 channels:
   google_chat:
     oauth_credentials: $credPath

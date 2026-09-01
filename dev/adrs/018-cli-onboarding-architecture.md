@@ -121,7 +121,7 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 
 **Why not workflow-based personalization (Option D from trade-off analysis)?** The 0.15 workflow engine is designed for autonomous batch execution — it cannot pause for user input mid-step. Using it for personalization would force a non-interactive, variable-driven draft-generation mode that sacrifices the conversational UX that makes onboarding meaningful. The sentinel file approach works because personalization runs inside a normal agent turn, which is inherently interactive. Infrastructure elegance should not trump user experience for a feature whose entire purpose is first impressions.
 
-**Why sentinel over workflow for personalization specifically?** The workflow engine remains valuable for many things (coding tasks, review pipelines, scheduled automation). But conversational personalization is not a batch job — it's a dialogue. Using the right tool for the job means: TUI wizard for deterministic infrastructure config, normal agent conversation for interactive personalization.
+**Why sentinel over workflow for personalization specifically?** The workflow engine remains valuable for many things (code changes, review pipelines, scheduled automation). But conversational personalization is not a batch job — it's a dialogue. Using the right tool for the job means: TUI wizard for deterministic infrastructure config, normal agent conversation for interactive personalization.
 
 ## Consequences
 
@@ -147,7 +147,7 @@ The sentinel file is a behavioral instruction block (~800-1200 words) containing
 
 - **Depends on 0.17's USER.md template.** Both steps target 0.17's structured template (Identity, Goals, Current Challenges, Preferences, Proactivity Level, Not Relevant). This ADR does not redefine that template — it consumes it. See [Milestone Reconciliation](#milestone-reconciliation).
 - **Option B (agent-as-installer) is not precluded.** A `.claude/skills/dartclaw-setup/` skill file that points users to `dartclaw setup` can ship alongside at near-zero cost.
-- **Workflow engine is not used for onboarding but remains valuable.** The 0.15 workflow engine serves its designed purpose: structured multi-step coding tasks, pipelines, scheduled automation. It is not diminished by using a different mechanism for conversational personalization.
+- **Workflow engine is not used for onboarding but remains valuable.** The 0.15 workflow engine serves its designed purpose: structured multi-step code changes, pipelines, scheduled automation. It is not diminished by using a different mechanism for conversational personalization.
 
 ## Alternatives Considered
 

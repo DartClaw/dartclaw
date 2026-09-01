@@ -27,7 +27,9 @@ dartclaw service start --instance-dir ~/.dartclaw
 
 ### Service Management
 
-`dartclaw service` manages DartClaw as a user-scoped background service — no root required. Service units are instance-scoped, so multiple instance directories can coexist without overwriting each other:
+`dartclaw service` is the only install path. It manages DartClaw in one of two scopes — user-scoped by default (no root
+required), or system-scoped with `--system` (boot-started, root-installed). Service units are instance-scoped in both
+scopes, so multiple instance directories can coexist without overwriting each other:
 
 ```bash
 dartclaw service install --instance-dir ~/.dartclaw
@@ -54,9 +56,32 @@ dartclaw init --launch=service   # Set up and install + start the service
 
 Launch handoff options are `--launch=foreground`, `--launch=background`, `--launch=service`, and `--launch=skip` (default).
 
-### Old deploy workflow (deprecated)
+### System-scoped service (boot-started)
 
-The old `dartclaw deploy` workflow generated root-scoped system daemons (macOS LaunchDaemon, systemd `multi-user.target`). The `deploy setup` step has been removed — its prerequisite checks now live in `dartclaw init`. Use `dartclaw init` + `dartclaw service` instead. The remaining `deploy config` / `deploy secrets` subcommands still exist but are superseded.
+Add `--system` to any `service` subcommand to manage a boot-started daemon instead of a login-session service — a macOS
+LaunchDaemon in `/Library/LaunchDaemons`, or a systemd unit in `/etc/systemd/system` wanted by `multi-user.target`:
+
+```bash
+sudo dartclaw service install --system --instance-dir /opt/dartclaw
+sudo dartclaw service start   --system --instance-dir /opt/dartclaw
+sudo dartclaw service status  --system --instance-dir /opt/dartclaw
+sudo dartclaw service uninstall --system --instance-dir /opt/dartclaw
+```
+
+- **System scope requires root.** `install`, `uninstall`, `start` and `stop` refuse without it, naming the missing
+  privilege, and write nothing; `status` cannot determine the state either and reports `unknown` with the same
+  `sudo` hint.
+- **Name the instance explicitly.** `sudo` replaces `HOME` with root's on most distributions, so system scope refuses
+  to guess: pass `--instance-dir <path>` or `--config <path>`.
+- **The daemon does not run as root.** The run-as user comes from `SUDO_USER`, or from `--service-user <name>`. If
+  neither resolves, install refuses rather than installing a root-running daemon.
+- **Make the instance directory writable by that user** — `sudo` installs it as root, and the daemon runs as the
+  named operator.
+- **No secret is written into a unit file.** System-scoped units resolve credentials from config and the
+  `dartclaw auth` stores exactly as user-scoped units do.
+
+The two scopes are independent: installing, removing, or stopping one leaves the other's unit for the same instance
+directory untouched.
 
 ## Standalone Binary
 
@@ -126,7 +151,7 @@ context. Packaged installs need no source path because their assets are embedded
 
 **Note**: This limitation also affects `dart run` when `cwd` is not the pub workspace root — for example, when you want DartClaw's `_local` project to point at a different repository. See [Projects & Git § Limitations](projects-and-git.md#limitations-and-future-considerations) for details.
 
-## macOS (LaunchAgent)
+## macOS (launchd)
 
 `dartclaw service install --instance-dir ~/.dartclaw` creates a user-scoped LaunchAgent at `~/Library/LaunchAgents/com.dartclaw.agent.<instance-hash>.plist`:
 
@@ -161,7 +186,10 @@ the current shell's `PATH` into the plist, so provider CLIs and channel sidecars
 and service startup. If that PATH changes, run `dartclaw service install` again to refresh the loaded definition. To have
 it start at login, set `RunAtLoad` to `true` in the plist.
 
-## Linux (systemd --user)
+`sudo dartclaw service install --system` writes the same definition to `/Library/LaunchDaemons/` instead, with
+`RunAtLoad` set to `true` and a `UserName` key naming the run-as operator, and bootstraps it into the `system` domain.
+
+## Linux (systemd)
 
 `dartclaw service install --instance-dir ~/.dartclaw` creates a user-scoped unit at `~/.config/systemd/user/dartclaw-<instance-hash>.service`:
 
@@ -187,6 +215,16 @@ This is a `systemd --user` unit — no root or system administrator needed. Enab
 ```bash
 loginctl enable-linger $USER   # allow user units to run without active session
 ```
+
+`sudo dartclaw service install --system` writes the same unit to `/etc/systemd/system/` instead, adding
+`User=<run-as operator>`, `WantedBy=multi-user.target`, and the filesystem-hardening directives `ProtectSystem=strict`,
+`ProtectHome=read-only`, `ReadWritePaths=<instance dir>` and `PrivateTmp=true`, and raising `Restart` to `always` so a
+boot daemon returns from a clean exit the way macOS `KeepAlive` does. It is enabled with `systemctl` without `--user`,
+so it starts at boot with no lingering session required.
+
+`ProtectSystem=strict` and `ProtectHome=read-only` make everything outside `ReadWritePaths` read-only for the daemon —
+including the harness home (`~/.claude`, `~/.codex`) and any project root outside the instance directory. Add each such
+path to `ReadWritePaths` before agent turns need to write there.
 
 If container isolation is enabled and the unit runs as a user other than uid 1000, the container's mounted state
 directories need a uid alignment the service cannot perform unprivileged — grant `CAP_CHOWN` or use rootless/
@@ -215,8 +253,9 @@ search:
 ```
 
 The value lives at `<data_dir>/credentials/named/brave-search.json`, outside the generated unit, so a reinstall cannot
-lose it and no key appears in `dartclaw.yaml`. `dartclaw secrets set` also takes effect at the next config reload —
-SIGUSR1, a file-watch reload, or a web-UI edit — without restarting the service. See
+lose it and no key appears in `dartclaw.yaml`. Every config load re-reads the store, so the next reload — SIGUSR1, a
+file-watch reload, or a web-UI edit — sees a new value; `credentials` is a restart-tier section, so the reload reports
+it as restart-required and the running service applies it at its next restart. See
 [Security § Named Credential Storage](security.md#named-credential-storage) for what the store does and does not
 protect, and [CLI Reference § Secrets](cli-reference.md#secrets) for the commands.
 
@@ -230,25 +269,84 @@ gate a deploy.
 
 ## Egress Firewall
 
-Restrict outbound network access to only required services:
+**The rule sets below are a default-drop allowlist scoped to the service account.** That is the model the retired
+`dartclaw deploy` generators produced; it replaces the weaker per-uid blocklist this guide carried until 0.25, which
+had no default policy, no connection-tracking or loopback accepts, and no DNS allowances. Reproduce them by hand —
+DartClaw ships no generator, and the `deploy` command that once emitted them is gone.
+
+Run DartClaw as its own account (`dartclaw` below) so the policy can name it. Everything that account sends is
+dropped unless a rule allows it; every other account on the host is untouched.
+
+**These rules do not reach container traffic.** A `network:none` container has no egress at all and reaches the
+network only through the host gateway, which mediates provider and MCP calls on the host's own credentials — so
+gateway traffic leaves as the DartClaw account and is covered here. On Docker Desktop, container traffic that does
+escape leaves through the VM's own stack, which a host firewall does not see. Treat these rules as host-level
+defence in depth, not as the container boundary.
+
+Substitute your own resolvers and endpoints: the DNS servers below are examples, and you need one `443` allowance
+per provider and per allowlisted MCP or search endpoint your deployment actually calls.
 
 ### macOS (pf)
+
+Rule order matters. `pf` applies the *last* matching rule unless a rule says `quick`, so every allowance is `quick`
+and the final block is `quick` too — written without it, the trailing block would win over the allowances above it
+and the account would have no egress at all.
+
 ```
-# /etc/pf.anchors/dartclaw
-pass out proto tcp from any to any port 443   # Anthropic API
-block out quick user dartclaw
+# /etc/pf.anchors/dartclaw — load with: sudo pfctl -f /etc/pf.conf
+# Referenced from /etc/pf.conf as:  anchor "dartclaw"
+anchor "dartclaw" {
+  # Loopback first: the local API, the web UI and the gateway pipes never leave the host.
+  pass out quick on lo0 all
+
+  # DNS.
+  pass out quick proto { tcp, udp } from any to { 1.1.1.1, 8.8.8.8 } port 53 user dartclaw keep state
+
+  # One line per endpoint the deployment calls.
+  pass out quick proto tcp from any to api.anthropic.com port 443 user dartclaw keep state
+
+  # Default drop for this account. Anything not allowed above stops here.
+  block out quick user dartclaw
+}
 ```
 
+`keep state` is pf's default on a `pass` rule and is written out here so the connection-tracking behaviour is
+visible rather than implied.
+
 ### Linux (nftables)
+
 ```
+#!/usr/sbin/nft -f
+# Apply with: sudo nft -f /etc/nftables.d/dartclaw.conf
+
 table inet dartclaw {
   chain output {
-    type filter hook output priority 0;
-    meta skuid dartclaw tcp dport 443 accept
-    meta skuid dartclaw drop
+    type filter hook output priority 0; policy drop;
+
+    # Everything not run by the service account is out of scope. This rule must
+    # come first: the chain's policy is drop, so without it the whole host loses
+    # egress rather than just DartClaw.
+    meta skuid != dartclaw accept
+
+    # Replies on connections the account already opened.
+    ct state established,related accept
+
+    # Loopback.
+    oifname "lo" accept
+
+    # DNS.
+    ip daddr { 1.1.1.1, 8.8.8.8 } tcp dport 53 accept
+    ip daddr { 1.1.1.1, 8.8.8.8 } udp dport 53 accept
+
+    # One line per endpoint the deployment calls.
+    ip daddr api.anthropic.com tcp dport 443 accept
   }
 }
 ```
+
+`nft` resolves a hostname once, when the ruleset is loaded, and stores the addresses it got. An endpoint behind a
+rotating CDN address will start failing without the rules changing; pin the addresses you intend to allow, or
+reload the ruleset on a schedule.
 
 ## Maintaining Agent Binaries
 

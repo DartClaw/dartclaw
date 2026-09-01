@@ -2,6 +2,8 @@
 
 DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:spec`, `andthen:plan`, `andthen:exec-spec`, and `andthen:review`.
 
+AndThen 1.0 split the distribution into two plugins, `andthen` and `andthen-some`. The built-in workflows reference only core `andthen` plugin skills – the `simplify-code` step was removed when that skill moved to `andthen-some`, and the `architecture-review` step was removed because AndThen 1.0's `andthen:architecture` skill offers only `advise` and `trade-off` modes (review moved to `andthen-some:architecture-analysis`) – so no `andthen-some` skill is required.
+
 DartClaw does not clone AndThen, run AndThen's installer, or create DartClaw-branded copies of AndThen skills. Install AndThen for the provider you run workflows with, then DartClaw resolves the canonical workflow reference to the provider-native skill name:
 
 | Provider | Canonical reference | Provider-native name |

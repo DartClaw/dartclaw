@@ -11,21 +11,24 @@ class UnsupportedPlatformBackend implements ServiceBackend {
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   }) async => const ServiceResult(success: false, message: _hint);
 
   @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async =>
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope}) async =>
       const ServiceResult(success: false, message: _hint);
 
   @override
-  Future<ServiceStatus> status({required String instanceDir}) async => ServiceStatus.unknown;
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope}) async =>
+      ServiceStatus.unknown;
 
   @override
-  Future<ServiceResult> start({required String instanceDir}) async =>
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope}) async =>
       const ServiceResult(success: false, message: _hint);
 
   @override
-  Future<ServiceResult> stop({required String instanceDir}) async =>
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope}) async =>
       const ServiceResult(success: false, message: _hint);
 }

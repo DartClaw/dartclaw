@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 void main() {
   group('FakeAgentHarness', () {
     test('records turn inputs and completes successfully', () async {
-      final harness = FakeAgentHarness();
+      final harness = FakeAgentHarness(supportsProviderSessionResume: true);
       final turnFuture = harness.turn(
         sessionId: 'session-1',
         messages: const [
@@ -15,15 +15,19 @@ void main() {
         mcpServers: const {
           'calendar': {'command': 'fake'},
         },
-        resume: true,
+        providerSessionId: 'provider-session-1',
+        requestProviderSessionResume: true,
         directory: '/tmp/workspace',
         model: 'sonnet',
       );
 
       await harness.turnInvoked;
-      harness.completeSuccess(const {'ok': true, 'turnId': 'turn-1'});
+      harness.completeSuccess(const TurnResult(stopReason: 'completed', inputTokens: 7, outputTokens: 3));
 
-      await expectLater(turnFuture, completion({'ok': true, 'turnId': 'turn-1'}));
+      final result = await turnFuture;
+      expect(result.stopReason, 'completed');
+      expect(result.inputTokens, 7);
+      expect(result.outputTokens, 3);
       expect(harness.turnCallCount, 1);
       expect(harness.lastSessionId, 'session-1');
       expect(harness.lastMessages, const [
@@ -33,7 +37,8 @@ void main() {
       expect(harness.lastMcpServers, const {
         'calendar': {'command': 'fake'},
       });
-      expect(harness.lastResume, isTrue);
+      expect(harness.lastProviderSessionId, 'provider-session-1');
+      expect(harness.lastRequestProviderSessionResume, isTrue);
       expect(harness.lastDirectory, '/tmp/workspace');
       expect(harness.lastModel, 'sonnet');
       expect(harness.state, WorkerState.idle);
@@ -50,6 +55,30 @@ void main() {
       expect(harness.cancelCalled, isTrue);
       expect(harness.state, WorkerState.idle);
       await errorExpectation;
+    });
+
+    test('refuses provider-session resume inputs when capability is false', () async {
+      final harness = FakeAgentHarness();
+
+      for (final input in [
+        (providerSessionId: 'provider-1', requestProviderSessionResume: false),
+        (providerSessionId: null, requestProviderSessionResume: true),
+      ]) {
+        await expectLater(
+          harness.turn(
+            sessionId: 'session-1',
+            messages: const [],
+            systemPrompt: '',
+            providerSessionId: input.providerSessionId,
+            requestProviderSessionResume: input.requestProviderSessionResume,
+          ),
+          throwsA(
+            isA<UnsupportedHarnessCapabilityException>()
+                .having((error) => error.provider, 'provider', 'FakeAgentHarness')
+                .having((error) => error.capability, 'capability', AgentHarness.providerSessionResumeCapability),
+          ),
+        );
+      }
     });
 
     test('supports emitted bridge events and lifecycle flags', () async {

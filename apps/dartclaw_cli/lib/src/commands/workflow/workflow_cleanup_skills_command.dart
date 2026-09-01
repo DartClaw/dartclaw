@@ -1,13 +1,12 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkspaceSkillLinker;
 import 'package:path/path.dart' as p;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine, configuredProjectDirectories;
 
 import '../config_loader.dart';
-import '../serve_command.dart' show WriteLine;
-import 'project_definition_paths.dart';
 
 typedef WorkflowCleanupExitFn = void Function(int code);
 

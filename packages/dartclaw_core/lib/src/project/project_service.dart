@@ -1,8 +1,8 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Service for managing external project repositories.
 ///
-/// Interface in dartclaw_core; implementation in dartclaw_server.
+/// Interface in dartclaw_core; implementation in dartclaw_runtime.
 /// Manages three sources:
 /// - Config-defined projects — seeded from `projects:` YAML on startup, read-only
 /// - Runtime-created projects — created via [create], persisted to `projects.json`

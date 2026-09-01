@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/cleanup_command.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show formatByteSize;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, openTaskDb;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -38,6 +38,16 @@ void main() {
   }
 
   group('CleanupCommand', () {
+    // The cleanup report and the scheduled-cleanup log line render every byte
+    // figure through this one function; the server's page helper is a different
+    // formatter and is deliberately not shared with it.
+    test('byte figures render one tier per magnitude with one decimal above bytes', () {
+      expect(formatByteSize(1023), '1023 B');
+      expect(formatByteSize(1536), '1.5 KB');
+      expect(formatByteSize(2 * 1024 * 1024), '2.0 MB');
+      expect(formatByteSize(1610612736), '1.5 GB');
+    });
+
     test('cleanup with empty sessions dir reports no actions', () async {
       await runCleanup([]);
 

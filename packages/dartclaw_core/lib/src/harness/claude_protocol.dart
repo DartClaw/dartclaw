@@ -24,15 +24,10 @@ const claudeOauthTokenEnvVar = 'CLAUDE_CODE_OAUTH_TOKEN';
 /// `ANTHROPIC_API_KEY`. The CLI also treats it as a broader hardening signal:
 /// it forces `--permission-mode default`, printing a benign stderr notice
 /// ("Permission mode forced to default"). That is compatible with every host
-/// spawn path: workflow one-shot tasks carry their tool policy as `--settings`
-/// permission rules, which default mode enforces identically in headless
-/// runs (non-allowed tools are denied, never prompted), and the long-lived
-/// harness fields permission requests over the control protocol. The notice
-/// is operational noise, not a failure cause — verified live 2026-07-07
-/// (allowed tools run, denied tools deny, skills invoke, structured output
-/// completes, with the var set). Full-access (`approval: never`) one-shots
-/// opt out with an explicit `=0` (see `ClaudeCliProvider`), because the
-/// forced default mode would neutralize their bypass posture.
+/// spawn path because the harness fields permission requests over the control
+/// protocol. Full-access (`approval: never`) harness spawns opt out with an
+/// explicit `=0`, because the forced default mode would neutralize their
+/// bypass posture.
 const claudeHardeningEnvVars = <String, String>{
   'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
   'DISABLE_AUTOUPDATER': '1',
@@ -149,9 +144,18 @@ final class CompactBoundary extends ClaudeMessage {
   String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
 }
 
-/// Turn result — signals turn completion.
-final class TurnResult extends ClaudeMessage {
+/// Terminal-result `subtype` the CLI reports when structured-output retries ran
+/// out; the turn produced no schema-valid payload.
+const String claudeStructuredOutputRetriesExhaustedSubtype = 'error_max_structured_output_retries';
+
+/// Terminal result — signals turn completion.
+final class TerminalResult extends ClaudeMessage {
   final String? stopReason;
+
+  final String? subtype;
+
+  /// Payload the CLI validated against the turn's `--json-schema`.
+  final Map<String, dynamic>? structuredOutput;
   final double? costUsd;
   final int? durationMs;
   final int? inputTokens;
@@ -161,6 +165,8 @@ final class TurnResult extends ClaudeMessage {
 
   new({
     this.stopReason,
+    this.subtype,
+    this.structuredOutput,
     this.costUsd,
     this.durationMs,
     this.inputTokens,
@@ -170,7 +176,8 @@ final class TurnResult extends ClaudeMessage {
   });
   @override
   String toString() =>
-      'TurnResult(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
+      'TerminalResult(stopReason: $stopReason, subtype: $subtype, structuredOutput: $structuredOutput, '
+      'costUsd: $costUsd, durationMs: $durationMs, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens, '
       'cacheReadInputTokens: $cacheReadInputTokens, cacheCreationInputTokens: $cacheCreationInputTokens)';
 }
@@ -294,8 +301,17 @@ ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {
 
 ClaudeMessage _parseResult(Map<String, dynamic> json) {
   final usage = json['usage'] as Map<String, dynamic>?;
-  return TurnResult(
-    stopReason: json['is_error'] == true ? 'error' : json['stop_reason'] as String?,
+  return TerminalResult(
+    // Retry exhaustion is an error whether or not the CLI flags it as one: the
+    // turn produced no schema-valid payload, and a success carrying a null one
+    // is indistinguishable from a model that chose to return nothing.
+    stopReason: json['is_error'] == true || json['subtype'] == claudeStructuredOutputRetriesExhaustedSubtype
+        ? 'error'
+        : json['stop_reason'] as String?,
+    subtype: json['subtype'] as String?,
+    structuredOutput: json['structured_output'] is Map<String, dynamic>
+        ? json['structured_output'] as Map<String, dynamic>
+        : null,
     costUsd: (json['total_cost_usd'] as num?)?.toDouble(),
     durationMs: json['duration_ms'] as int?,
     inputTokens: usage?['input_tokens'] as int?,

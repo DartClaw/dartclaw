@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// In-memory [SessionService] for package tests that do not need filesystem IO.

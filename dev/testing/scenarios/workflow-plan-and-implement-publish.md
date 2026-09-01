@@ -10,7 +10,7 @@ Consolidated live acceptance scenario for `plan-and-implement`. It validates the
 
 The engine mechanics — per-story worktree creation, branch push, GitHub PR creation and PR diff contents — are covered by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI04), which runs the same workflow against the same `workflow-test-todo-app` repository with a real harness, distinct per-story worktrees, real `gh pr create`, and automatic PR cleanup. This scenario does **not** re-assert those mechanics; it confirms only that the run reaches a clean `completed` state and that the operator-facing surface reflects it. The run still publishes, so it closes the published PR as cleanup.
 
-**Workflow structure**: `discover-plan-state → plan → story-pipeline (foreach: revise-story-spec → implement → quick-review → simplify-code per story) → plan-review ∥ architecture-review → review-aggregate → remediation-loop`. The `plan-and-implement` workflow requires a pre-existing PRD (discovery fails fast if missing) — it does not synthesize one. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
+**Workflow structure**: `discover-plan-state → plan → story-pipeline (foreach: revise-story-spec → implement → review-story → story-remediation per story) → plan-review ∥ plan-review-council → review-aggregate → remediation-loop`. The `plan-and-implement` workflow requires a pre-existing PRD (discovery fails fast if missing) — it does not synthesize one. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 Server should be running: `bash dev/testing/profiles/workflows/run.sh`
 
@@ -55,27 +55,47 @@ workflow_cli() {
    ```bash
    date '+%Y%m%d-%H%M%S' | tee /tmp/workflow-plan-and-implement-publish.marker
    ```
-3. In a dedicated shell session, start a workflow run in the foreground with the connected CLI and capture the event stream with `tee`:
+3. Seed a PRD on a throwaway scenario branch and push it. `FEATURE` is a PRD path, not free text: `discover-plan-state` fails fast when no PRD exists. The connected lane cuts the run's integration branch from `origin/<BRANCH>`, so the seed must be on the remote; a scenario branch keeps the fixture's `main` untouched and is deleted in S4:
+   ```bash
+   WF_MARKER="$(cat /tmp/workflow-plan-and-implement-publish.marker)"
+   FIXTURE=dev/testing/profiles/workflows/data/projects/workflow-test-todo-app
+   SEED_BRANCH="scenario/plan-live-${WF_MARKER}"
+   PRD="docs/specs/plan-live-${WF_MARKER}/prd.md"
+   git -C "${FIXTURE}" checkout -q -b "${SEED_BRANCH}" origin/main
+   mkdir -p "${FIXTURE}/$(dirname "${PRD}")"
+   cat > "${FIXTURE}/${PRD}" <<EOF_PRD
+   # Workflow live UI scenario ${WF_MARKER}
+
+   Split the work into exactly two THIN stories. The final implementation must create exactly two new markdown files: notes/plan-live-a-${WF_MARKER}.md and notes/plan-live-b-${WF_MARKER}.md. Each file must contain one heading and one bullet only. Planning and specification artifacts must not use those implementation paths and must not count as the delivered files. Do not modify any other files.
+   EOF_PRD
+   git -C "${FIXTURE}" add "${PRD}"
+   git -C "${FIXTURE}" commit -qm "Add live-scenario PRD ${WF_MARKER}"
+   git -C "${FIXTURE}" push -q -u origin "${SEED_BRANCH}"
+   git -C "${FIXTURE}" checkout -q main
+   echo "${SEED_BRANCH}" > /tmp/workflow-plan-and-implement-publish.seed_branch
+   ```
+4. In a dedicated shell session, start a workflow run in the foreground with the connected CLI and capture the event stream with `tee`:
    ```bash
    WF_MARKER="$(cat /tmp/workflow-plan-and-implement-publish.marker)"
    workflow_cli run plan-and-implement \
      -p workflow-test-todo-app \
-     -v "FEATURE=Workflow live UI scenario ${WF_MARKER}. In the workflow-test-todo-app repository, split the work into exactly two THIN stories. The final implementation must create exactly two new markdown files: notes/plan-live-a-${WF_MARKER}.md and notes/plan-live-b-${WF_MARKER}.md. Each file must contain one heading and one bullet only. Planning and specification artifacts must not use those implementation paths and must not count as the delivered files. Do not modify any other files. Complete the full workflow and publish the result." \
+     -v "FEATURE=docs/specs/plan-live-${WF_MARKER}/prd.md" \
+     -v "BRANCH=$(cat /tmp/workflow-plan-and-implement-publish.seed_branch)" \
      -v 'MAX_PARALLEL=2' \
      --json | tee /tmp/workflow-plan-and-implement-publish.jsonl
    ```
    Keep that shell attached while the run is active. Do not background it from the agent shell.
-4. In a second shell, wait for the `run_started` event, record the run id, and persist it:
+5. In a second shell, wait for the `run_started` event, record the run id, and persist it:
    ```bash
    until rg -m1 '^{"type":"run_started"' /tmp/workflow-plan-and-implement-publish.jsonl; do sleep 1; done
    rg -m1 '^{"type":"run_started"' /tmp/workflow-plan-and-implement-publish.jsonl | jq -r '.run.id' | tee /tmp/workflow-plan-and-implement-publish.run_id
    ```
-5. Verify the `run_started` payload targets `PROJECT=workflow-test-todo-app`:
+6. Verify the `run_started` payload targets `PROJECT=workflow-test-todo-app`:
    ```bash
    rg -m1 '^{"type":"run_started"' /tmp/workflow-plan-and-implement-publish.jsonl | jq -r '.run.variablesJson.PROJECT'
    ```
-6. Open `http://localhost:3333/workflows/<run-id>` in the browser
-7. Run `agent-browser snapshot -i` to capture the initial run detail page
+7. Open `http://localhost:3333/workflows/<run-id>` in the browser
+8. Run `agent-browser snapshot -i` to capture the initial run detail page
 
 ### Expected
 
@@ -123,7 +143,7 @@ workflow_cli() {
 ### Expected
 
 - The final workflow status is `completed`
-- The detail page shows semantically complete progress: every authored top-level step (`discover-plan-state`, `plan`, `story-pipeline`, `plan-review`, `architecture-review`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
+- The detail page shows semantically complete progress: every authored top-level step (`discover-plan-state`, `plan`, `story-pipeline`, `plan-review`, `plan-review-council`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
 - `publish.status` is `success` and `publish.pr_url` is a non-empty GitHub pull request URL (the run reached and passed the publish step)
 - No generic server error banner is visible on the page
 - The workflow detail page remains usable after completion
@@ -137,9 +157,10 @@ workflow_cli() {
    ```bash
    gh pr view "$(cat /tmp/workflow-plan-and-implement-publish.pr_url)" --json url,state,isDraft,headRefName,baseRefName
    ```
-2. Close the PR and delete its branch:
+2. Close the PR and delete its branch, then delete the seed branch:
    ```bash
    gh pr close "$(cat /tmp/workflow-plan-and-implement-publish.pr_url)" --delete-branch --comment "Workflow live UI scenario cleanup"
+   git -C dev/testing/profiles/workflows/data/projects/workflow-test-todo-app push -q origin --delete "$(cat /tmp/workflow-plan-and-implement-publish.seed_branch)"
    ```
 3. Verify the PR is closed:
    ```bash
@@ -149,5 +170,5 @@ workflow_cli() {
 ### Expected
 
 - `gh pr view` succeeds for the published PR URL
-- The cleanup command succeeds
+- The cleanup commands succeed
 - The PR state is `CLOSED`

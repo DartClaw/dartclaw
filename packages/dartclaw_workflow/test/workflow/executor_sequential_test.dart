@@ -5,13 +5,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show Project, ProjectStatus;
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        ArtifactKind,
         ContextExtractor,
         OutputConfig,
+        unproducedKeysSystemPrefix,
         OutputFormat,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -27,13 +26,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowLoop,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent,
+        WorkflowTaskType,
         WorkflowWorktreeBinding,
         WorkflowVariable;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProjectService;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
+import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart'
+    show buildExecutionEnvelopeSchema, buildFinalizerPrompt;
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -108,11 +110,7 @@ void main() {
     return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<workflow-context>${jsonEncode(outputs)}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, outputs);
       await h.completeTask(e.taskId);
     });
   }
@@ -169,10 +167,7 @@ void main() {
       ..initWorktree(repoDir.path)
       ..addUntracked(repoDir.path, 'plan.md', content: 'plan')
       ..failNextAdd('add failed');
-    h.executor = h.makeExecutor(
-      workflowGitPort: git,
-      outputTransformer: (run, definition, step, task, outputs) async => {'plan': 'plan.md'},
-    );
+    h.executor = h.makeExecutor(workflowGitPort: git);
     final definition = WorkflowDefinition(
       name: 'artifact-failure',
       description: 'Artifact failure workflow',
@@ -192,17 +187,19 @@ void main() {
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
-          prompts: ['implement'],
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'story_specs',
           maxParallel: 2,
+          foreachSteps: ['story'],
         ),
+        WorkflowStep(id: 'story', name: 'Story', prompts: ['implement']),
       ],
     );
     final run = h.makeRun(definition);
     await h.repository.insert(run);
     final stepEvents = <WorkflowStepCompletedEvent>[];
     final stepSub = h.eventBus.on<WorkflowStepCompletedEvent>().listen(stepEvents.add);
-    final taskSub = completeQueuedTasks();
+    final taskSub = completeQueuedTasks(beforeComplete: (e) => h.seedDeclaredOutputs(e.taskId, {'plan': 'plan.md'}));
 
     await h.executor.execute(run, definition, WorkflowContext(data: {'story_specs': <Map<String, Object?>>[]}));
     await taskSub.cancel();
@@ -276,6 +273,38 @@ void main() {
     final contextData = Map<String, dynamic>.from(finalRun?.contextJson['data'] as Map? ?? const {});
     expect(contextData['step.spec.outcome'], equals('skipped'));
     expect(contextData['step.spec.outcome.reason'], equals('should_run == true'));
+  });
+
+  test('an entry gate on a failed step\'s unproduced key fails the run, not the executor', () async {
+    // The refusal is only useful if it becomes a recorded failure. Letting it
+    // escape `evaluate()` tears the executor down with no `_failRun`, so the
+    // run has no controlled failure record to resume or report from.
+    final definition = WorkflowDefinition(
+      name: 'gate-unproduced',
+      description: 'A gate reading what a failed step never produced.',
+      project: '{{PROJECT}}',
+      steps: [
+        const WorkflowStep(
+          id: 'remediate',
+          name: 'Remediate',
+          entryGate: 'review.gating_findings_count > 0',
+          prompts: ['Fix the findings'],
+        ),
+      ],
+    );
+
+    final run = h.makeRun(definition);
+    await h.repository.insert(run);
+    final context = WorkflowContext(
+      systemVariables: {'${unproducedKeysSystemPrefix}review': 'review.gating_findings_count'},
+    );
+
+    await h.executor.execute(run, definition, context);
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    expect(finalRun?.errorMessage, contains('review'));
+    expect(finalRun?.errorMessage, contains('gating_findings_count'));
   });
 
   test('workflow-owned git coding task auto-advances on accepted terminal status', () async {
@@ -391,17 +420,7 @@ void main() {
         capturedDescriptions.add(task.description);
 
         if (capturedTaskIds.length == 1) {
-          final artifactsDir = Directory(p.join(h.tempDir.path, 'tasks', e.taskId, 'artifacts'));
-          artifactsDir.createSync(recursive: true);
-          final mdFile = File(p.join(artifactsDir.path, 'output.md'));
-          mdFile.writeAsStringSync('Key findings about the topic.');
-          await h.taskService.addArtifact(
-            id: 'art-1',
-            taskId: e.taskId,
-            name: 'output.md',
-            kind: ArtifactKind.document,
-            path: mdFile.path,
-          );
+          await h.seedDeclaredOutputs(e.taskId, const {'research_notes': 'Key findings about the topic.'});
         }
       }
       await h.completeTask(e.taskId);
@@ -542,7 +561,7 @@ void main() {
     expect(context['step1.tokenCount'], equals(7));
   });
 
-  test('task description includes required output format for explicit json schema', () async {
+  test('a finalizer step states its output contract in the finalizer prompt, not the main prompt', () async {
     final definition = h.makeDefinition(
       steps: [
         const WorkflowStep(
@@ -570,8 +589,15 @@ void main() {
     await sub.cancel();
 
     expect(capturedDescription, contains('Review the implementation.'));
-    expect(capturedDescription, contains('## Workflow Output Contract'));
-    expect(capturedDescription, contains('findings_count'));
+    expect(capturedDescription, isNot(contains('## Workflow Output Contract')));
+    expect(capturedDescription, isNot(contains('findings_count')));
+
+    // The contract moved to the no-tools finalizer turn, rendered from the
+    // envelope schema the dispatcher persisted for the step.
+    final step = definition.steps.single;
+    final finalizerPrompt = buildFinalizerPrompt(buildExecutionEnvelopeSchema(step, step.outputs)!);
+    expect(finalizerPrompt, contains('"result"'));
+    expect(finalizerPrompt, contains('findings_count'));
   });
 
   test('workflow task config carries built-in workflow workspace path', () async {
@@ -755,11 +781,7 @@ void main() {
           'createdAt': DateTime.now().toIso8601String(),
         },
       );
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<workflow-context>${jsonEncode({'spec_path': 'docs/specs/test.md'})}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, {'spec_path': 'docs/specs/test.md'});
       await h.completeTask(e.taskId);
     });
 
@@ -844,11 +866,7 @@ void main() {
       File(outputPath).writeAsStringSync('# local path test\n');
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id, worktreeJson: {'path': projectDir.path});
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<workflow-context>${jsonEncode({'spec_path': 'docs/specs/test.md'})}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, {'spec_path': 'docs/specs/test.md'});
       await h.completeTask(e.taskId);
     });
 
@@ -906,12 +924,10 @@ void main() {
     ) async {
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>${jsonEncode({'spec_source': 'existing', 'spec_path': 'dev/specs/demo/fis/s01-story.md'})}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, {
+        'spec_source': 'existing',
+        'spec_path': 'dev/specs/demo/fis/s01-story.md',
+      });
       await h.completeTask(e.taskId);
     });
 
@@ -1077,18 +1093,13 @@ void main() {
       projectService.seed(initialProject.copyWith(localPath: changedProjectDir.path));
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>${jsonEncode({
-              'story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'One', 'spec_path': 'dev/specs/demo/fis/s01-story.md', 'dependencies': <String>[]},
-                ],
-              },
-            })}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, {
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'title': 'One', 'spec_path': 'dev/specs/demo/fis/s01-story.md', 'dependencies': <String>[]},
+          ],
+        },
+      });
       await h.completeTask(e.taskId);
     });
 
@@ -1128,18 +1139,13 @@ void main() {
     return h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content:
-            '<workflow-context>${jsonEncode({
-              'story_specs': {
-                'items': [
-                  {'id': 'S01', 'title': 'One', 'spec_path': specPath, 'dependencies': <String>[]},
-                ],
-              },
-            })}</workflow-context>',
-      );
+      await h.seedDeclaredOutputs(e.taskId, {
+        'story_specs': {
+          'items': [
+            {'id': 'S01', 'title': 'One', 'spec_path': specPath, 'dependencies': <String>[]},
+          ],
+        },
+      });
       await h.completeTask(e.taskId);
     });
   }
@@ -1263,35 +1269,6 @@ void main() {
     expect(taskCount, equals(3), reason: 'resume re-dispatches step1, then step2');
   });
 
-  test('gate failure pauses workflow', () async {
-    final definition = h.makeDefinition(
-      steps: [
-        const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
-        const WorkflowStep(id: 'step2', name: 'Step 2', prompts: ['Do step 2'], gate: 'step1.approved == true'),
-      ],
-    );
-
-    final run = h.makeRun(definition);
-    await h.repository.insert(run);
-
-    final context = WorkflowContext(data: {'step1.approved': 'false'});
-
-    var stepCount = 0;
-    final sub = completeQueuedTasks(
-      beforeComplete: (_) async {
-        stepCount++;
-      },
-    );
-
-    await h.executor.execute(run, definition, context);
-    await sub.cancel();
-
-    expect(stepCount, equals(1));
-    final finalRun = await h.repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-    expect(finalRun?.errorMessage, contains('Gate failed'));
-  });
-
   test('workflow task config always uses auto-accept review mode', () async {
     Future<String?> captureReviewMode(WorkflowStep step, {TaskStatus completionStatus = TaskStatus.accepted}) async {
       final definition = WorkflowDefinition(
@@ -1351,7 +1328,7 @@ void main() {
     );
 
     expect(task.projectId, isNull);
-    expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+    expect(task.configJson['needsWorktree'], isFalse);
   });
 
   test('workflow-level project does not bind retired project_index read-only steps', () async {
@@ -1382,7 +1359,7 @@ void main() {
     );
 
     expect(task.projectId, isNull);
-    expect(task.configJson.containsKey('_workflowNeedsWorktree'), isFalse);
+    expect(task.configJson['needsWorktree'], isFalse);
   });
 
   test('workflow-level project still binds neutral agent steps without an explicit tool allowlist', () async {
@@ -1402,7 +1379,7 @@ void main() {
     );
 
     expect(task.projectId, 'demo-project');
-    expect(task.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(task.configJson['needsWorktree'], isTrue);
   });
 
   test('workflow-level project binds project_index agent steps', () async {
@@ -1427,7 +1404,7 @@ void main() {
     );
 
     expect(task.projectId, 'code-project');
-    expect(task.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(task.configJson['needsWorktree'], isTrue);
   });
 
   test('cancellation token stops execution between steps', () async {

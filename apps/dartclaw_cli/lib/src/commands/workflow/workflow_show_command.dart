@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionParser, WorkflowDefinitionResolver;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinitionParser, WorkflowDefinitionResolver, WorkflowMaterializer;
 import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart';
 import 'workflow_list_command.dart' show buildWorkflowRegistry;
-import '../workflow_materializer.dart' show WorkflowMaterializer;
 
 /// Prints a workflow definition. Raw by default; `--resolved` merges
 /// `stepDefaults` and workflow-level variables; `--step <id>` narrows the resolved output to a

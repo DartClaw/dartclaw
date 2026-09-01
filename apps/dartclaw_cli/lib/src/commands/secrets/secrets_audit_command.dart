@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_security/dartclaw_security.dart' show envReferences;
+import 'package:dartclaw_acp/dartclaw_acp.dart' show acpConfigFor;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:yaml/yaml.dart';
 
 import '../config_loader.dart';
@@ -124,7 +124,7 @@ class SecretsAuditCommand extends SecretsSubcommand {
     final consumed = {
       ...providerNames,
       for (final server in config.mcpServers.entries.values) ?server.credential,
-      for (final agent in config.harness.acp.agents.values) ?agent.credential,
+      for (final agent in acpConfigFor(config).agents.values) ?agent.credential,
       for (final project in config.projects.definitions.values) ?project.credentials,
       // A resolved `credential:` lands in the same `apiKey` field a literal
       // does, so the reference has to come from the raw YAML.

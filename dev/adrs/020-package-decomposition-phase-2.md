@@ -166,3 +166,13 @@ This sequencing is part of the decision. The config dependency reversal only wor
 
 - [ADR-014: SDK Package Decomposition Strategy](014-sdk-package-decomposition.md)
 - 0.16.3 PRD
+
+## Amendment (2026-08-21) – supersede the Phase 2 inventory
+
+[ADR-056](056-package-topology-consolidation.md) supersedes the `Final Package Inventory` and the
+models → security → config bottom tier recorded above. Those packages collapse into `dartclaw_kernel`; subsequent
+stories preserve the three channel packages, rename the hosted server to runtime and keep the hook-free bridge
+standing beside the tiers. The storage absorption has landed: `dartclaw_core` now owns SQLite-backed persistence,
+search and memory, so the earlier `no sqlite3 in dartclaw_core`, `sqlite3-free runtime primitives` and `stays
+sqlite3-free` rules no longer govern. Core cannot host a `dart compile exe` target after acquiring sqlite3's build
+hook; S89 owns the retained bridge's ADR-051 amendment and binary proof.

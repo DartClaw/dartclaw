@@ -1,0 +1,65 @@
+import 'identifier_preservation_mode.dart';
+
+/// Configuration for the context subsystem.
+class ContextConfig {
+  /// reserveTokens.
+  final int reserveTokens;
+
+  /// Upper bound, in bytes, on the text result of a host MCP tool call.
+  ///
+  /// A larger result is delivered head+tail with a truncation marker; the bound
+  /// covers every host-owned `tools/call`, including sub-agent and relayed
+  /// results that declare larger bounds of their own.
+  final int maxResultBytes;
+
+  /// warningThreshold.
+  final int warningThreshold;
+
+  /// compactInstructions.
+  final String? compactInstructions;
+
+  /// Controls whether identifier preservation instructions are appended to
+  /// compact instructions.
+  ///
+  /// - [IdentifierPreservationMode.strict] (default): appends standard text.
+  /// - [IdentifierPreservationMode.off]: no identifier preservation text.
+  /// - [IdentifierPreservationMode.custom]: appends [identifierInstructions].
+  final IdentifierPreservationMode identifierPreservation;
+
+  /// Custom identifier preservation text used with [IdentifierPreservationMode.custom].
+  final String? identifierInstructions;
+
+  /// Creates a [ContextConfig] value.
+  const new({
+    this.reserveTokens = 20000,
+    this.maxResultBytes = 50 * 1024,
+    this.warningThreshold = 80,
+    this.compactInstructions,
+    this.identifierPreservation = IdentifierPreservationMode.strict,
+    this.identifierInstructions,
+  });
+
+  /// Default configuration.
+  const new defaults() : this();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ContextConfig &&
+          reserveTokens == other.reserveTokens &&
+          maxResultBytes == other.maxResultBytes &&
+          warningThreshold == other.warningThreshold &&
+          compactInstructions == other.compactInstructions &&
+          identifierPreservation == other.identifierPreservation &&
+          identifierInstructions == other.identifierInstructions;
+
+  @override
+  int get hashCode => Object.hash(
+    reserveTokens,
+    maxResultBytes,
+    warningThreshold,
+    compactInstructions,
+    identifierPreservation,
+    identifierInstructions,
+  );
+}

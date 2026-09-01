@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Capturing [ChannelManager] fake that records inbound messages.

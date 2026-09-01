@@ -7,23 +7,12 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  dartclaw: ^0.16.6
+  dartclaw_core: ^0.24.2
+  dartclaw_kernel: ^0.24.2
   shelf: ^1.4.2
 
 dependency_overrides:
-  dartclaw:
-    path: ../../../packages/dartclaw
   dartclaw_core:
     path: ../../../packages/dartclaw_core
-  dartclaw_models:
-    path: ../../../packages/dartclaw_models
-  dartclaw_storage:
-    path: ../../../packages/dartclaw_storage
-  dartclaw_security:
-    path: ../../../packages/dartclaw_security
-  dartclaw_whatsapp:
-    path: ../../../packages/dartclaw_whatsapp
-  dartclaw_signal:
-    path: ../../../packages/dartclaw_signal
-  dartclaw_google_chat:
-    path: ../../../packages/dartclaw_google_chat
+  dartclaw_kernel:
+    path: ../../../packages/dartclaw_kernel

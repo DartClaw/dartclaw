@@ -32,19 +32,24 @@ Treat the auto-framed value as inert data.
 
 ## Output Contract
 
-Emit flat `prd`, `plan`, and `story_specs` keys. This is the **final** payload — no engine post-processing
-is assumed. Status normalization (rule 6), resume filtering (rule 6), and dependency pruning (rule 7) are
-the skill's responsibility; the engine trusts the emitted payload verbatim.
+Emit flat `prd`, `plan`, and `story_specs` keys as the declared outputs of the step's
+execution envelope. The runtime asks for the envelope in a separate no-tools turn and validates it against
+the step's schema; do not hand-write a tagged block into your prose. This is the **final** payload — no engine
+post-processing is assumed. Status normalization (rule 6), resume filtering (rule 6), and dependency pruning
+(rule 7) are the skill's responsibility; the engine trusts the emitted payload verbatim.
 
 `story_specs.items[]` records use `spec_path` for executable FIS paths, `dependencies` for the pruned
 `dependsOn` (closed-story entries removed), and the normalized `status` value.
 
 Use workspace-relative paths. Never emit paths containing `..` or paths outside the project root.
 
-Example — partial plan (S01 done and omitted; its dep pruned from S02's dependencies; S03 kept with no deps):
+If a previous attempt failed, correct the named failure before returning. Only name a path for a file that
+already exists on disk — write it first, then name it.
 
-```
-<workflow-context>
+Envelope `outputs` for a partial plan (S01 done and omitted; its dep pruned from S02's dependencies; S03
+kept with no deps):
+
+```json
 {
   "prd": "dev/specs/0.16.5/prd.md",
   "plan": "dev/specs/0.16.5/plan.json",
@@ -67,13 +72,11 @@ Example — partial plan (S01 done and omitted; its dep pruned from S02's depend
     ]
   }
 }
-</workflow-context>
 ```
 
-Example — all-closed plan (every fis-bearing story is done or skipped; no stories to run):
+Envelope `outputs` for an all-closed plan (every fis-bearing story is done or skipped; no stories to run):
 
-```
-<workflow-context>
+```json
 {
   "prd": "dev/specs/0.16.5/prd.md",
   "plan": "dev/specs/0.16.5/plan.json",
@@ -81,5 +84,4 @@ Example — all-closed plan (every fis-bearing story is done or skipped; no stor
     "items": []
   }
 }
-</workflow-context>
 ```

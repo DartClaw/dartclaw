@@ -2,7 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/traces/traces_command.dart';
 import 'package:dartclaw_cli/src/commands/traces/traces_list_command.dart';
 import 'package:dartclaw_cli/src/commands/traces/traces_show_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';

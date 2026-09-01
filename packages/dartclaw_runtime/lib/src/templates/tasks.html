@@ -1,0 +1,228 @@
+<div tl:fragment="tasks" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+    <div class="page-inner page-inner--wide" id="tasks-content" data-controller="dc-tasks">
+
+      <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
+
+      <div class="task-filter-bar">
+        <form method="get" action="/tasks">
+          <input tl:if="${includeFilter}" type="hidden" name="include" tl:attr="value=${includeFilter}">
+          <select id="task-status-filter" name="status" class="form-select" data-enhance="custom-select"
+                  hx-get="/tasks" hx-trigger="change" hx-include="closest form" hx-target="#tasks-content"
+                  hx-select="#tasks-content" hx-swap="outerHTML" hx-push-url="true">
+            <option tl:each="opt : ${statusOptions}" tl:text="${opt.label}"
+                    tl:attr="value=${opt.value},selected=${opt.selected} ? 'selected' : null">All Statuses</option>
+          </select>
+        </form>
+      </div>
+
+      <div tl:if="${showWorkflowReviewToggle}" class="task-filter-hint">
+        <a class="btn btn-ghost btn-sm"
+           tl:attr="href=${workflowReviewToggleHref}"
+           tl:text="${includeWorkflowOwned} ? 'Hide workflow artifacts' : 'Show workflow artifacts'">Show workflow artifacts</a>
+      </div>
+
+      <div tl:if="${executionOverviewHtml}" tl:utext="${executionOverviewHtml}">execution overview</div>
+
+      <div tl:if="${hasTasks}" class="task-status-groups">
+        <section tl:each="group : ${statusGroups}" class="task-status-group"
+          tl:attr="aria-labelledby='task-status-' + ${group.status}">
+          <h2 class="t-heading" tl:attr="id='task-status-' + ${group.status}">
+            <span tl:text="${group.statusLabel}">Status</span>
+            <span class="task-group-count" tl:text="${group.count}">0</span>
+          </h2>
+
+          <div tl:if="${group.isRunning}" class="task-running-cards">
+            <div tl:each="task : ${group.tasks}" class="card task-card-running print-in" tl:classappend="${task.cardTintClass}">
+              <div class="task-card-title" tl:text="${task.title}">Task title</div>
+              <div class="task-card-meta">
+                <span tl:if="${task.runnerLabel}" class="task-runner-badge"><span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${task.runnerLabel},data-identicon-initials=${task.runnerLabel}"></span><span tl:text="${task.runnerLabel}">Worker #1</span></span>
+                <span tl:if="${task.projectName}" class="project-badge" tl:text="${task.projectName}">Project</span>
+                <span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                      tl:text="${task.providerLabel}">Claude</span>
+                <span class="task-elapsed" tl:attr="data-started-at=${task.startedAt}">--:--</span>
+              </div>
+              <div tl:attr="id='task-meter-' + ${task.id}">
+                <div tl:if="${task.isIndeterminate}" class="scan-bar"></div>
+                <div tl:unless="${task.isIndeterminate}" class="meter">
+                  <div class="meter-fill" tl:attr="style='width:' + ${task.progressPct} + '%'"></div>
+                </div>
+              </div>
+              <div class="task-tokens" tl:attr="id='task-tokens-' + ${task.id}">
+                <span tl:text="${task.tokenDisplay}">0 tokens</span>
+              </div>
+              <div tl:if="${task.hasEvents}" class="task-events" tl:attr="id='task-events-' + ${task.id}">
+                <div tl:each="event : ${task.recentEvents}" class="task-event">
+                  <span class="task-event-icon icon" aria-hidden="true"
+                        tl:classappend="${event.maskClass} + ' ' + ${event.iconClass}"></span>
+                  <span tl:text="${event.text}">Event text</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div tl:unless="${group.isRunning}" class="table-fade-wrap">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="task-col-title">Title</th>
+                    <th tl:if="${showProjectColumn}" class="task-col-project">Project</th>
+                    <th class="task-col-provider">Provider</th>
+                    <th class="task-col-created-by">Created by</th>
+                    <th class="task-col-created">Created</th>
+                    <th class="task-col-status">Status</th>
+                    <th class="task-col-tokens">Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr tl:each="task : ${group.tasks}">
+                    <td class="task-col-title">
+                      <a tl:if="${task.detailHref}" tl:attr="href=${task.detailHref}" tl:text="${task.title}">Task</a>
+                      <span tl:unless="${task.detailHref}" tl:text="${task.title}">Task</span>
+                      <div tl:if="${task.goalTitle}" class="task-goal-text">
+                        Goal: <span tl:text="${task.goalTitle}">Goal title</span>
+                      </div>
+                    </td>
+                    <td tl:if="${showProjectColumn}" class="task-col-project"
+                        tl:classappend="${task.projectAbsent} ? 'value-absent' : ''"
+                        tl:text="${task.projectDisplay}">Project</td>
+                    <td class="task-col-provider"><span class="provider-badge" tl:classappend="'provider-badge-' + ${task.provider}"
+                              tl:text="${task.providerLabel}">Claude</span></td>
+                    <td class="task-col-created-by" tl:classappend="${task.createdByAbsent} ? 'value-absent' : ''"
+                        tl:text="${task.createdByDisplay}">agent</td>
+                    <td class="task-col-created" tl:attr="title=${task.createdAtIso}"
+                        tl:text="${task.createdAtDisplay}">1h ago</td>
+                    <td class="task-col-status"><tl:block tl:utext="${task.statusPillHtml}">pill</tl:block></td>
+                    <td class="task-col-tokens task-tokens-static" tl:classappend="${task.finalTokenDisplay} ? '' : 'value-absent'"
+                        tl:text="${task.finalTokenDisplay}">1.2K</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <tl:block tl:unless="${hasTasks}" tl:utext="${emptyStateHtml}">empty state</tl:block>
+
+    </div>
+
+    <div id="new-task-dialog-host"></div>
+  </main>
+  </div>
+</div>
+
+<dialog tl:fragment="taskCreateDialog" id="new-task-dialog" class="dialog dialog--md card card-glass"
+        data-controller="dc-dialog dc-tasks">
+  <div class="dialog-header">
+    <h2 class="t-heading">New Task</h2>
+    <button type="button" class="btn-close" aria-label="Close" data-dialog-close data-icon="x"></button>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Create type">
+    <button type="button" id="new-task-tab-single" class="tab t-label active" data-task-tab="single"
+            role="tab" aria-selected="true" aria-controls="new-task-panel-single" tabindex="0">Single Task</button>
+    <button type="button" id="new-task-tab-workflow" class="tab t-label" data-task-tab="workflow"
+            role="tab" aria-selected="false" aria-controls="new-task-panel-workflow" tabindex="-1">Workflow</button>
+  </div>
+  <div class="dialog-body">
+    <div id="new-task-panel-single" class="tab-panel active" data-task-panel="single"
+         role="tabpanel" aria-labelledby="new-task-tab-single">
+      <tl:block tl:utext="${taskPanelHtml}">task form</tl:block>
+    </div>
+    <div id="new-task-panel-workflow" class="tab-panel" data-task-panel="workflow"
+         role="tabpanel" aria-labelledby="new-task-tab-workflow">
+      <tl:block tl:utext="${workflowDefinitionsHtml}">workflow definitions</tl:block>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <div class="dialog-actions" data-task-action="single">
+      <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+      <button type="submit" class="btn btn-primary" form="new-task-panel">Create Task</button>
+    </div>
+    <div class="dialog-actions" data-task-action="workflow" hidden>
+      <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+    </div>
+  </div>
+</dialog>
+
+<form tl:fragment="taskCreatePanel" id="new-task-panel" hx-post="/tasks/create"
+      hx-target="#new-task-panel" hx-swap="outerHTML">
+  <div class="form-field">
+    <label class="form-label t-caption tracking-caps" for="task-title">Title</label>
+    <input type="text" id="task-title" name="title" class="form-input" aria-required="true"
+           placeholder="Brief task title" tl:attr="value=${values.title},aria-invalid=${titleInvalid}">
+    <div class="form-error t-caption" tl:if="${titleInvalid}" tl:text="${errorMessage}"></div>
+  </div>
+  <div tl:if="${hasProjects}" class="form-field">
+    <label class="form-label t-caption tracking-caps" for="task-project-select">Project</label>
+    <select id="task-project-select" name="projectId" class="form-select" data-enhance="custom-select"
+            tl:attr="aria-invalid=${projectInvalid}">
+      <option tl:each="project : ${projectOptions}" tl:text="${project.label}"
+              tl:attr="value=${project.value},selected=${project.selected},disabled=${project.disabled}">Project</option>
+    </select>
+    <div class="form-error t-caption" tl:if="${projectInvalid}" tl:text="${errorMessage}"></div>
+  </div>
+  <div class="form-field">
+    <label class="form-label t-caption tracking-caps" for="task-description">Description</label>
+    <textarea id="task-description" name="description" class="form-textarea" aria-required="true" rows="3"
+              placeholder="What should the agent do?" tl:attr="aria-invalid=${descriptionInvalid}"
+              tl:text="${values.description}"></textarea>
+    <div class="form-error t-caption" tl:if="${descriptionInvalid}" tl:text="${errorMessage}"></div>
+  </div>
+  <div class="form-field">
+    <label class="form-label t-caption tracking-caps" for="task-goal-select">Goal</label>
+    <select id="task-goal-select" name="goalId" class="form-select" data-enhance="custom-select">
+      <option tl:each="goal : ${goalOptions}" tl:text="${goal.label}"
+              tl:attr="value=${goal.value},selected=${goal.selected}">Goal</option>
+    </select>
+  </div>
+  <div class="form-field">
+    <label class="form-label t-caption tracking-caps" for="task-acceptance-criteria">Acceptance Criteria</label>
+    <textarea id="task-acceptance-criteria" name="acceptanceCriteria" class="form-textarea" rows="3"
+              placeholder="How will you know when it's done?" tl:text="${values.acceptanceCriteria}"></textarea>
+  </div>
+  <details class="task-advanced-section">
+    <summary class="form-label t-caption tracking-caps">Advanced</summary>
+    <div class="task-advanced-fields">
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="task-model">Model Override</label>
+        <input type="text" id="task-model" name="model" class="form-input" placeholder="default"
+               tl:attr="value=${values.model}">
+      </div>
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="task-token-budget">Token Budget</label>
+        <input type="number" id="task-token-budget" name="tokenBudget" class="form-input" min="1"
+               placeholder="No limit" tl:attr="value=${values.tokenBudget},aria-invalid=${tokenBudgetInvalid}">
+        <div class="form-error t-caption" tl:if="${tokenBudgetInvalid}" tl:text="${errorMessage}"></div>
+      </div>
+      <fieldset class="form-field task-tool-allowlist">
+        <legend class="form-label t-caption tracking-caps">Allowed Tools</legend>
+        <p class="form-help-text">Leave all unchecked for the default policy.</p>
+        <div class="tool-checklist">
+          <label tl:each="tool : ${toolOptions}"><input type="checkbox" name="allowedTools"
+                 tl:attr="value=${tool.value},checked=${tool.checked}"> <span tl:text="${tool.label}">Tool</span></label>
+        </div>
+      </fieldset>
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="task-review-mode">Review Mode</label>
+        <select id="task-review-mode" name="reviewMode" class="form-select" data-enhance="custom-select">
+          <option tl:each="option : ${reviewOptions}" tl:text="${option.label}"
+                  tl:attr="value=${option.value},selected=${option.selected}">Default</option>
+        </select>
+      </div>
+      <label class="form-field form-field--checkbox">
+        <input type="checkbox" class="form-checkbox" name="needsWorktree" tl:attr="checked=${values.needsWorktree}">
+        <span>Run in an isolated git worktree</span>
+      </label>
+    </div>
+  </details>
+  <label class="form-field form-field--checkbox">
+    <input type="checkbox" class="form-checkbox" name="autoStart" tl:attr="checked=${values.autoStart}">
+    <span>Start immediately</span>
+  </label>
+  <div class="form-error t-caption" tl:if="${formInvalid}" tl:text="${errorMessage}"></div>
+</form>

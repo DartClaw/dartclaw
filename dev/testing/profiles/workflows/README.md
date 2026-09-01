@@ -17,13 +17,20 @@ This profile uses the built-in workflow definitions materialized at runtime into
 
 ## Fixture Preflight
 
-The `workflow-test-todo-app` repository lives under `dev/testing/profiles/workflows/data/projects/` as a nested git checkout. Reset it before every smoke or publish run:
+The `workflow-test-todo-app` repository lives under `dev/testing/profiles/workflows/data/projects/` as a nested git checkout (gitignored). On a fresh checkout, clone it first:
+
+```bash
+git clone https://github.com/DartClaw/workflow-test-todo-app.git \
+  dev/testing/profiles/workflows/data/projects/workflow-test-todo-app
+```
+
+Reset it before every smoke or publish run:
 
 ```bash
 bash dev/testing/profiles/workflows/fixture.sh reset
 ```
 
-That command removes known smoke-generated artifacts, verifies the fixture-local `AGENTS.md` and `CLAUDE.md` boundary instructions, allows those two files to exist as local boundary overlays when they are untracked in the nested fixture repo, and fails if any other fixture drift remains. Treat unexpected fixture drift as a setup problem, not as workflow evidence.
+That command removes known smoke-generated artifacts, verifies the boundary instructions committed in the fixture repo's own `AGENTS.md` / `CLAUDE.md`, and fails if any fixture drift remains. Treat unexpected fixture drift as a setup problem, not as workflow evidence.
 
 ## Provider Setup
 
@@ -34,13 +41,25 @@ This testing profile is configured to use Codex explicitly:
 - `providers.codex.approval: never` to avoid Codex approval deadlocks on non-interactive workflow turns
 - `providers.codex.sandbox: danger-full-access` so Codex-side sandboxing does not block the workflow profile
 
-Before running the profile, make sure Codex is available and authenticated:
+Before running the profile, make sure Codex is available and logged in. **The profile uses your existing
+subscription login — it seeds no credential store of its own.** With nothing in the instance store, DartClaw
+selects no credential and the Codex spawn inherits your `~/.codex`, login and plugins included:
 
 ```bash
 codex --version
-export CODEX_API_KEY="sk-..."
-export GITHUB_TOKEN="ghp_..."
+codex login status          # this is the whole prerequisite
+export GITHUB_TOKEN="ghp_..."   # only for clone/fetch/push/PR against the fixture repo
 ```
+
+Do **not** run `dartclaw auth codex` against this profile's data dir. Seeding a dedicated store switches the
+provider onto DartClaw's own `CODEX_HOME`, which is a different code path with its own setup — exercising the
+credential store is a separate concern from exercising workflows, and mixing them makes a workflow failure
+ambiguous between the two. The credential store has its own coverage in `dartclaw_core`
+(`test/harness/codex_environment_test.dart`) and its operator documentation in
+[`docs/guide/security.md`](../../../../docs/guide/security.md) § Setting Up Subscription Authentication.
+
+An API key is the alternative where no subscription login exists: `export CODEX_API_KEY="sk-..."`. With neither
+a login nor a key, the profile still boots and serves, but no turn can run.
 
 `credentials.openai.api_key` in the profile reads `CODEX_API_KEY`.
 `credentials.github-main` reads `GITHUB_TOKEN` and is the supported path for clone/fetch/push/PR automation against the workflow-test-todo-app repository.
@@ -231,8 +250,8 @@ Cancellation and operator-interruption coverage should live in explicit, named c
 
 All of these scenarios use deliberately tiny documentation-only prompts so the authored workflow output stays narrow and repeatable.
 
-The workflow testing profile sets `tasks.completion_action: accept` so workflow-owned coding tasks do not stall in manual review during unattended scenario runs.
-It also sets `projects.workflow-test-todo-app.credentials: github-main`, so publish scenarios require `GITHUB_TOKEN` instead of `gh auth login`.
+The workflow testing profile sets `tasks.completion_action: accept` so workflow-owned tasks do not stall in manual review during unattended scenario runs.
+It also sets `projects.workflow-test-todo-app.credentials: github-main`, so publish scenarios need a GitHub token in config: the server reaches GitHub over the REST API with a bearer token (`pr_creator.dart`) and never shells out to `gh`, so a `gh` keyring session is invisible to it. `run.sh` resolves the token for you — `GITHUB_TOKEN` from the environment, else the fixture-local askpass file, else `gh auth token` — mirroring what `workflow_e2e_integration_test.dart` already does, so an operator who is logged in with `gh` needs no manual export.
 
 ## Available Workflows
 
@@ -249,6 +268,12 @@ It also sets `projects.workflow-test-todo-app.credentials: github-main`, so publ
 - **Loop detection**: Enabled
 - **Guards**: Enabled
 - **Workflow workspace**: `data/workflow-workspace/` — fixture-specific agent instructions injected into workflow steps
+- **Turn timeout**: inherits `governance.turn_limits.turn_timeout` (1800s). It is a
+  whole-turn wall-clock deadline, not an idle timer — streamed output does not
+  refresh it. A spec or plan generation turn on the pinned reasoning models does
+  not fit the old 600s default and died mid-run as
+  `Codex turn exceeded 0:10:00.000000`. Progress silence is enforced separately by
+  `governance.turn_limits.stall_timeout` (5m, cancels).
 
 ## Directory Structure
 

@@ -17,13 +17,17 @@ DartClaw is **pragmatic, lightweight, adaptable, and approachable**. This is a p
 - **Scope is a contract.** Every changed line traces to the request or active spec; adjacent "improvements" get surfaced, not done.
 - **Approachable over clever.** Plain, readable code beats elegant indirection – the codebase must stay small, auditable, and easy to pick up.
 - **When in doubt, leave it out.** Missing is cheap to add later; bloat is expensive to remove. Cutting scope is a legitimate resolution.
+- **Model-first delegation.** Judgment belongs to the model, behind a schema or tool contract. The host validates once, bounds, persists and enforces – and never re-derives, repairs, defaults or overrules a model-supplied value; a value that fails its contract fails the step and is re-asked. No repair ladders, sentinel defaults, or prose scraping over model or user text. Documented templates: `memory_journal.dart`, `heartbeat_job.dart`, `merge_resolve_coordinator.dart` + `dartclaw-merge-resolve/SKILL.md`, `review_artifact_policy.dart`, `content_classifier.dart`/`anthropic_api_classifier.dart`, `execution_envelope_schema.dart`/`prompt_augmenter.dart`.
+- **One authority per concern.** Every concern has exactly one owner; a second implementation of an existing seam – parser, validator, resolver, formatter, schema constant, policy evaluator – is a defect, however well written. Two implementations are two answers with no arbiter, and they drift. Templates: `memory_corpus_authority.dart`, `review_artifact_policy.dart`, `execution_envelope_schema.dart`.
+
+Both rules are binding in full text in [ADR-054](dev/adrs/054-model-first-delegation-and-one-authority-per-concern.md), which holds the authoritative **deterministic-keeps carve-out** – no enforcement decision moves behind a model turn – and the single sanctioned exemption (one schema- or enum-driven validation pass with a fail-closed default). The carve-out's test for anything not on its list: a decision stays host-side and deterministic if it is a security boundary, a cost or capacity bound, a persistence invariant, a protocol, channel-exact formatting, or must work when the model is wedged – read the ADR for the binding list before concluding otherwise. Their review-side defect classes are in `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md`.
 
 
 ### Repository Layout
 
-- `packages/` – Dart pub workspace: core runtime, storage, security, config, channels, workflows, testing utilities, server. Each has its own `lib/`, `test/`, `pubspec.yaml`. `packages/dartclaw/` is the published umbrella (re-exports core + storage + channel packages).
-- `apps/dartclaw_cli/` – CLI app (AOT-compilable): `serve`, `status`, `deploy`, `rebuild-index`.
-- `docs/` – end-user reference and guides. `dev/` – contributor and agent working knowledge: state, architecture, guidelines, specs, testing profiles, build/CI tooling.
+- `packages/` – Dart pub workspace: core runtime, ACP provider support (`dartclaw_acp`), storage, security, config, channels, workflows, testing utilities, server, and the client tier. Each has its own `lib/`, `test/`, `pubspec.yaml`. `packages/dartclaw_client/` is the dependency-free HTTP/SSE client for a running server; `packages/dartclaw/` is the umbrella and re-exports the client tier only (client + models), never the runtime.
+- `apps/dartclaw_cli/` – CLI app (AOT-compilable): `serve`, `status`, `service`, `rebuild-index`.
+- `docs/` – end-user reference and guides. `dev/` – contributor and agent working knowledge: state, architecture, guidelines, specs, testing profiles, build/CI tooling. `dev/fitness/` is also a workspace member (`dartclaw_fitness`): the repo-wide architecture gates, pinned to zero production dependencies – see its `README.md`.
 
 
 ### Package-Scoped Rules
@@ -47,16 +51,17 @@ This table is the main registry of document locations relevant to development an
 | Topic | Location | When to read |
 |-------|----------|--------------|
 | Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, session continuity notes. Check what's in flight before starting work |
-| Learnings | `dev/state/LEARNINGS.md` (bounded index, ≤150 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings` (owns the ceiling and shard graduation) |
+| Learnings | `dev/state/LEARNINGS.md` (bounded index, ≤150 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings --ceiling 150` (pass the ceiling explicitly – this index table has no `Ceiling` column for the script to read); entries for an already-sharded topic go into the shard file by hand, and shard graduation is a hand operation |
 | Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary – use these terms in code, docs, naming |
+| Prompt surfaces | `dev/state/PROMPT-SURFACES.md` | Before adding or re-contracting a host-authored model-facing prompt, a schema over model output, or a parser of a model reply: the inventory of every prompt surface with its output contract and validating component. Keep it current in the same change |
 | Architecture reference | `dev/architecture/` (`system-`, `security-`, `configuration-`, `control-protocol`, `task-execution-`, `workflow-`, `session-state-`, `data-model`, `channel-messaging-`, `cli-api-`, `observability-operations-architecture.md`) | Canonical deep-dive per subsystem – e.g. `control-protocol.md` for harness spawn/CLI flags/provider protocols, `security-architecture.md` for container/setting isolation + guards, `configuration-architecture.md` for the config schema. Read before changing or reasoning about a subsystem; don't reverse-engineer from source when a doc exists |
-| Context Map | `dev/architecture/context-map.md` | Strategic-design view: bounded contexts, subdomain classification, context-mapping patterns. Written by `andthen:architecture --mode strategic-design`; canonical source for context names in models and glossary grouping |
-| Architecture Model | `.agent_temp/models/architecture-model.json` | Transient typed projection for atlas rendering; regenerate with `andthen:map-codebase --model-only`, render with `andthen:visualize`. The code is the record |
-| Domain Model | `.agent_temp/models/domain-model.json` | Transient typed projection of the Ubiquitous Language for atlas rendering; regenerate with `andthen:ubiquitous-language --model`. The UL document is the record |
-| Decisions | `dev/state/DECISIONS.md` | Index of record: ADRs (ID, title, status, scope) + load-bearing non-ADR decisions ("Still Current") + supersession lineage. Write path for `andthen:ops update-decisions` and `andthen:preflight` project-decision notes |
+| Context Map | `dev/architecture/context-map.md` | Strategic-design view: bounded contexts, subdomain classification, context-mapping patterns. Written by `andthen-some:architecture-analysis --mode strategic-design`; canonical source for context names in models and glossary grouping |
+| Architecture Model | `.agent_temp/models/architecture-model.json` | Transient typed projection for atlas rendering; regenerate with `andthen-some:describe --mode codebase --model`, render with `andthen-some:visualize`. The code is the record |
+| Domain Model | `.agent_temp/models/domain-model.json` | Transient typed projection of the Ubiquitous Language for atlas rendering; regenerate with `andthen-some:describe --mode domain --model`. The UL document is the record |
+| Decisions | `dev/state/DECISIONS.md` | Index of record: ADRs (ID, title, status, scope) + load-bearing non-ADR decisions ("Still Current") + supersession lineage. § Still Current bullets are hand-written (there is no `andthen:ops` verb for them); `andthen:ops close-plan` appends FIS design-change lines |
 | ADRs | `dev/adrs/` (+ public-safe research appendices in `dev/adrs/research/`) | Full ADR text; status/scope inventory lives in `DECISIONS.md` |
 | Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | Known debt requiring requirements input or an architecture decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | When exported implementation bundle files appear or disappear |
@@ -64,7 +69,7 @@ This table is the main registry of document locations relevant to development an
 | User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface – e.g. `configuration.md` documents `providers.*`, `workflows-reference.md` documents workflow YAML fields. **Keep them current** in the same change (same currency discipline as package `AGENTS.md`) |
 | Changelog | `CHANGELOG.md` | Shipped history per release |
 | Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | Running shipped workflows against this checkout |
-| Development & architecture | `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` | Before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards |
+| Development & architecture | `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` | Before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards, and § Review Defect Classes – the two named classes every review reports as defects (*prose parsing / repair ladder / sentinel over model or user text*; *second implementation of an existing seam*) |
 | Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | Before writing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config |
 | Package boundaries | `dev/guidelines/DART-PACKAGE-GUIDELINES.md` | When touching pubspec or workspace packages: structure, versioning, pub.dev scoring, publishing |
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | Before writing tests: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns |
@@ -91,7 +96,7 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 
 ### Vital Conventions
 - Single-threaded – add isolates only if profiling shows a bottleneck.
-- Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_server/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
+- Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_runtime/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
 - Never reference specific story IDs or titles in code, filenames, or user-facing docs (project/development documents are the exception).
 - Tests must run on Linux CI and local macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
 - **Tech debt backlog is a last resort** – `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved without further requirements input or an architecture decision. Fixable now with current understanding → fix now, or capture it in an active spec/FIS. Entries describing known cleanups invite rot and dilute signal.
@@ -161,7 +166,7 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 - **Linux agent desktop** – `dev/guidelines/PARALLELS_LINUX_AGENT_VM.md` is the source of truth for provisioning and customizing the Ubuntu 24 ARM64 VM (Wayland, SSH, Cua Driver, host-sharing restrictions, optional Docker conformance, snapshots, cloning, end-to-end verification). Use `dev/tools/parallels_linux.sh` only for its tested runtime operations, not provisioning.
 
 ### External documentation
-**Always delegate documentation lookups to a background `andthen:documentation-lookup` sub-agent** – it owns Context7 MCP (version-specific library docs) and Fetch MCP (page → markdown), and keeps the main context window clean.
+**Always delegate documentation lookups to a background `worker` sub-agent** using the Context7 MCP tools (version-specific library docs) and the Fetch MCP tool (page → markdown), so the main context window stays clean.
 
 - **Dart** – https://dart.dev/guides – language reference, core libraries, effective Dart
 - **Claude Code CLI** – https://code.claude.com/docs/en/headless – JSONL control protocol (stream-json)

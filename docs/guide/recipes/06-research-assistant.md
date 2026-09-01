@@ -124,7 +124,9 @@ scheduling:
 - **Add topic focus**: Edit SOUL.md's "Research Process" to prioritize certain source types (e.g., "prefer peer-reviewed papers" or "focus on official documentation")
 - **Enable QMD hybrid search**: Add `search.backend: qmd` for semantic memory retrieval -- better for finding conceptually related previous research
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)
-- **Connect a messaging channel**: Add WhatsApp, Signal, or Google Chat so you can ask research questions on the go -- the agent uses the same search agent and memory. With `task_trigger` enabled (0.9+), send `task: research <topic>` to create a background research task
+- **Connect a messaging channel**: Add WhatsApp, Signal, or Google Chat so you can ask research questions on the go --
+  the agent uses the same search agent and memory. For a restricted background task, use the authenticated task API
+  with `"securityProfile": "restricted"`; the agent's `task_create` tool cannot choose a security boundary.
 
 ## Gotchas & Limitations
 

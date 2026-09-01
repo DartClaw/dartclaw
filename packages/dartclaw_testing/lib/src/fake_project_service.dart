@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 typedef FakeProjectCreateCallback = Future<Project> Function({

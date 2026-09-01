@@ -3,8 +3,9 @@
 <!-- Traps only, one bullet each: `- **{title}** – …` under 200 chars, trap + pointer; postmortem
      depth lives in the spec archive or an ADR. Bar: "Would a competent developer with code and
      git access still get bitten?" Skills read this index whole – keep it lean. Maintain via the
-     `andthen:ops` skill (`update-learnings` forms), which owns the 150-line ceiling and
-     `learnings/` shard graduation. Delete entries once encoded as checks or stale. -->
+     `andthen:ops` skill (`update-learnings --ceiling 150`; the ceiling must be passed, and
+     an already-sharded topic is edited in its `learnings/` file by hand). Delete entries once
+     encoded as checks or stale. -->
 
 ## Dart Language
 
@@ -20,7 +21,7 @@
 
 ## Agent Harness Protocols
 
-→ learnings/agent-harness-protocols.md – Terminal result maps are outcomes, not success
+→ learnings/agent-harness-protocols.md – Terminal result maps are outcomes, not success; a provider may enforce a schema it gives you no way to read back
 
 ## HTMX / SSE
 
@@ -31,7 +32,7 @@
 - **SSE `error` event triggers `onerror`, never named-event handlers.** Rename to e.g. `turn_error` for HTMX `sse-swap`.
 - **`hx-swap="none"` doesn't insert HTML into DOM.** Use a hidden swap target with `innerHTML` instead.
 - **HTMX-replaced containers lose direct event listeners.** Use document-level event delegation.
-- **Chat form success does not always mean SSE starts.** Command-intercept responses append ordinary HTML and never create `#streaming-msg`; composer controllers must reset on successful non-streaming form responses instead of waiting for `htmx:sseClose`.
+- **Chat form success does not always mean SSE starts.** Composer controllers must reset on successful non-streaming form responses instead of waiting for `htmx:sseClose`.
 
 ## Trellis Templates
 
@@ -43,7 +44,6 @@
 
 - **`yaml_edit.update()` doesn't auto-create intermediate maps.** Throws `ArgumentError` on missing keys. Catch, create empty maps for missing segments, retry.
 - **Empty YAML document root is null, not an empty map.** Initialize with `editor.update([], {})` before path creation works.
-- **Trim string-to-enum config values on both parse paths.** `default_type: "analysis "` (trailing space) silently resolves to a different value.
 - **JSON decoders emit doubles for whole-number values.** Distinguish `3000.0` (accept) from `3000.5` (reject) via `value != value.toInt().toDouble()`.
 
 ## Concurrency / Async
@@ -65,14 +65,15 @@
 
 ## Package Architecture
 
+- **Equal timeout defaults are a tie, not a fix.** Delete duplicate budgets; aligned values still leave two enforcement owners and race-dependent outcomes.
 - **`ConfigNotifier` emits section-level keys (`security.*`), not sub-keys (`guards.*`).** `Reconfigurable.watchKeys` must use the section-level key or watches silently never fire — `ConfigDelta.hasChanged()` prefix-matches against section keys only.
-- **Channel config parsers self-register on import.** Bootstrap must call `ensure...Registered()` before `DartclawConfig.load()` or wiring fails with `StateError`.
+- **Channel config resolves through a switch in `dartclaw_runtime`, not the config package.** `resolveChannelConfig(config, channelType)` parses lazily per config instance; only `loadDartclawConfig()` primes all three, so a production load that bypasses it silently loses channel parse warnings.
 - **Provider factories must normalize provider-specific executable defaults.** `HarnessFactoryConfig.executable` can only represent one default; each provider factory must substitute its own binary when not overridden.
 - **Multi-provider UI/view-model code must derive the provider from `config.agent.provider`.** Hardcoded `'claude'` mislabels non-Claude deployments before usage data exists.
 - **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
 - **Auto-accept callbacks must translate non-success `ReviewResult`s into thrown errors.** `TaskReviewService.review()` reports merge conflicts as typed results, not exceptions; callers wiring `Future<void>` callbacks otherwise lose the warning path.
-- **Typedef-vs-class name collisions across packages need `hide` on the import.** e.g. `ReservedCommandHandler` typedef in `dartclaw_core` vs class in `dartclaw_cli`.
-- **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in ServiceWiring/ScheduleService — verify wiring via integration test + grep for non-test refs.
+- **A typedef-vs-class name collision across packages is a rename, not a `hide`.** Every importer of both has to carry the `hide`, and the one that forgets binds the wrong type silently; `dev/fitness/test/no_second_implementation_test.dart` fails the build on a new one.
+- **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in DartclawRuntime/ScheduleService — verify wiring via integration test + grep for non-test refs.
 - **`ScheduleService`'s job list is not user-prompt-jobs-only.** CLI wiring back-registers task definitions as `auto-task-<id>` callback jobs (`ScheduledTaskRunner.buildJobs()`), and system jobs are `onExecute`-based too — new consumers must decide explicitly how to treat `onExecute != null` entries.
 - **Resolved step config has multiple consumers.** New inherited step fields must flow through dispatch, follow-up prompts, extraction, and resolved-YAML export.
 - **Pub workspace build hooks honor the workspace ROOT pubspec's `hooks.user_defines`, not member pubspecs.** A root-level override wins; any per-platform override must neutralize the root block too.
@@ -118,6 +119,7 @@
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** It can go unrun until the final checkbox pass — verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type declared, exported and caught whose only `throw` was a fake – grep the producer before done.
+- **A "why this cannot be fixed" analysis is scoped to the transport it was written against.** TD-122 recorded that attaching guards to a workflow step was "not a wiring change" because the one-shot spawn was output-only and `TurnGuardEvaluator` was "additionally session-shaped". The session-shaped half was an artefact of the output-only spawn: once the step runs on a leased `TurnRunner`, the message-received and before-send hook points are reachable. Re-derive the blocker against the current transport before inheriting it.
 - **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates) – 0.25 PRD review F1/F6: two false dead claims.
 
 ## CSS

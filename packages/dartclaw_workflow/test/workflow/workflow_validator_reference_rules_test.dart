@@ -15,7 +15,7 @@ void main() {
     test('undeclared variable reference in prompt produces invalidReference error', () {
       final def = buildDef(steps: [step(prompt: 'Do {{UNDECLARED}}')]);
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidReference), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.invalidReference), true);
     });
 
     test('declared variable reference in prompt produces no error', () {
@@ -29,7 +29,7 @@ void main() {
     test('context reference in prompt does not trigger variable reference error', () {
       final def = buildDef(steps: [step(prompt: 'Use {{context.key}}')]);
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidReference), false);
+      expect(hasError(errors, type: WorkflowValidationErrorType.invalidReference), false);
     });
 
     test('known workflow system reference validates', () {
@@ -42,7 +42,7 @@ void main() {
       final errors = validator.validate(def).errors;
 
       expect(errors, hasLength(1));
-      expect(errors.single.type, ValidationErrorType.invalidReference);
+      expect(errors.single.type, WorkflowValidationErrorType.invalidReference);
       expect(errors.single.message, contains('workflow.frobnozzle'));
       expect(errors.single.message, contains('workflow.runtime_artifacts_dir'));
     });
@@ -90,24 +90,6 @@ void main() {
       expect(errors.single.message, contains('workflow.frobnozzle'));
     });
 
-    test('unknown workflow system reference in external artifact mount is rejected', () {
-      final def = buildDef(
-        gitStrategy: const WorkflowGitStrategy(
-          worktree: WorkflowGitWorktreeStrategy(
-            externalArtifactMount: WorkflowGitExternalArtifactMount(
-              fromProject: '{{PROJECT}}',
-              source: '{{workflow.frobnozzle}}',
-            ),
-          ),
-        ),
-      );
-      final errors = validator.validate(def).errors;
-
-      expect(errors, hasLength(1));
-      expect(errors.single.message, contains('gitStrategy.worktree.externalArtifactMount.source'));
-      expect(errors.single.message, contains('workflow.frobnozzle'));
-    });
-
     test('workflowVariables entry missing from variables block produces invalidReference error', () {
       final def = buildDef(
         steps: [
@@ -115,7 +97,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidReference, stepId: 's1'), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.invalidReference, stepId: 's1'), true);
     });
 
     test('workflowVariables entry declared in variables block produces no error', () {
@@ -138,7 +120,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidReference), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.invalidReference), true);
     });
 
     test('loop with maxIterations 0 produces missingMaxIterations error', () {
@@ -149,7 +131,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.missingMaxIterations), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.missingMaxIterations), true);
     });
 
     test('loop with negative maxIterations produces missingMaxIterations error', () {
@@ -160,7 +142,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.missingMaxIterations), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.missingMaxIterations), true);
     });
 
     test('step appearing in multiple loops produces loopOverlap error', () {
@@ -175,7 +157,7 @@ void main() {
         ],
       );
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.loopOverlap), true);
+      expect(hasError(errors, type: WorkflowValidationErrorType.loopOverlap), true);
     });
   });
 }

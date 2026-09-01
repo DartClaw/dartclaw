@@ -31,7 +31,7 @@ class WorkflowRetryCommand extends WorkflowRunIdCommand {
       await runStandaloneLifecycle(
         runId: runId,
         provisionWorkers: true,
-        action: (session) => driveStandaloneExecution(session, () => session.wiring.workflowService.retry(runId)),
+        action: (session) => driveStandaloneExecution(session, () => session.runtime.workflowService.retry(runId)),
       );
     } else {
       await runAgainstRun(runId: runId, pathSuffix: 'retry', verb: 'retried');

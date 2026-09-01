@@ -1,26 +1,25 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
-void main() {
-  group('WhatsApp config registration', () {
-    test('provider returns disabled defaults when package is imported', () {
-      ensureDartclawWhatsappRegistered();
+WhatsAppConfig _whatsAppConfigOf(DartclawConfig config, List<String> warns) =>
+    WhatsAppConfig.fromYaml(config.channels.channelConfigs['whatsapp'] ?? const {}, warns);
 
+void main() {
+  group('WhatsApp config resolution', () {
+    test('a config file without a channels block yields disabled defaults', () {
       final config = DartclawConfig.load(fileReader: (_) => null, env: {'HOME': '/home/user'});
-      final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
+      final warns = <String>[];
+      final whatsAppConfig = _whatsAppConfigOf(config, warns);
 
       expect(whatsAppConfig.enabled, isFalse);
       expect(whatsAppConfig.gowaExecutable, 'whatsapp');
       expect(whatsAppConfig.groupAccess, GroupAccessMode.disabled);
       expect(whatsAppConfig.requireMention, isTrue);
-      expect(whatsAppConfig.taskTrigger.enabled, isFalse);
-      expect(whatsAppConfig.taskTrigger.prefix, 'task:');
+      expect(warns, isEmpty);
     });
 
-    test('provider parses whatsapp config when package is imported', () {
-      ensureDartclawWhatsappRegistered();
-
+    test('the whatsapp section of a loaded config parses into WhatsAppConfig', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
         fileReader: (path) {
@@ -37,11 +36,6 @@ channels:
     require_mention: false
     mention_patterns:
       - "@dartclaw"
-    task_trigger:
-      enabled: true
-      prefix: "do:"
-      default_type: coding
-      auto_start: false
 ''';
           }
           return null;
@@ -49,7 +43,7 @@ channels:
         env: {'HOME': '/home/user'},
       );
 
-      final whatsAppConfig = config.getChannelConfig<WhatsAppConfig>(ChannelType.whatsapp);
+      final whatsAppConfig = _whatsAppConfigOf(config, <String>[]);
 
       expect(whatsAppConfig.enabled, isTrue);
       expect(whatsAppConfig.gowaExecutable, '/usr/local/bin/gowa');
@@ -59,10 +53,29 @@ channels:
       expect(whatsAppConfig.groupAccess, GroupAccessMode.open);
       expect(whatsAppConfig.requireMention, isFalse);
       expect(whatsAppConfig.mentionPatterns, ['@dartclaw']);
-      expect(whatsAppConfig.taskTrigger.enabled, isTrue);
-      expect(whatsAppConfig.taskTrigger.prefix, 'do:');
-      expect(whatsAppConfig.taskTrigger.defaultType, 'coding');
-      expect(whatsAppConfig.taskTrigger.autoStart, isFalse);
+    });
+
+    test('registered access vocabularies match the shared mappers', () {
+      expect(
+        ConfigMeta.fields['channels.whatsapp.dm_access']!.allowedValues!.toSet(),
+        DmAccessMode.values.map((value) => value.name).toSet(),
+      );
+      expect(
+        ConfigMeta.fields['channels.whatsapp.group_access']!.allowedValues!.toSet(),
+        GroupAccessMode.values.map((value) => value.name).toSet(),
+      );
+    });
+
+    test('invalid access values keep channel-specific warnings and defaults', () {
+      final warns = <String>[];
+      final config = WhatsAppConfig.fromYaml({'dm_access': 'bogus', 'group_access': 'pairing'}, warns);
+
+      expect(config.dmAccess, DmAccessMode.pairing);
+      expect(config.groupAccess, GroupAccessMode.disabled);
+      expect(warns, [
+        'Invalid whatsapp.dm_access: "bogus" — using default',
+        'Invalid whatsapp.group_access: "pairing" — using default',
+      ]);
     });
   });
 }

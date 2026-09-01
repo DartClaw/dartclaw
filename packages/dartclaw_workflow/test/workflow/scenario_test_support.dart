@@ -1,16 +1,32 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
 import '_support/workflow_test_paths.dart';
+
+/// Blocks a step prompt carrying the `BLOCK_WORKFLOW_PROMPT` sentinel.
+///
+/// The shared double, not a local `Guard` subclass: what these suites prove is
+/// that the turn loop calls `GuardChain.evaluateMessageReceived` and honours a
+/// block, so the guard's own rule only has to be observable.
+FakeGuard _workflowPromptGuard() => FakeGuard(
+  name: 'workflow_prompt',
+  category: 'content',
+  evaluator: (context) =>
+      context.hookPoint == 'messageReceived' && context.messageContent?.contains('BLOCK_WORKFLOW_PROMPT') == true
+      ? GuardVerdict.block('Workflow prompt refused by the fixture guard')
+      : GuardVerdict.pass(),
+);
 
 final class ScenarioTaskHarness {
   new _();
@@ -32,6 +48,8 @@ final class ScenarioTaskHarness {
   late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
   late SqliteExecutionRepositoryTransactor executionTransactor;
+  late GuardChain guardChain;
+  late TaskToolFilterGuard taskToolFilterGuard;
 
   static Future<ScenarioTaskHarness> create() async {
     final harness = ScenarioTaskHarness._();
@@ -56,23 +74,30 @@ final class ScenarioTaskHarness {
       eventBus: harness.eventBus,
     );
     harness._worker = ScriptedAgentWorker();
+    harness.taskToolFilterGuard = TaskToolFilterGuard();
+    harness.guardChain = GuardChain(guards: [_workflowPromptGuard(), harness.taskToolFilterGuard]);
     final primary = TurnRunner(
+      turnLimits: const TurnLimitsConfig.defaults(),
       messages: harness.messages,
       harness: harness._worker,
       behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
       sessions: harness.sessions,
     );
     harness.turns = TurnManager.fromCoordinator(
+      turnLimits: const TurnLimitsConfig.defaults(),
       coordinator: ExecutionCoordinator(
         providerCapacities: const {'claude': 1, 'codex': 1},
         primary: primary,
         admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
         releaseAdmission: primary.releaseAdmission,
         createWorker: (request) async => TurnRunner(
+          turnLimits: const TurnLimitsConfig.defaults(),
           messages: harness.messages,
           harness: harness._worker,
           behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
           sessions: harness.sessions,
+          guardChain: harness.guardChain,
+          taskToolFilterGuard: harness.taskToolFilterGuard,
           providerId: request.providerId,
           executionPolicy: request.policy,
         ),
@@ -82,10 +107,8 @@ final class ScenarioTaskHarness {
     harness.kvService = KvService(filePath: p.join(harness.tempDir.path, 'kv.json'));
     harness.collector = ArtifactCollector(
       tasks: harness.tasks,
-      messages: harness.messages,
       sessionsDir: harness.sessionsDir,
       dataDir: harness.tempDir.path,
-      workspaceDir: harness.workspaceDir,
     );
     return harness;
   }
@@ -93,7 +116,6 @@ final class ScenarioTaskHarness {
   TaskExecutor buildExecutor({
     Future<void> Function(String taskId)? onAutoAccept,
     ProjectService? projectService,
-    WorkflowCliRunner? workflowCliRunner,
     TaskEventRecorder? eventRecorder,
     WorktreeManager? worktreeManager,
     Duration pollInterval = const Duration(milliseconds: 10),
@@ -111,7 +133,7 @@ final class ScenarioTaskHarness {
         worktreeManager: worktreeManager,
         projectService: projectService,
       ),
-      runners: TaskExecutorRunners(turns: turns, workflowCliRunner: workflowCliRunner),
+      runners: TaskExecutorRunners(turns: turns),
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
@@ -205,12 +227,25 @@ final class ScenarioTaskHarness {
 
   String readRepoFile(String relativePath) => File(p.join(workflowRepositoryRoot(), relativePath)).readAsStringSync();
 
-  ContextExtractor contextExtractor({WorkflowGitPort? workflowGitPort}) => ContextExtractor(
+  /// Persists the execution envelope a step's finalizer turn would have
+  /// written for [taskId], carrying [outputs] as its declared outputs.
+  Future<void> seedEnvelopeOutputs(
+    String taskId,
+    Map<String, dynamic> outputs, {
+    required String workflowRunId,
+    String stepId = 'plan',
+  }) => seedWorkflowExecution(
+    taskId,
+    workflowRunId: workflowRunId,
+    stepId: stepId,
+    structuredOutput: {executionEnvelopeOutputsKey: outputs, executionEnvelopeMarkerKey: executionEnvelopeVersion},
+  );
+
+  ContextExtractor contextExtractor() => ContextExtractor(
     taskService: tasks,
     messageService: messages,
     dataDir: tempDir.path,
     workflowStepExecutionRepository: workflowStepExecutions,
-    workflowGitPort: workflowGitPort,
   );
 
   StepExecutionContext buildExecutionContext({
@@ -218,7 +253,6 @@ final class ScenarioTaskHarness {
     required WorkflowDefinition definition,
     required WorkflowContext workflowContext,
     WorkflowTurnAdapter? turnAdapter,
-    WorkflowStepOutputTransformer? outputTransformer,
     WorkflowGitPort? workflowGitPort,
   }) {
     return StepExecutionContext(
@@ -227,9 +261,8 @@ final class ScenarioTaskHarness {
       kvService: kvService,
       repository: workflowRuns,
       gateEvaluator: GateEvaluator(),
-      contextExtractor: contextExtractor(workflowGitPort: workflowGitPort),
+      contextExtractor: contextExtractor(),
       turnAdapter: turnAdapter,
-      outputTransformer: outputTransformer,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutions,
       workflowStepExecutionRepository: workflowStepExecutions,
@@ -252,7 +285,6 @@ final class ScenarioTaskHarness {
     Map<String, dynamic>? structuredSchema,
     Map<String, dynamic>? structuredOutput,
     List<String>? followUpPrompts,
-    Map<String, dynamic>? externalArtifactMount,
     int? mapIterationIndex,
     int? mapIterationTotal,
     String? providerSessionId,
@@ -295,7 +327,6 @@ final class ScenarioTaskHarness {
         structuredSchemaJson: structuredSchema == null ? null : jsonEncode(structuredSchema),
         structuredOutputJson: structuredOutput == null ? null : jsonEncode(structuredOutput),
         followUpPromptsJson: followUpPrompts == null ? null : jsonEncode(followUpPrompts),
-        externalArtifactMount: externalArtifactMount == null ? null : jsonEncode(externalArtifactMount),
         mapIterationIndex: mapIterationIndex,
         mapIterationTotal: mapIterationTotal,
       ),
@@ -363,25 +394,8 @@ final class ScenarioTaskHarness {
   return (repoDir: repoDir.path, git: git);
 }
 
-WorkflowCliRunner successWorkflowCliRunner({String sessionId = 'cli-session-success'}) {
-  return WorkflowCliRunner(
-    providers: const {
-      'claude': WorkflowCliProviderConfig(executable: 'claude'),
-      'codex': WorkflowCliProviderConfig(executable: 'codex'),
-    },
-    processStarter: (exe, args, {workingDirectory, environment}) async {
-      final payload = jsonEncode({'session_id': sessionId, 'result': 'Done.'});
-      return Process.start('/bin/sh', ['-lc', "printf '%s' '${payload.replaceAll("'", "'\\''")}'"]);
-    },
-  );
-}
-
 final class StaticPathWorktreeManager extends WorktreeManager {
-  new(this.path)
-    : super(
-        dataDir: '/tmp',
-        processRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''),
-      );
+  new(this.path) : super(dataDir: '/tmp', processRunner: RecordingGitRunner().run);
 
   final String path;
 
@@ -414,10 +428,9 @@ final class ScriptedResponse {
   /// Text streamed as a [DeltaEvent] before the turn returns.
   final String assistantContent;
 
-  /// Usage payload returned from `turn()` — keys mirror what the real
-  /// Codex/Claude harnesses expose (`input_tokens`, `cached_input_tokens`,
-  /// `output_tokens`).
-  final Map<String, dynamic> usage;
+  /// Result returned from `turn()`, carrying the token counts the real
+  /// Codex/Claude harnesses report.
+  final TurnResult usage;
 
   /// When non-null the turn waits this long before returning. Useful for
   /// activity-watchdog / hang-detection tests.
@@ -441,7 +454,7 @@ final class ScriptedResponse {
 
   const new({
     this.assistantContent = '',
-    this.usage = const {},
+    this.usage = const TurnResult(),
     this.delay,
     this.crash = false,
     this.crashError,
@@ -487,7 +500,7 @@ class ScriptedAgentWorker implements AgentHarness {
   void enqueue(ScriptedResponse response) => _queue.add(response);
 
   /// Convenience: enqueue a plain assistant content response.
-  void enqueueContent(String content, {Map<String, dynamic> usage = const {}, Duration? delay}) {
+  void enqueueContent(String content, {TurnResult usage = const TurnResult(), Duration? delay}) {
     enqueue(ScriptedResponse(assistantContent: content, usage: usage, delay: delay));
   }
 
@@ -497,7 +510,7 @@ class ScriptedAgentWorker implements AgentHarness {
     required String successContent,
     int retries = 1,
     Object? crashError,
-    Map<String, dynamic> successUsage = const {},
+    TurnResult successUsage = const TurnResult(),
   }) {
     for (var i = 0; i < retries; i++) {
       enqueue(ScriptedResponse(crash: true, crashError: crashError));
@@ -536,23 +549,31 @@ class ScriptedAgentWorker implements AgentHarness {
   bool get isRootProcessTerminationConfirmed => true;
 
   @override
+  bool get supportsStructuredOutput => false;
+
+  @override
+  bool get supportsProviderSessionResume => false;
+
+  @override
   Stream<BridgeEvent> get events => _eventsCtrl.stream;
 
   @override
   Future<void> start() async {}
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     String? agentId,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
   }) async {
     turnCount++;
     onTurn?.call(sessionId);
@@ -581,18 +602,29 @@ class ScriptedAgentWorker implements AgentHarness {
         throw response.crashError ?? StateError('simulated crash');
       }
       if (response.assistantContent.isNotEmpty) {
-        _eventsCtrl.add(DeltaEvent(response.assistantContent));
+        await _emitDelta(response.assistantContent);
       }
-      return Map<String, dynamic>.from(response.usage);
+      return response.usage;
     }
 
     if (shouldFail) {
       throw StateError('simulated crash');
     }
     if (responseText.isNotEmpty) {
-      _eventsCtrl.add(DeltaEvent(responseText));
+      await _emitDelta(responseText);
     }
-    return <String, dynamic>{'input_tokens': inputTokens, 'output_tokens': outputTokens};
+    return TurnResult(inputTokens: inputTokens, outputTokens: outputTokens);
+  }
+
+  /// Emits [text] and yields until the broadcast subscriber has consumed it.
+  ///
+  /// Any `await` executed earlier in the turn — the scripted queue's
+  /// `onInvoked` hook, `beforeComplete` — reorders broadcast delivery behind
+  /// the turn future, and the runner then accumulates nothing and persists an
+  /// empty assistant message.
+  Future<void> _emitDelta(String text) async {
+    _eventsCtrl.add(DeltaEvent(text));
+    await Future<void>.microtask(() {});
   }
 
   @override

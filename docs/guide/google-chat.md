@@ -169,7 +169,7 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 
 | Command ID | Command | Description |
 |------|------|------|
-| `1` | `/new` | Create a task. Usage: `/new [type:] description` |
+| `1` | `/new` | Create a task. Usage: `/new description` |
 | `2` | `/reset` | Archive the current Google Chat session |
 | `3` | `/status` | Show active tasks and session counts |
 | `4` | `/stop` | Emergency stop all in-flight tasks |
@@ -181,6 +181,14 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
 
 This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
+
+## Thread Binding
+
+Sending `/bind <taskId>` inside a thread or space routes that thread's messages to the task's agent session; `/unbind`
+removes the binding. Both read the thread the message arrived in, which is why they stay reserved commands: the
+agent's own `task_bind` tool carries no channel context and has to be told which thread to bind
+(`task_id`, `channel_type`, `thread_id`) — see [Tasks](tasks.md#agent-tool-surface). Use `/bind` for "this thread",
+and `task_bind` when the thread is already known by name.
 
 ## Message Formatting
 
@@ -353,6 +361,8 @@ Manual management is available via the API:
 - `GET /api/google-chat/subscriptions` — list active subscriptions
 - `POST /api/google-chat/subscriptions` — create subscription (`spaceId` in JSON body)
 - `DELETE /api/google-chat/subscriptions` — delete subscription (`spaceId` in JSON body)
+
+Both mutations cap the request body at 256 KB and answer `413 REQUEST_TOO_LARGE` above it.
 
 ### Troubleshooting
 

@@ -24,6 +24,7 @@ CanonicalMemoryCorpus corpus({
   MemoryArchiveDocument? archive,
   Iterable<MemoryObservationDocument> observations = const [],
   MemoryLearningDocument? learnings,
+  MemoryErrorDocument? errors,
   MemoryAuditDocument? audit,
   Iterable<VerbatimMemoryMember> legacy = const [],
 }) => CanonicalMemoryCorpus(
@@ -39,6 +40,7 @@ CanonicalMemoryCorpus corpus({
   archive: archive,
   observations: observations,
   learnings: learnings,
+  errors: errors,
   audit: audit,
   verbatimMembers: legacy,
 );
@@ -153,6 +155,48 @@ void main() {
       );
     });
 
+    // Error records join the same non-active identity set as learnings
+    // and observations, so an ID cannot be reused across those roles.
+    test('rejects an error record sharing an identity with an observation', () {
+      const sharedId = '1166a7c8-2e4d-4c0c-bbf1-3aa5258b6019';
+      final observation = MemoryObservationDocument(
+        date: '2026-08-11',
+        observations: [
+          MemoryObservation(
+            id: sharedId,
+            recorded: updated,
+            content: 'Observed preference',
+            trustLabel: 'untrusted-user-content',
+            provenance: MemorySourceRef(sourceLocator: 'journal/manual'),
+          ),
+        ],
+      );
+      final errors = MemoryErrorDocument(
+        entries: [
+          CanonicalMemoryError(
+            id: sharedId,
+            revision: 1,
+            summary: 'TURN_FAILURE',
+            content: 'Agent crashed.',
+            created: updated,
+            updated: updated,
+            provenance: MemorySourceRef(sourceLocator: 'runtime-error'),
+          ),
+        ],
+      );
+
+      expect(
+        () => validator.validate(corpus(observations: [observation], errors: errors)),
+        throwsA(
+          isA<MemoryCorpusValidationException>().having(
+            (error) => error.errors.join(),
+            'errors',
+            contains('duplicate canonical record ID: $sharedId'),
+          ),
+        ),
+      );
+    });
+
     test('reports duplicate document paths as corpus validation errors', () {
       final duplicateTopic = MemoryTopicDocument(topic: 'preferences', entries: [entry()]);
       final duplicateObservation = MemoryObservationDocument(date: '2026-08-11');
@@ -219,10 +263,24 @@ void main() {
           ),
         ],
       );
+      final errors = MemoryErrorDocument(
+        entries: [
+          CanonicalMemoryError(
+            id: '2b28cf51-3a1f-4d55-9a3e-6c6c53f7a1b2',
+            revision: 1,
+            summary: 'GUARD_BLOCK',
+            content: 'Blocked prompt injection attempt.',
+            created: updated,
+            updated: updated,
+            provenance: MemorySourceRef(sourceLocator: 'runtime-error', sessionRef: 'sess-1'),
+          ),
+        ],
+      );
       final value = corpus(
         archive: archive,
         observations: [observation],
         learnings: learnings,
+        errors: errors,
         audit: audit,
         legacy: [VerbatimMemoryMember(path: 'memory/legacy/MEMORY.md', bytes: legacyBytes)],
       );
@@ -233,6 +291,7 @@ void main() {
         observations: value.observations.reversed,
         archive: value.archive,
         learnings: value.learnings,
+        errors: value.errors,
         audit: value.audit,
         verbatimMembers: value.verbatimMembers.reversed,
       ).byteInventory();
@@ -242,6 +301,7 @@ void main() {
         'MEMORY.archive.md',
         'MEMORY.audit.md',
         'MEMORY.md',
+        'errors.md',
         'learnings.md',
         'memory/2026-08-11.md',
         'memory/legacy/MEMORY.md',
@@ -258,6 +318,7 @@ void main() {
         'MEMORY.archive.md': archive,
         'memory/2026-08-11.md': observation,
         'learnings.md': learnings,
+        'errors.md': errors,
         'MEMORY.audit.md': audit,
       };
       for (final member in canonicalDocuments.entries) {

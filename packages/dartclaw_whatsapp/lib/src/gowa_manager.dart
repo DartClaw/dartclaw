@@ -1,12 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
+import 'package:dartclaw_core/dartclaw_core.dart' show SidecarProcessManager;
 import 'package:logging/logging.dart';
 
 /// Status record returned by [GowaManager.status].
@@ -17,25 +14,30 @@ typedef GowaLoginQr = ({String? url, int durationSeconds});
 
 /// Manages the GOWA (Go WhatsApp) sidecar binary as a subprocess.
 ///
-/// Follows the ClaudeCodeHarness lifecycle pattern: spawn, health check,
-/// crash recovery with exponential backoff.
+/// Spawn, health check and crash recovery come from [SidecarProcessManager];
+/// this class owns the GOWA sequence around them, including attaching to an
+/// already-running service instead of spawning one.
 ///
 /// Targets GOWA v8.3.2 API contract.
-class GowaManager with SequentialLock {
-  static final _log = Logger('GowaManager');
+class GowaManager extends SidecarProcessManager {
+  new({
+    required super.executable,
+    super.host = '127.0.0.1',
+    super.port = 3000,
+    this.dbUri,
+    this.webhookUrl,
+    this.osName = 'DartClaw',
+    super.maxRestartAttempts = 5,
+    super.processFactory,
+    super.delay,
+    super.healthProbe,
+    super.platformCapabilities,
+    super.terminationGracePeriod,
+  }) : super(label: 'GOWA', log: Logger('GowaManager'));
 
-  final String executable;
-  final String host;
-  final int port;
   final String? dbUri;
   final String? webhookUrl;
   final String osName;
-  final int maxRestartAttempts;
-  final ProcessFactory _processFactory;
-  final DelayFactory _delay;
-  final HealthProbe? _healthProbe;
-  final PlatformCapabilities _platformCapabilities;
-  final Duration _terminationGracePeriod;
 
   /// Timeout for standard API calls (sendText, chat presence, status, loginQr, requestPairingCode).
   static const _apiTimeout = Duration(seconds: 10);
@@ -43,47 +45,17 @@ class GowaManager with SequentialLock {
   /// Timeout for media uploads (sendMedia / multipart).
   static const _mediaTimeout = Duration(seconds: 60);
 
-  /// Timeout for GOWA to become reachable during startup.
-  static const _startupTimeout = Duration(seconds: 30);
-
   /// Regex to extract the WhatsApp JID from GOWA's LOGIN_SUCCESS stderr line.
   ///
   /// Example: `msg="message received: {LOGIN_SUCCESS Successfully pair with 46725619417:4@s.whatsapp.net <nil>}"`
   static final _loginSuccessRe = RegExp(r'LOGIN_SUCCESS\b.*?\b(\d[\d]+:\d+@s\.whatsapp\.net)\b');
 
-  Process? _process;
-  final Set<Process> _windowsTeardownPending = <Process>{};
-  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
-  int _generation = 0;
-  int _restartCount = 0;
-  bool _stopped = false;
-  bool _wasPaired = false;
   bool _usingExternalService = false;
   String? _deviceId;
   String? _pairedJid;
 
-  new({
-    required this.executable,
-    this.host = '127.0.0.1',
-    this.port = 3000,
-    this.dbUri,
-    this.webhookUrl,
-    this.osName = 'DartClaw',
-    this.maxRestartAttempts = 5,
-    ProcessFactory? processFactory,
-    DelayFactory? delay,
-    HealthProbe? healthProbe,
-    PlatformCapabilities? platformCapabilities,
-    Duration terminationGracePeriod = const Duration(seconds: 5),
-  }) : _processFactory = processFactory ?? Process.start,
-       _delay = delay ?? Future.delayed,
-       _healthProbe = healthProbe,
-       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
-       _terminationGracePeriod = terminationGracePeriod;
-
-  bool get isRunning => (_process != null || _usingExternalService) && !_stopped;
-
-  bool get wasPaired => _wasPaired;
+  @override
+  bool get isRunning => (process != null || _usingExternalService) && !stopRequested;
 
   /// The WhatsApp JID captured from the LOGIN_SUCCESS event, if available.
   ///
@@ -92,26 +64,23 @@ class GowaManager with SequentialLock {
   /// GOWA's internal device UUID.
   String? get pairedJid => _pairedJid;
 
-  int get restartCount => _restartCount;
-
-  String get baseUrl => 'http://$host:$port';
-
   /// Start the GOWA process and wait for health check.
+  @override
   Future<void> start() => withLock(_start);
 
   Future<void> _start() async {
-    if (_stopped) throw StateError('GowaManager has been stopped');
-    if (_process != null) throw StateError('GowaManager still owns a GOWA process; stop it before restarting');
+    if (stopRequested) throw StateError('GowaManager has been stopped');
+    if (process != null) throw StateError('GowaManager still owns a GOWA process; stop it before restarting');
 
-    final gen = ++_generation;
-    _log.info('Starting GOWA (gen $gen): $executable on $host:$port');
+    final gen = ++generation;
+    log.info('Starting GOWA (gen $gen): $executable on $host:$port');
 
     if (await _isServiceReachable()) {
       _usingExternalService = true;
       await _ensureDevice();
-      _restartCount = 0;
-      _log.info('Using existing GOWA service on $host:$port');
-      _log.info('GOWA started successfully (gen $gen)');
+      restartCount = 0;
+      log.info('Using existing GOWA service on $host:$port');
+      log.info('GOWA started successfully (gen $gen)');
       return;
     }
 
@@ -119,127 +88,67 @@ class GowaManager with SequentialLock {
     if (dbUri != null) args.addAll(['--db-uri', dbUri!]);
     if (webhookUrl != null) args.add('--webhook=$webhookUrl');
 
-    try {
-      _process = await _processFactory(executable, args);
-      _windowsTeardownPending.remove(_process);
-      _windowsExitObservedDuringTeardown.remove(_process);
-      _usingExternalService = false;
-    } catch (e) {
-      _log.severe('Failed to spawn GOWA process', e);
-      rethrow;
-    }
+    final spawned = await spawnProcess(args);
+    _usingExternalService = false;
+    attachProcess(spawned, gen, onStderrLine: _captureLoginSuccess);
 
-    // Pipe stdout/stderr to logger
-    _process!.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _log.fine('[GOWA] $line'));
-    _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-      _log.warning('[GOWA stderr] $line');
-      // Capture the WhatsApp JID from LOGIN_SUCCESS events.
-      final m = _loginSuccessRe.firstMatch(line);
-      if (m != null) {
-        _pairedJid = m.group(1);
-        _wasPaired = true;
-        _log.info('Captured paired JID: $_pairedJid');
-      }
-    });
-
-    // Monitor for unexpected exit
-    final process = _process!;
-    unawaited(process.exitCode.then((code) => _onExit(code, gen, process)));
-
-    // Wait for GOWA server to become reachable
-    if (!await _waitForHealth()) {
-      final process = _process;
-      _beginIntentionalProcessTeardown(process);
-      ++_generation;
-      if (process != null) {
-        final result = await killWithEscalation(
-          process,
-          label: 'GOWA',
-          gracePeriod: _terminationGracePeriod,
-          log: _log,
-          platformCapabilities: _platformCapabilities,
-        );
-        _completeIntentionalProcessTeardown(process, result);
-      }
-      throw StateError('GOWA failed to respond within ${_startupTimeout.inSeconds}s');
-    }
+    if (!await waitForStartupHealth()) await abortFailedStartup();
 
     // Ensure a device exists (GOWA v8 multi-device requires X-Device-Id).
     await _ensureDevice();
 
-    _restartCount = 0;
-    _log.info('GOWA started successfully (gen $gen)');
+    restartCount = 0;
+    log.info('GOWA started successfully (gen $gen)');
+  }
+
+  void _captureLoginSuccess(String line) {
+    final m = _loginSuccessRe.firstMatch(line);
+    if (m != null) {
+      _pairedJid = m.group(1);
+      wasPaired = true;
+      log.info('Captured paired JID: $_pairedJid');
+    }
   }
 
   /// Stop the GOWA process gracefully.
+  @override
   Future<void> stop() {
-    _stopped = true;
-    _beginIntentionalProcessTeardown(_process);
+    stopRequested = true;
+    beginIntentionalProcessTeardown(process);
     return withLock(_stop);
   }
 
   Future<void> _stop() async {
-    final proc = _process;
+    final proc = process;
     if (proc == null) return;
     _usingExternalService = false;
 
-    _log.info('Stopping GOWA');
-    final result = await killWithEscalation(
-      proc,
-      label: 'GOWA',
-      gracePeriod: _terminationGracePeriod,
-      log: _log,
-      platformCapabilities: _platformCapabilities,
-    );
-    _completeIntentionalProcessTeardown(proc, result);
-    if (result.confirmsOwnershipRelease()) {
-      final exitCode = await proc.exitCode;
-      _log.info('GOWA stopped (exit code: $exitCode)');
-    }
+    await stopOwnedProcess(proc);
   }
-
-  /// Dispose resources. Alias for [stop].
-  Future<void> dispose() => stop();
 
   /// Stop the process and reset state so [start] can be called again.
   ///
   /// Unlike [stop] (which is a permanent teardown), this prepares the manager
   /// for a fresh pairing cycle without recreating the object.
+  @override
   Future<void> reset() {
-    _beginIntentionalProcessTeardown(_process);
+    beginIntentionalProcessTeardown(process);
     return withLock(_reset);
   }
 
   Future<void> _reset() async {
-    ++_generation;
-    final proc = _process;
-    _beginIntentionalProcessTeardown(proc);
+    ++generation;
+    final proc = process;
+    beginIntentionalProcessTeardown(proc);
 
-    if (proc != null) {
-      _log.info('Resetting GOWA');
-      final result = await killWithEscalation(
-        proc,
-        label: 'GOWA',
-        gracePeriod: _terminationGracePeriod,
-        log: _log,
-        platformCapabilities: _platformCapabilities,
-      );
-      if (!result.confirmsOwnershipRelease()) {
-        _completeIntentionalProcessTeardown(proc, result);
-        throw StateError('GOWA termination could not be confirmed during reset');
-      }
-      _completeIntentionalProcessTeardown(proc, result);
-    }
+    if (proc != null) await resetOwnedProcess(proc);
 
-    _stopped = false;
-    _wasPaired = false;
+    stopRequested = false;
+    wasPaired = false;
     _usingExternalService = false;
     _deviceId = null;
     _pairedJid = null;
-    _restartCount = 0;
+    restartCount = 0;
   }
 
   // ---- REST client methods ----
@@ -295,7 +204,7 @@ class GowaManager with SequentialLock {
       final results = await _get('/app/status');
       final loggedIn = results['is_logged_in'] as bool? ?? false;
       if (loggedIn) {
-        _wasPaired = true;
+        wasPaired = true;
         // Lazily resolve the paired JID from /devices when first needed.
         if (_pairedJid == null) await _resolveJidFromDevices();
       }
@@ -326,31 +235,24 @@ class GowaManager with SequentialLock {
 
   // ---- Health check ----
 
-  Future<bool> _waitForHealth() async {
-    final maxAttempts = _startupTimeout.inSeconds;
-    for (var i = 0; i < maxAttempts; i++) {
-      if (_stopped) return false;
-      if (_healthProbe != null) {
-        if (await _healthProbe()) return true;
-      } else {
-        try {
-          await _getRaw('/app/status');
-          return true;
-        } on HttpException {
-          // Any HTTP error (e.g. DEVICE_ID_REQUIRED, DEVICE_NOT_FOUND) means GOWA is up.
-          return true;
-        } catch (e) {
-          _log.fine('GOWA health probe attempt $i failed: $e');
-        }
-      }
-      await _delay(const Duration(seconds: 1));
+  @override
+  Future<bool> defaultStartupProbe(int attempt) async {
+    try {
+      await _getRaw('/app/status');
+      return true;
+    } on HttpException {
+      // Any HTTP error (e.g. DEVICE_ID_REQUIRED, DEVICE_NOT_FOUND) means GOWA is up.
+      return true;
+    } catch (e) {
+      log.fine('GOWA health probe attempt $attempt failed: $e');
+      return false;
     }
-    return false;
   }
 
   Future<bool> _isServiceReachable() async {
-    if (_healthProbe != null) {
-      return _healthProbe();
+    final probe = healthProbe;
+    if (probe != null) {
+      return probe();
     }
 
     try {
@@ -360,7 +262,7 @@ class GowaManager with SequentialLock {
       // The sidecar is reachable even if the specific request requires a device.
       return true;
     } catch (e) {
-      _log.fine('GOWA service not reachable: $e');
+      log.fine('GOWA service not reachable: $e');
       return false;
     }
   }
@@ -371,59 +273,22 @@ class GowaManager with SequentialLock {
       final currentStatus = await status();
       return currentStatus.isConnected;
     } catch (e) {
-      _log.fine('GOWA health check failed: $e');
+      log.fine('GOWA health check failed: $e');
       return false;
     }
   }
 
   // ---- Crash recovery ----
 
-  void _onExit(int exitCode, int generation, Process process) {
-    final windowsTeardownPending = _windowsTeardownPending.contains(process);
-    if (windowsTeardownPending) {
-      _windowsExitObservedDuringTeardown.add(process);
-    } else if (identical(_process, process)) {
-      _process = null;
-    }
-    if (windowsTeardownPending || _stopped || generation != _generation) return;
-
-    _log.warning('GOWA exited unexpectedly (code: $exitCode, gen: $generation)');
-
-    if (_restartCount >= maxRestartAttempts) {
-      _log.severe('GOWA max restart attempts ($maxRestartAttempts) reached — giving up');
-      return;
-    }
-
-    _restartCount++;
-    final backoff = Duration(seconds: min(30, pow(2, _restartCount).toInt()));
-    _log.info('Restarting GOWA in ${backoff.inSeconds}s (attempt $_restartCount/$maxRestartAttempts)');
-
+  /// Defers the retry to a later event-loop turn, so an exit observed inside a
+  /// lifecycle call cannot re-enter [start] before that call unwinds.
+  @override
+  void scheduleRestart(Duration backoff, int generation) {
     unawaited(
       Future(() async {
-        await _delay(backoff);
-        if (!_stopped && generation == _generation) {
-          try {
-            await start();
-          } catch (e) {
-            _log.severe('GOWA restart failed', e);
-          }
-        }
+        await runScheduledRestart(backoff, generation);
       }),
     );
-  }
-
-  void _beginIntentionalProcessTeardown(Process? process) {
-    if (process != null && !_platformCapabilities.posixSignalsAvailable) {
-      _windowsTeardownPending.add(process);
-    }
-  }
-
-  void _completeIntentionalProcessTeardown(Process process, ProcessTerminationResult result) {
-    _windowsTeardownPending.remove(process);
-    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
-    if (result.confirmsOwnershipRelease() || exitObserved) {
-      if (identical(_process, process)) _process = null;
-    }
   }
 
   // ---- Device provisioning (GOWA v8 multi-device) ----
@@ -443,14 +308,14 @@ class GowaManager with SequentialLock {
             final jid = entry['jid']?.toString();
             if (jid != null && jid.contains('@')) {
               _pairedJid = jid;
-              _log.info('Resolved paired JID from /devices: $_pairedJid');
+              log.info('Resolved paired JID from /devices: $_pairedJid');
               return;
             }
           }
         }
       }
     } catch (e) {
-      _log.fine('Could not resolve JID from /devices: $e');
+      log.fine('Could not resolve JID from /devices: $e');
     }
   }
 
@@ -471,18 +336,18 @@ class GowaManager with SequentialLock {
             if (entry is Map<String, dynamic>) {
               final state = entry['state']?.toString();
               if (state == 'connected' || state == 'logged_in') {
-                _wasPaired = true;
+                wasPaired = true;
                 _pairedJid ??= entry['jid']?.toString();
                 break;
               }
             }
           }
-          _log.fine('Using existing GOWA device: $_deviceId (jid: $_pairedJid)');
+          log.fine('Using existing GOWA device: $_deviceId (jid: $_pairedJid)');
           return;
         }
       }
     } catch (e) {
-      _log.fine('Could not list devices: $e');
+      log.fine('Could not list devices: $e');
     }
 
     // No device found — create one.
@@ -490,9 +355,9 @@ class GowaManager with SequentialLock {
       final raw = await _postRaw('/devices', {});
       final results = raw['results'] as Map<String, dynamic>?;
       _deviceId = (results?['id'] ?? results?['device_id'])?.toString();
-      _log.info('Created GOWA device: $_deviceId');
+      log.info('Created GOWA device: $_deviceId');
     } catch (e) {
-      _log.warning('Failed to create GOWA device: $e');
+      log.warning('Failed to create GOWA device: $e');
     }
   }
 

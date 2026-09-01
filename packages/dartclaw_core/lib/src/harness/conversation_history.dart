@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show HistoryConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 // Regex patterns for synthetic assistant markers that indicate guard-blocked
 // or failed exchanges. All patterns use ^ and $ anchors for exact matching.

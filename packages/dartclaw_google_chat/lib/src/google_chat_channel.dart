@@ -1,9 +1,9 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         Channel,
         ChannelManager,
         ChannelResponse,
-        ChannelType,
         DmAccessController,
         MentionGating,
         chunkNativeChatMarkup,
@@ -15,10 +15,6 @@ import 'google_chat_rest_client.dart' show GoogleChatRestClient, messageNamePatt
 import 'markdown_converter.dart';
 
 const _firstChunkMetadataKey = 'isFirstChunk';
-
-// Precompiled RegExp patterns for HTML-to-plain-text stripping.
-final _brTagPattern = RegExp(r'<br\s*/?>', caseSensitive: false);
-final _htmlTagPattern = RegExp(r'<[^>]+>');
 
 /// Channel adapter that delivers DartClaw responses to Google Chat spaces.
 class GoogleChatChannel extends Channel {
@@ -87,13 +83,13 @@ class GoogleChatChannel extends Channel {
     final displayText = isFirstChunk ? _withSenderAttribution(response, fallbackText) : fallbackText;
 
     if (structuredPayload != null) {
-      final name = await restClient.sendCard(
-        recipientJid,
-        structuredPayload,
+      final sent = await restClient.send(
+        spaceName: recipientJid,
+        card: structuredPayload,
         quotedMessageName: nativeQuoteName,
         quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
       );
-      if (name != null) {
+      if (sent.messageName != null) {
         final turnId = response.metadata[sourceMessageIdMetadataKey] as String?;
         if (turnId != null) {
           _pendingPlaceholders.remove(_placeholderKey(recipientJid, turnId));
@@ -116,9 +112,9 @@ class GoogleChatChannel extends Channel {
         // If quoting fails (403/400), edit the placeholder with the response
         // text instead of deleting it, avoiding the "message deleted by its
         // author" artifact that Google Chat shows for deleted bot messages.
-        final sent = await restClient.sendMessageWithQuoteFallback(
-          recipientJid,
-          fallbackText,
+        final sent = await restClient.send(
+          spaceName: recipientJid,
+          text: fallbackText,
           quotedMessageName: nativeQuoteName,
           quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
           fallbackOnQuoteFailure: false,
@@ -137,9 +133,9 @@ class GoogleChatChannel extends Channel {
     }
 
     if (nativeQuoteName != null) {
-      await restClient.sendMessageWithQuoteFallback(
-        recipientJid,
-        fallbackText,
+      await restClient.send(
+        spaceName: recipientJid,
+        text: fallbackText,
         quotedMessageName: nativeQuoteName,
         quotedMessageLastUpdateTime: nativeQuoteLastUpdateTime,
         textWithoutQuote: displayText,
@@ -147,7 +143,7 @@ class GoogleChatChannel extends Channel {
       return;
     }
 
-    await restClient.sendMessage(recipientJid, displayText);
+    await restClient.send(spaceName: recipientJid, text: displayText);
   }
 
   /// Sends a notification [response] to [recipientJid] in a new or existing
@@ -165,7 +161,7 @@ class GoogleChatChannel extends Channel {
     final fallbackText = _fallbackText(response);
 
     if (structuredPayload != null) {
-      final result = await restClient.sendCardInThread(recipientJid, structuredPayload, threadKey: threadKey);
+      final result = await restClient.send(spaceName: recipientJid, card: structuredPayload, threadKey: threadKey);
       if (result.messageName != null) {
         return result.threadName;
       }
@@ -176,7 +172,7 @@ class GoogleChatChannel extends Channel {
       return null;
     }
 
-    final result = await restClient.sendMessageInThread(recipientJid, fallbackText, threadKey: threadKey);
+    final result = await restClient.send(spaceName: recipientJid, text: fallbackText, threadKey: threadKey);
     return result.threadName;
   }
 
@@ -191,8 +187,8 @@ class GoogleChatChannel extends Channel {
     final fallbackText = _fallbackText(response);
 
     if (structuredPayload != null) {
-      final name = await restClient.sendCardToThread(recipientJid, structuredPayload, threadName: threadName);
-      if (name != null) {
+      final sent = await restClient.send(spaceName: recipientJid, card: structuredPayload, threadName: threadName);
+      if (sent.messageName != null) {
         return;
       }
       _log.warning('Google Chat thread-name card send failed for $recipientJid, falling back to plain text');
@@ -202,7 +198,7 @@ class GoogleChatChannel extends Channel {
       return;
     }
 
-    await restClient.sendMessageToThread(recipientJid, fallbackText, threadName: threadName);
+    await restClient.send(spaceName: recipientJid, text: fallbackText, threadName: threadName);
   }
 
   /// Associates a pending typing placeholder with an outbound turn id.
@@ -240,7 +236,8 @@ class GoogleChatChannel extends Channel {
   }) async {
     switch (config.typingIndicatorMode) {
       case TypingIndicatorMode.message:
-        final placeholderName = await restClient.sendMessage(spaceName, typingMessage);
+        final placeholder = await restClient.send(spaceName: spaceName, text: typingMessage);
+        final placeholderName = placeholder.messageName;
         if (placeholderName != null) {
           setPlaceholder(spaceName: spaceName, turnId: turnId, messageName: placeholderName);
         }
@@ -282,89 +279,7 @@ class GoogleChatChannel extends Channel {
     if (response.text.isNotEmpty) {
       return response.text;
     }
-
-    final structuredPayload = response.structuredPayload;
-    if (structuredPayload == null) {
-      return '';
-    }
-
-    final synthesized = _synthesizeFallbackText(structuredPayload);
-    if (synthesized.isNotEmpty) {
-      return synthesized;
-    }
-
-    return 'DartClaw sent an update.';
-  }
-
-  String _synthesizeFallbackText(Map<String, dynamic> structuredPayload) {
-    final cards = structuredPayload['cardsV2'];
-    if (cards is! List || cards.isEmpty) {
-      return '';
-    }
-
-    final cardEntry = cards.first;
-    if (cardEntry is! Map) {
-      return '';
-    }
-
-    final card = cardEntry['card'];
-    if (card is! Map) {
-      return '';
-    }
-
-    final parts = <String>[];
-    final header = card['header'];
-    if (header is Map) {
-      final title = _nonEmptyString(header['title']);
-      final subtitle = _nonEmptyString(header['subtitle']);
-      if (title != null) {
-        parts.add(title);
-      }
-      if (subtitle != null) {
-        parts.add(subtitle);
-      }
-    }
-
-    final sections = card['sections'];
-    if (sections is List) {
-      for (final section in sections) {
-        if (section is! Map) {
-          continue;
-        }
-        final widgets = section['widgets'];
-        if (widgets is! List) {
-          continue;
-        }
-        for (final widget in widgets) {
-          if (widget is! Map) {
-            continue;
-          }
-          final textParagraph = widget['textParagraph'];
-          if (textParagraph is! Map) {
-            continue;
-          }
-          final text = _nonEmptyString(textParagraph['text']);
-          if (text == null) {
-            continue;
-          }
-          parts.add(_plainTextFromMarkup(text));
-        }
-      }
-    }
-
-    return parts.where((part) => part.isNotEmpty).join('\n');
-  }
-
-  String _plainTextFromMarkup(String value) {
-    return value
-        .replaceAll(_brTagPattern, '\n')
-        .replaceAll(_htmlTagPattern, '')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', '\'')
-        .replaceAll('&amp;', '&')
-        .trim();
+    return response.structuredPayload == null ? '' : 'DartClaw sent an update.';
   }
 
   String? _nonEmptyString(Object? value) {

@@ -1,12 +1,76 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('zero trusted turn timeout overrides the static provider deadline', () {
+    fakeAsync((async) {
+      final process = FakeCodexProcess(completeExitOnKill: true);
+      final harness = CodexHarness(
+        cwd: '/tmp',
+        executable: 'codex',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => process,
+        commandProbe: defaultCommandProbe,
+        delayFactory: noOpDelay,
+        environment: const {'OPENAI_API_KEY': 'sk-test-key'},
+        killGracePeriod: Duration.zero,
+        turnTimeout: const Duration(seconds: 1),
+      );
+
+      var started = false;
+      harness.start().then((_) => started = true);
+      async.flushMicrotasks();
+      process.emitInitializeResponse(id: latestRequestId(process, 'initialize'));
+      async.flushMicrotasks();
+      expect(started, isTrue);
+
+      harness.setTurnContext(
+        const HarnessTurnContext(
+          sessionId: 'unbounded',
+          turnId: 'turn-1',
+          source: 'workflow',
+          agentName: 'main',
+          turnTimeout: Duration.zero,
+        ),
+      );
+      TurnResult? result;
+      Object? error;
+      harness
+          .turn(
+            sessionId: 'unbounded',
+            messages: const [
+              {'role': 'user', 'content': 'finish after the static deadline'},
+            ],
+            systemPrompt: '',
+          )
+          .then(
+            (value) => result = value,
+            onError: (Object value) {
+              error = value;
+            },
+          );
+      async.flushMicrotasks();
+      process.emitThreadStartResponse(id: latestRequestId(process, 'thread/start'));
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 2));
+      expect(error, isNull);
+      expect(process.killCalled, isFalse);
+
+      process.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      async.flushMicrotasks();
+      expect(result?.stopReason, 'completed');
+
+      unawaited(harness.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
   test('Codex timeout finishes teardown before an immediate next turn restarts', () async {
     final timedOut = FakeCodexProcess(completeExitOnKill: true);
     final recovered = FakeCodexProcess(completeExitOnKill: true, pid: 4243);
@@ -51,7 +115,7 @@ void main() {
     await waitForSentMessage(recovered, 'turn/start');
     recovered.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
 
-    expect(await recoveredTurn, containsPair('stop_reason', 'completed'));
+    expect((await recoveredTurn).stopReason, 'completed');
     expect(spawnIndex, 2);
   });
 

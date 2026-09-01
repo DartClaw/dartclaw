@@ -34,7 +34,7 @@ class _RecordingClient extends http.BaseClient {
 }
 
 void main() {
-  group('GoogleChatRestClient.sendMessage', () {
+  group('GoogleChatRestClient.send text', () {
     test('sends POST to correct URL with JSON body', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
@@ -45,7 +45,7 @@ void main() {
         apiBase: 'https://chat.googleapis.com/v1',
       );
 
-      final result = await client.sendMessage('spaces/AAA', 'Hello');
+      final result = (await client.send(spaceName: 'spaces/AAA', text: 'Hello')).messageName;
 
       expect(result, 'spaces/AAA/messages/BBB');
       expect(captured.method, 'POST');
@@ -57,7 +57,7 @@ void main() {
     test('returns null on API error', () async {
       final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('bad', 500)));
 
-      expect(await client.sendMessage('spaces/AAA', 'Hello'), isNull);
+      expect((await client.send(spaceName: 'spaces/AAA', text: 'Hello')).messageName, isNull);
     });
 
     test('returns null on transport exception', () async {
@@ -65,7 +65,7 @@ void main() {
         authClient: MockClient((request) async => throw const SocketException('boom')),
       );
 
-      expect(await client.sendMessage('spaces/AAA', 'Hello'), isNull);
+      expect((await client.send(spaceName: 'spaces/AAA', text: 'Hello')).messageName, isNull);
     });
 
     test('rejects invalid space names', () async {
@@ -77,7 +77,7 @@ void main() {
         }),
       );
 
-      expect(await client.sendMessage('users/123', 'Hello'), isNull);
+      expect((await client.send(spaceName: 'users/123', text: 'Hello')).messageName, isNull);
       expect(calls, 0);
     });
 
@@ -90,9 +90,9 @@ void main() {
         }),
       );
 
-      await client.sendMessage(
-        'spaces/AAA',
-        'Hello',
+      await client.send(
+        spaceName: 'spaces/AAA',
+        text: 'Hello',
         quotedMessageName: 'spaces/AAA/messages/source',
         quotedMessageLastUpdateTime: '2024-03-15T10:30:00.260127Z',
       );
@@ -106,7 +106,7 @@ void main() {
       });
     });
 
-    test('sendMessageWithQuoteFallback returns null when fallbackOnQuoteFailure is false and quote gets 403', () async {
+    test('returns null when fallbackOnQuoteFailure is false and quote gets 403', () async {
       var calls = 0;
       final client = GoogleChatRestClient(
         authClient: MockClient((request) async {
@@ -115,9 +115,9 @@ void main() {
         }),
       );
 
-      final result = await client.sendMessageWithQuoteFallback(
-        'spaces/AAA',
-        'Hello',
+      final result = await client.send(
+        spaceName: 'spaces/AAA',
+        text: 'Hello',
         quotedMessageName: 'spaces/AAA/messages/source',
         fallbackOnQuoteFailure: false,
       );
@@ -127,7 +127,7 @@ void main() {
       expect(calls, 1, reason: 'should not retry when fallbackOnQuoteFailure is false');
     });
 
-    test('sendMessageWithQuoteFallback retries without quote when fallbackOnQuoteFailure is true (default)', () async {
+    test('retries without quote when fallbackOnQuoteFailure is true (default)', () async {
       var calls = 0;
       final client = GoogleChatRestClient(
         authClient: MockClient((request) async {
@@ -137,9 +137,9 @@ void main() {
         }),
       );
 
-      final result = await client.sendMessageWithQuoteFallback(
-        'spaces/AAA',
-        'Hello',
+      final result = await client.send(
+        spaceName: 'spaces/AAA',
+        text: 'Hello',
         quotedMessageName: 'spaces/AAA/messages/source',
       );
 
@@ -195,7 +195,7 @@ void main() {
     });
   });
 
-  group('GoogleChatRestClient.sendCard', () {
+  group('GoogleChatRestClient.send card', () {
     test('sends POST to correct URL with JSON body', () async {
       late http.Request captured;
       final client = GoogleChatRestClient(
@@ -206,7 +206,7 @@ void main() {
       );
 
       final payload = const ChatCardBuilder().confirmationCard(title: 'Done', message: 'Completed.');
-      final result = await client.sendCard('spaces/AAA', payload);
+      final result = (await client.send(spaceName: 'spaces/AAA', card: payload)).messageName;
 
       expect(result, 'spaces/AAA/messages/CARD');
       expect(captured.method, 'POST');
@@ -217,7 +217,7 @@ void main() {
     test('returns null on API error', () async {
       final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('bad', 500)));
 
-      expect(await client.sendCard('spaces/AAA', const {'cardsV2': []}), isNull);
+      expect((await client.send(spaceName: 'spaces/AAA', card: const {'cardsV2': []})).messageName, isNull);
     });
 
     test('rejects invalid space names', () async {
@@ -229,7 +229,7 @@ void main() {
         }),
       );
 
-      expect(await client.sendCard('users/123', const {'cardsV2': []}), isNull);
+      expect((await client.send(spaceName: 'users/123', card: const {'cardsV2': []})).messageName, isNull);
       expect(calls, 0);
     });
 
@@ -242,9 +242,9 @@ void main() {
         }),
       );
 
-      await client.sendCard(
-        'spaces/AAA',
-        const {'cardsV2': []},
+      await client.send(
+        spaceName: 'spaces/AAA',
+        card: const {'cardsV2': []},
         quotedMessageName: 'spaces/AAA/messages/source.with.dot',
         quotedMessageLastUpdateTime: '2024-03-15T10:30:00.260127Z',
       );
@@ -315,9 +315,9 @@ void main() {
       );
 
       await Future.wait([
-        client.sendMessage('spaces/AAA', 'one'),
-        client.sendMessage('spaces/AAA', 'two'),
-        client.sendMessage('spaces/AAA', 'three'),
+        client.send(spaceName: 'spaces/AAA', text: 'one'),
+        client.send(spaceName: 'spaces/AAA', text: 'two'),
+        client.send(spaceName: 'spaces/AAA', text: 'three'),
       ]);
 
       expect(seenBodies, hasLength(3));
@@ -341,10 +341,10 @@ void main() {
         delay: (_) async {},
       );
 
-      final a1 = client.sendMessage('spaces/A', 'a1');
-      final a2 = client.sendMessage('spaces/A', 'a2');
-      final b1 = client.sendMessage('spaces/B', 'b1');
-      final b2 = client.sendMessage('spaces/B', 'b2');
+      final a1 = client.send(spaceName: 'spaces/A', text: 'a1');
+      final a2 = client.send(spaceName: 'spaces/A', text: 'a2');
+      final b1 = client.send(spaceName: 'spaces/B', text: 'b1');
+      final b2 = client.send(spaceName: 'spaces/B', text: 'b2');
 
       await Future<void>.delayed(Duration.zero);
       expect(starts.keys.toSet(), {'a1', 'b1'});
@@ -416,7 +416,7 @@ void main() {
     });
   });
 
-  group('GoogleChatRestClient.sendCard retry on 400', () {
+  group('GoogleChatRestClient.send card retry on 400', () {
     test('retries without quote when quoted card send fails with 400', () async {
       final requests = <http.Request>[];
       final client = GoogleChatRestClient(
@@ -429,12 +429,12 @@ void main() {
         }),
       );
 
-      final result = await client.sendCard(
-        'spaces/AAA',
-        const {'cardsV2': []},
+      final result = (await client.send(
+        spaceName: 'spaces/AAA',
+        card: const {'cardsV2': []},
         quotedMessageName: 'spaces/AAA/messages/source',
         quotedMessageLastUpdateTime: '2024-03-15T10:30:00.260127Z',
-      );
+      )).messageName;
 
       expect(result, 'spaces/AAA/messages/CARD');
       expect(requests, hasLength(2));
@@ -451,7 +451,7 @@ void main() {
         }),
       );
 
-      expect(await client.sendCard('spaces/AAA', const {'cardsV2': []}), isNull);
+      expect((await client.send(spaceName: 'spaces/AAA', card: const {'cardsV2': []})).messageName, isNull);
       expect(calls, 1);
     });
   });

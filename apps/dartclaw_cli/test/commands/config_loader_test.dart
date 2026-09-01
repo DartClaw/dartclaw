@@ -1,5 +1,7 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_acp/dartclaw_acp.dart' show acpConfigFor;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_cli/src/commands/config_loader.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveChannelConfig;
 import 'package:test/test.dart';
 
 void main() {
@@ -61,7 +63,7 @@ void main() {
     );
   });
 
-  test('loadCliConfig makes bundled channel parsers available before config load', () {
+  test('loadCliConfig resolves every bundled channel section and surfaces its warnings', () {
     final config = loadCliConfig(
       configPath: '/tmp/dartclaw.yaml',
       env: const {'HOME': '/home/testuser'},
@@ -79,9 +81,9 @@ channels:
           : null,
     );
 
-    expect(() => config.getChannelConfig<Object>(ChannelType.googlechat), returnsNormally);
-    expect(() => config.getChannelConfig<Object>(ChannelType.signal), returnsNormally);
-    expect(() => config.getChannelConfig<Object>(ChannelType.whatsapp), returnsNormally);
+    expect(() => resolveChannelConfig<Object>(config, ChannelType.googlechat), returnsNormally);
+    expect(() => resolveChannelConfig<Object>(config, ChannelType.signal), returnsNormally);
+    expect(() => resolveChannelConfig<Object>(config, ChannelType.whatsapp), returnsNormally);
     expect(config.warnings, contains('Invalid google_chat.typing_indicator: "invalid" — using default'));
     expect(config.warnings, contains('Invalid type for signal.port: "String" — using default'));
     expect(config.warnings, contains('Invalid type for whatsapp.gowa_port: "String" — using default'));
@@ -101,5 +103,39 @@ github:
     );
 
     expect(config.extension<GitHubWebhookConfig>('github').enabled, isTrue);
+  });
+
+  test('loadCliConfig primes ACP for every CLI command', () {
+    final config = loadCliConfig(
+      configPath: '/tmp/dartclaw.yaml',
+      fileReader: (_) => '''
+harness:
+  acp:
+    agents:
+      goose:
+        binary: goose
+        topology: direct
+''',
+    );
+
+    expect(acpConfigFor(config).agents, contains('goose'));
+  });
+
+  test('an explicitly ACP-free host refuses the unclaimed section', () {
+    expect(
+      () => loadCliConfig(
+        configPath: '/tmp/dartclaw.yaml',
+        fileReader: (_) => '''
+harness:
+  acp:
+    agents:
+      goose:
+        binary: goose
+        topology: direct
+''',
+        harnessSectionPrimers: const {},
+      ),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('harness.acp'))),
+    );
   });
 }

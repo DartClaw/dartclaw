@@ -1,13 +1,7 @@
 import 'dart:async' show FutureOr;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        AgentExecutionRepository,
-        ExecutionRepositoryTransactor,
-        ProjectService,
-        TaskRepository,
-        WorkflowStepExecutionRepository;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, TaskRepository;
 import 'package:uuid/uuid.dart';
 
 import '../skills/provider_auth_preflight.dart';
@@ -15,7 +9,6 @@ import 'skill_introspector.dart';
 import 'step_config_resolver.dart';
 import 'workflow_git_port.dart';
 import 'workflow_run.dart' show WorkflowWorktreeBinding;
-import 'workflow_runner_types.dart' show WorkflowStepOutputTransformer;
 import 'context_extractor.dart' show StructuredOutputFallbackRecorder;
 
 /// Persistence collaborators required to spawn workflow-owned tasks.
@@ -47,7 +40,6 @@ final class WorkflowGitContext {
 final class WorkflowServiceOptions {
   final WorkflowRoleDefaults roleDefaults;
   final WorkflowApprovalPolicy approvalPolicyDefault;
-  final WorkflowStepOutputTransformer? outputTransformer;
   final StructuredOutputFallbackRecorder? structuredOutputFallbackRecorder;
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
@@ -60,7 +52,6 @@ final class WorkflowServiceOptions {
   const new({
     this.roleDefaults = const WorkflowRoleDefaults(),
     this.approvalPolicyDefault = WorkflowApprovalPolicy.manual,
-    this.outputTransformer,
     this.structuredOutputFallbackRecorder,
     this.skillIntrospector,
     this.providerAuthPreflight,

@@ -1,5 +1,5 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show readBool, readString, readStringList, tryParseDuration;
-import 'package:dartclaw_core/dartclaw_core.dart' show DmAccessMode, GroupAccessMode, GroupEntry, TaskTriggerConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show CommonChannelFields, DmAccessMode, GroupEntry;
 
 /// Configuration for the Cloud Pub/Sub pull client.
 class PubSubConfig {
@@ -46,9 +46,11 @@ class PubSubConfig {
     var pollIntervalSeconds = 2;
     final pollIntervalRaw = yaml['poll_interval_seconds'];
     if (pollIntervalRaw is int) {
-      pollIntervalSeconds = pollIntervalRaw < 1 ? 1 : pollIntervalRaw;
-      if (pollIntervalRaw < 1) {
-        warns.add('google_chat.pubsub.poll_interval_seconds must be >= 1 — clamped to 1');
+      final field = ConfigMeta.fields['channels.google_chat.pubsub.poll_interval_seconds']!;
+      final min = field.min!.toInt();
+      pollIntervalSeconds = FieldConstraints.evaluate(field, pollIntervalRaw) == null ? pollIntervalRaw : min;
+      if (pollIntervalRaw < min) {
+        warns.add('google_chat.pubsub.poll_interval_seconds must be >= $min — clamped to $min');
       }
     } else if (pollIntervalRaw != null) {
       warns.add(
@@ -59,14 +61,17 @@ class PubSubConfig {
     var maxMessagesPerPull = 100;
     final maxMessagesRaw = yaml['max_messages_per_pull'];
     if (maxMessagesRaw is int) {
-      if (maxMessagesRaw < 1) {
-        maxMessagesPerPull = 1;
-        warns.add('google_chat.pubsub.max_messages_per_pull must be >= 1 — clamped to 1');
-      } else if (maxMessagesRaw > 100) {
-        maxMessagesPerPull = 100;
-        warns.add('google_chat.pubsub.max_messages_per_pull must be <= 100 — clamped to 100');
-      } else {
+      final field = ConfigMeta.fields['channels.google_chat.pubsub.max_messages_per_pull']!;
+      final min = field.min!.toInt();
+      final max = field.max!.toInt();
+      if (FieldConstraints.evaluate(field, maxMessagesRaw) == null) {
         maxMessagesPerPull = maxMessagesRaw;
+      } else if (maxMessagesRaw < min) {
+        maxMessagesPerPull = min;
+        warns.add('google_chat.pubsub.max_messages_per_pull must be >= $min — clamped to $min');
+      } else {
+        maxMessagesPerPull = max;
+        warns.add('google_chat.pubsub.max_messages_per_pull must be <= $max — clamped to $max');
       }
     } else if (maxMessagesRaw != null) {
       warns.add(
@@ -298,15 +303,12 @@ class GoogleChatFeedbackConfig {
     var statusStyle = GoogleChatFeedbackStatusStyle.creative;
     final statusStyleRaw = yaml['status_style'];
     if (statusStyleRaw is String) {
-      statusStyle = switch (statusStyleRaw) {
-        'creative' => GoogleChatFeedbackStatusStyle.creative,
-        'minimal' => GoogleChatFeedbackStatusStyle.minimal,
-        'silent' => GoogleChatFeedbackStatusStyle.silent,
-        _ => () {
-          warns.add('Invalid google_chat.feedback.status_style: "$statusStyleRaw" — using default');
-          return GoogleChatFeedbackStatusStyle.creative;
-        }(),
-      };
+      final field = ConfigMeta.fields['channels.google_chat.feedback.status_style']!;
+      if (FieldConstraints.evaluate(field, statusStyleRaw) == null) {
+        statusStyle = GoogleChatFeedbackStatusStyle.values.firstWhere((value) => value.name == statusStyleRaw);
+      } else {
+        warns.add('Invalid google_chat.feedback.status_style: "$statusStyleRaw" — using default');
+      }
     } else if (statusStyleRaw != null) {
       warns.add('Invalid type for google_chat.feedback.status_style: "${statusStyleRaw.runtimeType}" — using default');
     }
@@ -385,9 +387,6 @@ class GoogleChatConfig {
   /// Auth mode for message reactions.
   final ReactionsAuth reactionsAuth;
 
-  /// Per-channel task trigger configuration.
-  final TaskTriggerConfig taskTrigger;
-
   /// Cloud Pub/Sub pull client configuration.
   final PubSubConfig pubsub;
 
@@ -413,7 +412,6 @@ class GoogleChatConfig {
     this.requireMention = true,
     this.quoteReplyMode = QuoteReplyMode.disabled,
     this.reactionsAuth = ReactionsAuth.disabled,
-    this.taskTrigger = const TaskTriggerConfig.disabled(),
     this.pubsub = const PubSubConfig.disabled(),
     this.spaceEvents = const SpaceEventsConfig.disabled(),
     this.feedback = const GoogleChatFeedbackConfig.disabled(),
@@ -442,10 +440,21 @@ class GoogleChatConfig {
 
   /// Parses Google Chat configuration from YAML, appending warnings to [warns].
   factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    final enabled = yaml['enabled'];
-    if (enabled != null && enabled is! bool) {
-      warns.add('Invalid type for google_chat.enabled: "${enabled.runtimeType}" — using default');
-    }
+    final common = CommonChannelFields<GroupAccessMode>.fromYaml(
+      'google_chat',
+      yaml,
+      warns,
+      defaultDmAccess: DmAccessMode.pairing,
+      defaultGroupAccess: GroupAccessMode.disabled,
+      parseGroupAccess: (value) {
+        for (final candidate in GroupAccessMode.values) {
+          if (candidate.name == value) {
+            return candidate;
+          }
+        }
+        return null;
+      },
+    );
 
     final serviceAccount = yaml['service_account'];
     if (serviceAccount != null && serviceAccount is! String) {
@@ -476,52 +485,20 @@ class GoogleChatConfig {
     if (typingIndicatorRaw is bool) {
       typingIndicatorMode = typingIndicatorRaw ? TypingIndicatorMode.message : TypingIndicatorMode.disabled;
     } else if (typingIndicatorRaw is String) {
-      typingIndicatorMode = switch (typingIndicatorRaw) {
-        'true' || 'message' => TypingIndicatorMode.message,
-        'false' || 'disabled' => TypingIndicatorMode.disabled,
-        'emoji' => TypingIndicatorMode.emoji,
-        _ => () {
-          warns.add('Invalid google_chat.typing_indicator: "$typingIndicatorRaw" — using default');
-          return TypingIndicatorMode.message;
-        }(),
-      };
+      final field = ConfigMeta.fields['channels.google_chat.typing_indicator']!;
+      if (FieldConstraints.evaluate(field, typingIndicatorRaw) == null) {
+        typingIndicatorMode = switch (typingIndicatorRaw) {
+          'true' || 'message' => TypingIndicatorMode.message,
+          'false' || 'disabled' => TypingIndicatorMode.disabled,
+          'emoji' => TypingIndicatorMode.emoji,
+          _ => throw StateError('registered typing-indicator spelling has no mapper: $typingIndicatorRaw'),
+        };
+      } else {
+        warns.add('Invalid google_chat.typing_indicator: "$typingIndicatorRaw" — using default');
+      }
     } else if (typingIndicatorRaw != null) {
       warns.add('Invalid type for google_chat.typing_indicator: "${typingIndicatorRaw.runtimeType}" — using default');
     }
-
-    var dmAccess = DmAccessMode.pairing;
-    final dmAccessRaw = yaml['dm_access'];
-    if (dmAccessRaw is String) {
-      final parsed = DmAccessMode.values.where((value) => value.name == dmAccessRaw).firstOrNull;
-      if (parsed != null) {
-        dmAccess = parsed;
-      } else {
-        warns.add('Invalid google_chat.dm_access: "$dmAccessRaw" — using default');
-      }
-    } else if (dmAccessRaw != null) {
-      warns.add('Invalid type for google_chat.dm_access: "${dmAccessRaw.runtimeType}" — using default');
-    }
-
-    var groupAccess = GroupAccessMode.disabled;
-    final groupAccessRaw = yaml['group_access'];
-    if (groupAccessRaw is String) {
-      final parsed = GroupAccessMode.values.where((value) => value.name == groupAccessRaw).firstOrNull;
-      if (parsed != null) {
-        groupAccess = parsed;
-      } else {
-        warns.add('Invalid google_chat.group_access: "$groupAccessRaw" — using default');
-      }
-    } else if (groupAccessRaw != null) {
-      warns.add('Invalid type for google_chat.group_access: "${groupAccessRaw.runtimeType}" — using default');
-    }
-
-    final requireMention = readBool(
-      'require_mention',
-      yaml,
-      warns,
-      defaultValue: true,
-      warnKey: 'google_chat.require_mention',
-    )!;
 
     var quoteReplyMode = QuoteReplyMode.disabled;
     final quoteReplyRaw = yaml['quote_reply'];
@@ -544,22 +521,14 @@ class GoogleChatConfig {
     var reactionsAuth = ReactionsAuth.disabled;
     final reactionsAuthRaw = yaml['reactions_auth'];
     if (reactionsAuthRaw is String) {
-      final parsed = ReactionsAuth.values.where((v) => v.name == reactionsAuthRaw).firstOrNull;
-      if (parsed != null) {
-        reactionsAuth = parsed;
+      final field = ConfigMeta.fields['channels.google_chat.reactions_auth']!;
+      if (FieldConstraints.evaluate(field, reactionsAuthRaw) == null) {
+        reactionsAuth = ReactionsAuth.values.firstWhere((value) => value.name == reactionsAuthRaw);
       } else {
         warns.add('Invalid value for google_chat.reactions_auth: "$reactionsAuthRaw" — using default');
       }
     } else if (reactionsAuthRaw != null) {
       warns.add('Invalid type for google_chat.reactions_auth: "${reactionsAuthRaw.runtimeType}" — using default');
-    }
-
-    var taskTrigger = const TaskTriggerConfig.disabled();
-    final taskTriggerRaw = yaml['task_trigger'];
-    if (taskTriggerRaw is Map) {
-      taskTrigger = TaskTriggerConfig.fromYaml(Map<String, dynamic>.from(taskTriggerRaw), warns);
-    } else if (taskTriggerRaw != null) {
-      warns.add('Invalid type for google_chat.task_trigger: "${taskTriggerRaw.runtimeType}" — using default');
     }
 
     var pubsub = const PubSubConfig.disabled();
@@ -594,11 +563,10 @@ class GoogleChatConfig {
     final parsedOauthCredentials = normalizedOauthCredentials == null || normalizedOauthCredentials.isEmpty
         ? null
         : normalizedOauthCredentials;
-    final parsedEnabled = enabled is bool ? enabled : false;
-    if (parsedEnabled && parsedServiceAccount == null) {
+    if (common.enabled && parsedServiceAccount == null) {
       warns.add('Missing required google_chat.service_account when channel is enabled');
     }
-    if (parsedEnabled && audience == null) {
+    if (common.enabled && audience == null) {
       warns.add('Missing or invalid google_chat.audience when channel is enabled');
     }
 
@@ -622,24 +590,20 @@ class GoogleChatConfig {
     }
 
     return GoogleChatConfig(
-      enabled: parsedEnabled,
+      enabled: common.enabled,
       serviceAccount: parsedServiceAccount,
       oauthCredentials: parsedOauthCredentials,
       audience: audience,
       webhookPath: webhookPath,
       botUser: botUser is String ? botUser : null,
       typingIndicatorMode: typingIndicatorMode,
-      dmAccess: dmAccess,
-      dmAllowlist: _parseStringList(yaml['dm_allowlist']),
-      groupAccess: groupAccess,
-      groupAllowlist: GroupEntry.parseList(
-        yaml['group_allowlist'] is List ? yaml['group_allowlist'] as List : null,
-        onWarning: warns.add,
-      ),
-      requireMention: requireMention,
+      dmAccess: common.dmAccess,
+      dmAllowlist: common.dmAllowlist,
+      groupAccess: common.groupAccess,
+      groupAllowlist: common.groupAllowlist,
+      requireMention: common.requireMention,
       quoteReplyMode: quoteReplyMode,
       reactionsAuth: reactionsAuth,
-      taskTrigger: taskTrigger,
       pubsub: pubsub,
       spaceEvents: spaceEvents,
       feedback: feedback,
@@ -666,9 +630,13 @@ class GoogleChatConfig {
     }
 
     final mode = switch (type) {
-      'app-url' => GoogleChatAudienceMode.appUrl,
-      'project-number' => GoogleChatAudienceMode.projectNumber,
       null => null,
+      String() when FieldConstraints.evaluate(ConfigMeta.fields['channels.google_chat.audience.type']!, type) == null =>
+        switch (type) {
+          'app-url' => GoogleChatAudienceMode.appUrl,
+          'project-number' => GoogleChatAudienceMode.projectNumber,
+          _ => throw StateError('registered audience spelling has no mapper: $type'),
+        },
       _ => () {
         warns.add('Invalid google_chat.audience.type: "$type" — using default');
         return null;
@@ -680,12 +648,5 @@ class GoogleChatConfig {
     }
 
     return GoogleChatAudienceConfig(mode: mode, value: normalizedValue);
-  }
-
-  static List<String> _parseStringList(Object? raw) {
-    if (raw is List) {
-      return raw.whereType<String>().toList();
-    }
-    return [];
   }
 }

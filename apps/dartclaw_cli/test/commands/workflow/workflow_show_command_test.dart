@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_show_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

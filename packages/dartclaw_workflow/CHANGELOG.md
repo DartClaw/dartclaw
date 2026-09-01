@@ -6,6 +6,7 @@
 - The built-in spec-and-implement workflow no longer emits a duplicate-output description warning
 
 ### Added
+- `lib/testing.dart` — an opt-in test-double entry point serving `FakeGitGateway`, `FakeSkillIntrospector` and `FakeProviderAuthPreflight`. Deliberately not re-exported by the package barrel, which stays free of test-only symbols
 - `WorkflowGitPort` as the single mockable git boundary for workflow-layer git operations, including branch-state reads for `HEAD:<path>` artifact checks
 - Artefact commit redesign option notes covering copy-not-commit and artefact-branch-split follow-ups
 - `OutputResolver`, `MissingArtifactFailure`, and `ProducedArtifactResolver` for filesystem-first structured-output extraction and artifact propagation checks

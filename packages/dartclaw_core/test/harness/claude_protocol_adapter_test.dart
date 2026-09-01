@@ -83,8 +83,8 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final toolResult = msg! as ToolResult;
+      expect(msg, isA<ToolResultMessage>());
+      final toolResult = msg! as ToolResultMessage;
       expect(toolResult.toolId, 'tu_123');
       expect(toolResult.output, 'file contents here');
       expect(toolResult.isError, isFalse);
@@ -202,12 +202,11 @@ void main() {
       expect(payload.containsKey('system_prompt'), isFalse);
     });
 
-    test('includes resume when true', () {
+    test('has no provider-session resume payload field', () {
       final adapter = ClaudeProtocolAdapter();
-      expect(adapter.buildTurnRequest(message: 'Hello', resume: true), {
+      expect(adapter.buildTurnRequest(message: 'Hello'), {
         'type': 'user',
         'message': {'role': 'user', 'content': 'Hello'},
-        'resume': true,
       });
     });
   });

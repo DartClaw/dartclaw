@@ -2,9 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show CredentialRegistry, CredentialUnavailableReason, ProviderIdentity, credentialRemediationFor;
-import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Outcome of evaluating one referenced provider's authentication state.
 ///

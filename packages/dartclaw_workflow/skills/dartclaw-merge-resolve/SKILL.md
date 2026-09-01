@@ -110,7 +110,8 @@ After a successful commit, emit the final output (STEP 7) with `outcome: "resolv
 
 ## STEP 7 — Emit Structured Output
 
-Emit all four output fields on **every** terminal path:
+Emit all four output fields on **every** terminal path. If a previous attempt failed, correct the named
+failure before returning; only name a path for a file that already exists on disk.
 
 ### Success path (`outcome: "resolved"`)
 

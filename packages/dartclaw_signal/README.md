@@ -37,9 +37,9 @@ channels:
     require_mention: true
 ```
 
-Importing the package registers its config parser. Call
-`ensureDartclawSignalRegistered()` during startup if you want to force that
-registration explicitly.
+`SignalConfig.fromYaml` parses this section. A DartClaw deployment reaches it
+through `resolveChannelConfig` in `dartclaw_runtime`; there is nothing to
+register.
 
 ## Key Types
 
@@ -47,23 +47,26 @@ registration explicitly.
 - `SignalConfig`: strongly typed channel configuration.
 - `SignalCliManager`: subprocess and API coordination for `signal-cli`.
 - `SignalSenderMap`: mapping layer for sender metadata.
-- `SignalGroupAccessMode` and `SignalMentionGating`: group access and mention rules.
+- `GroupAccessMode` and `MentionGating` (re-exported from `dartclaw_core`): group access and mention rules.
 
 ## When to Use This Package
 
-Use `dartclaw_signal` when you are integrating an agent with Signal. Most
-applications pull it in through [`dartclaw`](https://pub.dev/packages/dartclaw);
-depend on it directly when you are composing only the pieces you need.
+Use `dartclaw_signal` when you are integrating an agent with Signal in a
+runtime you compose yourself, alongside `dartclaw_core`.
+
+This is the **fork-the-runtime** tier: it is not published to pub.dev and
+carries no compatibility promise. The `dartclaw` umbrella no longer re-exports
+it — depend on it from a checkout and own the fork
+([ADR-008](https://github.com/DartClaw/dartclaw/blob/main/dev/adrs/008-sdk-publishing-strategy.md)).
 
 ## Related Packages
 
-- [`dartclaw`](https://pub.dev/packages/dartclaw) for the umbrella SDK.
-- [`dartclaw_whatsapp`](https://pub.dev/packages/dartclaw_whatsapp) for WhatsApp integration.
-- [`dartclaw_google_chat`](https://pub.dev/packages/dartclaw_google_chat) for Google Chat integration.
+- [`dartclaw_core`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_core) for the runtime this channel plugs into.
+- [`dartclaw_whatsapp`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_whatsapp) for WhatsApp integration.
+- [`dartclaw_google_chat`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_google_chat) for Google Chat integration.
 
 ## Documentation
 
-- [API Reference](https://pub.dev/documentation/dartclaw_signal/latest/)
 - [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
 - [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_signal)
 

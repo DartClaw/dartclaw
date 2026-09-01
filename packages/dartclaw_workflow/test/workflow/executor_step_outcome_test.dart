@@ -8,25 +8,25 @@ import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OnFailurePolicy,
         SessionService,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowRunStatus,
         WorkflowStep,
         WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show executionEnvelopeMarkerKey, executionEnvelopeOutputsKey, executionEnvelopeVersion;
+    show
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeStepOutcomeKey,
+        executionEnvelopeVersion;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
-
-import 'package:dartclaw_workflow/src/workflow/step_retry_policy.dart';
 
 import 'workflow_executor_test_support.dart';
 
@@ -36,16 +36,14 @@ void main() {
   tearDown(h.tearDown);
 
   group('step outcome protocol and onFailure policy wiring', () {
-    test('workflow retry failure classifier normalizes comparable failure reasons', () {
-      expect(workflowRetryFailureClass(null), 'workflow step failed');
-      expect(workflowRetryFailureClass('StateError: Boom (attempt 1)'), 'boom');
-      expect(workflowRetryFailureClass('Invalid argument(s): Missing PROJECT [retryable]'), 'missing project');
-      expect(workflowRetryFailureClass('x' * 120), hasLength(80));
-    });
-
+    /// Completes [taskId] with the step outcome its finalizer envelope would
+    /// carry. [outcomeContent] is the inline assistant message reserved for
+    /// `emitsOwnOutcome` steps.
     Future<void> completeTaskWithOutcome(
       String taskId, {
-      required String outcomeContent,
+      String? outcome,
+      String reason = '',
+      String? outcomeContent,
       TaskStatus finalStatus = TaskStatus.accepted,
       int? tokenCount,
     }) async {
@@ -54,7 +52,16 @@ void main() {
       if (tokenCount != null) {
         await h.kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
       }
-      await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+      if (outcomeContent != null) {
+        await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+      }
+      if (outcome != null) {
+        await h.seedExecutionEnvelope(taskId, {
+          executionEnvelopeOutputsKey: const <String, dynamic>{},
+          executionEnvelopeStepOutcomeKey: {'outcome': outcome, 'reason': reason},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        });
+      }
       await h.completeTask(taskId, status: finalStatus);
     }
 
@@ -151,10 +158,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         taskCount++;
         if (taskCount == 1) {
-          await completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent: '<step-outcome>{"outcome":"failed","reason":"non-blocking failure"}</step-outcome>',
-          );
+          await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'non-blocking failure');
         } else {
           await h.completeTask(e.taskId);
         }
@@ -189,7 +193,8 @@ void main() {
         taskCount++;
         await completeTaskWithOutcome(
           e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"operator decision required"}</step-outcome>',
+          outcome: 'needsInput',
+          reason: 'operator decision required',
           tokenCount: 17,
         );
       });
@@ -231,15 +236,9 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         taskCount++;
         if (taskCount == 1) {
-          await completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"optional cleanup blocked"}</step-outcome>',
-          );
+          await completeTaskWithOutcome(e.taskId, outcome: 'needsInput', reason: 'optional cleanup blocked');
         } else {
-          await completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"continued"}</step-outcome>',
-          );
+          await completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'continued');
         }
       });
 
@@ -277,15 +276,9 @@ void main() {
         final task = await h.taskService.get(e.taskId);
         descriptions.add(task?.description ?? '');
         if (taskCount == 1) {
-          await completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent: '<step-outcome>{"outcome":"failed","reason":"first attempt failed"}</step-outcome>',
-          );
+          await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'first attempt failed');
         } else {
-          await completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"fixed"}</step-outcome>',
-          );
+          await completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'fixed');
         }
       });
 
@@ -322,10 +315,7 @@ void main() {
       ) async {
         await Future<void>.delayed(Duration.zero);
         taskIds.add(e.taskId);
-        await completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"failed","reason":"persistent failure $taskIds"}</step-outcome>',
-        );
+        await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'persistent failure $taskIds');
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
@@ -361,11 +351,7 @@ void main() {
       ) async {
         await Future<void>.delayed(Duration.zero);
         taskCount++;
-        await completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<step-outcome>{"outcome":"failed","reason":"Deterministic error: same input"}</step-outcome>',
-        );
+        await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'Deterministic error: same input');
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
@@ -398,17 +384,111 @@ void main() {
       ) async {
         await Future<void>.delayed(Duration.zero);
         taskCount++;
-        await completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<step-outcome>{"outcome":"failed","reason":"retry-class-$taskCount: still failing"}</step-outcome>',
-        );
+        await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'retry-class-$taskCount: still failing');
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
       await sub.cancel();
 
       expect(taskCount, equals(4), reason: 'maxRetries: 3 permits 4 total attempts without early-stop');
+      final finalRun = await h.repository.getById('run-1');
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+    });
+
+    test(
+      'an output-validation failure and a model-declared failure with identical text are distinct classes',
+      () async {
+        // The two attempts read the same to an operator; only the host knows they
+        // came from different producers, so the budget is spent rather than
+        // short-circuited. maxRetries: 2 is load-bearing – at 1 the early-stop
+        // comparison is unreachable and both outcomes yield two attempts.
+        h.executor = h.makeExecutor(
+          contextExtractor: FailFirstContextExtractor(
+            error: StateError('Boom'),
+            taskService: h.taskService,
+            messageService: h.messageService,
+            dataDir: h.tempDir.path,
+            workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+          ),
+        );
+        final definition = h.makeDefinition(
+          steps: [
+            const WorkflowStep(
+              id: 'step1',
+              name: 'Step 1',
+              prompts: ['Do step 1'],
+              onFailure: OnFailurePolicy.retry,
+              maxRetries: 2,
+            ),
+          ],
+        );
+
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+
+        var taskCount = 0;
+        final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+          e,
+        ) async {
+          await Future<void>.delayed(Duration.zero);
+          taskCount++;
+          await completeTaskWithOutcome(
+            e.taskId,
+            // Attempt 1 never reads this: its extraction throws StateError('Boom')
+            // first, so the step fails through the validation arm instead.
+            outcome: 'failed',
+            reason: 'Boom',
+          );
+        });
+
+        await h.executor.execute(run, definition, WorkflowContext());
+        await sub.cancel();
+
+        expect(
+          taskCount,
+          equals(3),
+          reason: 'validation and model-declared failures are different values even when their text matches',
+        );
+        final finalRun = await h.repository.getById('run-1');
+        expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      },
+    );
+
+    test('a task-terminal-status failure is its own class beside a model-declared one', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(
+            id: 'step1',
+            name: 'Step 1',
+            prompts: ['Do step 1'],
+            onFailure: OnFailurePolicy.retry,
+            maxRetries: 2,
+          ),
+        ],
+      );
+
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var taskCount = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        e,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        taskCount++;
+        if (taskCount == 1) {
+          // Terminal status wins over the envelope, and leaves 'failed' – the
+          // status name – as the reason, which attempt 2's model then repeats.
+          await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'failed', finalStatus: TaskStatus.failed);
+        } else {
+          await completeTaskWithOutcome(e.taskId, outcome: 'failed', reason: 'failed');
+        }
+      });
+
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      expect(taskCount, equals(3), reason: 'a terminal-status failure is not the model-declared failure it echoes');
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
@@ -498,10 +578,7 @@ void main() {
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
-        await completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"cancelled","reason":"x"}</step-outcome>',
-        );
+        await completeTaskWithOutcome(e.taskId, outcome: 'cancelled', reason: 'x');
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
@@ -528,7 +605,8 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         await completeTaskWithOutcome(
           e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"all good"}</step-outcome>',
+          outcome: 'succeeded',
+          reason: 'all good',
           finalStatus: TaskStatus.cancelled,
         );
       });
@@ -621,10 +699,7 @@ void main() {
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
-        await completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"all done"}</step-outcome>',
-        );
+        await completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'all done');
       });
 
       await h.executor.execute(run, definition, WorkflowContext());
@@ -657,8 +732,7 @@ void main() {
       expect(tasks.where((t) => t.workflowRunId == 'run-1'), isEmpty);
     });
 
-    test('agent step creates exactly one TaskType.coding task', () async {
-      // Proves ADR-023: agent steps compile to TaskType.coding tasks.
+    test('agent step creates exactly one task', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(id: 'agent1', name: 'Agent', prompts: ['Do work']),
@@ -680,7 +754,6 @@ void main() {
 
       final workflowTasks = (await h.taskService.list()).where((t) => t.workflowRunId == 'run-1').toList();
       expect(workflowTasks, hasLength(1));
-      expect(workflowTasks.first.type, equals(TaskType.coding));
     });
 
     test('Task.configJson has no _workflow* keys except the retained token/artifact fields', () async {
@@ -838,14 +911,28 @@ void main() {
       expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
     });
 
-    test('missing execution envelope falls back to the legacy step-outcome tag', () async {
+    test('a non-emitsOwnOutcome step ignores an inline step-outcome tag and takes the lifecycle fallback', () async {
+      // The tag is the designed channel for emitsOwnOutcome steps only. On any
+      // other step it is inert text: the lifecycle status decides, and the
+      // ADR-022 fallback counter plus its warning fire.
+      final logRecords = <LogRecord>[];
+      final logSub = Logger.root.onRecord.listen(logRecords.add);
+
       final run = await runStep(
         plainStep,
         legacyOutcomeContent: '<step-outcome>{"outcome":"failed","reason":"legacy path"}</step-outcome>',
       );
+      await logSub.cancel();
 
-      expect(run?.status, equals(WorkflowRunStatus.failed));
-      expect(await h.kvService.get('workflow.outcome.fallback'), isNull);
+      expect(run?.status, equals(WorkflowRunStatus.completed), reason: 'the accepted task decided, not the tag');
+      expect(run?.contextJson['data']?['step.step1.outcome'], equals('succeeded'));
+      expect(await h.kvService.get('workflow.outcome.fallback'), equals('1'));
+      expect(
+        logRecords
+            .where((r) => r.level >= Level.WARNING)
+            .any((r) => r.message.contains('Step outcome marker missing') && r.message.contains('step1')),
+        isTrue,
+      );
     });
 
     test('cancellation between the main turn and finalizer yields cancelled with no fallback counter', () async {

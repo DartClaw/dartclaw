@@ -1,15 +1,14 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OutputConfig,
         OutputFormat,
         Task,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
         WorkflowGitStrategy,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_artifact_committer.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
@@ -81,13 +80,7 @@ void main() {
             },
           },
         ),
-        task: Task(
-          id: 'task-1',
-          title: 'Plan',
-          description: 'Plan',
-          type: TaskType.coding,
-          createdAt: DateTime(2026, 1, 1),
-        ),
+        task: Task(id: 'task-1', title: 'Plan', description: 'Plan', createdAt: DateTime(2026, 1, 1)),
         projectService: null,
         dataDir: harness.tempDir.path,
         templateEngine: WorkflowTemplateEngine(),

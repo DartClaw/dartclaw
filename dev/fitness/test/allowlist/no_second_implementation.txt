@@ -1,0 +1,20 @@
+# Allowlist for no_second_implementation_test.dart
+# Format: <TypeName>  # <why this duplicate survives>
+#
+# The pre-milestone baseline was ten cross-package duplicate production type
+# names. This file must stay below that, and shrink, never grow. A `typedef
+# X = other.X;` re-alias is skipped by the scan itself and needs no entry.
+#
+# Both remaining entries are legitimate: a port and its adapter share the port's
+# name by design. The four PENDING collisions this file carried through the
+# milestone were resolved by production rename in 0.25, not by an allowlist edit:
+# core's `HarnessConfig` became `HarnessLaunchOptions`, core's
+# `ReservedCommandHandler` typedef became `ReservedCommandDispatch`, the workflow
+# definition validator's `ValidationError`/`ValidationErrorType` became
+# `WorkflowValidationError`/`WorkflowValidationErrorType`, and the workflow
+# package's `WindowsProcessTreeTerminator` became `WindowsProcessTreeKillCommand`
+# — the kill invocation, which is what it always was; the termination verdict
+# keeps core's name.
+
+TurnManager  # legitimate: dartclaw_runtime's class implements core.TurnManager, the port core owns (ADR-034 adapter naming).
+TurnRunner  # legitimate: dartclaw_runtime's class implements core.TurnRunner, the port core owns (ADR-034 adapter naming).

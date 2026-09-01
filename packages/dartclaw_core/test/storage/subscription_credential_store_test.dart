@@ -400,8 +400,8 @@ void main() {
       test('$fileName introduces no keychain access', () {
         final code = _storeSource(fileName).where((line) => !line.trimLeft().startsWith('///')).join('\n');
 
-        // Quoted form only, so a future `package:dartclaw_security` import does
-        // not read as a `security` binary invocation.
+        // Quoted form only, so a `package:dartclaw_kernel` import never reads
+        // as a `security` binary invocation.
         expect(code, isNot(contains("'security'")), reason: 'no `security` binary invocation');
         expect(code.toLowerCase(), isNot(contains('keychain')), reason: 'no keychain API use');
         expect(

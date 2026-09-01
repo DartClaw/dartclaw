@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_validate_command.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillIntrospector;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

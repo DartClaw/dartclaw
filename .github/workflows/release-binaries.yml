@@ -62,14 +62,14 @@ jobs:
       - name: Read DartClaw version
         if: runner.os != 'Windows'
         run: |
-          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_server/lib/src/version.dart)
+          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_runtime/lib/src/version.dart)
           echo "DARTCLAW_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Read DartClaw version (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $line = Select-String -Path packages/dartclaw_server/lib/src/version.dart -Pattern "dartclawVersion = '([^']+)'"
+          $line = Select-String -Path packages/dartclaw_runtime/lib/src/version.dart -Pattern "dartclawVersion = '([^']+)'"
           "DARTCLAW_VERSION=$($line.Matches[0].Groups[1].Value)" >> $env:GITHUB_ENV
 
       - name: Verify release version lockstep
@@ -220,7 +220,7 @@ jobs:
 
       - name: Read DartClaw version
         run: |
-          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_server/lib/src/version.dart)
+          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_runtime/lib/src/version.dart)
           echo "DARTCLAW_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Download platform checksums
@@ -283,7 +283,7 @@ jobs:
 
       - name: Read DartClaw version
         run: |
-          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_server/lib/src/version.dart)
+          VERSION=$(sed -n "s/^const dartclawVersion = '\([^']*\)';/\1/p" packages/dartclaw_runtime/lib/src/version.dart)
           echo "DARTCLAW_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Download Windows checksum

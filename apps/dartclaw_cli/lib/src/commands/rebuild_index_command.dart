@@ -2,9 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
 
 import 'config_loader.dart';
 
@@ -41,7 +40,7 @@ class RebuildIndexCommand extends Command<void> {
 
     final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     try {
-      final preflight = await LegacyMemoryMigrator(
+      final preflight = await MemoryPreflight(
         workspaceDir: config.workspaceDir,
         corpusService: corpusService,
       ).preflight();
@@ -75,6 +74,8 @@ class RebuildIndexCommand extends Command<void> {
             'indexedRows': result.rowCount,
             'health': result.health.state.name,
             'unchanged': false,
+            // The human path reads this off the preflight report; the JSON path had no way to see it.
+            'reconciled': preflight.status == MemoryPreflightStatus.reconciled,
           }),
         );
       } else {

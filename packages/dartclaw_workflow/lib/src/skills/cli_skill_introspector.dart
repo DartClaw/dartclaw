@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show ClaudeProviderOptions, ProviderIdentity;
-import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../workflow/skill_introspector.dart';
 

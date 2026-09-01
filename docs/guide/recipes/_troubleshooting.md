@@ -38,7 +38,8 @@ If/when announce routing is implemented:
 
 1. Read the current collection revision and target entry revisions with `memory_read` or `memory_search`.
 2. Retry `memory_apply` with those revisions and a wholly valid operation set. One malformed, overlapping, missing, or stale target rejects the entire set.
-3. If canonical commit succeeded but the index is degraded, keep the returned collection revision and run index recovery or `dartclaw rebuild-index` rather than replaying the mutation.
+3. If the rejection says an ID "was not included in the bounded snapshot", the call came from a `memory-curation` run, which may only change the entries its own snapshot showed it. Wait for the next run, whose snapshot is composed fresh, or apply the change yourself outside the run.
+4. If canonical commit succeeded but the index is degraded, keep the returned collection revision and run index recovery or `dartclaw rebuild-index` rather than replaying the mutation.
 
 ### Memory search returns nothing
 
@@ -57,8 +58,8 @@ If/when announce routing is implemented:
        enabled: true
    ```
 2. **Is the workspace a git repo?** Run `ls -la <data_dir>/workspace/.git` to check. If not: `cd <data_dir>/workspace && git init`
-3. **Is heartbeat enabled and firing?** Git sync uses the heartbeat timer, but does not require a non-empty `HEARTBEAT.md`
-4. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last heartbeat cycle, no commit is created
+3. **Has the git-sync interval elapsed?** Git sync runs on its own `workspace.git_sync.interval_minutes` schedule (default 30), independent of the heartbeat
+4. **Are there changes to commit?** Git sync only commits when workspace files change. If nothing changed since the last sync, no commit is created
 
 ### Git push failing
 
@@ -78,7 +79,7 @@ If/when announce routing is implemented:
 1. **Is GOWA running?** The WhatsApp sidecar must be running and paired. Check `/settings` in the web UI
 2. **Is the sender allowlisted?** If `dm_access: allowlist`, the sender's JID must be in `dm_allowlist`. JID format: international phone number + `@s.whatsapp.net` (e.g., `+49 123 456 7890` → `491234567890@s.whatsapp.net`)
 3. **Is the sender paired?** If `dm_access: pairing`, the sender must be approved via the pairing flow in the web UI at `/settings/channels/whatsapp`
-4. **Input sanitizer blocking?** If `guards.input_sanitizer.enabled: true`, the message may have been blocked. Check the guard audit log at `/health-dashboard`
+4. **A guard blocking?** A tool call the turn made may have been refused by the command, file, network, or content guard. Check the guard audit log at `/health-dashboard`
 
 ### Google Chat bot not responding
 

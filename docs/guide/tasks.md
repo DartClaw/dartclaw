@@ -1,17 +1,8 @@
 # Tasks
 
-DartClaw's task system is for reviewable background work. A task can run as coding, research, writing, analysis, automation, or custom work, then stop in a review state before the final outcome is accepted.
+DartClaw's task system is for reviewable background work. A task carries a title, description and explicit execution declarations, then stops in a review state before the final outcome is accepted.
 
 ## Core Concepts
-
-### Task Types
-
-- `coding`
-- `research`
-- `writing`
-- `analysis`
-- `automation`
-- `custom`
 
 ### Lifecycle
 
@@ -32,11 +23,11 @@ Open `/tasks` and use **New Task**. The form supports:
 
 - title
 - description
-- type
 - acceptance criteria
 - optional goal
 - `autoStart`
 - advanced overrides such as model and token budget
+- whether the task needs an isolated git worktree
 
 `autoStart: true` queues the task immediately. Otherwise it remains in `draft` until started manually.
 
@@ -49,9 +40,9 @@ Content-Type: application/json
 {
   "title": "Refactor the auth middleware tests",
   "description": "Tighten rate-limit and cookie coverage without changing behavior.",
-  "type": "coding",
   "acceptanceCriteria": "All auth tests pass and analyzer stays clean.",
-  "autoStart": true
+  "autoStart": true,
+  "configJson": {"needsWorktree": true}
 }
 ```
 
@@ -59,7 +50,7 @@ Tasks can also be linked to a goal with `goalId`.
 
 ### Project Targeting
 
-Coding tasks can target a specific project. When creating a task, set `projectId` to route it to the correct repository:
+Tasks can target a specific project. When creating a task, set `projectId` to route it to the correct repository:
 
 ```http
 POST /api/tasks
@@ -67,9 +58,10 @@ Content-Type: application/json
 
 {
   "title": "Refactor auth middleware",
-  "type": "coding",
+  "description": "Refactor the middleware without changing behavior.",
   "projectId": "my-app",
-  "autoStart": true
+  "autoStart": true,
+  "configJson": {"needsWorktree": true}
 }
 ```
 
@@ -87,6 +79,9 @@ When creating a task (via API or web UI), you can set per-task overrides in `con
 |-----|------|---------|---------|
 | `model` | `string` | global `agent.model` | Model override for this specific task |
 | `tokenBudget` | `int` | unlimited | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias). Per-task budgets are independent of the server-wide [daily token budget](governance.md#daily-token-budget) |
+| `needsWorktree` | `bool` | `false` | Whether the task runs in an isolated git worktree |
+| `artifactExtensions` | `list<string>` | all modified files | Extensions to retain when collecting files from a non-worktree task, for example `['.md']` |
+| `reviewMode` | `string` | `mandatory` | `auto-accept`, `mandatory`, or `worktree-only` |
 
 ```http
 POST /api/tasks
@@ -95,7 +90,6 @@ Content-Type: application/json
 {
   "title": "Deep security audit of auth module",
   "description": "Analyze all auth code paths for vulnerabilities.",
-  "type": "analysis",
   "projectId": "my-app",
   "autoStart": true,
   "configJson": {
@@ -113,32 +107,41 @@ Tasks acquire per-provider worker leases from the execution coordinator, separat
 
 - `providers.<id>.pool_size` is a hard concurrent lease limit shared with other background execution
 - the primary lane is never acquired by the task executor
-- each task type maps to a container security profile (see below)
+- tasks default to the neutral `workspace` container profile unless an operator declares another profile
 - `/tasks` shows execution state through lease-derived worker metrics
 
 ### Container Profile Routing
 
-Each task type maps to a security profile that determines container isolation:
+Tasks default to the neutral `workspace` profile. An operator may instead declare `securityProfile: "restricted"`
+as a top-level field on the authenticated `POST /api/tasks` request. The declaration is intentionally unavailable
+to channel and model-facing task creation surfaces. `configJson.securityProfile` is host-reserved and rejected.
 
 These profiles apply when POSIX container isolation is available. Native Windows keeps task routing and worktree
 behavior but cannot activate these container profiles; enabling containers fails closed with POSIX/WSL remediation.
 
-| Task Type | Profile | Mounts |
-|-----------|---------|--------|
-| `research` | `restricted` | No workspace mount |
-| `coding` | `workspace` | `/workspace:rw`, `/project:ro` |
-| `writing` | `workspace` | `/workspace:rw`, `/project:ro` |
-| `analysis` | `workspace` | `/workspace:rw`, `/project:ro` |
-| `automation` | `workspace` | `/workspace:rw`, `/project:ro` |
-| `custom` | `workspace` | `/workspace:rw`, `/project:ro` |
+| Declaration | Profile | Mounts |
+|-------------|---------|--------|
+| Omitted or `workspace` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `restricted` | `restricted` | No workspace mount |
 
-The task executor requests a worker for the task's exact provider and effective execution policy. A `research` task will only run on a `restricted`-profile runner – it won't accidentally reuse a `workspace` runner with filesystem access. Workers start lazily; each task container is dedicated to that task execution and destroyed when its turn ends.
+The task executor requests a worker for the task's exact provider and effective execution policy. A declared
+`restricted` task will only run on a `restricted`-profile runner. Workers start lazily; each task container is
+dedicated to that task execution and destroyed when its turn ends.
 
-A task type routed to a container profile can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`. An ACP provider runs on the host only: set `tasks.execution.<task-type>: host` for the task types it serves, or the task is refused before it starts rather than quietly running unisolated.
+A container task can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`.
+An ACP provider runs on the host only: set the scalar `tasks.execution: host`, or the task lane is refused before it
+starts rather than quietly running unisolated. A declared container profile cannot be combined with host execution.
 
-## Coding Tasks and Worktrees
+The former `research` input selected `restricted` implicitly. It is now refused on every creation and scheduled
+input path so that upgrading cannot silently widen an existing boundary. Declare `securityProfile: "restricted"`
+through the authenticated API when that boundary is required. Pre-upgrade stored
+`research` rows fail before dispatch with the same remediation.
 
-Coding tasks run inside an isolated git worktree created from the task's target project:
+## Worktree Isolation
+
+Set `configJson.needsWorktree` to `true` to run a task inside an isolated git worktree created from its target project.
+Set it to `false` to run in the workflow or project workspace. The web form always sends this declaration. Legacy
+`coding` input is refused with this declaration named so an upgrade cannot silently drop isolation.
 
 - **External projects**: worktree branches from the project clone (auto-fetched). On accept, the branch is pushed to the remote (and a PR created if configured).
 - **`_local` project**: worktree branches from the local base ref. On accept, `MergeExecutor` squash-merges locally.
@@ -152,9 +155,9 @@ The worktree path is guarded so file operations stay contained to the task's ass
 
 When execution finishes, the task enters `review` with artifacts attached:
 
-- **Accept**: finalizes the task and, for coding tasks, merges the worktree back into the base ref
+- **Accept**: finalizes the task and, when it has a standalone worktree, merges that worktree back into the base ref
 - **Reject**: closes the task without re-queueing it
-- **Push Back**: requires a comment and returns the task to `queued`
+- **Push Back**: requires a comment and returns the task to `running`
 
 The task detail page combines:
 
@@ -165,7 +168,52 @@ The task detail page combines:
 
 ## Diff Review and Merge Conflicts
 
-Coding tasks typically attach a structured diff artifact for review. If the final merge hits conflicts, DartClaw preserves a `conflict.json` artifact and keeps the task in review so the operator can resolve the worktree manually.
+Worktree-backed tasks attach a structured diff artifact for review. Tasks without a worktree attach files modified since
+their start time, optionally narrowed by `artifactExtensions`. If the final merge hits conflicts, DartClaw preserves a
+`conflict.json` artifact and keeps the task in review so the operator can resolve the worktree manually.
+
+## Agent Tool Surface
+
+The agent manages tasks through six MCP tools rather than through chat commands. Each is a strict-schema call: an
+argument the schema does not name is rejected before the tool runs.
+
+| Tool | Accepts | Returns |
+|---|---|---|
+| `task_create` | `title`, `description`, optional `acceptance_criteria`, `project_id`, `auto_start` | the new task's full ID, title and status |
+| `task_list` | optional `status`, `limit` (max 200, default 50) | matching tasks with full IDs, plus whether the listing was truncated |
+| `review_list` | no arguments | the tasks awaiting review, oldest first, with full IDs |
+| `task_review` | `task_id`, `action` (`accept`, `reject`, `push_back`), `feedback` (required for `push_back` only) | the task's full ID, title and new status |
+| `task_bind` | `task_id`, `channel_type`, `thread_id` | the binding's session key |
+| `task_unbind` | `task_id` | how many bindings were removed |
+
+Both listings emit full task IDs, so an ordinal reference in the conversation ("accept the second one") resolves
+against `review_list`'s order rather than against an ID prefix. `task_review` acts on the full ID only.
+
+What these tools cannot do:
+
+- **`task_create` cannot set a security profile, container profile, mount, placement, provider, model or token
+  budget.** A task profile can only be declared as the top-level `securityProfile` field of an authenticated
+  `POST /api/tasks` request. The scalar `tasks.execution` YAML key selects host or container mode for the lane; it
+  does not declare a profile. No model-facing tool argument spells either setting.
+- **`task_create` cannot choose a creator.** The task's `createdBy` is host-assigned.
+- **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
+  named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
+
+  Naming the thread explicitly is also the reach worth knowing about: an agent may bind **any** thread it can name,
+  as long as that thread is not already bound and the task is not terminal. It does not have to be a thread the agent
+  is talking in. Messages in a bound thread then route to the task's session, so a wrongly chosen thread quietly
+  changes where a conversation goes. DartClaw is single-owner, so this reaches only your own threads, but if you want
+  it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule, or leave it out of
+  the agent's allowlist. Every call is audited either way.
+- **`task_review` with `push_back` reports the transition, not delivery.** Feedback delivery to the running agent is
+  best-effort and unreported.
+
+Every call is guard-evaluated and audited at the MCP dispatch seam; a blocked call comes back as a tool error with no
+side effect. Guard coverage differs per provider — Codex interception remains approval-routed, so a Codex deployment's
+coverage depends on its configured approval mode (see [Security](security.md)).
+
+The six are also canonical tool names, so an agent or workflow-step allowlist must name them explicitly; allowing
+`mcp_call` alone does not grant them.
 
 ## Automation and Scheduling
 
@@ -191,11 +239,13 @@ scheduling:
       enabled: true
       task:
         title: Daily maintenance review
-        task_type: "coding"
-        description: Review maintenance items and prepare a coding task if changes are needed.
-        acceptance_criteria: Tests stay green and the worktree is ready for review.
+        description: Review maintenance items and report changes that are needed.
+        acceptance_criteria: Findings identify each affected component and its next action.
         auto_start: true
 ```
+
+Scheduled task jobs do not expose the standalone worktree declaration. Use a workflow or create a standalone task
+through the API or web form when the turn must run in an isolated worktree.
 
 Task jobs can also override `effort` at the job level:
 

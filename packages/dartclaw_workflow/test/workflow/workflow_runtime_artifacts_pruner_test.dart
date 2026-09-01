@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show MaintenanceMode, WorkflowRunStatus, WorkflowRuntimeArtifactsRetentionConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRuntimeArtifactsPruner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

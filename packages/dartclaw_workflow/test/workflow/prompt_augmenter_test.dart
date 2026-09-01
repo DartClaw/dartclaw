@@ -49,7 +49,6 @@ void main() {
         final verdictResult = augmenter.augment(
           'Review this code',
           outputs: {'review': const OutputConfig(format: OutputFormat.json, schema: 'verdict')},
-          gatingSeverity: 'critical',
         );
         final countResult = augmenter.augment(
           'Review this code',
@@ -63,7 +62,7 @@ void main() {
         );
 
         expect(verdictResult, contains('## Review Finding Scoring'));
-        expect(verdictResult, contains('at or above `critical`'));
+        expect(verdictResult, contains('at or above `high`'));
         expect(countResult, contains('## Review Finding Scoring'));
         expect(countResult, contains('at or above `high`'));
         expect(nonReviewResult, isNot(contains('## Review Finding Scoring')));
@@ -168,7 +167,10 @@ void main() {
       expect(result, startsWith('Do work\n\n## Required Output Format'));
     });
 
-    test('context outputs append workflow-context contract', () {
+    test('declared context outputs render no main-prompt output contract', () {
+      // Every model-derived output rides the execution envelope, so the main
+      // prompt states no output contract at all — there is no second channel to
+      // teach.
       const prompt = 'Do work';
       final outputs = {
         'review_summary': const OutputConfig(format: OutputFormat.json, schema: 'verdict'),
@@ -179,26 +181,9 @@ void main() {
         outputs: outputs,
         outputKeys: const ['review_summary', 'findings_count'],
       );
-      expect(result, contains('## Workflow Output Contract'));
-      expect(result, contains('<workflow-context>'));
-      expect(result, contains('"review_summary"'));
-      expect(result, contains('"findings_count"'));
+      expect(result, isNot(contains('## Workflow Output Contract')));
+      expect(result, isNot(contains('workflow-context')));
       expect(result, isNot(contains('## Required Output Format')));
-    });
-
-    test('path output contract leaves path locality to the field description', () {
-      const prompt = 'Review this code';
-      final outputs = {
-        'review_report_path': OutputConfig(
-          format: OutputFormat.path,
-          description: 'Absolute report path under the workflow runtime artifacts directory.',
-        ),
-      };
-      final result = augmenter.augment(prompt, outputs: outputs, outputKeys: const ['review_report_path']);
-
-      expect(result, contains('"review_report_path": file path string'));
-      expect(result, isNot(contains('workspace-relative file path string')));
-      expect(result, contains('Absolute report path under the workflow runtime artifacts directory.'));
     });
 
     group('step outcome protocol (S36)', () {
@@ -236,38 +221,6 @@ void main() {
         expect(outcomeIdx, greaterThan(schemaIdx));
       });
     });
-
-    group('outputExamples', () {
-      test('renders examples after schema and before step outcome protocol', () {
-        const prompt = 'Do work';
-        final outputs = {'r': const OutputConfig(format: OutputFormat.json, schema: 'verdict')};
-        const examples = [
-          '<workflow-context>\n{"prd":"a.md"}\n</workflow-context>',
-          '<workflow-context>\n{"prd":""}\n</workflow-context>',
-        ];
-        final result = augmenter.augment(
-          prompt,
-          outputs: outputs,
-          outputExamples: examples,
-          emitStepOutcomeProtocol: true,
-        );
-
-        final schemaIdx = result.indexOf('## Required Output Format');
-        final examplesIdx = result.indexOf('## Output Examples');
-        final outcomeIdx = result.indexOf('## Step Outcome Protocol');
-        expect(schemaIdx, greaterThan(0));
-        expect(examplesIdx, greaterThan(schemaIdx));
-        expect(outcomeIdx, greaterThan(examplesIdx));
-        expect(result, contains(examples[0]));
-        expect(result, contains('${examples[0]}\n\n${examples[1]}'));
-      });
-
-      test('omits section when examples are null or empty', () {
-        const prompt = 'Do work';
-        expect(augmenter.augment(prompt, outputExamples: null), isNot(contains('## Output Examples')));
-        expect(augmenter.augment(prompt, outputExamples: const []), isNot(contains('## Output Examples')));
-      });
-    });
   });
 
   group('finalizer output contract (TI05)', () {
@@ -285,10 +238,11 @@ void main() {
       },
     );
 
-    test('all-covered finalizer step omits the output-contract and step-outcome sections', () {
-      // Both keys are finalizer-covered, so the complement is empty and the
-      // main prompt is unchanged (a finalizer step gets emitStepOutcomeProtocol
-      // false from its caller, so the outcome section is suppressed too).
+    test('an all-covered finalizer step still states what it must determine, and no emission protocol', () {
+      // Both keys are finalizer-covered, so the emission protocol and the format
+      // fragments belong to the finalizer turn. What the keys *mean* does not:
+      // it is this turn's contract, and a step told nothing about them answers
+      // from its input alone.
       final result = augmenter.augment(
         'Review this code',
         outputs: reviewStep.outputs,
@@ -296,74 +250,58 @@ void main() {
         finalizerCoveredKeys: const ['review_report_path', 'verdict'],
       );
 
-      expect(result, 'Review this code');
+      expect(result, contains('## Declared Outputs'));
+      expect(result, contains('"review_report_path"'));
+      // `verdict` carries no authored description and its preset supplies none,
+      // so there is nothing to state about it — the section renders what the
+      // YAML says and invents nothing.
+      expect(result, isNot(contains('"verdict"')));
       expect(result, isNot(contains('## Workflow Output Contract')));
       expect(result, isNot(contains('## Step Outcome Protocol')));
       expect(result, isNot(contains('## Required Output Format')));
-      expect(result, isNot(contains('## Review Finding Scoring')));
+      expect(result, isNot(contains('<workflow-context>')));
     });
 
-    test('mixed finalizer step renders only the envelope-excluded output keys', () {
-      // Models detect-spec-input: spec_path/spec_confidence ride the envelope
-      // (covered), while spec_source (`*_source`) and an `outputMode: prompt`
-      // opt-out keep their main-prompt contract.
+    // Models detect-spec-input, and pins the live regression this closes: with
+    // every key finalizer-covered, the main prompt stated none of them, so the
+    // classifier was asked to classify with nothing saying what `spec_source`
+    // meant and answered from the FEATURE string alone.
+    test("a covered key's description reaches the main prompt, its emission protocol does not", () {
+      const sourceDescription =
+          "'existing' when input resolves to a reusable implementation specification, "
+          "'synthesized' when the spec skill authored a new one.";
       final outputs = {
-        'spec_path': const OutputConfig(format: OutputFormat.path),
-        'spec_source': const OutputConfig(format: OutputFormat.text, schema: 'narrative_text'),
-        'spec_confidence': const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
-        'opt_out': OutputConfig(
-          format: OutputFormat.json,
-          schema: const {
-            'type': 'object',
-            'required': ['note'],
-            'properties': {
-              'note': {'type': 'string'},
-            },
-          },
-          outputMode: OutputMode.prompt,
+        'spec_path': const OutputConfig(format: OutputFormat.path, description: 'Path to the active spec on disk.'),
+        'spec_source': const OutputConfig(
+          format: OutputFormat.text,
+          schema: 'narrative_text',
+          description: sourceDescription,
         ),
       };
       final result = augmenter.augment(
         'Classify the input',
         outputs: outputs,
-        outputKeys: const ['spec_path', 'spec_source', 'spec_confidence', 'opt_out'],
-        finalizerCoveredKeys: const ['spec_path', 'spec_confidence'],
+        outputKeys: const ['spec_path', 'spec_source'],
+        finalizerCoveredKeys: const ['spec_path', 'spec_source'],
       );
 
-      expect(result, contains('## Workflow Output Contract'));
+      expect(result, contains(sourceDescription));
       expect(result, contains('"spec_source"'));
-      expect(result, contains('"opt_out"'));
-      // Pin the opt-out's schema detail so a regression in B's rendered
-      // output-format contract fails closed.
-      expect(result, contains('note'));
-      expect(result, isNot(contains('"spec_path"')));
-      expect(result, isNot(contains('"spec_confidence"')));
-      expect(result, isNot(contains('## Step Outcome Protocol')));
-    });
-
-    test('empty covered set renders every declared key (non-finalizer step)', () {
-      final outputs = {
-        'spec_source': const OutputConfig(format: OutputFormat.text, schema: 'narrative_text'),
-        'spec_path': const OutputConfig(format: OutputFormat.path),
-      };
-      final result = augmenter.augment(
-        'Classify the input',
-        outputs: outputs,
-        outputKeys: const ['spec_source', 'spec_path'],
-      );
-
-      expect(result, contains('"spec_source"'));
-      expect(result, contains('"spec_path"'));
+      expect(result, isNot(contains('<workflow-context>')));
+      expect(result, isNot(contains('End your final response')));
     });
 
     test('finalizer prompt for a review step carries field descriptions and the scoring rule', () {
-      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs, gatingSeverity: 'critical')!;
+      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
       final finalizerPrompt = buildFinalizerPrompt(schema);
 
       expect(finalizerPrompt, contains('## Declared Outputs'));
+      // A provider that enforces no schema sees this prompt and nothing else,
+      // so the schema reaches it as prose through the one renderer.
+      expect(finalizerPrompt, contains('as JSON with this structure'));
       expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
       expect(finalizerPrompt, contains('Review Finding Scoring'));
-      expect(finalizerPrompt, contains('at or above `critical`'));
+      expect(finalizerPrompt, contains('at or above `high`'));
       expect(finalizerPrompt, contains('## Step Outcome'));
     });
   });

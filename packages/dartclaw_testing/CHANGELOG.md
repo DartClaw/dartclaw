@@ -4,10 +4,18 @@ relevant to `dartclaw_testing`.
 ## Unreleased
 
 ### Added
-- `InMemoryAgentExecutionRepository` for repository tests and parity checks
-- S34 task/execution test helpers for AE-backed task hydration and workflow-step persistence
-- `FakeGitGateway`, an in-memory `WorkflowGitPort` implementation with parity coverage against the production git adapter
-- Workflow scenario-tier consumers now rely on `FakeGitGateway` and `FakeCodexProcess` as the shared deterministic seams for regression tests
+- Task/execution test helpers for agent-execution-backed task hydration
+- `FakeGoogleJwtVerifier` as the single shared fake for the core-owned verifier port
+
+### Changed
+- Production dependencies reduced to `dartclaw_core` and `dartclaw_kernel`, so consuming a shared
+  double no longer pulls the Google Chat channel or the workflow engine into a suite's dependency closure
+- `FakeGoogleChatRestClient` moved to `package:dartclaw_google_chat/testing.dart`; `FakeGitGateway`,
+  `FakeSkillIntrospector` and `FakeProviderAuthPreflight` moved to
+  `package:dartclaw_workflow/testing.dart` — a fake of a port owned above `dartclaw_core` now lives with the port's owner
+- `InMemoryWorkflowStepExecutionRepository` returns to the shared barrel after its port moved to `dartclaw_kernel`
+- `WorkflowGitFixture`, `InMemoryAgentExecutionRepository`, `InMemoryExecutionRepositoryTransactor` and
+  `captureRootLogs` moved into their single consuming package's test tree
 
 ## 0.9.0
 

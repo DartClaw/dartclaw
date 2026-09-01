@@ -1,6 +1,6 @@
 import 'package:dartclaw_cli/src/commands/workflow/cli_progress_printer.dart';
 import 'package:dartclaw_cli/src/commands/workflow/live_status_line.dart';
-import 'package:dartclaw_cli/src/commands/workflow/standalone_run_harness.dart'
+import 'package:dartclaw_cli/src/commands/workflow/workflow_progress_renderer.dart'
     show progressStartKey, taskProgressKey, taskSettlesLiveEntry;
 import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus;
 import 'package:test/test.dart';

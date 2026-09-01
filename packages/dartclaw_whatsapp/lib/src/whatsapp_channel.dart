@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -5,6 +6,16 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'gowa_manager.dart';
 import 'response_formatter.dart' as fmt;
 import 'whatsapp_config.dart';
+
+/// Extracts an E.164-style phone number from a WhatsApp JID.
+///
+/// Returns `null` for absent or non-numeric values such as GOWA device UUIDs.
+String? jidToPhone(String? jid) {
+  if (jid == null) return null;
+  final number = jid.split('@').first.split(':').first;
+  if (!RegExp(r'^\d+$').hasMatch(number)) return null;
+  return '+$number';
+}
 
 /// WhatsApp channel implementation via GOWA sidecar.
 class WhatsAppChannel extends Channel {
@@ -20,16 +31,15 @@ class WhatsAppChannel extends Channel {
   final DmAccessController dmAccess;
   final MentionGating mentionGating;
   final ChannelManager? _channelManager;
-  final String _workspaceDir;
   final String _model;
   final String _agentName;
-  final Map<String, int> _typingLeases = {};
-  final Map<String, Future<void>> _typingUpdates = {};
-  final Set<String> _typingActive = {};
-  final Set<String> _typingStartRetryUsed = {};
+  late final TypingLeaseTracker _typing = TypingLeaseTracker(
+    send: gowa.sendChatPresence,
+    canSend: () => !_disabled,
+    log: _log,
+  );
 
   bool _disabled = false;
-  bool _disconnecting = false;
 
   new({
     required this.gowa,
@@ -37,11 +47,9 @@ class WhatsAppChannel extends Channel {
     required this.dmAccess,
     required this.mentionGating,
     ChannelManager? channelManager,
-    required String workspaceDir,
     String model = 'Claude',
     String agentName = 'DartClaw',
   }) : _channelManager = channelManager,
-       _workspaceDir = workspaceDir,
        _model = model,
        _agentName = agentName;
 
@@ -52,7 +60,7 @@ class WhatsAppChannel extends Channel {
       return;
     }
     await gowa.start();
-    _disconnecting = false;
+    _typing.resume();
 
     // Retrieve own JID from GOWA status for mention gating
     try {
@@ -93,46 +101,10 @@ class WhatsAppChannel extends Channel {
   }
 
   @override
-  Future<void> startTyping(String recipientJid) async {
-    if (_disabled || _disconnecting) return;
-
-    final activeLeases = _typingLeases[recipientJid] ?? 0;
-    _typingLeases[recipientJid] = activeLeases + 1;
-    if (activeLeases == 0) {
-      _typingStartRetryUsed.remove(recipientJid);
-      await _queueTypingUpdate(recipientJid, isTyping: true);
-      return;
-    }
-
-    final pending = _typingUpdates[recipientJid];
-    if (pending != null) {
-      try {
-        await pending;
-      } catch (_) {}
-    }
-    if (_typingActive.contains(recipientJid) ||
-        _disconnecting ||
-        (_typingLeases[recipientJid] ?? 0) == 0 ||
-        !_typingStartRetryUsed.add(recipientJid)) {
-      return;
-    }
-    await _queueTypingUpdate(recipientJid, isTyping: true);
-  }
+  Future<void> startTyping(String recipientJid) => _typing.start(recipientJid);
 
   @override
-  Future<void> stopTyping(String recipientJid) async {
-    final activeLeases = _typingLeases[recipientJid] ?? 0;
-    if (activeLeases > 1) {
-      _typingLeases[recipientJid] = activeLeases - 1;
-      return;
-    }
-
-    _typingLeases.remove(recipientJid);
-    _typingStartRetryUsed.remove(recipientJid);
-    if (!_disabled && activeLeases > 0) {
-      await _queueTypingUpdate(recipientJid, isTyping: false);
-    }
-  }
+  Future<void> stopTyping(String recipientJid) => _typing.stop(recipientJid);
 
   @override
   bool ownsJid(String jid) {
@@ -142,55 +114,13 @@ class WhatsAppChannel extends Channel {
 
   @override
   Future<void> disconnect() async {
-    _disconnecting = true;
-    final activeRecipients = {..._typingLeases.keys, ..._typingActive};
-    _typingLeases.clear();
-    if (!_disabled) {
-      await Future.wait(
-        activeRecipients.map(
-          (recipientJid) =>
-              _queueTypingUpdate(recipientJid, isTyping: false).catchError((Object error, StackTrace stackTrace) {
-                _log.warning('Failed to stop WhatsApp typing during disconnect for $recipientJid', error, stackTrace);
-              }),
-        ),
-      );
-    }
-    await Future.wait(
-      _typingUpdates.values.toList().map(
-        (update) => update.catchError((Object error, StackTrace stackTrace) {
-          _log.fine('WhatsApp typing update ended during disconnect: $error');
-        }),
-      ),
-    );
-    _typingUpdates.clear();
-    _typingActive.clear();
-    _typingStartRetryUsed.clear();
+    await _typing.shutdown();
     await gowa.reset();
-  }
-
-  Future<void> _queueTypingUpdate(String recipientJid, {required bool isTyping}) {
-    final previous = _typingUpdates[recipientJid] ?? Future<void>.value();
-    final update = previous.then<void>((_) {}, onError: (Object _, StackTrace _) {}).then((_) async {
-      await gowa.sendChatPresence(recipientJid, isTyping: isTyping);
-      if (isTyping) {
-        _typingActive.add(recipientJid);
-      } else {
-        _typingActive.remove(recipientJid);
-      }
-    });
-    late final Future<void> tracked;
-    tracked = update.whenComplete(() {
-      if (identical(_typingUpdates[recipientJid], tracked)) {
-        _typingUpdates.remove(recipientJid);
-      }
-    });
-    _typingUpdates[recipientJid] = tracked;
-    return tracked;
   }
 
   /// Handle an inbound webhook payload from GOWA.
   ///
-  /// Normalizes to ChannelMessage, applies DM access + mention gating,
+  /// Normalizes to ChannelMessage, runs the shared [ChannelInboundGate],
   /// then forwards to ChannelManager.
   void handleWebhook(Map<String, dynamic> payload) {
     if (_disabled) return;
@@ -199,9 +129,17 @@ class WhatsAppChannel extends Channel {
       final message = _parseWebhookPayload(payload);
       if (message == null) return;
 
-      // DM access control
-      if (message.groupJid == null && !dmAccess.isAllowed(message.senderJid)) {
-        if (dmAccess.mode == DmAccessMode.pairing) {
+      final decision = ChannelInboundGate.evaluate(
+        message,
+        dmAccess: dmAccess,
+        mentionGating: mentionGating,
+        groupAccess: config.groupAccess,
+        groupAllowlist: config.groupIds,
+      );
+      switch (decision) {
+        case ChannelInboundDecision.admitted:
+          break;
+        case ChannelInboundDecision.dmPairingRequired:
           final displayName = message.metadata['pushname'] as String?;
           final pairing = dmAccess.createPairing(message.senderJid, displayName: displayName);
           if (pairing != null) {
@@ -209,28 +147,16 @@ class WhatsAppChannel extends Channel {
           } else {
             _log.warning('Max pending pairings reached — dropping message from ${message.senderJid}');
           }
-        } else {
+          return;
+        case ChannelInboundDecision.dmDenied:
           _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
-        }
-        return;
-      }
-
-      // Group access control
-      if (message.groupJid != null) {
-        switch (config.groupAccess) {
-          case GroupAccessMode.disabled:
-            return;
-          case GroupAccessMode.allowlist:
-            if (!config.groupIds.contains(message.groupJid)) return;
-          case GroupAccessMode.open:
-            break;
-        }
-      }
-
-      // Mention gating (groups only)
-      if (!mentionGating.shouldProcess(message)) {
-        _log.fine('Group message without mention — ignoring');
-        return;
+          return;
+        case ChannelInboundDecision.groupAccessDisabled:
+        case ChannelInboundDecision.groupNotAllowlisted:
+          return;
+        case ChannelInboundDecision.mentionRequired:
+          _log.fine('Group message without mention — ignoring');
+          return;
       }
 
       _channelManager?.handleInboundMessage(message);
@@ -241,13 +167,7 @@ class WhatsAppChannel extends Channel {
 
   @override
   List<ChannelResponse> formatResponse(String text) {
-    return fmt.formatResponse(
-      text,
-      model: _model,
-      agentName: _agentName,
-      maxChunkSize: config.maxChunkSize,
-      workspaceDir: _workspaceDir,
-    );
+    return fmt.formatResponse(text, model: _model, agentName: _agentName, maxChunkSize: config.maxChunkSize);
   }
 
   /// Parse GOWA v8 webhook envelope: `{event, device_id, payload: {...}}`.

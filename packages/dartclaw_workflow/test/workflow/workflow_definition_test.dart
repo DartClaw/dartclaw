@@ -3,7 +3,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ActionNode,
         ForeachNode,
         LoopNode,
-        MapNode,
         MergeResolveConfig,
         MergeResolveEscalation,
         OnErrorPolicy,
@@ -12,8 +11,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ParallelGroupNode,
         StepConfigDefault,
         WorkflowDefinition,
-        WorkflowExternalArtifactMountMode,
-        WorkflowGitExternalArtifactMount,
         WorkflowGitStrategy,
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
@@ -22,6 +19,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep,
         WorkflowTaskType,
         WorkflowVariable;
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 const _basicStep = WorkflowStep(id: 's', name: 'S', prompts: ['p']);
@@ -75,28 +73,6 @@ void main() {
       expect(restored.maxIterations, 5);
       expect(restored.entryGate, 'step-a.findings_count > 0');
       expect(restored.exitGate, 'step-a.status == done');
-      expect(restored.finally_, isNull);
-    });
-
-    test('round-trips with finally_ field', () {
-      const loop = WorkflowLoop(
-        id: 'loop-1',
-        steps: ['loop-step'],
-        maxIterations: 3,
-        exitGate: 'loop-step.done == true',
-        finally_: 'summarize',
-      );
-      final json = loop.toJson();
-      expect(json['finally'], 'summarize');
-      expect(json.containsKey('finally_'), false);
-      final restored = WorkflowLoop.fromJson(json);
-      expect(restored.finally_, 'summarize');
-    });
-
-    test('finally_ absent from json when null', () {
-      const loop = WorkflowLoop(id: 'l', steps: ['s'], maxIterations: 1, exitGate: 'e');
-      final json = loop.toJson();
-      expect(json.containsKey('finally'), false);
     });
 
     test('onMaxIterations defaults to fail; toJson omits the default', () {
@@ -257,7 +233,6 @@ void main() {
   group('WorkflowNode', () {
     for (final testCase in const [
       (name: 'action', node: ActionNode(stepId: 'step-1'), matcher: TypeMatcher<ActionNode>(), key: 'step-1'),
-      (name: 'map', node: MapNode(stepId: 'story-spec'), matcher: TypeMatcher<MapNode>(), key: 'story-spec'),
       (
         name: 'parallel group',
         node: ParallelGroupNode(stepIds: ['review-a', 'review-b']),
@@ -266,7 +241,7 @@ void main() {
       ),
       (
         name: 'loop',
-        node: LoopNode(loopId: 'remediation-loop', stepIds: ['remediate', 're-review'], finallyStepId: 'summarize'),
+        node: LoopNode(loopId: 'remediation-loop', stepIds: ['remediate', 're-review']),
         matcher: TypeMatcher<LoopNode>(),
         key: 'remediation-loop',
       ),
@@ -277,14 +252,11 @@ void main() {
         switch (restored) {
           case ActionNode():
             expect(restored.stepId, testCase.key);
-          case MapNode():
-            expect(restored.stepId, testCase.key);
           case ParallelGroupNode():
             expect(restored.stepIds, testCase.key);
           case LoopNode():
             expect(restored.loopId, testCase.key);
             expect(restored.stepIds, ['remediate', 're-review']);
-            expect(restored.finallyStepId, 'summarize');
           case ForeachNode():
             fail('foreach is covered by its dedicated child-step assertions');
         }
@@ -313,7 +285,6 @@ void main() {
         match: 'review*',
         provider: 'claude',
         model: 'claude-opus-4',
-        maxTokens: 8000,
         maxRetries: 2,
         timeoutSeconds: 900,
         allowedTools: ['Read', 'Grep'],
@@ -323,7 +294,6 @@ void main() {
       expect(restored.match, 'review*');
       expect(restored.provider, 'claude');
       expect(restored.model, 'claude-opus-4');
-      expect(restored.maxTokens, 8000);
       expect(restored.maxRetries, 2);
       expect(restored.timeoutSeconds, 900);
       expect(restored.allowedTools, ['Read', 'Grep']);
@@ -335,7 +305,6 @@ void main() {
       expect(restored.match, '*');
       expect(restored.provider, isNull);
       expect(restored.model, isNull);
-      expect(restored.maxTokens, isNull);
       expect(restored.maxRetries, isNull);
       expect(restored.timeoutSeconds, isNull);
       expect(restored.allowedTools, isNull);
@@ -364,7 +333,6 @@ void main() {
         model: 'claude-opus',
         timeoutSeconds: 1800,
         parallel: true,
-        gate: 'prev.status == done',
         inputs: ['in_key'],
         outputs: {'out_key': OutputConfig()},
         maxTokens: 10000,
@@ -385,7 +353,6 @@ void main() {
       expect(restored.model, 'claude-opus');
       expect(restored.timeoutSeconds, 1800);
       expect(restored.parallel, true);
-      expect(restored.gate, 'prev.status == done');
       expect(restored.inputs, ['in_key']);
       expect(restored.outputKeys, contains('out_key'));
       expect(restored.maxTokens, 10000);
@@ -527,13 +494,14 @@ void main() {
       expect(restored.stepDefaults![1].provider, 'claude');
     });
 
-    test('normalizes action, map, parallel, and loop nodes when nodes are omitted from json', () {
+    test('normalization emits exactly the four surviving node types when nodes are omitted from json', () {
       const def = WorkflowDefinition(
         name: 'normalized',
         description: 'Normalized nodes',
         steps: [
           WorkflowStep(id: 'setup', name: 'Setup', prompts: ['p']),
-          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories'),
+          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories', foreachSteps: ['per-story']),
+          WorkflowStep(id: 'per-story', name: 'Per story', prompts: ['p']),
           WorkflowStep(id: 'review-a', name: 'Review A', prompts: ['p'], parallel: true),
           WorkflowStep(id: 'review-b', name: 'Review B', prompts: ['p'], parallel: true),
           WorkflowStep(id: 'remediate', name: 'Remediate', prompts: ['p']),
@@ -552,12 +520,57 @@ void main() {
       final legacyJson = def.toJson()..remove('nodes');
       final restored = WorkflowDefinition.fromJson(legacyJson);
 
+      // Enumerated, not `isNot(contains(MapNode))`: this is the complete set of
+      // node kinds normalization can emit now that the map controller is gone.
       expect(
         restored.nodes.map((node) => node.runtimeType).toList(),
-        equals([ActionNode, MapNode, ParallelGroupNode, LoopNode]),
+        equals([ActionNode, ForeachNode, ParallelGroupNode, LoopNode]),
       );
+      expect((restored.nodes[1] as ForeachNode).childStepIds, ['per-story']);
       expect((restored.nodes[2] as ParallelGroupNode).stepIds, ['review-a', 'review-b']);
       expect((restored.nodes[3] as LoopNode).stepIds, ['remediate', 're-review']);
+    });
+
+    test('a persisted nodes list naming the retired map node re-normalizes instead of throwing', () {
+      const def = WorkflowDefinition(
+        name: 'legacy-map-snapshot',
+        description: 'Definition snapshot written by an earlier version',
+        steps: [
+          WorkflowStep(id: 'setup', name: 'Setup', prompts: ['p']),
+          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories'),
+        ],
+      );
+      final legacyJson = def.toJson()
+        ..['nodes'] = [
+          {'type': 'action', 'stepId': 'setup'},
+          {'type': 'map', 'stepId': 'fanout'},
+        ];
+
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      final restored = WorkflowDefinition.fromJson(legacyJson);
+      sub.cancel();
+
+      // The graph is rebuilt from steps so the run hydrates for inspection; the
+      // executor refuses to run the retired controller (see executor_sequential_test).
+      expect(restored.nodes.map((node) => node.runtimeType).toList(), equals([ActionNode, ActionNode]));
+      expect(records.where((r) => r.level >= Level.WARNING).map((r) => r.message), anyElement(contains('map')));
+    });
+
+    test('a map_over step with no per-item steps normalizes to a plain action node', () {
+      const def = WorkflowDefinition(
+        name: 'retired-map',
+        description: 'Retired map shape',
+        steps: [
+          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories'),
+        ],
+      );
+
+      final restored = WorkflowDefinition.fromJson(def.toJson()..remove('nodes'));
+
+      // No controller normalization arm survives for this shape; validation
+      // rejects it instead (see workflow_validator_step_type_rules_test.dart).
+      expect(restored.nodes.single, isA<ActionNode>());
     });
 
     test('normalizes foreach controller into ForeachNode and excludes child steps from top-level (S19)', () {
@@ -672,64 +685,6 @@ void main() {
       const config = OutputConfig(schema: 'verdict');
       expect(config.inlineSchema, isNull);
     });
-
-    group('setValue', () {
-      test('defaults to unset and omits the key in JSON', () {
-        const config = OutputConfig();
-        expect(config.hasSetValue, isFalse);
-        expect(config.setValue, isNull);
-        expect(config.toJson().containsKey('setValue'), isFalse);
-      });
-
-      test('round-trips explicit null distinctly from unset', () {
-        const config = OutputConfig(setValue: null);
-        expect(config.hasSetValue, isTrue);
-        expect(config.setValue, isNull);
-        final json = config.toJson();
-        expect(json.containsKey('setValue'), isTrue);
-        expect(json['setValue'], isNull);
-        final restored = OutputConfig.fromJson(json);
-        expect(restored.hasSetValue, isTrue);
-        expect(restored.setValue, isNull);
-      });
-
-      test('round-trips literal values across JSON-encodable types', () {
-        for (final value in <Object?>[
-          'x',
-          42,
-          3.14,
-          true,
-          false,
-          0,
-          '',
-          <Object?>['a', 'b'],
-          <String, Object?>{'k': 1},
-        ]) {
-          final config = OutputConfig(setValue: value);
-          expect(config.hasSetValue, isTrue, reason: 'hasSetValue for $value');
-          expect(config.setValue, value);
-          final restored = OutputConfig.fromJson(config.toJson());
-          expect(restored.hasSetValue, isTrue, reason: 'restored hasSetValue for $value');
-          expect(restored.setValue, value, reason: 'restored value for $value');
-        }
-      });
-
-      test('three states (unset, explicit null, explicit "x") remain distinguishable after round-trip', () {
-        const unset = OutputConfig();
-        const explicitNull = OutputConfig(setValue: null);
-        const explicitX = OutputConfig(setValue: 'x');
-
-        final restoredUnset = OutputConfig.fromJson(unset.toJson());
-        final restoredNull = OutputConfig.fromJson(explicitNull.toJson());
-        final restoredX = OutputConfig.fromJson(explicitX.toJson());
-
-        expect(restoredUnset.hasSetValue, isFalse);
-        expect(restoredNull.hasSetValue, isTrue);
-        expect(restoredNull.setValue, isNull);
-        expect(restoredX.hasSetValue, isTrue);
-        expect(restoredX.setValue, 'x');
-      });
-    });
   });
 
   group('WorkflowStep outputs (S01)', () {
@@ -764,20 +719,6 @@ void main() {
       const step = _basicStep;
       final restored = WorkflowStep.fromJson(step.toJson());
       expect(restored.toJson().containsKey('evaluator'), false);
-    });
-
-    test('outputExamples round-trip through step json', () {
-      const step = WorkflowStep(
-        id: 's',
-        name: 'S',
-        prompts: ['p'],
-        outputExamples: [
-          '<workflow-context>{"prd":"a.md"}</workflow-context>',
-          '<workflow-context>{"prd":""}</workflow-context>',
-        ],
-      );
-      final restored = WorkflowStep.fromJson(step.toJson());
-      expect(restored.outputExamples, step.outputExamples);
     });
   });
 
@@ -840,11 +781,10 @@ void main() {
   });
 
   group('WorkflowStep map fields (S06)', () {
-    test('defaults: mapOver null, maxParallel null, maxItems null', () {
+    test('defaults: mapOver null, maxParallel null', () {
       const step = _basicStep;
       expect(step.mapOver, isNull);
       expect(step.maxParallel, isNull);
-      expect(step.maxItems, isNull);
       expect(step.isMapStep, false);
     });
 
@@ -865,13 +805,11 @@ void main() {
         name: 'maxParallel as template string',
         step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxParallel: '{{MAX_PARALLEL}}'),
       ),
-      (name: 'maxItems custom value', step: WorkflowStep(id: 's', name: 'S', prompts: ['p'], maxItems: 15)),
     ]) {
       test('round-trip: ${testCase.name}', () {
         final restored = WorkflowStep.fromJson(testCase.step.toJson());
         expect(restored.mapOver, testCase.step.mapOver);
         expect(restored.maxParallel, testCase.step.maxParallel);
-        expect(restored.maxItems, testCase.step.maxItems);
       });
     }
 
@@ -880,31 +818,13 @@ void main() {
       final json = step.toJson();
       expect(json.containsKey('mapOver'), false);
       expect(json.containsKey('maxParallel'), false);
-      expect(json.containsKey('maxItems'), false);
-    });
-
-    test('toJson omits maxItems when unset', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'items');
-      final json = step.toJson();
-      expect(json.containsKey('maxItems'), false);
-    });
-
-    test('fromJson leaves maxItems uncapped when absent', () {
-      final json = <String, dynamic>{
-        'id': 's',
-        'name': 'S',
-        'prompts': ['p'],
-      };
-      final step = WorkflowStep.fromJson(json);
-      expect(step.maxItems, isNull);
     });
 
     test('round-trip: all map fields set together', () {
-      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories', maxParallel: 4, maxItems: 50);
+      const step = WorkflowStep(id: 's', name: 'S', prompts: ['p'], mapOver: 'stories', maxParallel: 4);
       final restored = WorkflowStep.fromJson(step.toJson());
       expect(restored.mapOver, 'stories');
       expect(restored.maxParallel, 4);
-      expect(restored.maxItems, 50);
     });
   });
 
@@ -1083,29 +1003,6 @@ void main() {
       );
     });
 
-    test('WorkflowExternalArtifactMountMode preserves exact wire values', () {
-      expect(
-        WorkflowExternalArtifactMountMode.fromJsonString('per-story-copy'),
-        WorkflowExternalArtifactMountMode.perStoryCopy,
-      );
-      expect(WorkflowExternalArtifactMountMode.perStoryCopy.toJson(), 'per-story-copy');
-      expect(
-        WorkflowExternalArtifactMountMode.fromJsonString('bind-mount'),
-        WorkflowExternalArtifactMountMode.bindMount,
-      );
-      expect(WorkflowExternalArtifactMountMode.bindMount.toJson(), 'bind-mount');
-      expect(
-        () => WorkflowExternalArtifactMountMode.fromJsonString('symlink'),
-        throwsA(
-          isA<FormatException>().having(
-            (error) => error.message,
-            'message',
-            allOf(contains('per-story-copy'), contains('bind-mount')),
-          ),
-        ),
-      );
-    });
-
     test('WorkflowGitWorktreeMode preserves exact wire values', () {
       final expected = {
         WorkflowGitWorktreeMode.shared: 'shared',
@@ -1154,53 +1051,14 @@ void main() {
       expect(foreach.toJson()['type'], 'foreach');
     });
 
-    test('WorkflowGitExternalArtifactMount parses enums and emits unchanged JSON strings', () {
-      final copy = WorkflowGitExternalArtifactMount.fromJson({
-        'enabled': true,
-        'mode': 'per-story-copy',
-        'fromProject': '{{DOC_PROJECT}}',
-        'source': '.andthen/artifacts',
-        'toPath': '.andthen/artifacts',
-      });
-      expect(copy.mode, WorkflowExternalArtifactMountMode.perStoryCopy);
-      expect(copy.toJson()['mode'], 'per-story-copy');
-
-      final bind = WorkflowGitExternalArtifactMount.fromJson({
-        'enabled': true,
-        'mode': 'bind-mount',
-        'fromProject': '{{DOC_PROJECT}}',
-        'source': '.andthen/artifacts',
-        'toPath': '.andthen/artifacts',
-      });
-      expect(bind.mode, WorkflowExternalArtifactMountMode.bindMount);
-      expect(bind.toJson()['mode'], 'bind-mount');
-    });
-
     test('WorkflowGitWorktreeStrategy parses enums and emits unchanged JSON strings', () {
       final stringMode = WorkflowGitWorktreeStrategy.fromJson('per-task');
       expect(stringMode.mode, WorkflowGitWorktreeMode.perTask);
       expect(stringMode.toJsonValue(), 'per-task');
 
-      final mapMode = WorkflowGitWorktreeStrategy.fromJson({
-        'mode': 'per-map-item',
-        'externalArtifactMount': {
-          'enabled': true,
-          'mode': 'bind-mount',
-          'fromProject': '{{DOC_PROJECT}}',
-          'source': '.andthen/artifacts',
-          'toPath': '.andthen/artifacts',
-        },
-      });
+      final mapMode = WorkflowGitWorktreeStrategy.fromJson({'mode': 'per-map-item'});
       expect(mapMode.mode, WorkflowGitWorktreeMode.perMapItem);
-      expect(mapMode.toJsonValue(), {
-        'mode': 'per-map-item',
-        'externalArtifactMount': {
-          'mode': 'bind-mount',
-          'fromProject': '{{DOC_PROJECT}}',
-          'source': '.andthen/artifacts',
-          'toPath': '.andthen/artifacts',
-        },
-      });
+      expect(mapMode.toJsonValue(), 'per-map-item');
     });
   });
 

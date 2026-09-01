@@ -43,8 +43,8 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
         provisionWorkers: false,
         runWorkflowSkillsBootstrap: false,
         action: (session) async {
-          await session.wiring.workflowService.cancel(runId, feedback: feedback);
-          final updated = await session.wiring.workflowService.get(runId);
+          await session.runtime.workflowService.cancel(runId, feedback: feedback);
+          final updated = await session.runtime.workflowService.get(runId);
           if (argResults!['json'] as bool) {
             writeLine(const JsonEncoder.withIndent('  ').convert(updated?.toJson() ?? {'id': runId}));
           } else {

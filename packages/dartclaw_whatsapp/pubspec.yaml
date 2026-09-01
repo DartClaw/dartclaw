@@ -1,7 +1,7 @@
 name: dartclaw_whatsapp
 description: WhatsApp channel integration for DartClaw via GOWA sidecar.
 publish_to: none
-version: 0.24.3
+version: 0.25.0
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_whatsapp
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -17,12 +17,11 @@ environment:
 resolution: workspace
 
 dependencies:
-  dartclaw_config:
-    path: ../dartclaw_config
+  dartclaw_kernel:
+    path: ../dartclaw_kernel
   dartclaw_core:
     path: ../dartclaw_core
   logging: ^1.3.0
-  path: ^1.9.1
 
 dev_dependencies:
   dartclaw_testing:

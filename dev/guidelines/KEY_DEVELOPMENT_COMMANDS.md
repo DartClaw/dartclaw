@@ -22,10 +22,10 @@ dart run dartclaw_cli:dartclaw token rotate
 # Rebuild search index
 dart run dartclaw_cli:dartclaw rebuild-index
 
-# Initialize, then manage deployment config and secrets
+# Initialize, then install as a background service
 dart run dartclaw_cli:dartclaw init
-dart run dartclaw_cli:dartclaw deploy config
-dart run dartclaw_cli:dartclaw deploy secrets
+dart run dartclaw_cli:dartclaw service install
+dart run dartclaw_cli:dartclaw service start
 ```
 
 
@@ -145,8 +145,25 @@ git diff --check
 git status --short
 ```
 
-Run `bash dev/tools/fitness/check_design_system_sync.sh` after changing canonical
-design-system CSS. It verifies the served copies and their provenance hashes.
+`dart run dev/tools/embed_assets.dart` also copies `dev/design-system/{tokens,components,icons}.css`
+into the server's static assets, so canonical CSS edits need no separate sync step.
+
+## Generated Artifacts
+
+```bash
+# Published config JSON Schema — rerun after any ConfigMeta change
+dart run packages/dartclaw_kernel/tool/generate_config_schema.dart
+
+# Operator config reference — rerun after the schema or curated core list changes
+dart run dev/tools/render_config_reference.dart
+```
+
+`schemas/dartclaw.schema.json` is generated only. `bash dev/tools/fitness/run_all.sh` runs the same script with
+`--check` and fails when the committed artifact has drifted from `ConfigMeta` or is missing, naming this command.
+
+The generated region in `docs/guide/configuration.md` is projected from the committed schema. Its core table is
+curated in `dev/tools/config_reference_core_keys.txt` and capped at 90 resolvable keys. The fitness run checks both
+renderer behavior and reference drift, naming the regeneration command on failure.
 
 
 ## Package Discovery (pub.dev)
@@ -184,11 +201,11 @@ dart analyze
 > **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(currentDirectory:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
 
 Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
-`dart test packages/dartclaw_server` and `dart test apps/dartclaw_cli` commands should run without manual sqlite
+`dart test packages/dartclaw_runtime` and `dart test apps/dartclaw_cli` commands should run without manual sqlite
 bootstrap tweaks. If a host cannot load the bundled sqlite native asset, treat that environment as unsupported for
 this validation path rather than compensating with ad hoc path setup. The integration-tagged
-`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart` remains an explicit secondary proof surface and
-should be run intentionally with `dart test --run-skipped -t integration apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`
+`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart` remains an explicit secondary proof surface and
+should be run intentionally with `dart test --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`
 when you need that extra signal.
 
 If local development on macOS is blocked by repeated `package:sqlite3` native-asset signing failures inside
@@ -216,8 +233,8 @@ sqlite3 ':memory:' "pragma compile_options;" | rg FTS5
 ```bash
 # Test a specific package (failures-only reporter for agent runs)
 dart test --reporter=failures-only packages/dartclaw_core
-dart test --reporter=failures-only packages/dartclaw_server
-dart test --reporter=failures-only packages/dartclaw_security
+dart test --reporter=failures-only packages/dartclaw_runtime
+dart test --reporter=failures-only packages/dartclaw_kernel
 dart test --reporter=failures-only packages/dartclaw_workflow
 dart test --reporter=failures-only apps/dartclaw_cli
 
@@ -226,7 +243,7 @@ dart test --reporter=failures-only apps/dartclaw_cli
 # cwd-mutating suites alongside server/workflow suites that resolve relative
 # paths. test_workspace.sh runs per package for the same reason.
 dart test --reporter=failures-only packages/dartclaw_workflow
-dart test --reporter=failures-only packages/dartclaw_server
+dart test --reporter=failures-only packages/dartclaw_runtime
 dart test --reporter=failures-only apps/dartclaw_cli
 
 # Fast local CLI iteration: skip real-build / real-process tests tagged slow.
@@ -248,7 +265,7 @@ dart test --reporter=failures-only packages/dartclaw_core/test/storage/session_s
 dart test --reporter=failures-only packages/dartclaw_core --name "SessionKey"
 
 # Run only contract tests
-dart test --reporter=failures-only -t contract packages/dartclaw_storage
+dart test --reporter=failures-only -t contract packages/dartclaw_core
 
 # Fast workflow validation while iterating on workflow YAML, gates, outputs, and review artifacts
 bash dev/testing/profiles/workflow-contract/run.sh
@@ -277,7 +294,7 @@ dart test --reporter=failures-only --run-skipped -t integration packages/dartcla
 # Walks one seeded wiki/KG/memory/inbox corpus through search, the hub, and lint.
 # The Knowledge Hub has no UI-smoke coverage, so this is its proof surface.
 dart test --run-skipped -t integration \
-  packages/dartclaw_server/test/integration/knowledge_hub_corpus_integration_test.dart
+  packages/dartclaw_runtime/test/integration/knowledge_hub_corpus_integration_test.dart
 
 # Per-package coverage
 dart test --coverage=coverage/ packages/dartclaw_core

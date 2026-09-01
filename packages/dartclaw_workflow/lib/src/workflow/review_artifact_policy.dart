@@ -2,63 +2,16 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
 
-import 'workflow_definition.dart' show OutputFormat, WorkflowStep;
+import 'workflow_definition.dart' show WorkflowStep;
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-import 'missing_artifact_failure.dart';
 import 'output_resolver.dart';
+import 'path_safety_policy.dart' show validateArgumentSafePath;
 import 'review_finding_derivations.dart' show firstIntegerForKeys;
-import 'schema_presets.dart' show isReviewReportPathPreset;
-import 'workflow_run_paths.dart';
 
 final _log = Logger('ContextExtractor');
-
-/// Returns true if the output key represents a review artifact path output.
-///
-/// A key qualifies when its [OutputConfig] declares `format: path` AND the
-/// output declares the `review_report_path` preset, the step declares
-/// review-count keys, the payload already contains review counts, or the
-/// resolver's pattern contains "review" or "architecture". Preset declaration
-/// is the name-agnostic signal — the `review_report_path` preset itself resolves
-/// the uniform `**/*` glob, so review-artifact recognition cannot rely on a
-/// name-keyed pattern.
-bool isReviewArtifactPathOutput(
-  String outputKey,
-  WorkflowStep step,
-  FileSystemOutput resolver,
-  Map<String, dynamic>? workflowContextPayload,
-) {
-  final config = step.outputs?[outputKey];
-  if (config?.format != OutputFormat.path) return false;
-  return isReviewReportPathPreset(config?.presetName) ||
-      declaresReviewCounts(step) ||
-      payloadHasReviewCounts(step, workflowContextPayload) ||
-      hasReviewArtifactPattern(resolver);
-}
-
-/// Returns true when the resolver's path pattern implies a review artifact.
-bool hasReviewArtifactPattern(FileSystemOutput resolver) {
-  final pattern = resolver.pathPattern.toLowerCase();
-  return pattern.contains('review') || pattern.contains('architecture');
-}
-
-/// Returns true when the step's output keys include a findings-count key.
-bool declaresReviewCounts(WorkflowStep step) {
-  final outputKeys = step.outputKeys.toSet();
-  return outputKeys.contains('${step.id}.findings_count') ||
-      outputKeys.contains('${step.id}.gating_findings_count') ||
-      outputKeys.contains('findings_count') ||
-      outputKeys.contains('gating_findings_count');
-}
-
-/// Returns true when [workflowContextPayload] contains a findings-count value.
-bool payloadHasReviewCounts(WorkflowStep step, Map<String, dynamic>? workflowContextPayload) {
-  if (workflowContextPayload == null) return false;
-  return firstIntegerForKeys(workflowContextPayload, findingsCountKeys(step)) != null ||
-      firstIntegerForKeys(workflowContextPayload, gatingFindingsCountKeys(step)) != null;
-}
 
 /// Returns the context keys that carry a findings count for [step].
 List<String> findingsCountKeys(WorkflowStep step) => ['${step.id}.findings_count', 'findings_count'];
@@ -69,103 +22,100 @@ List<String> gatingFindingsCountKeys(WorkflowStep step) => [
   'gating_findings_count',
 ];
 
-/// Returns true when a missing clean review artifact is permissible.
+/// The findings count [step] reported, or null when it reported none.
 ///
-/// A missing review artifact is allowed when the step is a review-artifact
-/// path output AND the payload reports zero findings.
-bool allowsMissingCleanReviewArtifact(
-  String outputKey,
-  WorkflowStep step,
-  FileSystemOutput resolver,
-  Map<String, dynamic>? workflowContextPayload,
-) {
-  if (!isReviewArtifactPathOutput(outputKey, step, resolver, workflowContextPayload) ||
-      workflowContextPayload == null) {
-    return false;
-  }
-  final fc = firstIntegerForKeys(workflowContextPayload, findingsCountKeys(step));
-  final gc = firstIntegerForKeys(workflowContextPayload, gatingFindingsCountKeys(step));
-  if (fc == null) return false;
-  return fc == 0 && (gc == null || gc == 0);
+/// Read from the step's own payload under its canonical count keys — the
+/// schema-enforced integers the model emitted. Nothing is derived here: a step
+/// that emits no count reported no count.
+int? reportedFindingsCount(WorkflowStep step, Map<String, dynamic> claimPayload) =>
+    firstIntegerForKeys(claimPayload, findingsCountKeys(step));
+
+/// Returns true when [step] reported a review with no findings at all.
+///
+/// A clean review that left no report on disk still owes downstream steps a
+/// durable path, which [materializeUnclaimedCleanReviewArtifact] provides.
+bool reportedCleanReview(WorkflowStep step, Map<String, dynamic> claimPayload) {
+  final fc = reportedFindingsCount(step, claimPayload);
+  if (fc != 0) return false;
+  final gc = firstIntegerForKeys(claimPayload, gatingFindingsCountKeys(step));
+  return gc == null || gc == 0;
 }
 
-/// Captures a review artifact deterministically from the host-owned step
-/// artifacts dir, ignoring model-claimed paths.
+/// Captures the artifacts a step left in its host-owned artifacts dir for the
+/// path output declaring [resolver], or null when the dir yields no candidate.
 ///
-/// The host exports `DARTCLAW_STEP_ARTIFACTS_DIR` on every workflow task and
-/// the review skill writes its report there, so the directory — not the
-/// model's transcription of a path — is the source of truth. The newest
-/// top-level `.md` file wins (warning when multiple are present; loop
-/// occurrences share the step dir). The returned path is always absolute.
+/// The host exports `DARTCLAW_STEP_ARTIFACTS_DIR` on every workflow task, so the
+/// directory — not a model's transcription of a path — is the source of truth
+/// for an unclaimed artifact. Selection is entirely declarative: the output's
+/// own [FileSystemOutput.pathPattern] filters the dir's top-level files by
+/// basename, [FileSystemOutput.preferPatterns] breaks a tie, and
+/// most-recently-modified is the final tie-break. No output key, preset name or
+/// filename convention is consulted.
 ///
-/// When the dir holds no report:
-/// - zero reported findings → materializes the diagnostic stub in the step dir
-///   (downstream steps are guaranteed a durable `review_report_path`)
-/// - otherwise → throws [MissingArtifactFailure] (honest failure).
-Object resolveReviewArtifactFromStepDir({
+/// The dir is host-created but agent-writable, so two candidate filters are not
+/// negotiable: symlinks are not followed (a link planted here would resolve to
+/// an arbitrary host path), and a candidate whose basename is not argument-safe
+/// is skipped, because the returned value is absolute and therefore exempt from
+/// [ContextExtractor]'s downstream argument-safety check before it is
+/// interpolated into a skill's command line.
+///
+/// Returned paths are always absolute (an engine-owned root). A list output
+/// gets every match; a singular output gets exactly one.
+List<String>? captureStepArtifact(
+  String stepArtifactsDir,
+  FileSystemOutput resolver, {
   required String outputKey,
-  required WorkflowStep step,
-  required Task task,
-  required FileSystemOutput resolver,
-  required Map<String, dynamic>? workflowContextPayload,
-  required String dataDir,
-  required int? mapIterationIndex,
+  required String? taskId,
 }) {
-  final runId = task.workflowRunId?.trim();
-  final stepArtifactsDir = runId == null || runId.isEmpty
-      ? null
-      : workflowStepArtifactsDir(dataDir: dataDir, runId: runId, stepId: step.id, mapIterationIndex: mapIterationIndex);
-  final located = stepArtifactsDir == null
-      ? null
-      : _newestMarkdownArtifact(stepArtifactsDir, outputKey: outputKey, taskId: task.id);
-  if (located != null) return resolver.listMode ? <String>[located] : located;
-
-  if (allowsMissingCleanReviewArtifact(outputKey, step, resolver, workflowContextPayload)) {
-    final stub = stepArtifactsDir == null
-        ? null
-        : materializeUnclaimedCleanReviewArtifact(
-            outputKey: outputKey,
-            step: step,
-            task: task,
-            workflowContextPayload: workflowContextPayload,
-            stepArtifactsDir: stepArtifactsDir,
-          );
-    if (stub != null) return resolver.listMode ? <String>[stub] : stub;
-    _log.warning(
-      'No review artifact found in the step artifacts dir for clean review "$outputKey" on task ${task.id}; '
-      'returning empty instead of matching unrelated files.',
-    );
-    return resolver.listMode ? const <String>[] : '';
-  }
-  throw MissingArtifactFailure(
-    claimedPaths: const [],
-    missingPaths: [?stepArtifactsDir],
-    worktreePath: (task.worktreeJson?['path'] as String?)?.trim() ?? '',
-    fieldName: outputKey,
-    reason: 'no review artifact found in the step artifacts dir',
-  );
-}
-
-/// Returns the absolute path of the most-recently-modified top-level `.md`
-/// file in [stepArtifactsDir], or null when none exists. Non-`.md` files an
-/// agent drops in its dir are ignored.
-String? _newestMarkdownArtifact(String stepArtifactsDir, {required String outputKey, required String taskId}) {
   final dir = Directory(stepArtifactsDir);
   if (!dir.existsSync()) return null;
   final candidates = <({String path, DateTime modified})>[
-    for (final entity in dir.listSync())
-      if (entity is File && entity.path.toLowerCase().endsWith('.md'))
+    for (final entity in dir.listSync(followLinks: false))
+      if (entity is File && resolver.matches(p.basename(entity.path)) && _argumentSafeBasename(entity.path, outputKey))
         (path: p.normalize(entity.path), modified: entity.statSync().modified),
   ];
   if (candidates.isEmpty) return null;
+  if (resolver.listMode) return (candidates.map((c) => c.path).toList()..sort());
+  if (candidates.length == 1) return <String>[candidates.single.path];
+
+  final paths = candidates.map((c) => c.path).toList()..sort();
+  final preferred = _preferredSingularMatch(resolver.preferPatterns, paths);
+  if (preferred != null) return <String>[preferred];
+
   candidates.sort((a, b) => b.modified.compareTo(a.modified));
-  if (candidates.length > 1) {
-    _log.warning(
-      'Multiple review artifacts in $stepArtifactsDir for "$outputKey" on task $taskId; '
-      'selecting most recent (${p.basename(candidates.first.path)}).',
-    );
+  _log.warning(
+    'Multiple artifacts in $stepArtifactsDir matched "$outputKey" on task $taskId; '
+    'selecting most recent (${p.basename(candidates.first.path)}).',
+  );
+  return <String>[candidates.first.path];
+}
+
+/// Whether a captured candidate's basename is safe to interpolate into a skill
+/// command line. Reuses the one argument-safety authority rather than restating
+/// its rules; a rejected candidate is skipped, never returned.
+bool _argumentSafeBasename(String path, String outputKey) {
+  final basename = p.basename(path);
+  try {
+    validateArgumentSafePath(basename, fieldName: outputKey, rawPath: basename);
+    return true;
+  } on FormatException catch (error) {
+    _log.warning('Ignoring step artifact with an unsafe name for "$outputKey": ${error.message}');
+    return false;
   }
-  return candidates.first.path;
+}
+
+/// Picks a single winner from [matches] using the output's declared
+/// [FileSystemOutput.preferPatterns]: the first bare basename (compared
+/// case-insensitively) with exactly one matching candidate wins. Returns null
+/// when no preference resolves a unique match, leaving the ambiguity to the
+/// caller's tie-break.
+String? _preferredSingularMatch(List<String> preferPatterns, List<String> matches) {
+  for (final basename in preferPatterns) {
+    final lowered = basename.toLowerCase();
+    final hits = matches.where((match) => p.basename(match).toLowerCase() == lowered).toList()..sort();
+    if (hits.length == 1) return hits.single;
+  }
+  return null;
 }
 
 /// Writes a diagnostic artifact into the step artifacts dir when a clean
@@ -174,7 +124,7 @@ String? materializeUnclaimedCleanReviewArtifact({
   required String outputKey,
   required WorkflowStep step,
   required Task task,
-  required Map<String, dynamic>? workflowContextPayload,
+  required Map<String, dynamic> claimPayload,
   required String stepArtifactsDir,
 }) {
   try {
@@ -189,7 +139,7 @@ String? materializeUnclaimedCleanReviewArtifact({
     outputKey: outputKey,
     step: step,
     task: task,
-    workflowContextPayload: workflowContextPayload,
+    claimPayload: claimPayload,
     reason: 'after the agent reported zero findings without leaving a report',
   );
 }
@@ -201,7 +151,7 @@ String? _writeMissingCleanReviewArtifact(
   required String outputKey,
   required WorkflowStep step,
   required Task task,
-  required Map<String, dynamic>? workflowContextPayload,
+  required Map<String, dynamic> claimPayload,
   required String reason,
 }) {
   try {
@@ -211,7 +161,7 @@ String? _writeMissingCleanReviewArtifact(
     // that actor already holds write access there (confused-deputy, not
     // privilege escalation) and the body is a diagnostic stub — no secrets.
     final file = File(claim)..createSync(recursive: true);
-    file.writeAsStringSync(_missingCleanReviewArtifactBody(outputKey, step, task, workflowContextPayload));
+    file.writeAsStringSync(_missingCleanReviewArtifactBody(outputKey, step, task, claimPayload));
     _log.warning('Materialized diagnostic clean review artifact for "$outputKey" on task ${task.id} $reason: $claim');
     return claim;
   } catch (error, st) {
@@ -228,10 +178,10 @@ String _missingCleanReviewArtifactBody(
   String outputKey,
   WorkflowStep step,
   Task task,
-  Map<String, dynamic>? workflowContextPayload,
+  Map<String, dynamic> claimPayload,
 ) {
-  final fc = firstIntegerForKeys(workflowContextPayload ?? const {}, findingsCountKeys(step));
-  final gc = firstIntegerForKeys(workflowContextPayload ?? const {}, gatingFindingsCountKeys(step));
+  final fc = firstIntegerForKeys(claimPayload, findingsCountKeys(step));
+  final gc = firstIntegerForKeys(claimPayload, gatingFindingsCountKeys(step));
   return [
     '# Clean Review Artifact',
     '',

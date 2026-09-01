@@ -1,14 +1,23 @@
 import 'dart:io';
 
 final _pattern = RegExp(r'_workflow|workflowRunId|stepIndex');
+final _forbiddenActiveWorkflowPath = RegExp(
+  r'\b(?:WorkflowCliRunner|WorkflowCliProcessStarter|CliProcessSupervisor|CliProvider|ClaudeCliProvider|CodexCliProvider|ProcessRunner)\b'
+  r'|\b(?:Process|SafeProcess)\.(?:run|runSync|start|startSync)\s*\('
+  r'|(?:workflow_cli_runner|cli_process_supervisor|(?:claude_|codex_)?cli_provider)\.dart',
+);
+final _partDirective = RegExp(r"^\s*part\s+'([^']+)'\s*;", multiLine: true);
 
 void main(List<String> args) {
   final sourcePath = _argValue(args, '--source');
   final allowlistPath = _argValue(args, '--allowlist');
-  if (sourcePath == null || allowlistPath == null) {
+  final workflowRunnerPath = _argValue(args, '--workflow-runner-source');
+  final stepRunnerPath = _argValue(args, '--step-runner-source');
+  if (sourcePath == null || allowlistPath == null || workflowRunnerPath == null || stepRunnerPath == null) {
     stderr.writeln(
       'Usage: dart run dev/tools/fitness/check_task_executor_workflow_refs.dart '
-      '--source <path> --allowlist <path>',
+      '--source <path> --allowlist <path> '
+      '--workflow-runner-source <path> --step-runner-source <path>',
     );
     exitCode = 64;
     return;
@@ -26,14 +35,28 @@ void main(List<String> args) {
     exitCode = 66;
     return;
   }
+  final activeWorkflowFiles = <File>[];
+  for (final root in [File(workflowRunnerPath), File(stepRunnerPath)]) {
+    activeWorkflowFiles.add(root);
+    if (!root.existsSync()) continue;
+    for (final part in _partDirective.allMatches(root.readAsStringSync())) {
+      activeWorkflowFiles.add(File.fromUri(root.parent.uri.resolve(part.group(1)!)));
+    }
+  }
+  for (final file in activeWorkflowFiles) {
+    if (!file.existsSync()) {
+      stderr.writeln('Active workflow source not found: ${file.path}');
+      exitCode = 66;
+      return;
+    }
+  }
 
   final normalizedSource = _canonicalize(sourceFile.path);
-  final sourceLines = sourceFile.readAsLinesSync();
+  final sourceLines = _foldDirectives(sourceFile.readAsLinesSync());
   final liveMatches = <_Match>[];
-  for (var i = 0; i < sourceLines.length; i++) {
-    final text = sourceLines[i];
-    if (_pattern.hasMatch(text)) {
-      liveMatches.add(_Match(i + 1, _stableIdentifier(text)));
+  for (final line in sourceLines) {
+    if (_pattern.hasMatch(line.text)) {
+      liveMatches.add(_Match(line.number, _stableIdentifier(line.text)));
     }
   }
 
@@ -57,9 +80,22 @@ void main(List<String> args) {
       if (!liveIdentifiers.contains(entry.identifier)) entry,
   ];
 
-  if (unexpected.isEmpty && stale.isEmpty) {
+  final forbiddenReachability = <({String path, int line, String token})>[];
+  for (final file in activeWorkflowFiles) {
+    final source = file.readAsStringSync();
+    for (final match in _forbiddenActiveWorkflowPath.allMatches(source)) {
+      forbiddenReachability.add((
+        path: _canonicalize(file.path),
+        line: '\n'.allMatches(source.substring(0, match.start)).length + 1,
+        token: match.group(0)!,
+      ));
+    }
+  }
+
+  if (unexpected.isEmpty && stale.isEmpty && forbiddenReachability.isEmpty) {
     stdout.writeln(
-      'Fitness function passed: task_executor workflow references match the allowlist (${liveMatches.length} matches).',
+      'Fitness function passed: task_executor workflow references match the allowlist '
+      '(${liveMatches.length} matches), and the active step path has no legacy CLI or process-starter reachability.',
     );
     return;
   }
@@ -74,6 +110,12 @@ void main(List<String> args) {
     stderr.writeln('Stale allowlist entries:');
     for (final entry in stale) {
       stderr.writeln('  ${entry.identifier} | ${entry.reason}');
+    }
+  }
+  if (forbiddenReachability.isNotEmpty) {
+    stderr.writeln('Forbidden legacy CLI or process-starter reachability in the active workflow step path:');
+    for (final match in forbiddenReachability) {
+      stderr.writeln('  ${match.path}:${match.line}: ${match.token}');
     }
   }
   exitCode = 1;
@@ -94,6 +136,35 @@ String _canonicalize(String path) {
 }
 
 String _stableIdentifier(String text) => text.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// Joins a formatter-wrapped `import`/`export` directive back into one logical
+/// line so an allowlist identifier pins the shown symbols, not just the URI.
+List<_SourceLine> _foldDirectives(List<String> lines) {
+  final folded = <_SourceLine>[];
+  for (var i = 0; i < lines.length; i++) {
+    final trimmed = lines[i].trimLeft();
+    if (!trimmed.startsWith('import ') && !trimmed.startsWith('export ')) {
+      folded.add(_SourceLine(i + 1, lines[i]));
+      continue;
+    }
+    final buffer = StringBuffer(lines[i]);
+    final start = i;
+    while (!lines[i].trimRight().endsWith(';') && i + 1 < lines.length) {
+      i++;
+      buffer.write(' ');
+      buffer.write(lines[i]);
+    }
+    folded.add(_SourceLine(start + 1, buffer.toString()));
+  }
+  return folded;
+}
+
+class _SourceLine {
+  final int number;
+  final String text;
+
+  new(this.number, this.text);
+}
 
 class _Match {
   final int line;

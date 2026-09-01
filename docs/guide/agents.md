@@ -109,7 +109,7 @@ Each entry under `agent.agents.<id>` supports:
 
 **Tools default behavior**: The built-in `search` agent defaults to the canonical allowlist `[web_search, web_fetch]`. Other agents default to an empty list. Empty or absent `tools` means no sandbox allowlist is enforced, so all tools remain available except explicit denies. A startup warning calls out this fail-open posture.
 
-Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, and `memory_read`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, and memory tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
+Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, `memory_read`, `task_create`, `task_review`, `task_list`, `review_list`, `task_bind`, and `task_unbind`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, memory, and task tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
 
 Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's declared `container_profile` when present, otherwise `workspace`. An ACP provider runs on the host only, so on a container-enabled deployment give the agent `execution: host` — a resolved container policy is refused before the turn starts rather than weakened. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
 
@@ -127,7 +127,7 @@ The active turn's agent identity is threaded through each provider interception 
 
 ### Capacity Boundary
 
-The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system/advisor work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
+The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
 
 Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle host worker may be retained and reused only when its provider and security profile match. A logical-agent container is retained only for that exact session/agent owner across its turns and destroyed on discard, eviction, or shutdown; it never crosses principals. The number of profiles or retained containers does not consume or enlarge active worker lease capacity.
 
@@ -137,7 +137,7 @@ Migration note: `web_search` is now distinct from `web_fetch`. Policies that int
 
 The experimental `delegate_to_agent` tool and `delegation:` configuration were removed. Move agent definitions to `agent.agents` and use `sessions_spawn`; use the returned handle with `sessions_send` for follow-ups. `tasks.max_concurrent` was also removed – configure the shared capacity with `providers.<id>.pool_size`.
 
-Useful controls from that preview path now use existing shared mechanisms: agent/provider selection and `security_profile` live on the logical-agent definition; `governance.rate_limits.global` and `governance.budget` apply to turns; `worker_timeout` bounds provider execution; and content/tool guards remain on the normal turn path. The per-call `work_dir`, security-mode label, separate delegation rate limit, and separate token-accounting model were intentionally not retained because they duplicated or bypassed those host policies.
+Useful controls from that preview path now use existing shared mechanisms: agent/provider selection and `security_profile` live on the logical-agent definition; `governance.rate_limits.global` and `governance.budget` apply to turns; `governance.turn_limits.turn_timeout` bounds turn execution; and content/tool guards remain on the normal turn path. The per-call `work_dir`, security-mode label, separate delegation rate limit, and separate token-accounting model were intentionally not retained because they duplicated or bypassed those host policies.
 
 ### Content-Guard Boundary
 
@@ -165,8 +165,8 @@ Background tasks are a separate execution model for structured, reviewable work.
 The execution coordinator manages admission and optional reuse:
 
 - **Primary lane** – exactly one serialized runner for main user and channel conversations. It always uses `agent.provider` and is never loaned to background work.
-- **Worker leases** – hard per-provider capacity shared by tasks, cron/system/advisor execution, and logical-agent sessions. Workers spawn lazily and never fall back to the busy primary lane.
-- **Workflow capacity-only leases** – one-shot workflow steps consume provider capacity without creating a redundant long-lived harness.
+- **Worker leases** – hard per-provider capacity shared by tasks, cron/system execution, and logical-agent sessions. Workers spawn lazily and never fall back to the busy primary lane.
+- **Workflow worker leases** – workflow steps consume provider capacity on the guarded harness path.
 
 Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `1`.
 
@@ -181,18 +181,17 @@ With `pool_size: 3`, the deployment keeps its one primary lane and permits at mo
 
 ### Container Profile Routing
 
-Each task type maps to a security profile that determines which container the task runs in:
+Tasks default to the neutral `workspace` profile. An operator can declare `restricted` through the authenticated
+task API when a task must have no workspace mount:
 
-| Task Type | Profile | Mounts | Rationale |
-|-----------|---------|--------|-----------|
-| `research` | `restricted` | No workspace | Research tasks should not access or modify project files |
-| `coding` | `workspace` | `/workspace:rw`, `/project:ro` | Needs file access for code changes |
-| `writing` | `workspace` | `/workspace:rw`, `/project:ro` | May read/write workspace files |
-| `analysis` | `workspace` | `/workspace:rw`, `/project:ro` | May read project files for analysis |
-| `automation` | `workspace` | `/workspace:rw`, `/project:ro` | General-purpose automation |
-| `custom` | `workspace` | `/workspace:rw`, `/project:ro` | Default for untyped work |
+| Declaration | Profile | Mounts |
+|-------------|---------|--------|
+| Omitted or `workspace` | `workspace` | `/workspace:rw`, `/project:ro` |
+| `restricted` | `restricted` | No workspace |
 
-`TaskExecutor` requests a lease for the task's exact provider and profile. A `research` task will only execute on a `restricted`-profile runner. A cached `workspace` worker is incompatible and cannot be substituted.
+`TaskExecutor` requests a lease for the task's exact provider and declared profile. A `restricted` task cannot reuse
+a `workspace` worker. Retired `research` input is refused rather than silently widened; declare
+`securityProfile: "restricted"` through the authenticated API instead.
 
 ### Per-Task Overrides
 
@@ -210,7 +209,6 @@ Content-Type: application/json
 {
   "title": "Deep analysis of auth patterns",
   "description": "Analyze all authentication code paths for security gaps.",
-  "type": "analysis",
   "autoStart": true,
   "configJson": {
     "model": "opus",
@@ -233,7 +231,7 @@ DartClaw supports multiple agent providers. Each provider is a separate CLI bina
 |-------------|--------|----------|--------|-------|
 | `claude` | `claude` CLI | Bidirectional JSONL | Claude (Haiku, Sonnet, Opus) | Default. Full feature support including cost reporting, streaming, tool approval via hooks |
 | `codex` | `codex` CLI (app-server mode) | JSON-RPC JSONL | OpenAI (GPT-4o, GPT-5, o-series), Ollama | Persistent process, approval chain via JSON-RPC, no USD cost reporting |
-| Configured ACP ID | ACP-compatible binary | ACP stdio JSON-RPC | Agent-specific | Registered from `harness.acp.agents`; host execution on the long-lived surface only; model and effort overrides are not forwarded |
+| Configured ACP ID | ACP-compatible binary | ACP stdio JSON-RPC | Agent-specific | Admitted only against a verified target profile from `harness.acp.agents`; host execution on the long-lived surface only; `requires_guard_mediation: true` is refused at startup; terminal reverse-calls, model overrides and effort overrides are not forwarded |
 
 Core Claude and Codex turns are supported on native Windows. Their sandbox capabilities are not equivalent to the
 POSIX container boundary: Claude's native sandbox is unavailable, and restrictive Codex sandbox modes were not part
@@ -294,8 +292,8 @@ POST /api/tasks
 Content-Type: application/json
 
 {
-  "title": "Research competitor pricing",
-  "type": "research",
+  "title": "Analyze competitor pricing",
+  "description": "Compare current public pricing tiers and summarize the differences.",
   "provider": "codex",
   "configJson": { "model": "gpt-5" }
 }
@@ -336,7 +334,7 @@ that host interception is active.
 - `workspace-write` — Codex sandbox allows writes only to the working directory
 - `danger-full-access` — No Codex-side sandbox restrictions
 
-> **Known issue — approval deadlock**: Codex's app-server has an upstream bug ([openai/codex#11816](https://github.com/openai/codex/issues/11816), open as of March 2026) where tool approval requests block indefinitely with no timeout. This causes turns that involve file creation, shell commands, or other tool use to hang silently — while simple conversational turns succeed. The `SessionLockManager` holds the per-session lock for the entire stuck turn (up to `worker_timeout`), blocking all other messages to that session.
+> **Known issue — approval deadlock**: Codex's app-server has an upstream bug ([openai/codex#11816](https://github.com/openai/codex/issues/11816), open as of March 2026) where tool approval requests block indefinitely with no provider-side timeout. This causes turns that involve file creation, shell commands, or other tool use to hang silently — while simple conversational turns succeed. The `SessionLockManager` holds the per-session lock until the approval resolves or `governance.turn_limits.turn_timeout` cancels the turn. Stall detection is suspended during a known approval wait.
 >
 > **Recommended settings for non-interactive use** (crowd-coding, batch tasks, automation):
 > ```yaml
@@ -353,7 +351,7 @@ that host interception is active.
 > container isolation is unavailable and restrictive Codex sandbox behavior is unverified. Message/content checks remain
 > independent of tool-call approvals, but this configuration has no DartClaw tool-call guard and is not POSIX sandbox parity.
 >
-> Also consider reducing `worker_timeout` (default 600s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
+> Also consider reducing `governance.turn_limits.turn_timeout` (default 1800s) to 120s for shared-session scenarios to limit blast radius if other hang causes occur (context compaction, orphaned child processes).
 
 ### Codex Skill Loading
 
@@ -363,8 +361,8 @@ DartClaw therefore uses Codex's native skill loading directly. Runtime-provision
 
 Which Codex home a host turn runs against depends on the credential the host presents:
 
-- **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Workflow one-shot turns run with the normal Codex profile and OAuth state and get no isolated `CODEX_HOME`; the long-lived harness used for interactive sessions inherits the system home unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
-- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host turn — interactive and workflow one-shot alike — runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; DartClaw never reads, copies, or writes your own `~/.codex` login, and `use_system_codex_home` does not apply.
+- **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Host harness workers use the normal Codex profile and OAuth state unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
+- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; DartClaw never reads, copies, or writes your own `~/.codex` login, and `use_system_codex_home` does not apply.
 
 This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage while keeping DartClaw-managed skill payloads scoped to the configured data directory.
 
@@ -375,7 +373,7 @@ Not all providers support every feature. DartClaw degrades gracefully:
 | Capability | Claude | Codex | ACP |
 |-----------|--------|-------|-----|
 | Streaming text | Yes | Yes | Yes |
-| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) | Reverse calls and permission requests only |
+| Tool approval (guard chain) | Yes (via hooks) | Yes (via JSON-RPC approvals) | No guard-mediated classification; filesystem reverse-calls and permission requests are evaluated, but other operations remain host-only |
 | USD cost reporting | Yes | No (token counts only) | Agent-specific |
 | Crash recovery | Yes | Yes | Yes |
 | Per-turn persona | Process restart with `--append-system-prompt` | Session thread `developerInstructions` | Prepended to the prompt text |
@@ -400,8 +398,8 @@ Check provider health at `GET /api/providers` or on the Settings page. DartClaw 
 |----------|------------|-----|
 | Quick web lookup during chat | Logical agent (`search`) | Sandboxed, durable session, result scanned by content-guard |
 | Summarize a document for the main agent | Custom logical agent (`summarizer`) | Restricted tools, inline result, no review needed |
-| Write and test a new feature | Task (`coding`) | Needs full tool access, worktree isolation, code review |
-| Background research report | Task (`research`) | Independent work, restricted container, reviewable output |
+| Write and test a new feature | Task with `needsWorktree: true` | Isolated checkout and worktree-scoped review |
+| Background research report | Task with declared `restricted` profile | Independent work, restricted container, reviewable output |
 | Recurring maintenance check | Cron job (not an agent) | Lightweight, no review, uses bounded background capacity |
 
 Note: cron jobs and heartbeat are **not** separate agents. They use the global `agent.model` by default but acquire worker capacity rather than occupying the primary lane. See [Scheduling](scheduling.md).

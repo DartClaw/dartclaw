@@ -1,24 +1,10 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_acp/dartclaw_acp.dart' show acpConfigFor;
+import 'package:dartclaw_core/dartclaw_core.dart' show LoginStoreCollisionError, NamedCredentialStore;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show loadDartclawConfig;
 import 'package:path/path.dart' as p;
-
-/// Bundled channel packages self-register their config parsers on import.
-///
-/// CLI commands must call this before [DartclawConfig.load] so the current
-/// bootstrap contract stays explicit in one place. If a bundled import stops
-/// registering, the existing [StateError] path in `DartclawConfig` still fails
-/// the load.
-void ensureCliChannelConfigsRegistered() {
-  ensureDartclawGoogleChatRegistered();
-  ensureDartclawWhatsappRegistered();
-  ensureDartclawSignalRegistered();
-  ensureGitHubWebhookConfigRegistered();
-}
 
 /// Registers the named credential store as the source of stored credentials.
 ///
@@ -27,7 +13,7 @@ void ensureCliChannelConfigsRegistered() {
 /// the guard editor, the reload trigger — resolves a credential stored since
 /// the last one without knowing the store exists. An unusable store is no
 /// store: it degrades to no stored credentials rather than failing the load,
-/// the same way `setup_verifier` treats the subscription store.
+/// the same way `setup_checks` treats the subscription store.
 void ensureStoredCredentialProviderRegistered({Map<String, String>? env}) {
   final environment = env ?? Platform.environment;
   DartclawConfig.registerStoredCredentialProvider((credentialsDir) {
@@ -101,14 +87,48 @@ String resolveStandaloneWorkflowConfigPath({
   return resolveCliConfigPath(env: environment);
 }
 
-/// Loads CLI config after verifying the bundled channel parser imports ran.
+/// The `harness.<name>` sections this CLI composed a parser for.
+///
+/// `dartclaw_kernel` retains a harness section as raw data and never parses one
+/// — the package that owns the section's types depends on it, so a parser there
+/// would invert the dependency direction. This is the composition root's half:
+/// it runs each composed parse against the loaded config, so the section's
+/// warnings reach `config.warnings` and stay reload-blocking, and then refuses
+/// a config carrying a section nothing here claims rather than running with it
+/// silently dropped.
+DartclawConfig primeHarnessSections(
+  DartclawConfig config, {
+  Map<String, void Function(DartclawConfig config)> sectionPrimers = const {},
+}) {
+  for (final primer in sectionPrimers.values) {
+    primer(config);
+  }
+  config.harness.assertSectionsHandled(sectionPrimers.keys.toSet());
+  return config;
+}
+
+/// Harness sections composed into every production load by this CLI.
+const cliHarnessSectionPrimers = <String, void Function(DartclawConfig config)>{'acp': acpConfigFor};
+
+/// Loads CLI config with the GitHub webhook extension parser registered.
+///
+/// [resolveStoredCredentials] registers the named credential store first, so
+/// the load — and every later one in this process — merges stored entries into
+/// `credentials:`. `dartclaw secrets` passes `false`: it reports on the
+/// difference between the store and the config file, so it needs the file's
+/// own view, and the registration is process-global and sticky.
 DartclawConfig loadCliConfig({
   String? configPath,
   Map<String, String>? cliOverrides,
   Map<String, String>? env,
   String? Function(String path)? fileReader,
+  Map<String, void Function(DartclawConfig config)> harnessSectionPrimers = cliHarnessSectionPrimers,
+  bool resolveStoredCredentials = true,
 }) {
-  ensureCliChannelConfigsRegistered();
-  ensureStoredCredentialProviderRegistered(env: env);
-  return DartclawConfig.load(configPath: configPath, cliOverrides: cliOverrides, env: env, fileReader: fileReader);
+  ensureGitHubWebhookConfigRegistered();
+  if (resolveStoredCredentials) ensureStoredCredentialProviderRegistered(env: env);
+  return primeHarnessSections(
+    loadDartclawConfig(configPath: configPath, cliOverrides: cliOverrides, env: env, fileReader: fileReader),
+    sectionPrimers: harnessSectionPrimers,
+  );
 }

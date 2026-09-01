@@ -1,10 +1,11 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show AgentExecution, WorkflowStepExecution;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, InMemoryWorkflowStepExecutionRepository;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -14,7 +15,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputFormat,
         SessionService,
         Task,
-        TaskType,
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeVersion,
         WorkflowStep,
         WorkflowTaskType;
 import 'package:path/path.dart' as p;
@@ -86,13 +89,7 @@ final class ContextExtractorTestHarness {
   }
 
   Future<Task> createTask() async {
-    return taskService.create(
-      id: 'task-1',
-      title: 'Test task',
-      description: 'Test',
-      type: TaskType.research,
-      autoStart: true,
-    );
+    return taskService.create(id: 'task-1', title: 'Test task', description: 'Test', autoStart: true);
   }
 
   Future<Task> buildTask(
@@ -106,7 +103,6 @@ final class ContextExtractorTestHarness {
       id: id,
       title: 'Test',
       description: 'Test',
-      type: TaskType.research,
       autoStart: true,
       sessionId: sessionId,
       projectId: projectId,
@@ -145,9 +141,10 @@ final class ContextExtractorTestHarness {
   }
 
   WorkflowStep pathOutputStep(String key, {String id = 'step1'}) {
-    // The canonical review-report key gets review-artifact resolution from its
-    // preset (name-agnostic engine: no output-key-name magic). Other path keys
-    // stay bare and fall back to the uniform `**/*` glob.
+    // The canonical review-report key declares the `review_report_path` preset,
+    // whose resolver narrows the step-dir capture to markdown. Other path keys
+    // stay bare and fall back to the uniform `**/*` glob. Resolution itself is
+    // identical for both — no output key or preset name selects a code path.
     return makeStep(
       id: id,
       outputs: {
@@ -159,7 +156,7 @@ final class ContextExtractorTestHarness {
   }
 
   Map<String, OutputConfig> reviewOutputs(String stepId, {String pathKey = 'review_report_path'}) => {
-    pathKey: const OutputConfig(format: OutputFormat.path),
+    pathKey: const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
     '$stepId.findings_count': const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
     '$stepId.gating_findings_count': const OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
   };
@@ -175,15 +172,20 @@ final class ContextExtractorTestHarness {
     return outputs;
   }
 
-  ContextExtractor extractorWithGit(FakeGitGateway git, {String? dataDir}) {
+  /// An extractor rooted at [dataDir] (defaults to the harness temp dir), for
+  /// tests that need a data dir other than the shared one.
+  ContextExtractor extractorFor({String? dataDir}) {
     return ContextExtractor(
       taskService: taskService,
       messageService: messageService,
       dataDir: dataDir ?? tempDir.path,
-      workflowGitPort: git,
+      workflowStepExecutionRepository: workflowStepExecutions,
     );
   }
 
+  /// Seeds [context] as the declared outputs of the task's persisted execution
+  /// envelope — the one channel extraction reads — while still leaving
+  /// `$prefix$suffix` in the transcript, so a test can prove prose is inert.
   Future<Task> buildTaskWithContext(
     String taskId,
     Map<String, Object?> context, {
@@ -194,17 +196,41 @@ final class ContextExtractorTestHarness {
     String? worktreePath,
   }) async {
     final session = await sessionService.getOrCreateMainSession();
-    await messageService.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: '$prefix\n\n<workflow-context>${jsonEncode(context)}</workflow-context>$suffix',
-    );
-    return buildTask(
+    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: '$prefix$suffix');
+    final task = await buildTask(
       taskId,
       sessionId: session.id,
       projectId: projectId,
       workflowRunId: workflowRunId,
       worktreePath: worktreePath,
+    );
+    await seedEnvelopeOutputs(taskId, context, workflowRunId: workflowRunId);
+    return task;
+  }
+
+  /// Persists the execution envelope a finalizer turn would have written for
+  /// [taskId], carrying [outputs] as its declared outputs.
+  Future<void> seedEnvelopeOutputs(String taskId, Map<String, Object?> outputs, {String? workflowRunId}) async {
+    final structuredOutputJson = jsonEncode({
+      executionEnvelopeOutputsKey: outputs,
+      executionEnvelopeMarkerKey: executionEnvelopeVersion,
+    });
+    final existing = await workflowStepExecutions.getByTaskId(taskId);
+    if (existing != null) {
+      await workflowStepExecutions.update(existing.copyWith(structuredOutputJson: structuredOutputJson));
+      return;
+    }
+    final agentExecutionId = 'ae-ctx-$taskId';
+    await agentExecutions.create(AgentExecution(id: agentExecutionId));
+    await workflowStepExecutions.create(
+      WorkflowStepExecution(
+        taskId: taskId,
+        agentExecutionId: agentExecutionId,
+        workflowRunId: workflowRunId ?? 'wf-$taskId',
+        stepIndex: 0,
+        stepId: 'step1',
+        structuredOutputJson: structuredOutputJson,
+      ),
     );
   }
 
@@ -285,7 +311,13 @@ final class ContextExtractorTestHarness {
     );
   }
 
-  Future<Task> buildTaskWithStructuredOutput(String taskId, String structuredOutputJson, {String? sessionId}) async {
+  /// Seeds a task whose persisted `structuredOutput` row is a pre-envelope flat
+  /// payload — the shape a run started before 0.25 left behind.
+  Future<Task> buildTaskWithLegacyStructuredOutput(
+    String taskId,
+    String structuredOutputJson, {
+    String? sessionId,
+  }) async {
     final agentExecutionId = 'ae-$taskId';
     final workflowRunId = 'wf-$taskId';
     await agentExecutions.create(AgentExecution(id: agentExecutionId));
@@ -293,7 +325,6 @@ final class ContextExtractorTestHarness {
       id: taskId,
       title: 'Test',
       description: 'Test',
-      type: TaskType.research,
       autoStart: true,
       agentExecutionId: agentExecutionId,
       workflowRunId: workflowRunId,
@@ -334,7 +365,6 @@ final class ContextExtractorTestHarness {
       id: taskId,
       title: 'Test',
       description: 'Test',
-      type: TaskType.research,
       autoStart: true,
       agentExecutionId: agentExecutionId,
       workflowRunId: runId,
@@ -410,14 +440,6 @@ final class ContextExtractorTestHarness {
     final path = p.join(dir.path, fileName);
     File(path).writeAsStringSync(content);
     return path;
-  }
-
-  FakeGitGateway gitWithUntracked(Directory worktree, Iterable<String> paths) {
-    final git = FakeGitGateway()..initWorktree(worktree.path);
-    for (final path in paths) {
-      git.addUntracked(worktree.path, path);
-    }
-    return git;
   }
 
   void writeWorktreeFile(Directory worktree, String relativePath, String content) {

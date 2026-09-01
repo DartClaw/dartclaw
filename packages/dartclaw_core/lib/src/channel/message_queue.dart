@@ -2,11 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show RetryPolicy;
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
-
-import 'package:dartclaw_config/dartclaw_config.dart' show QueueStrategy;
 
 import 'channel.dart';
 import 'recipient_resolver.dart';
@@ -18,7 +15,7 @@ import 'recipient_resolver.dart';
 /// Marker interface for budget exhaustion errors.
 ///
 /// [MessageQueue] checks for this type to skip retry and send a polite
-/// rejection. Implemented by `BudgetExhaustedException` in `dartclaw_server`.
+/// rejection. Implemented by `BudgetExhaustedException` in `dartclaw_runtime`.
 /// Using an abstract interface avoids a circular package dependency.
 abstract interface class BudgetExhaustedError {
   int get tokensUsed;

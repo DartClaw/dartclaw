@@ -1,0 +1,1 @@
+# Intentionally empty. ADR-051 permits no dependency exception for dartclaw_bridge.

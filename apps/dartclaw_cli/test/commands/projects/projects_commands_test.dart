@@ -4,7 +4,7 @@ import 'package:dartclaw_cli/src/commands/projects/projects_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_list_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_remove_command.dart';
 import 'package:dartclaw_cli/src/commands/projects/projects_show_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';

@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
@@ -30,7 +31,6 @@ Task _makeTask({
     id: id,
     title: 'Test',
     description: 'desc',
-    type: TaskType.research,
     status: status,
     createdAt: DateTime.parse('2026-03-24T10:00:00Z'),
     stepIndex: stepIndex,

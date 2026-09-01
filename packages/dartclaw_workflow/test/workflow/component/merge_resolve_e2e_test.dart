@@ -13,17 +13,17 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
-import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show MergeResolveConfig, MergeResolveEscalation, OutputConfig, WorkflowGitStrategy, WorkflowGitWorktreeStrategy;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveAttemptArtifact,
@@ -34,15 +34,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowSerializationEnactedEvent,
-        WorkflowStep,
-        workflowContextClose,
-        workflowContextOpen;
+        WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../workflow_executor_test_support.dart';
+import 'workflow_git_test_support.dart';
 
 // ---------------------------------------------------------------------------
 // Cross-harness matrix
@@ -112,21 +110,18 @@ WorkflowRun _makeRun(WorkflowDefinition definition, {String? id}) {
   );
 }
 
-/// Encodes a merge-resolve skill output payload as the assistant message format.
-String _mrMessage({
+/// The merge-resolve skill's declared outputs, as its finalizer envelope carries them.
+Map<String, dynamic> _mrOutputs({
   String outcome = 'resolved',
   List<String> conflictedFiles = const ['lib/story.dart'],
   String summary = 'resolved conflicts',
   String? errorMessage,
-}) {
-  final payload = <String, dynamic>{
-    'merge_resolve.outcome': outcome,
-    'merge_resolve.conflicted_files': conflictedFiles,
-    'merge_resolve.resolution_summary': summary,
-    if (errorMessage != null && errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
-  };
-  return '$workflowContextOpen${jsonEncode(payload)}$workflowContextClose';
-}
+}) => <String, dynamic>{
+  'merge_resolve.outcome': outcome,
+  'merge_resolve.conflicted_files': conflictedFiles,
+  'merge_resolve.resolution_summary': summary,
+  if (errorMessage != null && errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
+};
 
 /// Reads all merge-resolve artifacts for the given story task id.
 Future<List<MergeResolveAttemptArtifact>> _readArtifacts(WorkflowExecutorHarness h, String taskId) async {
@@ -208,10 +203,9 @@ void main() {
           if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
             final session = await h.sessionService.createSession(type: SessionType.task);
             await h.taskService.updateFields(task.id, sessionId: session.id);
-            await h.messageService.insertMessage(
-              sessionId: session.id,
-              role: 'assistant',
-              content: _mrMessage(outcome: 'resolved', summary: 'Resolved STATE.md conflict'),
+            await h.seedDeclaredOutputs(
+              task.id,
+              _mrOutputs(outcome: 'resolved', summary: 'Resolved STATE.md conflict'),
             );
           } else {
             storyTaskId = e.taskId;
@@ -294,19 +288,12 @@ void main() {
             mrAttemptCount++;
             final session = await h.sessionService.createSession(type: SessionType.task);
             await h.taskService.updateFields(task.id, sessionId: session.id);
-            if (mrAttemptCount == 1) {
-              await h.messageService.insertMessage(
-                sessionId: session.id,
-                role: 'assistant',
-                content: _mrMessage(outcome: 'failed', errorMessage: 'token_ceiling exceeded at format'),
-              );
-            } else {
-              await h.messageService.insertMessage(
-                sessionId: session.id,
-                role: 'assistant',
-                content: _mrMessage(outcome: 'resolved', summary: 'Merged both branches cleanly'),
-              );
-            }
+            await h.seedDeclaredOutputs(
+              task.id,
+              mrAttemptCount == 1
+                  ? _mrOutputs(outcome: 'failed', errorMessage: 'token_ceiling exceeded at format')
+                  : _mrOutputs(outcome: 'resolved', summary: 'Merged both branches cleanly'),
+            );
           } else {
             storyTaskId = e.taskId;
             await _bindWorktree(h, e.taskId);
@@ -399,11 +386,7 @@ void main() {
             // All merge-resolve attempts fail so serialize-remaining fires.
             final session = await h.sessionService.createSession(type: SessionType.task);
             await h.taskService.updateFields(task.id, sessionId: session.id);
-            await h.messageService.insertMessage(
-              sessionId: session.id,
-              role: 'assistant',
-              content: _mrMessage(outcome: 'failed', errorMessage: 'could not resolve'),
-            );
+            await h.seedDeclaredOutputs(task.id, _mrOutputs(outcome: 'failed', errorMessage: 'could not resolve'));
           } else {
             await _bindWorktree(h, e.taskId);
             final task2 = await h.taskService.get(e.taskId);
@@ -506,11 +489,7 @@ void main() {
             final session = await h.sessionService.createSession(type: SessionType.task);
             await h.taskService.updateFields(task.id, sessionId: session.id);
             final errorMsg = mrAttemptCount == 1 ? 'attempt-1 error: format failed' : 'attempt-2 error: analyze failed';
-            await h.messageService.insertMessage(
-              sessionId: session.id,
-              role: 'assistant',
-              content: _mrMessage(outcome: 'failed', errorMessage: errorMsg),
-            );
+            await h.seedDeclaredOutputs(task.id, _mrOutputs(outcome: 'failed', errorMessage: errorMsg));
           } else {
             storyTaskId = e.taskId;
             await _bindWorktree(h, e.taskId);

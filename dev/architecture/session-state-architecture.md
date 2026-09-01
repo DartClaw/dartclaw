@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.24
+**Current through**: 0.25 kernel formation and storage absorption.
 
 ---
 
@@ -36,11 +36,11 @@ happens within a session. Sessions provide:
 - **Concurrency safety** -- per-session write locks and global concurrency caps
 - **Lifecycle management** -- automated archival, maintenance, and reset
 
-The session subsystem spans four packages:
+The session subsystem spans the kernel, core, and server packages:
 
 ```
 +-------------------+     +-------------------+     +-------------------+
-| dartclaw_models   |     | dartclaw_config   |     | dartclaw_core     |
+| kernel: models    |     | kernel: config    |     | dartclaw_core     |
 |                   |     |                   |     |                   |
 | Session           |     | SessionConfig     |     | SessionService    |
 | SessionType       |     | SessionScope-     |     | MessageService    |
@@ -58,7 +58,7 @@ The session subsystem spans four packages:
                                                     +-------------------+
                                     |
                           +-------------------+     +-------------------+
-                          | dartclaw_storage  |     | dartclaw_server   |
+                          | dartclaw_core     |     | dartclaw_runtime   |
                           |                   |     |                   |
                           | TurnStateStore    |     | SessionLockManager|
                           | (SQLite state.db) |     | SessionResetSvc   |
@@ -80,7 +80,7 @@ The session subsystem spans four packages:
 
 ### Session Entity
 
-Defined in `packages/dartclaw_models/lib/src/models.dart`:
+Defined in `packages/dartclaw_kernel/lib/src/models.dart`:
 
 ```
 Session
@@ -111,7 +111,7 @@ the normal deletion API -- they are system-managed.
 
 ### SessionKey
 
-Defined in `packages/dartclaw_models/lib/src/session_key.dart`.
+Defined in `packages/dartclaw_kernel/lib/src/session_key.dart`.
 Provides deterministic, collision-free routing from external contexts to
 internal UUID-based sessions.
 
@@ -174,7 +174,7 @@ Sessions carry an explicit type. `logicalAgent` identifies conversations created
 ## 3. Session Scoping Model
 
 Controls how inbound channel messages are mapped to sessions.
-Defined in `packages/dartclaw_models/lib/src/session_scope_config.dart`.
+Defined in `packages/dartclaw_kernel/lib/src/session_scope_config.dart`.
 
 ### Scope Enums
 
@@ -221,7 +221,7 @@ rules without restart.
 
 ### Config Integration
 
-`SessionConfig` in `packages/dartclaw_config/lib/src/session_config.dart`
+`SessionConfig` in `packages/dartclaw_kernel/lib/src/session_config.dart`
 bundles session-related configuration:
 
 ```
@@ -364,7 +364,7 @@ markers). The cache is invalidated on write failure.
 
 ## 6. Session Locking
 
-Defined in `packages/dartclaw_server/lib/src/concurrency/session_lock_manager.dart`.
+Defined in `packages/dartclaw_runtime/lib/src/concurrency/session_lock_manager.dart`.
 
 `SessionLockManager` provides per-session write serialization with a global
 concurrency cap:
@@ -403,8 +403,8 @@ SessionLockManager
   in that window and the successor simply starts on the fresh continuity –
   the same window a lone caller already had during its own session read; a
   queued successor is not cancellable (it has no turn id), exactly as a lock
-  waiter was not. `TaskExecutor` and the advisor take leases via
-  `ExecutionCoordinator.acquire` + `reserveAdmittedTurn` directly and are
+  waiter was not. `TaskExecutor` takes leases via
+  `ExecutionCoordinator.acquire` + `reserveAdmittedTurn` directly and is
   outside the chain.
 - Global cap: if `_activeCount >= _maxParallel`, throws `BusyTurnException`
   with `isSameSession: false`.
@@ -490,8 +490,6 @@ DartclawEvent (sealed)
   +-- GuardBlockEvent               (auth/security)
   +-- ToolPermissionDeniedEvent     (auth/security)
   +-- ConfigChangedEvent            (auth/config)
-  +-- AdvisorMentionEvent           (advisor)
-  +-- AdvisorInsightEvent           (advisor)
 ```
 
 ### SessionLifecycleSubscriber
@@ -524,7 +522,7 @@ See ADR-011 for the event bus design decision. Key motivations:
 
 ### GroupSessionInitializer
 
-Defined in `packages/dartclaw_server/lib/src/session/group_session_initializer.dart`.
+Defined in `packages/dartclaw_runtime/lib/src/session/group_session_initializer.dart`.
 
 Pre-creates sessions for allowlisted groups so they appear in the UI immediately,
 without waiting for the first inbound message.
@@ -576,7 +574,7 @@ adds the sender to the allowlist; `rejectPairing(code)` discards it.
 
 ### SessionMaintenanceService
 
-Defined in `packages/dartclaw_server/lib/src/maintenance/session_maintenance_service.dart`.
+Defined in `packages/dartclaw_runtime/lib/src/maintenance/session_maintenance_service.dart`.
 
 Executes a five-stage pipeline:
 
@@ -617,7 +615,7 @@ SessionMaintenanceConfig
 
 ### SessionResetService
 
-Defined in `packages/dartclaw_server/lib/src/session/session_reset_service.dart`.
+Defined in `packages/dartclaw_runtime/lib/src/session/session_reset_service.dart`.
 Manages daily and idle-timeout session resets.
 
 **Daily reset** (configurable hour, default 4 AM):
@@ -694,7 +692,7 @@ all associated bindings.
 
 ### GovernanceConfig
 
-Top-level governance configuration in `packages/dartclaw_config/lib/src/governance_config.dart`:
+Top-level governance configuration in `packages/dartclaw_kernel/lib/src/governance_config.dart`:
 
 ```
 GovernanceConfig
@@ -721,7 +719,7 @@ GovernanceConfig
   |     +-- action: LoopAction               (abort | warn)
   +-- queueStrategy: QueueStrategy           (fifo | fair)
   +-- crowdCoding: CrowdCodingConfig
-  +-- turnProgress: TurnProgressConfig
+  +-- turnLimits: TurnLimitsConfig
 ```
 
 All features default to disabled for backward compatibility. When `adminSenders`
@@ -729,7 +727,7 @@ is empty, all senders are treated as admins (suitable for single-user deployment
 
 ### TurnGovernanceEnforcer
 
-Defined in `packages/dartclaw_server/lib/src/turn_governance_enforcer.dart`.
+Defined in `packages/dartclaw_runtime/lib/src/turn_governance_enforcer.dart`.
 Orchestrates pre-turn and in-turn governance checks:
 
 **Pre-turn checks** (called before `SessionLockManager.acquire()`):
@@ -744,7 +742,7 @@ Orchestrates pre-turn and in-turn governance checks:
 ### SlidingWindowRateLimiter
 
 In-memory sliding window rate limiter in
-`packages/dartclaw_config/lib/src/sliding_window_rate_limiter.dart` (re-exported from the `dartclaw_core` barrel).
+`packages/dartclaw_kernel/lib/src/sliding_window_rate_limiter.dart` (exported from the kernel barrel).
 
 - Tracks events per key within a configurable time window
 - `check(key)`: returns `true` if under limit (and records event), `false` if at limit
@@ -755,7 +753,7 @@ In-memory sliding window rate limiter in
 ### LoopDetector
 
 Three independent detection mechanisms in
-`packages/dartclaw_config/lib/src/loop_detector.dart` (re-exported from the `dartclaw_core` barrel):
+`packages/dartclaw_kernel/lib/src/loop_detector.dart` (exported from the kernel barrel):
 
 ```
 Mechanism 1: Turn Chain Depth
@@ -780,24 +778,27 @@ callers decide the action (`LoopAction.abort` throws `LoopDetectedException`,
 
 ### BudgetEnforcer
 
-Defined in `packages/dartclaw_server/lib/src/governance/budget_enforcer.dart`.
-Checks daily token consumption against the configured budget:
+Defined in `packages/dartclaw_runtime/lib/src/governance/budget_enforcer.dart`.
+The daily scope over the shared `BudgetEngine`; it reports consumption only:
 
 ```
-Under 80%         -> BudgetDecision.allow
-At/above 80%      -> BudgetDecision.warn (once per day)
-At/above 100%     -> BudgetDecision.block (if action=block)
-                  -> BudgetDecision.warn  (if action=warn)
+Under 80%         -> BudgetOutcome.under
+At/above 80%      -> BudgetOutcome.warning  (warningIsNew once per day)
+At/above 100%     -> BudgetOutcome.exceeded (warningIsNew once per day)
 ```
+
+`TurnGovernanceEnforcer` maps the outcome onto `BudgetConfig.action`: at or
+above 100% under `block` it throws `BudgetExhaustedException`, otherwise it
+warns and lets the turn through.
 
 Timezone-aware via `BudgetConfig.timezone` (supports `UTC`, `UTC+N`, `UTC-N`).
-Warning state is in-memory (resets on restart). Reads actual consumption from
-`UsageTracker.dailySummaryForDate()`.
+Reads actual consumption from `UsageTracker.dailySummaryForDate()`, and keeps
+its once-per-day warning marker in the same aggregate, so it survives a restart.
 
 ### Emergency Controls
 
 **`/stop`** -- `EmergencyStopHandler` in
-`packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`:
+`packages/dartclaw_runtime/lib/src/emergency/emergency_stop_handler.dart`:
 
 1. Cancel all active turns across coordinator-managed primary and worker runners
 2. Transition all `running` and `queued` tasks to `cancelled`
@@ -808,7 +809,7 @@ Best-effort: individual failures are logged but do not halt the stop sequence.
 Admin-only command.
 
 **`/pause`** and **`/resume`** -- `PauseController` in
-`packages/dartclaw_server/lib/src/governance/pause_controller.dart`:
+`packages/dartclaw_runtime/lib/src/governance/pause_controller.dart`:
 
 **Pause state**:
 - `pause(adminName)`: set paused flag, record who/when
@@ -898,7 +899,7 @@ the cursor. On crash:
 
 ### TurnStateStore
 
-SQLite-backed store in `packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`
+SQLite-backed store in `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`
 that tracks active turns:
 
 ```sql
@@ -923,7 +924,7 @@ CREATE TABLE IF NOT EXISTS turn_state (
 
 Uses WAL journal mode for crash safety.
 
-The automated proof path is `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart`. It exercises a real server restart boundary, not only the in-process `TurnManager` seam: start a turn, kill the process, restart with the same data directory, clean `TurnStateStore`, consume the one-time recovery notice, and render the `.msg-turn-failed` path.
+The automated proof path is `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`. It exercises a real server restart boundary, not only the in-process `TurnManager` seam: start a turn, kill the process, restart with the same data directory, clean `TurnStateStore`, consume the one-time recovery notice, and render the `.msg-turn-failed` path.
 
 ### Atomic Writes
 
@@ -948,7 +949,6 @@ Several components use in-memory state that naturally resets on restart:
 - `PauseController`: paused state, queued messages
 - `LoopDetector`: turn chain depths, velocity windows, tool fingerprints
 - `SlidingWindowRateLimiter`: event timestamps
-- `BudgetEnforcer`: warning-posted flag (persisted daily summary survives restart)
 - `SessionLockManager`: active locks
 
 This is by design -- a crash naturally clears all transient governance state,

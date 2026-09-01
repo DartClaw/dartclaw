@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ProviderIdentity;
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, LoginStoreCollisionError;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show SearchDbFactory, TaskDbFactory, openSearchDb, openTaskDb;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProviderAuthPreflight,
@@ -18,21 +18,44 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         syntheticWorkflowSkillSteps,
         resolveStepConfig;
 import 'package:meta/meta.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show
+        CredentialPreflight,
+        CredentialPreflightException,
+        DartclawRuntime,
+        LogRedactor,
+        LogService,
+        WriteLine,
+        workflowRoleDefaultsFromConfig;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart';
-import '../serve_command.dart' show WriteLine;
-import 'cli_workflow_wiring.dart';
-import 'credential_preflight.dart';
-import 'workflow_config_support.dart';
 
-/// The wired in-process engine plus the loaded run, handed to a standalone
+/// Installs the root-logger sink for a standalone run from the config's
+/// `logging:` section.
+///
+/// Standalone lanes compose the runtime headlessly and print only their own
+/// progress lines, so without this every runtime diagnostic — provider stderr
+/// included — is discarded and the configured level is inert. Callers own
+/// [LogService.dispose].
+LogService installStandaloneLogging(DartclawConfig config) {
+  final logService = LogService.fromConfig(
+    format: config.logging.format,
+    logFile: config.logging.file,
+    level: config.logging.level,
+    redactor: LogRedactor(redactor: MessageRedactor(extraPatterns: config.logging.redactPatterns)),
+  );
+  logService.install();
+  return logService;
+}
+
+/// The composed in-process runtime plus the loaded run, handed to a standalone
 /// lifecycle action callback.
 class StandaloneLifecycleSession {
-  final CliWorkflowWiring wiring;
+  final DartclawRuntime runtime;
   final WorkflowRun run;
 
-  const new({required this.wiring, required this.run});
+  const new({required this.runtime, required this.run});
 }
 
 /// Base for `workflow` subcommands that can drive a single run's lifecycle
@@ -42,9 +65,11 @@ class StandaloneLifecycleSession {
 /// environment, sinks, interrupts) plus [runStandaloneLifecycle], which mirrors
 /// `workflow run --standalone` for local DB access and live-server protection:
 /// config resolution, the server-reachable safety check (abort unless
-/// `--force`), the [CliWorkflowWiring] build + `wire()`/`dispose()`, run-not-found
-/// handling, and a `StateError`→printed-message + non-zero-exit mapping so engine
-/// guard violations (and stale-`running` resumes) never surface a stack trace.
+/// `--force`), the project-credential preflight, the headless
+/// [DartclawRuntime] staging + completion + shutdown,
+/// run-not-found handling, and a `StateError`→printed-message + non-zero-exit
+/// mapping so engine guard violations (and stale-`running` resumes) never
+/// surface a stack trace.
 abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
   final SearchDbFactory? searchDbFactory;
   final TaskDbFactory? taskDbFactory;
@@ -135,35 +160,36 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
       exitFn(1);
     }
 
-    final wiring = CliWorkflowWiring(
-      config: config,
+    final logService = installStandaloneLogging(config);
+
+    final env = environment ?? Platform.environment;
+    try {
+      CredentialPreflight.enforce(config, env);
+    } on CredentialPreflightException catch (error) {
+      for (final item in error.errors) {
+        stderrLine(item.message);
+      }
+      exitFn(1);
+    }
+
+    final staging = await DartclawRuntime.stageHeadless(
+      config,
       dataDir: dataDir,
-      environment: environment,
-      harnessFactory: harnessFactory,
-      searchDbFactory: searchDbFactory,
-      taskDbFactory: taskDbFactory,
+      environment: env,
+      skillProvisionerEnvironment: env,
+      harnessFactory: harnessFactory ?? HarnessFactory(),
+      searchDbFactory: searchDbFactory ?? openSearchDb,
+      taskDbFactory: taskDbFactory ?? openTaskDb,
+      stderrLine: stderrLine,
+      exitFn: exitFn,
       runWorkflowSkillsBootstrap: bootstrapSkills,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
     );
-    var preWired = false;
-    try {
-      try {
-        await wiring.wireBaseServices();
-        preWired = true;
-      } on CredentialPreflightException catch (error) {
-        for (final item in error.errors) {
-          stderrLine(item.message);
-        }
-        exitFn(1);
-      } on LoginStoreCollisionError catch (error) {
-        // A store DartClaw must not use is an operator configuration error, not
-        // a crash: it takes the same printed-remediation, exit-1 path.
-        stderrLine(error.toString());
-        exitFn(1);
-      }
 
-      final run = await wiring.loadRun(runId);
+    DartclawRuntime? runtime;
+    try {
+      final run = await staging.loadWorkflowRun(runId);
       if (run == null) {
         stderrLine('Workflow run not found: $runId');
         exitFn(1);
@@ -177,27 +203,30 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
           context: WorkflowContext.fromJson(run.contextJson),
         );
         try {
-          await wiring.preflightProviderAuth(executionProviders);
+          await staging.preflightProviderAuth(executionProviders);
         } on WorkflowPreflightException catch (error) {
           stderrLine(error.message);
           exitFn(1);
         }
-        await wiring.wireExecutionServices(executionProviders);
+        runtime = await staging.completeForExecution(executionProviders);
       } else {
-        await wiring.wireLifecycleOnly();
+        runtime = await staging.completeForLifecycle();
       }
 
       try {
-        final code = await action(StandaloneLifecycleSession(wiring: wiring, run: run));
+        final code = await action(StandaloneLifecycleSession(runtime: runtime, run: run));
         exitFn(code);
       } on StateError catch (error) {
         stderrLine(error.message);
         exitFn(1);
       }
     } finally {
-      if (preWired) {
-        await wiring.dispose();
+      if (runtime != null) {
+        await runtime.shutdown();
+      } else {
+        await staging.dispose();
       }
+      await logService.dispose();
     }
   }
 }

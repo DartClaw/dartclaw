@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.24
+**Current through**: 0.25; 0.25 kernel package formation.
 
 ---
 
@@ -15,7 +15,7 @@ DartClaw supports four messaging channels as entry points for human-to-agent int
 | **WhatsApp** | GOWA webhook | Go binary (`gowa`) | `dartclaw_whatsapp` |
 | **Signal** | signal-cli SSE | External binary (`signal-cli`) | `dartclaw_signal` |
 | **Google Chat** | REST API + Pub/Sub | Direct HTTP (no sidecar) | `dartclaw_google_chat` |
-| **Web UI** | Direct HTTP / SSE | Built into `dartclaw_server` | `dartclaw_server` |
+| **Web UI** | Direct HTTP / SSE | Built into `dartclaw_runtime` | `dartclaw_runtime` |
 
 Three principles govern channel design:
 
@@ -23,7 +23,7 @@ Three principles govern channel design:
 
 2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA and signal-cli) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
 
-3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_server`.
+3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_runtime`.
 
 
 ---
@@ -32,10 +32,10 @@ Three principles govern channel design:
 
 ### 2.1 Core Types
 
-All channel types are defined in `dartclaw_models`:
+All channel types are defined in `dartclaw_kernel`:
 
 ```
-// packages/dartclaw_models/lib/src/channel_type.dart
+// packages/dartclaw_kernel/lib/src/channel_type.dart
 enum ChannelType { web, whatsapp, signal, googlechat }
 ```
 
@@ -77,7 +77,11 @@ class ChannelResponse {
 }
 ```
 
-Channels that support structured rendering (Google Chat Cards v2) prefer `structuredPayload`; others fall back to `text`.
+Channels that support structured rendering (Google Chat Cards v2) prefer `structuredPayload`; others fall back to
+`text`. A producer that sets `structuredPayload` sets `text` too: it is the fallback delivered when structured
+rendering is unavailable or the structured send fails. Adapters deliver that `text` verbatim and never re-derive
+one from the payload; an adapter handed a payload with an empty `text` may deliver a generic placeholder rather than
+nothing.
 
 ### 2.4 Abstract Channel
 
@@ -126,7 +130,7 @@ class ChannelManager {
 
 ## 3. Inbound Message Pipeline
 
-The full inbound flow from raw platform event to agent turn:
+The full inbound flow from raw platform event to agent turn. Access control applies to the three gated paths only (WhatsApp webhook, Signal SSE, Google Chat webhook); the Google Chat Space Events Pub/Sub dispatch enters at `ChannelManager.handleInboundMessage` and skips every gate below (TD-123):
 
 ```
                      Webhook POST / Pub/Sub Pull / SSE Event
@@ -156,8 +160,8 @@ The full inbound flow from raw platform event to agent turn:
                                     v
                   +-----------------------------------+
                   |  Mention Gating                   |
-                  |  - MentionGating / SignalMention-  |
-                  |    Gating (group messages only)    |
+                  |  - MentionGating (group messages   |
+                  |    only)                           |
                   +-----------------------------------+
                                     |
                                     v
@@ -188,9 +192,7 @@ The full inbound flow from raw platform event to agent turn:
               |  0. Reserved commands        |  |
               |  1. Thread binding lookup    |  |
               |  2. Rate limit check         |  |
-              |  3. Review commands           |  |
-              |  4. Bound-thread routing     |  |
-              |  5. Task triggers            |  |
+              |  3. Bound-thread routing     |  |
               +-----------------------------+  |
                          |                     |
              +-----------+--+                  |
@@ -221,18 +223,19 @@ The full inbound flow from raw platform event to agent turn:
 
 2. **Channel adapter normalizes** -- Each channel implementation parses the raw payload and produces a `ChannelMessage`. Bot-originated messages are filtered at this stage.
 
-3. **Access control** -- DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`). Group messages pass through `GroupAccessMode` checks. Unknown DM senders in `pairing` mode receive a pairing code.
+3. **Access control** -- WhatsApp, Signal and the Google Chat webhook all run the same `ChannelInboundGate.evaluate` in `dartclaw_core`: DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`), group messages pass through `GroupAccessMode` checks, and group messages are then checked against `MentionGating`. The gate is pure -- it returns a `ChannelInboundDecision` naming the admitting or dropping stage, and each channel keeps its own drop logging and pairing effect (WhatsApp and Signal log, Google Chat posts a pairing code into the space). An absent `DmAccessController` or `MentionGating` admits at that stage rather than denying. **The Google Chat Space Events Pub/Sub dispatch (§7) is the exception: it reaches `handleInboundMessage` with no DM, group or mention gating at all -- see TD-123.**
 
-4. **Mention gating** -- Group messages are checked via `MentionGating` (WhatsApp/Google Chat) or `SignalMentionGating` (Signal). If `requireMention` is true and the bot's JID is not in `mentionedJids` or text patterns, the message is dropped.
+4. **Mention gating** -- Applied inside the gate, to group messages only. If `requireMention` is true and the bot's JID is not in `mentionedJids` or text patterns, the message is dropped.
 
 5. **Deduplication** -- `MessageDeduplicator` (bounded FIFO set, default capacity 1000) prevents the same message from being processed twice when it arrives via both webhook and Pub/Sub. Keyed on message resource name.
 
 6. **ChannelManager routing** -- Finds the owning channel via `ownsJid()`, derives a session key from `SessionScopeConfig`, and delegates to `ChannelTaskBridge` if wired.
 
 Human channel turns use `PromptScope.primary`; the separate human-input flag makes fresh onboarding eligible independently of transport. Tasks,
-scheduled work, workflows, advisors, and logical-agent turns use non-conversational scopes and never receive it.
+scheduled work, workflows, and logical-agent turns use non-conversational scopes and never receive it.
 
-7. **ChannelTaskBridge** -- Evaluates the message against reserved commands, thread bindings, rate limits, review commands, and task triggers. Returns `true` if consumed.
+7. **ChannelTaskBridge** -- Evaluates reserved commands, thread bindings, and per-sender rate limits, then routes a bound
+   thread when present. Returns `true` if consumed.
 
 8. **MessageQueue** -- If not consumed by the bridge, the message enters a per-session FIFO queue with debounce coalescing (default 1s window), global concurrency cap, retry with exponential backoff, and dead-letter handling.
 
@@ -241,7 +244,9 @@ scheduled work, workflows, advisors, and logical-agent turns use non-conversatio
 
 ## 4. Thread Binding
 
-Introduced in 0.12 (Crowd Coding), thread binding enables channel threads (e.g., Google Chat threaded conversations) to be permanently routed to a specific task session.
+Introduced in 0.12 (Crowd Coding), thread binding enables channel threads (e.g., Google Chat threaded conversations) to
+be routed to a specific task session. It is opt-in through `features.thread_binding.enabled`; the runtime creates the
+binding store and enables binding commands, tools, notifications, and routing only when that key is true.
 
 ### 4.1 Data Model
 
@@ -278,7 +283,6 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
                  |
                  v
   ThreadBindingRouter.lookupThreadBinding()
-  - Gated by features.thread_binding.enabled
   - Extracts threadId from metadata['threadName']
   - Looks up in ThreadBindingStore
                  |
@@ -314,7 +318,7 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
          |
          v
   Channel.formatResponse(text) -- channel-specific formatting
-    - WhatsApp: shared Markdown-to-native conversion with WhatsApp links, attribution prefix, MEDIA: directives
+    - WhatsApp: shared Markdown-to-native conversion with WhatsApp links and attribution prefix
     - Signal: Markdown-to-text + native UTF-16 style ranges, style-aware chunking
     - Google Chat: shared Markdown-to-native conversion with Chat links, table normalization, chunk at 4000 chars
     - Web: Markdown rendered client-side with Marked and sanitized by DOMPurify
@@ -323,7 +327,7 @@ Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes 
   Channel.sendMessage(recipientJid, ChannelResponse)
     - WhatsApp: GOWA REST API (sendText, sendMedia, chat presence)
     - Signal: signal-cli JSON-RPC (send, sendTyping)
-    - Google Chat: REST API (sendMessage, sendCard, editMessage)
+    - Google Chat: REST API (one queued send for text/card/threaded messages, editMessage)
     - Web: SSE event stream
 ```
 
@@ -354,13 +358,16 @@ List<String> chunkText(String text, {int maxSize = 4000})
 
 ### 5.4 Channel-Specific Outbound Behavior
 
-**Google Chat** -- Core's standard-Markdown converter supplies Chat markup through a Google-specific link wrapper. `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts, advisor insights). Typing indicators use placeholder messages or emoji reactions. Native quote-reply support is available in Spaces.
+**Google Chat** -- Core's standard-Markdown converter supplies Chat markup through a Google-specific link wrapper. `ChatCardBuilder` produces Cards v2 payloads for structured notifications (task status, review buttons, error alerts). Typing indicators use placeholder messages or emoji reactions. Native quote-reply support is available in Spaces.
 
-**WhatsApp** -- `ResponseFormatter` uses core's standard-Markdown converter with WhatsApp link rendering, prepends model/agent attribution, extracts `MEDIA:<path>` directives from agent output, and handles media uploads via GOWA multipart API. Native chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups.
+**WhatsApp** -- `ResponseFormatter` uses core's standard-Markdown converter with WhatsApp link rendering and prepends
+model/agent attribution. Explicit `attach_media` tool calls deliver workspace files through GOWA multipart API. Native
+chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for both DMs and groups, driven by core's
+shared `TypingLeaseTracker` with no refresh interval.
 
-**Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
+**Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls through core's shared `TypingLeaseTracker`, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
 
-Scheduled announcements and plain-text advisor replies also pass through `Channel.formatResponse`, so interactive and proactive model output use the same platform formatting and chunking rules. Google advisor replies retain their structured Cards v2 path; their card fields use readable plain text and their fallback uses Google Chat markup.
+Scheduled announcements also pass through `Channel.formatResponse`, so interactive and proactive model output use the same platform formatting and chunking rules.
 
 
 ---
@@ -384,68 +391,14 @@ class ChannelTaskBridge {
 
 | Priority | Check | Consumed? |
 |----------|-------|-----------|
-| 0 | **Reserved commands** (`/stop`, `/pause`, `/resume`, `/status`) | Yes, if recognized |
+| 0 | **Reserved text commands** (`/stop`, `/pause`, `/resume`, `/bind`, `/unbind`) | Yes, if recognized |
 | 1 | **Thread binding lookup** -- capture bound task/session context | No (sets context) |
 | 2 | **Per-sender rate limit** -- `SlidingWindowRateLimiter` check | Yes, if rate-limited |
-| 3 | **Review commands** (`accept`, `reject`, `push back`) | Yes, if recognized |
-| 4 | **Bound-thread routing** -- route to bound session via enqueue | Yes, if bound |
-| 5 | **Task triggers** -- create a new task from message | Yes, if trigger matches |
+| 3 | **Bound-thread routing** -- route to bound session via enqueue | Yes, if bound |
 
 If no step consumes the message, `tryHandle()` returns `false` and the message falls through to `MessageQueue` for normal session processing.
 
-### 6.2 Task Triggers
-
-```
-  "task: research: find the best Dart testing framework"
-         |
-         v
-  TaskTriggerParser.parse(text, config)
-  - Checks prefix match (default: "task:")
-  - Extracts optional type ("research:")
-  - Extracts description
-         |
-         v
-  TaskTriggerEvaluator.tryHandleTaskTrigger()
-  - Validates description is non-empty
-  - Builds TaskOrigin with channel context
-  - Resolves project via GroupConfigResolver
-  - Calls TaskCreator callback
-         |
-         v
-  Channel response: "Task created: <title> [research] -- ID: abc123"
-```
-
-`TaskTriggerConfig` per channel:
-```
-// packages/dartclaw_core/lib/src/channel/task_trigger_config.dart
-class TaskTriggerConfig {
-  final bool enabled;
-  final String prefix;       // default: "task:"
-  final String defaultType;  // default: "research"
-  final bool autoStart;      // default: true
-}
-```
-
-### 6.3 Review Commands
-
-```
-// packages/dartclaw_core/lib/src/channel/review_command_parser.dart
-class ReviewCommandParser {
-  ReviewCommand? parse(String message);
-  // Recognized:
-  //   "accept" / "accept <id>"
-  //   "reject" / "reject <id>"
-  //   "push back: <feedback>" / "push back <id>: <feedback>"
-}
-```
-
-`ReviewCommandDispatcher` resolves the target task:
-1. If message is in a bound thread, use the bound `taskId` implicitly
-2. If explicit `<id>` is given, prefix-match against tasks in review
-3. If only one task is in review, target it automatically
-4. Otherwise, ask the user to disambiguate
-
-### 6.4 Task Origin
+### 6.2 Task Origin
 
 When a task is created from a channel message, a `TaskOrigin` record captures the originating context:
 
@@ -482,7 +435,7 @@ Google Chat is the most complex channel integration, with two ingest paths and a
            |                            |
            v                            v
   GoogleChatWebhookHandler     CloudEventAdapter
-  (dartclaw_server)            (dartclaw_google_chat)
+  (dartclaw_google_chat)       (dartclaw_google_chat)
            |                            |
            +------+-----+------+-------+
                   |            |
@@ -494,7 +447,7 @@ Google Chat is the most complex channel integration, with two ingest paths and a
            ChannelManager.handleInboundMessage()
 ```
 
-**Webhook** -- Google Chat sends HTTP POST to a configured endpoint. `GoogleChatWebhookHandler` in `dartclaw_server` verifies the Google JWT, parses the payload, applies access control and mention gating, then forwards to `ChannelManager`. Handles event types: `MESSAGE`, `ADDED_TO_SPACE`, `REMOVED_FROM_SPACE`, `CARD_CLICKED`, `APP_COMMAND`.
+**Webhook** -- Google Chat sends HTTP POST to a configured endpoint. `GoogleChatWebhookHandler` and `GoogleChatJwtVerifier` in `dartclaw_google_chat` authenticate the JWT, parse the payload, apply access control and mention gating, then forward to `ChannelManager`. The handler covers `MESSAGE`, `ADDED_TO_SPACE`, `REMOVED_FROM_SPACE`, `CARD_CLICKED` and `APP_COMMAND`.
 
 **Pub/Sub** -- `PubSubClient` polls a Cloud Pub/Sub subscription for CloudEvent messages delivered by Google Workspace Events API. `CloudEventAdapter` converts these into `ChannelMessage` objects. Supports `message.v1.created` and `message.v1.batchCreated` event types.
 
@@ -546,7 +499,7 @@ class PubSubClient {
 
 ### 7.6 Outbound: Cards v2
 
-`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `errorNotification()`, `alertNotification()` (severity-colored), `confirmationCard()`, and `advisorInsight()`.
+`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `errorNotification()`, `alertNotification()` (severity-colored), and `confirmationCard()`.
 
 ### 7.7 Slash Commands
 
@@ -563,11 +516,14 @@ class PubSubClient {
 
 ### 8.1 GOWA Sidecar
 
-WhatsApp integration uses GOWA (Go WhatsApp), a Go binary managed as a subprocess:
+WhatsApp integration uses GOWA (Go WhatsApp), a Go binary managed as a subprocess. Spawn, startup-health polling,
+teardown and restart policy are shared with the signal-cli sidecar by `SidecarProcessManager`
+(`packages/dartclaw_core/lib/src/channel/sidecar_process_manager.dart`), which `GowaManager` extends; the base owns the
+state and the primitives while each manager keeps its own `start`/`stop`/`reset` sequence:
 
 ```
 // packages/dartclaw_whatsapp/lib/src/gowa_manager.dart
-class GowaManager {
+class GowaManager extends SidecarProcessManager {
   Future<void> start();         // Spawn + health check
   Future<void> stop();          // Platform-capability termination + bounded reap
   Future<void> sendText(String jid, String text);
@@ -584,7 +540,8 @@ Key behaviors:
   comes from `PlatformCapabilities.posixSignalsAvailable`, and an unconfirmed exit emits a lifecycle warning.
 - **External service detection** -- If GOWA is already running on the configured port, attaches rather than spawning
 - **Multi-device** -- GOWA v8 requires `X-Device-Id` header; `GowaManager` auto-provisions a device on first start
-- **Crash recovery** -- Exponential backoff (2^n seconds, capped at 30s, max 5 attempts)
+- **Crash recovery** -- Exponential backoff (2^n seconds, capped at 30s, max 5 attempts), decided once in the base.
+  `GowaManager` implements only the scheduling seam, deferring the retry to a later event-loop turn
 - **JID capture** -- Parses `LOGIN_SUCCESS` from stderr to capture the paired WhatsApp JID
 - **Ban detection** -- Monitors send errors for "banned"/"restricted" signals, auto-disables channel
 
@@ -604,7 +561,10 @@ Webhook payload parsing (GOWA v8 format):
 
 ### 8.3 Media and Response Formatting
 
-`MediaExtractor` extracts `MEDIA:<path>` directives from agent output, resolves relative paths against workspace directory, and validates file existence. `ResponseFormatter` prepends `*Claude* -- _DartClaw_` attribution, extracts media, and chunks text to the configured max size.
+`ResponseFormatter` converts standard Markdown to WhatsApp-native markup, prepends attribution, and chunks text to the
+configured maximum size. Media delivery is explicit: the registered `attach_media` tool applies `WorkspacePathGuard`,
+which resolves symlinks on both candidate and workspace root and refuses traversal or outside-workspace paths. The tool
+takes no recipient; `DeliveryService.deliverMedia` resolves the owner's active DM targets from channel sessions.
 
 ### 8.4 JID Format
 
@@ -618,11 +578,14 @@ Webhook payload parsing (GOWA v8 format):
 
 ### 9.1 signal-cli Sidecar
 
-Signal uses signal-cli running in HTTP daemon mode:
+Signal uses signal-cli running in HTTP daemon mode. It shares the GOWA sidecar's spawn, startup-health, teardown and
+restart machinery through `SidecarProcessManager`
+(`packages/dartclaw_core/lib/src/channel/sidecar_process_manager.dart`), extending it and keeping its own
+SSE-aware `start`/`stop`/`reset` sequence:
 
 ```
 // packages/dartclaw_signal/lib/src/signal_cli_manager.dart
-class SignalCliManager {
+class SignalCliManager extends SidecarProcessManager {
   Future<void> start();    // Spawn + health check + SSE connect
   Future<void> stop();
   Future<void> sendMessage(String recipient, String text, {required bool isGroup});
@@ -638,7 +601,8 @@ Key behaviors:
 - **JSON-RPC** -- All commands sent via JSON-RPC 2.0 to `/api/v1/rpc`
 - **Device linking** -- `getLinkDeviceUri()` starts a link session, caches the URI, and long-polls `finishLink` (5-minute timeout) until the user confirms on their phone
 - **Post-start registration** -- The daemon uses `--receive-mode on-connection`; successful registration reconnects SSE so accounts added after daemon startup immediately begin receiving
-- **Crash recovery** -- Same exponential backoff pattern as GOWA (max 5 attempts, 30s cap)
+- **Crash recovery** -- The same base decision as GOWA (max 5 attempts, 30s cap); `SignalCliManager` implements the
+  scheduling seam by starting the retry inline, and `stop()` bumps the lifecycle generation before taking the lock
 - **SSE reconnection** -- Single-flight guard prevents concurrent reconnect attempts
 
 ### 9.2 Signal Channel
@@ -668,14 +632,9 @@ Signal's sealed-sender protocol means unknown senders appear as UUID only. The s
 
 ### 9.4 DM Access
 
-```
-// packages/dartclaw_signal/lib/src/signal_dm_access.dart
-class SignalMentionGating {
-  bool shouldProcess(ChannelMessage message);
-}
-```
+Signal gates inbound events through core's shared `ChannelInboundGate` and core's `GroupAccessMode` / `MentionGating` types; it holds no gating types of its own.
 
-Sealed-sender complication: the DM access check also tries `metadata['sourceUuid']` as an alternate identifier when the primary `senderJid` is not in the allowlist. If the UUID matches, the phone number is automatically added to the allowlist for future lookups.
+Sealed-sender complication: Signal's own call site reacts to the gate's DM-denied decision by also trying `metadata['sourceUuid']` as an alternate identifier when the primary `senderJid` is not in the allowlist. If the UUID matches, the phone number is automatically added to the allowlist for future lookups. The shared gate performs no such lookup, so WhatsApp and Google Chat get no alternate-identity resolution and no allowlist self-heal.
 
 
 ---
@@ -691,9 +650,9 @@ Governance checks (rate limiting, token budget) are applied **before** thread bi
 ### 10.2 Per-Sender Rate Limiting
 
 `SlidingWindowRateLimiter` in `ChannelTaskBridgeSupport`:
-- Configured via `governance.rate_limiting.per_sender` in YAML
+- Configured via `governance.rate_limits.per_sender` in YAML
 - Admin senders are exempt (checked via `isAdmin` callback)
-- Review commands and reserved commands bypass rate limiting
+- Reserved text commands bypass rate limiting; review requests are ordinary model turns and receive no exemption
 - Rate-limited senders receive a polite rejection with the limit info
 
 ### 10.3 Emergency Controls
@@ -707,7 +666,7 @@ These bypass:
 - Rate limiting (always processed)
 - Pause state (always processed)
 
-Implementation: `ReservedCommandHandler` callback in `ChannelTaskBridge`, with pause state managed by `PauseController` in `dartclaw_server` injected via callbacks to keep `dartclaw_core` free of server dependencies.
+Implementation: `ReservedCommandDispatch` callback in `ChannelTaskBridge`, with pause state managed by `PauseController` in `dartclaw_runtime` injected via callbacks to keep `dartclaw_core` free of server dependencies.
 
 ### 10.4 Pause Handling
 
@@ -742,7 +701,7 @@ Session keys determine which agent conversation receives a message. The `Session
 ### 11.2 Per-Channel Overrides
 
 ```
-// packages/dartclaw_models/lib/src/session_scope_config.dart
+// packages/dartclaw_kernel/lib/src/session_scope_config.dart
 class SessionScopeConfig {
   final DmScope dmScope;           // Global default
   final GroupScope groupScope;     // Global default
@@ -756,7 +715,7 @@ class SessionScopeConfig {
 
 ### 11.3 Session Key Generation
 
-`SessionKey` static factories in `dartclaw_models`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`.
+`SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`.
 
 
 ---
@@ -765,23 +724,21 @@ class SessionScopeConfig {
 
 ### 12.1 Channel Config
 
-Top-level `channels:` YAML section with `debounce_window_ms`, `max_queue_depth`, `retry_policy` (max_attempts, base_delay_ms, jitter_factor), and per-channel subsections (`whatsapp`, `signal`, `googlechat`). Typed models live in `dartclaw_models/lib/src/channel_config.dart`; loading is driven by `ChannelConfigProvider`.
+Top-level `channels:` YAML section with `debounce_window_ms`, `max_queue_depth`, `retry_policy` (max_attempts, base_delay_ms, jitter_factor), and per-channel subsections (`whatsapp`, `signal`, `googlechat`). Typed models live in `dartclaw_kernel/lib/src/channel_config.dart`; per-channel sections are resolved by `resolveChannelConfig` in `dartclaw_runtime`.
 
 ### 12.2 DM Access and Groups
 
 Per-channel `dm_access` mode (`pairing` | `allowlist` | `open` | `disabled`) with `allowlist` entries. Group access via `group_access` (`allowlist` | `open` | `disabled`) with `group_ids`.
 
-### 12.3 Task Triggers
-
-Per-channel `task_trigger` block: `enabled`, `prefix` (default `"task:"`), `default_type` (default `"research"`), `auto_start` (default `true`).
-
-### 12.4 Session Scope
+### 12.3 Session Scope
 
 `session_scope` section: `dm_scope` (`shared` | `per-contact` | `per-channel-contact`), `group_scope` (`shared` | `per-member`), with per-channel overrides under `channels:`.
 
-### 12.5 Governance
+### 12.4 Governance
 
-`governance.rate_limiting.per_sender` (limit + window_seconds). `governance.token_budget` (daily_limit + mode: `warn` | `block`). All default to disabled for backward compatibility.
+`governance.rate_limits.per_sender` (`messages`, `window`, and queue bounds) and
+`governance.budget` (`daily_tokens`, `action`, and `timezone`). Zero message, turn, or token limits disable the
+corresponding bound.
 
 
 ---
@@ -798,7 +755,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Retry and dead-letter** -- Failed turns retry with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`). After `maxAttempts` (default 3), the message is dead-lettered and the sender receives an error notification.
 
-**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping`; the queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
+**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping` by delegating to core's `TypingLeaseTracker` (`src/channel/typing_lease_tracker.dart`), which owns per-recipient lease counting, update serialization, the single START retry and the shutdown latch for every adopter; WhatsApp and Signal differ only in the three constructor arguments -- sendability predicate, transport call and refresh interval. The queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
 
 
 ---
@@ -806,52 +763,51 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 ## 14. Package Dependencies
 
 ```
-  dartclaw_models
+  dartclaw_kernel
   (ChannelType, ChannelConfig, SessionScopeConfig, DmScope, GroupScope,
-   RetryPolicy, SessionKey, TaskType)
+   RetryPolicy, SessionKey)
        |
        v
   dartclaw_core
   (Channel, ChannelMessage, ChannelResponse, ChannelManager, MessageQueue,
-   MessageDeduplicator, MentionGating, DmAccessController, standard Markdown
-   conversion, ThreadBinding,
+   MessageDeduplicator, ChannelInboundGate, MentionGating, DmAccessController,
+   standard Markdown conversion, ThreadBinding,
    ThreadBindingStore, ThreadBindingRouter, ThreadBindingLifecycleManager,
-   ChannelTaskBridge, TaskTriggerParser, TaskTriggerEvaluator,
-   ReviewCommandParser, ReviewCommandDispatcher, TaskCreator,
+   ChannelTaskBridge,
    RecipientResolver, ChannelFeedbackStrategy, TurnProgressEvent)
        |
        +---> dartclaw_whatsapp
        |     (WhatsAppChannel, GowaManager, WhatsAppConfig,
-       |      ResponseFormatter, MediaExtractor)
-       |     deps: dartclaw_core, dartclaw_config
+       |      ResponseFormatter)
+       |     deps: dartclaw_core, dartclaw_kernel
        |
        +---> dartclaw_signal
        |     (SignalChannel, SignalCliManager, SignalConfig,
-       |      SignalSenderMap, SignalDmAccess, SignalMentionGating)
-       |     deps: dartclaw_core, dartclaw_config
+       |      SignalSenderMap)
+       |     deps: dartclaw_core, dartclaw_kernel
        |
        +---> dartclaw_google_chat
        |     (GoogleChatChannel, GoogleChatConfig, GoogleChatRestClient,
        |      ChatCardBuilder, CloudEventAdapter, PubSubClient,
        |      WorkspaceEventsManager, SlashCommandParser,
+       |      GoogleChatWebhookHandler, GoogleChatJwtVerifier,
        |      PubSubHealthReporter, Markdown link/plain-text wrappers)
-       |     deps: dartclaw_core, dartclaw_config
+       |     deps: dartclaw_core, dartclaw_kernel, shelf
        |
        v
-  dartclaw_server
-  (webhookRoutes, GoogleChatWebhookHandler, SlashCommandHandler,
-   PauseController, ChannelWiring, GoogleJwtVerifier)
+  dartclaw_runtime
+  (webhookRoutes, SlashCommandHandler, PauseController, ChannelWiring)
   deps: dartclaw_core, dartclaw_whatsapp, dartclaw_signal,
-        dartclaw_google_chat, dartclaw_config
+        dartclaw_google_chat, dartclaw_kernel
 ```
 
 Dependency direction is strictly downward: platform packages depend on core, never on each other. The server package depends on all platform packages for webhook routing and lifecycle management.
 
 ### 14.1 Avoiding Circular Dependencies
 
-- `ChannelTaskBridge` uses callback types (`TaskCreator`, `TaskLister`, `ChannelReviewHandler`) rather than importing `dartclaw_server` types
+- `ChannelTaskBridge` accepts reserved-command and enqueue callbacks rather than importing `dartclaw_runtime` types
 - `PauseController` state is injected into `ChannelManager` via function callbacks (`isPaused`, `enqueueForPause`, `pausedByName`)
-- `BudgetExhaustedError` is an abstract interface in `dartclaw_core` implemented by `BudgetExhaustedException` in `dartclaw_server`
+- `BudgetExhaustedError` is an abstract interface in `dartclaw_core` implemented by `BudgetExhaustedException` in `dartclaw_runtime`
 
 
 ---
@@ -861,7 +817,7 @@ Dependency direction is strictly downward: platform packages depend on core, nev
 ### 15.1 Webhook Routes
 
 ```
-// packages/dartclaw_server/lib/src/api/webhook_routes.dart
+// packages/dartclaw_runtime/lib/src/api/webhook_routes.dart
 Router webhookRoutes({
   WhatsAppChannel? whatsApp,
   String? webhookSecret,
@@ -878,7 +834,7 @@ Webhook routes are excluded from gateway auth -- external services call them dir
 
 ### 15.2 Google Chat Webhook Handler
 
-`GoogleChatWebhookHandler` handles the full event lifecycle: `MESSAGE` (parse, access control, dedup, typing indicator, route), `ADDED_TO_SPACE` (welcome + auto-subscribe), `REMOVED_FROM_SPACE` (unsubscribe), `CARD_CLICKED` (review buttons), and `APP_COMMAND` (slash commands). Also normalizes Workspace Add-on format to legacy Chat API format.
+`GoogleChatWebhookHandler` in `dartclaw_google_chat` handles the full event lifecycle: `MESSAGE` (parse, access control, dedup, typing indicator, route), `ADDED_TO_SPACE` (welcome + auto-subscribe), `REMOVED_FROM_SPACE` (unsubscribe), `CARD_CLICKED` (review buttons), and `APP_COMMAND` (slash commands). It also normalizes Workspace Add-on format to legacy Chat API format. `dartclaw_runtime` mounts it and supplies the runtime-owned `SlashCommandHandler` through the channel's executor interface.
 
 
 ---

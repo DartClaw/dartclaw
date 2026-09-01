@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show ProcessTerminationResult, killWithEscalation;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:fake_async/fake_async.dart';

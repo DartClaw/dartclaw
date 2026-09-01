@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Configurable [Guard] fake with evaluation tracking.
 class FakeGuard extends Guard {

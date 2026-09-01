@@ -15,8 +15,9 @@
 ## Boundaries
 - **Zero runtime dependencies, `dart:` libraries only.** The binary is cross-compiled with `dart compile exe`
   (`dev/tools/build_bridge.sh`) and must stay small and hook-free. Adding any dependency — including a workspace
-  package — breaks that and is not a judgement call.
-- The host side (`dartclaw_server` `lib/src/container/gateway/`) consumes this package's protocol and codec. The
+  package — breaks that and is not a judgement call. `dev/fitness/test/bridge_package_deps_test.dart` enforces the
+  exact package shape required by [ADR-051](../../dev/adrs/051-container-bridge-binary-packaging.md).
+- The host side (`dartclaw_runtime` `lib/src/container/gateway/`) consumes this package's protocol and codec. The
   reverse direction does not exist: nothing here may know about sessions, providers, credentials, or policy.
 
 ## Conventions

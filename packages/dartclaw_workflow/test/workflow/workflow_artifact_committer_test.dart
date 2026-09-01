@@ -1,15 +1,15 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OutputConfig,
         OutputFormat,
         Task,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowGitArtifactsStrategy,
@@ -19,10 +19,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitWorktreeMode,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_artifact_committer.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -153,13 +153,7 @@ void main() {
             outputs: {'plan': OutputConfig(format: OutputFormat.path)},
           ),
           context: WorkflowContext(data: {'plan': 'plan.md'}),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.coding,
-            createdAt: DateTime(2026, 1, 1),
-          ),
+          task: Task(id: 'task-1', title: 'Task', description: 'Task', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),
@@ -211,7 +205,6 @@ void main() {
             title: 'Task',
             description: 'Task',
             // Review-style steps are read-only unless their allowedTools include file_write.
-            type: TaskType.research,
             createdAt: DateTime(2026, 1, 1),
           ),
           projectService: null,
@@ -272,13 +265,7 @@ void main() {
               'story_result': 'implemented',
             },
           ),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.coding,
-            createdAt: DateTime(2026, 1, 1),
-          ),
+          task: Task(id: 'task-1', title: 'Task', description: 'Task', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),
@@ -352,13 +339,7 @@ void main() {
               },
             },
           ),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.coding,
-            createdAt: DateTime(2026, 1, 1),
-          ),
+          task: Task(id: 'task-1', title: 'Task', description: 'Task', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),
@@ -412,13 +393,7 @@ void main() {
             outputs: {'plan': OutputConfig(format: OutputFormat.path)},
           ),
           context: WorkflowContext(data: {'plan': 'plan.md'}),
-          task: Task(
-            id: 'task-1',
-            title: 'Task',
-            description: 'Task',
-            type: TaskType.coding,
-            createdAt: DateTime(2026, 1, 1),
-          ),
+          task: Task(id: 'task-1', title: 'Task', description: 'Task', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),
@@ -458,15 +433,7 @@ void main() {
           ),
           step: planStep,
           context: WorkflowContext(data: {'plan': 'plan.md'}),
-          task:
-              task ??
-              Task(
-                id: 'task-1',
-                title: 'Task',
-                description: 'Task',
-                type: TaskType.coding,
-                createdAt: DateTime(2026, 1, 1),
-              ),
+          task: task ?? Task(id: 'task-1', title: 'Task', description: 'Task', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),
@@ -509,7 +476,7 @@ void main() {
           ),
           step: planStep,
           context: WorkflowContext(data: {'plan': 'plan.md'}),
-          task: Task(id: 't', title: 'T', description: 'T', type: TaskType.coding, createdAt: DateTime(2026, 1, 1)),
+          task: Task(id: 't', title: 'T', description: 'T', createdAt: DateTime(2026, 1, 1)),
           projectService: null,
           dataDir: tempDir.path,
           templateEngine: WorkflowTemplateEngine(),

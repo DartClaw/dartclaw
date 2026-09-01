@@ -67,7 +67,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
       final artifactName = 'merge_resolve_iter_${iterIndex}_attempt_$crashAttemptNumber.json';
       final alreadyPersisted = existingArtifacts.any((a) => a.name == artifactName);
       if (!alreadyPersisted && firstTaskId != null) {
-        // BPC-20 exact string: "interrupted by server restart"
+        // Exact string the run-status contract requires.
         final crashArtifact = MergeResolveAttemptArtifact(
           iterationIndex: iterIndex,
           storyId: storyId ?? '',
@@ -600,7 +600,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           stepIndex: stepIndex,
           promotedIds: promotedIds,
         );
-        // Clear parallel-mode pre_attempt_sha for this iteration (BPC-13).
+        // Clear parallel-mode pre_attempt_sha for this iteration.
         context.remove('_merge_resolve.${controllerStep.id}.$iterIndex.pre_attempt_sha');
         return const WorkflowGitPromotionSerializeRemaining();
     }
@@ -611,9 +611,9 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
 
   /// Stops new dispatch, lets in-flight siblings settle, then enters serial mode.
   ///
-  /// Returns null on success. Returns an error message when siblings do not
-  /// settle inside [_serializeRemainingSettleTimeout].
-  Future<String?> _enactSerializeRemaining({
+  /// Returns null on success. Returns the settle-timeout failure when siblings
+  /// do not settle inside [_serializeRemainingSettleTimeout].
+  Future<WorkflowSerializeRemainingSettleTimeout?> _enactSerializeRemaining({
     required WorkflowRun run,
     required WorkflowStep controllerStep,
     required WorkflowContext context,
@@ -688,14 +688,20 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
     if (inFlight.isNotEmpty) {
       final remainingTimeout = _remainingSerializeRemainingSettleTimeout(state, _serializeRemainingSettleTimeout);
       if (remainingTimeout == Duration.zero) {
-        return "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
-            '${inFlight.length} in-flight iteration(s) after ${_serializeRemainingSettleTimeout.inMilliseconds}ms';
+        return serializeRemainingSettleTimeoutFailure(
+          controllerStep,
+          inFlight.length,
+          _serializeRemainingSettleTimeout,
+        );
       }
       try {
         await Future.any(inFlight.values.map((future) => future.catchError((_) {}))).timeout(remainingTimeout);
       } on TimeoutException {
-        return "serialize-remaining settle-timeout: foreach step '${controllerStep.id}' still had "
-            '${inFlight.length} in-flight iteration(s) after ${_serializeRemainingSettleTimeout.inMilliseconds}ms';
+        return serializeRemainingSettleTimeoutFailure(
+          controllerStep,
+          inFlight.length,
+          _serializeRemainingSettleTimeout,
+        );
       }
       await _persistForeachProgress(
         run,

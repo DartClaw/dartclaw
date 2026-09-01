@@ -58,9 +58,9 @@ void main() {
       expect(yaml['agent']['provider'], 'claude');
       expect(yaml['agent']['model'], 'sonnet');
       expect(yaml['data_dir'], tempDir.path);
-      expect(yaml['governance']['turn_progress']['stall_timeout'], '300s');
-      expect(yaml['governance']['turn_progress']['stall_action'], 'cancel');
-      expect(yaml['governance']['turn_progress']['max_duration'], '1800s');
+      expect(yaml['governance']['turn_limits']['stall_timeout'], '300s');
+      expect(yaml['governance']['turn_limits']['stall_action'], 'cancel');
+      expect(yaml['governance']['turn_limits']['turn_timeout'], '1800s');
     });
 
     test('workflow track keeps data_dir relative to the config folder', () async {
@@ -133,16 +133,14 @@ void main() {
         gatewayAuthMode: 'token',
         manageAdvancedSettings: true,
         contentGuardEnabled: false,
-        inputSanitizerEnabled: false,
       );
       await SetupApply.apply(guarded);
 
       final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
       expect(yaml['guards']['content']['enabled'], isFalse);
-      expect(yaml['guards']['input_sanitizer']['enabled'], isFalse);
     });
 
-    test('rerun removes deselected providers, channels, container, and env credentials', () async {
+    test('rerun removes deselected providers, channels, and env credentials, and disables container', () async {
       final initial = SetupState(
         instanceName: 'T',
         instanceDir: tempDir.path,
@@ -161,7 +159,6 @@ void main() {
         containerEnabled: true,
         containerImage: 'dartclaw-agent:v2',
         contentGuardEnabled: false,
-        inputSanitizerEnabled: false,
       );
       await SetupApply.apply(initial);
 
@@ -180,7 +177,6 @@ void main() {
         whatsappEnabled: false,
         containerEnabled: false,
         contentGuardEnabled: true,
-        inputSanitizerEnabled: true,
       );
       await SetupApply.apply(rerun);
 
@@ -189,9 +185,57 @@ void main() {
       expect(yaml['providers']['codex'], isNull);
       expect(yaml['credentials']['openai'], isNull);
       expect(yaml['channels']['whatsapp'], isNull);
-      expect(yaml['container'], isNull);
+      // Declining isolation is written, not removed: an absent `container:`
+      // section means "isolate if this host can", so removing it would answer
+      // the opposite of what the operator chose on any host with a runtime.
+      expect(yaml['container']['enabled'], isFalse);
+      expect(yaml['container']['image'], isNull);
       expect(yaml['guards']['content']['enabled'], isTrue);
-      expect(yaml['guards']['input_sanitizer']['enabled'], isTrue);
+    });
+
+    // The quick track never puts the container question, so its silence must
+    // stay silence: an absent section resolves the posture from the host, and
+    // writing either literal would answer for the operator.
+    test('a track that never asks writes no container section at all', () async {
+      await SetupApply.apply(
+        SetupState(
+          instanceName: 'T',
+          instanceDir: tempDir.path,
+          provider: 'claude',
+          authMethod: 'oauth',
+          model: 'sonnet',
+          providers: const ['claude'],
+          providerAuthMethods: const {'claude': 'oauth'},
+          providerModels: const {'claude': 'sonnet'},
+          port: 3333,
+          gatewayAuthMode: 'token',
+        ),
+      );
+
+      final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
+      expect(yaml['container'], isNull);
+    });
+
+    test('a first run that declines isolation writes it rather than leaving it to detection', () async {
+      await SetupApply.apply(
+        SetupState(
+          instanceName: 'T',
+          instanceDir: tempDir.path,
+          provider: 'claude',
+          authMethod: 'oauth',
+          model: 'sonnet',
+          providers: const ['claude'],
+          providerAuthMethods: const {'claude': 'oauth'},
+          providerModels: const {'claude': 'sonnet'},
+          port: 3333,
+          gatewayAuthMode: 'token',
+          manageAdvancedSettings: true,
+          containerEnabled: false,
+        ),
+      );
+
+      final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
+      expect(yaml['container']['enabled'], isFalse);
     });
 
     test('scaffolds workspace and onboarding files idempotently', () async {

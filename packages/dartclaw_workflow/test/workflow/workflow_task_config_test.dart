@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
 import 'package:test/test.dart';
@@ -13,7 +14,6 @@ void main() {
       id: 'task-1',
       title: 'Workflow task',
       description: 'desc',
-      type: TaskType.coding,
       createdAt: DateTime(2026),
       workflowRunId: 'run-1',
       stepIndex: 0,

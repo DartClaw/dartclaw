@@ -1,11 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show DelayFactory, HealthProbe, ProcessFactory, ProcessTerminationResult, SequentialLock, killWithEscalation;
+import 'package:dartclaw_core/dartclaw_core.dart' show SidecarProcessManager;
 import 'package:logging/logging.dart';
 
 /// Result of querying signal-cli for a registered account.
@@ -13,23 +10,28 @@ enum SignalRegistrationState { registered, unregistered, unknown }
 
 /// Manages signal-cli as a subprocess in daemon HTTP mode.
 ///
-/// Mirrors [GowaManager] for WhatsApp: spawn, health check, crash recovery
-/// with exponential backoff. Communicates via signal-cli's native JSON-RPC
-/// and SSE endpoints.
-class SignalCliManager with SequentialLock {
-  static final _log = Logger('SignalCliManager');
+/// Spawn, health check and crash recovery come from [SidecarProcessManager];
+/// this class owns the signal-cli sequence around them, plus the native
+/// JSON-RPC and SSE transports.
+class SignalCliManager extends SidecarProcessManager {
+  new({
+    required super.executable,
+    super.host = '127.0.0.1',
+    super.port = 8080,
+    required this.phoneNumber,
+    super.maxRestartAttempts = 5,
+    this.onRegistered,
+    super.processFactory,
+    super.delay,
+    super.healthProbe,
+    super.platformCapabilities,
+    super.terminationGracePeriod,
+    Duration sseHandshakeTimeout = _apiTimeout,
+  }) : _sseHandshakeTimeout = sseHandshakeTimeout,
+       super(label: 'signal-cli', log: Logger('SignalCliManager'));
 
-  final String executable;
-  final String host;
-  final int port;
   final String phoneNumber;
-  final int maxRestartAttempts;
   final void Function(String phone)? onRegistered;
-  final ProcessFactory _processFactory;
-  final DelayFactory _delay;
-  final HealthProbe? _healthProbe;
-  final PlatformCapabilities _platformCapabilities;
-  final Duration _terminationGracePeriod;
   final Duration _sseHandshakeTimeout;
 
   /// Timeout for standard API calls.
@@ -38,16 +40,6 @@ class SignalCliManager with SequentialLock {
   /// Timeout for finishLink — must stay open until user scans QR on phone.
   static const _linkTimeout = Duration(minutes: 5);
 
-  /// Timeout for signal-cli to become reachable during startup.
-  static const _startupTimeout = Duration(seconds: 30);
-
-  Process? _process;
-  final Set<Process> _windowsTeardownPending = <Process>{};
-  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
-  int _generation = 0;
-  int _restartCount = 0;
-  bool _stopped = false;
-  bool _wasPaired = false;
   String? _pendingLinkUri;
   int? _pendingLinkGeneration;
   Future<String?>? _linkFuture;
@@ -63,112 +55,52 @@ class SignalCliManager with SequentialLock {
   bool _reconnectPending = false;
   int _rpcId = 0;
 
-  new({
-    required this.executable,
-    this.host = '127.0.0.1',
-    this.port = 8080,
-    required this.phoneNumber,
-    this.maxRestartAttempts = 5,
-    this.onRegistered,
-    ProcessFactory? processFactory,
-    DelayFactory? delay,
-    HealthProbe? healthProbe,
-    PlatformCapabilities? platformCapabilities,
-    Duration terminationGracePeriod = const Duration(seconds: 5),
-    Duration sseHandshakeTimeout = _apiTimeout,
-  }) : _processFactory = processFactory ?? Process.start,
-       _delay = delay ?? Future.delayed,
-       _healthProbe = healthProbe,
-       _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
-       _terminationGracePeriod = terminationGracePeriod,
-       _sseHandshakeTimeout = sseHandshakeTimeout;
-
-  bool get isRunning => _process != null && !_stopped;
-
-  bool get wasPaired => _wasPaired;
-
-  int get restartCount => _restartCount;
+  @override
+  bool get isRunning => process != null && !stopRequested;
 
   /// The phone number confirmed by signal-cli after linking or account list.
   /// Null until first successful registration check.
   String? get registeredPhone => _registeredPhone;
 
-  String get baseUrl => 'http://$host:$port';
-
   /// SSE event stream — emits parsed envelope maps from inbound messages.
   Stream<Map<String, dynamic>> get events => _eventController.stream;
 
   /// Start the signal-cli daemon process and wait for health check.
+  @override
   Future<void> start() => withLock(_start);
 
   Future<void> _start() async {
-    if (_stopped) throw StateError('SignalCliManager has been stopped');
-    if (_process != null) {
+    if (stopRequested) throw StateError('SignalCliManager has been stopped');
+    if (process != null) {
       throw StateError('SignalCliManager still owns a signal-cli process; stop it before restarting');
     }
 
-    final gen = ++_generation;
-    _log.info('Starting signal-cli (gen $gen): $executable on $host:$port');
+    final gen = ++generation;
+    log.info('Starting signal-cli (gen $gen): $executable on $host:$port');
 
     final args = ['daemon', '--http', '$host:$port', '--receive-mode', 'on-connection'];
 
-    try {
-      _process = await _processFactory(executable, args);
-      _windowsTeardownPending.remove(_process);
-      _windowsExitObservedDuringTeardown.remove(_process);
-    } catch (e) {
-      _log.severe('Failed to spawn signal-cli process', e);
-      rethrow;
-    }
+    attachProcess(await spawnProcess(args), gen);
 
-    // Pipe stdout/stderr to logger
-    _process!.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _log.fine('[signal-cli] $line'));
-    _process!.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _log.warning('[signal-cli stderr] $line'));
+    if (!await waitForStartupHealth()) await abortFailedStartup();
 
-    // Monitor for unexpected exit
-    final process = _process!;
-    unawaited(process.exitCode.then((code) => _onExit(code, gen, process)));
-
-    // Wait for daemon to become reachable
-    if (!await _waitForHealth()) {
-      final process = _process;
-      _beginIntentionalProcessTeardown(process);
-      ++_generation;
-      if (process != null) {
-        final result = await killWithEscalation(
-          process,
-          label: 'signal-cli',
-          gracePeriod: _terminationGracePeriod,
-          log: _log,
-          platformCapabilities: _platformCapabilities,
-        );
-        _completeIntentionalProcessTeardown(process, result);
-      }
-      throw StateError('signal-cli failed to respond within ${_startupTimeout.inSeconds}s');
-    }
-
-    _restartCount = 0;
-    _log.info('signal-cli started successfully (gen $gen)');
+    restartCount = 0;
+    log.info('signal-cli started successfully (gen $gen)');
 
     // Connect SSE stream — relays inbound message events from signal-cli daemon.
     unawaited(_connectInitialSse(gen));
   }
 
   /// Stop the signal-cli process gracefully.
+  @override
   Future<void> stop() {
-    _stopped = true;
-    ++_generation;
+    stopRequested = true;
+    ++generation;
     _pendingLinkUri = null;
     _pendingLinkGeneration = null;
     _cancelReconnect();
     _sseClient?.close(force: true);
-    _beginIntentionalProcessTeardown(_process);
+    beginIntentionalProcessTeardown(process);
     return withLock(_stop);
   }
 
@@ -180,59 +112,31 @@ class SignalCliManager with SequentialLock {
     _sseClient = null;
     await _eventController.close();
 
-    final proc = _process;
+    final proc = process;
     if (proc == null) return;
 
-    _log.info('Stopping signal-cli');
-    final result = await killWithEscalation(
-      proc,
-      label: 'signal-cli',
-      gracePeriod: _terminationGracePeriod,
-      log: _log,
-      platformCapabilities: _platformCapabilities,
-    );
-    _completeIntentionalProcessTeardown(proc, result);
-    if (result.confirmsOwnershipRelease()) {
-      final exitCode = await proc.exitCode;
-      _log.info('signal-cli stopped (exit code: $exitCode)');
-    }
+    await stopOwnedProcess(proc);
   }
-
-  /// Dispose resources. Alias for [stop].
-  Future<void> dispose() => stop();
 
   /// Stop the process and reset state so [start] can be called again.
   ///
   /// Unlike [stop] (which is a permanent teardown), this prepares the manager
   /// for a fresh pairing cycle without recreating the object.
+  @override
   Future<void> reset() {
-    _beginIntentionalProcessTeardown(_process);
+    beginIntentionalProcessTeardown(process);
     return withLock(_reset);
   }
 
   Future<void> _reset() async {
-    ++_generation;
+    ++generation;
     _cancelReconnect();
     _sseClient?.close(force: true);
     await _settleReconnect();
-    final proc = _process;
-    _beginIntentionalProcessTeardown(proc);
+    final proc = process;
+    beginIntentionalProcessTeardown(proc);
 
-    if (proc != null) {
-      _log.info('Resetting signal-cli');
-      final result = await killWithEscalation(
-        proc,
-        label: 'signal-cli',
-        gracePeriod: _terminationGracePeriod,
-        log: _log,
-        platformCapabilities: _platformCapabilities,
-      );
-      if (!result.confirmsOwnershipRelease()) {
-        _completeIntentionalProcessTeardown(proc, result);
-        throw StateError('signal-cli termination could not be confirmed during reset');
-      }
-      _completeIntentionalProcessTeardown(proc, result);
-    }
+    if (proc != null) await resetOwnedProcess(proc);
 
     await _sseSub?.cancel();
     _sseSub = null;
@@ -242,12 +146,12 @@ class SignalCliManager with SequentialLock {
     if (!_eventController.isClosed) await _eventController.close();
     _eventController = StreamController<Map<String, dynamic>>.broadcast();
 
-    _stopped = false;
-    _wasPaired = false;
+    stopRequested = false;
+    wasPaired = false;
     _pendingLinkUri = null;
     _pendingLinkGeneration = null;
     _registeredPhone = null;
-    _restartCount = 0;
+    restartCount = 0;
     _reconnectCancellation = Completer<void>();
     _reconnectPending = false;
   }
@@ -280,7 +184,7 @@ class SignalCliManager with SequentialLock {
 
   /// Returns true if any Signal account is registered in signal-cli.
   ///
-  /// Short-circuits to true if [_wasPaired] is already set (e.g. finishLink
+  /// Short-circuits to true if [wasPaired] is already set (e.g. finishLink
   /// just completed), since signal-cli may not reflect the new account in
   /// listAccounts until after finishLink's HTTP response is fully processed.
   ///
@@ -290,7 +194,7 @@ class SignalCliManager with SequentialLock {
 
   /// Queries registration while preserving an indeterminate RPC result.
   Future<SignalRegistrationState> registrationState() async {
-    if (_wasPaired) return SignalRegistrationState.registered;
+    if (wasPaired) return SignalRegistrationState.registered;
     try {
       final result = await _rpc('listAccounts', {});
       if (result is List && result.isNotEmpty) {
@@ -302,14 +206,14 @@ class SignalCliManager with SequentialLock {
           }
         }
         if (_registeredPhone != null) {
-          _wasPaired = true;
+          wasPaired = true;
           _notifyRegistered(_registeredPhone!);
           return SignalRegistrationState.registered;
         }
       }
       return SignalRegistrationState.unregistered;
     } catch (e) {
-      _log.fine('isAccountRegistered check failed: $e');
+      log.fine('isAccountRegistered check failed: $e');
       return SignalRegistrationState.unknown;
     }
   }
@@ -331,27 +235,27 @@ class SignalCliManager with SequentialLock {
   /// `finishLink` is long-polled with a 5-minute timeout — signal-cli holds
   /// the connection open until the user confirms on the phone.
   Future<String?> getLinkDeviceUri({String deviceName = 'DartClaw'}) {
-    if (_stopped) return Future.value(null);
+    if (stopRequested) return Future.value(null);
     final pendingUri = _pendingLinkUri;
-    if (pendingUri != null && _pendingLinkGeneration == _generation && !_stopped) {
+    if (pendingUri != null && _pendingLinkGeneration == generation && !stopRequested) {
       return Future.value(pendingUri);
     }
     _pendingLinkUri = null;
     _pendingLinkGeneration = null;
 
-    final generation = _generation;
+    final linkGeneration = generation;
     final active = _linkFuture;
-    if (active != null && _linkGeneration == generation) return active;
+    if (active != null && _linkGeneration == linkGeneration) return active;
 
     late final Future<String?> operation;
-    operation = _startDeviceLink(deviceName, generation).whenComplete(() {
+    operation = _startDeviceLink(deviceName, linkGeneration).whenComplete(() {
       if (identical(_linkFuture, operation)) {
         _linkFuture = null;
         _linkGeneration = null;
       }
     });
     _linkFuture = operation;
-    _linkGeneration = generation;
+    _linkGeneration = linkGeneration;
     return operation;
   }
 
@@ -371,7 +275,7 @@ class SignalCliManager with SequentialLock {
 
       return uri;
     } catch (e) {
-      _log.warning('startLink failed', e);
+      log.warning('startLink failed', e);
       return null;
     }
   }
@@ -385,57 +289,33 @@ class SignalCliManager with SequentialLock {
       if (result is Map) {
         _registeredPhone = result['number'] as String? ?? result['account'] as String?;
       }
-      _log.info('finishLink completed: $result');
+      log.info('finishLink completed: $result');
       _activateRegistration(_registeredPhone);
     } catch (e) {
       if (!_isCurrentLink(generation, uri)) return;
       final msg = e.toString();
       if (msg.contains('Connection closed') || msg.contains('IOException')) {
-        _log.fine('finishLink cancelled (connection closed)');
+        log.fine('finishLink cancelled (connection closed)');
       } else {
-        _log.warning('finishLink failed', e);
+        log.warning('finishLink failed', e);
       }
       _pendingLinkUri = null;
       _pendingLinkGeneration = null;
     }
   }
 
-  bool _isCurrentLinkGeneration(int generation) => !_stopped && generation == _generation;
+  bool _isCurrentLinkGeneration(int gen) => !stopRequested && gen == generation;
 
   bool _isCurrentLink(int generation, String uri) =>
       _isCurrentLinkGeneration(generation) && _pendingLinkGeneration == generation && _pendingLinkUri == uri;
 
-  /// Sends an SMS verification code to [phone] (defaults to [phoneNumber]).
-  ///
-  /// If Signal requires a captcha, pass [captcha] with the token from
-  /// https://signalcaptchas.org/registration/generate.html
-  Future<void> requestSmsVerification({String? phone, String? captcha}) async {
-    final params = <String, dynamic>{'account': phone ?? phoneNumber};
-    if (captcha != null) params['captcha'] = captcha;
-    await _rpc('register', params);
-  }
-
-  /// Requests a voice call verification to [phone] (defaults to [phoneNumber]).
-  Future<void> requestVoiceVerification({String? phone, String? captcha}) async {
-    final params = <String, dynamic>{'account': phone ?? phoneNumber, 'voice': true};
-    if (captcha != null) params['captcha'] = captcha;
-    await _rpc('register', params);
-  }
-
-  /// Verifies [code] received via SMS and completes registration.
-  Future<void> verifySmsCode(String code, {String? phone}) async {
-    final account = phone ?? phoneNumber;
-    await _rpc('verify', {'account': account, 'verificationCode': code});
-    _activateRegistration(account);
-  }
-
   void _activateRegistration(String? phone) {
-    _wasPaired = true;
+    wasPaired = true;
     if (phone != null && phone.isNotEmpty) {
       _registeredPhone = phone;
       _notifyRegistered(phone);
     }
-    unawaited(_reconnectSse(queueIfActive: true, generation: _generation));
+    unawaited(_reconnectSse(queueIfActive: true, generation: generation));
   }
 
   // ---- Health check ----
@@ -453,21 +333,13 @@ class SignalCliManager with SequentialLock {
         client.close();
       }
     } catch (e) {
-      _log.fine('Signal health check failed: $e');
+      log.fine('Signal health check failed: $e');
       return false;
     }
   }
 
-  Future<bool> _waitForHealth() async {
-    final probe = _healthProbe ?? healthCheck;
-    final maxAttempts = _startupTimeout.inSeconds;
-    for (var i = 0; i < maxAttempts; i++) {
-      if (_stopped) return false;
-      if (await probe()) return true;
-      await _delay(const Duration(seconds: 1));
-    }
-    return false;
-  }
+  @override
+  Future<bool> defaultStartupProbe(int attempt) => healthCheck();
 
   // ---- SSE event stream ----
 
@@ -508,29 +380,29 @@ class SignalCliManager with SequentialLock {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(
-            (line) => _handleSseLine(line, _eventController, _log),
+            (line) => _handleSseLine(line, _eventController, log),
             onError: (Object e) {
-              _log.warning('SSE stream error', e);
+              log.warning('SSE stream error', e);
               if (_isCurrentSseGeneration(generation)) {
                 unawaited(_reconnectSse(queueIfActive: true, generation: generation));
               }
             },
             onDone: () {
               if (_isCurrentSseGeneration(generation)) {
-                _log.info('SSE stream closed, reconnecting');
+                log.info('SSE stream closed, reconnecting');
                 unawaited(_reconnectSse(queueIfActive: true, generation: generation));
               }
             },
           );
       return true;
     } catch (e) {
-      _log.warning('Failed to connect SSE', e);
+      log.warning('Failed to connect SSE', e);
       return false;
     }
   }
 
   Future<void> _reconnectSse({bool queueIfActive = false, int? generation}) {
-    final reconnectGeneration = generation ?? _generation;
+    final reconnectGeneration = generation ?? this.generation;
     final active = _reconnectFuture;
     if (active != null) {
       if (queueIfActive && _reconnectGeneration == reconnectGeneration) {
@@ -563,7 +435,7 @@ class SignalCliManager with SequentialLock {
       _sseSub = null;
       _sseClient?.close(force: true);
       _sseClient = null;
-      await Future.any<void>([_delay(const Duration(seconds: 2)), _reconnectCancellation.future]);
+      await Future.any<void>([delay(const Duration(seconds: 2)), _reconnectCancellation.future]);
       if (!_isCurrentSseGeneration(generation)) return;
       if (!await _connectSse(generation)) {
         _reconnectPending = true;
@@ -571,7 +443,7 @@ class SignalCliManager with SequentialLock {
     } while (_reconnectPending && _isCurrentSseGeneration(generation));
   }
 
-  bool _isCurrentSseGeneration(int generation) => !_stopped && generation == _generation;
+  bool _isCurrentSseGeneration(int gen) => !stopRequested && gen == generation;
 
   void _cancelReconnect() {
     if (!_reconnectCancellation.isCompleted) {
@@ -588,53 +460,13 @@ class SignalCliManager with SequentialLock {
 
   // ---- Crash recovery ----
 
-  void _onExit(int exitCode, int generation, Process process) {
-    final windowsTeardownPending = _windowsTeardownPending.contains(process);
-    if (windowsTeardownPending) {
-      _windowsExitObservedDuringTeardown.add(process);
-    } else if (identical(_process, process)) {
-      _process = null;
-    }
-    if (windowsTeardownPending || _stopped || generation != _generation) return;
-
-    _log.warning('signal-cli exited unexpectedly (code: $exitCode, gen: $generation)');
-
-    if (_restartCount >= maxRestartAttempts) {
-      _log.severe('signal-cli max restart attempts ($maxRestartAttempts) reached — giving up');
-      return;
-    }
-
-    _restartCount++;
-    final backoff = Duration(seconds: min(30, pow(2, _restartCount).toInt()));
-    _log.info(
-      'Restarting signal-cli in ${backoff.inSeconds}s '
-      '(attempt $_restartCount/$maxRestartAttempts)',
-    );
-
+  /// Starts the retry inline, so it runs synchronously to its first `await`
+  /// and the reconnect bookkeeping observes it in the same turn as the exit.
+  @override
+  void scheduleRestart(Duration backoff, int generation) {
     unawaited(() async {
-      await _delay(backoff);
-      if (!_stopped && generation == _generation) {
-        try {
-          await start();
-        } catch (e) {
-          _log.severe('signal-cli restart failed', e);
-        }
-      }
+      await runScheduledRestart(backoff, generation);
     }());
-  }
-
-  void _beginIntentionalProcessTeardown(Process? process) {
-    if (process != null && !_platformCapabilities.posixSignalsAvailable) {
-      _windowsTeardownPending.add(process);
-    }
-  }
-
-  void _completeIntentionalProcessTeardown(Process process, ProcessTerminationResult result) {
-    _windowsTeardownPending.remove(process);
-    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
-    if (result.confirmsOwnershipRelease() || exitObserved) {
-      if (identical(_process, process)) _process = null;
-    }
   }
 
   // ---- JSON-RPC helper ----

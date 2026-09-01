@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
@@ -7,7 +7,6 @@ void main() {
     id: 'task-1',
     title: 'Budget test task',
     description: 'Test',
-    type: TaskType.custom,
     createdAt: DateTime.parse('2026-04-02T10:00:00Z'),
     maxTokens: maxTokens,
   );

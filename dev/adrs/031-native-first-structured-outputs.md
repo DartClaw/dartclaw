@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-05-31 (implemented in 0.16.4; recorded retroactively during an ADR-gap review of 0.16.4–0.16.6)
+Accepted — 2026-05-31; amended 2026-08-21, 2026-08-22
 
 **Related:** [ADR-024](024-workflow-step-semantics.md) (step semantics — output declaration), [ADR-022](022-workflow-run-status-and-step-outcome-protocol.md) (step-outcome protocol), [ADR-016](016-multi-provider-harness-architecture.md) (Claude/Codex parity, including Codex strict mode).
 
@@ -31,6 +31,33 @@ Workflow steps that produce JSON originally relied on heuristic parsing of free-
 
 1. **Always run a separate extraction turn** — rejected: needless token and latency cost when the step already produced valid structured output.
 2. **Keep heuristic parsing as the default** — rejected: unreliable compared to provider-enforced structured output, especially across providers.
+
+## Amendment (0.25): inline promotion retired
+
+**Status**: Accepted — 2026-08-21. Supersedes the inline-first portion of the decision.
+
+Declared model-derived outputs now travel only in the provider-enforced execution envelope. The engine no longer promotes or heuristically recovers an inline `<workflow-context>` payload. This removes the competing weaker channel; schema validation, path containment and other host-owned enforcement still apply after finalization. Persisted pre-envelope turns fail with a re-run-under-0.25 instruction.
+
+## Amendment (0.25): Codex app-server turns carry no typed structured result
+
+**Status**: Accepted — 2026-08-22. Narrows the "cross-harness parity" consequence above.
+
+The original decision was taken against `codex exec --output-schema`, a surface DartClaw no longer drives. The active
+Codex harness speaks the app-server protocol, whose turn notifications carry no structured or validated field — only
+assistant text — so `CodexHarness.supportsStructuredOutput` is `false` and `TaskExecutor` refuses a schema-bearing step
+on a Codex provider before dispatch. Enforcement is not the gap; readback is. Mechanism detail and wire references are
+in `dev/state/learnings/agent-harness-protocols.md` § Structured Output.
+
+Consequences:
+
+- **Claude owns the live structured-finalizer proof** until the Codex protocol exposes a typed turn result.
+  `packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart` runs its steps through the production
+  `WorkflowOneShotRunner` over a real `ClaudeCodeHarness`. Codex keeps the canaries that need no schema
+  (`step_artifacts_env_live_canary_test.dart`).
+- **A prose-directed handoff is not a substitute.** Asking a Codex agent to write the envelope to a file and having the
+  host read it back is model-nondeterministic and duplicates the finalizer, so it is barred here as ADR-054 bars it
+  generally. A `format: json` step on a Codex provider fails its capability check; it does not degrade.
+- Reopening this requires a typed result on the app-server turn, not a client-side parse of assistant text.
 
 ## References
 

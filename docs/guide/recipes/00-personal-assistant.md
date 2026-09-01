@@ -42,7 +42,7 @@ Here is how the assistant works across a typical 24-hour period:
 
 **2:15 PM -- Interactive research via web UI.** You ask the agent to compare two libraries. It searches the web, cross-references with previously saved research, and synthesizes a structured comparison. Key findings are saved to memory.
 
-**10:00 PM -- Daily Journal.** The agent reviews the day's context and records selected observations through `memory_observe`. Curated personal memory changes only through an explicit `memory_apply` request.
+**10:00 PM -- Daily Journal.** The agent reviews the day's context and records selected observations through `memory_observe`. Curated personal memory changes only through a `memory_apply` request -- from you, or from the opt-in `memory-curation` job if you enable it.
 
 **Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Git sync commits and pushes workspace changes.
 
@@ -172,19 +172,12 @@ guards:
   content:
     enabled: true
     model: haiku
-  input_sanitizer:
-    enabled: true
-    channels_only: true               # only scan channel messages; web UI bypasses
 
 # --- Channels (optional -- uncomment what you use) ---
 # channels:
 #   whatsapp:
 #     enabled: true
 #     dm_access: pairing
-#     task_trigger:                    # create tasks from WhatsApp (0.9+)
-#       enabled: true
-#       prefix: "task:"
-#       auto_start: true
 #   signal:
 #     enabled: true
 #     phone_number: "+1234567890"
@@ -327,9 +320,10 @@ Uncomment the `channels:` section and configure WhatsApp, Signal, or Google Chat
 - [Signal setup](../signal.md)
 - [Google Chat setup](../google-chat.md)
 
-### Create tasks from your phone (0.9+)
+### Create tasks from your phone
 
-With `task_trigger` enabled on a channel, send messages like `task: Research Dart isolate patterns` from WhatsApp/Signal/Google Chat to create background tasks. Review results with `accept` or `reject` directly from the channel. See the [Scheduled Task Queue](03-scheduled-task-queue.md) guide for more on the task system.
+Ask for background work in ordinary language. The agent calls `task_create`; later requests to inspect or decide the
+work use `task_list`, `review_list`, and `task_review`. See [Tasks](../tasks.md#agent-tool-surface) for the exact tool surface.
 
 ### Adjust memory context and curation
 
@@ -384,7 +378,7 @@ For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patter
 - **`announce` delivery targets active channel DMs**: `delivery: announce` broadcasts the result to web UI clients (SSE) and pushes it to active DM sessions on registered channels (WhatsApp/Signal/Google Chat). It does not reach contacts that have no active session, and group sessions are skipped. Use `delivery: webhook` for active push to an external endpoint
 - **Timezone is server-local**: All cron expressions use the server's timezone. Adjust expressions if your server timezone differs from yours
 - **Jobs run in isolated sessions**: Scheduled jobs do not share session state directly; intentionally captured observations remain available through the memory tools. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
-- **Curation is explicit**: heartbeat and journal jobs do not autonomously revise, merge, or remove personal memory
+- **Curation is opt-in**: heartbeat and journal jobs never revise, merge, or remove personal memory; only the `memory-curation` job does, and only while `memory.curation.enabled` is set. A run may change only the entries its own bounded snapshot showed it
 - **Content-guard may truncate web content**: Large pages fetched by the search agent are filtered by content-guard. The knowledge inbox agent should note when a source was truncated
 - **Git sync requires a remote**: Run `git remote add origin <url>` in your workspace directory before enabling `push_enabled`
-- **Model override scope**: Jobs default to the global `agent.model` but accept per-job `model:` and `effort:` overrides. Built-in heartbeat callbacks run without an agent turn, so they have no model. To reduce cron costs, set `model:` on individual jobs or lower `agent.model` globally
+- **Model override scope**: Jobs default to the global `agent.model` but accept per-job `model:` and `effort:` overrides. Built-in callback jobs such as `git-sync` and `memory-pruner` run without an agent turn, so they have no model; the heartbeat does run a turn and takes the global one. To reduce cron costs, set `model:` on individual jobs or lower `agent.model` globally

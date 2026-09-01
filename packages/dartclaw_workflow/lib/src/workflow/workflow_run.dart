@@ -1,6 +1,9 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:logging/logging.dart';
 
 const _sentinel = Object();
+
+final _log = Logger('WorkflowExecutionCursor');
 
 /// Persisted binding between a workflow run and its shared worktree.
 class WorkflowWorktreeBinding {
@@ -45,9 +48,6 @@ enum WorkflowExecutionCursorNodeType {
   /// Resumes a [loop] node.
   loop,
 
-  /// Resumes a parallel [map] node.
-  map,
-
   /// Resumes a sequential [foreach] sub-pipeline node.
   foreach,
 }
@@ -57,7 +57,7 @@ class WorkflowExecutionCursor {
   /// Active node kind being resumed.
   final WorkflowExecutionCursorNodeType nodeType;
 
-  /// ID of the active loop or map node.
+  /// ID of the active loop or iteration-controller node.
   final String nodeId;
 
   /// Step index that anchors the node within the flattened step list.
@@ -69,7 +69,7 @@ class WorkflowExecutionCursor {
   /// Active loop iteration when resuming a loop node.
   final int? iteration;
 
-  /// Total item count when resuming a map node.
+  /// Total item count when resuming a foreach node.
   final int? totalItems;
 
   /// Settled map iteration indices.
@@ -112,28 +112,6 @@ class WorkflowExecutionCursor {
         iteration: iteration,
       );
 
-  /// Creates a cursor for resuming a parallel map node.
-  factory map({
-    required String stepId,
-    required int stepIndex,
-    required int totalItems,
-    List<int> completedIndices = const [],
-    List<int> failedIndices = const [],
-    List<int> cancelledIndices = const [],
-    List<dynamic> resultSlots = const [],
-    Map<int, List<String>> completedSubStepIdsByIndex = const {},
-  }) => WorkflowExecutionCursor(
-    nodeType: WorkflowExecutionCursorNodeType.map,
-    nodeId: stepId,
-    stepIndex: stepIndex,
-    totalItems: totalItems,
-    completedIndices: List<int>.from(completedIndices),
-    failedIndices: List<int>.from(failedIndices),
-    cancelledIndices: List<int>.from(cancelledIndices),
-    resultSlots: List<dynamic>.from(resultSlots),
-    completedSubStepIdsByIndex: _copyCompletedSubSteps(completedSubStepIdsByIndex),
-  );
-
   /// Creates a cursor for resuming a foreach/sub-pipeline node.
   factory foreach({
     required String stepId,
@@ -173,19 +151,34 @@ class WorkflowExecutionCursor {
   };
 
   /// Reconstructs a [WorkflowExecutionCursor] from its JSON representation.
-  factory fromJson(Map<String, dynamic> json) => WorkflowExecutionCursor(
-    nodeType: WorkflowExecutionCursorNodeType.values.byName(json['nodeType'] as String),
-    nodeId: json['nodeId'] as String,
-    stepIndex: (json['stepIndex'] as num?)?.toInt() ?? 0,
-    stepId: json['stepId'] as String?,
-    iteration: (json['iteration'] as num?)?.toInt(),
-    totalItems: (json['totalItems'] as num?)?.toInt(),
-    completedIndices: _toIntList(json['completedIndices']),
-    failedIndices: _toIntList(json['failedIndices']),
-    cancelledIndices: _toIntList(json['cancelledIndices']),
-    resultSlots: _toDynamicList(json['resultSlots']),
-    completedSubStepIdsByIndex: _toCompletedSubSteps(json['completedSubStepIdsByIndex']),
-  );
+  ///
+  /// Returns null for a `nodeType` this version does not recognize – a run
+  /// persisted by an older version resumes from its node boundary instead of
+  /// failing to deserialize.
+  static WorkflowExecutionCursor? fromJson(Map<String, dynamic> json) {
+    final rawNodeType = json['nodeType'] as String?;
+    final nodeType = WorkflowExecutionCursorNodeType.values.asNameMap()[rawNodeType];
+    if (nodeType == null) {
+      _log.warning(
+        'Unrecognized workflow execution cursor nodeType "$rawNodeType"; discarding the cursor and '
+        'restarting the node from its boundary.',
+      );
+      return null;
+    }
+    return WorkflowExecutionCursor(
+      nodeType: nodeType,
+      nodeId: json['nodeId'] as String,
+      stepIndex: (json['stepIndex'] as num?)?.toInt() ?? 0,
+      stepId: json['stepId'] as String?,
+      iteration: (json['iteration'] as num?)?.toInt(),
+      totalItems: (json['totalItems'] as num?)?.toInt(),
+      completedIndices: _toIntList(json['completedIndices']),
+      failedIndices: _toIntList(json['failedIndices']),
+      cancelledIndices: _toIntList(json['cancelledIndices']),
+      resultSlots: _toDynamicList(json['resultSlots']),
+      completedSubStepIdsByIndex: _toCompletedSubSteps(json['completedSubStepIdsByIndex']),
+    );
+  }
 }
 
 /// Runtime representation of a workflow execution.

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialEntry, ProviderIdentity;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'auth_subcommand.dart';

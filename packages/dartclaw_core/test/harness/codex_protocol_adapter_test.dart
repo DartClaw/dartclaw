@@ -209,7 +209,7 @@ void main() {
       expect(web, isA<ToolUse>().having((message) => message.name, 'name', 'web_search'));
     });
 
-    test('parses item/completed command_execution into ToolResult', () {
+    test('parses item/completed command_execution into ToolResultMessage', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -221,8 +221,8 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final toolResult = msg! as ToolResult;
+      expect(msg, isA<ToolResultMessage>());
+      final toolResult = msg! as ToolResultMessage;
       expect(toolResult.toolId, 'tool-3');
       expect(toolResult.output, 'done\n');
       expect(toolResult.isError, isFalse);
@@ -244,7 +244,7 @@ void main() {
       expect((msg! as TextDelta).text, 'final answer');
     });
 
-    test('parses item/completed web_search into ToolResult', () {
+    test('parses item/completed web_search into ToolResultMessage', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -260,8 +260,8 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final toolResult = msg! as ToolResult;
+      expect(msg, isA<ToolResultMessage>());
+      final toolResult = msg! as ToolResultMessage;
       expect(toolResult.toolId, 'web-2');
       expect(toolResult.output, '{"title":"DartClaw"}');
       expect(toolResult.isError, isFalse);
@@ -285,7 +285,7 @@ void main() {
       expect(progress.text, 'thinking through the request');
     });
 
-    test('parses item/completed with non-zero exit code as error ToolResult', () {
+    test('parses item/completed with non-zero exit code as error ToolResultMessage', () {
       final adapter = CodexProtocolAdapter();
 
       final msg = adapter.parseLine(
@@ -297,8 +297,8 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final toolResult = msg! as ToolResult;
+      expect(msg, isA<ToolResultMessage>());
+      final toolResult = msg! as ToolResultMessage;
       expect(toolResult.toolId, 'tool-4');
       expect(toolResult.output, 'failed\n');
       expect(toolResult.isError, isTrue);
@@ -321,8 +321,8 @@ void main() {
         }),
       );
 
-      expect(msg, isA<ToolResult>());
-      final result = msg! as ToolResult;
+      expect(msg, isA<ToolResultMessage>());
+      final result = msg! as ToolResultMessage;
       expect(result.output, 'failed\n');
       expect(result.isError, isTrue);
     });
@@ -923,7 +923,7 @@ void main() {
         expect((msg! as CompactionCompleted).id, isNull);
       });
 
-      test('contextCompaction is not a ToolUse or ToolResult', () {
+      test('contextCompaction is not a ToolUse or ToolResultMessage', () {
         final adapter = CodexProtocolAdapter();
 
         final started = adapter.parseLine(
@@ -944,9 +944,9 @@ void main() {
         );
 
         expect(started, isNot(isA<ToolUse>()));
-        expect(started, isNot(isA<ToolResult>()));
+        expect(started, isNot(isA<ToolResultMessage>()));
         expect(completed, isNot(isA<ToolUse>()));
-        expect(completed, isNot(isA<ToolResult>()));
+        expect(completed, isNot(isA<ToolResultMessage>()));
       });
 
       test('contextCompaction with extra unknown fields is still recognized (forward compat)', () {
@@ -980,7 +980,7 @@ void main() {
         expect((msg! as ToolUse).name, startsWith('codex:'));
       });
 
-      test('unknown item/completed types still produce codex:-prefixed ToolResult (regression guard)', () {
+      test('unknown item/completed types still produce codex:-prefixed ToolResultMessage (regression guard)', () {
         final adapter = CodexProtocolAdapter();
 
         final msg = adapter.parseLine(
@@ -992,8 +992,8 @@ void main() {
           }),
         );
 
-        expect(msg, isA<ToolResult>());
-        expect((msg! as ToolResult).output, contains('codex:future_unknown_type'));
+        expect(msg, isA<ToolResultMessage>());
+        expect((msg! as ToolResultMessage).output, contains('codex:future_unknown_type'));
       });
     });
 
@@ -1011,13 +1011,13 @@ void main() {
         expect(msg, isNull);
       });
 
-      test('thread/compactedNotification does not produce ToolUse or ToolResult', () {
+      test('thread/compactedNotification does not produce ToolUse or ToolResultMessage', () {
         final adapter = CodexProtocolAdapter();
 
         final msg = adapter.parseLine(jsonEncode({'method': 'thread/compactedNotification', 'params': {}}));
 
         expect(msg, isNot(isA<ToolUse>()));
-        expect(msg, isNot(isA<ToolResult>()));
+        expect(msg, isNot(isA<ToolResultMessage>()));
       });
     });
   });

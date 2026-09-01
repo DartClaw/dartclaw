@@ -31,11 +31,14 @@ The governance profile starts with the current UTC day seeded to 8,000 of 10,000
      -H "Content-Type: application/json" \
      -d '{"message": "Hello, say exactly: pong"}'
    ```
-4. Inspect `dev/testing/profiles/governance/data/kv.json` after the send completes:
+4. Inspect the profile's `kv.json` after the send completes. `run.sh` mktemps a fresh data dir per
+   run unless `DARTCLAW_GOVERNANCE_DATA_DIR` is set, so resolve the dir rather than assuming a path
+   under `dev/testing/profiles/governance/`:
    ```bash
    TODAY=$(date -u +%Y-%m-%d)
+   DATA_DIR="${DARTCLAW_GOVERNANCE_DATA_DIR:-$(ls -dt "${TMPDIR:-/tmp}"/dartclaw-governance-* | head -1)}"
    jq --arg k "usage_daily:$TODAY" '.[$k].value | fromjson | .budget_warning_posted_at' \
-     dev/testing/profiles/governance/data/kv.json
+     "$DATA_DIR/kv.json"
    ```
    Note: KvService stores the daily aggregate as a JSON-encoded string inside a `"value"` field. The `budget_warning_posted_at` marker is inside that string — a plain `cat` will not show it as a top-level key.
 

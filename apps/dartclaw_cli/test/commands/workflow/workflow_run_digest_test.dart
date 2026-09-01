@@ -1,7 +1,7 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_digest.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskType;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowStep;
 import 'package:test/test.dart';
 
 WorkflowDefinition _definition() => WorkflowDefinition(
@@ -34,7 +34,6 @@ Task _task(String id, int stepIndex, TaskStatus status, {DateTime? startedAt, Da
   id: id,
   title: 'Task $id',
   description: '',
-  type: TaskType.coding,
   status: status,
   createdAt: DateTime(2026, 6, 1),
   workflowRunId: 'run-1',

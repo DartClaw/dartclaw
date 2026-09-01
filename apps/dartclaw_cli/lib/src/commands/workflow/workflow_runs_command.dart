@@ -1,6 +1,8 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime, truncate;
+import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
 
 import '../connected_command_support.dart' hide truncate;
 

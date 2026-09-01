@@ -1,7 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 
 class FakeApiTransport implements ApiTransport {
   final Queue<ApiResponse> _sendResponses;

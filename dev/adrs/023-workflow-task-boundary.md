@@ -4,6 +4,13 @@
 
 Accepted — 2026-04-21
 
+## Amendment – 2026-08-23
+
+Workflow-authored tasks still cross this boundary through `TaskExecutor`, but the provider-specific one-shot adapter
+described below is retired. A workflow step now leases one coordinator worker and runs its complete prompt chain
+through that worker's guarded `TurnRunner`. The historical Context, Decision, and 2026-05 addendum below describe the
+pre-0.25 implementation and are superseded where they name `WorkflowCliRunner` or its CLI providers as live.
+
 ## Context
 
 DartClaw ships two orchestration subsystems that share a runtime: the workflow engine in `dartclaw_workflow` and the task orchestrator in `dartclaw_server/src/task/*`. Section 13 of `docs/architecture/workflow-architecture.md` already describes the intent: workflow steps create tasks, task execution performs the actual agent turn or host-side action, and workflow completion is derived from task completion plus gate evaluation. The workflow engine orchestrates the task system, it does not replace it.
@@ -61,7 +68,7 @@ Rejected. `TaskService.create()` operates on a single `Task` row. Workflow creat
 - [ADR-021: AgentExecution Primitive](021-agent-execution-primitive.md)
 - [ADR-022: Workflow Run Status Split and Step Outcome Protocol](022-workflow-run-status-and-step-outcome-protocol.md)
 - [Workflow architecture](../architecture/workflow-architecture.md)
-- Workflow–task boundary fitness function: [`../../packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart`](../../packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart)
+- Workflow–task boundary fitness function: [`dev/fitness/test/workflow_task_boundary_test.dart`](../fitness/test/workflow_task_boundary_test.dart)
 
 ## Addendum — 2026-05 — `WorkflowCliRunner` Ownership
 

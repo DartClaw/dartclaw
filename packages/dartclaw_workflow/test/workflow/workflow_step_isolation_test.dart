@@ -1,14 +1,36 @@
 @Tags(['integration'])
 library;
 
+// Live step/declared-output canary, pinned to Claude.
+//
+// Each step runs through the production `WorkflowOneShotRunner` over a real
+// `ClaudeCodeHarness`, so the provider enforces the execution-envelope schema
+// (`--json-schema`) and the runner owns validation, marker stamping and
+// persistence. Codex is not interchangeable here: the app-server harness
+// reports `supportsStructuredOutput == false`, so `TaskExecutor` refuses a
+// schema-bearing step on it before dispatch (ADR-031, amendment 2026-08-22).
+// The sibling `step_artifacts_env_live_canary_test.dart` stays on Codex — it
+// proves spawn-environment export, which needs no schema.
+//
+// Posture is `permissionMode: bypassPermissions`, so this suite is not guard
+// evidence.
+
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
-import 'package:dartclaw_server/dartclaw_server.dart'
-    show ExecutionPolicy, TaskService, WorkflowCliProviderConfig, WorkflowCliRunner;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteTaskRepository;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        HarnessFactory,
+        HarnessFactoryConfig,
+        SqliteAgentExecutionRepository,
+        SqliteTaskRepository,
+        SqliteWorkflowStepExecutionRepository,
+        TurnOutcome,
+        TurnStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show BehaviorFileService, TaskService, TurnRunner;
+import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show TaskBudgetPolicy;
+import 'package:dartclaw_runtime/src/task/workflow_one_shot_runner.dart' show WorkflowOneShotRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ContextExtractor,
@@ -17,12 +39,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         PromptAugmenter,
         SessionService,
         SkillPromptBuilder,
-        Task,
-        TaskType,
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowContext,
         WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart' show buildExecutionEnvelopeSchema;
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart'
     show stepArtifactsDirEnvVar, workflowStepArtifactsDir;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
@@ -245,24 +266,29 @@ void main() {
   late final String fixtureTemplateDir;
   late final WorkflowDefinition planDefinition;
   late final WorkflowDefinition specDefinition;
-  late final WorkflowCliRunner runner;
+  late final bool claudeReady;
+  late final Map<String, String> inheritedEnv;
   late final String executorModel;
+  late final String permissionMode;
   late final Directory artifactDir;
   late Directory tempDir;
   late String fixtureDir;
   late String runtimeArtifactsDir;
   late TaskService taskService;
+  late SqliteAgentExecutionRepository agentExecutions;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
   late SessionService sessionService;
   late MessageService messageService;
   late ContextExtractor extractor;
+  late WorkflowOneShotRunner oneShotRunner;
   final templateEngine = WorkflowTemplateEngine();
   final skillPromptBuilder = SkillPromptBuilder(augmenter: const PromptAugmenter(), harnessFactory: HarnessFactory());
   var artifactCounter = 0;
 
   setUpAll(() async {
-    if (!await codexAvailable()) {
-      markTestSkipped('codex binary not available – run with Codex CLI installed');
-    }
+    // Each test re-checks and skips itself: `markTestSkipped` here marks only
+    // the synthetic setUpAll entry and still runs every test body.
+    claudeReady = await claudeAvailable();
     fixturesRoot = workflowFixturesRoot();
     fixtureTemplateDir = _stepIsolationFixtureTemplateDir(fixturesRoot);
     final parser = WorkflowDefinitionParser();
@@ -270,27 +296,27 @@ void main() {
     specDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'spec-and-implement.yaml'));
 
     // `SafeProcess.start` runs with `includeParentEnvironment: false`, so the
-    // spawned `codex` binary only sees whatever environment the provider
-    // config hands through. Propagate PATH + HOME explicitly so tests running
-    // outside the server wiring can still locate the binary. CODEX_HOME
-    // propagates the workflow-live profile's hermetic codex home when run.sh
-    // exports it.
-    final inheritedEnv = <String, String>{
-      for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'CODEX_HOME'])
+    // spawned `claude` binary only sees whatever environment the harness config
+    // hands through. Propagate PATH + HOME explicitly so tests running outside
+    // the server wiring can still locate the binary and its credential store.
+    inheritedEnv = <String, String>{
+      for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'CLAUDE_CONFIG_DIR'])
         if (Platform.environment[key] != null) key: Platform.environment[key]!,
     };
-    runner = WorkflowCliRunner(
-      providers: {
-        'codex': WorkflowCliProviderConfig(
-          executable: 'codex',
-          options: const {'sandbox': 'danger-full-access'},
-          environment: inheritedEnv,
-        ),
-      },
-    );
-    // Reuses the E2EFixture preset + DARTCLAW_TEST_EXECUTOR_MODEL precedence to
-    // pin --model on the one-shot spawns below.
-    executorModel = E2EFixture(provider: 'codex').executorModel;
+    // Pinned to the Claude preset with an empty environment: this suite is the
+    // structured-output proof, so it must not pick up a codex model from a
+    // workflow-live run driving the sibling Codex canary.
+    executorModel = E2EFixture(provider: 'claude', environment: const {}).executorModel;
+    // `bypassPermissions` is the Claude analogue of the sibling canary's
+    // `approval: never` full access, and these steps declare no allowedTools
+    // policy for it to undercut.
+    //
+    // This used to claim the preset's `dontAsk` would auto-deny every tool call
+    // and leave the step answering from an unread worktree. Measured 2026-08-28:
+    // it does not — this suite passes unchanged under `dontAsk`, reading the
+    // worktree and writing its report. Keep `bypassPermissions` for parity with
+    // the Codex sibling, not out of that fear.
+    permissionMode = 'bypassPermissions';
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
   });
 
@@ -309,14 +335,35 @@ void main() {
     Process.runSync('git', ['add', '.'], workingDirectory: fixtureDir);
     Process.runSync('git', ['commit', '-qm', 'Initial fixture'], workingDirectory: fixtureDir);
 
-    taskService = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    final database = sqlite3.openInMemory();
+    taskService = TaskService(SqliteTaskRepository(database));
+    agentExecutions = SqliteAgentExecutionRepository(database);
+    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(database);
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
-    extractor = ContextExtractor(taskService: taskService, messageService: messageService, dataDir: tempDir.path);
+    extractor = ContextExtractor(
+      taskService: taskService,
+      messageService: messageService,
+      dataDir: tempDir.path,
+      workflowStepExecutionRepository: workflowStepExecutions,
+    );
+    oneShotRunner = WorkflowOneShotRunner(
+      workflowStepExecutionRepository: workflowStepExecutions,
+      messages: messageService,
+      tasks: taskService,
+      budgetPolicy: TaskBudgetPolicy(
+        tasks: taskService,
+        kv: null,
+        budgetConfig: null,
+        eventBus: null,
+        dataDir: tempDir.path,
+        failTask: (task, {required errorSummary, required kind, required retryable}) async =>
+            fail('Unexpected budget failure for ${task.id}: $errorSummary'),
+      ),
+    );
   });
 
   tearDown(() async {
-    await runner.cancelInflight();
     await taskService.dispose();
     await messageService.dispose();
     if (tempDir.existsSync()) {
@@ -354,7 +401,7 @@ void main() {
           : null,
       outputs: step.outputs,
       outputKeys: step.outputKeys,
-      provider: 'codex',
+      provider: 'claude',
     );
 
     final session = await sessionService.createSession(type: SessionType.task);
@@ -362,7 +409,6 @@ void main() {
       id: 'task-${DateTime.now().microsecondsSinceEpoch}',
       title: step.name,
       description: prompt,
-      type: TaskType.research,
       autoStart: true,
       workflowRunId: 'step-isolation',
     );
@@ -371,8 +417,6 @@ void main() {
     // by the skill (e.g. plan.md) against an actual filesystem root.
     await taskService.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': fixtureDir});
 
-    // Pin --model: a codex one-shot without it falls back to the operator's
-    // CODEX_HOME config.toml model, which breaks hermeticity.
     final stepArtifactsDir = workflowStepArtifactsDir(
       dataDir: tempDir.path,
       runId: 'step-isolation',
@@ -380,29 +424,84 @@ void main() {
       mapIterationIndex: mapContext?.index,
     );
     Directory(stepArtifactsDir).createSync(recursive: true);
-    final turnResult = await runner.executeTurn(
-      provider: 'codex',
-      model: executorModel,
-      prompt: prompt,
-      workingDirectory: fixtureDir,
-      policy: const ExecutionPolicy.host(),
-      extraEnvironment: {stepArtifactsDirEnvVar: stepArtifactsDir},
-      stepTimeout: stepTimeout,
-      stepName: step.name,
-    );
 
-    final assistantContent = turnResult.structuredOutput != null
-        ? jsonEncode(turnResult.structuredOutput)
-        : turnResult.responseText;
-    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: assistantContent);
-
-    Task refreshedTask = (await taskService.get(task.id))!;
-    if (turnResult.structuredOutput != null) {
-      refreshedTask = await taskService.updateFields(
-        task.id,
-        configJson: {'_workflowStructuredOutputPayload': turnResult.structuredOutput},
-      );
+    // Seed the step-execution row the dispatcher writes in production, so the
+    // one-shot runner reads its schema and persists its envelope through the
+    // same repository the extractor reads back from.
+    final envelopeSchema = buildExecutionEnvelopeSchema(step, step.outputs);
+    // The task repository already inserts `ae-<taskId>`; only fill in the
+    // provider and workspace the step execution row has to point at.
+    final agentExecutionId = 'ae-${task.id}';
+    final existingExecution = await agentExecutions.get(agentExecutionId);
+    final agentExecution = AgentExecution(id: agentExecutionId, provider: 'claude', workspaceDir: fixtureDir);
+    if (existingExecution == null) {
+      await agentExecutions.create(agentExecution);
+    } else {
+      await agentExecutions.update(agentExecution);
     }
+    await workflowStepExecutions.create(
+      WorkflowStepExecution(
+        taskId: task.id,
+        agentExecutionId: agentExecutionId,
+        workflowRunId: 'step-isolation',
+        stepIndex: 0,
+        stepId: step.id,
+        stepType: step.taskType.toJson(),
+        structuredSchemaJson: envelopeSchema == null ? null : jsonEncode(envelopeSchema),
+        mapIterationIndex: mapContext?.index,
+        mapIterationTotal: mapContext?.length,
+      ),
+    );
+    final seededTask = (await taskService.get(task.id))!
+        .copyWith(workflowStepExecution: await workflowStepExecutions.getByTaskId(task.id));
+
+    // Pin the model: an unpinned harness falls back to the operator's own
+    // configured default, which breaks hermeticity.
+    final harness = HarnessFactory().create(
+      'claude',
+      HarnessFactoryConfig(
+        cwd: fixtureDir,
+        executable: 'claude',
+        turnTimeout: stepTimeout,
+        providerOptions: {'permissionMode': permissionMode},
+        environment: {...inheritedEnv, stepArtifactsDirEnvVar: stepArtifactsDir},
+      ),
+    );
+    final turnStopwatch = Stopwatch()..start();
+    final TurnOutcome outcome;
+    try {
+      await harness.start();
+      outcome = await oneShotRunner.execute(
+        seededTask,
+        runner: TurnRunner(
+          turnLimits: TurnLimitsConfig(stallTimeout: Duration.zero, turnTimeout: stepTimeout),
+          harness: harness,
+          messages: messageService,
+          behavior: BehaviorFileService(workspaceDir: fixtureDir),
+          sessions: sessionService,
+          providerId: 'claude',
+        ),
+        sessionId: session.id,
+        pendingMessage: prompt,
+        provider: 'claude',
+        workingDirectory: fixtureDir,
+        modelOverride: executorModel,
+        effortOverride: null,
+        allowedTools: null,
+        readOnly: false,
+      );
+    } finally {
+      turnStopwatch.stop();
+      await harness.stop();
+      await harness.dispose();
+    }
+    expect(outcome.status, TurnStatus.completed, reason: 'Step turn failed: ${outcome.errorMessage}');
+
+    final assistantContent = (await messageService.getMessages(session.id))
+        .where((message) => message.role == 'assistant')
+        .map((message) => message.content)
+        .join('\n');
+    final refreshedTask = (await taskService.get(task.id))!;
 
     final outputs = await extractor.extract(step, refreshedTask);
     final artifactFile = File(
@@ -433,11 +532,11 @@ void main() {
       'outputs': outputs,
       'promptCharCount': prompt.length,
       'assistantCharCount': assistantContent.length,
-      'inputTokens': turnResult.inputTokens,
-      'outputTokens': turnResult.outputTokens,
-      'cacheReadTokens': turnResult.cacheReadTokens,
-      'cacheWriteTokens': turnResult.cacheWriteTokens,
-      'durationMs': turnResult.duration.inMilliseconds,
+      'inputTokens': outcome.inputTokens,
+      'outputTokens': outcome.outputTokens,
+      'cacheReadTokens': outcome.cacheReadTokens,
+      'cacheWriteTokens': outcome.cacheWriteTokens,
+      'durationMs': turnStopwatch.elapsedMilliseconds,
     };
     await artifactFile.writeAsString(const JsonEncoder.withIndent('  ').convert(artifactPayload));
 
@@ -460,6 +559,10 @@ void main() {
   // every per-story assertion.
 
   test('discover-plan-state returns required PRD and empty optional plan handoffs', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     const prdPath = 'docs/specs/workflow-testing/prd.md';
     File(p.join(fixtureDir, prdPath))
       ..createSync(recursive: true)
@@ -478,6 +581,10 @@ void main() {
   }, timeout: _defaultLiveTestTimeout);
 
   test('discover-plan-state indexes an existing plan for the plan workflow', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     const prdPath = 'docs/specs/workflow-testing/prd.md';
     const planPath = 'docs/specs/workflow-testing/plan.json';
     const fisPath = 'docs/specs/workflow-testing/fis/s01-existing-story.md';
@@ -525,6 +632,10 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 10)));
 
   test('plan emits stories and story_specs in a single pass from the reviewed PRD', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     const prdPath = 'docs/specs/workflow-testing/prd.md';
     File(p.join(fixtureDir, prdPath))
       ..createSync(recursive: true)
@@ -598,6 +709,10 @@ void main() {
   // branch coverage stays in the stubbed built-in suite; the plan-authoring
   // counterpart is the "plan emits stories and story_specs" test above.
   test('spec authors a synthesized FIS with a self-rated confidence for a free-text feature', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     final result = await executeStep(
       step: _stepById(specDefinition, 'spec'),
       context: WorkflowContext(
@@ -651,6 +766,10 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 15)));
 
   test('integrated-review returns verdict with findings_count for a trivial markdown change', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     final result = await executeStep(
       step: _stepById(specDefinition, 'integrated-review'),
       context: WorkflowContext(
@@ -702,53 +821,11 @@ void main() {
     );
   }, timeout: _defaultLiveTestTimeout);
 
-  test('simplify-code runs against the provider and writes no context outputs', () async {
-    // simplify-code declares no outputs – its --fix invocation absorbs any
-    // findings into the working tree via continueSession. This smoke test
-    // verifies the step executes end-to-end against a real provider and
-    // emits a non-empty agent response.
-    final result = await executeStep(
-      step: _stepById(planDefinition, 'simplify-code'),
-      context: WorkflowContext(
-        variables: const {
-          'FEATURE': 'Add exactly one markdown note file with one heading and one bullet.',
-          'PROJECT': 'workflow-testing',
-          'BRANCH': 'main',
-          'MAX_PARALLEL': '1',
-        },
-        data: {
-          'project_index': {'framework': 'markdown', 'project_root': fixtureDir},
-          'story_specs': {
-            'items': [
-              {
-                'id': 'S01',
-                'title': 'Create isolation review note',
-                'spec': 'Create notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
-              },
-            ],
-          },
-          'story_result':
-              'Implemented notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
-        },
-      ),
-      mapContext: MapContext(
-        item: const {
-          'id': 'S01',
-          'title': 'Create isolation review note',
-          'acceptance_criteria': ['Create the note exactly once'],
-          'spec': 'Create notes/isolation-review.md with heading "Isolation Review" and bullet "Validated".',
-        },
-        index: 0,
-        length: 1,
-      ),
-      artifactLabel: 'simplify-code-single-story-clean',
-    );
-
-    expect(result.assistantContent.trim(), isNotEmpty, reason: 'Artifact: ${result.artifactPath}');
-    expect(result.outputs, isEmpty, reason: 'simplify-code declares no outputs in plan-and-implement.yaml');
-  }, timeout: _defaultLiveTestTimeout);
-
   test('plan-review returns zero gating findings for a trivially clean two-story batch', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
     _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
 
@@ -781,8 +858,8 @@ void main() {
       },
     ];
     // Only the implement step promotes outputs to the per-story aggregate:
-    // simplify-code declares none and review-story's review keys stay
-    // loop-scoped, so each aggregate carries only the implement payload.
+    // review-story's review keys stay loop-scoped, so each aggregate carries
+    // only the implement payload.
     final storyResults = [
       {
         'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
@@ -828,96 +905,11 @@ void main() {
     _expectGatingCountNotGreaterThanTotal(result, 'plan-review.findings_count', 'plan-review.gating_findings_count');
   }, timeout: _defaultLiveTestTimeout);
 
-  test('architecture-review returns a durable findings report path', () async {
-    _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
-    _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
-    _writeMarkdownNote(
-      fixtureDir,
-      'docs/specs/demo/plan.md',
-      'Plan',
-      'Create two independent markdown notes with no production architecture changes.',
-    );
-
-    final storySpecs = [
-      {
-        'id': 'S01',
-        'title': 'Create Alpha Note',
-        'description': 'Create the alpha note file.',
-        'acceptance_criteria': [
-          'notes/alpha.md exists',
-          'Contains heading "Alpha Note"',
-          'Contains bullet "Validated"',
-        ],
-        'type': 'coding',
-        'dependencies': <String>[],
-        'key_files': ['notes/alpha.md'],
-        'effort': 'small',
-        'spec': 'Create notes/alpha.md with heading "Alpha Note" and bullet "Validated".',
-      },
-      {
-        'id': 'S02',
-        'title': 'Create Beta Note',
-        'description': 'Create the beta note file.',
-        'acceptance_criteria': ['notes/beta.md exists', 'Contains heading "Beta Note"', 'Contains bullet "Validated"'],
-        'type': 'coding',
-        'dependencies': ['S01'],
-        'key_files': ['notes/beta.md'],
-        'effort': 'small',
-        'spec': 'Create notes/beta.md with heading "Beta Note" and bullet "Validated".',
-      },
-    ];
-    // Only the implement step promotes outputs to the per-story aggregate:
-    // simplify-code declares none and review-story's review keys stay
-    // loop-scoped, so each aggregate carries only the implement payload.
-    final storyResults = [
-      {
-        'implement': {'story_result': 'Created notes/alpha.md with heading "Alpha Note" and bullet "Validated".'},
-      },
-      {
-        'implement': {'story_result': 'Created notes/beta.md with heading "Beta Note" and bullet "Validated".'},
-      },
-    ];
-
-    final result = await executeStep(
-      step: _stepById(planDefinition, 'architecture-review'),
-      context: WorkflowContext(
-        variables: const {
-          'FEATURE': 'Create two small markdown notes exactly as specified.',
-          'PROJECT': 'workflow-testing',
-          'BRANCH': 'main',
-          'MAX_PARALLEL': '1',
-        },
-        data: {
-          'project_index': {
-            'framework': 'markdown',
-            'project_root': fixtureDir,
-            'document_locations': {'readme': 'README.md', 'agent_rules': 'AGENTS.md'},
-            'state_protocol': {'state_file': 'STATE.md'},
-          },
-          'story_specs': storySpecs,
-          'story_results': storyResults,
-          'plan': 'docs/specs/demo/plan.md',
-        },
-      ),
-      artifactLabel: 'architecture-review-clean-two-story-batch',
-    );
-
-    final findingsCount = _expectReviewReportPathOrCleanCounts(
-      result,
-      'architecture-review.review_report_path',
-      'architecture-review.findings_count',
-      rootDir: fixtureDir,
-      runtimeArtifactsDir: runtimeArtifactsDir,
-    );
-    expect(findingsCount, inInclusiveRange(0, 1), reason: 'Artifact: ${result.artifactPath}');
-    expect(
-      _requireFindingsCount(result, 'architecture-review.gating_findings_count'),
-      lessThanOrEqualTo(findingsCount),
-      reason: 'Artifact: ${result.artifactPath}',
-    );
-  }, timeout: _defaultLiveTestTimeout);
-
   test('re-review returns zero findings after a trivially clean remediation pass', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
     _writeMarkdownNote(fixtureDir, 'notes/alpha.md', 'Alpha Note', 'Validated');
     _writeMarkdownNote(fixtureDir, 'notes/beta.md', 'Beta Note', 'Validated');
     const planPath = 'docs/specs/workflow-testing/plan.md';

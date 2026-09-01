@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveChannelConfig;
 
 import 'config_loader.dart';
 
@@ -65,7 +65,10 @@ class GoogleAuthCommand extends Command<void> {
 
     final dataDir = _dataDir ?? config!.server.dataDir;
     final store = UserOAuthCredentialStore(dataDir: dataDir);
-    final googleChatConfig = config?.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+    final loadedConfig = config;
+    final googleChatConfig = loadedConfig == null
+        ? null
+        : resolveChannelConfig<GoogleChatConfig>(loadedConfig, ChannelType.googlechat);
 
     // Check for existing credentials.
     if (store.hasCredentials && !(argResults!['force'] as bool)) {
@@ -87,22 +90,23 @@ class GoogleAuthCommand extends Command<void> {
     }
 
     // Parse the OAuth client credentials JSON.
-    final (clientId, clientSecret) = _parseClientCredentials(credentialsPath);
+    final (String clientId, String clientSecret) credentials;
+    try {
+      credentials = parseGoogleOAuthClientCredentials(credentialsPath);
+    } on GoogleOAuthSetupException catch (error) {
+      throw UsageException(error.message, usage);
+    }
+    final (clientId, clientSecret) = credentials;
 
     // Parse port.
     final port = int.tryParse(argResults!['port'] as String) ?? 0;
 
-    final spaceEventsConfig = googleChatConfig?.spaceEvents ?? const SpaceEventsConfig();
-    final unsupportedEventTypes = spaceEventsConfig.unsupportedEventTypes;
-    if (unsupportedEventTypes.isNotEmpty) {
-      throw UsageException(
-        'User OAuth does not support the configured space_events.event_types: '
-        '${unsupportedEventTypes.join(', ')}. Update the config or use supported message, membership, or space events.',
-        usage,
-      );
+    final List<String> scopes;
+    try {
+      scopes = resolveGoogleOAuthScopes(googleChatConfig);
+    } on GoogleOAuthSetupException catch (error) {
+      throw UsageException(error.message, usage);
     }
-    final scopes = {...spaceEventsConfig.requiredUserAuthScopes, ...?googleChatConfig?.requiredReactionScopes}.toList()
-      ..sort();
 
     _writeLine('Opening browser for Google OAuth consent...');
     _writeLine('Grant the requested Google Chat permissions in the browser.');
@@ -146,7 +150,7 @@ class GoogleAuthCommand extends Command<void> {
       return trimmedCliPath;
     }
     if (config == null) return null;
-    return config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat).oauthCredentials;
+    return resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat).oauthCredentials;
   }
 
   String? _globalConfigPath() {
@@ -170,44 +174,5 @@ class GoogleAuthCommand extends Command<void> {
       listenPort: listenPort,
     );
     return credentials.refreshToken;
-  }
-
-  /// Parses the OAuth client credentials JSON downloaded from GCP Console.
-  ///
-  /// Handles both "installed" (Desktop app) and "web" (Web app) formats:
-  /// - `{"installed": {"client_id": "...", "client_secret": "..."}}`
-  /// - `{"web": {"client_id": "...", "client_secret": "..."}}`
-  (String clientId, String clientSecret) _parseClientCredentials(String path) {
-    final file = File(path);
-    if (!file.existsSync()) {
-      throw UsageException('Client credentials file not found: $path', usage);
-    }
-
-    final Map<String, dynamic> json;
-    try {
-      json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    } catch (e) {
-      throw UsageException('Invalid JSON in client credentials file: $path', usage);
-    }
-
-    // Try "installed" (Desktop app) then "web" (Web app) format.
-    final inner = json['installed'] as Map<String, dynamic>? ?? json['web'] as Map<String, dynamic>?;
-
-    if (inner == null) {
-      throw UsageException(
-        'Unrecognized client credentials format. '
-        'Expected "installed" or "web" key in: $path',
-        usage,
-      );
-    }
-
-    final clientId = inner['client_id'] as String?;
-    final clientSecret = inner['client_secret'] as String?;
-
-    if (clientId == null || clientSecret == null) {
-      throw UsageException('Missing client_id or client_secret in credentials file: $path', usage);
-    }
-
-    return (clientId, clientSecret);
   }
 }

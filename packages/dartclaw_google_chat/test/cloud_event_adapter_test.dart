@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, MissingArtifactFailure, OutputConfig, OutputFormat, TaskType, WorkflowStep;
+    show MissingArtifactFailure, OutputConfig, OutputFormat, WorkflowStep;
 import 'package:test/test.dart';
 
 import '../scenario_test_support.dart';
@@ -11,25 +11,23 @@ void main() {
     final harness = await ScenarioTaskHarness.create();
     addTearDown(harness.dispose);
 
-    final extractor = ContextExtractor(
-      taskService: harness.tasks,
-      messageService: harness.messages,
-      dataDir: harness.tempDir.path,
-    );
+    final extractor = harness.contextExtractor();
     final session = await harness.sessions.getOrCreateMainSession();
-    await harness.messages.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: 'Done.\n\n<workflow-context>{"prd":"docs/prd.md"}</workflow-context>',
-    );
     await harness.tasks.create(
       id: 'task-phantom-prd',
       title: 'Discover',
       description: 'Discover',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
+      workflowRunId: 'run-phantom-prd',
     );
     await harness.tasks.updateFields('task-phantom-prd', sessionId: session.id);
+    await harness.seedEnvelopeOutputs(
+      'task-phantom-prd',
+      const {'prd': 'docs/prd.md'},
+      workflowRunId: 'run-phantom-prd',
+      stepId: 'discover',
+    );
 
     final task = (await harness.tasks.get('task-phantom-prd'))!;
     final step = const WorkflowStep(

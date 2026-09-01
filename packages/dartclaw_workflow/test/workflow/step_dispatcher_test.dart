@@ -1,6 +1,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -14,8 +16,19 @@ void main() {
   setUp(h.setUp);
   tearDown(h.tearDown);
 
-  const storySpecsMessage =
-      'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","dependencies":[],"spec_path":"fis/s01-a.md"},{"id":"S02","title":"Two","dependencies":["S01"],"spec_path":"fis/s02-b.md"}]}}</workflow-context>';
+  const storySpecsOutputs = <String, dynamic>{
+    'story_specs': {
+      'items': [
+        {'id': 'S01', 'title': 'One', 'dependencies': <String>[], 'spec_path': 'fis/s01-a.md'},
+        {
+          'id': 'S02',
+          'title': 'Two',
+          'dependencies': ['S01'],
+          'spec_path': 'fis/s02-b.md',
+        },
+      ],
+    },
+  };
 
   WorkflowDefinition parseDefinition(String yaml) => WorkflowDefinitionParser().parse(yaml);
 
@@ -26,7 +39,7 @@ void main() {
   }
 
   StreamSubscription<TaskStatusChangedEvent> completeQueuedTasks({
-    required FutureOr<String> Function(int index, String taskId) assistantMessageFor,
+    required FutureOr<Map<String, dynamic>> Function(int index, String taskId) outputsFor,
     Map<String, dynamic>? worktreeJson,
     TaskStatus finalStatus = TaskStatus.accepted,
   }) {
@@ -40,7 +53,7 @@ void main() {
       }
       await h.completeTaskWithOutcome(
         event.taskId,
-        outcomeContent: await assistantMessageFor(queueIndex++, event.taskId),
+        outputs: await outputsFor(queueIndex++, event.taskId),
         finalStatus: finalStatus,
       );
     });
@@ -72,7 +85,7 @@ void main() {
         );
     final context = WorkflowContext(data: const {});
 
-    final completionSub = completeQueuedTasks(assistantMessageFor: (_, _) => storySpecsMessage);
+    final completionSub = completeQueuedTasks(outputsFor: (_, _) => storySpecsOutputs);
     addTearDown(completionSub.cancel);
 
     await executeDefinition(definition, context, run: run);
@@ -121,7 +134,7 @@ void main() {
 
     final completionSub = completeQueuedTasks(
       worktreeJson: {'path': taskWorktree.path},
-      assistantMessageFor: (_, _) => storySpecsMessage,
+      outputsFor: (_, _) => storySpecsOutputs,
     );
     addTearDown(completionSub.cancel);
 
@@ -133,18 +146,25 @@ void main() {
     expect(context['story_specs'], isA<Map<String, dynamic>>());
   });
 
-  test('execute() routes map nodes through production aggregation', () async {
+  test('execute() routes foreach nodes through production aggregation', () async {
     const definition = WorkflowDefinition(
-      name: 'map-execute',
-      description: 'Map step execute test',
+      name: 'foreach-execute',
+      description: 'Foreach step execute test',
       steps: [
+        WorkflowStep(
+          id: 'story-pipeline',
+          name: 'Story Pipeline',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: 'stories',
+          maxParallel: 1,
+          foreachSteps: ['implement'],
+          outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
+        ),
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
           taskType: WorkflowTaskType.agent,
           prompts: ['Implement {{map.item.id}}'],
-          mapOver: 'stories',
-          maxParallel: 1,
           outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
         ),
       ],
@@ -157,15 +177,16 @@ void main() {
       },
     );
 
-    final completionSub = completeQueuedTasks(
-      assistantMessageFor: (_, _) => 'Done.\n\n<workflow-context>{"story_result":"ok-S01"}</workflow-context>',
-    );
+    final completionSub = completeQueuedTasks(outputsFor: (_, _) => {'story_result': 'ok-S01'});
     addTearDown(completionSub.cancel);
 
     await executeDefinition(definition, context);
     await completionSub.cancel();
 
-    expect(context['story_result'], ['ok-S01']);
+    // The foreach aggregate is one object per item, keyed by child step id.
+    final aggregate = context['story_result'] as List<dynamic>;
+    expect(aggregate, hasLength(1));
+    expect((aggregate.single as Map)['implement'], containsPair('story_result', 'ok-S01'));
     final tasks = await h.taskService.list();
     expect(tasks.single.configJson['displayScope'], 'S01');
   });
@@ -192,46 +213,6 @@ void main() {
     expect(stored?.errorMessage, 'approval required: approve');
     expect(context['approve.approval.status'], 'pending');
     expect((await h.taskService.list()).where((task) => task.workflowRunId == 'run-1'), isEmpty);
-  });
-
-  test('execute() applies entry gates before queueing work', () async {
-    const definition = WorkflowDefinition(
-      name: 'map-entry-gate',
-      description: 'Map entry gate execute test',
-      steps: [
-        WorkflowStep(
-          id: 'implement',
-          name: 'Implement',
-          taskType: WorkflowTaskType.agent,
-          prompts: ['Implement {{map.item.id}}'],
-          mapOver: 'stories',
-          maxParallel: 1,
-          entryGate: 'run_map == true',
-          outputs: {'story_result': OutputConfig(format: OutputFormat.text)},
-        ),
-      ],
-    );
-    final context = WorkflowContext(
-      data: {
-        'run_map': false,
-        'stories': [
-          {'id': 'S01'},
-        ],
-      },
-    );
-    var queuedTask = false;
-    final queuedSub = h.eventBus
-        .on<TaskStatusChangedEvent>()
-        .where((event) => event.newStatus == TaskStatus.queued)
-        .listen((_) => queuedTask = true);
-    addTearDown(queuedSub.cancel);
-
-    await executeDefinition(definition, context);
-    await queuedSub.cancel();
-
-    expect(queuedTask, isFalse);
-    expect(context['step.implement.outcome'], 'skipped');
-    expect(context['step.implement.outcome.reason'], 'run_map == true');
   });
 
   test('execute() applies foreach budget fail-fast before queueing work', () async {
@@ -283,67 +264,22 @@ steps:
     name: Remediation Loop
     type: loop
     maxIterations: 1
-    exitGate: remediate.status == accepted
+    exitGate: remediate.status == rejected
     steps:
       - id: remediate
         name: Remediate
         prompt: Apply fixes
-        gate: can_run == true
 ''');
-    final context = WorkflowContext(data: {'can_run': false});
+    final context = WorkflowContext();
+    final sub = completeQueuedTasks(outputsFor: (_, _) => const {});
+    addTearDown(sub.cancel);
 
     await executeDefinition(definition, context);
+    await sub.cancel();
 
     final stored = await h.repository.getById('run-1');
     expect(stored?.status, WorkflowRunStatus.failed);
-    expect(stored?.errorMessage, contains("Gate failed in loop 'remediation-loop'"));
+    expect(stored?.errorMessage, contains("Loop 'remediation-loop' reached max iterations"));
     expect(stored?.status, isNot(WorkflowRunStatus.awaitingApproval));
-  });
-
-  test('execute() does not fire setValue when the step skips or fails', () async {
-    final skipDefinition = const WorkflowDefinition(
-      name: 'set-value-entry-gate',
-      description: 'setValue must not fire when the step is skipped',
-      steps: [
-        WorkflowStep(
-          id: 'gated',
-          name: 'Gated',
-          taskType: WorkflowTaskType.agent,
-          prompts: ['Will not run'],
-          entryGate: 'run_gated == true',
-          outputs: {'gate_state': OutputConfig(setValue: 'fired')},
-        ),
-      ],
-    );
-    final skipContext = WorkflowContext(data: {'run_gated': false});
-
-    await executeDefinition(skipDefinition, skipContext, run: h.makeRun(skipDefinition).copyWith(id: 'run-skip'));
-
-    expect(skipContext['gate_state'], isNull);
-    expect(skipContext['step.gated.outcome'], 'skipped');
-
-    final failDefinition = const WorkflowDefinition(
-      name: 'set-value-failure',
-      description: 'setValue must not fire when the step task fails',
-      steps: [
-        WorkflowStep(
-          id: 'failing',
-          name: 'Failing',
-          taskType: WorkflowTaskType.agent,
-          prompts: ['Will fail'],
-          outputs: {'gate_state': OutputConfig(setValue: 'fired')},
-        ),
-      ],
-    );
-    final failContext = WorkflowContext(data: {'gate_state': 'unchanged'});
-    final failureSub = completeQueuedTasks(assistantMessageFor: (_, _) => 'done', finalStatus: TaskStatus.failed);
-    addTearDown(failureSub.cancel);
-
-    await executeDefinition(failDefinition, failContext, run: h.makeRun(failDefinition).copyWith(id: 'run-fail'));
-    await failureSub.cancel();
-
-    expect(failContext['gate_state'], 'unchanged');
-    final stored = await h.repository.getById('run-fail');
-    expect(stored?.status, WorkflowRunStatus.failed);
   });
 }

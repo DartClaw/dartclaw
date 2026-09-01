@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../container/container_executor.dart';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show normalizeDynamicMap;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 final _log = Logger('ClaudeSettingsBuilder');
 
@@ -20,9 +20,8 @@ final _log = Logger('ClaudeSettingsBuilder');
 /// **Permission-mode policy**: [buildPermissionMode] accepts the full canonical
 /// set of Claude permission-mode values (`acceptEdits`, `auto`,
 /// `bypassPermissions`, `default`, `dontAsk`, `plan`). Callers that need a
-/// stricter contract (e.g. workflow one-shot mode, which cannot block waiting
-/// for interactive approval) must add their own second-pass validation after
-/// calling this builder.
+/// stricter contract must add its own second-pass validation after calling this
+/// builder.
 abstract final class ClaudeSettingsBuilder {
   /// Parses the `permissionMode` key from [options] and validates it against
   /// the canonical Claude permission-mode set.
@@ -62,6 +61,7 @@ abstract final class ClaudeSettingsBuilder {
     Map<String, dynamic> options, {
     required ContainerExecutor? containerManager,
     required String hostWorkingDirectory,
+    List<String>? declaredToolRules,
   }) {
     final settings = <String, dynamic>{};
 
@@ -72,7 +72,11 @@ abstract final class ClaudeSettingsBuilder {
       case final String raw:
         final trimmed = raw.trim();
         if (trimmed.isEmpty) break;
-        if (!options.containsKey('sandbox') && !options.containsKey('permissions')) {
+        // Derived step rules count as a structured key: taking the path-only
+        // shortcut here would drop them and hand the CLI an empty policy.
+        final hasStructured =
+            options.containsKey('sandbox') || options.containsKey('permissions') || declaredToolRules != null;
+        if (!hasStructured) {
           if (containerManager != null) {
             try {
               jsonDecode(trimmed);
@@ -82,7 +86,22 @@ abstract final class ClaudeSettingsBuilder {
           }
           return trimmed;
         }
-        if (options.containsKey('sandbox') || options.containsKey('permissions')) {
+        if (hasStructured) {
+          if (declaredToolRules != null) {
+            try {
+              jsonDecode(trimmed);
+            } on FormatException {
+              // Merging into a settings *file* is not something this builder
+              // can do, and silently returning the path would run the step on
+              // the operator's policy with none of its declared rules — the
+              // defect this derivation exists to close. Fail closed instead.
+              throw StateError(
+                'Claude provider options set "settings" to the path "$trimmed", which cannot carry a workflow '
+                'step\'s declared tool policy. Inline the settings as JSON, or move the rules to '
+                '"permissions", so the step runs on what it declared.',
+              );
+            }
+          }
           try {
             final decoded = jsonDecode(trimmed);
             if (decoded is Map<String, dynamic>) {
@@ -142,8 +161,68 @@ abstract final class ClaudeSettingsBuilder {
       _log.warning('Ignoring unsupported Claude permissions option type: ${permissions.runtimeType}');
     }
 
+    if (declaredToolRules != null) {
+      final existing = settings['permissions'];
+      final allow = <String>[
+        if (existing is Map<String, dynamic> && existing['allow'] is List)
+          ...(existing['allow'] as List).map((rule) => rule.toString()),
+        ...declaredToolRules,
+      ];
+      _deepMergeInto(settings, {
+        'permissions': {'allow': allow},
+      });
+    }
+
     if (settings.isEmpty) return null;
     return jsonEncode(settings);
+  }
+
+  /// Claude `permissions.allow` rules for the canonical tools a step declares.
+  ///
+  /// The step's declared tools are the policy the guard chain enforces; without
+  /// these rules the CLI enforces its own, which is empty for a spawn that
+  /// inherits nothing — so a declared `file_write` still had every `Write`
+  /// refused while the operator's personal `Bash(…)` rules let shell commands
+  /// through (observed live 2026-08-28). Same policy, stated to both layers.
+  ///
+  /// [writableRoots] scopes the file-mutating rules: the step's worktree and
+  /// its artifacts directory, and nothing else. An unrecognised canonical name
+  /// yields no rule — the CLI must never be widened by a name this mapping does
+  /// not know, and the guard chain remains the inner boundary either way.
+  ///
+  /// `file_write` and `file_edit` both emit `Edit(...)`: the CLI checks file
+  /// permissions against `Edit(path)` and `Read(path)` rules only, so a
+  /// `Write(path)` rule is accepted and never consulted. Write-new and
+  /// edit-existing are therefore one capability at the CLI, and the guard chain
+  /// is where the finer distinction still lives. Paths are emitted with the
+  /// `//` absolute anchor — a single leading slash anchors at the settings
+  /// source, not the filesystem root — and a non-absolute root yields no rule.
+  /// Both forms were verified live 2026-08-28: `Write(/abs/**)`,
+  /// `Write(//abs/**)` and `Edit(/abs/**)` are all refused, `Edit(//abs/**)`
+  /// writes.
+  static List<String> allowRulesForCanonicalTools(
+    Iterable<String> canonicalTools, {
+    required Iterable<String> writableRoots,
+  }) {
+    final roots = writableRoots.map((root) => root.trim()).where((root) => p.isAbsolute(root)).toList();
+    final rules = <String>[];
+    for (final tool in canonicalTools) {
+      switch (tool.trim()) {
+        case 'shell':
+          rules.add('Bash');
+        case 'file_read':
+          rules.add('Read');
+        case 'file_write' || 'file_edit':
+          rules.addAll(roots.map((root) => 'Edit(/${p.join(root, '**')})'));
+        case 'web_fetch':
+          rules.add('WebFetch');
+        case 'web_search':
+          rules.add('WebSearch');
+        case 'mcp_call':
+          rules.add('mcp__dartclaw');
+      }
+    }
+    return rules.toSet().toList();
   }
 
   static String _containerSettingsPath(

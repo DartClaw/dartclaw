@@ -29,7 +29,7 @@ void main() {
     for (final policy in const ['fail', 'continue']) {
       final errors = validator.validate(topLevelLoopDef(policy)).errors;
       expect(
-        hasError(errors, type: ValidationErrorType.invalidLoopPolicy),
+        hasError(errors, type: WorkflowValidationErrorType.invalidLoopPolicy),
         false,
         reason: 'policy "$policy" must validate for a top-level loop',
       );
@@ -38,7 +38,10 @@ void main() {
 
   test('an unknown onMaxIterations value fails validation naming the loop id', () {
     final errors = validator.validate(topLevelLoopDef('bogus')).errors;
-    expect(hasError(errors, type: ValidationErrorType.invalidLoopPolicy, loopId: 'l1', messageContains: 'bogus'), true);
+    expect(
+      hasError(errors, type: WorkflowValidationErrorType.invalidLoopPolicy, loopId: 'l1', messageContains: 'bogus'),
+      true,
+    );
   });
 
   WorkflowDefinition nestedLoopDef(String onMaxIterations) => WorkflowDefinition(
@@ -72,7 +75,7 @@ void main() {
     expect(
       hasError(
         errors,
-        type: ValidationErrorType.invalidLoopPolicy,
+        type: WorkflowValidationErrorType.invalidLoopPolicy,
         loopId: 'nested-loop',
         messageContains: 'nested under a foreach',
       ),
@@ -82,7 +85,7 @@ void main() {
 
   test('a foreach-nested loop with escalate validates', () {
     final errors = validator.validate(nestedLoopDef(WorkflowLoop.onMaxIterationsEscalate)).errors;
-    expect(hasError(errors, type: ValidationErrorType.invalidLoopPolicy), false);
+    expect(hasError(errors, type: WorkflowValidationErrorType.invalidLoopPolicy), false);
   });
 
   test('a top-level loop with escalate fails validation naming the loop id', () {
@@ -90,7 +93,7 @@ void main() {
     expect(
       hasError(
         errors,
-        type: ValidationErrorType.invalidLoopPolicy,
+        type: WorkflowValidationErrorType.invalidLoopPolicy,
         loopId: 'l1',
         messageContains: 'not nested under a foreach',
       ),
@@ -100,6 +103,6 @@ void main() {
 
   test('a foreach-nested loop with the default fail policy validates', () {
     final errors = validator.validate(nestedLoopDef(WorkflowLoop.onMaxIterationsFail)).errors;
-    expect(hasError(errors, type: ValidationErrorType.invalidLoopPolicy), false);
+    expect(hasError(errors, type: WorkflowValidationErrorType.invalidLoopPolicy), false);
   });
 }

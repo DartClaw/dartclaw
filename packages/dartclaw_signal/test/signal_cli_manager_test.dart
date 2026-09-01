@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
@@ -337,89 +337,6 @@ void main() {
       await start;
       await reset;
       expect(mgr.isRunning, isFalse);
-    });
-
-    test('requestVoiceVerification sends register RPC with voice flag', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final requestHandled = Completer<void>();
-      late String requestPath;
-      late Map<String, dynamic> payload;
-
-      final sub = server.listen((request) {
-        unawaited(() async {
-          requestPath = request.uri.path;
-          payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
-          await _writeRpcResult(request.response, payload['id']);
-          requestHandled.complete();
-        }());
-      });
-
-      try {
-        final mgr = SignalCliManager(
-          executable: 'signal-cli',
-          host: InternetAddress.loopbackIPv4.address,
-          port: server.port,
-          phoneNumber: '+1',
-        );
-
-        await mgr.requestVoiceVerification(captcha: 'captcha-token');
-        await requestHandled.future;
-
-        expect(requestPath, '/api/v1/rpc');
-        expect(payload['method'], 'register');
-        expect(payload['params'], {'account': '+1', 'voice': true, 'captcha': 'captcha-token'});
-      } finally {
-        await sub.cancel();
-        await server.close(force: true);
-      }
-    });
-
-    test('verifySmsCode activates registration and reconnects the receive stream', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final initialSse = Completer<HttpResponse>();
-      final replacementSse = Completer<HttpResponse>();
-      var sseConnections = 0;
-      final sub = server.listen((request) {
-        unawaited(() async {
-          if (request.uri.path == '/api/v1/events') {
-            sseConnections++;
-            await _openSse(request.response);
-            if (sseConnections == 1) {
-              initialSse.complete(request.response);
-            } else if (sseConnections == 2) {
-              replacementSse.complete(request.response);
-            }
-            return;
-          }
-
-          final payload = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
-          await _writeRpcResult(request.response, payload['id']);
-        }());
-      });
-
-      final mgr = SignalCliManager(
-        executable: 'signal-cli',
-        host: InternetAddress.loopbackIPv4.address,
-        port: server.port,
-        phoneNumber: '+12125550100',
-        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async =>
-            FakeProcess(completeExitOnKill: true),
-        delay: (_) async {},
-        healthProbe: () async => true,
-      );
-      addTearDown(() async {
-        await mgr.stop();
-        await sub.cancel();
-        await server.close(force: true);
-      });
-
-      await mgr.start();
-      await initialSse.future.timeout(const Duration(seconds: 2));
-      await mgr.verifySmsCode('123-456');
-
-      expect(mgr.wasPaired, isTrue);
-      expect(mgr.registeredPhone, '+12125550100');
-      await replacementSse.future.timeout(const Duration(seconds: 2));
     });
 
     test('a failed SSE replacement keeps retrying until connected', () async {

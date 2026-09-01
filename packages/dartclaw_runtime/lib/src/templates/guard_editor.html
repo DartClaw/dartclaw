@@ -1,0 +1,77 @@
+<div tl:fragment="guardEditor" id="guard-editor" class="card guard-editor-shell" data-guard-editor tl:attr="data-active-guard=${activeGuard}">
+  <div class="card-header"><span class="card-title t-heading">Guard Extensions</span></div>
+  <div class="tabs" role="tablist" aria-label="Guard types" data-guard-editor-tabs>
+    <button tl:each="tab : ${tabs}" type="button" class="tab guard-editor-tab" role="tab" hx-target="#guard-editor" hx-swap="outerHTML"
+            tl:classappend="${tab.active} ? 'active' : ''"
+            tl:attr="id=${tab.id},aria-selected=${tab.active ? 'true' : 'false'},tabindex=${tab.active ? '0' : '-1'},aria-controls='guard-editor-panel',hx-get=${tab.href},data-guard-editor-tab=${tab.guard}"
+            tl:text="${tab.label}">Command</button>
+  </div>
+  <div class="table-scroll" id="guard-editor-panel" role="tabpanel" tl:attr="aria-labelledby='guard-editor-tab-' + ${activeGuard}">
+    <table class="data-table guard-editor-table">
+      <thead><tr><th>#</th><th>Field</th><th>Value</th><th>Controls</th></tr></thead>
+      <tbody data-guard-editor-rows>
+        <tr tl:each="row : ${rows}">
+          <td tl:text="${row.number}">1</td><td tl:text="${row.fieldLabel}">Field</td><td class="guard-editor-value" tl:text="${row.display}">Value</td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-sm" hx-target="#guard-edit-dialog-host" hx-swap="outerHTML"
+                    tl:attr="hx-get=${row.editAction}">Edit</button>
+            <button type="submit" name="display" class="btn btn-ghost btn-sm" hx-target="#guard-editor" hx-swap="outerHTML"
+                    tl:attr="value=${row.display},hx-post=${row.deleteAction}">Delete</button>
+          </td>
+        </tr>
+        <tr tl:unless="${rows}"><td colspan="4" class="guard-editor-message">No editable extensions</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="guard-edit-dialog-host"></div>
+  <form class="guard-editor-form-row" data-guard-editor-add hx-target="#guard-editor" hx-swap="outerHTML" tl:attr="hx-post=${addAction}">
+    <select class="form-select" name="field" data-guard-editor-field aria-label="Guard extension field">
+      <option tl:each="field : ${fields}" tl:attr="value=${field.value}" tl:text="${field.label}">Field</option>
+    </select>
+    <input class="form-input" name="value" data-guard-editor-value placeholder="Pattern, domain, or file glob"
+           tl:attr="value=${guardValue},aria-invalid=${guardError ? 'true' : null}">
+    <select class="form-select" name="level" data-guard-editor-level aria-label="File access level" tl:attr="hidden=${showLevel ? null : 'hidden'}">
+      <option value="no_access">No access</option><option value="read_only">Read only</option><option value="no_delete">No delete</option>
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">Add</button>
+  </form>
+  <div class="form-error guard-editor-message" tl:text="${guardError}"></div>
+  <form class="guard-tester-row" data-guard-editor-test>
+    <input class="form-input" name="input" data-guard-editor-test-input placeholder="Test command, path, URL, or message">
+    <select class="form-select" name="mode" data-guard-editor-test-mode aria-label="File operation" tl:attr="hidden=${showLevel ? null : 'hidden'}">
+      <option value="read">Read</option><option value="write" selected>Write</option><option value="delete">Delete</option>
+    </select>
+    <button type="submit" class="btn btn-ghost btn-sm">Test</button>
+  </form>
+  <div id="guard-test-result" class="guard-editor-message" data-guard-editor-result></div>
+  <div class="guard-editor-message">
+    <span>Showing <tl:block tl:text="${displayedLayer}">persisted-config</tl:block></span>
+    <span tl:if="${hasPendingRestart}">. Pending restart: <tl:block tl:text="${pendingRestart}">fields</tl:block></span>
+  </div>
+</div>
+
+<div tl:fragment="guardEditDialog" id="guard-edit-dialog-host">
+  <dialog class="dialog dialog--md card card-glass" data-controller="dc-dialog">
+    <form hx-target="#guard-editor" hx-swap="outerHTML" tl:attr="hx-post=${updateAction}">
+      <div class="dialog-header">
+        <h2 class="t-heading" tl:text="'Edit ' + ${fieldLabel}">Edit guard extension</h2>
+        <button type="button" class="btn-close" aria-label="Close" data-dialog-close data-icon="x"></button>
+      </div>
+      <div class="dialog-body">
+        <input type="hidden" name="display" tl:attr="value=${display}">
+        <label class="form-label t-caption tracking-caps" for="guard-edit-value" tl:text="${fieldLabel}">Value</label>
+        <input id="guard-edit-value" class="form-input" name="value" required tl:attr="value=${value},aria-invalid=${error ? 'true' : null}">
+        <div class="form-error t-caption" tl:text="${error}"></div>
+        <select tl:if="${isFile}" class="form-select" name="level" aria-label="File access level">
+          <option value="no_access" tl:attr="selected=${level == 'no_access' ? 'selected' : null}">No access</option>
+          <option value="read_only" tl:attr="selected=${level == 'read_only' ? 'selected' : null}">Read only</option>
+          <option value="no_delete" tl:attr="selected=${level == 'no_delete' ? 'selected' : null}">No delete</option>
+        </select>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+</div>

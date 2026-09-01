@@ -1,0 +1,1 @@
+extensions  # Map<String, Object?> of deployer-registered sections with no value equality: != between two parses is always true, so comparing it would report a restart requirement on every reload.

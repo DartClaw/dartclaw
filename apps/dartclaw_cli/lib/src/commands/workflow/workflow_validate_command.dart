@@ -1,14 +1,23 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialRegistry, DartclawConfig, ProviderIdentity;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SubscriptionCredentialStore;
-import 'package:dartclaw_server/dartclaw_server.dart' show CodexRefreshAuthority, refreshCodexAuth;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show
+        CodexRefreshAuthority,
+        WriteLine,
+        buildProviderProbeEnvironment,
+        buildWorkflowSkillPreflightConfig,
+        refreshCodexAuth,
+        resolveCodexVendorExecutable,
+        resolveProviderTarget,
+        workflowRoleDefaultsFromConfig;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         CliSkillIntrospector,
         SkillIntrospector,
-        ValidationError,
+        WorkflowValidationError,
         ValidationReport,
         WorkflowDefinition,
         WorkflowDefinitionParser,
@@ -17,10 +26,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         checkWorkflowSkillRefs;
 
 import '../config_loader.dart';
-import '../serve_command.dart' show WriteLine;
-import 'workflow_config_support.dart';
-import 'workflow_provider_environment.dart';
-import 'workflow_skill_preflight_config.dart';
 
 /// Validates a workflow YAML file at the given path.
 ///
@@ -137,17 +142,11 @@ class WorkflowValidateCommand extends Command<void> {
     );
     final codexRefresh = CodexRefreshAuthority(
       store: store,
-      vendorRefresh: (codexHome) =>
-          refreshCodexAuth(codexHome, executable: resolveWorkflowProviderExecutable(config, ProviderIdentity.codex)),
+      vendorRefresh: (codexHome) => refreshCodexAuth(codexHome, executable: resolveCodexVendorExecutable(config)),
     );
     return CliSkillIntrospector(
-      environmentForProvider: (providerId) => buildWorkflowProbeEnvironment(
-        providerId: providerId,
-        providerFamily: ProviderIdentity.resolveFamily(
-          providerId,
-          options: workflowProviderOptions(config, providerId),
-          executable: resolveWorkflowProviderExecutable(config, providerId),
-        ),
+      environmentForProvider: (providerId) => buildProviderProbeEnvironment(
+        target: resolveProviderTarget(config, providerId),
         registry: registry,
         baseEnvironment: Platform.environment,
         codexRefresh: codexRefresh,
@@ -228,7 +227,7 @@ class WorkflowValidateCommand extends Command<void> {
     }
   }
 
-  String _formatDiagnostic(ValidationError e) {
+  String _formatDiagnostic(WorkflowValidationError e) {
     final location = [if (e.stepId != null) 'step=${e.stepId}', if (e.loopId != null) 'loop=${e.loopId}'].join(', ');
     return location.isEmpty ? e.message : '[$location] ${e.message}';
   }

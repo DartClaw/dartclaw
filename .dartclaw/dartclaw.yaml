@@ -65,9 +65,10 @@ governance:
     daily_tokens: 10000000
   loop_detection:
     enabled: true
-  turn_progress:
+  turn_limits:
     stall_timeout: 10m
     stall_action: cancel
+    turn_timeout: 30m
 
 tasks:
   budget:

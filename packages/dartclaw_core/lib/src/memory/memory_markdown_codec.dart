@@ -35,6 +35,8 @@ final class MemoryMarkdownCodec {
         lines.addAll(['Date: ${document.date}', ..._renderRecords(document.observations.map(_observationFields))]);
       case MemoryLearningDocument():
         lines.addAll(_renderRecords(document.entries.map(_learningFields)));
+      case MemoryErrorDocument():
+        lines.addAll(_renderRecords(document.entries.map(_errorFields)));
       case MemoryAuditDocument():
         lines.addAll(_renderRecords(document.records.map(_auditFields)));
     }
@@ -81,6 +83,8 @@ final class MemoryMarkdownCodec {
           );
         case MemoryRole.learning:
           return MemoryLearningDocument(entries: _records(lines, cursor).map(_parseLearning));
+        case MemoryRole.error:
+          return MemoryErrorDocument(entries: _records(lines, cursor).map(_parseError));
         case MemoryRole.audit:
           return MemoryAuditDocument(records: _records(lines, cursor).map(_parseAudit));
         case MemoryRole.wiki:
@@ -158,6 +162,16 @@ final class MemoryMarkdownCodec {
     ..._sourceFields(entry.provenance),
   };
 
+  Map<String, String> _errorFields(CanonicalMemoryError entry) => {
+    'ID': entry.id,
+    'Revision': '${entry.revision}',
+    'Summary': jsonEncode(entry.summary),
+    'Content': jsonEncode(entry.content),
+    'Created': entry.created.toIso8601String(),
+    'Updated': entry.updated.toIso8601String(),
+    ..._sourceFields(entry.provenance),
+  };
+
   Map<String, String> _observationFields(MemoryObservation observation) => {
     'ID': observation.id,
     'Recorded': observation.recorded.toIso8601String(),
@@ -223,6 +237,19 @@ CanonicalMemoryEntry _parseEntry(Map<String, String> fields) {
 CanonicalMemoryLearning _parseLearning(Map<String, String> fields) {
   _requireExactFields(fields, {..._sourceFieldNames, 'ID', 'Revision', 'Summary', 'Content', 'Created', 'Updated'});
   return CanonicalMemoryLearning(
+    id: _required(fields, 'ID'),
+    revision: _integer(_required(fields, 'Revision'), 'Revision'),
+    summary: _string(_required(fields, 'Summary'), 'Summary'),
+    content: _string(_required(fields, 'Content'), 'Content'),
+    created: _timestamp(_required(fields, 'Created'), 'Created'),
+    updated: _timestamp(_required(fields, 'Updated'), 'Updated'),
+    provenance: _parseSource(fields),
+  );
+}
+
+CanonicalMemoryError _parseError(Map<String, String> fields) {
+  _requireExactFields(fields, {..._sourceFieldNames, 'ID', 'Revision', 'Summary', 'Content', 'Created', 'Updated'});
+  return CanonicalMemoryError(
     id: _required(fields, 'ID'),
     revision: _integer(_required(fields, 'Revision'), 'Revision'),
     summary: _string(_required(fields, 'Summary'), 'Summary'),

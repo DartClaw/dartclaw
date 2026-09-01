@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -110,7 +112,6 @@ void main() {
       dmAccess: DmAccessController(mode: DmAccessMode.open),
       mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
       channelManager: channelManager,
-      workspaceDir: '/tmp',
     );
   });
 
@@ -125,6 +126,12 @@ void main() {
       expect(channel.ownsJid('group123@g.us'), isTrue);
       expect(channel.ownsJid('user@telegram.org'), isFalse);
       expect(channel.ownsJid('plain-string'), isFalse);
+    });
+
+    test('jidToPhone extracts the paired number without accepting a device UUID', () {
+      expect(jidToPhone('12345678901:3@s.whatsapp.net'), '+12345678901');
+      expect(jidToPhone('e9dcda83-98f2-43bd-a59b-caec48111492'), isNull);
+      expect(jidToPhone(null), isNull);
     });
 
     test('connect starts GOWA', () async {
@@ -351,7 +358,6 @@ void main() {
         dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       disabledChannel.handleWebhook(
@@ -367,7 +373,6 @@ void main() {
         dmAccess: DmAccessController(mode: DmAccessMode.disabled),
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       restrictedChannel.handleWebhook(
@@ -387,6 +392,13 @@ void main() {
       final responses = channel.formatResponse('Hello from agent');
       expect(responses, isNotEmpty);
       expect(responses.first.text, isNotEmpty);
+    });
+
+    test('formatResponse preserves MEDIA lines as text', () {
+      final response = channel.formatResponse('Report ready\nMEDIA:reports/q3.pdf').single;
+
+      expect(response.text, contains('MEDIA:reports/q3.pdf'));
+      expect(response.mediaAttachments, isEmpty);
     });
 
     test('formatResponse overrides Channel default with WhatsApp formatting', () {
@@ -432,7 +444,6 @@ Build | *Pass*''');
         dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: mg,
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
       await ch.connect();
       expect(mg.ownJid, '1234567890@s.whatsapp.net');
@@ -447,7 +458,6 @@ Build | *Pass*''');
         dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: mg,
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
       await ch.connect();
       expect(mg.ownJid, ''); // Stays empty, no crash
@@ -463,7 +473,6 @@ Build | *Pass*''');
         dmAccess: dmAccess,
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       pairingChannel.handleWebhook(
@@ -493,7 +502,6 @@ Build | *Pass*''');
         dmAccess: dmAccess,
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       pairingChannel.handleWebhook(
@@ -512,7 +520,6 @@ Build | *Pass*''');
         dmAccess: dmAccess,
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       allowlistChannel.handleWebhook(
@@ -560,7 +567,6 @@ Build | *Pass*''');
         dmAccess: DmAccessController(mode: DmAccessMode.open),
         mentionGating: MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
         channelManager: channelManager,
-        workspaceDir: '/tmp',
       );
 
       // Listed group -> accepted

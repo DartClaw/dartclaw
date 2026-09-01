@@ -1,5 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
-import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'turn_outcome.dart';
 
@@ -31,7 +30,11 @@ abstract interface class TurnManager {
     String? systemPromptOverride,
     ExecutionPolicy? workerPolicy,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? taskId,
+    Duration? turnTimeout,
     bool isHumanInput = false,
     PromptScope? promptScope,
   });
@@ -42,7 +45,6 @@ abstract interface class TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
-    bool resume = false,
   });
 
   void releaseTurn(String sessionId, String turnId);
@@ -59,7 +61,11 @@ abstract interface class TurnManager {
     String? effort,
     String? systemPromptOverride,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? taskId,
+    Duration? turnTimeout,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,

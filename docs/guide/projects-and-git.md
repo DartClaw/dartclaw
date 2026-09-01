@@ -1,12 +1,16 @@
 # Projects and Git
 
-> Current through: **0.24**
+> Current through: **0.25**
 
-DartClaw manages git repositories as **projects** -- first-class entities that coding tasks branch from, work in, and push results back to. A single DartClaw instance can manage multiple projects simultaneously.
+DartClaw manages git repositories as **projects** -- first-class entities that tasks can target. Tasks that explicitly set
+`configJson.needsWorktree: true` branch from a project, work in isolation, and push results back on acceptance. A single
+DartClaw instance can manage multiple projects simultaneously.
 
 ## What Is a Project?
 
-A project is a registered git repository that DartClaw clones, keeps fresh, and uses as the base for coding task worktrees. Projects have a lifecycle (`cloning` -> `ready` -> optionally `error` or `stale`) and are managed through the web UI or REST API.
+A project is a registered git repository that DartClaw clones, keeps fresh, and can use as the base for declared task
+worktrees. Projects have a lifecycle (`cloning` -> `ready` -> optionally `error` or `stale`) and are managed through the
+web UI or REST API.
 
 There are two kinds of projects:
 
@@ -34,7 +38,9 @@ When you register external projects, `_local` remains selectable but is no longe
 
 ### External Projects
 
-External projects are cloned from a remote URL and kept fresh with automatic fetching. When a coding task targeting an external project is accepted, the result is pushed to the remote as a branch (or as a pull request).
+External projects are cloned from a remote URL and kept fresh with automatic fetching. When a task that declared
+`needsWorktree: true` targets an external project and is accepted, the result is pushed to the remote as a branch (or as
+a pull request).
 
 Register external projects in two ways:
 
@@ -110,11 +116,12 @@ error                            stale
 
 ## Auto-Fetch
 
-External projects are automatically fetched before worktree creation, so coding tasks always branch from recent code.
+External projects are automatically fetched before worktree creation, so tasks that declare `needsWorktree: true` branch
+from recent code.
 
 **How it works**:
 
-1. When a coding task starts, `WorktreeManager` calls `ProjectService.ensureFresh(project)`.
+1. When a task declaring `needsWorktree: true` starts, `WorktreeManager` calls `ProjectService.ensureFresh(project)`.
 2. If the project was fetched within the cooldown window (default: 5 minutes), the fetch is skipped.
 3. If a fetch is already in-flight for this project, the second caller waits for it to complete (no duplicate fetches).
 4. Otherwise, `git fetch origin` runs in an isolate to avoid blocking the event loop.
@@ -143,14 +150,16 @@ git pull origin main
 
 ## Git Worktrees for Task Isolation
 
-When a coding task executes, DartClaw creates an isolated git worktree so the agent works in its own checkout without affecting the main working tree or other concurrent tasks.
+When a task executes with `configJson.needsWorktree: true`, DartClaw creates an isolated git worktree so the agent works
+in its own checkout without affecting the main working tree or other concurrent tasks. The category-free task API and web
+form expose this declaration directly; task titles or descriptions never imply it.
 
 ### Worktree Lifecycle
 
 For **external projects**, the worktree is created from the project's clone directory:
 
 ```
-Task queued (coding task, projectId: my-app)
+Task queued (needsWorktree: true, projectId: my-app)
   |
   v
 TaskExecutor picks up task
@@ -187,14 +196,14 @@ For **`_local` tasks**, the flow is the same except: no auto-fetch, and accept p
 ```
 ~/.dartclaw/
   worktrees/
-    <taskId>/           # isolated checkout for each coding task
+    <taskId>/           # isolated checkout for each task that declares it
 ```
 
 The exact path is `<dataDir>/worktrees/`.
 
 ### Branch Naming
 
-Each task gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e.g., from a previous failed cleanup), DartClaw appends a suffix: `dartclaw/task-<taskId>-2`, `-3`, etc., up to 100 attempts.
+Each task with a worktree gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e.g., from a previous failed cleanup), DartClaw appends a suffix: `dartclaw/task-<taskId>-2`, `-3`, etc., up to 100 attempts.
 
 ### Stale Worktree Detection
 
@@ -300,7 +309,7 @@ In containerized mode, project clones are mounted read-only:
 | `/project` | `<dataDir>/projects/` | Read-only | All project clones accessible to the agent |
 | `/workspace` | `<dataDir>/workspace/` | Read-write | Behavior files (SOUL.md, etc.) |
 
-`TaskFileGuard` enforces per-task scoping -- a task targeting `my-app` cannot read files from the `docs-site` project clone, even though both are under the same mount. Research tasks use the `restricted` profile which has no workspace mount at all.
+`TaskFileGuard` enforces per-task scoping -- a task targeting `my-app` cannot read files from the `docs-site` project clone, even though both are under the same mount. Tasks explicitly declared with the `restricted` profile have no workspace mount at all.
 
 ### Path Translation
 
@@ -386,7 +395,7 @@ tasks:
 
 - **No `--project-dir` CLI flag**: The `_local` project is always `Directory.current.path` -- there is no config option or CLI flag to override it. This can create friction when running DartClaw from source, where `cwd` must be the pub workspace root for package resolution but you want `_local` to point elsewhere. **Workaround**: register the target repo as an external project (even if it's local on disk -- use a `file://` or SSH URL to a local bare clone), or use `cd <dir> && dartclaw serve` when running a compiled binary.
 - **GitHub PRs only**: PR creation currently supports GitHub through DartClaw-owned REST API calls. GitLab MR and Bitbucket PR support is planned.
-- **No startup validation**: A missing `.git/` directory or base ref on `_local` is only caught when a coding task runs.
+- **No startup validation**: A missing `.git/` directory or base ref on `_local` is only caught when a task requests a worktree.
 - **No automatic push for `_local`**: Accepted `_local` task merges stay local. Push to remote manually or via external automation.
 - **`_local` does not auto-fetch**: The local base ref must be kept current externally (see [Keeping the `_local` Project Current](#keeping-the-_local-project-current)).
 

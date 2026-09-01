@@ -1,14 +1,59 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 /// Terminates a Windows process tree already bound to an ownership-safe handle.
 ///
 /// Returning `true` means the full owned tree has exited. Implementations must
 /// not infer ownership from [rootPid] alone because that PID can be reused.
 typedef WindowsProcessTreeTerminator = Future<bool> Function(int rootPid);
+
+/// Ceiling on one managed-process output stream, applied both to the bytes it
+/// holds in an unterminated line and to the bytes it admits in one turn.
+const int defaultProcessOutputLimitBytes = 16 * 1024 * 1024;
+
+/// Raised when a managed process floods one output stream past its byte ceiling.
+final class ProcessOutputLimitException implements Exception {
+  /// Creates a breach report for [streamName] (`stdout`/`stderr`) against [maxBytes].
+  const new({required this.streamName, required this.maxBytes});
+
+  /// Output stream that exceeded the ceiling.
+  final String streamName;
+
+  /// Maximum bytes accepted for the stream.
+  final int maxBytes;
+
+  /// Breach description naming the offending stream and the byte ceiling.
+  String get message => 'Provider $streamName exceeded the $maxBytes byte output limit';
+
+  @override
+  String toString() => 'ProcessOutputLimitException($message)';
+}
+
+/// Reports an unrecoverable fault on a managed process output stream – bytes
+/// that cannot be decoded, or a read error – raised in place of the raw stream
+/// error so the fault ends the turn instead of escaping as an unhandled
+/// asynchronous error.
+final class ProcessStreamException implements Exception {
+  /// Creates a stream-fault report for [streamName] (`stdout`/`stderr`) from [cause].
+  const new({required this.streamName, required this.cause});
+
+  /// Output stream that faulted.
+  final String streamName;
+
+  /// Underlying error – typically a UTF-8 `FormatException` from a provider
+  /// killed mid-character.
+  final Object cause;
+
+  /// Fault description naming the offending stream and its cause.
+  String get message => 'Provider $streamName failed: $cause';
+
+  @override
+  String toString() => 'ProcessStreamException($message)';
+}
 
 /// Reports how a managed-process termination attempt completed.
 final class ProcessTerminationResult {
@@ -153,6 +198,103 @@ Future<bool> _waitForExit(Process process, Duration timeout, {required String la
   } catch (error) {
     log?.fine('Error waiting for $label process exit: $error');
     return false;
+  }
+}
+
+/// Owns the lifecycle bookkeeping shared by subprocess-backed harnesses.
+mixin ProcessLifecycleOwner {
+  final Set<Process> _windowsTeardownPending = <Process>{};
+  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
+  Process? _currentProcess;
+
+  /// Logger used for lifecycle diagnostics.
+  @protected
+  Logger get processLifecycleLog;
+
+  /// Process currently owned by this harness.
+  @protected
+  Process? get currentProcess => _currentProcess;
+
+  @protected
+  set currentProcess(Process? value) {
+    _currentProcess = value;
+    if (value != null) {
+      _windowsTeardownPending.remove(value);
+      _windowsExitObservedDuringTeardown.remove(value);
+    }
+  }
+
+  /// Prevents a Windows exit watcher from releasing ownership before teardown is classified.
+  @protected
+  void beginIntentionalProcessTeardown(Process? process, PlatformCapabilities platformCapabilities) {
+    final activeProcess = process ?? _currentProcess;
+    if (activeProcess != null && !platformCapabilities.posixSignalsAvailable) {
+      _windowsTeardownPending.add(activeProcess);
+    }
+  }
+
+  /// Applies the authoritative teardown result to process ownership.
+  @protected
+  void completeIntentionalProcessTeardown(
+    Process process,
+    ProcessTerminationResult result,
+    PlatformCapabilities platformCapabilities,
+  ) {
+    _windowsTeardownPending.remove(process);
+    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
+    if ((result.confirmsOwnershipRelease() || exitObserved) && identical(_currentProcess, process)) {
+      _currentProcess = null;
+    }
+  }
+
+  /// Watches [process], releases its ownership on exit and reports the code.
+  @protected
+  void watchOwnedProcessExit(Process process, void Function(int exitCode) onExit) {
+    unawaited(
+      process.exitCode.then((code) {
+        if (_windowsTeardownPending.contains(process)) {
+          _windowsExitObservedDuringTeardown.add(process);
+        } else if (identical(_currentProcess, process)) {
+          _currentProcess = null;
+        }
+        onExit(code);
+      }),
+    );
+  }
+
+  /// Closes stdin for [process], ignoring shutdown-time failures.
+  @protected
+  Future<void> closeCurrentProcessStdin({Process? process}) async {
+    try {
+      await (process ?? _currentProcess)?.stdin.close();
+    } catch (error) {
+      processLifecycleLog.fine('Failed to close stdin during shutdown: $error');
+    }
+  }
+
+  /// Closes stdin, terminates [process] with escalation and updates ownership.
+  @protected
+  Future<ProcessTerminationResult?> terminateOwnedProcess({
+    required String label,
+    required Duration gracePeriod,
+    required PlatformCapabilities platformCapabilities,
+    Process? process,
+    bool? initialTerminationAccepted,
+  }) async {
+    final activeProcess = process ?? _currentProcess;
+    beginIntentionalProcessTeardown(activeProcess, platformCapabilities);
+    await closeCurrentProcessStdin(process: activeProcess);
+    if (activeProcess == null) return null;
+    final result = await killWithEscalation(
+      activeProcess,
+      label: label,
+      gracePeriod: gracePeriod,
+      log: processLifecycleLog,
+      initialTerminationAccepted: initialTerminationAccepted,
+      platformCapabilities: platformCapabilities,
+    );
+    completeIntentionalProcessTeardown(activeProcess, result, platformCapabilities);
+    return result;
   }
 }
 

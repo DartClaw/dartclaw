@@ -1,10 +1,19 @@
 # ADR-016: Multi-Provider Agent Harness Architecture
 
-**Status:** Accepted. Implemented in 0.13; **partially amended by [ADR-037](037-universal-acp-harness.md)** for the ACP adapter family; execution-routing amendment implemented in 0.24.
+**Status:** Accepted. Implemented in 0.13; **partially amended by [ADR-037](037-universal-acp-harness.md)** for the ACP adapter family; execution-routing amendment implemented in 0.24 and narrowed in 0.25.
 **Date:** 2026-03-22 (validated 2026-03-24)
 **Deciders:** DartClaw team
 **Research:** [Research appendix](research/016-multi-provider-harness-architecture.md)
 **Depends on:** [ADR-007: System Prompt Architecture](007-system-prompt-architecture.md)
+
+## Amendment (2026-08-23): Every lease owns a runner
+
+The capacity-only workflow allocation described in Part 4 and its implementation-status inventory below is
+superseded. There are now two execution lanes: the fixed primary-interactive lane and the provider worker lane.
+Workflow steps consume `providers.<id>.pool_size` through single-use workers, so every lease carries a
+coordinator-owned runner and runner ID. Capacity remains a lease count rather than a live-process target, and
+lease-derived observability now includes the workflow worker's runner identity. The dispose-then-quarantine protocol
+for unconfirmed worker teardown is unchanged; only the caller-driven quarantine API is retired.
 
 ## Context
 
@@ -53,10 +62,19 @@ Initial taxonomy:
 | `memory_observe` | DartClaw MCP `memory_observe` | DartClaw MCP `memory_observe` | ToolPolicyGuard |
 | `memory_search` | DartClaw MCP `memory_search` | DartClaw MCP `memory_search` | ToolPolicyGuard |
 | `memory_read` | DartClaw MCP `memory_read` | DartClaw MCP `memory_read` | ToolPolicyGuard |
+| `task_create` | DartClaw MCP `task_create` | DartClaw MCP `task_create` | ToolPolicyGuard |
+| `task_review` | DartClaw MCP `task_review` | DartClaw MCP `task_review` | ToolPolicyGuard |
+| `task_list` | DartClaw MCP `task_list` | DartClaw MCP `task_list` | ToolPolicyGuard |
+| `review_list` | DartClaw MCP `review_list` | DartClaw MCP `review_list` | ToolPolicyGuard |
+| `task_bind` | DartClaw MCP `task_bind` | DartClaw MCP `task_bind` | ToolPolicyGuard |
+| `task_unbind` | DartClaw MCP `task_unbind` | DartClaw MCP `task_unbind` | ToolPolicyGuard |
 | `mcp_call` | (via MCP) | `mcp_tool_call` | ToolPolicyGuard |
 
 Amendment (2026-08-08): exact DartClaw MCP fetch, search, and memory tools map to their semantic canonicals on
 Claude and Codex; unknown and third-party MCP tools remain `mcp_call`.
+
+Amendment (2026-08-20): the task, review and binding tools join the taxonomy on the same rule. Their canonical entries
+are also what makes them reachable over the container MCP bridge, which filters on `CanonicalTool` membership.
 
 Unmapped tools pass through with `provider:name` prefix (e.g., `codex:reasoning`). Warning logged. `ToolPolicyGuard` can block unknown tools via configurable policy.
 
@@ -125,7 +143,7 @@ SDK consumers that construct only one harness retain a compatibility exception: 
 
 - **Security**: Single set of guard rules evaluated consistently across all providers. No risk of provider tool names slipping through unmapped.
 - **Extensibility**: Adding a third provider (Pi, DirectApi, ACP) means implementing one `ProtocolAdapter` + one tool name mapping table. No guard changes, no pool changes.
-- **Per-task flexibility**: Heterogeneous pool enables "Claude for chat, Codex for coding tasks" in a single deployment.
+- **Per-task flexibility**: Heterogeneous pool enables "Claude for chat, Codex for code-changing tasks" in a single deployment.
 - **Bounded execution**: Per-provider leases bound all worker surfaces, including one-shots, independently from process reuse.
 - **Safe reuse**: Immutable coordinator composition, exact provider/profile matching, and teardown confirmation prevent cross-session/configuration leakage and overlapping replacements.
 - **SDK clarity**: Canonical tool names and `ProtocolAdapter` interface are clean SDK surface for consumers building custom harnesses.

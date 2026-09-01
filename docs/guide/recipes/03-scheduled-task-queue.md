@@ -144,26 +144,32 @@ Each job runs in its own isolated session. Jobs do not share session state direc
 
 ## Task System (0.8+)
 
-DartClaw also has a dedicated **task system** for structured, reviewable work. While scheduled cron jobs are fire-and-forget prompts, tasks have a full lifecycle (draft → queued → running → review → accepted/rejected), diff-based review for coding tasks, and a task dashboard UI at `/tasks`.
+DartClaw also has a dedicated **task system** for structured, reviewable work. While scheduled cron jobs are
+fire-and-forget prompts, tasks have a full lifecycle (draft → queued → running → review → accepted/rejected), a task
+dashboard at `/tasks`, and diff-based review when `configJson.needsWorktree: true` gives the task a worktree.
 
-You can create tasks on a schedule via `automation.scheduled_tasks`:
+You can create tasks on a schedule with a `scheduling.jobs` entry of `type: task`:
 
 ```yaml
-automation:
-  scheduled_tasks:
+scheduling:
+  jobs:
     - id: daily-review
+      type: task
       schedule: "0 9 * * *"
       enabled: true
       task:
         title: "Daily code review"
-        task_type: "coding"
         description: "Review recent changes and flag issues"
         auto_start: true
 ```
 
-> **Note:** `automation.scheduled_tasks` is deprecated. Prefer `scheduling.jobs` with `type: task` (see [Scheduling](../scheduling.md)); the config loader still parses `automation.scheduled_tasks` but logs a deprecation warning.
+> **Upgrading:** `automation.scheduled_tasks` is no longer a supported config key. A config still carrying it loads
+> with a warning and its entries are rewritten into the form above, so the schedule is unchanged — move them across
+> at your convenience. See [Scheduling](../scheduling.md).
 
-Or create tasks from WhatsApp/Signal/Google Chat via [channel-to-task triggers](_common-patterns.md#channel-to-task-integration-09). Use cron jobs for lightweight, recurring prompts; use tasks when you need structured review, artifacts, or multi-step work.
+From WhatsApp, Signal, or Google Chat, ask for background work in ordinary language; the agent uses the task tools
+described in [Channel-to-Task Integration](_common-patterns.md#channel-to-task-integration). Use cron jobs for
+lightweight recurring prompts and tasks when you need structured review, artifacts, or multi-step work.
 
 ## Gotchas & Limitations
 

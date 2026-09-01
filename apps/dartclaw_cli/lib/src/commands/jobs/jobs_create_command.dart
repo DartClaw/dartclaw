@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show CronExpression;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show CronExpression;
 
 import '../connected_command_support.dart';
 
@@ -13,7 +13,6 @@ class JobsCreateCommand extends ConnectedCommand {
       ..addOption('delivery', help: 'announce, webhook, or none', defaultsTo: 'announce')
       ..addOption('title', help: 'Task title for task-type jobs')
       ..addOption('description', help: 'Task description for task-type jobs')
-      ..addOption('task-type', help: 'Task type for task-type jobs')
       ..addFlag('json', negatable: false, help: 'Output as JSON');
   }
 
@@ -51,16 +50,10 @@ class JobsCreateCommand extends ConnectedCommand {
     } else if (type == 'task') {
       final title = (argResults!['title'] as String?)?.trim();
       final description = (argResults!['description'] as String?)?.trim();
-      final taskType = (argResults!['task-type'] as String?)?.trim();
-      if (title == null ||
-          title.isEmpty ||
-          description == null ||
-          description.isEmpty ||
-          taskType == null ||
-          taskType.isEmpty) {
-        throw UsageException('--title, --description, and --task-type are required when --type=task', usage);
+      if (title == null || title.isEmpty || description == null || description.isEmpty) {
+        throw UsageException('--title and --description are required when --type=task', usage);
       }
-      body['task'] = {'title': title, 'description': description, 'task_type': taskType};
+      body['task'] = {'title': title, 'description': description};
     } else {
       throw UsageException('--type must be prompt or task', usage);
     }

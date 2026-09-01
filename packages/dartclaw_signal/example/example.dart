@@ -3,8 +3,6 @@
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 
 void main() {
-  ensureDartclawSignalRegistered();
-
   final warnings = <String>[];
   final config = SignalConfig.fromYaml({
     'enabled': true,

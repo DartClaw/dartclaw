@@ -192,14 +192,14 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
     return ProgressMessage(text: text, kind: 'codex_$itemType');
   }
 
-  ToolResult? _extractToolResult(Map<String, dynamic> item) {
+  ToolResultMessage? _extractToolResult(Map<String, dynamic> item) {
     final itemType = _normalizeItemType(stringValue(item['type']));
     if (itemType == null) return null;
     return switch (itemType) {
       'command_execution' => codexBuildCommandExecutionToolResult(item),
-      'file_change' => ToolResult(toolId: stringValue(item['id']) ?? '', output: _summarizeFileChanges(item)),
+      'file_change' => ToolResultMessage(toolId: stringValue(item['id']) ?? '', output: _summarizeFileChanges(item)),
       'mcp_tool_call' => _buildMcpToolResult(item),
-      'web_search' => ToolResult(
+      'web_search' => ToolResultMessage(
         toolId: stringValue(item['id']) ?? '',
         output: stringifyValue(item['result'] ?? item['results'] ?? item['summary'] ?? item['text']) ?? '',
         isError: item['error'] != null,
@@ -208,18 +208,18 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
     };
   }
 
-  ToolResult _buildMcpToolResult(Map<String, dynamic> item) {
+  ToolResultMessage _buildMcpToolResult(Map<String, dynamic> item) {
     final error = item['error'];
-    return ToolResult(
+    return ToolResultMessage(
       toolId: stringValue(item['id']) ?? '',
       output: stringifyValue(item['result']) ?? codexErrorSummary(error) ?? '',
       isError: error != null,
     );
   }
 
-  ToolResult _buildUnknownToolResult(Map<String, dynamic> item, String itemType) {
+  ToolResultMessage _buildUnknownToolResult(Map<String, dynamic> item, String itemType) {
     final details = codexUnknownItemInput(item);
-    return ToolResult(
+    return ToolResultMessage(
       toolId: stringValue(item['id']) ?? '',
       output: 'codex:$itemType ${stringifyValue(details) ?? ''}'.trim(),
       isError: item['error'] != null,
@@ -231,7 +231,78 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
     if (stringValue(turn?['status']) == 'failed' || turn?['error'] != null) {
       return const TurnComplete(stopReason: 'error');
     }
-    return codexBuildTurnComplete(mapValue(params['usage']) ?? const {}, stopReason: 'completed');
+    // `turn/completed` carries no usage at codex-cli 0.146.0 — its params are
+    // `threadId` and `turn` — so usage comes from the `thread/tokenUsage/updated`
+    // notification the turn emits just before completing, held here until the
+    // turn settles. The legacy top-level `usage` is still read first for a
+    // version that supplies it.
+    final finalText = _finalAnswerText(turn);
+    final inlineUsage = mapValue(params['usage']);
+    final usage = inlineUsage != null && inlineUsage.isNotEmpty ? inlineUsage : (_lastTokenUsage ?? const {});
+    _lastTokenUsage = null;
+    final complete = codexBuildTurnComplete(usage, stopReason: 'completed');
+    return finalText == null
+        ? complete
+        : TurnComplete(
+            stopReason: complete.stopReason,
+            subtype: complete.subtype,
+            structuredOutput: complete.structuredOutput,
+            finalText: finalText,
+            costUsd: complete.costUsd,
+            durationMs: complete.durationMs,
+            inputTokens: complete.inputTokens,
+            outputTokens: complete.outputTokens,
+            cacheReadTokens: complete.cacheReadTokens,
+            cacheWriteTokens: complete.cacheWriteTokens,
+          );
+  }
+
+  /// The turn's final-answer text, from the completed agent-message items.
+  ///
+  /// Keyed on `phase: final_answer` because a turn may complete several agent
+  /// messages — a council review's sub-reviewers each produce one — and only
+  /// the final answer is the turn's response. Their deltas arrive interleaved
+  /// on one stream, so the accumulated deltas are not usable as the answer.
+  String? _finalAnswerText(Map<String, dynamic>? turn) {
+    final items = listValue(turn?['items']);
+    if (items == null) return null;
+    final texts = <String>[];
+    for (final raw in items) {
+      final item = mapValue(raw);
+      if (item == null) continue;
+      final type = stringValue(item['type']);
+      if (type != 'agentMessage' && type != 'agent_message') continue;
+      if (stringValue(item['phase']) != 'final_answer') continue;
+      final text = stringValue(item['text']);
+      if (text != null && text.isNotEmpty) texts.add(text);
+    }
+    return texts.isEmpty ? null : texts.join('\n');
+  }
+
+  ProtocolMessage? _handleTokenUsage(Map<String, dynamic> params) {
+    _recordTokenUsage(params);
+    return null;
+  }
+
+  ProtocolMessage? _logUnhandledNotification(String method) {
+    CodexProtocolAdapter._log.fine('Unhandled Codex notification: $method');
+    return null;
+  }
+
+  /// Records the per-turn usage a `thread/tokenUsage/updated` notification carries.
+  ///
+  /// `last` is this turn's usage; `total` is the thread's running sum and would
+  /// double-count every turn after the first. The field names are the vendor's,
+  /// mapped onto the names `codexBuildTurnComplete` normalises.
+  void _recordTokenUsage(Map<String, dynamic> params) {
+    final usage = mapValue(params['tokenUsage']);
+    final last = mapValue(usage?['last']);
+    if (last == null) return;
+    _lastTokenUsage = <String, dynamic>{
+      'input_tokens': last['inputTokens'],
+      'output_tokens': last['outputTokens'],
+      'cached_input_tokens': last['cachedInputTokens'],
+    };
   }
 
   ProtocolMessage? _extractConfigWarning(Map<String, dynamic> params) {

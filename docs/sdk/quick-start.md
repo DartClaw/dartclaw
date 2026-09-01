@@ -1,33 +1,78 @@
 # Quick Start
 
-**SDK Guide** | [Concepts](concepts.md) | [Architecture](architecture.md) | [Security](security.md) | [User Guide](../guide/getting-started.md) | [API Reference](https://pub.dev/documentation/dartclaw/latest/) | [Examples](../../examples/sdk/)
+**SDK Guide** | [Concepts](concepts.md) | [Architecture](architecture.md) | [Security](security.md) | [Package Guide](packages.md) | [User Guide](../guide/getting-started.md) | [Examples](../../examples/sdk/)
 
-> **Status**: DartClaw is not yet published to pub.dev. Until it is, depend on it via a git-pinned dependency or `dependency_overrides` against a local checkout. See [ADR-008](../../dev/adrs/008-sdk-publishing-strategy.md) for the publishing strategy.
+DartClaw offers two tiers, and they are not equally supported:
 
-DartClaw is a Dart SDK for building agent runtimes around native agent harnesses such as Claude Code and Codex. The reference server in this repo is one consumer of that SDK, but the same packages also let you build a one-file CLI, embed an agent in an existing Dart service, or compose your own storage, guards, and channels.
+1. **Build on a running DartClaw server** — depend on `dartclaw_client` (or the `dartclaw` umbrella, which adds the shared DTOs) and drive the server's HTTP API and SSE streams. This is the tier the project supports for external consumers.
+2. **Fork the runtime** — clone the repository and depend on `dartclaw_core` and `dartclaw_kernel` directly to embed the harness in your own process. There is no published package and no compatibility promise for this tier; you own the fork.
+
+Start with tier 1 unless you specifically need the runtime in your own process.
+
+> **Status**: no DartClaw package is on pub.dev yet. Depend on the client tier via a git-pinned dependency; use `dependency_overrides` against a local checkout for the runtime tier. See [ADR-008](../../dev/adrs/008-sdk-publishing-strategy.md).
 
 ## Prerequisites
 
 - Dart SDK `>=3.13.0`
-- For the Claude-based snippets on this page: `claude` binary in your `PATH`
-- Either `ANTHROPIC_API_KEY` in your environment or an existing Claude CLI login
+- A running DartClaw server (`dartclaw serve` — see the [User Guide](../guide/getting-started.md))
+- A gateway token from `dartclaw token show`, unless the server runs with `gateway.auth_mode: none`
 
-## Install
+## Tier 1: Build On A Running Server
 
-Once the SDK packages are published to pub.dev (see ADR-008), install directly:
-
-```bash
-dart pub add dartclaw
+```yaml
+# pubspec.yaml
+dependencies:
+  dartclaw:
+    git:
+      url: https://github.com/DartClaw/dartclaw.git
+      path: packages/dartclaw
 ```
 
-## Variant 1: Single-Turn CLI
+Use `packages/dartclaw_client` instead of `packages/dartclaw` if you want the client without the shared DTO types.
 
-This is the smallest useful DartClaw program. It starts the harness, streams `DeltaEvent` text to stdout, runs one turn, then shuts down cleanly.
+```dart
+import 'package:dartclaw/dartclaw.dart';
+
+Future<void> main() async {
+  final client = DartclawApiClient(
+    baseUri: Uri.parse('http://localhost:3333'),
+    token: 'your-gateway-token',
+  );
+
+  try {
+    final sessions = await client.getList('/api/sessions');
+    print('${sessions.length} session(s).');
+
+    // Follow the server's event stream; reconnect twice before giving up.
+    await for (final event in client.streamEvents(
+      '/api/events',
+      onDisconnect: (attempt) async => attempt <= 2,
+    )) {
+      print('event: ${event['type']}');
+    }
+  } on DartclawApiException catch (error) {
+    // `message` is safe to print — it never contains the bearer token.
+    print('Request failed (${error.code ?? error.statusCode}): ${error.message}');
+  }
+}
+```
+
+### What's Happening
+
+`DartclawApiClient` is a transport, not a runtime. It holds a base URI and a bearer token, sends `authorization: Bearer <token>` on every request, decodes JSON responses, and decodes SSE `data:` frames from streaming endpoints. Every non-2xx status raises `DartclawApiException` carrying the server's `code`/`statusCode`/`details` envelope.
+
+Resolving the token from a config file or a data directory is deliberately not the client's job — the client never touches a DartClaw data directory. The DartClaw CLI composes that resolution itself in `apps/dartclaw_cli/lib/src/commands/connected_command_support.dart`, and is the largest working example of this tier.
+
+The endpoints are documented in [Web UI and API](../guide/web-ui-and-api.md).
+
+## Tier 2: Fork The Runtime
+
+To run the harness inside your own process, clone the repository and depend on the runtime packages through path or `dependency_overrides`. The four projects under [`examples/sdk/`](../../examples/sdk/) are set up exactly that way.
 
 ```dart
 import 'dart:io';
 
-import 'package:dartclaw/dartclaw.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 
 Future<void> main() async {
   final harness = ClaudeCodeHarness(cwd: '.');
@@ -45,7 +90,7 @@ Future<void> main() async {
       ],
       systemPrompt: 'You are a concise assistant.',
     );
-    stdout.writeln('\n\nstop_reason=${result['stop_reason']}');
+    stdout.writeln('\n\nstop_reason=${result.stopReason}');
   } finally {
     await sub.cancel();
     await harness.dispose();
@@ -53,62 +98,17 @@ Future<void> main() async {
 }
 ```
 
-The assistant text arrives through `harness.events`. The `turn()` result is metadata such as `stop_reason`, token counts, cost, and duration.
+This needs the `claude` binary on your `PATH` plus either `ANTHROPIC_API_KEY` or an existing Claude CLI login. `ClaudeCodeHarness` starts the native process, sends turns over the JSONL control protocol, and streams `DeltaEvent`, `ToolUseEvent`, and `SystemInitEvent` back. `CodexHarness` is the equivalent for Codex.
 
 The [runnable example project](../../examples/sdk/single_turn_cli/) extends this with command-line argument support and a configurable session ID.
 
-## Variant 2: Minimal Shelf Endpoint
-
-Add Shelf for this variant:
-
-```bash
-dart pub add shelf
-```
-
-This keeps the same harness behind a `POST /turn` endpoint with an SSE response stream, but it intentionally sends a hardcoded prompt instead of parsing the request body. The full reference implementation in `dartclaw_server` adds routing, auth, persistence, and multi-session orchestration on top of the same primitives.
-
-```dart
-import 'dart:async';
-import 'dart:convert';
-import 'package:dartclaw/dartclaw.dart';
-import 'package:shelf/shelf.dart';
-import 'package:shelf/shelf_io.dart' as shelf_io;
-
-Future<void> main() async {
-  await shelf_io.serve((request) async {
-    if (request.method != 'POST' || request.url.path != 'turn') return Response.notFound('POST /turn');
-    final harness = ClaudeCodeHarness(cwd: '.');
-    final stream = StreamController<List<int>>();
-    await harness.start();
-    final sub = harness.events.listen((event) {
-      if (event case DeltaEvent(:final text)) stream.add(utf8.encode('data: ${jsonEncode(text)}\n\n'));
-    });
-    unawaited(harness.turn(
-      sessionId: 'http-demo',
-      messages: [{'role': 'user', 'content': 'Explain DartClaw in one sentence.'}],
-      systemPrompt: 'You are a concise assistant.',
-    ).whenComplete(() async {
-      await sub.cancel();
-      await harness.dispose();
-      await stream.close();
-    }));
-    return Response.ok(stream.stream, headers: {'content-type': 'text/event-stream; charset=utf-8'});
-  }, '127.0.0.1', 8080);
-}
-```
-
-## What's Happening
-
-In these snippets, `ClaudeCodeHarness` is the Dart-side host for Claude Code. It starts the native `claude` process, sends turns over the JSONL control protocol, and exposes streamed events such as `DeltaEvent`, `ToolUseEvent`, and `SystemInitEvent`. The same SDK model also supports other provider harnesses such as `CodexHarness`: Dart owns lifecycle, policy, storage, and integration points; the agent process owns reasoning and tool execution.
-
 ## Next Steps
 
-- Need help choosing packages: [Package Guide](packages.md)
-- Want the mental model behind the snippet: [Core Concepts](concepts.md)
-- Want SDK-focused architecture and extension seams: [Architecture](architecture.md)
-- Want guard-chain, isolation, and credential guidance: [Security](security.md)
-- Want a runnable project instead of an inline snippet: [single_turn_cli](../../examples/sdk/single_turn_cli/README.md)
-- Want examples for common extension seams: [custom_guard](../../examples/sdk/custom_guard/README.md), [multi_turn_cli](../../examples/sdk/multi_turn_cli/README.md), and [shelf_server](../../examples/sdk/shelf_server/README.md)
-- Want the deployable reference app: [User Guide](../guide/getting-started.md)
+- Choosing between the tiers, package by package: [Package Guide](packages.md)
+- The mental model behind both tiers: [Core Concepts](concepts.md)
+- Tier boundaries and extension seams: [Architecture](architecture.md)
+- Token handling, guard chains, and isolation: [Security](security.md)
+- Runnable fork-the-runtime projects: [single_turn_cli](../../examples/sdk/single_turn_cli/README.md), [custom_guard](../../examples/sdk/custom_guard/README.md), [multi_turn_cli](../../examples/sdk/multi_turn_cli/README.md), [shelf_server](../../examples/sdk/shelf_server/README.md)
+- The deployable reference app: [User Guide](../guide/getting-started.md)
 
-> `dartclaw_server` and `dartclaw_cli` in this repo are full working reference implementations built on these same SDK packages. Study them when you need production-sized composition examples; they are not the SDK itself.
+> `dartclaw_runtime` and `dartclaw_cli` in this repo are full working implementations of the server side. Study them when you need production-sized composition examples; they are not something you can install.

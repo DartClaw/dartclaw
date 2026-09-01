@@ -100,7 +100,6 @@ typedef WorkflowExecuteTurn = void Function(
   String turnId,
   List<Map<String, dynamic>> messages, {
   required String source,
-  required bool resume,
 });
 
 /// Bundle of callbacks required for workflow continuation turns and map-step

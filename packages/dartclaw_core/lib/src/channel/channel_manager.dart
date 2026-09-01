@@ -1,7 +1,6 @@
 import 'dart:async';
 
-import 'package:dartclaw_models/dartclaw_models.dart'
-    show ChannelConfig, DmScope, GroupScope, SessionKey, SessionScopeConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
 import '../scoping/live_scope_config.dart';
@@ -12,9 +11,9 @@ import 'recipient_resolver.dart';
 
 /// Manages channel registration, lifecycle, and inbound message routing.
 ///
-/// All task-related message processing (task triggers, review commands,
-/// recipient resolution) is delegated to [ChannelTaskBridge]. When no bridge
-/// is wired, all messages fall through directly to the session queue.
+/// Reserved commands, per-sender rate limiting, bound-thread routing and task
+/// triggers are delegated to [ChannelTaskBridge]. When no bridge is wired, all
+/// messages fall through directly to the session queue.
 class ChannelManager {
   static final _log = Logger('ChannelManager');
 
@@ -24,7 +23,7 @@ class ChannelManager {
   final ChannelTaskBridge? _taskBridge;
   final List<Channel> _channels = [];
 
-  // Pause state callbacks — injected from PauseController in dartclaw_server.
+  // Pause state callbacks — injected from PauseController in dartclaw_runtime.
   // Using callbacks keeps dartclaw_core free of server dependencies.
   final bool Function()? _isPaused;
   final bool Function(ChannelMessage, Channel, String)? _enqueueForPause;
@@ -91,7 +90,6 @@ class ChannelManager {
               sessionKey: sessionKey,
               enqueue: queue.enqueue,
               boundThreadBinding: boundThreadBinding,
-              boundTaskId: boundThreadBinding?.taskId,
             )
             .then((handled) {
               if (handled) return;

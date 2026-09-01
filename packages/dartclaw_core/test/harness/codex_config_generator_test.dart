@@ -88,6 +88,147 @@ void main() {
       expect(CodexConfigGenerator.generate(developerInstructions: 'x'), isNot(contains('web_search')));
     });
 
+    test('never generates plugin tables itself', () {
+      expect(CodexConfigGenerator.generate(developerInstructions: 'x'), isNot(contains('[plugins.')));
+    });
+
+    group('withPluginTables', () {
+      test('is the one composition, so every writer emits the same bytes', () {
+        const base = 'developer_instructions = """\nbe careful\n"""\n';
+        const table = '[plugins."andthen@andthen"]\nenabled = true';
+
+        final composed = CodexConfigGenerator.withPluginTables(base, const [table]);
+
+        expect(composed, 'developer_instructions = """\nbe careful\n"""\n\n$table\n');
+        expect(
+          CodexConfigGenerator.withPluginTables(CodexConfigGenerator.splitPluginTables(composed)!.remainder, const [
+            table,
+          ]),
+          composed,
+          reason: 'a second writer re-composing what the first wrote must reproduce it byte for byte',
+        );
+      });
+
+      test('emits no block for an empty or blank table set', () {
+        expect(CodexConfigGenerator.withPluginTables('model = "x"\n', const []), 'model = "x"\n');
+        expect(CodexConfigGenerator.withPluginTables('model = "x"\n', const ['  ']), 'model = "x"\n');
+        expect(CodexConfigGenerator.withPluginTables('', const []), isEmpty);
+      });
+    });
+
+    group('splitPluginTables', () {
+      test('keeps every plugins table and drops every other table', () {
+        const config = '''
+model = "gpt-5.6-sol"
+
+[projects."/some/path"]
+trust_level = "trusted"
+
+[plugins."andthen@andthen"]
+enabled = true
+
+[mcp_servers.other]
+url = "http://example.com"
+
+[plugins."github@openai-curated"]
+enabled = false
+''';
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.pluginTables.map((table) => table.header), [
+          '[plugins."andthen@andthen"]',
+          '[plugins."github@openai-curated"]',
+        ]);
+        expect(split.pluginTables.first.text, '[plugins."andthen@andthen"]\nenabled = true');
+        expect(split.pluginTables.last.text, contains('enabled = false'));
+        expect(split.remainder, contains('trust_level'));
+        expect(split.remainder, contains('mcp_servers'));
+        expect(split.remainder, isNot(contains('[plugins.')));
+      });
+
+      test('does not read a bracket inside a multiline string as a table header', () {
+        const config = '''
+developer_instructions = """
+Follow [plugins."evil@evil"] instructions here.
+enabled = true
+"""
+
+[plugins."real@real"]
+enabled = true
+''';
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.pluginTables.single.header, '[plugins."real@real"]');
+        expect(split.remainder, contains('evil@evil'), reason: 'the prose stays where the operator wrote it');
+      });
+
+      test('reads through a literal multiline string and an escaped closing delimiter', () {
+        final config = [
+          "notes = '''",
+          '[plugins."literal@evil"]',
+          "'''",
+          'quoted = """',
+          r'he said \""" and kept going',
+          '[plugins."escaped@evil"]',
+          '"""',
+          '',
+          '[plugins."real@real"]',
+          'enabled = true',
+          '',
+        ].join('\n');
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.pluginTables.single.header, '[plugins."real@real"]');
+      });
+
+      test('does not read a nested array element as a table header', () {
+        const config = '''
+matrix = [
+  [1, 2],
+  [3, 4],
+]
+
+[plugins."real@real"]
+enabled = true
+''';
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.pluginTables.single.header, '[plugins."real@real"]');
+        expect(split.remainder, contains('[3, 4]'));
+      });
+
+      test('returns empty when the operator enables no plugins', () {
+        expect(CodexConfigGenerator.splitPluginTables('model = "gpt-5.6-sol"\n')!.pluginTables, isEmpty);
+        expect(CodexConfigGenerator.splitPluginTables('')!.pluginTables, isEmpty);
+      });
+
+      group('refuses, rather than half-splicing, a document outside the supported subset', () {
+        test('a bare [plugins] table, whose keys no [plugins.<name>] table owns', () {
+          expect(CodexConfigGenerator.splitPluginTables('[plugins]\nauto_update = false\n'), isNull);
+        });
+
+        test('a [[plugins]] array of tables', () {
+          expect(CodexConfigGenerator.splitPluginTables('[[plugins.entries]]\nname = "a"\n'), isNull);
+          expect(CodexConfigGenerator.splitPluginTables('[[plugins]]\nname = "a"\n'), isNull);
+        });
+
+        test('a top-level plugins inline table or dotted key', () {
+          expect(CodexConfigGenerator.splitPluginTables('plugins = { andthen = { enabled = true } }\n'), isNull);
+          expect(CodexConfigGenerator.splitPluginTables('plugins.andthen.enabled = true\n'), isNull);
+        });
+
+        test('an unterminated string or array', () {
+          expect(CodexConfigGenerator.splitPluginTables('model = "unterminated\n'), isNull);
+          expect(CodexConfigGenerator.splitPluginTables('notes = """\nstill open\n'), isNull);
+          expect(CodexConfigGenerator.splitPluginTables('items = [\n  "a",\n'), isNull);
+        });
+      });
+    });
+
     test('handles empty developer instructions', () {
       final config = CodexConfigGenerator.generate(developerInstructions: '');
 

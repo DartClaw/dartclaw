@@ -1,5 +1,6 @@
 import 'workflow_definition.dart';
 
+import 'output_resolver.dart' show FileSystemOutput;
 import 'step_config_resolver.dart' show globMatchStepId;
 
 /// Resolves a [WorkflowDefinition] into the fully-merged form the engine
@@ -73,8 +74,6 @@ class WorkflowDefinitionResolver {
         for (final bodyStepId in loop.steps) {
           includeStepTree(bodyStepId);
         }
-        final finalizer = loop.finally_;
-        if (finalizer != null) includeStepTree(finalizer);
       }
     }
 
@@ -132,11 +131,10 @@ class WorkflowDefinitionResolver {
       provider: resolvedProvider,
       model: step.model ?? matched?.model,
       effort: step.effort ?? matched?.effort,
-      gatingSeverity: step.gatingSeverity ?? matched?.gatingSeverity,
       outputs: step.outputs,
-      maxTokens: step.maxTokens ?? matched?.maxTokens,
       maxRetries: step.maxRetries ?? matched?.maxRetries,
       timeoutSeconds: step.timeoutSeconds ?? matched?.timeoutSeconds,
+      turnTimeoutSeconds: step.turnTimeoutSeconds ?? matched?.turnTimeoutSeconds,
       allowedTools: step.allowedTools ?? matched?.allowedTools,
       emitsOwnOutcome: step.emitsOwnOutcome,
     );
@@ -197,7 +195,17 @@ class WorkflowDefinitionResolver {
     if (def.project != null) entries.add(MapEntry('project', def.project));
     if (def.gitStrategy != null) entries.add(MapEntry('gitStrategy', def.gitStrategy!.toJson()));
     if (def.stepDefaults != null && def.stepDefaults!.isNotEmpty) {
-      entries.add(MapEntry('stepDefaults', def.stepDefaults!.map((d) => d.toJson()).toList()));
+      entries.add(
+        MapEntry(
+          'stepDefaults',
+          def.stepDefaults!.map((defaults) {
+            return {
+              ...(defaults.toJson()..remove('turnTimeoutSeconds')),
+              if (defaults.turnTimeoutSeconds != null) 'turn_timeout': defaults.turnTimeoutSeconds,
+            };
+          }).toList(),
+        ),
+      );
     }
     entries.add(MapEntry('steps', _buildTopLevelStepList(def)));
     return entries;
@@ -236,11 +244,10 @@ class WorkflowDefinitionResolver {
     for (final step in def.steps) {
       if (step.isForeachController) inlinedChildIds.addAll(step.foreachSteps!);
     }
-    // Loop body and finalizer steps are emitted inside their inline loop
-    // controller, so suppress them at the top level too.
+    // Loop body steps are emitted inside their inline loop controller, so
+    // suppress them at the top level too.
     for (final loop in def.loops) {
       inlinedChildIds.addAll(loop.steps);
-      if (loop.finally_ != null) inlinedChildIds.add(loop.finally_!);
     }
     final result = <dynamic>[];
     final emittedLoopIds = <String>{};
@@ -275,19 +282,13 @@ class WorkflowDefinitionResolver {
       MapEntry('type', 'foreach'),
     ];
     if (controller.mapOver != null) entries.add(MapEntry('map_over', controller.mapOver));
-    if (controller.mapAlias != null) entries.add(MapEntry('as', controller.mapAlias));
     if (controller.maxParallel != null) entries.add(MapEntry('max_parallel', controller.maxParallel));
-    if (controller.maxItems != null) entries.add(MapEntry('max_items', controller.maxItems));
-    if (controller.gate != null) entries.add(MapEntry('gate', controller.gate));
     if (controller.entryGate != null) entries.add(MapEntry('entryGate', controller.entryGate));
     if (controller.inputs.isNotEmpty) {
       entries.add(MapEntry('inputs', controller.inputs.toList()));
     }
     if (controller.outputs != null && controller.outputs!.isNotEmpty) {
-      entries.add(MapEntry('outputs', controller.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
-    }
-    if (controller.outputExamples != null) {
-      entries.add(MapEntry('outputExamples', controller.outputExamples!.toList(growable: false)));
+      entries.add(MapEntry('outputs', _outputsToAuthoringMap(controller.outputs!)));
     }
     if (controller.onFailure != OnFailurePolicy.fail) entries.add(MapEntry('onFailure', controller.onFailure.yamlName));
     if (controller.workflowVariables.isNotEmpty) {
@@ -311,7 +312,7 @@ class WorkflowDefinitionResolver {
 
   /// Emits a foreach-nested loop in the inline form the parser expects: the
   /// loop controller's id/name plus the loop's maxIterations/gates and its
-  /// body (and optional finalizer) steps nested under `steps:`.
+  /// body steps nested under `steps:`.
   List<MapEntry<String, dynamic>> _inlineLoopToOrderedMap(
     WorkflowStep? controller,
     WorkflowLoop loop,
@@ -334,10 +335,6 @@ class WorkflowDefinitionResolver {
       if (step != null) body.add(_stepToOrderedMap(step));
     }
     entries.add(MapEntry('steps', body));
-    if (loop.finally_ != null) {
-      final finalizer = stepsById[loop.finally_!];
-      if (finalizer != null) entries.add(MapEntry('finally', _stepToOrderedMap(finalizer)));
-    }
     return entries;
   }
 
@@ -354,25 +351,21 @@ class WorkflowDefinitionResolver {
     if (step.provider != null) entries.add(MapEntry('provider', step.provider));
     if (step.model != null) entries.add(MapEntry('model', step.model));
     if (step.effort != null) entries.add(MapEntry('effort', step.effort));
-    if (step.gatingSeverity != null) entries.add(MapEntry('gatingSeverity', step.gatingSeverity));
     if (step.timeoutSeconds != null) entries.add(MapEntry('timeout', step.timeoutSeconds));
+    if (step.turnTimeoutSeconds != null) entries.add(MapEntry('turn_timeout', step.turnTimeoutSeconds));
     if (step.parallel) entries.add(MapEntry('parallel', true));
-    if (step.gate != null) entries.add(MapEntry('gate', step.gate));
     if (step.entryGate != null) entries.add(MapEntry('entryGate', step.entryGate));
     if (step.inputs.isNotEmpty) entries.add(MapEntry('inputs', step.inputs.toList()));
     if (step.aggregateReviews != null) {
       entries.add(MapEntry('aggregateReviews', step.aggregateReviews!.toList()));
     }
     if (step.outputs != null && step.outputs!.isNotEmpty) {
-      entries.add(MapEntry('outputs', step.outputs!.map((k, v) => MapEntry(k, v.toJson()))));
+      entries.add(MapEntry('outputs', _outputsToAuthoringMap(step.outputs!)));
     }
-    if (step.maxTokens != null) entries.add(MapEntry('maxTokens', step.maxTokens));
     if (step.maxRetries != null) entries.add(MapEntry('maxRetries', step.maxRetries));
     if (step.allowedTools != null) entries.add(MapEntry('allowedTools', step.allowedTools!.toList()));
     if (step.mapOver != null) entries.add(MapEntry('map_over', step.mapOver));
-    if (step.mapAlias != null) entries.add(MapEntry('as', step.mapAlias));
     if (step.maxParallel != null) entries.add(MapEntry('max_parallel', step.maxParallel));
-    if (step.maxItems != null) entries.add(MapEntry('max_items', step.maxItems));
     // Foreach controllers are emitted via [_foreachControllerToOrderedMap]
     // (inline form with nested steps). If we reach here with a foreach
     // controller, something mis-routed — drop the stale ID list rather than
@@ -387,6 +380,30 @@ class WorkflowDefinitionResolver {
     if (!step.autoFrameContext) entries.add(MapEntry('auto_frame_context', false));
     if (step.workflowVariables.isNotEmpty) {
       entries.add(MapEntry('workflow_variables', step.workflowVariables.toList()));
+    }
+    return entries;
+  }
+
+  /// Projects declared outputs onto the authoring keys the parser accepts.
+  ///
+  /// [OutputConfig.toJson] is the persisted-run shape and still carries the
+  /// engine-inferred `resolver`/`outputMode`; re-emitting those would produce
+  /// YAML the parser rejects. Both are re-derived on reparse from `format` +
+  /// `schema` and the declared path selector, so the authoring form is lossless.
+  Map<String, dynamic> _outputsToAuthoringMap(Map<String, OutputConfig> outputs) =>
+      outputs.map((key, config) => MapEntry(key, _outputToAuthoringMap(config)));
+
+  List<MapEntry<String, dynamic>> _outputToAuthoringMap(OutputConfig config) {
+    final entries = <MapEntry<String, dynamic>>[MapEntry('format', config.format.name)];
+    if (config.schema != null) entries.add(MapEntry('schema', config.schema));
+    if (config.source != null) entries.add(MapEntry('source', config.source));
+    if (config.description != null) entries.add(MapEntry('description', config.description));
+    final resolver = config.resolverOverride;
+    if (resolver is FileSystemOutput) {
+      entries.add(MapEntry('pathPattern', resolver.pathPattern));
+      if (resolver.preferPatterns.isNotEmpty) {
+        entries.add(MapEntry('preferPatterns', resolver.preferPatterns.toList(growable: false)));
+      }
     }
     return entries;
   }

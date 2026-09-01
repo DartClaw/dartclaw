@@ -4,7 +4,8 @@ import 'output_resolver.dart';
 import 'prompt_augmenter.dart' show PromptAugmenter;
 import 'review_scoring_fragment.dart';
 import 'schema_presets.dart' show outputResolverFor, schemaPresets;
-import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, WorkflowStep, WorkflowTaskType;
+import 'schema_prompt_fragment.dart' show describeSchemaForPrompt;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_output_contract.dart';
 
 /// Property names whose value is a review-scoring count; their finalizer
@@ -19,11 +20,10 @@ typedef DeepClosedSchema = ({Map<String, dynamic>? schema, bool changed});
 /// Whether [step] finishes through the structured finalization envelope.
 ///
 /// Eligible: a workflow-owned agent step whose declared outputs need model
-/// claims. Excluded: deterministic/controller steps (non-agent task types),
+/// claims. Excluded: deterministic/controller steps (non-agent task types) and
 /// outcome-only steps (no model-derived declared outputs — they keep the inline
-/// `<step-outcome>` tag as their designed channel), and outputs opted out via
-/// `outputMode: prompt`. `setValue`, `source`, and canonical `*_source` defaults
-/// stay host-owned and never count toward eligibility.
+/// `<step-outcome>` tag as their designed channel). `source` outputs stay
+/// host-owned and never count toward eligibility.
 bool stepNeedsFinalizer(WorkflowStep step, Map<String, OutputConfig>? effectiveOutputs) {
   if (step.taskType != WorkflowTaskType.agent) return false;
   return modelDerivedFinalizerKeys(step, effectiveOutputs).isNotEmpty;
@@ -51,17 +51,15 @@ List<String> modelDerivedFinalizerKeys(WorkflowStep step, Map<String, OutputConf
 /// carry it, so the covered set and the built envelope schema stay exact
 /// mirrors and no key is left instructed nowhere.
 bool isModelDerivedFinalizerOutput(String key, OutputConfig config) {
-  if (config.hasSetValue) return false; // literal write — host-owned
   if (config.source != null) return false; // task-metadata read — host-owned
-  if (key.endsWith('_source')) return false; // instructed in the main prompt, not the envelope
-  if (_isPromptOptOut(config)) return false; // explicit user-facing finalizer opt-out
   final resolver = outputResolverFor(key, config);
   if (resolver is FileSystemOutput) return true; // nullable path claim — always schemable
   if (resolver is! InlineOutput) return false;
   // A schema-less `format: json` output has no envelope representation
   // (mirrors _envelopeOutputSchema returning null), so counting it as covered
-  // would drop it from the main prompt without an envelope slot — it keeps the
-  // legacy main-prompt contract instead.
+  // would make buildExecutionEnvelopeSchema dereference a null sub-schema. The
+  // output-schema validator rejects `format: json` without a schema on every
+  // authorable step, so this arm only guards the host-set foreach aggregate.
   if (config.format == OutputFormat.json &&
       config.inlineSchema == null &&
       schemaPresets[config.presetName]?.schema == null) {
@@ -69,14 +67,6 @@ bool isModelDerivedFinalizerOutput(String key, OutputConfig config) {
   }
   return true;
 }
-
-/// A JSON output whose author explicitly pinned `outputMode: prompt` opts that
-/// output out of finalization (the preserved user-facing opt-out). For JSON
-/// outputs with a schema the parser defaults to `structured`, so `prompt` there
-/// is a deliberate choice; non-JSON outputs default to `prompt` and are not
-/// treated as an opt-out.
-bool _isPromptOptOut(OutputConfig config) =>
-    config.format == OutputFormat.json && config.hasSchema && config.outputMode == OutputMode.prompt;
 
 /// Builds the strict structured execution-envelope schema for a finalizer step.
 ///
@@ -87,16 +77,11 @@ bool _isPromptOptOut(OutputConfig config) =>
 /// `additionalProperties: false` and a complete `required` list.
 ///
 /// The `outputs` subobject contains only model-derived keys (narrative, inline,
-/// and filesystem-claim); host-owned outputs (`setValue`, `source`, canonical
-/// `*_source` defaults) are excluded. Path-claim keys are declared nullable so a
-/// no-claim `null` survives strict mode and the host's glob / reviews-dir
-/// fallbacks stay reachable. Returns null when the step has no model-derived
-/// outputs (nothing for the finalizer to claim).
-Map<String, dynamic>? buildExecutionEnvelopeSchema(
-  WorkflowStep step,
-  Map<String, OutputConfig>? effectiveOutputs, {
-  String gatingSeverity = defaultGatingSeverity,
-}) {
+/// and filesystem-claim); host-owned `source` outputs are excluded. Path-claim
+/// keys are declared nullable so a no-claim `null` survives strict mode and the
+/// host's step-artifacts capture stays reachable. Returns null when the step has
+/// no model-derived outputs (nothing for the finalizer to claim).
+Map<String, dynamic>? buildExecutionEnvelopeSchema(WorkflowStep step, Map<String, OutputConfig>? effectiveOutputs) {
   if (effectiveOutputs == null || effectiveOutputs.isEmpty) return null;
 
   final outputsProperties = <String, dynamic>{};
@@ -106,7 +91,7 @@ Map<String, dynamic>? buildExecutionEnvelopeSchema(
     // Non-null by the covered-iff-claimable predicate above; a null here means
     // the mirror broke and must fail loudly, not silently drop the key.
     final schema = _envelopeOutputSchema(entry.key, entry.value)!;
-    outputsProperties[entry.key] = _withFinalizerDescription(schema, entry.value, gatingSeverity);
+    outputsProperties[entry.key] = _withFinalizerDescription(schema, entry.value);
     outputsRequired.add(entry.key);
   }
   if (outputsProperties.isEmpty) return null;
@@ -149,18 +134,14 @@ Map<String, dynamic> stepOutcomeEnvelopeSchema() => {
 /// the descriptions and review-scoring guidance travel with the schema (a
 /// single source the finalizer prompt renders from). Preserves any description
 /// the declared JSON schema already carries.
-Map<String, dynamic> _withFinalizerDescription(
-  Map<String, dynamic> schema,
-  OutputConfig config,
-  String gatingSeverity,
-) {
+Map<String, dynamic> _withFinalizerDescription(Map<String, dynamic> schema, OutputConfig config) {
   final parts = <String>[];
   final declared = schema['description'];
   if (declared is String && declared.trim().isNotEmpty) parts.add(declared.trim());
   final effective = PromptAugmenter.effectiveDescription(config);
   if (effective != null && effective.isNotEmpty && !parts.contains(effective)) parts.add(effective);
   if (_reviewScoringPresetNames.contains(config.presetName)) {
-    parts.add(reviewScoringFragmentFor(gatingSeverity).trim());
+    parts.add(reviewScoringFragmentFor(defaultGatingSeverity).trim());
   }
   if (parts.isEmpty) return schema;
   return {...schema, 'description': parts.join('\n\n')};
@@ -175,6 +156,8 @@ String buildFinalizerPrompt(Map<String, dynamic> schema) {
   final buf = StringBuffer();
   buf.writeln('Based on your work above, produce the structured execution envelope for this step.');
   buf.writeln('Output ONLY the JSON object matching the provided schema. Do NOT use any tools.');
+  buf.writeln('If a previous attempt failed, correct that failure before returning.');
+  buf.writeln('Name a path only for a file you already wrote — this turn records work, it does not perform it.');
 
   final properties = schema['properties'];
   final outputs = properties is Map ? properties[executionEnvelopeOutputsKey] : null;
@@ -188,6 +171,16 @@ String buildFinalizerPrompt(Map<String, dynamic> schema) {
       final prop = entry.value;
       final desc = prop is Map ? (prop['description'] as String?)?.trim() : null;
       buf.writeln(desc == null || desc.isEmpty ? '- "${entry.key}"' : '- "${entry.key}" – $desc');
+      // "matching the provided schema" is not a statement a provider that
+      // cannot enforce a schema ever sees — it receives this prompt and nothing
+      // else. Render the schema as prose through the one renderer, so the model
+      // learns the types, enums and required fields host validation applies.
+      if (prop is Map && (prop['properties'] != null || prop['items'] != null)) {
+        final described = describeSchemaForPrompt(Map<String, dynamic>.from(prop), entry.key.toString());
+        for (final line in described.split('\n')) {
+          buf.writeln('  $line');
+        }
+      }
     }
   }
 

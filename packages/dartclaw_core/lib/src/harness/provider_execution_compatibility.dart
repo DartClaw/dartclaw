@@ -1,5 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show AcpAgentConfig, AcpAgentTopology, ExecutionPolicy, ProviderIdentity;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Container mediation an ACP client has in no release so far.
 ///
@@ -8,30 +7,8 @@ import 'package:dartclaw_config/dartclaw_config.dart'
 /// its model provider nor an approved host capability.
 const _acpContainerMediationGap = 'provider-credential or host-capability mediation for an ACP client';
 
-/// Launch surface that starts a provider process.
-///
-/// The surfaces have separate launch implementations, so a provider is
-/// available on one only when that implementation exists for it. An absent
-/// implementation is a verdict both surfaces report identically, not a reason
-/// to route the work through another provider's adapter.
-enum ProviderLaunchSurface {
-  /// Long-lived harnesses: the primary lane, logical agents, and ordinary tasks.
-  longLived('long-lived'),
-
-  /// Workflow-owned one-shot CLI turns.
-  workflowOneShot('workflow one-shot');
-
-  new(this.label);
-
-  /// Operator-facing surface name used in diagnostics.
-  final String label;
-}
-
 /// Why a provider cannot run a requested surface/execution combination.
 enum ProviderUnavailability {
-  /// The requested launch surface has no implementation for this provider.
-  surface,
-
   /// Container execution has no credential or host-capability mediation.
   containerMediation,
 
@@ -57,14 +34,6 @@ typedef ProviderCredentialGate = String? Function(String providerId);
 final class ProviderExecutionVerdict {
   /// The combination is runnable as requested.
   const new supported() : reason = null, message = '';
-
-  /// [surface] has no launch implementation for [providerId].
-  new unsupportedSurface({required String providerId, required ProviderLaunchSurface surface})
-    : reason = ProviderUnavailability.surface,
-      message =
-          'Provider "$providerId" has no ${surface.label} launch implementation, so that surface is unavailable for '
-          'it. Run this workload on a surface the provider implements, or select a provider implemented for the '
-          '${surface.label} surface.';
 
   new _containerMediation(this.message) : reason = ProviderUnavailability.containerMediation;
 
@@ -92,42 +61,27 @@ final class ProviderExecutionVerdict {
 /// a profile ID, or the presence of a container manager.
 final class ProviderExecutionSupport {
   /// Creates a support record.
-  const new({
-    required this.providerId,
-    required this.surfaces,
-    required this.registrationYamlPath,
-    this.containerMediationGap,
-  });
+  const new({required this.providerId, required this.registrationYamlPath, this.containerMediationGap});
 
   /// Compatibility of a built-in provider adapter (Claude, Codex).
   ///
-  /// Both surfaces implement it and both execution modes are mediated.
-  new builtIn(String providerId)
-    : this(
-        providerId: providerId,
-        surfaces: const {ProviderLaunchSurface.longLived, ProviderLaunchSurface.workflowOneShot},
-        registrationYamlPath: 'providers.$providerId',
-      );
+  /// Both execution modes are mediated.
+  new builtIn(String providerId) : this(providerId: providerId, registrationYamlPath: 'providers.$providerId');
 
   /// Compatibility computed for an ACP registration.
   ///
-  /// Only the long-lived surface has an ACP launch implementation, and no ACP
-  /// container combination is mediated. A registration that *requires* a
-  /// container therefore has no runnable combination at all — see
-  /// [acpContainerRequirementError], which rejects it at startup.
+  /// No ACP container combination is mediated. A registration that *requires* a
+  /// container therefore has no runnable combination at all, and
+  /// `dartclaw_acp` rejects it at startup on [containerMediationGap].
   new acp(String providerId)
     : this(
         providerId: providerId,
-        surfaces: const {ProviderLaunchSurface.longLived},
         registrationYamlPath: 'harness.acp.agents.$providerId',
         containerMediationGap: _acpContainerMediationGap,
       );
 
   /// Provider identity this record describes.
   final String providerId;
-
-  /// Launch surfaces with an implementation for [providerId].
-  final Set<ProviderLaunchSurface> surfaces;
 
   /// Exact configuration path this provider is registered at.
   final String registrationYamlPath;
@@ -138,22 +92,19 @@ final class ProviderExecutionSupport {
   /// Non-null makes every container combination unavailable for it.
   final String? containerMediationGap;
 
-  /// Returns the verdict for launching [providerId] on [surface] under [policy].
+  /// Returns the verdict for launching [providerId] under [policy].
   ///
   /// The message names the provider, the requested mode and profile, the
   /// registration path, the missing mechanism, and the accepted remediation —
   /// and is determined by those alone, so a caller may emit one warning per
   /// distinct unavailable combination.
-  ProviderExecutionVerdict verdictFor({required ProviderLaunchSurface surface, required ExecutionPolicy policy}) {
-    if (!surfaces.contains(surface)) {
-      return ProviderExecutionVerdict.unsupportedSurface(providerId: providerId, surface: surface);
-    }
+  ProviderExecutionVerdict verdictFor({required ExecutionPolicy policy}) {
     final gap = containerMediationGap;
     if (gap == null || !policy.isContainer) return const ProviderExecutionVerdict.supported();
     return ProviderExecutionVerdict._containerMediation(
       'Provider "$providerId" cannot run as ${policy.describe()}: DartClaw provides no $gap, so every container '
       'combination is unavailable for it (registered at $registrationYamlPath). Select host execution for it via '
-      'agent.execution, agent.agents.<id>.execution, or tasks.execution.<task-type>, or run this workload on a '
+      'agent.execution, agent.agents.<id>.execution, or tasks.execution, or run this workload on a '
       'provider whose container execution is mediated.',
     );
   }
@@ -165,7 +116,7 @@ final class ProviderExecutionSupport {
 /// The per-provider records are built once from the resolved deployment
 /// configuration; the optional [ProviderCredentialGate] is consulted per
 /// verdict because credential state changes under a running process. Both
-/// launch surfaces and operator diagnostics consume this one object, so no
+/// launch paths and operator diagnostics consume this one object, so no
 /// entry point re-derives compatibility — or admissibility — locally.
 final class ProviderExecutionInventory {
   /// Creates an inventory over per-provider [supports], keyed by provider ID,
@@ -176,7 +127,7 @@ final class ProviderExecutionInventory {
 
   /// Builds the inventory for a deployment.
   ///
-  /// Every ID in [acpProviderIds] is an ACP registration. Of the remaining
+  /// Every ID in [registrarProviderIds] is an ACP registration. Of the remaining
   /// [providerIds], only those resolving to a built-in provider family are
   /// recorded: an unrecognized alias gets no entry at all, so the inventory
   /// never claims mediation for an adapter it cannot name. Harness
@@ -185,11 +136,11 @@ final class ProviderExecutionInventory {
   /// the ID.
   factory of({
     required Iterable<String> providerIds,
-    required Set<String> acpProviderIds,
+    required Set<String> registrarProviderIds,
     ProviderCredentialGate? credentialGate,
   }) {
     const builtInFamilies = {ProviderIdentity.claude, ProviderIdentity.codex};
-    final acp = acpProviderIds.map(ProviderIdentity.normalize).toSet();
+    final acp = registrarProviderIds.map(ProviderIdentity.normalize).toSet();
     return ProviderExecutionInventory({
       for (final providerId in {...providerIds.map(ProviderIdentity.normalize), ...acp})
         if (acp.contains(providerId))
@@ -205,7 +156,7 @@ final class ProviderExecutionInventory {
   /// Compatibility records keyed by provider ID.
   Map<String, ProviderExecutionSupport> get supports => _supports;
 
-  /// Returns the verdict for launching [providerId] on [surface] under [policy].
+  /// Returns the verdict for launching [providerId] under [policy].
   ///
   /// A provider with no record is reported as supported for the *surface*: an
   /// unregistered provider identity is rejected by harness construction, and
@@ -213,37 +164,11 @@ final class ProviderExecutionInventory {
   /// gate is consulted regardless, because a provider alias resolving to a
   /// built-in family carries no record — which is exactly the shape a forced
   /// `providers.<id>.auth` on an alias takes.
-  ProviderExecutionVerdict verdictFor({
-    required String providerId,
-    required ProviderLaunchSurface surface,
-    required ExecutionPolicy policy,
-  }) {
+  ProviderExecutionVerdict verdictFor({required String providerId, required ExecutionPolicy policy}) {
     final support = _supports[ProviderIdentity.normalize(providerId)];
-    final verdict = support?.verdictFor(surface: surface, policy: policy) ?? const ProviderExecutionVerdict.supported();
+    final verdict = support?.verdictFor(policy: policy) ?? const ProviderExecutionVerdict.supported();
     if (!verdict.isSupported) return verdict;
     final refusal = _credentialGate?.call(providerId);
     return refusal == null ? verdict : ProviderExecutionVerdict.credentialUnavailable(refusal);
   }
-}
-
-/// Returns the startup-fatal error for an ACP registration that requires a
-/// container boundary this release cannot mediate, or `null` when [agent]
-/// requires none.
-///
-/// A registration requires one either by asking for it outright or by claiming
-/// no guard mediation — a relay or unverified topology has no other boundary.
-/// The rule is enforced here rather than only in YAML validation so a
-/// programmatically built registration cannot bypass it. This is a deliberate
-/// breaking change: the previous behavior silently discarded the required
-/// boundary and injected the host provider credential into the container's
-/// environment.
-String? acpContainerRequirementError(String providerId, AcpAgentConfig agent) {
-  final isDirect = agent.topology == AcpAgentTopology.direct;
-  if (isDirect && !agent.containerIsolationRequired) return null;
-  final path = isDirect ? 'container_isolation_required' : 'topology';
-  return 'Invalid harness.acp.agents.$providerId.$path: DartClaw provides no $_acpContainerMediationGap, so an ACP '
-      'registration that requires a container boundary has no runnable execution. Remove the registration, or — if '
-      'you have established that this agent is safe to run directly on the host — declare it with topology: direct '
-      'and container_isolation_required: false. DartClaw validates that declaration only when the registration also '
-      'sets requires_guard_mediation: true.';
 }

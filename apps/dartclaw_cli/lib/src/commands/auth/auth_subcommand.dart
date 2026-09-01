@@ -1,5 +1,5 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../config_loader.dart';
 import '../credential_subcommand.dart';

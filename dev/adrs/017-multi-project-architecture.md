@@ -7,7 +7,7 @@
 DartClaw assumes a single git repository — the current working directory from which `dartclaw serve` is executed. `Directory.current.path` is hardcoded in 8 files across the wiring layer (13 occurrences), and the `WorktreeManager`, `MergeExecutor`, `DiffGenerator`, `SecurityProfile`, and `ContainerManager` all take a single `projectDir` parameter. This means:
 
 - One DartClaw instance can only work with one git repository
-- All coding tasks share the same base ref and merge strategy
+- All worktree-backed tasks share the same base ref and merge strategy
 - Container isolation mounts a single `/project:ro`
 - The task model has no concept of which project a task targets
 - No git fetch before worktree creation — worktrees branch from potentially stale local state
@@ -176,7 +176,7 @@ Add directories as flat context, no formal project model.
 
 - **Pros**: Simple, follows industry precedent
 - **Cons**: No per-project config. No task→project scoping. No PR strategy. No credential management per project. Basically the same as Option B in the research doc
-- **Rejected because**: Doesn't solve the core problem — coding tasks still target a single repo
+- **Rejected because**: Doesn't solve the core problem — worktree-backed tasks still target a single repo
 
 ## References
 

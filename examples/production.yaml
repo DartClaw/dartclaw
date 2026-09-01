@@ -25,11 +25,6 @@ guards:
   network:
     extra_allowed_domains:
       - api.anthropic.com
-  input_sanitizer:
-    enabled: true
-    channels_only: true        # only scan channel messages (WhatsApp/Signal); web UI bypasses
-    # extra_patterns:           # additional regex patterns (case-insensitive)
-    #   - 'custom\s+injection'
   content:
     enabled: true
     model: haiku
@@ -38,8 +33,6 @@ guards:
 container:
   enabled: true
   image: dartclaw-sandbox:latest
-  mounts:
-    - ~/projects
 
 # One worker for each enabled isolation profile (workspace + restricted).
 providers:

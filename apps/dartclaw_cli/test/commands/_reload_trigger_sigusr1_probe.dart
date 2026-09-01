@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/reload_trigger_service.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 class _PrintingConfigNotifier extends ConfigNotifier {
   new(super.initial);

@@ -23,7 +23,7 @@ bash dev/tools/fitness/test_check_no_framework_coupling.sh
 # binds use ephemeral port 0), the filesystem (all fixtures use temp dirs), and
 # the working directory. Each package runs in its own `dart test` process, so a
 # cwd mutator can only reach suites in the same package. The mutators live in
-# dartclaw_config and dartclaw_cli; the only cwd readers beside them are the
+# dartclaw_kernel and dartclaw_cli; the only cwd readers beside them are the
 # dartclaw_cli tool tests (homebrew_formula, scoop_manifest, build_tool,
 # release_binaries_workflow), which try DARTCLAW_REPO_ROOT/GITHUB_WORKSPACE/PWD
 # before falling back to `Directory.current`. One further reader,

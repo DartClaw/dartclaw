@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -6,7 +8,6 @@ import 'package:logging/logging.dart';
 import 'markdown_formatter.dart';
 import 'signal_config.dart';
 import 'signal_cli_manager.dart';
-import 'signal_dm_access.dart';
 import 'signal_sender_map.dart';
 
 bool _isDirectRecipient(String recipientId) {
@@ -17,7 +18,6 @@ bool _isDirectRecipient(String recipientId) {
 /// Signal channel implementation via signal-cli subprocess.
 class SignalChannel extends Channel {
   static final _log = Logger('SignalChannel');
-  static const _typingRefreshInterval = Duration(seconds: 10);
 
   @override
   final String name = 'signal';
@@ -27,17 +27,18 @@ class SignalChannel extends Channel {
   final SignalCliManager sidecar;
   final SignalConfig config;
   final DmAccessController dmAccess;
-  final SignalMentionGating mentionGating;
+  final MentionGating mentionGating;
   final ChannelManager? _channelManager;
   final String? _dataDir;
   SignalSenderMap? _senderMap;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
-  final Map<String, int> _typingLeases = {};
-  final Map<String, Timer> _typingRefreshTimers = {};
-  final Map<String, Future<void>> _typingUpdates = {};
-  final Set<String> _typingActive = {};
-  final Set<String> _typingStartRetryUsed = {};
-  bool _disconnecting = false;
+  late final TypingLeaseTracker _typing = TypingLeaseTracker(
+    send: (String recipientId, {required bool isTyping}) =>
+        sidecar.sendTyping(recipientId, isGroup: !_isDirectRecipient(recipientId), isTyping: isTyping),
+    canSend: () => sidecar.isRunning,
+    log: _log,
+    refreshInterval: const Duration(seconds: 10),
+  );
 
   new({
     required this.sidecar,
@@ -58,7 +59,7 @@ class SignalChannel extends Channel {
       await _senderMap!.load();
     }
     await sidecar.start();
-    _disconnecting = false;
+    _typing.resume();
     _eventSub = sidecar.events.listen(_handleEvent);
     switch (await sidecar.registrationState()) {
       case SignalRegistrationState.registered:
@@ -103,59 +104,10 @@ class SignalChannel extends Channel {
   }
 
   @override
-  Future<void> startTyping(String recipientJid) async {
-    if (_disconnecting || !sidecar.isRunning) return;
-
-    final activeLeases = _typingLeases[recipientJid] ?? 0;
-    _typingLeases[recipientJid] = activeLeases + 1;
-
-    final isGroup = !_isDirectRecipient(recipientJid);
-    if (activeLeases == 0) {
-      _typingStartRetryUsed.remove(recipientJid);
-      _typingRefreshTimers[recipientJid] = Timer.periodic(_typingRefreshInterval, (_) {
-        unawaited(
-          _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true).catchError((
-            Object error,
-            StackTrace stackTrace,
-          ) {
-            _log.warning('Failed to refresh Signal typing for $recipientJid', error, stackTrace);
-          }),
-        );
-      });
-      await _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true);
-      return;
-    }
-
-    final pending = _typingUpdates[recipientJid];
-    if (pending != null) {
-      try {
-        await pending;
-      } catch (_) {}
-    }
-    if (_typingActive.contains(recipientJid) ||
-        _disconnecting ||
-        (_typingLeases[recipientJid] ?? 0) == 0 ||
-        !_typingStartRetryUsed.add(recipientJid)) {
-      return;
-    }
-    await _queueTypingUpdate(recipientJid, isGroup: isGroup, isTyping: true);
-  }
+  Future<void> startTyping(String recipientJid) => _typing.start(recipientJid);
 
   @override
-  Future<void> stopTyping(String recipientJid) async {
-    final activeLeases = _typingLeases[recipientJid] ?? 0;
-    if (activeLeases > 1) {
-      _typingLeases[recipientJid] = activeLeases - 1;
-      return;
-    }
-
-    _typingLeases.remove(recipientJid);
-    _typingStartRetryUsed.remove(recipientJid);
-    _typingRefreshTimers.remove(recipientJid)?.cancel();
-    if (!sidecar.isRunning || activeLeases == 0) return;
-
-    await _queueTypingUpdate(recipientJid, isGroup: !_isDirectRecipient(recipientJid), isTyping: false);
-  }
+  Future<void> stopTyping(String recipientJid) => _typing.stop(recipientJid);
 
   @override
   List<ChannelResponse> formatResponse(String text) => formatSignalMarkdown(text, maxSize: config.maxChunkSize);
@@ -163,60 +115,11 @@ class SignalChannel extends Channel {
   @override
   Future<void> disconnect() async {
     _log.info('Disconnecting Signal channel');
-    _disconnecting = true;
-    for (final timer in _typingRefreshTimers.values) {
-      timer.cancel();
-    }
-    _typingRefreshTimers.clear();
-    final activeRecipients = {..._typingLeases.keys, ..._typingActive};
-    _typingLeases.clear();
-    if (sidecar.isRunning) {
-      await Future.wait(
-        activeRecipients.map(
-          (recipientJid) =>
-              _queueTypingUpdate(recipientJid, isGroup: !_isDirectRecipient(recipientJid), isTyping: false).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                _log.warning('Failed to stop Signal typing during disconnect for $recipientJid', error, stackTrace);
-              }),
-        ),
-      );
-    }
-    await Future.wait(
-      _typingUpdates.values.toList().map(
-        (update) => update.catchError((Object error, StackTrace stackTrace) {
-          _log.fine('Signal typing update ended during disconnect: $error');
-        }),
-      ),
-    );
-    _typingUpdates.clear();
-    _typingActive.clear();
-    _typingStartRetryUsed.clear();
+    await _typing.shutdown();
     await _eventSub?.cancel();
     _eventSub = null;
     await sidecar.reset();
     _log.info('Signal channel disconnected');
-  }
-
-  Future<void> _queueTypingUpdate(String recipientJid, {required bool isGroup, required bool isTyping}) {
-    final previous = _typingUpdates[recipientJid] ?? Future<void>.value();
-    final update = previous.then<void>((_) {}, onError: (Object _, StackTrace _) {}).then((_) async {
-      await sidecar.sendTyping(recipientJid, isGroup: isGroup, isTyping: isTyping);
-      if (isTyping) {
-        _typingActive.add(recipientJid);
-      } else {
-        _typingActive.remove(recipientJid);
-      }
-    });
-    late final Future<void> tracked;
-    tracked = update.whenComplete(() {
-      if (identical(_typingUpdates[recipientJid], tracked)) {
-        _typingUpdates.remove(recipientJid);
-      }
-    });
-    _typingUpdates[recipientJid] = tracked;
-    return tracked;
   }
 
   /// Handle an inbound SSE event from signal-cli daemon.
@@ -225,17 +128,27 @@ class SignalChannel extends Channel {
       final message = _parseEnvelope(payload);
       if (message == null) return;
 
-      // DM access control
-      if (message.groupJid == null && !dmAccess.isAllowed(message.senderJid)) {
-        // Sealed-sender: senderJid may be phone while allowlist holds UUID (or vice versa).
-        // Check the alternate UUID form stored in metadata.
-        final altId = message.metadata['sourceUuid'] as String?;
-        if (altId != null && altId != message.senderJid && dmAccess.isAllowed(altId)) {
-          // Resolved via alternate. Normalize: add senderJid so future lookups skip the fallback.
-          dmAccess.addToAllowlist(message.senderJid);
-          // fall through — message is allowed
-        } else {
-          if (dmAccess.mode == DmAccessMode.pairing) {
+      final decision = ChannelInboundGate.evaluate(
+        message,
+        dmAccess: dmAccess,
+        mentionGating: mentionGating,
+        groupAccess: config.groupAccess,
+        groupAllowlist: config.groupIds,
+      );
+      switch (decision) {
+        case ChannelInboundDecision.admitted:
+          break;
+        case ChannelInboundDecision.dmDenied:
+        case ChannelInboundDecision.dmPairingRequired:
+          // Sealed-sender: senderJid may be phone while allowlist holds UUID (or vice versa).
+          // Check the alternate UUID form stored in metadata.
+          final altId = message.metadata['sourceUuid'] as String?;
+          if (altId != null && altId != message.senderJid && dmAccess.isAllowed(altId)) {
+            // Resolved via alternate. Normalize: add senderJid so future lookups skip the fallback.
+            dmAccess.addToAllowlist(message.senderJid);
+            break;
+          }
+          if (decision == ChannelInboundDecision.dmPairingRequired) {
             final displayName = message.metadata['sourceName'] as String?;
             final pairing = dmAccess.createPairing(message.senderJid, displayName: displayName);
             if (pairing != null) {
@@ -247,29 +160,15 @@ class SignalChannel extends Channel {
             _log.fine('DM from unapproved sender ${message.senderJid} — dropping');
           }
           return;
-        }
-      }
-
-      // Group access control
-      if (message.groupJid != null) {
-        switch (config.groupAccess) {
-          case SignalGroupAccessMode.disabled:
-            _log.fine('Group message from ${message.groupJid} — group access disabled');
-            return;
-          case SignalGroupAccessMode.allowlist:
-            if (!config.groupIds.contains(message.groupJid)) {
-              _log.fine('Group ${message.groupJid} not in allowlist — dropping');
-              return;
-            }
-          case SignalGroupAccessMode.open:
-            break;
-        }
-      }
-
-      // Mention gating (groups only)
-      if (!mentionGating.shouldProcess(message)) {
-        _log.fine('Group message without mention — ignoring');
-        return;
+        case ChannelInboundDecision.groupAccessDisabled:
+          _log.fine('Group message from ${message.groupJid} — group access disabled');
+          return;
+        case ChannelInboundDecision.groupNotAllowlisted:
+          _log.fine('Group ${message.groupJid} not in allowlist — dropping');
+          return;
+        case ChannelInboundDecision.mentionRequired:
+          _log.fine('Group message without mention — ignoring');
+          return;
       }
 
       _channelManager?.handleInboundMessage(message);
@@ -309,8 +208,10 @@ class SignalChannel extends Channel {
         (sourceNumber?.isNotEmpty == true
             ? sourceNumber
             : (envelope['source'] as String?)?.isNotEmpty == true
-            ? envelope['source'] as String
-            : sourceUuid);
+            ? canonicalSignalIdentifier(envelope['source'] as String)
+            : sourceUuid == null
+            ? null
+            : canonicalSignalIdentifier(sourceUuid));
     if (source == null || source.isEmpty) return null;
 
     final dataMessage = envelope['dataMessage'] as Map<String, dynamic>?;
@@ -334,7 +235,9 @@ class SignalChannel extends Channel {
       mentionedJids: const [],
       metadata: {
         if (envelope['sourceName'] != null) 'sourceName': envelope['sourceName'],
-        if (envelope['sourceUuid'] != null) 'sourceUuid': envelope['sourceUuid'],
+        // Canonical, because the sealed-sender fallback above compares this
+        // against allowlist entries by exact string.
+        if (sourceUuid != null) 'sourceUuid': canonicalSignalIdentifier(sourceUuid),
       },
     );
   }

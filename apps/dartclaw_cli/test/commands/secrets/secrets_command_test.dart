@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/config_loader.dart';
 import 'package:dartclaw_cli/src/commands/secrets/secrets_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

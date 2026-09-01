@@ -1,8 +1,7 @@
 /// Carries the per-iteration state for a map/fan-out step.
 ///
 /// Passed to [WorkflowTemplateEngine.resolveWithMap] to resolve `{{map.*}}`
-/// (and optional `{{<alias>.*}}`) references and `{{context.key[map.index]}}`
-/// (or `{{context.key[<alias>.index]}}`) template references within a map
+/// references and `{{context.key[map.index]}}` template references within a map
 /// step's prompt templates.
 class MapContext {
   /// The current iteration item. May be a [Map], [List], [String], [num], or [bool].
@@ -14,22 +13,15 @@ class MapContext {
   /// The total number of items in the collection.
   final int length;
 
-  /// Optional author-supplied loop variable name, sourced from the controller
-  /// step's `as:` field.
-  ///
-  /// When null, only the legacy `map.*` prefix binds. When set, templates may
-  /// also use `{{<alias>.item}}` / `{{<alias>.index}}` / etc., while `map.*`
-  /// continues to work for backward compatibility.
-  final String? alias;
-
   /// Parent iteration context for nested `foreach` execution.
   ///
   /// Today nested foreach is not wired through the executor, so this is always
   /// null in practice. The field is reserved so the template engine can
-  /// eventually resolve outer aliases without a call-chain signature change.
+  /// eventually resolve the outer iteration without a call-chain signature
+  /// change.
   final MapContext? parent;
 
-  const new({required this.item, required this.index, required this.length, this.alias, this.parent});
+  const new({required this.item, required this.index, required this.length, this.parent});
 
   /// Extracts a non-empty `id` field from the current item when present.
   String? get itemId {

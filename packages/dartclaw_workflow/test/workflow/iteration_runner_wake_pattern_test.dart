@@ -1,9 +1,11 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowDefinition, WorkflowRunStatus, WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowDefinition, WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -19,40 +21,6 @@ void main() {
 
     tearDown(() => h.tearDown());
 
-    test('map runner completes bounded fan-out when iterations settle asynchronously', () async {
-      final definition = h.makeDefinition(
-        steps: [
-          const WorkflowStep(
-            id: 'implement',
-            name: 'Implement',
-            prompts: ['Implement {{map.item}}'],
-            mapOver: 'items',
-            maxParallel: 4,
-            maxItems: 50,
-          ),
-        ],
-      );
-      final context = WorkflowContext(data: {'items': List.generate(30, (i) => 'item-$i')});
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-
-      var queuedCount = 0;
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
-        e,
-      ) async {
-        queuedCount++;
-        await Future<void>.delayed(Duration.zero);
-        await h.completeTask(e.taskId);
-      });
-
-      await h.executor.execute(run, definition, context);
-      await sub.cancel();
-
-      final finalRun = await h.repository.getById(run.id);
-      expect(finalRun?.status, WorkflowRunStatus.completed, reason: finalRun?.errorMessage);
-      expect(queuedCount, 30);
-    });
-
     test('foreach runner completes bounded fan-out when child iterations settle asynchronously', () async {
       const definition = WorkflowDefinition(
         name: 'foreach-wake-demo',
@@ -64,7 +32,6 @@ void main() {
             taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxParallel: 4,
-            maxItems: 50,
             foreachSteps: ['implement'],
           ),
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item}}']),
@@ -97,10 +64,7 @@ void main() {
       expect(helperSource, contains('void wake()'), reason: 'shared engine should expose explicit wake');
       expect(helperSource, contains('whenComplete'), reason: 'shared engine should wake when iteration futures settle');
 
-      for (final path in [
-        _workflowSourcePath('foreach_iteration_runner.dart'),
-        _workflowSourcePath('map_iteration_runner.dart'),
-      ]) {
+      for (final path in [_workflowSourcePath('foreach_iteration_runner.dart')]) {
         final source = File(path).readAsStringSync();
 
         expect(

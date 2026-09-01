@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
@@ -97,9 +97,9 @@ class SetupApply {
     } else {
       _remove(editor, ['agent', 'model']);
     }
-    _set(editor, ['governance', 'turn_progress', 'stall_timeout'], '300s');
-    _set(editor, ['governance', 'turn_progress', 'stall_action'], 'cancel');
-    _set(editor, ['governance', 'turn_progress', 'max_duration'], '1800s');
+    _set(editor, ['governance', 'turn_limits', 'stall_timeout'], '300s');
+    _set(editor, ['governance', 'turn_limits', 'stall_action'], 'cancel');
+    _set(editor, ['governance', 'turn_limits', 'turn_timeout'], '1800s');
     for (final providerId in const ['claude', 'codex']) {
       final selected = state.providers.contains(providerId);
       if (!selected) {
@@ -186,7 +186,12 @@ class SetupApply {
         _remove(editor, ['channels', 'google_chat']);
       }
 
-      if (state.containerEnabled) {
+      if (state.containerEnabled == null) {
+        // Never asked, so nothing is written: an absent section resolves the
+        // posture from the host at startup. Writing either literal here would
+        // answer a question the operator was not put.
+        _remove(editor, ['container']);
+      } else if (state.containerEnabled!) {
         _set(editor, ['container', 'enabled'], true);
         if (state.containerImage != null && state.containerImage!.isNotEmpty) {
           _set(editor, ['container', 'image'], state.containerImage!);
@@ -194,14 +199,15 @@ class SetupApply {
           _remove(editor, ['container', 'image']);
         }
       } else {
-        _remove(editor, ['container']);
+        // Written explicitly rather than removed: an absent `container:` section
+        // means "isolate if this host can", so removing it would turn the
+        // operator's "no" into the opposite answer on any host with a runtime.
+        _set(editor, ['container', 'enabled'], false);
+        _remove(editor, ['container', 'image']);
       }
 
       if (state.contentGuardEnabled != null) {
         _set(editor, ['guards', 'content', 'enabled'], state.contentGuardEnabled!);
-      }
-      if (state.inputSanitizerEnabled != null) {
-        _set(editor, ['guards', 'input_sanitizer', 'enabled'], state.inputSanitizerEnabled!);
       }
     }
 

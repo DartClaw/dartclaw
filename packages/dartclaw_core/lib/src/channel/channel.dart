@@ -1,6 +1,6 @@
 import 'package:uuid/uuid.dart';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Normalized inbound message from any channel.
 class ChannelMessage {
@@ -81,8 +81,10 @@ class ChannelResponse {
   /// Optional channel-specific structured payload.
   ///
   /// Channels that support structured rendering can prefer this over [text].
-  /// Other channels ignore it and continue sending [text]. Adapters may
-  /// synthesize a minimal fallback when this is set but [text] is empty.
+  /// Other channels ignore it and continue sending [text]. The producer that
+  /// builds the payload supplies [text] as its own delivery fallback; adapters
+  /// do not re-derive one from the payload. An adapter handed a payload with an
+  /// empty [text] may deliver a generic placeholder rather than nothing.
   final Map<String, dynamic>? structuredPayload;
 
   /// Creates a channel response chunk ready for delivery.

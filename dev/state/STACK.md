@@ -66,7 +66,7 @@
 
 ## Frontend (Vendored Assets)
 
-All frontend assets are vendored in `packages/dartclaw_server/lib/src/static/`. See `VENDORS.md` there for versions and upgrade instructions. Every asset — including HTMX, marked and the JetBrains Mono woff2 subsets — loads same-origin; no CDN is contacted at runtime and the CSP names no external origin.
+All frontend assets are vendored in `packages/dartclaw_runtime/lib/src/static/`. See `VENDORS.md` there for versions and upgrade instructions. Every asset — including HTMX, marked and the JetBrains Mono woff2 subsets — loads same-origin; no CDN is contacted at runtime and the CSP names no external origin.
 
 | Library | License | Purpose |
 |---------|---------|---------|

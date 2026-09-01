@@ -33,7 +33,7 @@ class WorkflowPauseCommand extends WorkflowRunIdCommand {
         provisionWorkers: false,
         runWorkflowSkillsBootstrap: false,
         action: (session) async {
-          final paused = await session.wiring.workflowService.pause(runId);
+          final paused = await session.runtime.workflowService.pause(runId);
           printLifecycleStatus(paused, 'paused');
           return 0;
         },

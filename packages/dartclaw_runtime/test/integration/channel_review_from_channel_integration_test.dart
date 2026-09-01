@@ -1,0 +1,98 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:test/test.dart';
+
+import '../task/task_review_test_support.dart';
+
+void main() {
+  late TaskService tasks;
+  late EventBus eventBus;
+  late RecordingMessageQueue queue;
+  late FakeChannel channel;
+  late RecordingMergeExecutor mergeExecutor;
+  late RecordingWorktreeManager worktreeManager;
+  late RecordingTaskFileGuard taskFileGuard;
+  late TaskReviewService reviewService;
+  late ChannelManager manager;
+  late TaskNotificationSubscriber notificationSubscriber;
+
+  setUp(() {
+    eventBus = EventBus();
+    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
+    queue = RecordingMessageQueue();
+    channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
+    mergeExecutor = RecordingMergeExecutor(
+      result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
+    );
+    worktreeManager = RecordingWorktreeManager();
+    taskFileGuard = RecordingTaskFileGuard();
+    reviewService = TaskReviewService(
+      tasks: tasks,
+      mergeExecutor: mergeExecutor,
+      worktreeManager: worktreeManager,
+      taskFileGuard: taskFileGuard,
+    );
+    manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
+    manager.registerChannel(channel);
+    notificationSubscriber = TaskNotificationSubscriber(tasks: tasks, channelManager: manager);
+    notificationSubscriber.subscribe(eventBus);
+  });
+
+  tearDown(() async {
+    await notificationSubscriber.dispose();
+    await manager.dispose();
+    await eventBus.dispose();
+    await tasks.dispose();
+  });
+
+  test('channel review handler preserves provenance, merges, and notifies origin', () async {
+    final task = await putTaskInReview(
+      tasks,
+      'task-1',
+      title: 'Fix login',
+      configJson: {
+        'origin': TaskOrigin(
+          channelType: ChannelType.whatsapp.name,
+          sessionKey: SessionKey.dmPerChannelContact(
+            channelType: ChannelType.whatsapp.name,
+            peerId: 'sender@s.whatsapp.net',
+          ),
+          recipientId: 'sender@s.whatsapp.net',
+          contactId: 'sender@s.whatsapp.net',
+          sourceMessageId: 'msg-1',
+        ).toJson(),
+      },
+      worktreeJson: const {
+        'path': '/tmp/worktree',
+        'branch': 'dartclaw/task-task-1',
+        'createdAt': '2026-03-13T10:00:00.000Z',
+      },
+    );
+    taskFileGuard.register(task.id, '/tmp/worktree');
+
+    // Subscribe after setup — only capture the review→accepted transition from the channel handler.
+    final statusEvents = <TaskStatusChangedEvent>[];
+    final statusSub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
+    addTearDown(statusSub.cancel);
+
+    final result = await reviewService.channelReviewHandler(trigger: 'channel')(task.id, 'accept');
+    await flushAsync(3);
+
+    expect(result, const TypeMatcher<ChannelReviewSuccess>());
+    final updated = await tasks.get(task.id);
+    expect(updated!.status, TaskStatus.accepted);
+    expect(mergeExecutor.callCount, 1);
+    expect(worktreeManager.cleanedTaskIds, [task.id]);
+    expect(taskFileGuard.deregisteredTaskIds, [task.id]);
+    expect(queue.enqueued, isEmpty);
+    expect(statusEvents, hasLength(1));
+    expect(statusEvents.single.trigger, 'channel');
+    expect(channel.sentMessages.map((message) => message.$1), everyElement('sender@s.whatsapp.net'));
+    expect(
+      channel.sentMessages.map((message) => message.$2.text),
+      contains("Task 'Fix login' accepted. Changes merged."),
+    );
+  });
+}

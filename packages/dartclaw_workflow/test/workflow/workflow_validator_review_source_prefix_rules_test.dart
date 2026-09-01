@@ -35,8 +35,8 @@ void main() {
       expect(
         errors,
         contains(
-          isA<ValidationError>()
-              .having((e) => e.type, 'type', ValidationErrorType.contextInconsistency)
+          isA<WorkflowValidationError>()
+              .having((e) => e.type, 'type', WorkflowValidationErrorType.contextInconsistency)
               .having((e) => e.stepId, 'stepId', 'review-a')
               .having((e) => e.message, 'message', contains('review_report_path'))
               .having((e) => e.message, 'message', contains('review-a.review_report_path')),
@@ -68,7 +68,7 @@ void main() {
       expect(
         errors,
         contains(
-          isA<ValidationError>()
+          isA<WorkflowValidationError>()
               .having((e) => e.stepId, 'stepId', 'review-a')
               .having((e) => e.message, 'message', contains('review-a.review_report_path')),
         ),

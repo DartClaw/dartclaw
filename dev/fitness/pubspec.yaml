@@ -1,0 +1,12 @@
+name: dartclaw_fitness
+description: Repo-wide architectural fitness gates. Scans source as text; never imports DartClaw packages.
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+resolution: workspace
+
+dev_dependencies:
+  path: ^1.9.1
+  test: ^1.31.0

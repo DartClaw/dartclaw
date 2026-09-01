@@ -4,8 +4,8 @@ import 'dart:isolate';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_list_command.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -19,9 +19,9 @@ void main() {
   // suites in this package set the process-wide `Directory.current`, which would
   // otherwise flip `AssetResolver` between source-tree and embedded assets.
   setUpAll(() async {
-    final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+    final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
     if (uri == null) {
-      throw StateError('Could not resolve package:dartclaw_server.');
+      throw StateError('Could not resolve package:dartclaw_runtime.');
     }
     final srcDir = p.join(File.fromUri(uri).parent.path, 'src');
     templatesDir = p.join(srcDir, 'templates');

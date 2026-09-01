@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
-import 'package:dartclaw_security/dartclaw_security.dart' show GuardConfig;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner, WorkflowStepOutputTransformer;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, PrCreator;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -38,6 +37,7 @@ typedef _ResolvedDefaults = ({
   String executorModel,
   String reviewerModel,
   String sandbox,
+  int turnTimeout,
 });
 
 typedef _ProviderPreset = ({
@@ -51,7 +51,10 @@ typedef _ProviderPreset = ({
 
 const _ProviderPreset _codexPreset = (
   workflowModel: 'gpt-5.4',
-  plannerModel: 'gpt-5.6-sol',
+  // Test mapping, not the product recommendation (docs/guide/workflows.md keeps
+  // sol): on sol the plan step's sub-agent fan-out ended the turn after the
+  // first story spec (2026-09-01, twice); luna writes the bundle inline.
+  plannerModel: 'gpt-5.6-luna',
   plannerEffort: 'medium',
   executorModel: 'gpt-5.6-luna',
   reviewerModel: 'gpt-5.6-luna',
@@ -59,16 +62,14 @@ const _ProviderPreset _codexPreset = (
 );
 
 const _ProviderPreset _claudePreset = (
-  workflowModel: 'claude-opus-4-7',
-  plannerModel: 'claude-opus-4-7',
+  workflowModel: 'claude-opus-5',
+  plannerModel: 'claude-opus-5',
   plannerEffort: null,
-  executorModel: 'claude-sonnet-4-6',
-  reviewerModel: 'claude-sonnet-4-6',
-  // Claude workflow one-shot tasks declare per-step allowedTools policies, and
-  // `claude_cli_provider` rejects `bypassPermissions` when a policy is present
-  // (bypass can't enforce the allowlist). `dontAsk` is the non-interactive mode
-  // the runner expects for policy-enforced one-shot tasks. (For claude,
-  // `_providerOptions` maps this field to `permissionMode`.)
+  executorModel: 'claude-sonnet-5',
+  reviewerModel: 'claude-sonnet-5',
+  // Claude harness workers receive per-step tool policies. `dontAsk` keeps the
+  // native permission layer non-interactive without bypassing those policies.
+  // `_providerOptions` maps this preset field to `permissionMode`.
   sandbox: 'dontAsk',
 );
 
@@ -77,6 +78,7 @@ const String _envWorkflowModel = 'DARTCLAW_TEST_WORKFLOW_MODEL';
 const String _envPlannerModel = 'DARTCLAW_TEST_PLANNER_MODEL';
 const String _envExecutorModel = 'DARTCLAW_TEST_EXECUTOR_MODEL';
 const String _envReviewerModel = 'DARTCLAW_TEST_REVIEWER_MODEL';
+const String _envTurnTimeout = 'DARTCLAW_TEST_TURN_TIMEOUT';
 
 String? _envOrNull(Map<String, String> env, String key) {
   final v = env[key];
@@ -113,8 +115,13 @@ _ResolvedDefaults _resolveDefaults({
     executorModel: executorModelArg ?? _envOrNull(e, _envExecutorModel) ?? preset.executorModel,
     reviewerModel: reviewerModelArg ?? _envOrNull(e, _envReviewerModel) ?? preset.reviewerModel,
     sandbox: sandboxArg ?? preset.sandbox,
+    turnTimeout: int.tryParse(_envOrNull(e, _envTurnTimeout) ?? '') ?? _defaultTurnTimeoutSeconds,
   );
 }
+
+/// Matches `TurnLimitsConfig.defaultTurnTimeout`, so an unpinned run behaves
+/// exactly as a default deployment does.
+const int _defaultTurnTimeoutSeconds = 1800;
 
 final class E2EFixture {
   final String fixtureProfile;
@@ -131,6 +138,11 @@ final class E2EFixture {
   final String executorModel;
   final String reviewerModel;
   final int poolSize;
+
+  /// Per-turn wall-clock cap, in seconds. Provider-dependent: the built-in review
+  /// steps run well past the product default on the Claude models, so a run
+  /// pinning that provider raises it rather than timing every review step out.
+  final int turnTimeout;
   final String sandbox;
   final bool guardsEnabled;
   final int dailyTokenBudget;
@@ -159,6 +171,7 @@ final class E2EFixture {
     String? executorModel,
     String? reviewerModel,
     int poolSize = 3,
+    int? turnTimeout,
     String? sandbox,
     bool guardsEnabled = true,
     int dailyTokenBudget = 5000000,
@@ -196,6 +209,7 @@ final class E2EFixture {
       executorModel: resolved.executorModel,
       reviewerModel: resolved.reviewerModel,
       poolSize: poolSize,
+      turnTimeout: turnTimeout ?? resolved.turnTimeout,
       sandbox: resolved.sandbox,
       guardsEnabled: guardsEnabled,
       dailyTokenBudget: dailyTokenBudget,
@@ -226,6 +240,7 @@ final class E2EFixture {
     required this.executorModel,
     required this.reviewerModel,
     required this.poolSize,
+    required this.turnTimeout,
     required this.sandbox,
     required this.guardsEnabled,
     required this.dailyTokenBudget,
@@ -372,6 +387,10 @@ final class E2EFixture {
       governance: GovernanceConfig(
         budget: BudgetConfig(dailyTokens: dailyTokenBudget),
         loopDetection: LoopDetectionConfig(enabled: loopDetectionEnabled),
+        turnLimits: TurnLimitsConfig(
+          stallTimeout: Duration.zero,
+          turnTimeout: Duration(seconds: turnTimeout),
+        ),
       ),
       tasks: TaskConfig(completionAction: taskCompletionAction),
       security: SecurityConfig(guards: GuardConfig(enabled: guardsEnabled)),
@@ -416,6 +435,7 @@ final class E2EFixture {
     String? executorModel,
     String? reviewerModel,
     int? poolSize,
+    int? turnTimeout,
     String? sandbox,
     bool? guardsEnabled,
     int? dailyTokenBudget,
@@ -446,6 +466,7 @@ final class E2EFixture {
       executorModel: executorModel ?? this.executorModel,
       reviewerModel: reviewerModel ?? this.reviewerModel,
       poolSize: poolSize ?? this.poolSize,
+      turnTimeout: turnTimeout ?? this.turnTimeout,
       sandbox: sandbox ?? this.sandbox,
       guardsEnabled: guardsEnabled ?? this.guardsEnabled,
       dailyTokenBudget: dailyTokenBudget ?? this.dailyTokenBudget,
@@ -545,26 +566,26 @@ final class E2EFixtureInstance {
     required this.environment,
   });
 
-  Future<CliWorkflowWiring> wire({
-    WorkflowStepOutputTransformer? outputTransformer,
-    CliWorkflowPrCreator? prCreator,
+  Future<DartclawRuntime> wire({
+    PrCreator? prCreator,
     HarnessFactory? harnessFactory,
     bool runWorkflowSkillsBootstrap = false,
   }) async {
-    final wiring = CliWorkflowWiring(
-      config: config,
+    final staging = await DartclawRuntime.stageHeadless(
+      config,
       dataDir: config.server.dataDir,
       runtimeCwd: runtimeCwd,
       environment: environment,
-      harnessFactory: harnessFactory,
+      skillProvisionerEnvironment: environment,
+      harnessFactory: harnessFactory ?? HarnessFactory(),
       searchDbFactory: (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
-      workflowStepOutputTransformer: outputTransformer,
+      stderrLine: (_) {},
+      exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
       prCreator: prCreator,
     );
-    await wiring.wire();
-    return wiring;
+    return staging.completeForExecution({config.agent.provider});
   }
 
   void writeDataDirWorkflowSkills({Iterable<String> codexNames = const [], Iterable<String> claudeNames = const []}) {

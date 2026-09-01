@@ -1,0 +1,172 @@
+import '../web/channel_status.dart';
+import 'layout.dart';
+import 'loader.dart';
+import 'sidebar.dart';
+import 'topbar.dart';
+
+/// Renders the channel detail page for a specific channel type.
+///
+/// Shows DM access mode + allowlist, group access mode + allowlist,
+/// and mention gating toggle. Mode changes are restart-required;
+/// DM allowlist changes are live only while the channel is connected.
+///
+/// [status] is the sole source of every status-derived value on the page —
+/// badge, dot, state banner, DM policy hint and the connected-only action.
+String channelDetailTemplate({
+  required String channelType,
+  required String channelLabel,
+  required ChannelStatus status,
+  String? phone,
+  required String dmAccessMode,
+  required List<String> dmAccessModes,
+  required List<String> dmAllowlist,
+  required String groupAccessMode,
+  required List<String> groupAccessModes,
+  required List<String> groupAllowlist,
+  required bool requireMention,
+  required String entryPlaceholder,
+  required String groupPlaceholder,
+  required SidebarData sidebarData,
+  required List<NavItem> navItems,
+  List<Map<String, dynamic>> pendingPairings = const [],
+  String settingsFieldsHtml = '',
+  String? fragment,
+  String? dmError,
+  String? dmValue,
+  String? groupError,
+  String? groupValue,
+  String? accessError,
+  String? accessErrorField,
+  bool dmAllowlistOutOfBand = false,
+  String restartBannerHtml = '',
+  String appName = 'DartClaw',
+}) {
+  final sidebar = buildSidebar(sidebarData: sidebarData, navItems: navItems, appName: appName);
+  final topbar = pageTopbarTemplate(
+    title: '$channelLabel Channel',
+    backHref: '/settings#channels',
+    backLabel: 'Settings',
+    restartBannerHtml: restartBannerHtml,
+  );
+
+  final pairingHref = switch (channelType) {
+    'whatsapp' => '/whatsapp/pairing',
+    'signal' => '/signal/pairing',
+    _ => null,
+  };
+  final disconnectHref = pairingHref != null ? '$pairingHref/disconnect' : null;
+  final presentation = status.presentation;
+  final disabledGuidance = status == ChannelStatus.disabled
+      ? switch (channelType) {
+          'whatsapp' => 'Set channels.whatsapp.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register WhatsApp.',
+          'signal' =>
+            'Set channels.signal.enabled: true in dartclaw.yaml and restart DartClaw. Then pair or register Signal.',
+          'google_chat' => 'Configure the Google Chat service account, audience, and webhook; set channels.google_chat.enabled: true in dartclaw.yaml; then restart DartClaw.',
+          _ => 'Enable this channel in dartclaw.yaml, then restart DartClaw.',
+        }
+      : null;
+  final heroTitle = channelLabel;
+  final heroSubtitle = switch (channelType) {
+    'whatsapp' => 'Channel access rules, pairing approvals, and session routing.',
+    'signal' => 'Access policy, group controls, and conversation scoping for Signal traffic.',
+    'google_chat' => 'Access policy, group controls, and session routing for Google Chat.',
+    _ => 'Channel configuration and access controls.',
+  };
+  final dmCards = _buildModeCards(['pairing', 'allowlist', 'open', 'disabled'], dmAccessMode, _dmModeHelp);
+  final groupCards = _buildModeCards(['allowlist', 'open', 'disabled'], groupAccessMode, _groupModeHelp);
+  final groupAccessDisabled = groupAccessMode == 'disabled';
+
+  final context = <String, Object?>{
+    'sidebar': sidebar,
+    'topbar': topbar,
+    'channelType': channelType,
+    'channelLabel': channelLabel,
+    'statusLabel': presentation.label,
+    'statusClass': presentation.badgeClass,
+    'statusDotClass': 'status-dot--${presentation.dotVariant}',
+    'stateBannerClass': presentation.stateBannerVariant == null
+        ? null
+        : 'banner banner-${presentation.stateBannerVariant}',
+    'stateBannerText': presentation.stateBannerText,
+    'disabledGuidance': disabledGuidance,
+    'dmPolicyHint': presentation.dmPolicyHint,
+    'phone': phone,
+    'pairingHref': pairingHref,
+    'disconnectHref': disconnectHref,
+    'showDisconnectAction': presentation.connected && pairingHref != null,
+    'heroTitle': heroTitle,
+    'heroSubtitle': heroSubtitle,
+    'dmAccessMode': dmAccessMode,
+    'dmAccessModes': dmAccessModes,
+    'dmModeCards': dmCards,
+    // Trellis `tl:unless` does not fire for an empty-but-non-null list, so the
+    // "No entries" row only appears if emptiness arrives as null — the same
+    // mapping pendingPairings already uses. Counts stay on the real lists.
+    'dmAllowlist': dmAllowlist.isEmpty ? null : dmAllowlist,
+    'dmAllowlistCount': dmAllowlist.length,
+    'groupAccessMode': groupAccessMode,
+    'groupAccessModes': groupAccessModes,
+    'groupModeCards': groupCards,
+    'groupAllowlist': groupAllowlist.isEmpty ? null : groupAllowlist,
+    'groupAllowlistCount': groupAllowlist.length,
+    'requireMention': requireMention,
+    'groupAccessDisabled': groupAccessDisabled,
+    'entryPlaceholder': entryPlaceholder,
+    'groupPlaceholder': groupPlaceholder,
+    'pairingSectionHidden': dmAccessMode == 'pairing' ? null : 'hidden',
+    'showPairing': dmAccessMode == 'pairing',
+    'pendingPairings': pendingPairings.isNotEmpty ? pendingPairings : null,
+    'settingsFieldsHtml': settingsFieldsHtml,
+    'hasSettingsFields': settingsFieldsHtml.isNotEmpty,
+    'channelAccessAction': '/settings/channels/$channelType/access',
+    'dmAllowlistAction': '/settings/channels/$channelType/dm-allowlist',
+    'groupAllowlistAction': '/settings/channels/$channelType/group-allowlist',
+    'pairingAction': '/settings/channels/$channelType/pairings',
+    'dmError': dmError,
+    'dmValue': dmValue ?? '',
+    'groupError': groupError,
+    'groupValue': groupValue ?? '',
+    'accessError': accessError,
+    'dmAccessInvalid': accessErrorField == 'dm_access',
+    'groupAccessInvalid': accessErrorField == 'group_access',
+    'mentionInvalid': accessErrorField == 'require_mention',
+    'dmAllowlistOutOfBand': dmAllowlistOutOfBand ? 'outerHTML:#dm-allowlist-fragment' : null,
+  };
+
+  if (fragment != null) {
+    return templateLoader.trellis.renderFragment(
+      templateLoader.source('channel_detail'),
+      fragment: fragment,
+      context: context,
+    );
+  }
+  final body = templateLoader.trellis.render(templateLoader.source('channel_detail'), context);
+
+  return layoutTemplate(title: '$channelLabel Channel', body: body, appName: appName, scripts: standardShellScripts());
+}
+
+const _dmModeHelp = <String, String>{
+  'pairing': 'Unknown senders must request approval before a direct session is opened.',
+  'allowlist': 'Only known senders can start direct conversations.',
+  'open': 'Any sender may start a direct conversation.',
+  'disabled': 'All direct messages are blocked for this channel.',
+};
+
+const _groupModeHelp = <String, String>{
+  'allowlist': 'Only approved groups may create or resume conversations.',
+  'open': 'Any group on this channel can reach the agent.',
+  'disabled': 'All group conversations are blocked for this channel.',
+};
+
+List<Map<String, dynamic>> _buildModeCards(List<String> modes, String activeMode, Map<String, String> helpMap) {
+  return modes.map((mode) {
+    final label = switch (mode) {
+      'pairing' => 'Pairing',
+      'allowlist' => 'Allowlist',
+      'open' => 'Open',
+      'disabled' => 'Disabled',
+      _ => mode,
+    };
+    return <String, dynamic>{'value': mode, 'label': label, 'help': helpMap[mode] ?? '', 'active': mode == activeMode};
+  }).toList();
+}

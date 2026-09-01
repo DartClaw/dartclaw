@@ -1,3 +1,5 @@
+import 'package:logging/logging.dart';
+
 import 'canonical_tool.dart';
 import 'base_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
@@ -19,6 +21,12 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   final Map<String, _CommandDenial> _commandDenials = {};
   final Map<String, Object> _approvalWireIds = {};
   final Map<String, Map<String, dynamic>> _startedItems = {};
+
+  /// Usage from the most recent `thread/tokenUsage/updated`, awaiting the
+  /// `turn/completed` it belongs to. Cleared when that turn settles.
+  Map<String, dynamic>? _lastTokenUsage;
+
+  static final _log = Logger('CodexProtocolAdapter');
 
   new({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
     : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
@@ -75,13 +83,17 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
         'item/started' => _handleStartedItem(mapValue(params['item'])),
         'item/completed' => _handleCompletedItem(mapValue(params['item'])),
         'turn/completed' => _handleTurnComplete(params),
+        'thread/tokenUsage/updated' => _handleTokenUsage(params),
         'turn/failed' => _handleTurnFailed(),
         'configWarning' => _extractConfigWarning(params),
         'mcpServer/startupStatus/updated' => _extractMcpStartupStatus(params),
         'turn/started' => null,
         // Deprecated by Codex — suppressed as explicit no-op (still emitted for backward compat)
         'thread/compactedNotification' => null,
-        _ => null,
+        // Unhandled, but never silent: usage moved to its own notification at
+        // codex-cli 0.146.0 and vanished here for a whole milestone because
+        // this arm said nothing.
+        _ => _logUnhandledNotification(method),
       };
     }
 
@@ -99,7 +111,6 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
-    bool resume = false,
   }) {
     final params = <String, dynamic>{
       'input': [
@@ -127,9 +138,6 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     }
     if (threadId != null) {
       params['threadId'] = threadId;
-    }
-    if (resume) {
-      params['resume'] = true;
     }
     return {'method': 'turn/start', 'params': params};
   }
@@ -236,6 +244,15 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   /// Builds a `thread/start` request.
   Map<String, dynamic> buildThreadStartRequest({required Object id, Map<String, dynamic>? params}) {
     return {'id': id, 'method': 'thread/start', 'params': params ?? <String, dynamic>{}};
+  }
+
+  /// Builds a `thread/resume` request.
+  Map<String, dynamic> buildThreadResumeRequest({required Object id, required String threadId}) {
+    return {
+      'id': id,
+      'method': 'thread/resume',
+      'params': {'threadId': threadId},
+    };
   }
 
   @override

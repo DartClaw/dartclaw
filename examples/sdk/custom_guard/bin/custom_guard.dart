@@ -1,4 +1,4 @@
-import 'package:dartclaw/dartclaw.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 const _secretPhrase = 'swordfish';
 

@@ -1,18 +1,23 @@
 import 'workflow_definition.dart' show OnFailurePolicy;
+import 'workflow_failure.dart' show WorkflowStepRetryFailure;
 
-typedef WorkflowRetryLogger = void Function(int retryNumber, int retryLimit, String? failureClass);
+typedef WorkflowRetryLogger = void Function(int retryNumber, int retryLimit, WorkflowStepRetryFailure? failure);
 
+/// Runs [dispatchAttempt] under the step's retry budget.
+///
+/// [failure] supplies the typed failure the caller chose for an attempt; two
+/// consecutive equal values stop the loop early, before the budget is spent.
 Future<T> runWithWorkflowRetry<T>({
   required OnFailurePolicy onFailure,
   required int maxRetries,
   required Future<T> Function(int attemptIndex) dispatchAttempt,
   required bool Function(T result) isFailedOutcome,
-  required String? Function(T result) failureReason,
+  required WorkflowStepRetryFailure? Function(T result) failure,
   WorkflowRetryLogger? onRetry,
 }) async {
   final retryLimit = onFailure == OnFailurePolicy.retry ? maxRetries : 0;
   var attemptIndex = 0;
-  String? previousFailureClass;
+  WorkflowStepRetryFailure? previousFailure;
 
   while (true) {
     final result = await dispatchAttempt(attemptIndex);
@@ -20,35 +25,13 @@ Future<T> runWithWorkflowRetry<T>({
       return result;
     }
 
-    final failureClass = workflowRetryFailureClass(failureReason(result));
-    if (previousFailureClass != null && failureClass == previousFailureClass) {
+    final attemptFailure = failure(result);
+    if (attemptIndex > 0 && attemptFailure == previousFailure) {
       return result;
     }
 
     attemptIndex++;
-    previousFailureClass = failureClass;
-    onRetry?.call(attemptIndex, retryLimit, failureClass);
+    previousFailure = attemptFailure;
+    onRetry?.call(attemptIndex, retryLimit, attemptFailure);
   }
-}
-
-String workflowRetryFailureClass(String? errorSummary) {
-  var normalized = (errorSummary == null || errorSummary.trim().isEmpty ? 'workflow step failed' : errorSummary)
-      .toLowerCase()
-      .trim();
-  for (final prefix in const [
-    'exception: ',
-    'stateerror: ',
-    'bad state: ',
-    'argumenterror: ',
-    'invalid argument(s): ',
-  ]) {
-    if (normalized.startsWith(prefix)) {
-      normalized = normalized.substring(prefix.length).trim();
-      break;
-    }
-  }
-  final classEnd = normalized.indexOf(RegExp(r'[:(\[]'));
-  if (classEnd > 0) normalized = normalized.substring(0, classEnd).trim();
-  if (normalized.length > 80) normalized = normalized.substring(0, 80);
-  return normalized.isEmpty ? 'workflow step failed' : normalized;
 }

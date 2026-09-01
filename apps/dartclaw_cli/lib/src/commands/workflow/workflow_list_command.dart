@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver, WriteLine, configuredProjectDirectory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowDefinitionParser, WorkflowDefinitionValidator, WorkflowRegistry, WorkflowSource;
+    show
+        WorkflowDefinition,
+        WorkflowDefinitionParser,
+        WorkflowDefinitionValidator,
+        WorkflowMaterializer,
+        WorkflowRegistry,
+        WorkflowSource;
 import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
-import '../workflow_materializer.dart';
-import '../serve_command.dart' show WriteLine;
-import 'project_definition_paths.dart';
 
 /// Lists available workflows (materialized + custom).
 ///

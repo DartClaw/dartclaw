@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show readInt, readString;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Configuration for the WhatsApp channel.
@@ -42,12 +42,6 @@ class WhatsAppConfig {
   /// Maximum size of each outbound WhatsApp text chunk.
   final int maxChunkSize;
 
-  /// Retry policy for outbound delivery failures.
-  final RetryPolicy retryPolicy;
-
-  /// Per-channel task trigger configuration.
-  final TaskTriggerConfig taskTrigger;
-
   /// Creates immutable WhatsApp channel configuration.
   const new({
     this.enabled = false,
@@ -63,8 +57,6 @@ class WhatsAppConfig {
     this.mentionPatterns = const [],
     this.responsePrefix = '{model} -- {agent.identity.name}',
     this.maxChunkSize = 4000,
-    this.retryPolicy = const RetryPolicy(),
-    this.taskTrigger = const TaskTriggerConfig.disabled(),
   });
 
   /// Returns the group IDs from [groupAllowlist] as a plain string list.
@@ -124,8 +116,6 @@ class WhatsAppConfig {
       mentionPatterns: common.mentionPatterns,
       responsePrefix: common.responsePrefix ?? '{model} -- {agent.identity.name}',
       maxChunkSize: common.maxChunkSize,
-      retryPolicy: common.retryPolicy,
-      taskTrigger: common.taskTrigger,
     );
   }
 }

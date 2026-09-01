@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -220,7 +222,6 @@ class _BoundThreadBridge extends ChannelTaskBridge {
     Channel channel, {
     required String sessionKey,
     void Function(ChannelMessage, Channel, String)? enqueue,
-    String? boundTaskId,
     ThreadBinding? boundThreadBinding,
   }) async {
     return false;

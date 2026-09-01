@@ -10,6 +10,15 @@ final _uuidPattern = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 bool isValidSignalE164(String value) => _e164Pattern.hasMatch(value);
 bool isValidSignalUuid(String value) => _uuidPattern.hasMatch(value);
 
+/// The canonical spelling of a Signal identifier.
+///
+/// signal-cli's UUID casing is not part of the identity, and every consumer
+/// compares by exact string — the DM allowlist, session-key derivation, the
+/// sender map. Anything that is not a UUID is returned untouched: it has no
+/// canonical form here. Apply this at every boundary where an identifier
+/// enters from the wire or from configuration.
+String canonicalSignalIdentifier(String value) => isValidSignalUuid(value) ? value.toLowerCase() : value;
+
 /// Bidirectional UUID <-> phone mapping for Signal sender normalization.
 ///
 /// Signal's sealed-sender protocol means unknown senders appear as ACI UUID
@@ -64,7 +73,10 @@ class SignalSenderMap {
   /// Resolve the normalized sender ID from available signal-cli fields.
   ///
   /// - Both phone and UUID present and valid: store mapping, return phone.
-  /// - UUID only: return cached phone if mapping exists, else return UUID.
+  /// - UUID only: return cached phone if mapping exists, else the UUID
+  ///   **lowercased** — signal-cli's casing is not part of the identity, and a
+  ///   caller that compares by exact string (the DM allowlist, session-key
+  ///   derivation) must see one spelling or the same sender reads as two.
   /// - Phone only: return phone as-is.
   /// - Neither: return empty string.
   String resolve({String? sourceNumber, String? sourceUuid}) {
@@ -77,12 +89,12 @@ class SignalSenderMap {
       if (validPhone && validUuid) {
         _storeMapping(sourceUuid.toLowerCase(), sourceNumber);
       }
-      return validPhone ? sourceNumber : sourceUuid;
+      return validPhone ? sourceNumber : canonicalSignalIdentifier(sourceUuid);
     }
 
     if (hasUuid && !hasPhone) {
       final cached = _uuidToPhone[sourceUuid.toLowerCase()];
-      return cached ?? sourceUuid;
+      return cached ?? canonicalSignalIdentifier(sourceUuid);
     }
 
     if (hasPhone) return sourceNumber;

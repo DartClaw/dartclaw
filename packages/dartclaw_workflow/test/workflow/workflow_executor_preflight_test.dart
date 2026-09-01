@@ -1,5 +1,6 @@
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeSkillIntrospector;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -402,11 +403,20 @@ steps:
     expect(capturedTask?.provider, 'codex');
   });
 
-  test('uses default provider for map iteration task provider', () async {
+  test('uses default provider for foreach iteration task provider', () async {
     final definition = const WorkflowDefinition(
-      name: 'preflight-map-default-provider',
-      description: 'preflight map default provider test',
-      steps: [WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review', mapOver: 'items')],
+      name: 'preflight-foreach-default-provider',
+      description: 'preflight foreach default provider test',
+      steps: [
+        WorkflowStep(
+          id: 'pipeline',
+          name: 'Pipeline',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['review'],
+        ),
+        WorkflowStep(id: 'review', name: 'Review', skill: 'andthen:review'),
+      ],
     );
     final introspector = FakeSkillIntrospector({
       'codex': {'andthen-review'},

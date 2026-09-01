@@ -2,7 +2,7 @@
 
 ## Web Interface
 
-DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, Trellis-rendered HTML fragments, and vendored Stimulus controllers. No JavaScript build step is required. Browser behavior lives under `packages/dartclaw_server/lib/src/static/controllers/` and is registered explicitly from `controllers/index.js`.
+DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HTMX SSE extension, Trellis-rendered HTML fragments, and vendored Stimulus controllers. No JavaScript build step is required. Browser behavior lives under `packages/dartclaw_runtime/lib/src/static/controllers/` and is registered explicitly from `controllers/index.js`.
 
 ### Layout
 
@@ -32,13 +32,12 @@ The interface has three main areas:
 - **Auto-title**: After the first assistant response, a new non-workspace conversation is titled with the first ~50 characters of your message. The workspace **Agent** is never auto-titled.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
-- **Workflow chat commands**: Web chat supports `/workflow list` and `/workflow run <name> VAR=value` without creating a normal agent turn
+- **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
 
 **Chat**
 - **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. During streaming the button changes to stop.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
-- **Command palette**: Type `/` or use the command button to discover available slash commands. Availability is filtered by session type and request permissions.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
 - **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
@@ -60,10 +59,18 @@ The interface has three main areas:
 - **Workflow launch form**: The `/workflows` page now includes an inline launch form on each workflow definition card
 - **Validation**: Required workflow variables are validated inline before a run starts
 - **Redirect**: Successful launches navigate directly to `/workflows/<runId>`
-- **Other trigger surfaces**: Chat `/workflow run` commands and the GitHub PR webhook share the same launch path – see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
+- **Other trigger surfaces**: Agent tools and the GitHub PR webhook share the same launch service – see [Workflow Triggers](workflows.md#workflow-triggers) for the full surface
+
+**Settings** (`/settings`)
+- **Every registered config field**: the form is generated from DartClaw's config field registry, so every key the loader honours — except channel settings (their own detail pages) and guard rules (the guard editor below) — has a control, with the key's own description as help text
+- **Server-rendered values**: the page arrives with the current values already in it; there is no loading state and no separate config fetch
+- **Reload tier per field**: each control is badged `live`, `reload` or `restart`, and the section note says when that section's changes take effect
+- **Read-only where it must be**: credential material, placement keys and host-reach bounds render as facts, and no credential value is ever sent to the browser
+- **Save is per section**: an invalid value is refused with the message on the offending control and *nothing* in that submission is written; a restart-tier change writes YAML and arms the restart banner
+- **YAML stays authoritative**: list-of-object sections (`providers`, `projects`, `mcp_servers`, `agent.agents`, `alerts.routes`, `github.triggers`) are shown read-only with the keys one entry accepts — edit those in `dartclaw.yaml`
 
 **Guard Editor** (Settings page)
-- **Manage guard extensions**: Admins list, add, edit, delete, and test command/file/network/input-sanitizer guard extensions without hand-editing YAML
+- **Manage guard extensions**: Admins list, add, edit, delete, and test command/file/network guard extensions without hand-editing YAML
 - **In-UI tester**: Evaluate a sample command, path, or URL through the real runtime guard semantics
 - **Fail-closed + activation status**: Invalid changes are rejected before save; responses separate immediately-active from pending-restart changes
 - **Admin-gated**: Editing and testing require admin access, enforced server-side – see [Security § Guard Editor](security.md#guard-editor-web-ui)
@@ -80,7 +87,7 @@ The interface has three main areas:
 
 **Memory lifecycle**
 - **Inspect**: `/memory` separates canonical roles, raw observations, the bounded prompt index, and rebuildable search rows
-- **Curate**: **Curate now** uses the same immutable `memory-curation` run-now action as Scheduling and `dartclaw jobs run`
+- **Curate**: enable the `memory-curation` job (`memory.curation.enabled`); run it on demand from Scheduling or `dartclaw jobs run memory-curation`
 - **Recover**: Degraded index states keep canonical success intact and point to the stopped-runtime `dartclaw rebuild-index` path
 
 **Temporal KG Timeline**
@@ -177,14 +184,6 @@ Cancels any active turn on the session, then deletes the session and all its mes
 
 ### Messages
 
-#### Discover session commands
-
-```
-GET /api/sessions/:id/commands
-```
-
-Returns slash commands available for the session context. Archive and task sessions return an empty list. Workflow commands require the workflow handler; `/workflow run` is advertised only when the request has admin permission.
-
 #### Upload an attachment
 
 ```
@@ -229,11 +228,13 @@ GET /api/sessions/:id/turn-status
 Returns the operator-visible active turn snapshot. `state` is one of `idle`, `running`, `waiting`, `stuck`, `cancelling`, `cancelled`, `completed`, or `failed`. `wait_reason` identifies the authoritative blocker when a turn is waiting or stuck:
 
 - `session_lock` - another same-session request is waiting for the active turn to release the session lock.
-- `provider_turn` - the provider has accepted the turn but has not produced progress before `harness.turn_monitor.wait_warning_after`.
+- `provider_turn` - the provider has accepted the turn but is not currently waiting for a tool approval. The status advances from waiting to stuck on the turn-liveness tracker's internal observation thresholds.
 - `tool_approval` - the provider is waiting on a tool approval decision.
 - `unknown` - the provider turn is still active but no more specific wait source is known.
 
 `can_cancel` is the authoritative cancel affordance. Provider-turn and unknown waits can be cancelled once surfaced as `waiting` or `stuck`; ordinary session-lock waits can be cancelled once surfaced unless the active turn is blocked on a non-stale tool approval. Tool approvals remain non-cancellable until the approval wait becomes stale or stuck under the approval timeout policy. Idle snapshots use null turn fields.
+
+`limit_breach` is `stall` or `turn_timeout` when a cached terminal cancellation came from that configured budget; it is null for active turns, successful turns, failures, and operator cancellations.
 
 The endpoint can briefly return a cached terminal snapshot (`completed`, `cancelled`, or `failed`) so status and cancel clients can resolve consistently. The web UI's operator panel renders only active states (`running`, `waiting`, `stuck`, and `cancelling`), and shows **Cancel Turn** only while `can_cancel` is true.
 
@@ -248,7 +249,8 @@ The endpoint can briefly return a cached terminal snapshot (`completed`, `cancel
   "waiting_since": "2026-03-10T10:00:00.000Z",
   "stuck_since": "2026-03-10T10:02:00.000Z",
   "global_timeout_at": "2026-03-10T10:10:00.000Z",
-  "can_cancel": true
+  "can_cancel": true,
+  "limit_breach": null
 }
 ```
 
@@ -388,10 +390,9 @@ DELETE /api/scheduling/jobs/:name
 GET /api/memory/status
 ```
 
-Returns the operator projection: `collection`, `promptIndex`, `observations`, `index`, and optional `curation` objects.
+Returns the operator projection: `collection`, `promptIndex`, `observations`, and `index` objects.
 Counts are nullable when evidence is unavailable. Observation `usageKind` is `exact`, `lowerBound`, or `unknown`, while
-its warning is `none`, `active`, or `unknown`. Curation is absent only before the first run; corrupt lifecycle evidence
-is returned as unknown. The warning is informational – status never deletes observations or blocks writes by aggregate
+its warning is `none`, `active`, or `unknown`. The warning is informational – status never deletes observations or blocks writes by aggregate
 usage alone.
 
 #### Read memory file
@@ -601,6 +602,17 @@ POST /api/system/restart
 
 Initiates a graceful restart. Active turns are drained first. Returns `200` on success.
 
+#### Emergency stop
+
+```
+POST /api/emergency-stop
+```
+
+Cancels every active turn and every running or queued task, then emits one `EmergencyStopEvent` and an
+`emergency_stop` SSE broadcast — the same sequence a channel `/stop` runs, reachable on an install with no channel
+enabled. Requires operator/admin access; without it the request is refused with `403` and nothing is cancelled. Returns
+`{"turnsCancelled": n, "tasksCancelled": n}`. The CLI equivalent is `dartclaw stop`.
+
 #### Server-Sent Events (global)
 
 ```
@@ -615,7 +627,7 @@ Global SSE stream for system-level events (e.g., `server_restart`). Separate fro
 GET /api/tasks/events
 ```
 
-Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `runner_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn monitor updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
+Task/dashboard clients receive JSON Server-Sent Events. Existing event types include `connected`, `task_status_changed`, `runner_state`, `project_status`, `task_progress`, `task_event`, and `workflow_sidebar_update`. Turn wait-state updates are delivered on the same stream as `turn_wait_state`, using the same authoritative `wait_reason` and `can_cancel` semantics as `GET /api/sessions/:id/turn-status`:
 
 `runner_state` reflects coordinator lease events and currently observed runners. Worker IDs are runtime identities, not
 static pool slots; configured/effective/active/queued/cached/quarantined counts come from the same lease snapshot.
@@ -698,7 +710,8 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `GET /sessions/:id/messages-html` | HTML fragment of message history (for HTMX partial reload) |
 | `GET /health-dashboard` | System health status, services, guard audit log |
 | `GET /health-dashboard/audit` | Guard audit table fragment (HTMX polling) |
-| `GET /settings` | Configuration editor (agent, server, security, sessions, scheduling settings) |
+| `GET /settings` | Configuration editor, generated from the config field registry |
+| `POST /settings` | Save one settings section (form-encoded, admin-only); answers with that section re-rendered |
 | `GET /settings/channels/:type` | Channel detail page (DM/group access, allowlist management, pairing) |
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
 | `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
@@ -739,6 +752,25 @@ Common request shape for `POST /api/workflows/run`:
 ```
 
 The route returns the created run as JSON. Missing required variables produce a `400` error with a machine-readable payload; unknown definitions return `404`.
+
+## Orchestration and Content MCP Tools
+
+These tools let the agent start work and produce content on the owner's behalf, from a chat turn or from a scheduled job alike — they take no session, channel or caller argument.
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `workflow_run` | `definition`, optional `variables` object, optional `project` | Start a registered workflow. Returns the run's ID and its `/workflows/<id>` location. Required-variable validation, declared defaults and the `PROJECT` fallback are the workflow service's, exactly as for the HTTP start route. |
+| `workflow_list` | no arguments | List the workflow catalog with each definition's description, step count and declared variables (required flag and default), so `workflow_run` can be called without a second lookup. An empty catalog is an empty list, not an error. |
+| `schedule_upsert` | `id`, `schedule`, `type` (`prompt` or `task`), `prompt` or `task`, optional `delivery`, `model`, `effort` | Create or replace a `scheduling.jobs` entry. Cron validation and the config write go through the same seam the scheduling API uses. **The job does not run until the server restarts** — the result says so, and the restart-pending marker is recorded. |
+| `schedule_list` | no arguments | List configured jobs with their cron expressions, whether the running server loaded them, and whether they are paused. Jobs the runtime registers itself are listed as built-in and cannot be edited through `schedule_upsert`; a job written since startup is reported as waiting for a restart. |
+| `attach_media` | `path`, optional `caption` | Send a workspace file to the owner as a media attachment. The path must resolve — after symlink resolution — inside the workspace; anything that escapes it is refused and nothing is delivered. The recipient is the owner's active direct-message sessions and cannot be chosen in the call. |
+| `wiki_write` | `slug`, `title`, `body`, `sources`, optional `confidence` | Author a wiki page through the same entry point knowledge-inbox ingestion uses, so slug containment, frontmatter emission, provenance, the sources union and the shrink floor all apply. The slug must already be lowercase words joined by hyphens. Writing over a stored page replaces its body; a replacement materially shorter than what is stored is refused. |
+
+Every refusal the tool itself makes is a tool-level error (a JSON-RPC success carrying `isError: true`) naming the reason — an invalid cron expression, a path that escapes the workspace, a missing workflow variable. JSON-RPC error codes stay with the dispatch seam's authorization and schema layers: an argument the closed schema does not name is answered with `-32602` before the tool runs.
+
+A containerized agent reaches these six exactly as a host one does. Your own chat turns run as the deployment and
+reach all six on either lane; a task, workflow or logical-agent turn reaches only what its own tool policy names, and
+one with no policy reaches none of them. Container isolation changes where the turn runs, not what it may call.
 
 ## Memory MCP Tools
 

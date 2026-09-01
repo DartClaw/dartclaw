@@ -1,7 +1,7 @@
 import 'dart:io';
 
 part 'unsupported_service_backend.dart';
-part 'macos_launch_agent_backend_support.dart';
+part 'macos_launchd_backend_support.dart';
 
 /// Result of a service operation.
 class ServiceResult {
@@ -11,23 +11,37 @@ class ServiceResult {
   const new({required this.success, required this.message});
 }
 
-/// Abstraction over platform-specific user-scoped service management.
+/// Installation scope of a managed DartClaw service.
+///
+/// [user] installs into the invoking user's own login session (LaunchAgent,
+/// `systemd --user`). [system] installs a boot-started daemon owned by root
+/// that still runs the process as a named human operator.
+enum ServiceScope { user, system }
+
+/// Abstraction over platform-specific service management.
 abstract class ServiceBackend {
+  /// Writes and loads the service definition for [scope].
+  ///
+  /// [serviceUser] names the account a [ServiceScope.system] service runs as
+  /// and is required for that scope; it is ignored for [ServiceScope.user].
+  /// System scope fails without root privileges before touching the filesystem.
   Future<ServiceResult> install({
     required String binPath,
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   });
 
-  Future<ServiceResult> uninstall({required String instanceDir});
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope});
 
-  Future<ServiceStatus> status({required String instanceDir});
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope});
 
-  Future<ServiceResult> start({required String instanceDir});
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope});
 
-  Future<ServiceResult> stop({required String instanceDir});
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope});
 }
 
 /// Current service state.
@@ -45,6 +59,10 @@ enum ServiceStatus {
   };
 }
 
+/// Signature matching [Process.run], injected so tests can fake `launchctl`,
+/// `systemctl` and `id` without touching the host.
+typedef RunProcess = Future<ProcessResult> Function(String, List<String>);
+
 String _instanceSuffix(String instanceDir) {
   var hash = 0x811c9dc5;
   for (final codeUnit in instanceDir.codeUnits) {
@@ -59,30 +77,71 @@ String _quotedStderr(ProcessResult result) {
   return stderrText.isEmpty ? 'unknown error' : stderrText;
 }
 
-class MacOSLaunchAgentBackend implements ServiceBackend {
-  final Future<ProcessResult> Function(String, List<String>) _run;
-  final void Function(String, String) _renameFile;
-  final void Function(String) _deleteFile;
+Future<String> _effectiveUid(RunProcess run) async => (await run('id', ['-u'])).stdout.toString().trim();
+
+/// Whether the caller may act on [scope]; system scope needs effective uid 0.
+Future<bool> _mayManage(ServiceScope scope, RunProcess run) async =>
+    scope == ServiceScope.user || await _effectiveUid(run) == '0';
+
+/// Refuses a [ServiceScope.system] operation that is not running as root.
+///
+/// Returns `null` when the operation may proceed. Callers must consult it
+/// before creating directories or writing unit files.
+Future<ServiceResult?> _refuseUnprivilegedSystemScope(ServiceScope scope, String operation, RunProcess run) async {
+  if (await _mayManage(scope, run)) return null;
+  return ServiceResult(
+    success: false,
+    message:
+        'System-scoped service management requires root privileges (effective uid 0). '
+        'Re-run with sudo: sudo dartclaw service $operation --system',
+  );
+}
+
+const _missingServiceUser = ServiceResult(
+  success: false,
+  message:
+      'Cannot determine which user the system service should run as. '
+      'Re-run with sudo so SUDO_USER is set, or pass --service-user <name>.',
+);
+
+/// Refuses a system-scope install whose run-as user is absent or names no
+/// account. Falling through to root is the security regression this guards.
+Future<ServiceResult?> _refuseUnusableServiceUser(ServiceScope scope, String? serviceUser, RunProcess run) async {
+  if (scope == ServiceScope.user) return null;
+  if (serviceUser == null || serviceUser.isEmpty) return _missingServiceUser;
+  if ((await run('id', ['-u', serviceUser])).exitCode == 0) return null;
+  return ServiceResult(
+    success: false,
+    message: 'No account named "$serviceUser" on this host. Pass --service-user <name> naming an existing user.',
+  );
+}
+
+class MacOSLaunchdBackend implements ServiceBackend {
+  final RunProcess _run;
   final String _home;
+  final String _systemRoot;
   final String _path;
 
-  new({
-    Future<ProcessResult> Function(String, List<String>)? run,
-    String? home,
-    Map<String, String>? environment,
-    void Function(String, String)? renameFile,
-    void Function(String)? deleteFile,
-  }) : _run = run ?? Process.run,
-       _renameFile = renameFile ?? _renameFileSync,
-       _deleteFile = deleteFile ?? _deleteFileSync,
-       _home = home ?? Platform.environment['HOME'] ?? '.',
-       _path = _launchAgentPath(environment ?? Platform.environment);
+  new({RunProcess? run, String? home, String? systemRoot, Map<String, String>? environment})
+    : _run = run ?? Process.run,
+      _home = home ?? Platform.environment['HOME'] ?? '.',
+      _systemRoot = systemRoot ?? '',
+      _path = _servicePath(environment ?? Platform.environment);
 
-  String get _agentDir => '$_home/Library/LaunchAgents';
+  String _definitionDir(ServiceScope scope) => switch (scope) {
+    ServiceScope.user => '$_home/Library/LaunchAgents',
+    ServiceScope.system => '$_systemRoot/Library/LaunchDaemons',
+  };
+
+  String _kind(ServiceScope scope) => scope == ServiceScope.system ? 'LaunchDaemon' : 'LaunchAgent';
 
   String _labelFor(String instanceDir) => 'com.dartclaw.agent.${_instanceSuffix(instanceDir)}';
 
-  String _plistPathFor(String instanceDir) => '$_agentDir/${_labelFor(instanceDir)}.plist';
+  String _plistPathFor(ServiceScope scope, String instanceDir) =>
+      '${_definitionDir(scope)}/${_labelFor(instanceDir)}.plist';
+
+  Future<String> _domain(ServiceScope scope) async =>
+      scope == ServiceScope.system ? 'system' : 'gui/${await _effectiveUid(_run)}';
 
   @override
   Future<ServiceResult> install({
@@ -90,118 +149,138 @@ class MacOSLaunchAgentBackend implements ServiceBackend {
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   }) async {
-    Directory(_agentDir).createSync(recursive: true);
-    Directory('$instanceDir/logs').createSync(recursive: true);
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'install', _run);
+    if (refusal != null) return refusal;
+    final unusableUser = await _refuseUnusableServiceUser(scope, serviceUser, _run);
+    if (unusableUser != null) return unusableUser;
 
-    final plistPath = _plistPathFor(instanceDir);
+    final definition = File(_plistPathFor(scope, instanceDir));
+    final previous = definition.existsSync() ? definition.readAsStringSync() : null;
     final label = _labelFor(instanceDir);
-    final uid = await _uid();
-    final plistContent = _plistContent(
+    final domain = await _domain(scope);
+    final content = _plistContent(
+      scope: scope,
       label: label,
       binPath: binPath,
       configPath: configPath,
       instanceDir: instanceDir,
       sourceDir: sourceDir,
+      serviceUser: serviceUser,
     );
-    if (File(plistPath).existsSync()) {
-      return _refreshExistingDefinition(plistPath: plistPath, plistContent: plistContent, label: label, uid: uid);
-    }
 
-    File(plistPath).writeAsStringSync(plistContent);
+    Directory(_definitionDir(scope)).createSync(recursive: true);
+    Directory('$instanceDir/logs').createSync(recursive: true);
 
-    final result = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
-    if (result.exitCode == 0) {
-      return const ServiceResult(success: true, message: 'LaunchAgent installed and loaded.');
-    }
-
-    final stderrText = _quotedStderr(result);
-    if (stderrText.contains('36') || stderrText.contains('already')) {
-      final error = await _bootoutLoaded(label: label, uid: uid);
-      if (error != null) {
-        final failure = ServiceResult(success: false, message: 'launchctl bootout failed: $error');
-        return failure;
+    if (previous != null) {
+      final bootoutError = await _bootoutLoaded(domain: domain, label: label);
+      if (bootoutError != null) {
+        return ServiceResult(success: false, message: 'launchctl bootout failed: $bootoutError');
       }
-      final retry = await _run('launchctl', ['bootstrap', 'gui/$uid', plistPath]);
-      if (retry.exitCode == 0) {
-        const refreshed = ServiceResult(success: true, message: 'LaunchAgent definition refreshed and loaded.');
-        return refreshed;
-      }
-      final failure = ServiceResult(success: false, message: 'launchctl bootstrap failed: ${_quotedStderr(retry)}');
-      return failure;
     }
-    return ServiceResult(success: false, message: 'launchctl bootstrap failed: $stderrText');
+
+    definition.writeAsStringSync(content);
+    final bootstrap = await _run('launchctl', ['bootstrap', domain, definition.path]);
+    if (bootstrap.exitCode == 0) {
+      return ServiceResult(
+        success: true,
+        message: previous == null
+            ? '${_kind(scope)} installed and loaded.'
+            : '${_kind(scope)} definition refreshed and loaded.',
+      );
+    }
+
+    final failure = _quotedStderr(bootstrap);
+    if (previous == null) {
+      return ServiceResult(success: false, message: 'launchctl bootstrap failed: $failure');
+    }
+
+    definition.writeAsStringSync(previous);
+    final restore = await _run('launchctl', ['bootstrap', domain, definition.path]);
+    return ServiceResult(
+      success: false,
+      message: restore.exitCode == 0
+          ? 'launchctl bootstrap failed: $failure; previous ${_kind(scope)} restored'
+          : 'launchctl bootstrap failed: $failure; restoring the previous ${_kind(scope)} also failed: '
+                '${_quotedStderr(restore)}',
+    );
   }
 
   @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async {
-    final plistPath = _plistPathFor(instanceDir);
-    if (!File(plistPath).existsSync()) {
-      return const ServiceResult(success: true, message: 'LaunchAgent not installed.');
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'uninstall', _run);
+    if (refusal != null) return refusal;
+
+    final definition = File(_plistPathFor(scope, instanceDir));
+    if (!definition.existsSync()) {
+      return ServiceResult(success: true, message: '${_kind(scope)} not installed.');
     }
 
-    final label = _labelFor(instanceDir);
-    final uid = await _uid();
-    final error = await _bootoutLoaded(label: label, uid: uid);
+    final error = await _bootoutLoaded(domain: await _domain(scope), label: _labelFor(instanceDir));
     if (error != null) {
       return ServiceResult(success: false, message: 'launchctl bootout failed: $error');
     }
 
-    File(plistPath).deleteSync();
-    return const ServiceResult(success: true, message: 'LaunchAgent removed.');
+    definition.deleteSync();
+    return ServiceResult(success: true, message: '${_kind(scope)} removed.');
   }
 
   @override
-  Future<ServiceStatus> status({required String instanceDir}) async {
-    final plistPath = _plistPathFor(instanceDir);
-    if (!File(plistPath).existsSync()) {
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope}) async {
+    if (!await _mayManage(scope, _run)) {
+      return ServiceStatus.unknown;
+    }
+    if (!File(_plistPathFor(scope, instanceDir)).existsSync()) {
       return ServiceStatus.notInstalled;
     }
 
-    final label = _labelFor(instanceDir);
-    final result = await _run('launchctl', ['print', 'gui/${await _uid()}/$label']);
+    final result = await _run('launchctl', ['print', '${await _domain(scope)}/${_labelFor(instanceDir)}']);
     if (result.exitCode != 0) {
       return ServiceStatus.stopped;
     }
-
-    final out = result.stdout.toString();
-    if (out.contains('state = running')) {
-      return ServiceStatus.running;
-    }
-    if (out.contains('state = waiting')) {
-      return ServiceStatus.stopped;
-    }
-    return ServiceStatus.stopped;
+    return result.stdout.toString().contains('state = running') ? ServiceStatus.running : ServiceStatus.stopped;
   }
 
   @override
-  Future<ServiceResult> start({required String instanceDir}) async {
-    final plistPath = _plistPathFor(instanceDir);
-    if (!File(plistPath).existsSync()) {
-      return const ServiceResult(success: false, message: 'LaunchAgent not installed. Run: dartclaw service install');
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'start', _run);
+    if (refusal != null) return refusal;
+
+    if (!File(_plistPathFor(scope, instanceDir)).existsSync()) {
+      return ServiceResult(
+        success: false,
+        message: '${_kind(scope)} not installed. Run: ${_installHint(scope, instanceDir)}',
+      );
     }
 
-    final label = _labelFor(instanceDir);
-    final result = await _run('launchctl', ['kickstart', 'gui/${await _uid()}/$label']);
+    final result = await _run('launchctl', ['kickstart', '${await _domain(scope)}/${_labelFor(instanceDir)}']);
     if (result.exitCode == 0) {
-      return const ServiceResult(success: true, message: 'LaunchAgent started.');
+      return ServiceResult(success: true, message: '${_kind(scope)} started.');
     }
     return ServiceResult(success: false, message: 'launchctl kickstart failed: ${_quotedStderr(result)}');
   }
 
   @override
-  Future<ServiceResult> stop({required String instanceDir}) async {
-    final label = _labelFor(instanceDir);
-    final result = await _run('launchctl', ['kill', 'TERM', 'gui/${await _uid()}/$label']);
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'stop', _run);
+    if (refusal != null) return refusal;
+
+    final result = await _run('launchctl', ['kill', 'TERM', '${await _domain(scope)}/${_labelFor(instanceDir)}']);
     if (result.exitCode == 0) {
-      return const ServiceResult(success: true, message: 'LaunchAgent stopped.');
+      return ServiceResult(success: true, message: '${_kind(scope)} stopped.');
     }
     return ServiceResult(success: false, message: 'launchctl kill failed: ${_quotedStderr(result)}');
   }
 }
 
-String _launchAgentPath(Map<String, String> environment) {
+String _installHint(ServiceScope scope, String instanceDir) => scope == ServiceScope.system
+    ? 'sudo dartclaw service install --system --instance-dir $instanceDir'
+    : 'dartclaw service install';
+
+String _servicePath(Map<String, String> environment) {
   final entries = (environment['PATH'] ?? '')
       .split(':')
       .where((entry) => entry.startsWith('/'))
@@ -216,23 +295,32 @@ String _xmlEscape(String value) => value
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
 
-void _renameFileSync(String source, String target) => File(source).renameSync(target);
-
-void _deleteFileSync(String path) => File(path).deleteSync();
-
-class LinuxSystemdUserBackend implements ServiceBackend {
-  final Future<ProcessResult> Function(String, List<String>) _run;
+class LinuxSystemdBackend implements ServiceBackend {
+  final RunProcess _run;
   final String _home;
+  final String _systemRoot;
 
-  new({Future<ProcessResult> Function(String, List<String>)? run, String? home})
+  new({RunProcess? run, String? home, String? systemRoot})
     : _run = run ?? Process.run,
-      _home = home ?? Platform.environment['HOME'] ?? '.';
+      _home = home ?? Platform.environment['HOME'] ?? '.',
+      _systemRoot = systemRoot ?? '';
 
-  String get _unitDir => '$_home/.config/systemd/user';
+  String _unitDir(ServiceScope scope) => switch (scope) {
+    ServiceScope.user => '$_home/.config/systemd/user',
+    ServiceScope.system => '$_systemRoot/etc/systemd/system',
+  };
+
+  /// `--user ` for user scope, empty for system scope — both as a `systemctl`
+  /// argument prefix and as the prefix quoted back in failure messages.
+  String _scopeFlag(ServiceScope scope) => scope == ServiceScope.user ? '--user ' : '';
+
+  List<String> _systemctlArgs(ServiceScope scope, List<String> args) =>
+      scope == ServiceScope.user ? ['--user', ...args] : args;
 
   String _serviceNameFor(String instanceDir) => 'dartclaw-${_instanceSuffix(instanceDir)}';
 
-  String _unitPathFor(String instanceDir) => '$_unitDir/${_serviceNameFor(instanceDir)}.service';
+  String _unitPathFor(ServiceScope scope, String instanceDir) =>
+      '${_unitDir(scope)}/${_serviceNameFor(instanceDir)}.service';
 
   @override
   Future<ServiceResult> install({
@@ -240,74 +328,100 @@ class LinuxSystemdUserBackend implements ServiceBackend {
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   }) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'install', _run);
+    if (refusal != null) return refusal;
+    final unusableUser = await _refuseUnusableServiceUser(scope, serviceUser, _run);
+    if (unusableUser != null) return unusableUser;
+
     final serviceName = _serviceNameFor(instanceDir);
-    final unitPath = _unitPathFor(instanceDir);
-    Directory(_unitDir).createSync(recursive: true);
+    final unit = File(_unitPathFor(scope, instanceDir));
+    final scopeFlag = _scopeFlag(scope);
+    Directory(_unitDir(scope)).createSync(recursive: true);
     Directory('$instanceDir/logs').createSync(recursive: true);
-    File(unitPath).writeAsStringSync(
+    unit.writeAsStringSync(
       _unitContent(
+        scope: scope,
         serviceName: serviceName,
         binPath: binPath,
         configPath: configPath,
         instanceDir: instanceDir,
         sourceDir: sourceDir,
+        serviceUser: serviceUser,
       ),
     );
 
-    final daemonReload = await _run('systemctl', ['--user', 'daemon-reload']);
+    final daemonReload = await _run('systemctl', _systemctlArgs(scope, ['daemon-reload']));
     if (daemonReload.exitCode != 0) {
-      File(unitPath).deleteSync();
+      unit.deleteSync();
       return ServiceResult(
         success: false,
-        message: 'systemctl --user daemon-reload failed: ${_quotedStderr(daemonReload)}',
+        message: 'systemctl ${scopeFlag}daemon-reload failed: ${_quotedStderr(daemonReload)}',
       );
     }
 
-    final enable = await _run('systemctl', ['--user', 'enable', serviceName]);
+    final enable = await _run('systemctl', _systemctlArgs(scope, ['enable', serviceName]));
     if (enable.exitCode != 0) {
-      File(unitPath).deleteSync();
-      await _run('systemctl', ['--user', 'daemon-reload']);
-      return ServiceResult(success: false, message: 'systemctl --user enable failed: ${_quotedStderr(enable)}');
+      unit.deleteSync();
+      await _run('systemctl', _systemctlArgs(scope, ['daemon-reload']));
+      return ServiceResult(success: false, message: 'systemctl ${scopeFlag}enable failed: ${_quotedStderr(enable)}');
     }
 
-    return const ServiceResult(success: true, message: 'systemd user unit installed and enabled.');
+    return ServiceResult(
+      success: true,
+      message: scope == ServiceScope.system
+          ? 'systemd system unit installed and enabled.'
+          : 'systemd user unit installed and enabled.',
+    );
   }
 
   @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async {
-    final unitPath = _unitPathFor(instanceDir);
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'uninstall', _run);
+    if (refusal != null) return refusal;
+
+    final unit = File(_unitPathFor(scope, instanceDir));
     final serviceName = _serviceNameFor(instanceDir);
-    if (!File(unitPath).existsSync()) {
+    final scopeFlag = _scopeFlag(scope);
+    if (!unit.existsSync()) {
       return const ServiceResult(success: true, message: 'systemd unit not installed.');
     }
 
-    final disable = await _run('systemctl', ['--user', 'disable', '--now', serviceName]);
+    final disable = await _run('systemctl', _systemctlArgs(scope, ['disable', '--now', serviceName]));
     if (disable.exitCode != 0) {
-      return ServiceResult(success: false, message: 'systemctl --user disable --now failed: ${_quotedStderr(disable)}');
+      return ServiceResult(
+        success: false,
+        message: 'systemctl ${scopeFlag}disable --now failed: ${_quotedStderr(disable)}',
+      );
     }
 
-    File(unitPath).deleteSync();
-    final daemonReload = await _run('systemctl', ['--user', 'daemon-reload']);
+    unit.deleteSync();
+    final daemonReload = await _run('systemctl', _systemctlArgs(scope, ['daemon-reload']));
     if (daemonReload.exitCode != 0) {
       return ServiceResult(
         success: false,
-        message: 'systemctl --user daemon-reload failed: ${_quotedStderr(daemonReload)}',
+        message: 'systemctl ${scopeFlag}daemon-reload failed: ${_quotedStderr(daemonReload)}',
       );
     }
-    return const ServiceResult(success: true, message: 'systemd user unit removed.');
+    return ServiceResult(
+      success: true,
+      message: scope == ServiceScope.system ? 'systemd system unit removed.' : 'systemd user unit removed.',
+    );
   }
 
   @override
-  Future<ServiceStatus> status({required String instanceDir}) async {
-    final unitPath = _unitPathFor(instanceDir);
-    final serviceName = _serviceNameFor(instanceDir);
-    if (!File(unitPath).existsSync()) {
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope}) async {
+    if (!await _mayManage(scope, _run)) {
+      return ServiceStatus.unknown;
+    }
+    if (!File(_unitPathFor(scope, instanceDir)).existsSync()) {
       return ServiceStatus.notInstalled;
     }
 
-    final result = await _run('systemctl', ['--user', 'is-active', serviceName]);
+    final result = await _run('systemctl', _systemctlArgs(scope, ['is-active', _serviceNameFor(instanceDir)]));
     final out = result.stdout.toString().trim();
     if (out == 'active') {
       return ServiceStatus.running;
@@ -319,14 +433,19 @@ class LinuxSystemdUserBackend implements ServiceBackend {
   }
 
   @override
-  Future<ServiceResult> start({required String instanceDir}) async {
-    final unitPath = _unitPathFor(instanceDir);
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'start', _run);
+    if (refusal != null) return refusal;
+
     final serviceName = _serviceNameFor(instanceDir);
-    if (!File(unitPath).existsSync()) {
-      return const ServiceResult(success: false, message: 'systemd unit not installed. Run: dartclaw service install');
+    if (!File(_unitPathFor(scope, instanceDir)).existsSync()) {
+      return ServiceResult(
+        success: false,
+        message: 'systemd unit not installed. Run: ${_installHint(scope, instanceDir)}',
+      );
     }
 
-    final result = await _run('systemctl', ['--user', 'start', serviceName]);
+    final result = await _run('systemctl', _systemctlArgs(scope, ['start', serviceName]));
     if (result.exitCode == 0) {
       return const ServiceResult(success: true, message: 'systemd service started.');
     }
@@ -334,9 +453,11 @@ class LinuxSystemdUserBackend implements ServiceBackend {
   }
 
   @override
-  Future<ServiceResult> stop({required String instanceDir}) async {
-    final serviceName = _serviceNameFor(instanceDir);
-    final result = await _run('systemctl', ['--user', 'stop', serviceName]);
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope}) async {
+    final refusal = await _refuseUnprivilegedSystemScope(scope, 'stop', _run);
+    if (refusal != null) return refusal;
+
+    final result = await _run('systemctl', _systemctlArgs(scope, ['stop', _serviceNameFor(instanceDir)]));
     if (result.exitCode == 0) {
       return const ServiceResult(success: true, message: 'systemd service stopped.');
     }
@@ -344,39 +465,50 @@ class LinuxSystemdUserBackend implements ServiceBackend {
   }
 
   String _unitContent({
+    required ServiceScope scope,
     required String serviceName,
     required String binPath,
     required String configPath,
     required String instanceDir,
     String? sourceDir,
+    String? serviceUser,
   }) {
     final sourceDirArg = sourceDir == null ? '' : ' --source-dir $sourceDir';
+    final runAs = scope == ServiceScope.system ? 'User=$serviceUser\n' : '';
+    final execStart = 'ExecStart=$binPath serve --config $configPath$sourceDirArg';
+    final hardening = scope == ServiceScope.system
+        ? 'ProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=$instanceDir\nPrivateTmp=true\n'
+        : '';
+    final target = scope == ServiceScope.system ? 'multi-user.target' : 'default.target';
+    // System scope matches macOS `KeepAlive` and the retired root template:
+    // a boot daemon comes back from a clean exit too.
+    final restart = scope == ServiceScope.system ? 'always' : 'on-failure';
     return '''[Unit]
 Description=DartClaw Agent Runtime ($serviceName)
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=$binPath serve --config $configPath$sourceDirArg
+$runAs$execStart
 WorkingDirectory=$instanceDir
-Restart=on-failure
+Restart=$restart
 RestartSec=5
 StandardOutput=append:$instanceDir/logs/dartclaw.log
 StandardError=append:$instanceDir/logs/dartclaw.err.log
 NoNewPrivileges=true
-
+$hardening
 [Install]
-WantedBy=default.target
+WantedBy=$target
 ''';
   }
 }
 
-ServiceBackend createPlatformBackend({Future<ProcessResult> Function(String, List<String>)? run, String? home}) {
+ServiceBackend createPlatformBackend({RunProcess? run, String? home}) {
   if (Platform.isMacOS) {
-    return MacOSLaunchAgentBackend(run: run, home: home);
+    return MacOSLaunchdBackend(run: run, home: home);
   }
   if (Platform.isLinux) {
-    return LinuxSystemdUserBackend(run: run, home: home);
+    return LinuxSystemdBackend(run: run, home: home);
   }
   return UnsupportedPlatformBackend();
 }

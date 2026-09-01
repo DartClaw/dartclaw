@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../config_loader.dart';
@@ -18,14 +18,12 @@ abstract class SecretsSubcommand extends CredentialSubcommand {
   /// store and the config file, so they need the config file's own view; the
   /// merged one would show a shadowed name only as its stored entry. The write
   /// paths need nothing from the merge either — only `server.data_dir`.
-  DartclawConfig loadDeclaredConfig() {
-    ensureCliChannelConfigsRegistered();
-    return DartclawConfig.load(
-      configPath: configPathOverride,
-      cliOverrides: {'data_dir': ?dataDirOverride},
-      env: environment,
-    );
-  }
+  DartclawConfig loadDeclaredConfig() => loadCliConfig(
+    configPath: configPathOverride,
+    cliOverrides: {'data_dir': ?dataDirOverride},
+    env: environment,
+    resolveStoredCredentials: false,
+  );
 
   /// Opens the named store, refusing rather than throwing.
   ///

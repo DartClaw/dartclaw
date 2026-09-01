@@ -65,10 +65,10 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
       liveStatusLine: LiveStatusLine.forStdout(jsonOutput: argResults!['json'] as bool),
     );
     final finalRun = await driveStandaloneWorkflowRun(
-      service: session.wiring.workflowService,
-      taskService: session.wiring.taskService,
+      service: session.runtime.workflowService,
+      taskService: session.runtime.taskService,
       definition: definition,
-      eventBus: session.wiring.eventBus,
+      eventBus: session.runtime.eventBus,
       printer: printer,
       jsonOutput: argResults!['json'] as bool,
       stdoutLine: writeLine,

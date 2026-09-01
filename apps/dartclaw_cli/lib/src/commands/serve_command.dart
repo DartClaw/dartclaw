@@ -1,10 +1,12 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_acp/dartclaw_acp.dart';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Handler;
@@ -12,12 +14,8 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 
 import 'config_loader.dart';
 import 'reload_trigger_service.dart';
-import 'service_wiring.dart';
 
-typedef ServerFactory = DartclawServer Function(DartclawServerBuilder builder);
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
-typedef WriteLine = void Function(String line);
-typedef ExitFn = Never Function(int code);
 typedef ProcessSignalWatch = Stream<ProcessSignal> Function();
 
 /// Starts the DartClaw HTTP server with web UI.
@@ -26,7 +24,7 @@ class ServeCommand extends Command<void> {
   final SearchDbFactory _searchDbFactory;
   final TaskDbFactory _taskDbFactory;
   final HarnessFactory _harnessFactory;
-  final ServerFactory _serverFactory;
+  final ServerFactory? _serverFactory;
   final ServeFn _serveFn;
   final WriteLine _stderrLine;
   final ExitFn _exitFn;
@@ -35,6 +33,7 @@ class ServeCommand extends Command<void> {
   final ProcessSignalWatch _sigintWatch;
   final ProcessSignalWatch _sigtermWatch;
   final bool _runWorkflowSkillsBootstrap;
+  final bool _connectChannels;
   static final _log = Logger('ServeCommand');
 
   @override
@@ -57,11 +56,12 @@ class ServeCommand extends Command<void> {
     ProcessSignalWatch? sigintWatch,
     ProcessSignalWatch? sigtermWatch,
     bool runWorkflowSkillsBootstrap = true,
+    bool connectChannels = true,
   }) : _config = config,
        _searchDbFactory = searchDbFactory ?? openSearchDb,
        _taskDbFactory = taskDbFactory ?? openTaskDb,
        _harnessFactory = harnessFactory ?? HarnessFactory(),
-       _serverFactory = serverFactory ?? ((builder) => builder.build()),
+       _serverFactory = serverFactory,
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
        _stderrLine = stderrLine ?? stderr.writeln,
        _exitFn = exitFn ?? exit,
@@ -69,6 +69,7 @@ class ServeCommand extends Command<void> {
        _sigintWatch = sigintWatch ?? (() => ProcessSignal.sigint.watch()),
        _sigtermWatch = sigtermWatch ?? (() => ProcessSignal.sigterm.watch()),
        _runWorkflowSkillsBootstrap = runWorkflowSkillsBootstrap,
+       _connectChannels = connectChannels,
        _assetResolver = assetResolver ?? const AssetResolver() {
     argParser
       ..addOption('port', abbr: 'p', defaultsTo: '3333', help: 'Port to listen on')
@@ -80,7 +81,6 @@ class ServeCommand extends Command<void> {
       )
       ..addOption('static-dir', help: 'Static assets directory path')
       ..addOption('templates-dir', help: 'HTML templates directory path')
-      ..addOption('worker-timeout', help: 'Worker timeout in seconds')
       ..addOption('claude-executable', help: 'Path to claude binary (default: claude)')
       ..addOption('log-format', allowed: ['human', 'json'], defaultsTo: 'human', help: 'Log output format')
       ..addOption('log-file', help: 'Write logs to file (in addition to stderr)')
@@ -90,7 +90,6 @@ class ServeCommand extends Command<void> {
         defaultsTo: 'INFO',
         help: 'Minimum log level',
       )
-      ..addFlag('connect-channels', defaultsTo: true, hide: true)
       ..addFlag('dev', negatable: false, help: 'Enable dev mode (template hot-reload)');
   }
 
@@ -105,24 +104,30 @@ class ServeCommand extends Command<void> {
       }
     }
 
-    // Build config: injected > CLI+YAML+defaults
-    final config =
+    // Build config: injected > CLI+YAML+defaults, then settle the container
+    // posture before anything reads it — an unset `container.enabled` has no
+    // answer until a runtime probe runs, and that cannot happen inside parsing.
+    final config = await resolveContainerPosture(
+      primeHarnessSections(
         _config ??
-        loadCliConfig(
-          configPath: globalResults?['config'] as String?,
-          cliOverrides: {
-            if (argResults!.wasParsed('port')) 'port': argResults!['port'] as String,
-            if (argResults!.wasParsed('host')) 'host': argResults!['host'] as String,
-            if (argResults!.wasParsed('data-dir')) 'data_dir': argResults!['data-dir'] as String,
-            if (argResults!.wasParsed('worker-timeout')) 'worker_timeout': argResults!['worker-timeout'] as String,
-            if (argResults!.wasParsed('source-dir')) 'source_dir': argResults!['source-dir'] as String,
-            if (argResults!.wasParsed('static-dir')) 'static_dir': argResults!['static-dir'] as String,
-            if (argResults!.wasParsed('templates-dir')) 'templates_dir': argResults!['templates-dir'] as String,
-            if (argResults!.wasParsed('claude-executable'))
-              'claude_executable': argResults!['claude-executable'] as String,
-            if (argResults!['dev'] == true) 'dev_mode': 'true',
-          },
-        );
+            loadCliConfig(
+              configPath: globalResults?['config'] as String?,
+              cliOverrides: {
+                if (argResults!.wasParsed('port')) 'port': argResults!['port'] as String,
+                if (argResults!.wasParsed('host')) 'host': argResults!['host'] as String,
+                if (argResults!.wasParsed('data-dir')) 'data_dir': argResults!['data-dir'] as String,
+                if (argResults!.wasParsed('source-dir')) 'source_dir': argResults!['source-dir'] as String,
+                if (argResults!.wasParsed('static-dir')) 'static_dir': argResults!['static-dir'] as String,
+                if (argResults!.wasParsed('templates-dir')) 'templates_dir': argResults!['templates-dir'] as String,
+                if (argResults!.wasParsed('claude-executable'))
+                  'claude_executable': argResults!['claude-executable'] as String,
+                if (argResults!['dev'] == true) 'dev_mode': 'true',
+              },
+            ),
+        sectionPrimers: cliHarnessSectionPrimers,
+      ),
+      platformCapabilities: _platformCapabilities,
+    );
 
     for (final w in config.warnings) {
       _stderrLine('WARNING: $w');
@@ -184,7 +189,7 @@ class ServeCommand extends Command<void> {
     if (!logsDir.existsSync()) {
       logsDir.createSync(recursive: true);
     }
-    ServiceWiring.writeLogRotationSamples(logsDir.path);
+    DartclawRuntime.writeLogRotationSamples(logsDir.path);
 
     T cliOr<T>(String flag, T configValue) =>
         _config == null && argResults!.wasParsed(flag) ? argResults![flag] as T : configValue;
@@ -250,28 +255,9 @@ class ServeCommand extends Command<void> {
     StreamSubscription<ProcessSignal>? sigtermSub;
     ReloadTriggerService? reloadTrigger;
 
-    Future<void> disposeExtrasBestEffort(WiringResult result, {String? context}) async {
-      Future<void> attempt(String label, Future<void> Function() action) async {
-        try {
-          await action();
-        } catch (error, stackTrace) {
-          final suffix = context == null ? '' : ' ($context)';
-          _log.warning('Cleanup error during $label$suffix', error, stackTrace);
-        }
-      }
-
-      await attempt('shutdownExtras', result.shutdownExtras);
-      await attempt('kvService.dispose', result.kvService.dispose);
-      await attempt('selfImprovement.dispose', result.selfImprovement.dispose);
-      await attempt('taskService.dispose', result.taskService.dispose);
-      await attempt('eventBus.dispose', result.eventBus.dispose);
-      await attempt('qmdManager.stop', () async => await result.qmdManager?.stop());
-    }
-
     try {
-      // Wire all services
-      final wiring = ServiceWiring(
-        config: config,
+      final runtime = await DartclawRuntime.build(
+        config,
         dataDir: dataDir,
         port: port,
         harnessFactory: _harnessFactory,
@@ -282,28 +268,28 @@ class ServeCommand extends Command<void> {
         exitFn: _exitFn,
         resolvedConfigPath: resolvedConfigPath,
         resolvedAssets: resolvedAssets,
-        logService: logService,
         messageRedactor: messageRedactor,
         platformCapabilities: _platformCapabilities,
         runWorkflowSkillsBootstrap: _runWorkflowSkillsBootstrap,
+        harnessRegistrars: const [AcpHarnessRegistrar()],
       );
-      final result = await wiring.wire();
+      final server = runtime.server!;
 
       // Start HTTP server (handler built here — services are set above)
       late HttpServer httpServer;
       try {
-        httpServer = await _serveFn(result.server.handler, host, port);
+        httpServer = await _serveFn(server.handler, host, port);
       } on SocketException catch (e) {
         _log.severe(
           'Cannot bind to $host:$port — is another process already '
           'using this port? Try: lsof -ti :$port | xargs kill ($e)',
         );
         try {
-          await result.prepareExecutionShutdown?.call();
-          await result.server.shutdown();
-          await disposeExtrasBestEffort(result, context: 'bind failure');
-        } finally {
-          await ServiceWiring.teardown(null, result.searchDb, null, null);
+          await runtime.shutdown();
+        } catch (error, stackTrace) {
+          // Teardown is best-effort here: the operator's actionable signal is
+          // the bind failure above and the non-zero exit below.
+          _log.fine('Error during bind-failure teardown', error, stackTrace);
         }
         _exitFn(1);
       }
@@ -316,10 +302,10 @@ class ServeCommand extends Command<void> {
             host: host,
             port: port,
             name: config.server.name,
-            token: result.tokenService?.token,
-            authEnabled: result.authEnabled,
+            token: runtime.tokenService?.token,
+            authEnabled: runtime.authEnabled,
             guardsEnabled: config.security.guards.enabled,
-            containerEnabled: config.container.enabled,
+            containerEnabled: runtime.containerIsolationActive,
             channels: [
               if (config.channels.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
               if (config.channels.channelConfigs['signal']?['enabled'] == true) 'Signal',
@@ -336,11 +322,11 @@ class ServeCommand extends Command<void> {
           '(provider: $providerName, model: ${modelName ?? 'default'})',
         );
       }
-      result.resetService.start();
+      runtime.requireResetService.start();
 
       // Connect channels
-      if (result.channelManager != null && (argResults!['connect-channels'] as bool)) {
-        await result.channelManager!.connectAll();
+      if (runtime.channelManager != null && _connectChannels) {
+        await runtime.channelManager!.connectAll();
       }
 
       // Shutdown machinery
@@ -355,18 +341,9 @@ class ServeCommand extends Command<void> {
         try {
           await Future(() async {
             reloadTrigger?.dispose();
-            result.heartbeat?.stop();
             await httpServer.close();
-            result.scheduleService?.stop();
-            result.resetService.dispose();
-            try {
-              await result.prepareExecutionShutdown?.call();
-              await result.server.shutdown();
-              await disposeExtrasBestEffort(result, context: 'shutdown');
-              _stderrLine('Shutdown complete');
-            } finally {
-              result.searchDb.close();
-            }
+            await runtime.shutdown();
+            _stderrLine('Shutdown complete');
           }).timeout(const Duration(seconds: 10));
         } on TimeoutException {
           _stderrLine('Shutdown timed out, forcing exit');
@@ -387,8 +364,9 @@ class ServeCommand extends Command<void> {
       // Start reload triggers (SIGUSR1 and/or file-watch per gateway.reload config)
       reloadTrigger = ReloadTriggerService(
         configPath: resolvedConfigPath,
-        notifier: result.configNotifier,
+        notifier: runtime.configNotifier,
         reloadConfig: config.gateway.reload,
+        configLoader: () => loadCliConfig(configPath: resolvedConfigPath),
         platformCapabilities: _platformCapabilities,
       );
       reloadTrigger.start();
@@ -419,18 +397,4 @@ bool _assetDirsDifferFromDefaults(DartclawConfig config) {
   const defaults = ServerConfig.defaults();
   return !p.equals(p.normalize(config.server.templatesDir), p.normalize(defaults.templatesDir)) ||
       !p.equals(p.normalize(config.server.staticDir), p.normalize(defaults.staticDir));
-}
-
-/// Returns built-in tool names to suppress when the MCP server is active.
-///
-/// `WebFetch` is always suppressed when MCP is enabled (replaced by the
-/// `web_fetch` MCP tool which includes ContentGuard scanning).
-/// `WebSearch` is only suppressed when at least one search provider is
-/// configured — otherwise the agent loses search capability entirely.
-List<String> mcpDisallowedTools({
-  required bool mcpEnabled,
-  required bool searchEnabled,
-  required List<String> userDisallowed,
-}) {
-  return [...userDisallowed, if (mcpEnabled) 'WebFetch', if (mcpEnabled && searchEnabled) 'WebSearch'];
 }

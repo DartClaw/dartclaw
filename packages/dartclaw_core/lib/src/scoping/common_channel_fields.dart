@@ -1,7 +1,6 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show RetryPolicy;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../channel/dm_access.dart';
-import '../channel/task_trigger_config.dart';
 import 'group_entry.dart';
 
 /// Shared channel configuration fields and YAML parsing.
@@ -33,12 +32,6 @@ class CommonChannelFields<TGroupAccess extends Enum> {
   /// Maximum size of each outbound text chunk.
   final int maxChunkSize;
 
-  /// Retry policy for outbound delivery failures.
-  final RetryPolicy retryPolicy;
-
-  /// Per-channel task trigger configuration.
-  final TaskTriggerConfig taskTrigger;
-
   /// Creates immutable shared channel configuration fields.
   const new({
     required this.enabled,
@@ -50,8 +43,6 @@ class CommonChannelFields<TGroupAccess extends Enum> {
     required this.mentionPatterns,
     required this.responsePrefix,
     required this.maxChunkSize,
-    required this.retryPolicy,
-    required this.taskTrigger,
   });
 
   /// Parses shared channel configuration fields from YAML.
@@ -71,6 +62,7 @@ class CommonChannelFields<TGroupAccess extends Enum> {
       yaml['dm_access'],
       warns,
       field: '$channelName.dm_access',
+      fieldMeta: ConfigMeta.fields['channels.$channelName.dm_access']!,
       defaultValue: defaultDmAccess,
       parse: (value) {
         for (final candidate in DmAccessMode.values) {
@@ -87,6 +79,7 @@ class CommonChannelFields<TGroupAccess extends Enum> {
       yaml['group_access'],
       warns,
       field: '$channelName.group_access',
+      fieldMeta: ConfigMeta.fields['channels.$channelName.group_access']!,
       defaultValue: defaultGroupAccess,
       parse: parseGroupAccess,
       invalidValueMessage: (value) => 'Invalid $channelName.group_access: "$value" — using default',
@@ -120,22 +113,6 @@ class CommonChannelFields<TGroupAccess extends Enum> {
       defaultValue: defaultMaxChunkSize,
     );
 
-    var retryPolicy = const RetryPolicy();
-    final rpRaw = yaml['retry_policy'];
-    if (rpRaw is Map) {
-      retryPolicy = RetryPolicy.fromYaml(Map<String, dynamic>.from(rpRaw), warns);
-    } else if (rpRaw != null) {
-      warns.add('Invalid type for $channelName.retry_policy: "${rpRaw.runtimeType}" — using default');
-    }
-
-    var taskTrigger = const TaskTriggerConfig.disabled();
-    final taskTriggerRaw = yaml['task_trigger'];
-    if (taskTriggerRaw is Map) {
-      taskTrigger = TaskTriggerConfig.fromYaml(Map<String, dynamic>.from(taskTriggerRaw), warns);
-    } else if (taskTriggerRaw != null) {
-      warns.add('Invalid type for $channelName.task_trigger: "${taskTriggerRaw.runtimeType}" — using default');
-    }
-
     return CommonChannelFields(
       enabled: enabled,
       dmAccess: dmAccess,
@@ -146,8 +123,6 @@ class CommonChannelFields<TGroupAccess extends Enum> {
       mentionPatterns: mentionPatterns,
       responsePrefix: responsePrefix,
       maxChunkSize: maxChunkSize,
-      retryPolicy: retryPolicy,
-      taskTrigger: taskTrigger,
     );
   }
 
@@ -179,14 +154,14 @@ class CommonChannelFields<TGroupAccess extends Enum> {
     Object? raw,
     List<String> warns, {
     required String field,
+    required FieldMeta fieldMeta,
     required T defaultValue,
     required T? Function(String value) parse,
     required String Function(String value) invalidValueMessage,
   }) {
     if (raw is String) {
-      final parsed = parse(raw);
-      if (parsed != null) {
-        return parsed;
+      if (FieldConstraints.evaluate(fieldMeta, raw) == null) {
+        return parse(raw)!;
       }
       warns.add(invalidValueMessage(raw));
       return defaultValue;

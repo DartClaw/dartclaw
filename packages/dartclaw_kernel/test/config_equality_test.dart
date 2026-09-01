@@ -1,0 +1,354 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('Config section equality', () {
+    group('ServerConfig', () {
+      test('equal instances with same fields', () {
+        const a = ServerConfig(port: 8080, host: 'example.com', name: 'Test');
+        const b = ServerConfig(port: 8080, host: 'example.com', name: 'Test');
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different port are not equal', () {
+        const a = ServerConfig(port: 3000);
+        const b = ServerConfig(port: 8080);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('different host are not equal', () {
+        const a = ServerConfig(host: 'localhost');
+        const b = ServerConfig(host: '0.0.0.0');
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('SchedulingConfig', () {
+      test('equal instances match', () {
+        const a = SchedulingConfig(heartbeatEnabled: false, heartbeatIntervalMinutes: 10);
+        const b = SchedulingConfig(heartbeatEnabled: false, heartbeatIntervalMinutes: 10);
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different heartbeatEnabled are not equal', () {
+        const a = SchedulingConfig(heartbeatEnabled: true);
+        const b = SchedulingConfig(heartbeatEnabled: false);
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('SecurityConfig', () {
+      test('equal default instances match', () {
+        const a = SecurityConfig.defaults();
+        const b = SecurityConfig.defaults();
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different contentGuardEnabled are not equal', () {
+        const a = SecurityConfig(contentGuardEnabled: true);
+        const b = SecurityConfig(contentGuardEnabled: false);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('different contentGuardFailOpen are not equal', () {
+        const a = SecurityConfig(contentGuardFailOpen: true);
+        const b = SecurityConfig(contentGuardFailOpen: false);
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('AgentConfig', () {
+      test('equal defaults match', () {
+        const a = AgentConfig.defaults();
+        const b = AgentConfig.defaults();
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different provider are not equal', () {
+        const a = AgentConfig(provider: 'claude');
+        const b = AgentConfig(provider: 'codex');
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('HarnessConfig', () {
+      test('retained harness sections participate in equality', () {
+        const a = HarnessConfig(
+          sections: {
+            'acp': {
+              'agents': {
+                'goose': {
+                  'binary': 'goose',
+                  'args': ['acp'],
+                  'topology': 'direct',
+                },
+              },
+            },
+          },
+        );
+        const b = HarnessConfig(
+          sections: {
+            'acp': {
+              'agents': {
+                'goose': {
+                  'binary': 'goose',
+                  'args': ['acp'],
+                  'topology': 'direct',
+                },
+              },
+            },
+          },
+        );
+        const c = HarnessConfig(
+          sections: {
+            'acp': {
+              'agents': {
+                'goose': {'binary': 'goose'},
+              },
+            },
+          },
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+      });
+    });
+
+    group('WorkspaceConfig', () {
+      test('equal instances match', () {
+        const a = WorkspaceConfig(gitSyncEnabled: false);
+        const b = WorkspaceConfig(gitSyncEnabled: false);
+        expect(a, equals(b));
+      });
+
+      test('journal and curation settings participate in equality', () {
+        const defaults = MemoryConfig.defaults();
+        final enabled = MemoryConfig(journalEnabled: true);
+        final rescheduled = MemoryConfig(journalSchedule: '0 6 * * *');
+        final curating = MemoryConfig(curationEnabled: true);
+        final recurated = MemoryConfig(curationSchedule: '0 4 * * *');
+
+        expect(defaults, isNot(equals(enabled)));
+        expect(defaults, isNot(equals(rescheduled)));
+        expect(defaults, isNot(equals(curating)));
+        expect(defaults, isNot(equals(recurated)));
+        expect(defaults.hashCode, isNot(enabled.hashCode));
+        expect(defaults.hashCode, isNot(curating.hashCode));
+      });
+
+      test('different gitSyncEnabled are not equal', () {
+        const a = WorkspaceConfig(gitSyncEnabled: true);
+        const b = WorkspaceConfig(gitSyncEnabled: false);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('different gitSyncIntervalMinutes are not equal', () {
+        const a = WorkspaceConfig(gitSyncIntervalMinutes: 30);
+        const b = WorkspaceConfig(gitSyncIntervalMinutes: 5);
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('OnboardingConfig', () {
+      test('equal instances match', () {
+        const a = OnboardingConfig(expiryDays: 7);
+        const b = OnboardingConfig(expiryDays: 7);
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different expiryDays are not equal', () {
+        const a = OnboardingConfig(expiryDays: 7);
+        const b = OnboardingConfig(expiryDays: 14);
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('ContextConfig', () {
+      test('equal instances match', () {
+        const a = ContextConfig(reserveTokens: 10000, warningThreshold: 90);
+        const b = ContextConfig(reserveTokens: 10000, warningThreshold: 90);
+        expect(a, equals(b));
+      });
+    });
+
+    group('MemoryConfig', () {
+      test('equal instances match', () {
+        final a = MemoryConfig(maxBytes: 64 * 1024);
+        final b = MemoryConfig(maxBytes: 64 * 1024);
+        expect(a, equals(b));
+      });
+    });
+
+    group('KnowledgeConfig', () {
+      test('equal instances match', () {
+        const a = KnowledgeConfig.defaults();
+        const b = KnowledgeConfig.defaults();
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different inbox config is not equal', () {
+        const a = KnowledgeConfig.defaults();
+        const b = KnowledgeConfig(
+          inbox: KnowledgeInboxConfig(
+            enabled: true,
+            intervalMinutes: 5,
+            maxBytes: 1024 * 1024,
+            retryAttempts: 2,
+            processedRetentionDays: 30,
+            deliveryMode: 'announce',
+            effort: 'medium',
+          ),
+        );
+        expect(a, isNot(equals(b)));
+      });
+
+      test('extraction effort alone changes equality', () {
+        const a = KnowledgeConfig(inbox: KnowledgeInboxConfig.defaults());
+        const b = KnowledgeConfig(
+          inbox: KnowledgeInboxConfig(
+            enabled: false,
+            intervalMinutes: 5,
+            maxBytes: 1024 * 1024,
+            retryAttempts: 2,
+            processedRetentionDays: 30,
+            deliveryMode: 'announce',
+            effort: 'high',
+          ),
+        );
+        expect(a, isNot(equals(b)));
+        expect(a.hashCode, isNot(equals(b.hashCode)));
+      });
+    });
+
+    group('UsageConfig', () {
+      test('equal instances match', () {
+        const a = UsageConfig(budgetWarningTokens: 50000);
+        const b = UsageConfig(budgetWarningTokens: 50000);
+        expect(a, equals(b));
+      });
+    });
+
+    group('McpServersConfig', () {
+      test('entries participate in equality', () {
+        const entry = McpServerEntry(
+          command: 'linear-mcp',
+          enabled: true,
+          networkClass: McpNetworkClass.public,
+          credential: 'linear',
+          allowTools: ['list_issues'],
+        );
+        const a = McpServersConfig(entries: {'linear': entry});
+        const b = McpServersConfig(entries: {'linear': entry});
+        const c = McpServersConfig(
+          entries: {
+            'github': McpServerEntry(
+              command: 'github-mcp',
+              enabled: true,
+              networkClass: McpNetworkClass.public,
+              credential: 'github',
+            ),
+          },
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+        expect(
+          entry,
+          isNot(
+            equals(
+              McpServerEntry(
+                command: 'linear-mcp',
+                enabled: true,
+                networkClass: McpNetworkClass.public,
+                credential: 'linear',
+                allowTools: ['create_issue'],
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('ConfigNotifier does not hot-reload mcp_servers changes', () {
+        const base = DartclawConfig.defaults();
+        final updated = base.copyWith(
+          mcpServers: const McpServersConfig(
+            entries: {
+              'linear': McpServerEntry(
+                command: 'linear-mcp',
+                networkClass: McpNetworkClass.public,
+                credential: 'linear',
+              ),
+            },
+          ),
+        );
+
+        final delta = ConfigNotifier(base).reload(updated);
+
+        expect(delta, isNull);
+      });
+    });
+
+    group('ProvidersConfig', () {
+      test('auth participates in equality so ConfigNotifier sees a change', () {
+        const a = ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')});
+        const b = ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude')});
+        const c = ProvidersConfig(
+          entries: {'claude': ProviderEntry(executable: 'claude', auth: ProviderAuth.subscription)},
+        );
+
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+        expect(a, isNot(equals(c)));
+      });
+    });
+
+    group('LoggingConfig', () {
+      test('equal instances match', () {
+        const a = LoggingConfig(format: 'json', level: 'DEBUG');
+        const b = LoggingConfig(format: 'json', level: 'DEBUG');
+        expect(a, equals(b));
+      });
+
+      test('different format are not equal', () {
+        const a = LoggingConfig(format: 'json');
+        const b = LoggingConfig(format: 'human');
+        expect(a, isNot(equals(b)));
+      });
+    });
+
+    group('WorkflowRuntimeArtifactsRetentionConfig', () {
+      test('equal instances match', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7);
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      });
+
+      test('different pruneAfterDays are not equal', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(pruneAfterDays: 7);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(pruneAfterDays: 30);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('different mode are not equal', () {
+        const a = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.warn);
+        const b = WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce);
+        expect(a, isNot(equals(b)));
+      });
+
+      test('default is disabled', () {
+        const config = WorkflowRuntimeArtifactsRetentionConfig.defaults();
+        expect(config.pruneAfterDays, 0);
+        expect(config.mode, MaintenanceMode.warn);
+      });
+    });
+  });
+}

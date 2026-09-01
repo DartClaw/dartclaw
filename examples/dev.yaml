@@ -15,6 +15,11 @@ gateway:
 guards:
   enabled: false
 
+# Declared, so a development checkout does not build and boot a container image
+# just because a runtime happens to be installed.
+container:
+  enabled: false
+
 scheduling:
   heartbeat:
     enabled: false

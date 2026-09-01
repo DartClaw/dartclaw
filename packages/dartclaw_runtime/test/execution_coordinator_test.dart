@@ -1,0 +1,784 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:async';
+
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_runtime/src/execution_coordinator.dart';
+import 'package:dartclaw_runtime/src/turn_runner.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:test/test.dart';
+
+void main() {
+  group('ExecutionCoordinator', () {
+    test('rejects admission callbacks unless both ownership operations are configured', () {
+      TurnRunner createRunner(ExecutionRequest request) =>
+          _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
+
+      expect(
+        () => ExecutionCoordinator(
+          providerCapacities: const {'claude': 1},
+          createWorker: (request) async => createRunner(request),
+          admitExecution: (_) async {},
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => ExecutionCoordinator(
+          providerCapacities: const {'claude': 1},
+          createWorker: (request) async => createRunner(request),
+          releaseAdmission: (_) {},
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('every lane requires coordinator-owned admission', () async {
+      expect(ExecutionLane.values, [ExecutionLane.primary, ExecutionLane.worker]);
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        primary: _runner(_TestHarness(), providerId: 'claude', policy: const ExecutionPolicy.host()),
+        createWorker: (request) async =>
+            _runner(_TestHarness(), providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      for (final surface in ExecutionSurface.values) {
+        await expectLater(
+          coordinator.acquire(
+            ExecutionRequest(
+              surface: surface,
+              providerId: 'claude',
+              policy: const ExecutionPolicy.host(),
+              sessionId: surface.name,
+            ),
+          ),
+          throwsA(
+            isA<StateError>().having((error) => error.message, 'message', contains('coordinator-owned admission')),
+          ),
+          reason: surface.name,
+        );
+      }
+    });
+
+    test('reuses exact-session worker before another compatible worker', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+
+      final first = await fixture.acquire(sessionId: 'session-a');
+      final second = await fixture.acquire(sessionId: 'session-b');
+      final firstRunner = first.runner;
+      final secondRunner = second.runner;
+      expect((firstRunner.harness as _TestHarness).startCalled, isTrue);
+      expect((secondRunner.harness as _TestHarness).startCalled, isTrue);
+      await first.release();
+      await second.release();
+
+      final reacquired = await fixture.acquire(sessionId: 'session-b');
+
+      expect(reacquired.runner, same(secondRunner));
+      expect(reacquired.runner, isNot(same(firstRunner)));
+      expect(fixture.created, hasLength(2));
+      await reacquired.release();
+    });
+
+    test('never reuses across provider or profile', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2, 'codex': 1});
+      addTearDown(fixture.dispose);
+
+      final workspace = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'claude',
+        policy: const ExecutionPolicy.host(),
+      );
+      final workspaceRunner = workspace.runner;
+      await workspace.release();
+
+      final restricted = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('restricted'),
+      );
+      final codex = await fixture.acquire(
+        sessionId: 'shared',
+        providerId: 'codex',
+        policy: const ExecutionPolicy.host(),
+      );
+
+      expect(restricted.runner, isNot(same(workspaceRunner)));
+      expect(codex.runner, isNot(same(workspaceRunner)));
+      expect(restricted.runner.executionPolicy, const ExecutionPolicy.container('restricted'));
+      expect(codex.runner.providerId, 'codex');
+      await restricted.release();
+      await codex.release();
+    });
+
+    test('workflow lease carries a started coordinator-owned worker', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+
+      final lease = await fixture.acquire(sessionId: 'job', surface: ExecutionSurface.workflow);
+
+      expect(lease.runner, isNotNull);
+      expect(lease.runnerId, isNotNull);
+      expect((lease.runner.harness as _TestHarness).startCalled, isTrue);
+      expect(fixture.created, hasLength(1));
+      expect(fixture.coordinator.snapshot.providers['claude']!.active, 1);
+      await lease.release();
+      expect(fixture.coordinator.snapshot.providers['claude']!.active, 0);
+    });
+
+    test('workflow construction inputs neither consume nor populate the warm-worker cache', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+      final workerLease = await fixture.acquire(sessionId: 'task');
+      final warmRunner = workerLease.runner;
+      final warmHarness = warmRunner.harness as _TestHarness;
+      await workerLease.release();
+
+      final workflowLease = await fixture.coordinator.acquire(
+        fixture.request(
+          sessionId: 'workflow',
+          surface: ExecutionSurface.workflow,
+          artifactsDir: '/tmp/workflow-a',
+          spawnEnvironment: const {'DARTCLAW_STEP_ARTIFACTS_DIR': '/tmp/workflow-a'},
+        ),
+      );
+
+      expect(workflowLease!.runner, isNot(same(warmRunner)));
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+      expect(warmHarness.stopCalled, isFalse);
+      expect(warmHarness.disposeCalled, isFalse);
+      final firstWorkflowRunner = workflowLease.runner;
+      await workflowLease.release();
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+
+      final secondWorkflowLease = await fixture.coordinator.acquire(
+        fixture.request(
+          sessionId: 'workflow',
+          surface: ExecutionSurface.workflow,
+          artifactsDir: '/tmp/workflow-b',
+          spawnEnvironment: const {'DARTCLAW_STEP_ARTIFACTS_DIR': '/tmp/workflow-b'},
+        ),
+      );
+      expect(secondWorkflowLease!.runner, isNot(same(firstWorkflowRunner)));
+      await secondWorkflowLease.release();
+
+      final reused = await fixture.acquire(sessionId: 'task');
+      expect(reused.runner, same(warmRunner));
+      expect(fixture.created, hasLength(3));
+      await reused.release();
+    });
+
+    test('fail-fast admission reports exhaustion without queueing', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final active = await fixture.acquire(sessionId: 'active');
+
+      final denied = await fixture.coordinator.acquire(
+        fixture.request(sessionId: 'denied', admission: ExecutionAdmission.failFast),
+      );
+
+      expect(denied, isNull);
+      expect(fixture.coordinator.snapshot.providers['claude']!.queued, 0);
+      await active.release();
+    });
+
+    test('runs admission before capacity and releases it when fail-fast capacity is denied', () async {
+      final calls = <String>[];
+      late final ExecutionCoordinator coordinator;
+      coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) async => calls.add('admit:${request.sessionId}'),
+        releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+        createWorker: (request) async {
+          calls.add('create:${request.sessionId}');
+          return _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
+        },
+      );
+      addTearDown(coordinator.dispose);
+      ExecutionRequest request(String sessionId, {ExecutionAdmission admission = ExecutionAdmission.wait}) =>
+          ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: sessionId,
+            admission: admission,
+          );
+
+      final active = await coordinator.acquire(request('active'));
+      final denied = await coordinator.acquire(request('denied', admission: ExecutionAdmission.failFast));
+
+      expect(active, isNotNull);
+      expect(denied, isNull);
+      expect(calls, ['admit:active', 'create:active', 'admit:denied', 'release:denied']);
+      await active!.release();
+      expect(calls.last, 'release:active');
+    });
+
+    test('routed requests retain execution-scoped construction inputs', () async {
+      final admitted = <ExecutionRequest>[];
+      final primary = _runner(_TestHarness(), providerId: 'claude', policy: const ExecutionPolicy.container('primary'));
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        primary: primary,
+        admitExecution: (request) async => admitted.add(request),
+        releaseAdmission: (_) {},
+        createWorker: (_) => throw StateError('must not create'),
+      );
+      addTearDown(coordinator.dispose);
+
+      final lease = await coordinator.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.interactive,
+          providerId: 'ignored-by-primary-route',
+          policy: ExecutionPolicy.host(),
+          sessionId: 'routed',
+          artifactsDir: '/tmp/routed',
+          spawnEnvironment: {'DARTCLAW_STEP_ARTIFACTS_DIR': '/tmp/routed'},
+        ),
+      );
+      addTearDown(() async => lease?.release());
+
+      expect(admitted.single.providerId, 'claude');
+      expect(admitted.single.policy, const ExecutionPolicy.container('primary'));
+      expect(admitted.single.artifactsDir, '/tmp/routed');
+      expect(admitted.single.spawnEnvironment, {'DARTCLAW_STEP_ARTIFACTS_DIR': '/tmp/routed'});
+    });
+
+    test('releases admission when worker creation fails', () async {
+      final calls = <String>[];
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) async => calls.add('admit:${request.sessionId}'),
+        releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+        createWorker: (_) async => throw const WorkerCreationException('failed'),
+      );
+      addTearDown(coordinator.dispose);
+
+      await expectLater(
+        coordinator.acquire(
+          ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: 'failed',
+          ),
+        ),
+        throwsA(isA<WorkerCreationException>()),
+      );
+
+      expect(calls, ['admit:failed', 'release:failed']);
+      expect(coordinator.snapshot.activeWorkers, 0);
+    });
+
+    test('workflow worker lease owns and releases admission', () async {
+      final calls = <String>[];
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) async => calls.add('admit:${request.sessionId}'),
+        releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+        createWorker: (request) async =>
+            _runner(_TestHarness(), providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      final lease = await coordinator.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.workflow,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.host(),
+          sessionId: 'workflow',
+        ),
+      );
+      expect(lease, isNotNull);
+      expect(calls, ['admit:workflow']);
+
+      await lease!.release();
+      expect(calls, ['admit:workflow', 'release:workflow']);
+    });
+
+    test('selects the execution lane from the surface centrally', () async {
+      final primaryHarness = _TestHarness();
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1}, primaryHarness: primaryHarness);
+      addTearDown(fixture.dispose);
+      final events = <ExecutionEvent>[];
+      final subscription = fixture.coordinator.events.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      Future<void> acquireAndExpectLane(
+        ExecutionSurface surface,
+        ExecutionLane lane, {
+        ExecutionPolicy policy = const ExecutionPolicy.host(),
+      }) async {
+        final lease = await fixture.acquire(sessionId: surface.name, policy: policy, surface: surface);
+        await _flushEvents();
+        expect(events.lastWhere((event) => event.kind == ExecutionEventKind.acquired).lane, lane);
+        await lease.release();
+      }
+
+      for (final surface in [ExecutionSurface.interactive, ExecutionSurface.channel]) {
+        await acquireAndExpectLane(surface, ExecutionLane.primary, policy: const ExecutionPolicy.container('primary'));
+      }
+      for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler, ExecutionSurface.logicalAgent]) {
+        await acquireAndExpectLane(surface, ExecutionLane.worker);
+      }
+      await acquireAndExpectLane(ExecutionSurface.workflow, ExecutionLane.worker);
+    });
+
+    test('SDK background fallback is explicit and excludes workflow and logical-agent surfaces', () async {
+      final primaryHarness = _TestHarness();
+      final primary = _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.host());
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {},
+        primary: primary,
+        allowPrimaryBackgroundFallback: true,
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (_) => throw StateError('must not create'),
+      );
+      addTearDown(coordinator.dispose);
+
+      for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler]) {
+        final lease = await coordinator.acquire(
+          ExecutionRequest(
+            surface: surface,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: surface.name,
+          ),
+        );
+        await lease!.release();
+      }
+      for (final mismatch in [const ExecutionPolicy.container('workspace')]) {
+        await expectLater(
+          coordinator.acquire(
+            ExecutionRequest(
+              surface: ExecutionSurface.task,
+              providerId: 'claude',
+              policy: mismatch,
+              sessionId: 'mismatched-policy',
+            ),
+          ),
+          throwsStateError,
+        );
+      }
+      await expectLater(
+        coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'codex',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'mismatched-provider',
+          ),
+        ),
+        throwsStateError,
+      );
+      for (final surface in [ExecutionSurface.workflow, ExecutionSurface.logicalAgent]) {
+        await expectLater(
+          coordinator.acquire(
+            ExecutionRequest(
+              surface: surface,
+              providerId: 'claude',
+              policy: const ExecutionPolicy.host(),
+              sessionId: surface.name,
+            ),
+          ),
+          throwsStateError,
+        );
+      }
+    });
+
+    test('disposes an unhealthy worker and creates its replacement', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final first = await fixture.acquire(sessionId: 'first');
+      final firstHarness = first.runner.harness as _TestHarness;
+      firstHarness.setState(WorkerState.crashed);
+
+      await first.release();
+      final replacement = await fixture.acquire(sessionId: 'second');
+
+      expect(firstHarness.stopCalled, isTrue);
+      expect(firstHarness.disposeCalled, isTrue);
+      expect(replacement.runner, isNot(same(first.runner)));
+      expect(fixture.created, hasLength(2));
+      await replacement.release();
+    });
+
+    test('rejects and disposes a non-idle worker returned by the factory', () async {
+      final harness = _TestHarness()..setState(WorkerState.stopped);
+      late final ExecutionCoordinator coordinator;
+      coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      await expectLater(
+        coordinator.acquire(
+          ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: 'invalid-factory-worker',
+          ),
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('did not become idle'))),
+      );
+
+      expect(harness.stopCalled, isTrue);
+      expect(harness.disposeCalled, isTrue);
+      expect(coordinator.snapshot.activeWorkers, 0);
+      expect(coordinator.snapshot.effectiveWorkers, 1);
+    });
+
+    test('quarantines a non-idle factory result when teardown is unconfirmed', () async {
+      final harness = _TestHarness(terminationConfirmed: false)..setState(WorkerState.crashed);
+      late final ExecutionCoordinator coordinator;
+      coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      await expectLater(
+        coordinator.acquire(
+          ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.host(),
+            sessionId: 'unsafe-factory-worker',
+          ),
+        ),
+        throwsStateError,
+      );
+
+      final capacity = coordinator.snapshot.providers['claude']!;
+      expect(capacity.active, 0);
+      expect(capacity.effective, 0);
+      expect(capacity.quarantined, 1);
+    });
+
+    test('startup failure with unconfirmed teardown quarantines capacity', () async {
+      final harness = _FailingStartHarness(terminationConfirmed: false);
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async => _runner(harness, providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      await expectLater(
+        coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'start-failed',
+          ),
+        ),
+        throwsA(isA<WorkerCreationException>()),
+      );
+
+      expect(harness.startCalled, isTrue);
+      expect(harness.stopCalled, isTrue);
+      expect(harness.disposeCalled, isTrue);
+      final capacity = coordinator.snapshot.providers['claude']!;
+      expect(capacity.active, 0);
+      expect(capacity.effective, 0);
+      expect(capacity.quarantined, 1);
+    });
+
+    test('unconfirmed worker teardown quarantines once across repeated release', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1}, terminationConfirmed: false);
+      addTearDown(fixture.dispose);
+      final lease = await fixture.acquire(sessionId: 'unsafe');
+      (lease.runner.harness as _TestHarness).setState(WorkerState.crashed);
+
+      final first = lease.release();
+      final second = lease.release();
+      expect(second, same(first));
+      await Future.wait([first, second]);
+
+      final capacity = fixture.coordinator.snapshot.providers['claude']!;
+      expect(capacity.quarantined, 1);
+      expect(capacity.effective, 0);
+      expect(capacity.active, 0);
+      expect(
+        await fixture.coordinator.acquire(
+          fixture.request(sessionId: 'replacement', admission: ExecutionAdmission.failFast),
+        ),
+        isNull,
+      );
+    });
+
+    test('dispose reaps cached workers and the primary harness', () async {
+      final primaryHarness = _TestHarness();
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1}, primaryHarness: primaryHarness);
+      final lease = await fixture.acquire(sessionId: 'cached');
+      final workerHarness = lease.runner.harness as _TestHarness;
+      await lease.release();
+
+      await fixture.dispose();
+
+      expect(workerHarness.stopCalled, isTrue);
+      expect(workerHarness.disposeCalled, isTrue);
+      expect(primaryHarness.stopCalled, isTrue);
+      expect(primaryHarness.disposeCalled, isTrue);
+    });
+
+    test('concurrent dispose calls await the same complete shutdown', () async {
+      final primaryHarness = _DelayedDisposeHarness();
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {},
+        primary: _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.host()),
+        createWorker: (_) => throw StateError('must not create'),
+      );
+
+      final first = coordinator.dispose();
+      await primaryHarness.disposeStarted.future;
+      final second = coordinator.dispose();
+      var secondCompleted = false;
+      unawaited(second.then((_) => secondCompleted = true));
+      await pumpEventQueue();
+
+      expect(second, same(first));
+      expect(secondCompleted, isFalse);
+
+      primaryHarness.allowDispose.complete();
+      await Future.wait([first, second]);
+      expect(secondCompleted, isTrue);
+    });
+
+    test('dispose drains an in-flight factory and rejects its late worker', () async {
+      final createStarted = Completer<void>();
+      final allowCreate = Completer<void>();
+      final harness = _TestHarness();
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async {
+          createStarted.complete();
+          await allowCreate.future;
+          return _runner(harness, providerId: request.providerId, policy: request.policy);
+        },
+      );
+      final acquisition = coordinator.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.task,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.host(),
+          sessionId: 'pending',
+        ),
+      );
+      await createStarted.future;
+
+      final disposal = coordinator.dispose();
+      var disposed = false;
+      unawaited(disposal.then((_) => disposed = true));
+      await pumpEventQueue();
+      expect(disposed, isFalse);
+
+      allowCreate.complete();
+      await expectLater(acquisition, throwsStateError);
+      await disposal;
+
+      expect(harness.disposeCalled, isTrue);
+      expect(coordinator.snapshot.activeWorkers, 0);
+    });
+
+    test('continuity reset fails closed while worker creation is pending', () async {
+      final createStarted = Completer<void>();
+      final allowCreate = Completer<void>();
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (_) async {},
+        releaseAdmission: (_) {},
+        createWorker: (request) async {
+          createStarted.complete();
+          await allowCreate.future;
+          return _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
+        },
+      );
+      addTearDown(coordinator.dispose);
+      final acquisition = coordinator.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.task,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.host(),
+          sessionId: 'pending',
+        ),
+      );
+      await createStarted.future;
+
+      await expectLater(
+        coordinator.resetSessionContinuity('pending'),
+        throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
+      );
+
+      allowCreate.complete();
+      final lease = await acquisition;
+      await lease!.release();
+    });
+
+    test('snapshot and lifecycle events report real allocation state', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final events = <ExecutionEvent>[];
+      final subscription = fixture.coordinator.events.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      final active = await fixture.acquire(sessionId: 'active', taskId: 'task-1');
+      final queuedFuture = fixture.coordinator.acquire(fixture.request(sessionId: 'queued'));
+      await _flushEvents();
+
+      var snapshot = fixture.coordinator.snapshot;
+      expect(snapshot.configuredWorkers, 1);
+      expect(snapshot.activeWorkers, 1);
+      expect(snapshot.queuedWorkers, 1);
+      expect(snapshot.cachedWorkers, 0);
+      expect(snapshot.availableWorkers, 0);
+
+      await active.release();
+      final queued = (await queuedFuture)!;
+      await _flushEvents();
+      snapshot = fixture.coordinator.snapshot;
+      expect(snapshot.activeWorkers, 1);
+      expect(snapshot.queuedWorkers, 0);
+      expect(snapshot.cachedWorkers, 0);
+
+      await queued.release();
+      await _flushEvents();
+      snapshot = fixture.coordinator.snapshot;
+      expect(snapshot.activeWorkers, 0);
+      expect(snapshot.cachedWorkers, 1);
+      expect(snapshot.availableWorkers, 1);
+      expect(
+        events.map((event) => event.kind),
+        containsAllInOrder([
+          ExecutionEventKind.runnerCreated,
+          ExecutionEventKind.acquired,
+          ExecutionEventKind.released,
+          ExecutionEventKind.acquired,
+          ExecutionEventKind.released,
+        ]),
+      );
+      expect(events.where((event) => event.kind == ExecutionEventKind.acquired).first.request.taskId, 'task-1');
+    });
+  });
+}
+
+Future<void> _flushEvents() => Future<void>.delayed(Duration.zero);
+
+final class _CoordinatorFixture {
+  new({required Map<String, int> capacities, bool terminationConfirmed = true, _TestHarness? primaryHarness})
+    : _terminationConfirmed = terminationConfirmed {
+    coordinator = ExecutionCoordinator(
+      providerCapacities: capacities,
+      primary: primaryHarness == null
+          ? null
+          : _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.container('primary')),
+      admitExecution: (_) async {},
+      releaseAdmission: (_) {},
+      createWorker: (request) async {
+        final harness = _TestHarness(terminationConfirmed: _terminationConfirmed);
+        final runner = _runner(harness, providerId: request.providerId, policy: request.policy);
+        created.add(runner);
+        return runner;
+      },
+    );
+  }
+
+  final bool _terminationConfirmed;
+  final List<TurnRunner> created = [];
+  late ExecutionCoordinator coordinator;
+  var _disposed = false;
+
+  ExecutionRequest request({
+    required String sessionId,
+    String providerId = 'claude',
+    ExecutionPolicy policy = const ExecutionPolicy.host(),
+    ExecutionSurface surface = ExecutionSurface.task,
+    ExecutionAdmission admission = ExecutionAdmission.wait,
+    String? taskId,
+    String? artifactsDir,
+    Map<String, String>? spawnEnvironment,
+  }) => ExecutionRequest(
+    surface: surface,
+    providerId: providerId,
+    policy: policy,
+    sessionId: sessionId,
+    admission: admission,
+    taskId: taskId,
+    artifactsDir: artifactsDir,
+    spawnEnvironment: spawnEnvironment,
+  );
+
+  Future<ExecutionLease> acquire({
+    required String sessionId,
+    String providerId = 'claude',
+    ExecutionPolicy policy = const ExecutionPolicy.host(),
+    ExecutionSurface surface = ExecutionSurface.task,
+    String? taskId,
+  }) async => (await coordinator.acquire(
+    request(sessionId: sessionId, providerId: providerId, policy: policy, surface: surface, taskId: taskId),
+  ))!;
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await coordinator.dispose();
+  }
+}
+
+TurnRunner _runner(_TestHarness harness, {required String providerId, required ExecutionPolicy policy}) => TurnRunner(
+  turnLimits: const TurnLimitsConfig.defaults(),
+  harness: harness,
+  messages: _FakeMessageService(),
+  behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-execution-coordinator-test'),
+  providerId: providerId,
+  executionPolicy: policy,
+);
+
+class _TestHarness extends FakeAgentHarness {
+  new({this.terminationConfirmed = true}) : super(autoTransitionState: false);
+
+  final bool terminationConfirmed;
+
+  @override
+  bool get isRootProcessTerminationConfirmed => terminationConfirmed;
+}
+
+final class _FailingStartHarness extends _TestHarness {
+  new({required super.terminationConfirmed});
+
+  @override
+  Future<void> start() async {
+    startCalled = true;
+    throw StateError('start failed');
+  }
+}
+
+final class _DelayedDisposeHarness extends _TestHarness {
+  final disposeStarted = Completer<void>();
+  final allowDispose = Completer<void>();
+
+  @override
+  Future<void> dispose() async {
+    if (!disposeStarted.isCompleted) disposeStarted.complete();
+    await allowDispose.future;
+    await super.dispose();
+  }
+}
+
+final class _FakeMessageService implements MessageService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}

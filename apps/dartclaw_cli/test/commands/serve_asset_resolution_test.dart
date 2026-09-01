@@ -4,10 +4,10 @@ import 'dart:isolate';
 
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver, LogService;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -21,8 +21,8 @@ late List<LogRecord> _testLogRecords;
 late StreamSubscription<LogRecord> _testLogSubscription;
 
 Future<String> _resolveServerAssetDir(String child) async {
-  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
-  if (uri == null) throw StateError('Could not resolve package:dartclaw_server.');
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
+  if (uri == null) throw StateError('Could not resolve package:dartclaw_runtime.');
   return p.join(File.fromUri(uri).parent.path, 'src', child);
 }
 
@@ -33,18 +33,20 @@ class _ExitIntercept implements Exception {
 
 class _WorkerHarness extends FakeAgentHarness {
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
     String? agentId,
-  }) async => {'ok': true};
+    Map<String, dynamic>? outputSchema,
+  }) async => const TurnResult();
 }
 
 HarnessFactory _harnessFactory() {
@@ -60,6 +62,7 @@ DartclawConfig _config(
   bool devMode = false,
 }) {
   return DartclawConfig(
+    container: const ContainerConfig(enabled: false),
     credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'test-key')}),
     server: ServerConfig(
       dataDir: dataDir,
@@ -81,7 +84,7 @@ Future<({Handler handler, List<LogRecord> logs})> _startUntilBindFailure(
     config: config,
     searchDbFactory: (_) => sqlite3.openInMemory(),
     harnessFactory: _harnessFactory(),
-    serverFactory: (builder) => builder.build(),
+    serverFactory: (server) => server,
     serveFn: (candidate, address, port) async {
       handler = candidate;
       throw const SocketException('Address already in use');
@@ -177,8 +180,8 @@ void main() {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_dev_assets_');
     addTearDown(() => tempDir.deleteSync(recursive: true));
     final root = Directory(p.join(tempDir.path, 'checkout'))..createSync(recursive: true);
-    final templates = Directory(p.join(root.path, 'packages', 'dartclaw_server', 'lib', 'src', 'templates'));
-    final staticAssets = Directory(p.join(root.path, 'packages', 'dartclaw_server', 'lib', 'src', 'static'))
+    final templates = Directory(p.join(root.path, 'packages', 'dartclaw_runtime', 'lib', 'src', 'templates'));
+    final staticAssets = Directory(p.join(root.path, 'packages', 'dartclaw_runtime', 'lib', 'src', 'static'))
       ..createSync(recursive: true);
     _copyDirectory(Directory(_templatesDir), templates);
     File(p.join(staticAssets.path, 'live.css')).writeAsStringSync('/* local edit */');

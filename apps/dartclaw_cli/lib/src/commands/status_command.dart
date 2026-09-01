@@ -1,9 +1,8 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_storage/dartclaw_storage.dart' show IndexHealthStore;
 
 import 'config_loader.dart';
 

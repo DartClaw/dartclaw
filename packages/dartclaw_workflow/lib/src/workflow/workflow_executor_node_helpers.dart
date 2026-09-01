@@ -39,15 +39,10 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
     switch (node) {
       case ActionNode(stepId: final stepId):
         yield stepId;
-      case MapNode(stepId: final stepId):
-        yield stepId;
       case ParallelGroupNode(stepIds: final stepIds):
         yield* stepIds;
-      case LoopNode(stepIds: final stepIds, finallyStepId: final finallyStepId):
+      case LoopNode(stepIds: final stepIds):
         yield* stepIds;
-        if (finallyStepId != null) {
-          yield finallyStepId;
-        }
       case ForeachNode(stepId: final stepId, childStepIds: final childStepIds):
         yield stepId;
         yield* childStepIds;
@@ -56,7 +51,7 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
 
   // ── Step promotion (non-foreach) ────────────────────────────────────────────
 
-  Future<String?> _promoteWorkflowTask({
+  Future<WorkflowFailure?> _promoteWorkflowTask({
     required WorkflowRun run,
     required WorkflowStep step,
     required Task task,
@@ -65,20 +60,20 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
     required String? projectId,
     required String promotionStrategy,
   }) async {
-    if (task.type != TaskType.coding || promotionStrategy == 'none') {
+    if (promotionStrategy == 'none') {
       return null;
     }
 
     final promote = _turnAdapter?.promoteWorkflowBranch;
     if (promote == null) {
       outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: host promotion callback is not configured';
+      return const WorkflowPromotionFailure('promotion failed: host promotion callback is not configured');
     }
 
     final promotionProjectId = projectId?.trim();
     if (promotionProjectId == null || promotionProjectId.isEmpty) {
       outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: step has no project binding';
+      return const WorkflowPromotionFailure('promotion failed: step has no project binding');
     }
 
     if (task.worktreeJson == null) {
@@ -88,13 +83,13 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
     final branch = (task.worktreeJson?['branch'] as String?)?.trim();
     if (branch == null || branch.isEmpty) {
       outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: task worktree branch is unavailable';
+      return const WorkflowPromotionFailure('promotion failed: task worktree branch is unavailable');
     }
 
     final integrationBranch = (context['_workflow.git.integration_branch'] as String?)?.trim();
     if (integrationBranch == null || integrationBranch.isEmpty) {
       outputs['${step.id}.promotion'] = 'failed';
-      return 'promotion failed: integration branch is not initialized';
+      return const WorkflowPromotionFailure('promotion failed: integration branch is not initialized');
     }
 
     final promotionResult = await promote(
@@ -114,14 +109,14 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
         outputs['${step.id}.promotion'] = 'conflict';
         outputs['${step.id}.promotion_details'] = details;
         final summary = conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ');
-        return 'promotion-conflict: $summary';
+        return WorkflowPromotionConflictFailure('promotion-conflict: $summary');
       case WorkflowGitPromotionError(:final message):
         outputs['${step.id}.promotion'] = 'failed';
-        return 'promotion failed: $message';
+        return WorkflowPromotionFailure('promotion failed: $message');
       case WorkflowGitPromotionSerializeRemaining():
         // Used for non-foreach promotion; serialize-remaining is unreachable here.
         outputs['${step.id}.promotion'] = 'failed';
-        return 'promotion failed: unexpected serialize-remaining sentinel';
+        return const WorkflowPromotionFailure('promotion failed: unexpected serialize-remaining sentinel');
     }
   }
 }

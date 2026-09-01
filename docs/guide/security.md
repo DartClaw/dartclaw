@@ -19,26 +19,35 @@ User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider
 
 Guards evaluate tool calls, messages, and agent responses. First block wins. Exceptions = block (fail-closed).
 
-> **Workflow one-shot steps do not pass through the guard chain.** A workflow step runs as a single
-> non-interactive provider invocation rather than through the long-lived harness, and that path has no hook
-> channel for guards to evaluate on — so `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, and the
-> guard audit log do not apply to it. What does constrain such a step: the step's own `allowedTools` allow-list
-> (enforced by the provider), the read-only tool denials, the denied native web tools, and — when enabled —
-> container isolation with its `network:none` boundary and mount allowlist. A step that declares no
-> `allowedTools` and runs outside a container is therefore constrained only by the provider's own defaults.
-> Run workflows under container isolation, and declare `allowedTools` on every step, if a workflow may act on
-> untrusted input.
+Workflow steps run through the same guarded harness turn path as other background work — in `dartclaw serve` and in a
+standalone `dartclaw workflow` run, which composes the same root. Their leased worker evaluates the configured guard
+chain before tool calls, applies the step's `allowedTools`/read-only policy, retains container isolation when the
+resolved execution policy selects it, and a blocked call is written to the guard audit log exactly as an interactive
+turn's is.
+
+**Coverage is stated per provider, because interception is per provider.** On Claude it is unconditional: every tool
+call passes the host `PreToolUse` gate. On Codex it is bounded to the approval handler — broadest under
+`approval: on-request`, partial under a granular approval mode, and inactive under `approval: never`, because the
+upstream approval flow deadlocks otherwise ([codex#11816](https://github.com/openai/codex/issues/11816)).
+
+What this does **not** cover, named rather than omitted: the content classifier's own provider spawn, which passes no
+guard chain at all. Two neighbouring surfaces are bounded rather than excluded — inbound MCP `tools/call` dispatch **is**
+guard-evaluated against the same base chain and audited, but it is not a runner turn, so per-task tool policy and
+read-only mode do not apply there (this holds for a named MCP client too — see
+[Context Engine Mode](context-engine.md), whose bound is the five-tool profile plus that base chain); and an ACP-backed provider carries only its own reverse-call mediation, which is
+weaker than the host tool gate. DartClaw does not today refuse an ACP provider named by a workflow step, so treat
+"workflow steps are guarded" as bounded by whichever provider the step names. Do not read "the same guarded path" as
+"every model-spawning path is guard-evaluated" — that is a broader claim this release does not make.
 
 ### Built-in Guards
 
 | Guard | Category | What It Blocks |
 |-------|----------|---------------|
-| **InputSanitizer** | input | Prompt injection patterns (instruction override, role-play, prompt leak, meta-injection) |
 | **CommandGuard** | command | Shell injection, dangerous commands (rm -rf, curl to untrusted hosts) |
 | **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape |
 | **NetworkGuard** | network | Connections to non-allowlisted hosts/ports |
 | **ContentGuard** | content | Prompt injection and harmful content at agent boundaries, in `web_fetch` results, and in results from `network_class: public` MCP servers |
-| **TaskToolFilterGuard** | tool | Tools not in the task's allowlist; mutating tools while a task is read-only |
+| **TaskToolFilterGuard** | tool | Tools not in the task's allowlist; every shell command not proven read-only while a task is read-only |
 
 When content classification is configured, a successful `tools/call` against an outbound MCP server declared
 `network_class: public` is classified before its result reaches an agent — declare a content-bearing server `public` to
@@ -56,11 +65,6 @@ classified.
 
 ```yaml
 guards:
-  input_sanitizer:
-    enabled: true               # default: true
-    channels_only: true          # default: true — only scan channel messages, web UI bypasses
-    extra_patterns:              # optional additional regex patterns (case-insensitive)
-      - 'custom\s+injection'
   command:
     extra_blocked_patterns:      # regex patterns added to defaults
       - 'curl.*--upload'
@@ -76,18 +80,81 @@ guards:
     model: haiku
 ```
 
-The **InputSanitizer** ships with built-in patterns for 4 injection categories and requires no configuration for baseline protection. Set `channels_only: false` to also scan web UI messages.
+A file rule's `pattern` is a glob, matched against the full path, the file's basename and every path suffix:
+
+| | |
+|---|---|
+| `*` | any run of characters inside one path segment |
+| `**` | any run of characters, separators included |
+| `**/` | zero or more whole leading segments — anchored to a segment boundary, so `**/.ssh/*` matches `a/.ssh/k` but not `a/my.ssh/k` |
+| `?` | one character inside a segment |
+| `{a,b}` | either alternative, each taken literally |
+
+A pattern with no `*` and no `?` is an exact path, resolved through symlinks before comparison.
+
+Injection judgment has one owner: the **ContentGuard** classifier, which evaluates at the agent boundary
+(`beforeAgentSend`) and on fetched web content. The content reaches the classifier inside an untrusted-content
+frame, declared as data to classify rather than instructions to follow.
+
+> **Inbound channel messages are not scanned on arrival.** The regex `InputSanitizer` that used to run at
+> `messageReceived` was removed in 0.25 — a pattern list cannot decide what is an instruction, and it gave
+> a coverage claim the runtime did not deliver. What constrains a hostile channel message is what the agent
+> can then *do* with it: the command, file, network, and tool-policy guards on every tool call the host
+> intercepts (unconditional on Claude; on Codex, host-guard interception stays approval-routed), the content
+> classifier on anything the agent fetches or hands to another agent, and container isolation when enabled.
+> The `messageReceived` hook point remains available to custom guards.
+
+### Read-Only Sessions
+
+A task or workflow step put in read-only mode admits shell commands from an **allowlist** of commands proven
+read-only (`cat`, `grep`, `find`, `test`, `pwd`, read-only `git` subcommands, and similar). Anything the
+allowlist does not name is blocked, as is any command carrying a redirect, command substitution, environment
+assignment prefix, or `sudo`, any unterminated quote, and any shell input the guard cannot read as a command
+string. Quoting is resolved the way a shell resolves it, so `grep 'a|b'` is one command while `echo \" > f \"`
+is a redirect.
+
+A command is on the list only if no invocation of it is *intended* to write a file or run another program. That
+excludes `awk` and `sed` (they execute shell commands from their program text), `rg` (`--pre` runs a command),
+`file` (`-C` writes a compiled magic file), the pagers (`-o` logging, `!` shell escape), and `sort`, `uniq`,
+`tree` and `xxd` (each takes an output file). `git` and `find` are admitted with their arguments inspected.
+
+The `git` inspection is a per-subcommand allowlist in two dimensions: only the listed subcommands run, and each
+one admits only the flags enumerated for it. A subcommand carrying an unlisted flag blocks, which is what keeps
+out flag-carried config writes (`git branch --set-upstream-to=…`, `-uorigin/main`, `--unset-upstream`),
+editor-spawning flags (`git branch --edit-description`), flag-carried ref deletion (`git symbolic-ref -d`),
+the output-file flag (`git diff --output=…`), the pager-running flag (`git grep -O…`), the flags that turn on a
+config-named external program for `git log` and `git show` (`--ext-diff`, `--textconv`, `--show-signature`), and
+`--help`, which execs `man` from `PATH`. `-h` blocks with every other unlisted flag. The subcommand must also be
+the first argument, so a pre-subcommand global such as `git --exec-path=…` or `git -c core.pager=…` blocks
+before the subcommand is read. Subcommands that read when bare and write when given a target carry a non-flag
+argument budget: `git branch` and `git remote` admit none, `git symbolic-ref` admits one.
+
+Two shapes are stricter than git's own parser. A flag is matched whole unless it is a long flag with an attached
+value, so a short option must be written separated and unbundled – `git log -n 5`, not `-n5`; `git status -s -b`,
+not `-sb`. And where a subcommand's positional budget is finite, a value-taking flag must be written attached
+(`--contains=HEAD`), since a separate value spends a slot. Both directions fail closed: the command is refused,
+never silently reinterpreted.
+
+What this bounds is the `git` command line. It is **not** a bound on what the repository's own configuration can
+make git do – `git diff` runs a configured external diff driver or textconv filter by default, and a signed
+commit makes `git log` exec `gpg.program`, none of which the command line has to ask for. Nor is it a bound on
+flags added by a future git release that the allowlist has not yet seen (those block, which is the intended
+failure), or on anything outside the shell surface. Container isolation remains the boundary that does not
+depend on argument parsing.
+
+File-writing and memory-writing tools (`file_write`, `file_edit`, `memory_apply`, `memory_observe`) stay
+blocked outright. Read-only mode does **not** gate outbound MCP calls or sub-session spawns — a step that
+needs those bounded as well must also carry a tool allowlist.
 
 ### Guard Editor (Web UI)
 
-Admins can manage guard extensions from the **Settings** page instead of hand-editing YAML. The editor groups the command, file, network, and input-sanitizer guards and lets you list, add, edit, delete, and test their **extension** fields:
+Admins can manage guard extensions from the **Settings** page instead of hand-editing YAML. The editor groups the command, file, and network guards and lets you list, add, edit, delete, and test their **extension** fields:
 
 | Guard | Editable extension field |
 |-------|--------------------------|
 | Command | `extra_blocked_patterns` |
 | File | `extra_rules` |
 | Network | `extra_allowed_domains` |
-| Input sanitizer | `extra_patterns` |
 
 Built-in default rules are shown as read-only context — the editor manages extension surfaces only, not the built-in defaults.
 
@@ -112,7 +179,30 @@ Mutation and test endpoints return `403` for requests without admin access.
 
 ## Container Isolation
 
-On supported POSIX hosts, when Docker is available, DartClaw runs the packaged `claude` or `codex` binary inside a container with:
+**As of 0.25 this is the default posture.** A config that declares no `container:` section is resolved once at startup:
+DartClaw probes for a container runtime (`docker`, then `podman`) and isolates agent execution where it finds one. Where
+it finds none, the server still starts, in advisory mode, and says at startup that no OS boundary is active and why.
+Detection never blocks startup.
+
+Declaring the key opts out of that inference in either direction:
+
+| `container.enabled` | Host with a runtime | Host without one |
+|---|---|---|
+| unset (default) | isolated | starts in advisory mode, with a startup warning naming the missing runtime |
+| `true` | isolated | **startup fails** — an explicit request is refused, never downgraded |
+| `false` | advisory mode | advisory mode |
+
+**The table describes `dartclaw serve`.** The posture is resolved once at server startup, so the zero-server lane —
+`dartclaw workflow run --standalone` and the other `--standalone` verbs — uses the posture as written in the file, with
+no probe. An undeclared section there means **not isolated**, which is what it meant before 0.25. If you run standalone
+workflows and want them isolated, declare `container.enabled: true`.
+
+The same asymmetry covers a probe that fails part-way (an engine architecture no bridge binary ships for, an
+undeliverable bridge): under an inferred posture it downgrades with the failure named; under an explicit `true` it is
+fatal.
+
+On supported POSIX hosts, when a container runtime is available, DartClaw runs the packaged `claude` or `codex` binary
+inside a container with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
@@ -123,8 +213,8 @@ ACP agents have no container execution: DartClaw mediates no provider credential
 so ACP registrations run on the host only and a container-requiring registration is rejected at startup.
 
 Container isolation is unavailable on native Windows even when Docker is installed. Its per-authority pipes and
-owner-only generated state require POSIX facilities, so `container.enabled: true` fails closed and directs the operator
-to a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
+owner-only generated state require POSIX facilities, so an explicit `container.enabled: true` fails closed and directs
+the operator to a POSIX host or WSL; auto-detection never runs there at all. See the [Windows capability matrix](windows.md#capability-matrix).
 
 ### File Ownership on Native Linux
 
@@ -146,7 +236,33 @@ best-effort by design (a failed `chown` is logged, never fatal) so uid-remapped 
 ### Pragmatic Mode
 
 Without container isolation, guards serve as the primary security boundary. This is suitable for personal use on a
-trusted machine, but it is not isolation parity.
+trusted machine, but it is not isolation parity. What advisory mode does and does not cover is stated per provider: on
+Codex, host-tool interception is bounded by the configured approval mode, so guards see what that mode routes for
+approval and nothing else. The startup warning names why *this* host is in advisory mode — no runtime detected, or the
+probe step that failed — and links back here.
+
+Container isolation costs the agent no host tool it reaches on the host lane: a containerized primary agent is granted
+the same bridged MCP surface (web, memory, and the task, review and binding tools) minus the session-spawning tools,
+which are excluded on both lanes. Tools with no canonical mapping — `kg_*`, `context_research`, `onboarding_complete`
+and the outbound MCP adapters — are unreachable from a container, as they were before this became the default.
+
+### Emergency Stop Without a Channel
+
+Stopping every running turn and task does not require a chat channel:
+
+```bash
+dartclaw stop                       # cancels all active turns and running/queued tasks
+curl -X POST http://localhost:3333/api/emergency-stop -H "Authorization: Bearer $DARTCLAW_TOKEN"
+```
+
+Both go through the same sequence a channel `/stop` runs, emit the same `EmergencyStopEvent`, and are gated exactly as
+the admin-only configuration and guard mutations above: a request without admin context is refused with `403` and
+cancels nothing. **What "admin context" means follows `gateway.auth_mode`**, and this endpoint is no exception — with
+gateway auth enabled it means an authenticated session or a bearer token, so an unauthenticated request is refused;
+with `gateway.auth_mode: none` the local instance *is* the single admin, so a loopback request needs no credential.
+That is the same trade the no-auth mode makes for every other mutating route, and it is why no-auth deployments belong
+on loopback. The recorded caller is derived from how the request authenticated, never from anything the caller states
+about itself.
 
 ## HTTP Authentication
 
@@ -285,6 +401,22 @@ were stored – the refusal names the directory it searched, so compare that aga
 | Claude | `<data_dir>/credentials/claude/setup-token.json` | DartClaw, atomically (temp file + rename) |
 | Codex | `<data_dir>/credentials/codex/` – used as `CODEX_HOME`, holding the vendor's own `auth.json` | The `codex` CLI |
 
+**What the dedicated Codex home carries.** It isolates the *credential*, not your Codex capabilities. Alongside the
+vendor's `auth.json` and DartClaw's generated `config.toml`, the host lane mirrors the `[plugins.*]` tables from your
+`~/.codex/config.toml` plus your `plugins/cache` and `skills` directories into that home. A Codex plugin is enabled by
+the home it runs in, so without this a stored subscription would resolve none of your plugins and any workflow step
+referencing a provider-side skill – every built-in workflow references `andthen:*` – would fail its preflight. Your
+`auth.json` is never copied across, in either direction.
+
+The mirror is kept current, not merely seeded: every spawn and every probe re-derives it from your `~/.codex`, so a
+plugin you uninstall there loses both its table and its mirrored files on the next run. DartClaw prunes only what it
+mirrored – recorded in `.dartclaw-mirror.json` in the store – so anything you install into the dedicated home directly
+(`CODEX_HOME=<store> codex …`) stays. If your `~/.codex/config.toml` uses TOML that DartClaw cannot split with
+certainty, it mirrors nothing that run and logs a warning rather than splicing a half-read config.
+
+Containerized execution is deliberately excluded: its home is never seeded and carries only generated client
+configuration, which is the boundary container mode exists to keep.
+
 On POSIX hosts, store directories are created `0700` and the Claude token file is written `0600`, owner-only. Windows
 has no equivalent step – the store inherits the data directory's ACLs, so restrict that directory yourself. Credential
 values never enter logs, `dartclaw status`, or the audit journal.
@@ -417,13 +549,15 @@ into the config file.
 
 ## ACP and Logical-Agent Security Modes
 
-ACP security claims are topology-scoped:
+ACP registrations are admitted only when they match a verified target profile. The shipped wiring produces no
+guard-mediated ACP classification: `requires_guard_mediation: true` is refused at startup because terminal reverse-calls
+are not advertised and no live target probe is wired. Admitted ACP registrations are host-only.
 
 | Mode | When to use | Security claim |
 |------|-------------|----------------|
-| Direct provider, verified | The ACP agent directly controls the model provider and verification proves it honors host filesystem reverse-calls | Guard-mediated. ACP `fs/read_text_file` and `fs/write_text_file` are bound to the active task session and evaluated by DartClaw guards before host action |
+| Direct provider, verified | The registration matches a verified target profile and does not require guard mediation | Host-only. Filesystem reverse-calls are evaluated by DartClaw guards, but the shipped wiring makes no end-to-end guard-mediation claim |
 | Relay provider | The ACP target forwards work through another provider CLI or relay path | No guard-mediation claim, so a container is the only boundary it could have — and DartClaw has no ACP container mediation, so the registration is rejected at startup |
-| Unverified | Startup evidence is absent or insufficient | Same as relay: rejected at startup until verification proves reverse-call mediation |
+| Unverified | The registration has no matching verified target profile | Rejected at startup; the shipped wiring has no path that promotes it to guard-mediated |
 | Codex agent sessions | Codex with `approval: on-request` | Guard-mediated for supported command, file-change, and MCP operations that emit provider approval requests; unevaluated authority is declined and the sandbox remains an independent boundary |
 
 Logical agents select providers through `agent.agents.<id>.provider` and may select `security_profile: workspace|restricted` independently. The built-in search agent requests `restricted`; other agents use an enforced ACP provider profile when present, otherwise `workspace`. Provider startup validation and exact provider/profile worker acquisition enforce the configured boundary before a logical-agent session can run. An unavailable `restricted` profile fails closed instead of falling back to host execution. An ACP provider runs on the host only, so give an agent that uses one an explicit `execution: host`; a resolved container policy is refused before the turn starts.

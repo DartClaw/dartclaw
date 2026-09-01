@@ -1,22 +1,12 @@
-/// Shared constants and helpers for the `<workflow-context>` output protocol.
+/// Shared constants and helpers for the structured execution-envelope output
+/// protocol and the `<step-outcome>` tag.
 ///
 /// The agent-facing prompt (see [PromptAugmenter]) and the server-side parser
-/// (see [ContextExtractor]) must agree on the exact tag spelling. Both sides
-/// import from this file to avoid silent drift.
+/// (see [ContextExtractor]) must agree on the exact spelling. Both sides import
+/// from this file to avoid silent drift.
 library;
 
 import 'dart:convert';
-
-/// Tag name used to delimit the workflow-context JSON payload.
-const String workflowContextTag = 'workflow-context';
-
-const String workflowContextOpen = '<$workflowContextTag>';
-
-const String workflowContextClose = '</$workflowContextTag>';
-
-/// Matches the `<workflow-context>...</workflow-context>` block and captures
-/// its inner JSON payload in group 1.
-final RegExp workflowContextRegExp = RegExp('$workflowContextOpen\\s*([\\s\\S]*?)\\s*$workflowContextClose');
 
 /// Top-level key carrying declared domain outputs in the structured execution
 /// envelope. Reserved as a declared-output key name (see the output-schema
@@ -48,20 +38,8 @@ const int executionEnvelopeVersion = 1;
 bool isExecutionEnvelope(Map<String, dynamic>? payload) =>
     payload != null && payload[executionEnvelopeMarkerKey] is int;
 
-/// Whether [schema] is the strict execution-envelope schema (top-level `outputs`
-/// object), as opposed to a legacy flat structured-output schema.
-///
-/// The reserved key names are validator-forbidden as declared-output names
-/// (see the output-schema rules), so a legacy flat schema can never carry a
-/// top-level `outputs` property that is not the envelope.
-bool isExecutionEnvelopeSchema(Map<String, dynamic>? schema) {
-  final properties = schema?['properties'];
-  return properties is Map && properties.containsKey(executionEnvelopeOutputsKey);
-}
-
 /// The declared domain-output keys carried under an execution-envelope
-/// [schema]'s `outputs` object, in declaration order. Returns empty for a
-/// non-envelope schema.
+/// [schema]'s `outputs` object, in declaration order.
 List<String> executionEnvelopeDeclaredOutputKeys(Map<String, dynamic>? schema) {
   final properties = schema?['properties'];
   if (properties is! Map) return const <String>[];

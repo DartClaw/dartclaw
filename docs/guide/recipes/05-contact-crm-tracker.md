@@ -9,7 +9,7 @@ A lightweight contact management system built on messaging channels. The agent r
 - [Channels](../whatsapp.md) -- receives messages from contacts via DM allowlist (WhatsApp, [Signal](../signal.md), or [Google Chat](../google-chat.md))
 - [Canonical memory](../workspace.md) -- stores structured contact data and action items in topic entries
 - [Memory search](../search.md) -- retrieves contact history and pending items on demand
-- [Input sanitizer](../security.md) -- filters inbound messages for safety
+- [Content guard](../security.md) -- classifies agent-boundary and fetched content for safety
 - [Outbound redaction](../security.md) -- redacts any secrets in responses
 - [Session scoping](../configuration.md) -- controls how DM/group conversations are partitioned
 
@@ -27,11 +27,6 @@ channels:
       - "491234567890@s.whatsapp.net"   # Alice (+49 123 456 7890)
       - "441234567890@s.whatsapp.net"   # Bob (+44 123 456 7890)
       - "11234567890@s.whatsapp.net"    # Carol (+1 123 456 7890)
-    # task_trigger:                     # optional: create tasks from WhatsApp (0.9+)
-    #   enabled: true
-    #   prefix: "task:"
-    #   auto_start: true
-
   # signal:                            # optional: add Signal alongside WhatsApp
   #   enabled: true
   #   phone_number: "+1234567890"
@@ -55,8 +50,6 @@ sessions:
 # Security features
 guards:
   enabled: true
-  input_sanitizer:
-    enabled: true
   content:
     enabled: true
 ```
@@ -135,7 +128,7 @@ scheduling:
 
 1. **Contact sends a message** to your DartClaw number or Google Chat bot
 2. **DM allowlist check** -- only messages from listed contacts are processed
-3. **Input sanitizer** filters the message for safety
+3. **Guard chain** bounds what the agent may do with the message (command, file, network, tool policy)
 4. **Agent reads behavior files** -- SOUL.md for CRM instructions, USER.md for contact directory
 5. **Agent extracts information** -- action items, deadlines, contact updates
 6. **Data curated atomically** via `memory_apply` under the appropriate topic (contacts, action-items, notes)
@@ -150,7 +143,8 @@ scheduling:
 - **Weekly digest**: Add a weekly cron job to generate a comprehensive contact activity report
 - **Auto-reminders**: Add a morning cron job that checks for overdue action items and announces them
 - **Manage allowlists via API**: Use `PATCH /api/config` to add/remove contacts without restarting the server (available since 0.6). Or edit allowlists in the web UI at `/settings/channels/<channel_type>`
-- **Task triggers (0.9+)**: Enable `task_trigger` on a channel so contacts can create background tasks by prefixing messages with `task:`. See [Common Patterns](_common-patterns.md#channel-to-task-integration-09)
+- **Background tasks**: Ask for work in ordinary language. The agent uses `task_create`, with follow-up through the
+  listing and review tools. See [Common Patterns](_common-patterns.md#channel-to-task-integration).
 - **Session scoping**: `dm_scope: per-contact` gives each contact a shared session across channels (recommended for CRM). The default, `per-channel-contact`, keeps a separate session per channel when the same person contacts you from multiple channels
 
 ## Gotchas & Limitations

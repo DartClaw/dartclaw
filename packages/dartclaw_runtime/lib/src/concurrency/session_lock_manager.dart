@@ -1,0 +1,144 @@
+import 'dart:async';
+
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show BusyTurnException;
+import 'package:logging/logging.dart';
+
+typedef SessionLockTimerFactory = Timer Function(Duration duration, void Function() callback);
+typedef SessionLockNow = DateTime Function();
+
+/// Per-session Completer-based locks with a global concurrency cap.
+///
+/// Prevents concurrent turns on the same session and limits overall parallel
+/// turn count across all sessions. Same-session callers that reach [acquire]
+/// while the lock is held wait instead of failing and are resumed in the order
+/// they began waiting; a caller that reaches [acquire] while the lock is
+/// momentarily free takes it at once, even if earlier waiters have not resumed
+/// yet. That is the whole guarantee: callers still upstream of [acquire] (in an
+/// async gap such as a session read) are not ordered here. Arrival-order
+/// serialization of same-session turn requests lives at the `TurnManager`
+/// reservation funnel.
+class SessionLockManager implements Reconfigurable {
+  static final _log = Logger('SessionLockManager');
+
+  int _maxParallel;
+  final Map<String, Completer<void>> _locks = {};
+  final Map<String, _WaitEntry> _waits = {};
+  final SessionLockTimerFactory _timerFactory;
+  final SessionLockNow _now;
+  int _activeCount = 0;
+
+  new({int maxParallel = 3, SessionLockTimerFactory? timerFactory, SessionLockNow? now})
+    : _maxParallel = maxParallel,
+      _timerFactory = timerFactory ?? Timer.new,
+      _now = now ?? DateTime.now;
+
+  int get maxParallel => _maxParallel;
+
+  @override
+  Set<String> get watchKeys => const {'server.*'};
+
+  @override
+  void reconfigure(ConfigDelta delta) {
+    final newMax = delta.current.server.maxParallelTurns;
+    if (newMax == _maxParallel) return;
+    _maxParallel = newMax;
+    _log.info('SessionLockManager maxParallel updated to $_maxParallel');
+  }
+
+  /// Acquires a lock for [sessionId].
+  ///
+  /// If the session is already locked, waits for the existing lock to release,
+  /// then acquires. Throws [BusyTurnException] if global cap is reached.
+  Future<void> acquire(
+    String sessionId, {
+    Duration? waitWarningAfter,
+    Duration? stuckAfter,
+    void Function()? onWaiting,
+    void Function()? onStuck,
+  }) async {
+    // Wait for existing same-session lock to release
+    while (_locks.containsKey(sessionId)) {
+      final waitEntry = _waits.putIfAbsent(sessionId, () {
+        _log.info('Session $sessionId is waiting on an active turn lock');
+        final entry = _WaitEntry(waitingSince: _now());
+        final warningAfter = waitWarningAfter;
+        if (warningAfter != null && warningAfter > Duration.zero) {
+          entry.waitingTimer = _timerFactory(warningAfter, () {
+            entry.warningVisibleAt = _now();
+            onWaiting?.call();
+          });
+        }
+        final stuckDelay = stuckAfter;
+        if (stuckDelay != null && stuckDelay > Duration.zero) {
+          entry.stuckTimer = _timerFactory(stuckDelay, () {
+            entry.stuckSince = _now();
+            onStuck?.call();
+          });
+        }
+        return entry;
+      });
+      if (waitWarningAfter == null || waitWarningAfter <= Duration.zero) {
+        waitEntry.warningVisibleAt ??= waitEntry.waitingSince;
+      }
+      await _locks[sessionId]!.future;
+    }
+    _clearWait(sessionId);
+    // Check global cap after waiting
+    if (_activeCount >= _maxParallel) {
+      throw BusyTurnException('Global concurrency limit reached ($_maxParallel)', isSameSession: false);
+    }
+    _locks[sessionId] = Completer<void>();
+    _activeCount++;
+  }
+
+  /// Releases the lock for [sessionId].
+  void release(String sessionId) {
+    final completer = _locks.remove(sessionId);
+    if (completer != null) {
+      _activeCount--;
+      if (!completer.isCompleted) completer.complete();
+    }
+    _clearWait(sessionId);
+  }
+
+  /// Whether [sessionId] currently has an active lock.
+  bool isLocked(String sessionId) => _locks.containsKey(sessionId);
+
+  /// Number of currently active locks.
+  int get activeCount => _activeCount;
+
+  SessionLockWaitSnapshot? waitSnapshot(String sessionId) {
+    final entry = _waits[sessionId];
+    if (entry == null) return null;
+    return SessionLockWaitSnapshot(
+      waitingSince: entry.waitingSince,
+      warningVisibleAt: entry.warningVisibleAt,
+      stuckSince: entry.stuckSince,
+    );
+  }
+
+  void _clearWait(String sessionId) {
+    final entry = _waits.remove(sessionId);
+    entry?.waitingTimer?.cancel();
+    entry?.stuckTimer?.cancel();
+  }
+}
+
+class SessionLockWaitSnapshot {
+  final DateTime waitingSince;
+  final DateTime? warningVisibleAt;
+  final DateTime? stuckSince;
+
+  const new({required this.waitingSince, this.warningVisibleAt, this.stuckSince});
+}
+
+class _WaitEntry {
+  final DateTime waitingSince;
+  DateTime? warningVisibleAt;
+  DateTime? stuckSince;
+  Timer? waitingTimer;
+  Timer? stuckTimer;
+
+  new({required this.waitingSince});
+}

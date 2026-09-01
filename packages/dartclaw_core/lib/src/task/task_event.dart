@@ -6,6 +6,8 @@ enum TaskEventKind {
   toolCalled,
   artifactCreated,
   structuredOutputFinalizerUsed,
+  // Retired in 0.25 with the legacy inline output channel. No producer remains;
+  // the value survives because `values.byName` throws on historical rows.
   structuredOutputInlineUsed,
   structuredOutputFallbackUsed,
   structuredOutputValidationFailed,
@@ -35,8 +37,8 @@ enum TaskEventKind {
 /// - `artifactCreated`: `{name, kind}`
 /// - `structuredOutputFinalizerUsed`: `{stepId, outputKey}` — the structured
 ///   finalization envelope supplied the declared outputs (standard path).
-/// - `structuredOutputInlineUsed`: `{stepId, outputKey}` — legacy inline
-///   `<workflow-context>` payload supplied the outputs (fallback path).
+/// - `structuredOutputInlineUsed`: `{stepId, outputKey}` — retired wire value;
+///   no producer since 0.25, kept so historical rows still deserialize.
 /// - `structuredOutputFallbackUsed`: `{stepId, outputKey, failureReason, ?providerSubtype}`
 /// - `structuredOutputValidationFailed`: `{stepId, outputKey, failureReason}` —
 ///   a required finalizer envelope was missing or malformed.

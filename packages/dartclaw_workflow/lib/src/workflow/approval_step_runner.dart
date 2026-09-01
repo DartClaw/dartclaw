@@ -1,6 +1,6 @@
 import 'dart:async' show Timer;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show EventBus, WorkflowApprovalRequestedEvent, WorkflowApprovalResolvedEvent, WorkflowRunStatusChangedEvent;
 import 'package:logging/logging.dart';

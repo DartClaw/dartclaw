@@ -9,6 +9,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -20,6 +22,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MapStepCompletedEvent,
         MergeResolveConfig,
         MergeResolveEscalation,
+        OnFailurePolicy,
         OutputConfig,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -31,10 +34,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
-        WorkflowStepOutputTransformer,
         WorkflowTurnAdapter;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -50,13 +51,11 @@ void main() {
 
   WorkflowExecutor makeExecutor({
     WorkflowTurnAdapter? turnAdapter,
-    WorkflowStepOutputTransformer? outputTransformer,
     required Directory dir,
     Duration serializeRemainingSettleTimeout = const Duration(seconds: 30),
   }) {
     return h.makeExecutor(
       turnAdapter: turnAdapter,
-      outputTransformer: outputTransformer,
       dataDir: dir.path,
       serializeRemainingSettleTimeout: serializeRemainingSettleTimeout,
     );
@@ -64,15 +63,6 @@ void main() {
 
   Future<void> completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) =>
       h.completeTask(taskId, status: status);
-
-  Future<void> attachWorktree(String taskId) => h.taskService.updateFields(
-    taskId,
-    worktreeJson: {
-      'path': p.join(h.tempDir.path, 'worktrees', taskId),
-      'branch': 'story-branch-$taskId',
-      'createdAt': DateTime.now().toIso8601String(),
-    },
-  );
 
   /// Builds a definition with a foreach step that has merge-resolve enabled.
   ///
@@ -82,7 +72,8 @@ void main() {
     required String escalation,
     int maxAttempts = 1,
     int maxParallel = 2,
-    bool secondChild = false,
+    OnFailurePolicy onFailure = OnFailurePolicy.fail,
+    bool withTrailingStep = false,
   }) {
     return WorkflowDefinition(
       name: 'mr-wf',
@@ -108,11 +99,12 @@ void main() {
           taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
           maxParallel: maxParallel,
-          foreachSteps: secondChild ? const ['implement', 'verify'] : const ['implement'],
+          onFailure: onFailure,
+          foreachSteps: const ['implement'],
           outputs: const {'results': OutputConfig()},
         ),
         WorkflowStep(id: 'implement', name: 'Implement Story', prompts: const ['Implement {{map.item.id}}']),
-        if (secondChild) WorkflowStep(id: 'verify', name: 'Verify Story', prompts: const ['Verify {{map.item.id}}']),
+        if (withTrailingStep) const WorkflowStep(id: 'summarize', name: 'Summarize', prompts: ['Summarize']),
       ],
     );
   }
@@ -156,42 +148,6 @@ void main() {
       cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
       captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre-attempt',
     );
-  }
-
-  // outputTransformer that:
-  // - Injects `${step.id}.branch = 'story-branch-${task.id}'` for coding steps
-  //   so the promotion path finds a branch name in iterContext.
-  // - Returns `merge_resolve.outcome = 'failed'` for merge-resolve skill steps.
-  Map<String, dynamic> Function(dynamic, dynamic, WorkflowStep, dynamic, Map<String, dynamic>)
-  codingWithMergeResolveFailTransformer() {
-    return (run, definition, step, task, outputs) {
-      if (step.id.startsWith('_merge_resolve_')) {
-        return {
-          'merge_resolve.outcome': 'failed',
-          'merge_resolve.error_message': 'simulated failure',
-          'merge_resolve.conflicted_files': <String>['lib/story.dart'],
-          'merge_resolve.resolution_summary': '',
-        };
-      }
-      // Inject branch for coding steps so promotion has a branch to merge.
-      final result = Map<String, dynamic>.from(outputs);
-      if (step.taskType == WorkflowTaskType.agent) {
-        result['${step.id}.branch'] = 'story-branch-${task.id}';
-      }
-      return result;
-    };
-  }
-
-  // outputTransformer that injects branch for coding steps (no merge-resolve override).
-  Map<String, dynamic> Function(dynamic, dynamic, WorkflowStep, dynamic, Map<String, dynamic>)
-  codingWithBranchTransformer() {
-    return (run, definition, step, task, outputs) {
-      final result = Map<String, dynamic>.from(outputs);
-      if (step.taskType == WorkflowTaskType.agent) {
-        result['${step.id}.branch'] = 'story-branch-${task.id}';
-      }
-      return result;
-    };
   }
 
   group('S1 — happy: last-unfinished-iteration (two-story motivating case)', () {
@@ -238,18 +194,15 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final taskCount = <String>[];
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
         taskCount.add(e.taskId);
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -318,16 +271,13 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -396,16 +346,13 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -465,7 +412,8 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         // Generic task failure — not a merge conflict.
         await completeTask(e.taskId, status: TaskStatus.failed);
@@ -496,13 +444,15 @@ void main() {
         ),
         steps: const [
           WorkflowStep(
-            id: 'implement',
-            name: 'Implement',
-            prompts: ['Implement {{map.item.id}}'],
+            id: 'pipeline',
+            name: 'Story Pipeline',
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'stories',
             maxParallel: 2,
+            foreachSteps: ['implement'],
             outputs: {'results': OutputConfig()},
           ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['Implement {{map.item.id}}']),
         ],
       );
       final run = makeRun(definition, id: 'run-mr-disabled');
@@ -520,15 +470,12 @@ void main() {
       final eventSub = h.eventBus.on<WorkflowSerializationEnactedEvent>().listen(serializationEvents.add);
 
       final adapter = makeAdapter(conflictIds: {'S01'});
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithBranchTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
+        await h.attachWorktree(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -593,16 +540,13 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         if (!queuedTaskIds.contains(e.taskId)) {
           queuedTaskIds.add(e.taskId);
         }
@@ -671,11 +615,7 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final s03TaskIds = <String>[];
       final releaseS03 = Completer<void>();
@@ -690,7 +630,8 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           if (s03TaskIds.length == 1) {
@@ -720,11 +661,35 @@ void main() {
 
   group('first-task attribution', () {
     test('an unexpected later-child failure is attributed to the write-once first task id', () async {
-      final definition = makeMergeResolveDefinition(
-        escalation: 'fail',
-        maxAttempts: 1,
-        maxParallel: 1,
-        secondChild: true,
+      // Two children dispatch tasks, then a third names a variable the run does
+      // not declare and throws out of the iteration. The most recent task is
+      // therefore the second child's, so the event proves the attribution is the
+      // write-once first task id rather than the latest one.
+      final definition = WorkflowDefinition(
+        name: 'mr-wf',
+        description: 'Merge-resolve test workflow',
+        project: '{{PROJECT}}',
+        gitStrategy: const WorkflowGitStrategy(
+          integrationBranch: true,
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.perMapItem),
+          promotion: 'merge',
+          publish: false,
+          mergeResolve: MergeResolveConfig(enabled: true, maxAttempts: 1, escalation: MergeResolveEscalation.fail),
+        ),
+        steps: const [
+          WorkflowStep(
+            id: 'pipeline',
+            name: 'Story Pipeline',
+            taskType: WorkflowTaskType.foreach,
+            mapOver: 'stories',
+            maxParallel: 1,
+            foreachSteps: ['implement', 'verify', 'publish'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement Story', prompts: ['Implement {{map.item.id}}']),
+          WorkflowStep(id: 'verify', name: 'Verify Story', prompts: ['Verify {{map.item.id}}']),
+          WorkflowStep(id: 'publish', name: 'Publish Story', prompts: ['Publish {{UNDECLARED_VAR}}']),
+        ],
       );
       final run = makeRun(definition, id: 'run-first-task-attribution');
       await h.repository.insert(run);
@@ -740,10 +705,6 @@ void main() {
       final executor = makeExecutor(
         dir: h.tempDir,
         turnAdapter: makeAdapter(conflictIds: {}),
-        outputTransformer: (run, definition, step, task, outputs) {
-          if (step.id == 'verify') throw StateError('simulated later-child crash');
-          return codingWithBranchTransformer()(run, definition, step, task, outputs);
-        },
       );
 
       final queuedTaskIds = <String>[];
@@ -752,7 +713,7 @@ void main() {
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
         queuedTaskIds.add(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
@@ -764,15 +725,31 @@ void main() {
 
       final finalRun = await h.repository.getById(run.id);
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      // Pin the unexpected-exception arm: only it reads the write-once first-task
+      // map. The budget arms share the `foreach-controller-failure:` prefix.
+      expect(finalRun?.errorMessage, contains('failed unexpectedly'));
       expect(queuedTaskIds, hasLength(2));
       expect(iterationEvents.single.taskId, equals(queuedTaskIds.first));
     });
   });
 
   group('S4/S5 — error: stuck sibling during settle', () {
-    test('settle-timeout fails the run and cancels active tasks by workflow run id', () async {
-      final definition = makeMergeResolveDefinition(escalation: 'serialize-remaining', maxAttempts: 1, maxParallel: 3);
-      final run = makeRun(definition, id: 'run-settle-timeout');
+    // Both settle-timeout legs drive the same stuck-S03 scenario; only the
+    // controller's `onFailure` and whether a next step exists differ.
+    Future<({WorkflowRun? run, List<String> s03TaskIds, List<String> cancelled, bool nextStepDispatched})>
+    runToSettleTimeout({
+      required String runId,
+      OnFailurePolicy onFailure = OnFailurePolicy.fail,
+      bool withTrailingStep = false,
+    }) async {
+      final definition = makeMergeResolveDefinition(
+        escalation: 'serialize-remaining',
+        maxAttempts: 1,
+        maxParallel: 3,
+        onFailure: onFailure,
+        withTrailingStep: withTrailingStep,
+      );
+      final run = makeRun(definition, id: runId);
       await h.repository.insert(run);
       final context = WorkflowContext(
         data: {
@@ -786,11 +763,12 @@ void main() {
       );
 
       final s03TaskIds = <String>[];
-      final cancelledByRun = <String>[];
+      final cancelled = <String>[];
+      var nextStepDispatched = false;
       final cancelSub = h.eventBus
           .on<TaskStatusChangedEvent>()
           .where((e) => e.newStatus == TaskStatus.cancelled && e.trigger == 'serialize-remaining-settle-timeout')
-          .listen((e) => cancelledByRun.add(e.taskId));
+          .listen((e) => cancelled.add(e.taskId));
 
       final s02PromoteCount = <int>[0];
       final adapter = standardTurnAdapter(
@@ -818,7 +796,6 @@ void main() {
       final executor = makeExecutor(
         dir: h.tempDir,
         turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
         serializeRemainingSettleTimeout: Duration.zero,
       );
 
@@ -826,7 +803,9 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await attachWorktree(e.taskId);
+        if (task?.title.contains('Summarize') ?? false) nextStepDispatched = true;
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
@@ -839,13 +818,41 @@ void main() {
       await executor.execute(run, definition, context);
       await sub.cancel();
       await cancelSub.cancel();
+      return (
+        run: await h.repository.getById(runId),
+        s03TaskIds: s03TaskIds,
+        cancelled: cancelled,
+        nextStepDispatched: nextStepDispatched,
+      );
+    }
 
-      final finalRun = await h.repository.getById(run.id);
-      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-      expect(finalRun?.errorMessage, contains('serialize-remaining settle-timeout'));
-      expect(s03TaskIds, hasLength(1));
-      expect(cancelledByRun, contains(s03TaskIds.single));
-      expect((await h.taskService.get(s03TaskIds.single))?.status, equals(TaskStatus.cancelled));
+    test('settle-timeout fails the run and cancels active tasks by workflow run id', () async {
+      final outcome = await runToSettleTimeout(runId: 'run-settle-timeout');
+
+      expect(outcome.run?.status, equals(WorkflowRunStatus.failed));
+      expect(outcome.run?.errorMessage, contains('serialize-remaining settle-timeout'));
+      expect(outcome.s03TaskIds, hasLength(1));
+      expect(outcome.cancelled, contains(outcome.s03TaskIds.single));
+      expect((await h.taskService.get(outcome.s03TaskIds.single))?.status, equals(TaskStatus.cancelled));
+    });
+
+    test('settle-timeout under onFailure: continue still fails the run and cancels its live tasks', () async {
+      // Both shipped settle-timeout tests run under the default `onFailure:
+      // fail`, so nothing else pins that the settle-timeout stays in the stop
+      // set and keeps the task-cancelling route when a controller is authored
+      // to advance past ordinary iteration failures.
+      final outcome = await runToSettleTimeout(
+        runId: 'run-settle-timeout-continue',
+        onFailure: OnFailurePolicy.continueWorkflow,
+        withTrailingStep: true,
+      );
+
+      expect(outcome.run?.status, equals(WorkflowRunStatus.failed));
+      expect(outcome.run?.errorMessage, contains('serialize-remaining settle-timeout'));
+      expect(outcome.nextStepDispatched, isFalse, reason: 'the settle-timeout must not advance the run');
+      expect(outcome.s03TaskIds, hasLength(1));
+      expect(outcome.cancelled, contains(outcome.s03TaskIds.single));
+      expect((await h.taskService.get(outcome.s03TaskIds.single))?.status, equals(TaskStatus.cancelled));
     });
 
     test('settle-timeout keeps one deadline after another sibling settles', () async {
@@ -901,7 +908,6 @@ void main() {
       final executor = makeExecutor(
         dir: h.tempDir,
         turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
         serializeRemainingSettleTimeout: const Duration(milliseconds: 300),
       );
 
@@ -909,7 +915,8 @@ void main() {
         e,
       ) async {
         final task = await h.taskService.get(e.taskId);
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         if (task?.configJson['displayScope'] == 'S03') {
           s03TaskIds.add(e.taskId);
           await h.taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
@@ -982,11 +989,7 @@ void main() {
         cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithBranchTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final queuedScopes = <Object?>[];
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
@@ -994,7 +997,8 @@ void main() {
       ) async {
         final task = await h.taskService.get(e.taskId);
         queuedScopes.add(task?.configJson['displayScope']);
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -1032,19 +1036,15 @@ void main() {
       final executor = makeExecutor(
         dir: h.tempDir,
         turnAdapter: makeAdapter(conflictIds: {'S01'}),
-        outputTransformer: codingWithMergeResolveFailTransformer(),
       );
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"completed"}</step-outcome>',
-          tokenCount: 10,
-        );
+        await h.completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'completed', tokenCount: 10);
       });
 
       await executor.execute(run, definition, context);
@@ -1106,16 +1106,13 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithBranchTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });
@@ -1186,16 +1183,13 @@ void main() {
         captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
       );
 
-      final executor = makeExecutor(
-        dir: h.tempDir,
-        turnAdapter: adapter,
-        outputTransformer: codingWithMergeResolveFailTransformer(),
-      );
+      final executor = makeExecutor(dir: h.tempDir, turnAdapter: adapter);
 
       final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
         e,
       ) async {
-        await attachWorktree(e.taskId);
+        await h.attachWorktree(e.taskId);
+        await h.seedMergeResolveFailure(e.taskId);
         await Future<void>.delayed(Duration.zero);
         await completeTask(e.taskId);
       });

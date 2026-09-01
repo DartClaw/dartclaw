@@ -4,7 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -18,7 +18,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
-        WorkflowRunStatus,
         WorkflowStep,
         WorkflowTaskType;
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';

@@ -17,14 +17,14 @@ Server should be running: `bash dev/testing/profiles/plain/run.sh`
 
 1. Open `http://localhost:3335/?token=devtoken0` in a fresh browser context
 2. Run `agent-browser snapshot -i` to capture the authenticated page state
-3. Click the `+ New Session` control in the sidebar
+3. Click the `New Chat` control in the sidebar
 4. Observe the URL after navigation completes
 5. Run `agent-browser snapshot -i` again to capture the new session state
 
 ### Expected
 
 - The app loads without showing a login form
-- After clicking `+ New Session`, the browser navigates to a path matching `/sessions/[a-z0-9-]+`
+- After clicking `New Chat`, the browser navigates to a path matching `/sessions/[a-z0-9-]+`
 - The new session appears at or near the top of the sidebar session list
 - An empty chat state is shown in the main area
 - The chat input field is present and enabled
@@ -50,7 +50,9 @@ Precondition: browser is on the newly created session page from S1.
 - A response message appears below the user message
 - The response contains text (non-empty, at least one word)
 - During streaming: send button is disabled or a loading indicator is visible
-- After streaming completes: send button is re-enabled
+- After streaming completes: the send button accepts input again — it stays disabled while the
+  message box is empty, so type a character to confirm it re-enables rather than reading the
+  empty-input state as a stuck send
 - No error banner or error message is visible
 
 
@@ -94,22 +96,21 @@ Precondition: session has been renamed to "Lifecycle Test Session" in S3.
 - No error banner is visible
 
 
-## S5: Delete the Session and Verify Removal
+## S5: Archive the Session and Verify Removal
 
 Precondition: the renamed session is still active from S4.
 
 ### Steps
 
 1. Run `agent-browser snapshot -i` to identify interactive elements
-2. Locate the delete or context-menu control for the active `Lifecycle Test Session`
-3. Click the delete button or select `Delete` from the context menu
-4. If a confirmation dialog appears, confirm the deletion
-5. Wait for the deletion to complete
-6. Run `agent-browser snapshot -i` to capture the post-delete page
+2. Locate the `Archive chat` button on the sidebar entry for `Lifecycle Test Session`
+3. Click it — the shipped UI archives rather than hard-deletes, and asks for no confirmation
+4. Wait for the sidebar to update
+5. Run `agent-browser snapshot -i` to capture the post-archive page
 
 ### Expected
 
 - The entry `Lifecycle Test Session` is NO LONGER present in the sidebar
 - No error banner or error message is visible
-- The browser is redirected away from the deleted session id
+- The browser is redirected away from the archived session id
 - The app remains on a valid authenticated page after deletion

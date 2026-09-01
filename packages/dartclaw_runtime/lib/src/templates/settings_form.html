@@ -1,0 +1,61 @@
+<form tl:fragment="settingsSection" class="settings-form" hx-target="this" hx-swap="outerHTML"
+      tl:attr="id=${formId},data-section=${sectionId},hx-post=${action}">
+  <input type="hidden" tl:attr="name=${sectionField},value=${sectionId}">
+
+  <div class="well form-field" role="group" tl:each="group : ${groups}" tl:attr="aria-labelledby=${group.labelId}">
+    <span class="t-caption tracking-caps" tl:attr="id=${group.labelId}" tl:text="${group.label}">Group</span>
+
+    <div tl:each="field : ${group.fields}" tl:attr="class=${field.fieldClass},data-field=${field.path}">
+      <label class="form-label t-caption tracking-caps" tl:attr="for=${field.labelFor}">
+        <span tl:text="${field.label}">Label</span>
+        <span tl:if="${field.badgeLabel}" tl:class="${field.badgeClass}" tl:text="${field.badgeLabel}">restart</span>
+      </label>
+
+      <input tl:if="${field.isText}" type="text"
+             tl:attr="class=${field.inputClass},id=${field.controlId},name=${field.path},value=${field.value},placeholder=${field.placeholder},aria-invalid=${field.ariaInvalid}">
+
+      <input tl:if="${field.isNumber}" type="number"
+             tl:attr="class=${field.inputClass},id=${field.controlId},name=${field.path},value=${field.value},min=${field.min},max=${field.max},step=${field.step},aria-invalid=${field.ariaInvalid}">
+
+      <textarea tl:if="${field.isTextarea}" class="form-textarea t-body" rows="6" tl:text="${field.value}"
+                tl:attr="id=${field.controlId},name=${field.path},placeholder=${field.placeholder},aria-invalid=${field.ariaInvalid}"></textarea>
+
+      <textarea tl:if="${field.isList}" class="form-textarea t-body" rows="4" tl:text="${field.value}"
+                tl:attr="id=${field.controlId},name=${field.path},aria-invalid=${field.ariaInvalid}"></textarea>
+
+      <select tl:if="${field.isSelect}" class="form-select t-body"
+              tl:attr="id=${field.controlId},name=${field.path},aria-invalid=${field.ariaInvalid}">
+        <option tl:each="option : ${field.options}" tl:attr="value=${option.value},selected=${option.selected}"
+                tl:text="${option.label}">option</option>
+      </select>
+
+      <label tl:if="${field.isToggle}" class="form-toggle">
+        <input type="checkbox" value="true"
+               tl:attr="id=${field.controlId},name=${field.path},checked=${field.checked},aria-label=${field.label}">
+        <span class="form-toggle-slider"></span>
+      </label>
+
+      <div tl:if="${field.isFact}" class="card-detail card-detail-mono" tl:text="${field.factValue}">value</div>
+
+      <div tl:if="${field.isEntries}" class="well-deep">
+        <p class="form-hint t-caption" tl:text="${field.entryNote}">YAML stays authoritative.</p>
+        <div class="form-hint t-caption" tl:each="entry : ${field.entryFields}">
+          <code tl:text="${entry.name}">key</code>
+          <span tl:text="${entry.description}">what the key controls</span>
+        </div>
+      </div>
+
+      <p class="form-hint t-caption" tl:text="${field.hint}">hint</p>
+      <div class="form-error t-caption" tl:text="${field.error}"></div>
+    </div>
+  </div>
+
+  <div class="form-error t-caption" role="alert" tl:each="message : ${unplacedErrors}" tl:text="${message}"></div>
+
+  <div tl:if="${hasActions}" class="form-actions">
+    <button type="submit" class="btn btn-primary btn-sm" disabled>Save</button>
+    <button type="reset" class="btn btn-ghost btn-sm">Discard</button>
+  </div>
+  <p tl:if="${hasStatus}" role="status" tl:class="${statusClass}" tl:text="${statusMessage}">status</p>
+  <p tl:if="${hasNote}" class="section-note" tl:text="${note}">Changes apply after a server restart.</p>
+</form>

@@ -82,7 +82,7 @@ Doc-comment budget should track **visibility**, not line count of the implementa
 - **Don't restate the control flow the code already shows.** If a method's dartdoc enumerates cases that mirror a `switch` or `if`/`else` chain, the two will drift. Prefer a one-line summary plus **named anchors** (`// Case 1:` / `// Case 2:`) in the body the dartdoc can reference by label.
 - **Don't paraphrase identifier names.** `/// The harness factory` on a field named `harnessFactory` is pure noise. Comment only what the name doesn't already convey.
 - **Collapse multi-paragraph class docs** on internal classes when a one-liner plus the method-level invariants suffice. Wall-of-text on an `lib/src/` class is a smell.
-- **Don't document a consumer's behavior at the definition site.** "X is rewrapped by `ServiceWiring.wire()`" or "called from the Y flow" couples this docstring to a caller that can change independently. Document the contract this method offers; let callers document how they use it.
+- **Don't document a consumer's behavior at the definition site.** "X is rewrapped by `DartclawRuntime.build()`" or "called from the Y flow" couples this docstring to a caller that can change independently. Document the contract this method offers; let callers document how they use it.
 - **No cleanup-leftover markers.** `// REMOVED …`, `// was: …`, `// previously: …`, and similar tombstones belong in git history. Delete the code, then delete the marker.
 - **Every `// TODO` needs an owner or tracking link.** Use `// TODO(name): …` or `// TODO(#123): …`. A bare `// TODO: fix this later` is a promise no one made and no one will keep — either fix it now or open an issue and link it.
 

@@ -1,21 +1,17 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'markdown_converter.dart';
-import 'media_extractor.dart';
 
 /// Format agent output into a list of ChannelResponses ready for sending.
 ///
-/// Steps: extract media -> apply prefix -> chunk text -> assemble responses.
+/// Applies the identity prefix, converts Markdown, and chunks the text.
 List<ChannelResponse> formatResponse(
   String agentOutput, {
   required String model,
   required String agentName,
   required int maxChunkSize,
-  required String workspaceDir,
 }) {
-  // Extract MEDIA:<path> directives
-  final extraction = extractMediaDirectives(agentOutput, workspaceDir: workspaceDir);
-  final formattedText = markdownToWhatsApp(extraction.cleanedText);
+  final formattedText = markdownToWhatsApp(agentOutput);
 
   // Apply prefix to first chunk
   final prefix = '*$model* — _${agentName}_\n\n';
@@ -26,8 +22,7 @@ List<ChannelResponse> formatResponse(
 
   final responses = <ChannelResponse>[];
 
-  // First chunk gets prefix + media attachments
-  responses.add(ChannelResponse(text: '$prefix${textChunks.first}', mediaAttachments: extraction.mediaPaths));
+  responses.add(ChannelResponse(text: '$prefix${textChunks.first}'));
 
   // Subsequent chunks: text only
   for (var i = 1; i < textChunks.length; i++) {

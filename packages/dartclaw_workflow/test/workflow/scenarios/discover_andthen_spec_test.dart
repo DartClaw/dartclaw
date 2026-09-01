@@ -1,6 +1,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -9,14 +11,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputFormat,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowExecutor,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep,
-        WorkflowVariable;
+        WorkflowVariable,
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeVersion;
 import 'package:test/test.dart';
 
 import '../scenario_test_support.dart';
@@ -43,8 +46,10 @@ void main() {
       expect(skill, isNot(contains('## Acceptance Criteria')));
       expect(skill, isNot(contains('## Touched Files')));
       // Examples for DC-native skills live in SKILL.md alongside the contract –
-      // the workflow YAML does not duplicate them via outputExamples.
-      expect(skill, contains('<workflow-context>'));
+      // the workflow YAML does not duplicate them via outputExamples. They show
+      // the envelope's `outputs`, never a tagged block.
+      expect(skill, contains('execution envelope'));
+      expect(skill, isNot(contains('<workflow-context>')));
     });
 
     test('extracts existing FIS classification as path output', () async {
@@ -135,10 +140,18 @@ void main() {
           .listen((event) async {
             final session = await harness.sessions.getOrCreateMainSession();
             await harness.tasks.updateFields(event.taskId, sessionId: session.id, worktreeJson: {'path': projectRoot});
-            await harness.messages.insertMessage(
-              sessionId: session.id,
-              role: 'assistant',
-              content: '<workflow-context>{"spec_path":"dev/specs/demo/fis/s01-story.md","spec_source":"existing","spec_confidence":0}</workflow-context>',
+            final wse = await harness.workflowStepExecutions.getByTaskId(event.taskId);
+            await harness.workflowStepExecutions.update(
+              wse!.copyWith(
+                structuredOutputJson: jsonEncode({
+                  executionEnvelopeOutputsKey: const {
+                    'spec_path': 'dev/specs/demo/fis/s01-story.md',
+                    'spec_source': 'existing',
+                    'spec_confidence': 0,
+                  },
+                  executionEnvelopeMarkerKey: executionEnvelopeVersion,
+                }),
+              ),
             );
             try {
               await harness.tasks.transition(event.taskId, TaskStatus.running, trigger: 'test');
@@ -174,19 +187,15 @@ Future<Map<String, dynamic>> _extractDetectSpecOutputs(
   required Map<String, dynamic> payload,
 }) async {
   final session = await harness.sessions.getOrCreateMainSession();
-  await harness.messages.insertMessage(
-    sessionId: session.id,
-    role: 'assistant',
-    content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
-  );
+  final runId = 'run-detect-spec-${DateTime.now().microsecondsSinceEpoch}';
   final task = await harness.tasks.create(
     id: 'task-${DateTime.now().microsecondsSinceEpoch}',
     title: 'Detect',
     description: 'Detect',
-    type: TaskType.research,
     autoStart: true,
   );
   await harness.tasks.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': projectRoot});
+  await harness.seedEnvelopeOutputs(task.id, payload, workflowRunId: runId);
   final taskWithSession = (await harness.tasks.get(task.id))!;
   final extractor = harness.contextExtractor();
   return extractor.extract(

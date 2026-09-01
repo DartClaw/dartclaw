@@ -20,7 +20,6 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         TaskReviewReadyEvent,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType,
         WorkflowApprovalRequestedEvent,
         WorkflowApprovalResolvedEvent,
         WorkflowBudgetWarningEvent,
@@ -29,15 +28,12 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         WorkflowStepCompletedEvent,
         WorkflowTaskService,
         atomicWriteJson;
-export 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy, WorkflowRunStatus;
-export 'package:dartclaw_models/dartclaw_models.dart';
 
 export 'src/workflow/workflow_definition.dart'
     show
         ActionNode,
         ForeachNode,
         LoopNode,
-        MapNode,
         MergeResolveConfig,
         MergeResolveEscalation,
         OnErrorPolicy,
@@ -48,9 +44,7 @@ export 'src/workflow/workflow_definition.dart'
         ParallelGroupNode,
         StepConfigDefault,
         WorkflowDefinition,
-        WorkflowExternalArtifactMountMode,
         WorkflowGitArtifactsStrategy,
-        WorkflowGitExternalArtifactMount,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowLoop,
@@ -61,13 +55,19 @@ export 'src/workflow/workflow_definition.dart'
         WorkflowVariable;
 export 'src/workflow/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
+export 'src/workflow/workflow_asset_source_resolver.dart' show WorkflowAssetSourceResolver;
+export 'src/workflow/workflow_materializer.dart' show WorkflowMaterializer;
 export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;
+export 'src/storage/sqlite_workflow_run_repository.dart' show SqliteWorkflowRunRepository;
+
+export 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowStepExecutionRepository;
+
 export 'src/workflow/workflow_runtime_artifacts_pruner.dart'
     show RuntimeArtifactsPruneAction, RuntimeArtifactsPruneReport, WorkflowRuntimeArtifactsPruner;
 export 'src/workflow/workflow_task_binding_coordinator.dart' show WorkflowTaskBindingCoordinator;
 
 export 'src/workflow/context_extractor.dart' show ContextExtractor, StructuredOutputFallbackRecorder;
-export 'src/workflow/gate_evaluator.dart' show GateEvaluator;
+export 'src/workflow/gate_evaluator.dart' show GateEvaluator, GateUnproducedOutputFailure;
 export 'src/workflow/map_context.dart' show MapContext;
 export 'src/workflow/missing_artifact_failure.dart' show MissingArtifactFailure;
 export 'src/workflow/output_resolver.dart' show FileSystemOutput, InlineOutput, OutputResolver;
@@ -118,16 +118,13 @@ export 'src/workflow/step_config_resolver.dart'
         globMatchStepId,
         resolveStepConfig,
         syntheticWorkflowSkillSteps; // retained: consumed by CLI validation/wiring and workflow barrel tests
-export 'src/workflow/workflow_context.dart' show WorkflowContext;
+export 'src/workflow/workflow_context.dart' show WorkflowContext, unproducedKeysSystemPrefix;
 export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
 export 'src/workflow/workflow_definition_resolver.dart' show WorkflowDefinitionResolver;
 export 'src/workflow/workflow_definition_source.dart'
-    show
-        InMemoryDefinitionSource,
-        WorkflowDefinitionSource,
-        WorkflowSummary; // retained: injected as host-facing definition lookup seam
+    show WorkflowDefinitionSource, WorkflowSummary; // retained: injected as host-facing definition lookup seam
 export 'src/workflow/workflow_definition_validator.dart'
-    show ValidationError, ValidationErrorType, ValidationReport, WorkflowDefinitionValidator;
+    show WorkflowValidationError, WorkflowValidationErrorType, ValidationReport, WorkflowDefinitionValidator;
 export 'src/workflow/merge_resolve_attempt_artifact.dart' show MergeResolveAttemptArtifact;
 export 'src/workflow/workflow_executor.dart' show WorkflowExecutor;
 export 'src/workflow/workflow_git_port.dart'
@@ -147,19 +144,32 @@ export 'src/workflow/workflow_output_contract.dart'
         executionEnvelopeVersion,
         executionEnvelopeDeclaredOutputKeys,
         isExecutionEnvelope,
-        isExecutionEnvelopeSchema,
         reservedEnvelopeOutputKeys,
         stepOutcomeClose,
         stepOutcomeOpen,
         stepOutcomeTag,
-        workflowContextClose,
-        workflowContextOpen,
-        workflowContextTag,
         parseStepOutcomePayload,
-        stepOutcomeRegExp,
-        workflowContextRegExp;
+        stepOutcomeRegExp;
 export 'src/workflow/workflow_registry.dart' show WorkflowExclusion, WorkflowRegistry, WorkflowSource;
 export 'src/workflow/bash_process_owner.dart' show BashProcessOwner;
+export 'src/workflow/workflow_failure.dart'
+    show
+        WorkflowEscalatedHardFailure,
+        WorkflowFailure,
+        WorkflowForeachControllerFailure,
+        WorkflowIterationBlockedHold,
+        WorkflowIterationCancelled,
+        WorkflowIterationFailure,
+        WorkflowLegacyIterationStateFailure,
+        WorkflowModelDeclaredFailure,
+        WorkflowOutputValidationFailure,
+        WorkflowPromotionConflictFailure,
+        WorkflowPromotionFailure,
+        WorkflowSerializeRemainingSettleTimeout,
+        WorkflowStepRetryFailure,
+        WorkflowTaskTerminalStatusFailure,
+        workflowFailureFromPersisted,
+        workflowFailureKinds;
 export 'src/workflow/workflow_runner_types.dart'
     show
         BashStepPolicy,
@@ -171,7 +181,6 @@ export 'src/workflow/workflow_runner_types.dart'
         StepPromptConfiguration,
         StepValidationFailure,
         StorySpecOutputValidation,
-        WorkflowStepOutputTransformer,
         isSupportedWorkflowRunnerNode;
 export 'src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
 export 'src/workflow/workflow_service.dart'

@@ -28,7 +28,6 @@ class TasksShowCommand extends ConnectedCommand {
     writeLine('Task:         ${task['id']}');
     writeLine('  Title:      ${task['title']}');
     writeLine('  Description:${task['description']}');
-    writeLine('  Type:       ${task['type']}');
     writeLine('  Status:     ${task['status']}');
     writeLine('  Project:    ${task['projectId'] ?? '—'}');
     writeLine('  Provider:   ${execution['provider'] ?? '—'}');

@@ -1,0 +1,8 @@
+# Production harnesses that do not call AgentHarness.requireStructuredOutputSupport.
+#
+# Entry format: `packages/<name>/lib/<path>.dart  # <rationale>`
+#
+# Committed empty and intended to stay so. A harness that accepts an
+# `outputSchema` it cannot enforce drops a declared output silently — there is
+# no configuration under which that is the wanted behaviour, so an entry here
+# has to name a harness that cannot reach the helper at all.

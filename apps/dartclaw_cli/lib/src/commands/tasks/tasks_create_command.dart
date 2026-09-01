@@ -7,7 +7,6 @@ class TasksCreateCommand extends ConnectedCommand {
     argParser
       ..addOption('title', help: 'Task title')
       ..addOption('description', help: 'Task description')
-      ..addOption('type', help: 'Task type')
       ..addOption('project', help: 'Project ID')
       ..addOption('provider', help: 'Provider override')
       ..addFlag('auto-start', negatable: false, help: 'Start the task immediately after creation')
@@ -24,15 +23,11 @@ class TasksCreateCommand extends ConnectedCommand {
   Future<void> run() => runConnected((apiClient) async {
     final title = (argResults!['title'] as String?)?.trim();
     final description = (argResults!['description'] as String?)?.trim();
-    final type = (argResults!['type'] as String?)?.trim();
     if (title == null || title.isEmpty) {
       throw UsageException('--title is required', usage);
     }
     if (description == null || description.isEmpty) {
       throw UsageException('--description is required', usage);
-    }
-    if (type == null || type.isEmpty) {
-      throw UsageException('--type is required', usage);
     }
 
     final created = await apiClient.postObject(
@@ -40,7 +35,6 @@ class TasksCreateCommand extends ConnectedCommand {
       body: {
         'title': title,
         'description': description,
-        'type': type,
         if ((argResults!['project'] as String?)?.trim().isNotEmpty == true)
           'projectId': (argResults!['project'] as String).trim(),
         if ((argResults!['provider'] as String?)?.trim().isNotEmpty == true)

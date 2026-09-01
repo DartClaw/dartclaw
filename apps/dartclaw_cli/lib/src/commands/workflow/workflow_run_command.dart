@@ -3,16 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, WorkflowApprovalPolicy, WorkflowRunStatus;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        HarnessFactory,
-        LoginStoreCollisionError,
-        MapIterationCompletedEvent,
-        TaskStatus,
-        WorkflowLifecycleEvent,
-        WorkflowStepCompletedEvent;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SearchDbFactory, TaskDbFactory;
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show SearchDbFactory, TaskDbFactory, openSearchDb, openTaskDb;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProviderAuthPreflight,
@@ -20,21 +14,20 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExclusion,
         WorkflowPreflightException,
         WorkflowRun,
-        SkillIntrospector,
-        WorkflowTaskType;
+        SkillIntrospector;
 import 'package:path/path.dart' as p;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show CredentialPreflight, CredentialPreflightException, DartclawRuntime, ExitFn, HeadlessRuntimeStaging, WriteLine;
 
-import '../../dartclaw_api_client.dart';
 import '../cli_global_options.dart';
 import '../config_loader.dart';
-import '../serve_command.dart' show ExitFn, WriteLine;
+import '../connected_command_support.dart' show apiClientFromConfig;
 import 'cli_progress_printer.dart';
-import 'cli_workflow_wiring.dart';
-import 'credential_preflight.dart';
+import 'connected_progress_decoder.dart';
 import 'live_status_line.dart';
-import 'standalone_lifecycle_support.dart' show requiredWorkflowProviders;
+import 'standalone_lifecycle_support.dart' show installStandaloneLogging, requiredWorkflowProviders;
 import 'standalone_run_harness.dart';
-import 'workflow_event_printer_dispatch.dart';
+import 'workflow_progress_renderer.dart';
 
 /// Runs a workflow either against a live server or in standalone mode.
 class WorkflowRunCommand extends Command<void> {
@@ -170,7 +163,7 @@ class WorkflowRunCommand extends Command<void> {
     final config = _config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
     final apiClient =
         _apiClient ??
-        DartclawApiClient.fromConfig(
+        apiClientFromConfig(
           config: config,
           serverOverride: serverOverride(globalResults),
           tokenOverride: globalOptionString(globalResults, 'token'),
@@ -219,7 +212,7 @@ class WorkflowRunCommand extends Command<void> {
   }) async {
     final apiClient =
         _apiClient ??
-        DartclawApiClient.fromConfig(
+        apiClientFromConfig(
           config: config,
           serverOverride: serverOverride(globalResults),
           tokenOverride: globalOptionString(globalResults, 'token'),
@@ -235,90 +228,39 @@ class WorkflowRunCommand extends Command<void> {
     final dataDir = config.server.dataDir;
     Directory(dataDir).createSync(recursive: true);
 
-    final wiring = CliWorkflowWiring(
-      config: config,
-      dataDir: dataDir,
-      environment: _environment,
-      harnessFactory: _harnessFactory,
-      searchDbFactory: _searchDbFactory,
-      taskDbFactory: _taskDbFactory,
-      runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
-      preferSourceTreeAssets: preferSourceTreeAssets,
-      skillIntrospector: _skillIntrospector,
-      providerAuthPreflight: _providerAuthPreflight,
-    );
-    var preWired = false;
+    final logService = installStandaloneLogging(config);
+
+    final environment = _environment ?? Platform.environment;
     try {
-      await wiring.wireBaseServices();
-      preWired = true;
+      CredentialPreflight.enforce(config, environment);
     } on CredentialPreflightException catch (error) {
       for (final item in error.errors) {
         _stderrLine(item.message);
       }
       _exitFn(1);
-    } on LoginStoreCollisionError catch (error) {
-      // A store DartClaw must not use is an operator configuration error, not a
-      // crash: it takes the same printed-remediation, exit-1 path.
-      _stderrLine(error.toString());
-      _exitFn(1);
     }
 
-    try {
-      final definition = wiring.registry.getByName(workflowName);
-      if (definition == null) {
-        final allExclusions = wiring.registry.exclusions;
-        // Match parse-failure entries (workflowName == null) by filename
-        // basename so "dartclaw run foo" surfaces a foo.yaml parse failure.
-        bool matchesRequested(WorkflowExclusion excl) {
-          if (excl.workflowName != null) return excl.workflowName == workflowName;
-          return p.basenameWithoutExtension(excl.sourcePath) == workflowName;
-        }
+    final staging = await DartclawRuntime.stageHeadless(
+      config,
+      dataDir: dataDir,
+      environment: environment,
+      skillProvisionerEnvironment: environment,
+      harnessFactory: _harnessFactory ?? HarnessFactory(),
+      searchDbFactory: _searchDbFactory ?? openSearchDb,
+      taskDbFactory: _taskDbFactory ?? openTaskDb,
+      stderrLine: _stderrLine,
+      exitFn: _exitFn,
+      runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
+      preferSourceTreeAssets: preferSourceTreeAssets,
+      skillIntrospector: _skillIntrospector,
+      providerAuthPreflight: _providerAuthPreflight,
+    );
 
-        final namedExclusions = allExclusions.where(matchesRequested).toList();
-        final otherExclusions = allExclusions.where((excl) => !matchesRequested(excl)).toList();
-        if (namedExclusions.isNotEmpty) {
-          _stderrLine('Workflow "$workflowName" was excluded at load time:');
-          for (final excl in namedExclusions) {
-            _stderrLine('  ${excl.sourcePath}:');
-            for (final err in excl.errors) {
-              _stderrLine('    - $err');
-            }
-          }
-        } else {
-          _stderrLine('Unknown workflow: $workflowName');
-        }
-        final available = wiring.registry.listAll().map((item) => item.name).join(', ');
-        if (available.isNotEmpty) {
-          _stderrLine('Available: $available');
-        }
-        if (otherExclusions.isNotEmpty) {
-          // Surface sibling failures so partial-registry damage is visible
-          // even when the operator's requested workflow exists or doesn't.
-          _stderrLine(
-            available.isEmpty
-                ? 'No workflows are registered. Excluded at load time:'
-                : 'Other workflows excluded at load time:',
-          );
-          for (final excl in otherExclusions) {
-            final label = excl.workflowName ?? excl.sourcePath;
-            _stderrLine('  $label: ${excl.errors.join('; ')}');
-          }
-        }
-        // Suppress the --no-skill-bootstrap skill hint when an explicit
-        // exclusion reason was already surfaced — the hint tells the operator
-        // to fix skill provisioning, which is misleading if the actual cause
-        // was (e.g.) a structural validation error.
-        if (!runWorkflowSkillsBootstrap && allExclusions.isEmpty) {
-          // Workflows that reference unresolved skills are silently excluded
-          // by WorkflowRegistry; with --no-skill-bootstrap that almost always
-          // means workflow skills weren't pre-staged. Surface the hint.
-          _stderrLine(
-            'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw-native workflow skills, '
-            'pre-stage them under the data-dir native skill roots and materialize the project workspace links, '
-            'or omit --no-skill-bootstrap to provision those native skills automatically. '
-            'Externally provided skills (e.g. andthen:*) must be installed separately for the selected provider.',
-          );
-        }
+    DartclawRuntime? runtime;
+    try {
+      final definition = staging.workflowRegistry.getByName(workflowName);
+      if (definition == null) {
+        _reportUnknownWorkflow(staging, workflowName, runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap);
         _exitFn(1);
       }
       // Gate referenced-provider auth before configuring execution services.
@@ -326,12 +268,12 @@ class WorkflowRunCommand extends Command<void> {
       // probed or made eligible for workflow execution.
       final referencedProviders = requiredWorkflowProviders(definition, config);
       try {
-        await wiring.preflightProviderAuth(referencedProviders);
+        await staging.preflightProviderAuth(referencedProviders);
       } on WorkflowPreflightException catch (error) {
         _stderrLine(error.message);
         _exitFn(1);
       }
-      await wiring.wireExecutionServices(referencedProviders);
+      runtime = await staging.completeForExecution(referencedProviders);
 
       final printer = CliProgressPrinter(
         totalSteps: definition.steps.length,
@@ -342,16 +284,16 @@ class WorkflowRunCommand extends Command<void> {
       );
 
       final finalRun = await driveStandaloneWorkflowRun(
-        service: wiring.workflowService,
-        taskService: wiring.taskService,
+        service: runtime.workflowService,
+        taskService: runtime.taskService,
         definition: definition,
-        eventBus: wiring.eventBus,
+        eventBus: runtime.eventBus,
         printer: printer,
         jsonOutput: jsonOutput,
         stdoutLine: _stdoutLine,
         interrupts: _interrupts,
         exitFn: _exitFn,
-        trigger: () => wiring.workflowService.start(
+        trigger: () => runtime!.workflowService.start(
           definition,
           variables,
           projectId: projectId,
@@ -362,9 +304,75 @@ class WorkflowRunCommand extends Command<void> {
       );
       _exitFn(standaloneWorkflowExitCode(finalRun.status));
     } finally {
-      if (preWired) {
-        await wiring.dispose();
+      if (runtime != null) {
+        await runtime.shutdown();
+      } else {
+        await staging.dispose();
       }
+      await logService.dispose();
+    }
+  }
+
+  /// Explains why a requested workflow did not resolve: its own load-time
+  /// exclusion when it has one, the available names, and any sibling exclusion,
+  /// so partial-registry damage stays visible either way.
+  void _reportUnknownWorkflow(
+    HeadlessRuntimeStaging staging,
+    String workflowName, {
+    required bool runWorkflowSkillsBootstrap,
+  }) {
+    final allExclusions = staging.workflowRegistry.exclusions;
+    // Match parse-failure entries (workflowName == null) by filename
+    // basename so "dartclaw run foo" surfaces a foo.yaml parse failure.
+    bool matchesRequested(WorkflowExclusion excl) {
+      if (excl.workflowName != null) return excl.workflowName == workflowName;
+      return p.basenameWithoutExtension(excl.sourcePath) == workflowName;
+    }
+
+    final namedExclusions = allExclusions.where(matchesRequested).toList();
+    final otherExclusions = allExclusions.where((excl) => !matchesRequested(excl)).toList();
+    if (namedExclusions.isNotEmpty) {
+      _stderrLine('Workflow "$workflowName" was excluded at load time:');
+      for (final excl in namedExclusions) {
+        _stderrLine('  ${excl.sourcePath}:');
+        for (final err in excl.errors) {
+          _stderrLine('    - $err');
+        }
+      }
+    } else {
+      _stderrLine('Unknown workflow: $workflowName');
+    }
+    final available = staging.workflowRegistry.listAll().map((item) => item.name).join(', ');
+    if (available.isNotEmpty) {
+      _stderrLine('Available: $available');
+    }
+    if (otherExclusions.isNotEmpty) {
+      // Surface sibling failures so partial-registry damage is visible
+      // even when the operator's requested workflow exists or doesn't.
+      _stderrLine(
+        available.isEmpty
+            ? 'No workflows are registered. Excluded at load time:'
+            : 'Other workflows excluded at load time:',
+      );
+      for (final excl in otherExclusions) {
+        final label = excl.workflowName ?? excl.sourcePath;
+        _stderrLine('  $label: ${excl.errors.join('; ')}');
+      }
+    }
+    // Suppress the --no-skill-bootstrap skill hint when an explicit
+    // exclusion reason was already surfaced — the hint tells the operator
+    // to fix skill provisioning, which is misleading if the actual cause
+    // was (e.g.) a structural validation error.
+    if (!runWorkflowSkillsBootstrap && allExclusions.isEmpty) {
+      // Workflows that reference unresolved skills are silently excluded
+      // by WorkflowRegistry; with --no-skill-bootstrap that almost always
+      // means workflow skills weren't pre-staged. Surface the hint.
+      _stderrLine(
+        'Note: --no-skill-bootstrap was set. If "$workflowName" uses DartClaw-native workflow skills, '
+        'pre-stage them under the data-dir native skill roots and materialize the project workspace links, '
+        'or omit --no-skill-bootstrap to provision those native skills automatically. '
+        'Externally provided skills (e.g. andthen:*) must be installed separately for the selected provider.',
+      );
     }
   }
 
@@ -397,6 +405,26 @@ class WorkflowRunCommand extends Command<void> {
       writeLine: _stdoutLine,
       liveStatusLine: LiveStatusLine.forStdout(jsonOutput: jsonOutput),
     );
+    // The connected lane is a thin HTTP/SSE client (ADR-030): it supplies the
+    // renderer a definition-backed step-context resolver and no JSON sink —
+    // its `--json` stream is the server's frames, echoed in the loop below.
+    final renderer = WorkflowProgressRenderer(
+      definition: definition,
+      printer: printer,
+      jsonOutput: jsonOutput,
+      resolveStepContext: (update) {
+        final stepIndex = update.stepIndex;
+        if (stepIndex == null || stepIndex >= definition.steps.length) return null;
+        final step = definition.steps[stepIndex];
+        return TaskStepContext(
+          stepIndex: stepIndex,
+          stepId: step.id,
+          title: step.name,
+          provider: step.provider,
+          displayScope: update.displayScope,
+        );
+      },
+    );
 
     if (jsonOutput) {
       _stdoutLine(jsonEncode({'type': 'run_started', 'run': started}));
@@ -405,7 +433,6 @@ class WorkflowRunCommand extends Command<void> {
     }
 
     final completer = Completer<int>();
-    final startedSteps = <String, DateTime>{};
     var lastStatus = run.status;
     var lastError = run.errorMessage;
     var cancelRequested = false;
@@ -428,7 +455,6 @@ class WorkflowRunCommand extends Command<void> {
     });
 
     try {
-      eventLoop:
       await for (final event in apiClient.streamEvents(
         '/api/workflows/runs/${run.id}/events',
         onDisconnect: (attempt) async {
@@ -464,136 +490,41 @@ class WorkflowRunCommand extends Command<void> {
         if (jsonOutput) {
           _stdoutLine(jsonEncode(event));
         }
-        switch (event['type']) {
-          case 'task_status_changed':
-            final newStatus = event['newStatus']?.toString();
-            final settledStatus = newStatus == null ? null : TaskStatus.values.asNameMap()[newStatus];
-            if (settledStatus != null && taskSettlesLiveEntry(settledStatus)) {
-              // A parallel-group member settles long before the barrier emits
-              // workflow_step_completed – retire its live entry now so the
-              // live line counts actually-running tasks.
-              if (!jsonOutput) {
-                final key = taskProgressKey(event['taskId']?.toString());
-                if (key != null) printer.stepSettled(key, countTokens: settledStatus == TaskStatus.accepted);
-              }
-              break;
+        if (event['type'] == 'workflow_status_changed') {
+          final newStatusName = event['newStatus']?.toString();
+          final newStatus = newStatusName == null ? null : WorkflowRunStatus.values.asNameMap()[newStatusName];
+          if (newStatus == null) {
+            continue;
+          }
+          lastStatus = newStatus;
+          lastError = event['errorMessage']?.toString();
+          if (!lastStatus.terminal &&
+              lastStatus != WorkflowRunStatus.paused &&
+              lastStatus != WorkflowRunStatus.awaitingApproval) {
+            continue;
+          }
+          if (!jsonOutput) {
+            switch (lastStatus) {
+              case WorkflowRunStatus.completed:
+                printer.workflowCompleted(definition.steps.length, event['totalTokens'] as int? ?? run.totalTokens);
+              case WorkflowRunStatus.failed:
+                printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError);
+              case WorkflowRunStatus.cancelled:
+                printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError ?? 'Cancelled');
+              case WorkflowRunStatus.paused:
+                printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
+              case WorkflowRunStatus.awaitingApproval:
+                printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
+              case WorkflowRunStatus.pending || WorkflowRunStatus.running:
+                break;
             }
-            final stepIndex = event['stepIndex'] as int?;
-            if (stepIndex == null || stepIndex >= definition.steps.length) {
-              break;
-            }
-            final step = definition.steps[stepIndex];
-            final displayScope = _eventDisplayScope(event);
-            final taskId = event['taskId']?.toString();
-            if (newStatus == TaskStatus.running.name) {
-              final runningKey = progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope);
-              startedSteps[runningKey] = DateTime.now();
-              if (!jsonOutput) {
-                printer.stepRunning(
-                  stepIndex,
-                  step.id,
-                  step.name,
-                  step.provider,
-                  displayScope: displayScope,
-                  progressKey: runningKey,
-                );
-              }
-            } else if (newStatus == TaskStatus.review.name && !jsonOutput) {
-              printer.stepReview(stepIndex, step.id, displayScope: displayScope);
-            }
-          case 'workflow_step_completed':
-            final WorkflowStepCompletedEvent completed;
-            try {
-              completed = WorkflowLifecycleEvent.fromJson(event) as WorkflowStepCompletedEvent;
-            } on FormatException {
-              // Skip malformed/version-skewed frames instead of aborting the
-              // stream; the post-loop status refetch still resolves the run.
-              break;
-            }
-            final stepIndex = completed.stepIndex;
-            final displayScope = _eventDisplayScope(event);
-            final taskId = completed.taskId;
-            final key = progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope);
-            final duration = startedSteps.remove(key)?.let(DateTime.now().difference);
-            if (!jsonOutput) {
-              dispatchWorkflowStepCompletedToPrinter(
-                printer: printer,
-                event: completed,
-                duration: duration,
-                progressKey: key,
-              );
-            }
-          case 'map_iteration_completed':
-            final MapIterationCompletedEvent completed;
-            try {
-              completed = WorkflowLifecycleEvent.fromJson(event) as MapIterationCompletedEvent;
-            } on FormatException {
-              break;
-            }
-            final stepId = completed.stepId;
-            final stepIndex = definition.steps.indexWhere((step) => step.id == stepId);
-            final taskId = completed.taskId;
-            if (stepIndex < 0) break;
-            if (definition.steps[stepIndex].taskType == WorkflowTaskType.foreach && taskId.trim().isNotEmpty) {
-              break;
-            }
-            final displayScope = _eventDisplayScope(event);
-            final key = progressStartKey(stepIndex: stepIndex, taskId: taskId, displayScope: displayScope);
-            final duration = startedSteps.remove(key)?.let(DateTime.now().difference);
-            if (!jsonOutput) {
-              dispatchMapIterationCompletedToPrinter(
-                printer: printer,
-                event: completed,
-                stepIndex: stepIndex,
-                duration: duration,
-                progressKey: key,
-                displayScope: displayScope,
-              );
-            }
-          case 'workflow_cli_turn_progress':
-            if (!jsonOutput) {
-              final key = taskProgressKey(event['taskId']?.toString());
-              final cumulative = event['cumulativeTokens'] as int?;
-              if (key != null && cumulative != null) {
-                printer.stepTokens(key, cumulative);
-              }
-            }
-          case 'workflow_status_changed':
-            final newStatusName = event['newStatus']?.toString();
-            final newStatus = newStatusName == null ? null : WorkflowRunStatus.values.asNameMap()[newStatusName];
-            if (newStatus == null) {
-              break;
-            }
-            lastStatus = newStatus;
-            lastError = event['errorMessage']?.toString();
-            if (!lastStatus.terminal &&
-                lastStatus != WorkflowRunStatus.paused &&
-                lastStatus != WorkflowRunStatus.awaitingApproval) {
-              break;
-            }
-            if (!jsonOutput) {
-              switch (lastStatus) {
-                case WorkflowRunStatus.completed:
-                  printer.workflowCompleted(definition.steps.length, event['totalTokens'] as int? ?? run.totalTokens);
-                case WorkflowRunStatus.failed:
-                  printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError);
-                case WorkflowRunStatus.cancelled:
-                  printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError ?? 'Cancelled');
-                case WorkflowRunStatus.paused:
-                  printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
-                case WorkflowRunStatus.awaitingApproval:
-                  printer.workflowPaused((event['currentStepIndex'] as int? ?? 0), lastError);
-                case WorkflowRunStatus.pending || WorkflowRunStatus.running:
-                  break;
-              }
-            }
-            if (!completer.isCompleted) {
-              completer.complete(standaloneWorkflowExitCode(lastStatus));
-            }
-            break eventLoop;
-          default:
-            break;
+          }
+          if (!completer.isCompleted) {
+            completer.complete(standaloneWorkflowExitCode(lastStatus));
+          }
+          break;
         }
+        await renderConnectedWorkflowFrame(event, renderer);
       }
     } on DartclawApiException catch (error) {
       final refreshed = await apiClient.getObject('/api/workflows/runs/${run.id}');
@@ -660,15 +591,4 @@ class WorkflowRunCommand extends Command<void> {
     if (raw == null) return null;
     return WorkflowApprovalPolicy.fromYaml(raw);
   }
-}
-
-String? _eventDisplayScope(Map<String, dynamic> event) {
-  final scope = event['displayScope'] ?? event['itemId'];
-  if (scope is! String) return null;
-  final trimmed = scope.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
-
-extension<T> on T {
-  R let<R>(R Function(T value) fn) => fn(this);
 }

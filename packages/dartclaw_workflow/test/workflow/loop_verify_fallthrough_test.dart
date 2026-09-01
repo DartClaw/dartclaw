@@ -2,15 +2,14 @@
 // the deterministic verify gate (Story 10). These synthetic workflows mirror the
 // inline maintainer workflows' control flow — remediation-loop → verify-all →
 // verify-fix-loop → verify-recheck — using agent steps with injected
-// `<workflow-context>` outputs so the gate-flipping logic is observable without a
+// step outputs so the gate-flipping logic is observable without a
 // real bash verify gate.
 @Tags(['component'])
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         OutputConfig,
@@ -19,7 +18,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowLoop,
-        WorkflowRunStatus,
         WorkflowStep,
         WorkflowStepCompletedEvent,
         stepStatusFromTask;
@@ -84,7 +82,7 @@ void main() {
     ],
   );
 
-  /// Drives queued tasks to completion, injecting per-step `<workflow-context>`
+  /// Drives queued tasks to completion, injecting per-step envelope
   /// outputs. When [recheckPasses] is false, `verify-recheck.result` always
   /// reports `fail`, so the verify-fix-loop exhausts at its default fail policy.
   StreamSubscription<TaskStatusChangedEvent> driveWith({required bool recheckPasses, String verifyAllResult = 'fail'}) {
@@ -105,11 +103,7 @@ void main() {
       if (outputs != null) {
         final session = await h.sessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(e.taskId, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<workflow-context>${jsonEncode(outputs)}</workflow-context>',
-        );
+        await h.seedDeclaredOutputs(e.taskId, outputs);
       }
       await h.completeTask(e.taskId);
     });

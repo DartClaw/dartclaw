@@ -99,8 +99,13 @@ Extend DartClaw's Dart source for deep customization:
 
 - **Custom Guards**: Implement the `Guard` abstract class for domain-specific security rules
 - **Custom Channels**: Implement the `Channel` abstract class for new messaging platforms
-- **Template Overrides**: Modify HTML template functions in `dartclaw_server`
-- **Custom MCP Tools**: Implement the `McpTool` interface and register via `server.registerTool()`
+- **Template Overrides**: Modify HTML template functions in `dartclaw_runtime`
+- **Custom MCP Tools**: Implement the `McpTool` interface and register via `server.registerTool()`. Every tool must
+  declare `access` (`McpToolAccess.read` or `.write`) – there is no default. Guard evaluation and audit are not the
+  tool's job: the server evaluates the configured guard chain and writes one audit entry per `tools/call` before your
+  handler runs, and refuses the call on a guard block or an audit-write failure without invoking your handler.
+  Composing a server with a guard chain but no `auditLogger` is refused at construction, so this promise cannot be
+  half-configured; a host that supplies neither guards nothing and audits nothing.
 
 **Example**: Custom guard that blocks after business hours:
 ```dart

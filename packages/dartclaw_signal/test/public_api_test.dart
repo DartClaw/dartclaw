@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
 Future<Process> _unexpectedProcessStart(
@@ -28,10 +29,10 @@ void main() {
       delay: delay(),
       healthProbe: healthProbe(),
     );
-    final config = SignalConfig(dmAccess: DmAccessMode.open, taskTrigger: const TaskTriggerConfig(enabled: true));
+    final config = SignalConfig(dmAccess: DmAccessMode.open);
 
     expect(manager.executable, 'signal-cli');
-    expect(config.taskTrigger.enabled, isTrue);
+    expect(config.dmAccess, DmAccessMode.open);
     expect(ChannelType.signal.name, 'signal');
   });
 }

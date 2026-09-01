@@ -3,7 +3,7 @@ import 'package:dartclaw_cli/src/commands/sessions/sessions_archive_command.dart
 import 'package:dartclaw_cli/src/commands/sessions/sessions_list_command.dart';
 import 'package:dartclaw_cli/src/commands/sessions/sessions_show_command.dart';
 import 'package:dartclaw_cli/src/commands/sessions_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';

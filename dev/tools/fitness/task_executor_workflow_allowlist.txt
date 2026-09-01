@@ -6,15 +6,12 @@
 # orchestration moved into WorkflowWorktreeBinder + WorkflowOneShotRunner, so the
 # remaining refs in task_executor are limited to dependency wiring and a single
 # delegation entry point + the workflow-orchestrated execution dispatch.
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository, WorkflowWorktreeBinding; | workflow-repository-and-binding-import
-_workflowCliRunner = runners.workflowCliRunner, | workflow-cli-runner-wiring
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository, WorkflowStepExecutionRepository, WorkflowWorktreeBinding; | workflow-repository-binding-and-step-execution-import
 _workflowStepExecutionRepository = services.workflowStepExecutionRepository, | workflow-step-execution-repository-wiring
 _workflowRunRepository = services.workflowRunRepository, | workflow-run-repository-wiring
-final WorkflowCliRunner? _workflowCliRunner; | workflow-cli-runner-field
 final WorkflowStepExecutionRepository? _workflowStepExecutionRepository; | workflow-step-execution-repository-field
 final WorkflowRunRepository? _workflowRunRepository; | workflow-run-repository-field
 workflowRunRepository: _workflowRunRepository, | workflow-run-repository-binder-arg
 late final WorkflowOneShotRunner _workflowOneShotRunner = WorkflowOneShotRunner( | workflow-one-shot-runner-creation
-runner: _workflowCliRunner, | workflow-one-shot-runner-cli-runner-arg
 workflowStepExecutionRepository: _workflowStepExecutionRepository, | workflow-one-shot-runner-step-execution-repository-arg
 outcome = await _workflowOneShotRunner.execute( | workflow-one-shot-runner-execute

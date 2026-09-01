@@ -1,5 +1,6 @@
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProviderAuthPreflight, FakeSkillIntrospector;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';

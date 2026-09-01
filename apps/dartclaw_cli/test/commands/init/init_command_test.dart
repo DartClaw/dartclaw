@@ -2,50 +2,44 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/init/init_command.dart';
-import 'package:dartclaw_cli/src/commands/init/setup_preflight.dart';
+import 'package:dartclaw_cli/src/commands/init/setup_checks.dart';
 import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
 import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
-import 'package:dartclaw_cli/src/commands/service/setup_verifier.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-Future<SetupPreflight> _passingPreflight({
-  required List<String> providers,
-  required int port,
-  required String instanceDir,
-  bool workflowTrack = false,
-  Future<ProcessResult> Function(String, List<String>)? runProcess,
-}) async => const SetupPreflight(errors: [], warnings: []);
-
-Future<SetupPreflight> _failingPreflight({
-  required List<String> providers,
-  required int port,
-  required String instanceDir,
-  bool workflowTrack = false,
-  Future<ProcessResult> Function(String, List<String>)? runProcess,
-}) async => const SetupPreflight(errors: ['Provider binary not found'], warnings: []);
-
-SetupVerifier _verifiedVerifier() => SetupVerifier(
-  binaryExists: (_) async => true,
+SetupChecks _passingChecks() => SetupChecks(
+  probeBinary: (_) async => BinaryProbeOutcome.responded,
   configParseable: (_) async => true,
-  dirWritable: (_) async => true,
+  writeProbeFile: (_) {},
   portFree: (_) async => true,
   providerVerified: (_, _, _) async => true,
 );
 
-SetupVerifier _localFailureVerifier() => SetupVerifier(
-  binaryExists: (_) async => false,
+SetupChecks _preflightFailureChecks() => SetupChecks(
+  probeBinary: (_) async => BinaryProbeOutcome.notFound,
   configParseable: (_) async => true,
-  dirWritable: (_) async => true,
+  writeProbeFile: (_) {},
   portFree: (_) async => true,
   providerVerified: (_, _, _) async => true,
 );
 
-SetupVerifier _unverifiedVerifier() => SetupVerifier(
-  binaryExists: (_) async => true,
+/// `configParseable` is post-write-only, so this fails verification without
+/// touching preflight. An executable-keyed `probeBinary` would isolate the same
+/// way; `portFree` and `writeProbeFile` would fail preflight first.
+SetupChecks _postWriteFailureChecks() => SetupChecks(
+  probeBinary: (_) async => BinaryProbeOutcome.responded,
+  configParseable: (_) async => false,
+  writeProbeFile: (_) {},
+  portFree: (_) async => true,
+  providerVerified: (_, _, _) async => true,
+);
+
+SetupChecks _unverifiedChecks() => SetupChecks(
+  probeBinary: (_) async => BinaryProbeOutcome.responded,
   configParseable: (_) async => true,
-  dirWritable: (_) async => true,
+  writeProbeFile: (_) {},
   portFree: (_) async => true,
   providerVerified: (_, _, _) async => false,
 );
@@ -53,44 +47,52 @@ SetupVerifier _unverifiedVerifier() => SetupVerifier(
 InitCommand _nonInteractiveCmd({
   List<SetupState>? captureInto,
   List<String>? outputCapture,
-  SetupVerifier? verifier,
+  SetupChecks? setupChecks,
   ServiceBackend? serviceBackend,
-  Future<SetupPreflight> Function({
-    required List<String> providers,
-    required int port,
-    required String instanceDir,
-    bool workflowTrack,
-    Future<ProcessResult> Function(String, List<String>)? runProcess,
-  })?
-  runPreflight,
   DartclawConfig? Function(String? configPath)? loadConfig,
 }) {
   return InitCommand(
     hasTerminal: () => false,
-    runPreflight: runPreflight ?? _passingPreflight,
+    setupChecks: setupChecks ?? _passingChecks(),
     applySetup: (state) async {
       captureInto?.add(state);
       return [state.configPath];
     },
     writeLine: outputCapture != null ? outputCapture.add : (_) {},
-    verifier: verifier ?? _verifiedVerifier(),
     serviceBackend: serviceBackend,
     loadConfig: loadConfig ?? ((_) => null),
   );
 }
 
-class _RecordingVerifier extends SetupVerifier {
+/// Records what `init` hands each stage, so the two call sites stay pinned to
+/// their positions around `SetupApply.apply`.
+class _RecordingChecks extends SetupChecks {
+  final List<List<String>> preflightCalls = [];
+  final List<bool> preflightWorkflowTrack = [];
+  final List<bool> verifySkipPortCheck = [];
   final List<List<String>> providerCalls = [];
   final List<String> configCalls = [];
 
-  new({required Future<bool> Function(String, String, String) providerVerified})
+  new({Future<bool> Function(String, String, String)? providerVerified})
     : super(
-        binaryExists: (_) async => true,
+        probeBinary: (_) async => BinaryProbeOutcome.responded,
         configParseable: (_) async => true,
-        dirWritable: (_) async => true,
+        writeProbeFile: (_) {},
         portFree: (_) async => true,
-        providerVerified: providerVerified,
+        providerVerified: providerVerified ?? ((_, _, _) async => true),
       );
+
+  @override
+  Future<PreflightResult> preflight({
+    required List<String> providers,
+    required int port,
+    required String instanceDir,
+    bool workflowTrack = false,
+  }) {
+    preflightCalls.add(providers);
+    preflightWorkflowTrack.add(workflowTrack);
+    return super.preflight(providers: providers, port: port, instanceDir: instanceDir, workflowTrack: workflowTrack);
+  }
 
   @override
   Future<SetupVerificationResult> verify({
@@ -103,6 +105,7 @@ class _RecordingVerifier extends SetupVerifier {
   }) {
     configCalls.add(configPath);
     providerCalls.add(providerIds);
+    verifySkipPortCheck.add(skipPortCheck);
     return super.verify(
       configPath: configPath,
       providerIds: providerIds,
@@ -123,29 +126,32 @@ class _FakeServiceBackend implements ServiceBackend {
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   }) async {
-    ops.add('install:$instanceDir');
+    ops.add('install:$instanceDir:${scope.name}');
     return const ServiceResult(success: true, message: 'installed');
   }
 
   @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async {
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope}) async {
     ops.add('uninstall:$instanceDir');
     return const ServiceResult(success: true, message: 'uninstalled');
   }
 
   @override
-  Future<ServiceStatus> status({required String instanceDir}) async => ServiceStatus.stopped;
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope}) async =>
+      ServiceStatus.stopped;
 
   @override
-  Future<ServiceResult> start({required String instanceDir}) async {
-    ops.add('start:$instanceDir');
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope}) async {
+    ops.add('start:$instanceDir:${scope.name}');
     return const ServiceResult(success: true, message: 'started');
   }
 
   @override
-  Future<ServiceResult> stop({required String instanceDir}) async {
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope}) async {
     ops.add('stop:$instanceDir');
     return const ServiceResult(success: true, message: 'stopped');
   }
@@ -175,27 +181,14 @@ void main() {
       addTearDown(() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
-      var preflightCalled = false;
+      final checks = _RecordingChecks();
       final output = <String>[];
-      final cmd = _nonInteractiveCmd(
-        outputCapture: output,
-        runPreflight:
-            ({
-              required List<String> providers,
-              required int port,
-              required String instanceDir,
-              bool workflowTrack = false,
-              Future<ProcessResult> Function(String, List<String>)? runProcess,
-            }) async {
-              preflightCalled = true;
-              return const SetupPreflight(errors: [], warnings: []);
-            },
-      );
+      final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--personalize', '--instance-dir', tempDir.path]);
 
-      expect(preflightCalled, isFalse);
+      expect(checks.preflightCalls, isEmpty);
       final onboarding = File('${tempDir.path}/workspace/ONBOARDING.md');
       expect(onboarding.existsSync(), isTrue);
       expect(onboarding.readAsStringSync(), contains('Rerun: true'));
@@ -210,27 +203,14 @@ void main() {
       final workspace = Directory('${tempDir.path}/workspace')..createSync(recursive: true);
       File('${workspace.path}/USER.md').writeAsStringSync('# User Context\n\n## Identity\n\nOld\n');
       File('${workspace.path}/USER.md.draft').writeAsStringSync('# User Context\n\n## Identity\n\nNew\n');
-      var preflightCalled = false;
+      final checks = _RecordingChecks();
       final output = <String>[];
-      final cmd = _nonInteractiveCmd(
-        outputCapture: output,
-        runPreflight:
-            ({
-              required List<String> providers,
-              required int port,
-              required String instanceDir,
-              bool workflowTrack = false,
-              Future<ProcessResult> Function(String, List<String>)? runProcess,
-            }) async {
-              preflightCalled = true;
-              return const SetupPreflight(errors: [], warnings: []);
-            },
-      );
+      final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--apply-drafts', '--instance-dir', tempDir.path]);
 
-      expect(preflightCalled, isFalse);
+      expect(checks.preflightCalls, isEmpty);
       expect(File('${workspace.path}/USER.md').readAsStringSync(), contains('New'));
       expect(File('${workspace.path}/USER.md.draft').existsSync(), isFalse);
       expect(output, contains('Applied onboarding drafts:'));
@@ -258,24 +238,8 @@ void main() {
     test('workflow non-interactive flow resolves minimal standalone setup state', () async {
       final captured = <SetupState>[];
       final output = <String>[];
-      bool? preflightWorkflowTrack;
-      final verifier = _RecordingVerifier(providerVerified: (_, _, _) async => true);
-      final cmd = _nonInteractiveCmd(
-        captureInto: captured,
-        outputCapture: output,
-        verifier: verifier,
-        runPreflight:
-            ({
-              required List<String> providers,
-              required int port,
-              required String instanceDir,
-              bool workflowTrack = false,
-              Future<ProcessResult> Function(String, List<String>)? runProcess,
-            }) async {
-              preflightWorkflowTrack = workflowTrack;
-              return const SetupPreflight(errors: [], warnings: []);
-            },
-      );
+      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
+      final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run([
@@ -298,7 +262,12 @@ void main() {
       expect(state.providers, ['claude']);
       expect(state.authMethod, 'oauth');
       expect(state.model, 'sonnet');
-      expect(preflightWorkflowTrack, isTrue);
+      expect(checks.preflightWorkflowTrack.single, isTrue);
+      expect(
+        checks.verifySkipPortCheck.single,
+        isTrue,
+        reason: 'the workflow track skips the port check in both stages',
+      );
       expect(output, contains('Run a workflow: dartclaw workflow run --standalone code-review'));
       expect(output.any((line) => line.contains('Start the server')), isFalse);
     });
@@ -314,9 +283,8 @@ void main() {
       final output = <String>[];
       final cmd = InitCommand(
         hasTerminal: () => false,
-        runPreflight: _passingPreflight,
+        setupChecks: _passingChecks(),
         writeLine: output.add,
-        verifier: _verifiedVerifier(),
         loadConfig: (_) => null,
       );
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
@@ -351,19 +319,8 @@ void main() {
     test('workflow track with a custom instance dir prints the --config next-step form', () async {
       final captured = <SetupState>[];
       final output = <String>[];
-      final verifier = _RecordingVerifier(providerVerified: (_, _, _) async => true);
-      final cmd = _nonInteractiveCmd(
-        captureInto: captured,
-        outputCapture: output,
-        verifier: verifier,
-        runPreflight: ({
-          required List<String> providers,
-          required int port,
-          required String instanceDir,
-          bool workflowTrack = false,
-          Future<ProcessResult> Function(String, List<String>)? runProcess,
-        }) async => const SetupPreflight(errors: [], warnings: []),
-      );
+      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
+      final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run([
@@ -514,7 +471,7 @@ void main() {
 
     test('explicit-config rerun preserves selected config target through apply and verify', () async {
       final captured = <SetupState>[];
-      final verifier = _RecordingVerifier(providerVerified: (_, _, _) async => true);
+      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
       final config = DartclawConfig(
         server: const ServerConfig(name: 'Existing', dataDir: '/tmp/existing', port: 4444),
         agent: const AgentConfig(provider: 'codex', model: 'gpt-5'),
@@ -525,7 +482,7 @@ void main() {
           },
         ),
       );
-      final cmd = _nonInteractiveCmd(captureInto: captured, verifier: verifier, loadConfig: (_) => config);
+      final cmd = _nonInteractiveCmd(captureInto: captured, setupChecks: checks, loadConfig: (_) => config);
       final runner = CommandRunner<void>('test', 'test')
         ..argParser.addOption('config')
         ..addCommand(cmd);
@@ -533,14 +490,14 @@ void main() {
       await runner.run(['--config', '/tmp/custom.yaml', 'init']);
 
       expect(captured.single.configPath, '/tmp/custom.yaml');
-      expect(verifier.configCalls, ['/tmp/custom.yaml']);
+      expect(checks.configCalls, ['/tmp/custom.yaml']);
     });
 
     test('preflight failure stops before apply', () async {
       var applyCalled = false;
       final cmd = InitCommand(
         hasTerminal: () => false,
-        runPreflight: _failingPreflight,
+        setupChecks: _preflightFailureChecks(),
         applySetup: (_) async {
           applyCalled = true;
           return [];
@@ -560,13 +517,20 @@ void main() {
           '--model-claude',
           'sonnet',
         ]),
-        throwsA(isA<UsageException>()),
+        throwsA(
+          isA<UsageException>().having(
+            (e) => e.message,
+            'message',
+            'Setup preflight failed — fix the issues above and re-run.',
+          ),
+        ),
       );
       expect(applyCalled, isFalse);
     });
 
     test('verification failure after apply returns UsageException', () async {
-      final cmd = _nonInteractiveCmd(verifier: _localFailureVerifier());
+      final applied = <SetupState>[];
+      final cmd = _nonInteractiveCmd(captureInto: applied, setupChecks: _postWriteFailureChecks());
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await expectLater(
@@ -580,13 +544,20 @@ void main() {
           '--model-claude',
           'sonnet',
         ]),
-        throwsA(isA<UsageException>()),
+        throwsA(
+          isA<UsageException>().having(
+            (e) => e.message,
+            'message',
+            'Post-setup verification failed — fix the issues above.',
+          ),
+        ),
       );
+      expect(applied, hasLength(1), reason: 'the post-write stage reports after the files are written');
     });
 
     test('configured but unverified state is surfaced when provider verification fails', () async {
       final output = <String>[];
-      final cmd = _nonInteractiveCmd(outputCapture: output, verifier: _unverifiedVerifier());
+      final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: _unverifiedChecks());
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run([
@@ -605,8 +576,8 @@ void main() {
 
     test('multi-provider verification checks every configured provider', () async {
       final output = <String>[];
-      final verifier = _RecordingVerifier(providerVerified: (providerId, _, _) async => providerId == 'claude');
-      final cmd = _nonInteractiveCmd(outputCapture: output, verifier: verifier);
+      final checks = _RecordingChecks(providerVerified: (providerId, _, _) async => providerId == 'claude');
+      final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
 
       await runner.run([
@@ -628,7 +599,7 @@ void main() {
         'claude',
       ]);
 
-      expect(verifier.providerCalls.single, ['claude', 'codex']);
+      expect(checks.providerCalls.single, ['claude', 'codex']);
       expect(output.join('\n'), contains('configured but unverified'));
       expect(output.join('\n'), contains('codex'));
     });
@@ -653,8 +624,8 @@ void main() {
         '/tmp/service-instance',
       ]);
 
-      expect(backend.ops, contains('install:/tmp/service-instance'));
-      expect(backend.ops, contains('start:/tmp/service-instance'));
+      expect(backend.ops, contains('install:/tmp/service-instance:user'));
+      expect(backend.ops, contains('start:/tmp/service-instance:user'));
     });
 
     test('full-track flags populate supported advanced fields', () async {
@@ -705,7 +676,7 @@ void main() {
           },
         ),
         container: const ContainerConfig(enabled: true, image: 'dartclaw-agent:v2'),
-        security: const SecurityConfig(contentGuardEnabled: false, inputSanitizerEnabled: false),
+        security: const SecurityConfig(contentGuardEnabled: false),
       );
       final cmd = _nonInteractiveCmd(captureInto: captured, loadConfig: (_) => config);
       final runner = CommandRunner<void>('test', 'test')
@@ -722,7 +693,6 @@ void main() {
       expect(state.containerEnabled, isTrue);
       expect(state.containerImage, 'dartclaw-agent:v2');
       expect(state.contentGuardEnabled, isFalse);
-      expect(state.inputSanitizerEnabled, isFalse);
     });
   });
 }

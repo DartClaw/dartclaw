@@ -169,7 +169,7 @@ dev_dependencies:       # Development only — tests, linting, code gen
 
 DartClaw uses **lockstep versioning across the workspace**: every published package
 under `packages/*` plus `apps/dartclaw_cli` shares the same `version:` value, matching
-the milestone identifier (`dartclawVersion` in `packages/dartclaw_server/lib/src/version.dart`).
+the milestone identifier (`dartclawVersion` in `packages/dartclaw_runtime/lib/src/version.dart`).
 
 **Rules**
 

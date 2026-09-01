@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -17,7 +16,7 @@ import 'codex_environment.dart';
 import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
-import 'harness_config.dart';
+import 'harness_launch_options.dart';
 import 'process_lifecycle.dart';
 import 'process_types.dart';
 import 'protocol_message.dart' as proto;
@@ -26,6 +25,12 @@ Duration _remainingUntil(DateTime deadline) {
   final remaining = deadline.difference(DateTime.now());
   return remaining > Duration.zero ? remaining : Duration.zero;
 }
+
+Future<T> _withinTurnDeadline<T>(
+  Future<T> operation,
+  DateTime? deadline, {
+  required FutureOr<T> Function() onTimeout,
+}) => deadline == null ? operation : operation.timeout(_remainingUntil(deadline), onTimeout: onTimeout);
 
 Future<void> _verifyCodexExecutable(String executable, CommandProbe commandProbe) async {
   ProcessResult result;
@@ -59,6 +64,9 @@ class CodexHarness extends BaseHarness {
   /// Environment passed to the Codex subprocess.
   final Map<String, String> environment;
 
+  /// Request-scoped environment passed only to a containerized Codex subprocess.
+  final Map<String, String> containerEnvironment;
+
   /// Provider-specific options used for Codex request settings translation.
   final Map<String, dynamic> providerOptions;
 
@@ -71,11 +79,8 @@ class CodexHarness extends BaseHarness {
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
 
-  /// Container this harness executes in, or `null` for host execution.
-  ///
-  /// Set by the effective execution policy, never inferred: a Codex harness
-  /// given a container executes there or fails, and one given `null` executes
-  /// on the host. There is no third behavior.
+  /// Container selected by effective policy, or `null` for host execution.
+  /// A configured container must execute there or fail; placement is never inferred.
   final ContainerExecutor? containerManager;
 
   /// Makes the DartClaw-dedicated `CODEX_HOME` usable and returns its path, or
@@ -92,12 +97,12 @@ class CodexHarness extends BaseHarness {
   String? _activeAgentId;
   int _nextRequestId = 0;
   Object? _initializeRequestId;
-  Object? _threadStartRequestId;
+  ({Object id, String method, Completer<String> completer})? _threadRequest;
   Completer<Map<String, dynamic>>? _initializeCompleter;
-  Completer<String>? _threadStartCompleter;
-  Completer<Map<String, dynamic>>? _turnCompleter;
+  Completer<TurnResult>? _turnCompleter;
   final Set<String> _agentMessageDeltaIds = <String>{};
   CodexEnvironment? _environment;
+  String? _activeProviderSessionId;
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
@@ -106,14 +111,15 @@ class CodexHarness extends BaseHarness {
   new({
     required super.cwd,
     this.executable = 'codex',
-    super.turnTimeout = const Duration(seconds: 600),
+    super.turnTimeout = const Duration(seconds: 1800),
     super.maxRetries = 5,
     super.baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
     Map<String, String>? environment,
-    super.harnessConfig = const HarnessConfig(),
+    Map<String, String> containerEnvironment = const {},
+    super.harnessConfig = const HarnessLaunchOptions(),
     Map<String, dynamic>? providerOptions,
     this.guardChain,
     CodexProtocolAdapter? adapter,
@@ -123,6 +129,7 @@ class CodexHarness extends BaseHarness {
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
+       containerEnvironment = Map.unmodifiable(containerEnvironment),
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        adapter = adapter ?? CodexProtocolAdapter(),
        platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
@@ -148,7 +155,20 @@ class CodexHarness extends BaseHarness {
   bool get supportsSessionContinuity => true;
 
   @override
+  bool get supportsProviderSessionResume => _environment?.supportsProviderSessionResume ?? false;
+
+  /// `turn/start` accepts an output-schema param, but the app server returns the
+  /// final assistant message as plain text with no field distinguishing a
+  /// schema-validated payload from ordinary prose. Recovering one would mean
+  /// parsing that text, which is a heuristic rather than enforcement evidence,
+  /// so support is refused rather than claimed on a forwarded key.
+  @override
+  bool get supportsStructuredOutput => false;
+
+  @override
   String skillActivationLine(String skill) => '\$$skill';
+
+  String? get _effectiveSandbox => containerManager == null ? _stringProviderOption('sandbox') : 'danger-full-access';
 
   @override
   Future<void> start() => startLifecycle(
@@ -255,18 +275,21 @@ class CodexHarness extends BaseHarness {
   }
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     String? agentId,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
   }) async {
+    AgentHarness.requireStructuredOutputSupport(this, outputSchema);
     if (currentState == WorkerState.stopped) {
       await start();
     }
@@ -282,7 +305,12 @@ class CodexHarness extends BaseHarness {
         }
       });
     }
-
+    if ((providerSessionId != null || requestProviderSessionResume) && !supportsProviderSessionResume) {
+      throw const UnsupportedHarnessCapabilityException(
+        provider: 'CodexHarness (non-durable CODEX_HOME)',
+        capability: AgentHarness.providerSessionResumeCapability,
+      );
+    }
     if (currentState != WorkerState.idle) {
       throw StateError('CodexHarness is not idle (state: $currentState)');
     }
@@ -296,23 +324,27 @@ class CodexHarness extends BaseHarness {
     currentState = WorkerState.busy;
     _activeSessionId = sessionId;
     _activeAgentId = agentId;
-    _turnCompleter = Completer<Map<String, dynamic>>();
+    _turnCompleter = Completer<TurnResult>();
     final stopwatch = Stopwatch();
-    final deadline = DateTime.now().add(turnTimeout);
+    final effectiveTimeout = effectiveTurnTimeout;
+    final deadline = effectiveTimeout > Duration.zero ? DateTime.now().add(effectiveTimeout) : null;
 
     try {
       final scopedInstructions = systemPrompt.trim().isEmpty ? null : systemPrompt;
       var thread = _threads[sessionId];
-      if (thread != null && thread.instructions != scopedInstructions) {
+      thread = providerSessionId != null && thread?.threadId != providerSessionId ? null : thread;
+      if (providerSessionId == null && thread != null && thread.instructions != scopedInstructions) {
         _threads.remove(sessionId);
         thread = null;
       }
       final threadId =
           thread?.threadId ??
-          await _startThread(
-            sessionId,
-            scopedInstructions,
-          ).timeout(_remainingUntil(deadline), onTimeout: () => _stopAfterTurnTimeout<String>());
+          await _withinTurnDeadline(
+            _openThread(sessionId, scopedInstructions, providerSessionId),
+            deadline,
+            onTimeout: () => _stopAfterTurnTimeout<String>(effectiveTimeout),
+          );
+      if (providerSessionId != null || requestProviderSessionResume) _activeProviderSessionId = threadId;
 
       final previousMessages = messages.length > 1
           ? messages.sublist(0, messages.length - 1)
@@ -326,10 +358,9 @@ class CodexHarness extends BaseHarness {
           model: model ?? harnessConfig.model,
           effort: effort ?? harnessConfig.effort,
           cwd: directory == null || directory.trim().isEmpty ? null : _resolveRequestedWorkingDirectory(directory),
-          sandbox: _stringProviderOption('sandbox'),
+          sandbox: _effectiveSandbox,
           approval: _stringProviderOption('approval'),
         ),
-        resume: resume,
       );
       payload['id'] = ++_nextRequestId;
       final promptPreview = stringifyMessageContent(messages.last['content']);
@@ -344,15 +375,15 @@ class CodexHarness extends BaseHarness {
       stopwatch.start();
       _writeLine(payload);
 
-      final result = await _turnCompleter!.future.timeout(
-        _remainingUntil(deadline),
-        onTimeout: () => _stopAfterTurnTimeout<Map<String, dynamic>>(),
+      final result = await _withinTurnDeadline(
+        _turnCompleter!.future,
+        deadline,
+        onTimeout: () => _stopAfterTurnTimeout<TurnResult>(effectiveTimeout),
       );
       if (stopwatch.isRunning) {
         stopwatch.stop();
       }
       _log.info('Turn finished in ${stopwatch.elapsedMilliseconds}ms');
-      result['duration_ms'] ??= stopwatch.elapsedMilliseconds;
       if (currentState != WorkerState.stopped && currentState != WorkerState.crashed) {
         crashCount = 0;
         currentState = WorkerState.idle;
@@ -369,20 +400,19 @@ class CodexHarness extends BaseHarness {
       rethrow;
     } finally {
       _agentMessageDeltaIds.clear();
-      _threadStartCompleter = null;
-      _threadStartRequestId = null;
+      _threadRequest = null;
       _turnCompleter = null;
       _activeSessionId = null;
       _activeAgentId = null;
+      _activeProviderSessionId = null;
     }
   }
 
-  Future<T> _stopAfterTurnTimeout<T>() {
+  Future<T> _stopAfterTurnTimeout<T>(Duration effectiveTimeout) {
     _log.warning('Turn timeout exceeded, stopping Codex...');
-    _threadStartCompleter = null;
-    _threadStartRequestId = null;
+    _threadRequest = null;
     _turnCompleter = null;
-    return stop().then<T>((_) => throw TimeoutException('Codex turn exceeded $turnTimeout'));
+    return stop().then<T>((_) => throw TimeoutException('Codex turn exceeded $effectiveTimeout'));
   }
 
   @override
@@ -473,7 +503,7 @@ class CodexHarness extends BaseHarness {
     // value would fail every tool call while the turn still reports success
     // (security-architecture.md § Multi-Provider Sandbox Interaction). Host
     // approvals/guards stay active either way.
-    final sandboxOption = container != null ? 'danger-full-access' : _stringProviderOption('sandbox');
+    final sandboxOption = _effectiveSandbox;
     if (sandboxOption != null) {
       final permissions = _sandboxPermissions(sandboxOption);
       if (permissions != null) {
@@ -493,13 +523,11 @@ class CodexHarness extends BaseHarness {
         includeParentEnvironment: false,
       );
     } else {
-      // The host environment stays on the host: the container process gets
-      // only the generated home pointer, so no provider credential, host login
-      // path, or shared MCP bearer can reach it through the spawn env.
+      // Only sanitized request extras and the generated home cross the boundary.
       process = await container.exec(
         [_containerExecutable, ...args],
         workingDirectory: workingDirectory,
-        env: _environment?.environmentOverrides() ?? const <String, String>{},
+        env: {...containerEnvironment, ...?_environment?.environmentOverrides()},
       );
     }
 
@@ -568,28 +596,26 @@ class CodexHarness extends BaseHarness {
     _writeLine(adapter.buildInitializedNotification());
   }
 
-  Future<String> _startThread(String sessionId, String? developerInstructions) async {
+  Future<String> _openThread(String sessionId, String? developerInstructions, String? providerSessionId) async {
     final id = ++_nextRequestId;
-    _threadStartRequestId = id;
-    _threadStartCompleter = Completer<String>();
-    // Per Codex issues #14068/#15310: thread/start must include sandbox +
-    // approvalPolicy for reliable sandbox override in app-server mode.
-    // Note: thread/start uses kebab-case values (e.g. "danger-full-access"),
-    // unlike turn/start which uses camelCase in a sandboxPolicy object.
-    final threadParams = <String, dynamic>{'thread_id': '$sessionId-thread-$id'};
-    if (developerInstructions != null) {
-      threadParams['developerInstructions'] = developerInstructions;
+    final completer = Completer<String>();
+    final method = providerSessionId == null ? 'thread/start' : 'thread/resume';
+    _threadRequest = (id: id, method: method, completer: completer);
+    if (providerSessionId != null) {
+      _writeLine(adapter.buildThreadResumeRequest(id: id, threadId: providerSessionId));
+    } else {
+      final params = <String, dynamic>{'thread_id': '$sessionId-thread-$id'};
+      if (developerInstructions != null) params['developerInstructions'] = developerInstructions;
+      final sandbox = _effectiveSandbox;
+      if (sandbox != null) params['sandbox'] = sandbox;
+      final approval = _stringProviderOption('approval');
+      if (approval != null) params['approvalPolicy'] = approval;
+      _writeLine(adapter.buildThreadStartRequest(id: id, params: params));
     }
-    final sandboxOption = _stringProviderOption('sandbox');
-    if (sandboxOption != null) {
-      threadParams['sandbox'] = sandboxOption;
+    final threadId = await completer.future;
+    if (providerSessionId != null && threadId != providerSessionId) {
+      throw StateError('Codex thread/resume returned $threadId, requested $providerSessionId');
     }
-    final approvalOption = _stringProviderOption('approval');
-    if (approvalOption != null) {
-      threadParams['approvalPolicy'] = approvalOption;
-    }
-    _writeLine(adapter.buildThreadStartRequest(id: id, params: threadParams));
-    final threadId = await _threadStartCompleter!.future;
     _threads[sessionId] = (threadId: threadId, instructions: developerInstructions);
     return threadId;
   }
@@ -612,7 +638,7 @@ class CodexHarness extends BaseHarness {
         _log.fine('Tool use: $name (id=$id)');
         emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
 
-      case proto.ToolResult(:final toolId, :final output, :final isError):
+      case proto.ToolResultMessage(:final toolId, :final output, :final isError):
         if (isError) {
           _log.warning('Tool error (id=$toolId): ${output.length > 200 ? '${output.substring(0, 200)}...' : output}');
         }
@@ -640,6 +666,7 @@ class CodexHarness extends BaseHarness {
 
       case proto.TurnComplete(
         :final stopReason,
+        :final finalText,
         :final inputTokens,
         :final outputTokens,
         :final cacheReadTokens,
@@ -652,19 +679,25 @@ class CodexHarness extends BaseHarness {
         );
         final completer = _turnCompleter;
         if (completer != null && !completer.isCompleted) {
-          final result = <String, dynamic>{'stop_reason': stopReason ?? 'completed'};
-          if (stopReason == 'error') {
-            final error = _extractTurnFailedError(line);
-            if (error != null) {
-              result['error'] = error;
-            }
-          } else {
-            result['input_tokens'] = inputTokens ?? 0;
-            result['output_tokens'] = outputTokens ?? 0;
-            result['cache_read_tokens'] = cacheReadTokens ?? 0;
-            result['cache_write_tokens'] = cacheWriteTokens ?? 0;
-          }
-          completer.complete(result);
+          // Codex reports no usage alongside a failure, so the error arm leaves
+          // the token counts at zero rather than attributing stale ones.
+          completer.complete(
+            stopReason == 'error'
+                ? TurnResult(
+                    stopReason: stopReason,
+                    error: _extractTurnFailedError(line),
+                    providerSessionId: _activeProviderSessionId,
+                  )
+                : TurnResult(
+                    stopReason: stopReason ?? 'completed',
+                    finalText: finalText,
+                    providerSessionId: _activeProviderSessionId,
+                    inputTokens: inputTokens ?? 0,
+                    outputTokens: outputTokens ?? 0,
+                    cacheReadTokens: cacheReadTokens ?? 0,
+                    cacheWriteTokens: cacheWriteTokens ?? 0,
+                  ),
+          );
         }
 
       case proto.SystemInit(:final contextWindow):
@@ -705,8 +738,12 @@ class CodexHarness extends BaseHarness {
     _threads.clear();
     currentState = WorkerState.crashed;
     crashCount++;
-    _completePendingWithError(StateError('Codex process exited with code $exitCode'));
+    _completePendingWithError(streamFailure ?? StateError('Codex process exited with code $exitCode'));
   }
+
+  @override
+  Future<void> shutdownAfterStreamFailure() =>
+      shutdownCurrentProcess(label: 'Codex', gracePeriod: _killGracePeriod, platformCapabilities: platformCapabilities);
 
   void _emitCompletedAgentMessageFallback(String line) {
     final decoded = decodeJsonObject(line);
@@ -900,23 +937,23 @@ class CodexHarness extends BaseHarness {
       _initializeCompleter = null;
     }
 
-    if (_threadStartCompleter != null && !(_threadStartCompleter!.isCompleted) && id == _threadStartRequestId) {
+    final pendingThread = _threadRequest;
+    if (pendingThread != null && !pendingThread.completer.isCompleted && id == pendingThread.id) {
       // Codex v0.118.0 may wrap the result in a ClientResponse envelope.
       // Support both flat (legacy) and nested (v0.118.0) shapes.
       final responseEnvelope = mapValue(result?['response']);
       final thread = mapValue(result?['thread']) ?? mapValue(responseEnvelope?['thread']);
       final threadId = result?['thread_id'] ?? result?['id'] ?? thread?['id'];
       if (error != null) {
-        _threadStartCompleter!.completeError(StateError('Codex thread/start failed: $error'));
+        pendingThread.completer.completeError(StateError('Codex ${pendingThread.method} failed: $error'));
       } else if (threadId is String && threadId.isNotEmpty) {
-        _threadStartCompleter!.complete(threadId);
+        pendingThread.completer.complete(threadId);
       } else {
-        _threadStartCompleter!.completeError(
-          StateError('Codex thread/start response missing thread_id, id, or thread.id'),
+        pendingThread.completer.completeError(
+          StateError('Codex ${pendingThread.method} response missing thread_id, id, or thread.id'),
         );
       }
-      _threadStartRequestId = null;
-      _threadStartCompleter = null;
+      _threadRequest = null;
     }
   }
 
@@ -928,12 +965,9 @@ class CodexHarness extends BaseHarness {
     _initializeCompleter = null;
     _initializeRequestId = null;
 
-    final threadStartCompleter = _threadStartCompleter;
-    if (threadStartCompleter != null && !threadStartCompleter.isCompleted) {
-      threadStartCompleter.completeError(error);
-    }
-    _threadStartCompleter = null;
-    _threadStartRequestId = null;
+    final threadRequest = _threadRequest;
+    if (threadRequest != null && !threadRequest.completer.isCompleted) threadRequest.completer.completeError(error);
+    _threadRequest = null;
 
     final turnCompleter = _turnCompleter;
     if (turnCompleter != null && !turnCompleter.isCompleted) {

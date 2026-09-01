@@ -1,5 +1,15 @@
 All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_google_chat`.
 
+## Unreleased
+
+### Added
+- Package-owned Space Events dispatch, subscription routes, startup user-OAuth resolution, and OAuth setup mechanics
+- `lib/testing.dart` — an opt-in test-double entry point serving `FakeGoogleChatRestClient`. Deliberately not re-exported by the package barrel, which stays free of test-only symbols
+- Package-owned synchronous webhook ingress, JWT verification, and the `SlashCommandExecutor` runtime seam
+
+### Changed
+- Tests use the core-owned `FakeGoogleJwtVerifier` from the dev-only `dartclaw_testing` dependency
+
 ## 0.9.0
 
 ### Added

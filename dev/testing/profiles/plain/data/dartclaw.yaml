@@ -5,6 +5,11 @@
 
 port: 3335
 
+# Declared, not inferred: these profiles exercise the host lane, and an
+# undeclared posture would isolate wherever a container runtime happens to exist.
+container:
+  enabled: false
+
 gateway:
   auth_mode: token
 
@@ -33,7 +38,6 @@ scheduling:
       task:
         title: Smoke-test fixture (does not run)
         description: Exists only to enable Health/Memory/Tasks UI surfaces.
-        task_type: research
         auto_start: false
 
 workspace:

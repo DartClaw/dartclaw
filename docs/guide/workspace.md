@@ -18,6 +18,7 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
     MEMORY.archive.md # Canonical archive
     MEMORY.audit.md  # Content-free deletion audit (not indexed)
     learnings.md     # Canonical learning role (newest 50)
+    errors.md        # Canonical error role (newest 50, host-written)
     ONBOARDING.md    # Temporary first-run personalization sentinel
     wiki/
       README.md      # Wiki conventions and provenance guidance
@@ -127,8 +128,8 @@ retain identity and remain searchable. Removal deletes entry content and appends
 caller's unfiltered verbatim reason to the canonical audit. The host never copies entry content into the record, though
 the reason may independently quote it. DartClaw serializes apply, observation, learning, and pruning writes. Stop
 DartClaw before manually changing any canonical memory document: `MEMORY.md`, `memory/topics/*.md`,
-`MEMORY.archive.md`, `MEMORY.audit.md`, `learnings.md`, or `memory/YYYY-MM-DD.md`. External processes do not
-participate in the runtime write lock.
+`MEMORY.archive.md`, `MEMORY.audit.md`, `learnings.md`, `errors.md`, or `memory/YYYY-MM-DD.md`. External processes do
+not participate in the runtime write lock.
 
 Before editing or deleting canonical memory, copy the files you intend to change to a backup outside the workspace.
 To remove raw observations, delete the relevant stopped-runtime `memory/YYYY-MM-DD.md` partition, or edit it while
@@ -138,29 +139,44 @@ changes, and reconciles the search index before reporting healthy. Invalid canon
 replacing the last healthy index: restore the backup, restart, and run `dartclaw rebuild-index` while DartClaw remains
 stopped if index health is still degraded.
 
+### errors.md -- Recent Failures
+
+Host-written record of turn failures, guard blocks, and crashes, kept as the canonical `error` role alongside
+`learnings.md` under the same corpus revision, lock, and Markdown format. The newest 50 records are retained. The agent
+cannot write it: `memory_observe` accepts `observation` and `learning` only. Primary turns get a bounded newest-first
+projection of it, capped by `memory.max_bytes` — not the file — so a large `errors.md` cannot crowd out the prompt.
+That budget is per section: the memory index projection carries its own budget of the same size, so a primary prompt's
+memory-derived content is bounded by twice `memory.max_bytes`.
+
+A workspace upgraded from an earlier release still holds the pre-canonical `## [timestamp] TYPE` log. Memory preflight
+converts it to canonical error records at the next startup with no operator action. Text preceding the first
+`## [timestamp] TYPE` header is kept verbatim under `memory/legacy/`; unrecognised lines *inside* a block are folded
+into the field they follow, so keep operator notes above the first entry.
+
 ### wiki/ -- Synthesized Knowledge
 Use `wiki/` for durable, source-backed pages that organize knowledge from memory, user-provided documents, and explicit
 sources. Canonical personal memory records user context and experience; `wiki/` pages are curated summaries and references.
 Treat the inbox as a curated source queue for bounded corpora such as a project, meeting set, or product spec set, not
-as a firehose for unrelated material. A knowledge-inbox write never replaces a page that already exists: the stored
-content is kept, the new synthesis is appended as a supplement section, and the frontmatter `sources` list keeps every
-prior source it can read. A page whose frontmatter the pipeline cannot parse is refused rather than rewritten, and the
-inbox source that hit it quarantines with an error naming the page.
+as a firehose for unrelated material. A knowledge-inbox write never silently replaces a page that already exists: a
+second, page-scoped merge turn is shown the stored page and the new synthesis and declares whether they belong on one
+page. A merge that would leave the page materially shorter without saying what it removed is refused and the source is
+quarantined, the frontmatter `sources` list keeps every prior source it can read, and a page whose frontmatter the
+pipeline cannot parse is refused rather than rewritten – with the inbox source quarantined under an error naming the
+page.
 
-Pages accumulate: each colliding batch adds a supplement section, and nothing consolidates them for you. Every run's
-merge line carries the running count (`(supplement 7)`), and the optional `knowledge.wiki_lint` job – off by default –
-reports a page carrying ten or more supplements under `consolidation-debt`, so the growth reads as a level rather than
-as the same line every run.
+Pages therefore stay merged rather than growing a section per batch. A merge that calls the new material unrelated still
+appends a `## Supplement from <source> (<date>)` section, which is the one way a page accumulates; the optional
+`knowledge.wiki_lint` job – off by default – reports frontmatter, link and reachability drift across the wiki.
 
 ### ONBOARDING.md -- Personalization Sentinel
 `dartclaw init` seeds `ONBOARDING.md` for a fresh instance. Human conversations in web chat and configured messaging
 channels receive the onboarding instructions until the agent calls `onboarding_complete`, the user defers, or the
-sentinel expires. Task, cron, logical-agent, and advisor turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
+sentinel expires. Task, cron, and logical-agent turns do not receive onboarding instructions. Run `dartclaw init --personalize` to rerun onboarding. Reruns
 write `.draft` files and `dartclaw init --apply-drafts` applies reviewed changes. Ordinary init also uses draft mode when
 either `USER.md` or `SOUL.md` already exists; direct writes are allowed only when init created both fresh stubs.
 
 ### HEARTBEAT.md -- Periodic Checklist
-Human-maintained. Processed by the heartbeat scheduler at configured intervals (default: 30 minutes).
+Human-maintained. Processed by the built-in heartbeat job at configured intervals (default: 30 minutes).
 
 ```markdown
 - [ ] Check server health at https://status.example.com
@@ -179,6 +195,7 @@ curated stores are updated only by their listed agent or job path:
 | Canonical observations | Agent, via `memory_observe` with `role='observation'` | Daily journals, pre-compaction capture, and other non-authoritative runtime observations. |
 | Canonical learnings | Agent, via `memory_observe` with `role='learning'` | Explicit runtime learning capture; retained entries are capped at 50 and remain searchable after `dartclaw rebuild-index`. |
 | `MEMORY.audit.md` | Host, inside the same `memory_apply` transaction as a removal | Codec-rendered content-free deletion evidence. It is validated, fingerprinted, and advances the collection revision, but is never projected into search. |
+| Canonical topic revision, merge, and removal | Scheduled `memory-curation` job, via `memory_apply` | `memory.curation.schedule` (default `0 3 * * *`) when `memory.curation.enabled` is set. Each run may change only the entries its own bounded snapshot showed it. |
 | Canonical topic pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving old topic entries and removing exact replays in one corpus transaction, then regenerating the bounded index |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` – see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
 | Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` – see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
@@ -203,16 +220,20 @@ Primary turns assemble fresh bounded context in this order:
 1. **SOUL.md**
 2. **USER.md** (wrapped in `## User Context`)
 3. **TOOLS.md** (wrapped in `## Environment Notes`)
-4. **errors.md**
+4. **Recent errors** (newest-first projection of the canonical error role, capped by `memory.max_bytes`; states how
+   many older records it dropped)
 5. **Bounded canonical memory index projection** (priority/recency ordered; bulk learnings and topic bodies stay on demand)
 6. **ONBOARDING.md** (human conversational turns only, when fresh)
 7. **AGENTS.md** (safety rules -- appended after behavior content)
 
 ## Git Sync
 
-When enabled (default), DartClaw auto-initializes a git repo in the workspace and attempts to commit changes on every
-enabled heartbeat timer cycle, even when `HEARTBEAT.md` is missing or empty. Existing `.gitignore` content is preserved
+When enabled (default), DartClaw auto-initializes a git repo in the workspace and attempts to commit changes on its own
+schedule (`workspace.git_sync.interval_minutes`, default 30 minutes) -- independent of the heartbeat, so turning the
+heartbeat off keeps memory versioned and revertible. Existing `.gitignore` content is preserved
 while DartClaw adds any missing default exclusions. Runtime `errors.md` is ignored; the capped, agent-authored
 `learnings.md` file is tracked by default. DartClaw never deletes existing ignore rules, so workspaces initialized by an
-older release must remove a prior `learnings.md` line once if they want it tracked. Push to a remote if `origin` is configured. See
-[Configuration](configuration.md) for `workspace.git_sync` options.
+older release must remove a prior `learnings.md` line once if they want it tracked. Push to a remote if `origin` is configured.
+
+`workspace.git_sync.enabled` and `push_enabled` take effect at runtime with no restart; `interval_minutes` requires a
+restart. See [Configuration](configuration.md) for `workspace.git_sync` options.

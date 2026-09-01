@@ -56,6 +56,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
           File(p.join(root, MemoryCorpusService._stateName)).existsSync() ||
           File(p.join(root, 'MEMORY.archive.md')).existsSync() ||
           File(p.join(root, 'learnings.md')).existsSync() ||
+          File(p.join(root, 'errors.md')).existsSync() ||
           File(p.join(root, 'MEMORY.audit.md')).existsSync() ||
           await _hasNestedCorpusMembers(root);
       if (hasRemnants) {
@@ -337,11 +338,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
     }
   }
 
-  Future<_CorpusState> _commitInitialCorpusLocked(
-    String root,
-    CanonicalMemoryCorpus corpus, {
-    Map<String, Uint8List> baseSelection = const {},
-  }) async {
+  Future<_CorpusState> _commitInitialCorpusLocked(String root, CanonicalMemoryCorpus corpus) async {
     final inventory = corpus.byteInventory(MemoryCorpusService._codec);
     final members = {for (final entry in inventory.entries) entry.key: _describeMember(entry.key, entry.value, 0)};
     final fingerprint = _fingerprintMembers(members);
@@ -357,7 +354,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
         ),
       ),
       targetRevision: 1,
-      baseSelection: baseSelection,
+      baseSelection: const {},
       targetSelection: inventory,
       targetMembers: members,
       targetFingerprint: fingerprint,
@@ -552,6 +549,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
     final verbatim = <VerbatimMemoryMember>[];
     MemoryArchiveDocument? archive;
     MemoryLearningDocument? learnings;
+    MemoryErrorDocument? errors;
     MemoryAuditDocument? audit;
     for (final path in inventory.keys) {
       if (path == 'MEMORY.md') continue;
@@ -560,6 +558,12 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
         continue;
       }
       final document = parse(path);
+      void requireSoleMember(String expected, Object? existing) {
+        if (path != expected || existing != null) {
+          throw MemoryCorpusRecoveryRequired('$path is not the unique ${document.role.wireName} document');
+        }
+      }
+
       switch (document) {
         case MemoryTopicDocument():
           if (path != 'memory/topics/${document.topic}.md') {
@@ -567,9 +571,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
           }
           topics.add(document);
         case MemoryArchiveDocument():
-          if (path != 'MEMORY.archive.md' || archive != null) {
-            throw MemoryCorpusRecoveryRequired('$path is not the unique archive document');
-          }
+          requireSoleMember('MEMORY.archive.md', archive);
           archive = document;
         case MemoryObservationDocument():
           if (path != 'memory/${document.date}.md') {
@@ -577,14 +579,13 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
           }
           observations.add(document);
         case MemoryLearningDocument():
-          if (path != 'learnings.md' || learnings != null) {
-            throw MemoryCorpusRecoveryRequired('$path is not the unique learning document');
-          }
+          requireSoleMember('learnings.md', learnings);
           learnings = document;
+        case MemoryErrorDocument():
+          requireSoleMember('errors.md', errors);
+          errors = document;
         case MemoryAuditDocument():
-          if (path != 'MEMORY.audit.md' || audit != null) {
-            throw MemoryCorpusRecoveryRequired('$path is not the unique audit document');
-          }
+          requireSoleMember('MEMORY.audit.md', audit);
           audit = document;
         case MemoryIndexDocument():
           throw MemoryCorpusRecoveryRequired('$path is an unexpected index document');
@@ -596,6 +597,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
       archive: archive,
       observations: observations,
       learnings: learnings,
+      errors: errors,
       audit: audit,
       verbatimMembers: verbatim,
     );
@@ -637,6 +639,7 @@ CanonicalMemoryCorpus _withRevision(CanonicalMemoryCorpus corpus, int revision) 
   archive: corpus.archive,
   observations: corpus.observations,
   learnings: corpus.learnings,
+  errors: corpus.errors,
   audit: corpus.audit,
   verbatimMembers: corpus.verbatimMembers,
 );
@@ -645,6 +648,8 @@ Iterable<String> _corpusRecordIds(CanonicalMemoryCorpus corpus) sync* {
   yield* (corpus.archive?.entries ?? const <CanonicalMemoryEntry>[]).map((entry) => entry.id);
   yield* corpus.observations.expand((document) => document.observations).map((entry) => entry.id);
   yield* (corpus.learnings?.entries ?? const <CanonicalMemoryLearning>[]).map((entry) => entry.id);
+  // Errors are corpus members but not index-eligible: their IDs must not reach
+  // the derived search index's replace-by-prior-ID reconciliation.
 }
 
 List<MemoryCorpusExternalChange> _externalMemberChanges(
@@ -665,20 +670,28 @@ MemoryRole? _roleForPath(String path) {
   if (path == 'MEMORY.md') return MemoryRole.indexDocument;
   if (path == 'MEMORY.archive.md') return MemoryRole.archive;
   if (path == 'learnings.md') return MemoryRole.learning;
+  if (path == 'errors.md') return MemoryRole.error;
   if (path == 'MEMORY.audit.md') return MemoryRole.audit;
   if (path.startsWith('memory/topics/')) return MemoryRole.topic;
   if (RegExp(r'^memory/\d{4}-\d{2}-\d{2}\.md$').hasMatch(path)) return MemoryRole.observation;
   return null;
 }
 
-String _normalizeMemberPath(String path) {
-  if (p.isAbsolute(path) || path.contains(r'\')) throw ArgumentError.value(path, 'path', 'must be relative POSIX');
+/// The one containment rule for a corpus-relative path: the normalized path, or
+/// `null` when it is absolute, Windows-shaped, or escapes the corpus root.
+///
+/// Callers differ only in what they throw. A tightening applied to one copy of
+/// this rule and not the other would let the manifest transaction path and the
+/// member path admit different sets.
+String? _containedCorpusPath(String path) {
+  if (p.isAbsolute(path) || path.contains(r'\')) return null;
   final normalized = p.posix.normalize(path);
-  if (normalized == '.' || normalized == '..' || normalized.startsWith('../')) {
-    throw ArgumentError.value(path, 'path', 'must stay inside the workspace');
-  }
+  if (normalized == '.' || normalized == '..' || normalized.startsWith('../')) return null;
   return normalized;
 }
+
+String _normalizeMemberPath(String path) =>
+    _containedCorpusPath(path) ?? (throw ArgumentError.value(path, 'path', 'must stay inside the corpus'));
 
 void _requireInventoryBounds(Map<String, Uint8List> inventory, {Map<String, Uint8List> currentInventory = const {}}) {
   for (final entry in inventory.entries) {
@@ -799,6 +812,11 @@ _CorpusMemberState _describeMember(String path, Uint8List bytes, int modifiedMic
       document.entries.map((entry) => entry.id),
       document.entries.map((entry) => entry.updated),
     ),
+    MemoryErrorDocument() => (
+      MemoryRole.error,
+      document.entries.map((entry) => entry.id),
+      document.entries.map((entry) => entry.updated),
+    ),
     MemoryAuditDocument() => (
       MemoryRole.audit,
       document.records.map((entry) => entry.entryId),
@@ -812,6 +830,7 @@ _CorpusMemberState _describeMember(String path, Uint8List bytes, int modifiedMic
     MemoryArchiveDocument() => 'MEMORY.archive.md',
     MemoryObservationDocument() => 'memory/${document.date}.md',
     MemoryLearningDocument() => 'learnings.md',
+    MemoryErrorDocument() => 'errors.md',
     MemoryAuditDocument() => 'MEMORY.audit.md',
     _ => path,
   };
@@ -844,7 +863,7 @@ void _validateProjectedMembers(CanonicalMemoryCorpus selected, Map<String, _Corp
         for (final id in ids) {
           if (!activeIds.add(id)) errors.add('duplicate active entry ID: $id');
         }
-      case 'archive' || 'observation' || 'learning':
+      case 'archive' || 'observation' || 'learning' || 'error':
         for (final id in ids) {
           if (!nonActiveIds.add(id) || activeIds.contains(id)) errors.add('duplicate canonical record ID: $id');
         }
@@ -911,7 +930,16 @@ _CorpusState? _readState(File file) {
         value['recordCount'] is! int ||
         (value['recordCount'] as int) < 0 ||
         value['role'] is! String ||
-        !const {'index', 'topic', 'archive', 'observation', 'learning', 'audit', 'legacy'}.contains(value['role'])) {
+        !const {
+          'index',
+          'topic',
+          'archive',
+          'observation',
+          'learning',
+          'error',
+          'audit',
+          'legacy',
+        }.contains(value['role'])) {
       throw const MemoryCorpusRecoveryRequired('committed fingerprint state is malformed');
     }
     parsedMembers[entry.key] = _CorpusMemberState(
@@ -976,6 +1004,10 @@ MemoryCorpusStatusSnapshot _parseStatus(Map<String, dynamic> json) {
     archiveEntryCount: count('archiveEntryCount'),
     observationEntryCount: count('observationEntryCount'),
     learningEntryCount: count('learningEntryCount'),
+    // A state file written before the error role existed omits the key; it
+    // predates any error member, so its count is zero. Reading it as null would
+    // make every such manifest mismatch its own fresh scan and fail startup.
+    errorEntryCount: count('errorEntryCount') ?? 0,
     observationUsageBytes: count('observationUsageBytes'),
     observationOldest: timestamp('observationOldest'),
     observationNewest: timestamp('observationNewest'),
@@ -1069,6 +1101,7 @@ MemoryCorpusStatusSnapshot _statusFromMembers(
     archiveEntryCount: count(MemoryRole.archive),
     observationEntryCount: observations.fold<int>(0, (total, entry) => total + (entry.value.recordCount ?? 0)),
     learningEntryCount: count(MemoryRole.learning),
+    errorEntryCount: count(MemoryRole.error),
     observationUsageBytes: observations.fold<int>(0, (total, entry) => total + (entry.value.length ?? 0)),
     observationOldest: oldest == null ? null : DateTime.fromMicrosecondsSinceEpoch(oldest, isUtc: true),
     observationNewest: newest == null ? null : DateTime.fromMicrosecondsSinceEpoch(newest, isUtc: true),
@@ -1124,7 +1157,7 @@ String _fingerprintFile(File file) {
 }
 
 Stream<String> _corpusPaths(String root) async* {
-  for (final path in const ['MEMORY.md', 'MEMORY.archive.md', 'learnings.md', 'MEMORY.audit.md']) {
+  for (final path in const ['MEMORY.md', 'MEMORY.archive.md', 'errors.md', 'learnings.md', 'MEMORY.audit.md']) {
     final type = FileSystemEntity.typeSync(p.join(root, path), followLinks: false);
     if (type == FileSystemEntityType.file) yield path;
     if (type != FileSystemEntityType.file && type != FileSystemEntityType.notFound) {

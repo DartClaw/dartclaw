@@ -1,9 +1,10 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
-import 'package:dartclaw_server/dartclaw_server.dart' show LogService;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show LogService;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -403,9 +404,9 @@ void main() {
   });
 
   group('forced remediation transformer', () {
-    test('targets plan review, architecture review, or both', () {
+    test('targets plan review, council review, or both', () {
       final cleanPlan = {'findings_count': 0, 'plan-review.findings_count': 0};
-      final cleanArchitecture = {'findings_count': 0, 'architecture-review.findings_count': 0};
+      final cleanCouncil = {'findings_count': 0, 'plan-review-council.findings_count': 0};
 
       final planOnly = forcedReviewRemediationOutputs(
         stepId: 'plan-review',
@@ -417,29 +418,29 @@ void main() {
       expect(planOnly['plan-review.findings_count'], 1);
       expect(
         forcedReviewRemediationOutputs(
-          stepId: 'architecture-review',
-          outputs: cleanArchitecture,
+          stepId: 'plan-review-council',
+          outputs: cleanCouncil,
           targetReviews: const {'plan-review'},
           remediationPlan: 'remediate',
           implementationSummary: 'summary',
         ),
-        same(cleanArchitecture),
+        same(cleanCouncil),
       );
 
-      final architectureOnly = forcedReviewRemediationOutputs(
-        stepId: 'architecture-review',
-        outputs: cleanArchitecture,
-        targetReviews: const {'architecture-review'},
+      final councilOnly = forcedReviewRemediationOutputs(
+        stepId: 'plan-review-council',
+        outputs: cleanCouncil,
+        targetReviews: const {'plan-review-council'},
         remediationPlan: 'remediate',
         implementationSummary: 'summary',
       );
-      expect(architectureOnly['architecture-review.findings_count'], 1);
+      expect(councilOnly['plan-review-council.findings_count'], 1);
 
       expect(
         forcedReviewRemediationOutputs(
           stepId: 'plan-review',
           outputs: cleanPlan,
-          targetReviews: const {'plan-review', 'architecture-review'},
+          targetReviews: const {'plan-review', 'plan-review-council'},
           remediationPlan: 'remediate',
           implementationSummary: 'summary',
         )['plan-review.findings_count'],
@@ -447,12 +448,12 @@ void main() {
       );
       expect(
         forcedReviewRemediationOutputs(
-          stepId: 'architecture-review',
-          outputs: cleanArchitecture,
-          targetReviews: const {'plan-review', 'architecture-review'},
+          stepId: 'plan-review-council',
+          outputs: cleanCouncil,
+          targetReviews: const {'plan-review', 'plan-review-council'},
           remediationPlan: 'remediate',
           implementationSummary: 'summary',
-        )['architecture-review.findings_count'],
+        )['plan-review-council.findings_count'],
         1,
       );
     });

@@ -6,19 +6,11 @@ breaks in-flight runs.
 
 ## Namespaces
 
-### `_map.current.*`
+### `_map.<stepId>.promotedIds`
 
-Set by `_persistMapProgress` in `map_iteration_runner.dart`. Cleared when the map step exits.
-
-| Key | Type | Semantics |
-|-----|------|-----------|
-| `_map.current.stepId` | `String` | ID of the map step currently executing |
-| `_map.current.total` | `int` | Total number of iterations |
-| `_map.current.completedIndices` | `List<int>` | Settled (success/fail/cancel) indices |
-| `_map.current.failedIndices` | `List<int>` | Failed iteration indices |
-| `_map.current.cancelledIndices` | `List<int>` | Cancelled iteration indices |
-
-Per-step promoted-IDs tracking (also under `_map.*`):
+Per-step promoted-IDs tracking, written by the `foreach` controller
+(`foreach_iteration_runner.dart`). The `_map.current.*` progress namespace was retired with the map step
+controller; foreach progress lives under `_foreach.current.*` below.
 
 | Key | Type | Semantics |
 |-----|------|-----------|

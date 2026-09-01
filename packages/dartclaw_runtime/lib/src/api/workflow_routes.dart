@@ -1,0 +1,714 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        EventBus,
+        MapIterationCompletedEvent,
+        MapStepCompletedEvent,
+        LoopIterationCompletedEvent,
+        ParallelGroupCompletedEvent,
+        Task,
+        TaskStatusChangedEvent,
+        WorkflowApprovalRequestedEvent,
+        WorkflowCliTurnProgressEvent,
+        WorkflowApprovalResolvedEvent,
+        WorkflowLifecycleEvent,
+        WorkflowRunStatusChangedEvent,
+        WorkflowStepCompletedEvent;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowDefinition,
+        WorkflowDefinitionResolver,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowSummary,
+        WorkflowTaskType,
+        missingRequiredWorkflowVariables,
+        missingRequiredWorkflowVariablesMessage,
+        stepStatusFromTask;
+import 'package:logging/logging.dart';
+import 'package:shelf/shelf.dart';
+import 'package:shelf_router/shelf_router.dart';
+
+import '../task/task_service.dart';
+import '../task/workflow_start_precondition_exception.dart';
+import '../workflow_approval_metadata.dart';
+import 'api_helpers.dart';
+import 'sse_broadcast.dart';
+
+final _log = Logger('WorkflowRoutes');
+const _maxWorkflowJsonBodyBytes = 256 * 1024;
+const _maxWorkflowFormBodyBytes = 256 * 1024;
+
+/// Creates a [Router] exposing workflow lifecycle API endpoints.
+///
+/// All endpoints require authentication (handled by the server pipeline).
+/// Business logic delegated to [WorkflowService] — routes are thin
+/// request/response translators.
+Router workflowRoutes(
+  WorkflowService workflows,
+  TaskService tasks,
+  WorkflowDefinitionSource definitions, {
+  EventBus? eventBus,
+}) {
+  final router = Router();
+  final resolver = WorkflowDefinitionResolver();
+
+  // POST /api/workflows/run
+  router.post('/api/workflows/run', (Request request) async {
+    final parsed = await _parseWorkflowRunJsonRequest(request, definitions);
+    return _startWorkflowResponse(parsed, workflows);
+  });
+
+  // POST /api/workflows/run-form
+  router.post('/api/workflows/run-form', (Request request) async {
+    final parsed = await _parseWorkflowRunFormRequest(request, definitions);
+    return _startWorkflowResponse(parsed, workflows, htmlResponse: true);
+  });
+
+  // GET /api/workflows/runs
+  router.get('/api/workflows/runs', (Request request) async {
+    try {
+      final params = request.url.queryParameters;
+      final statusParam = params['status'];
+      final status = statusParam != null ? WorkflowRunStatus.values.asNameMap()[statusParam] : null;
+      final definitionName = params['definition'];
+
+      final runs = await workflows.list(status: status, definitionName: definitionName);
+      return jsonResponse(200, runs.map((r) => r.toJson()).toList());
+    } catch (e, st) {
+      _log.severe('Failed to list workflow runs', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list workflow runs');
+    }
+  });
+
+  // GET /api/workflows/runs/<id>
+  router.get('/api/workflows/runs/<id>', (Request request, String id) async {
+    try {
+      final run = await workflows.get(id);
+      if (run == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final enriched = await _enrichRunDetail(run, tasks);
+      return jsonResponse(200, enriched);
+    } catch (e, st) {
+      _log.severe('Failed to get workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/pause
+  router.post('/api/workflows/runs/<id>/pause', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.pause(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to pause workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to pause workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/resume
+  router.post('/api/workflows/runs/<id>/resume', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.resume(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to resume workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/retry
+  router.post('/api/workflows/runs/<id>/retry', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      final run = await workflows.retry(id);
+      return jsonResponse(200, run.toJson());
+    } on StateError catch (e) {
+      return errorResponse(409, 'INVALID_TRANSITION', e.message);
+    } catch (e, st) {
+      _log.severe('Failed to retry workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to retry workflow run');
+    }
+  });
+
+  // POST /api/workflows/runs/<id>/cancel
+  router.post('/api/workflows/runs/<id>/cancel', (Request request, String id) async {
+    try {
+      final existing = await workflows.get(id);
+      if (existing == null) {
+        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
+      }
+      if (existing.status.terminal) {
+        return errorResponse(
+          409,
+          'INVALID_TRANSITION',
+          'Workflow run is already in a terminal state: ${existing.status.name}',
+        );
+      }
+      // Optional body: { "feedback": "..." } for approval rejection feedback.
+      String? feedback;
+      final contentType = request.headers['content-type'] ?? '';
+      if (contentType.contains('application/json')) {
+        final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+        if (body.error != null) return body.error;
+        if (body.value != null) {
+          final feedbackField = body.value!['feedback'];
+          if (feedbackField is String && feedbackField.trim().isNotEmpty) {
+            feedback = feedbackField.trim();
+          }
+        }
+      }
+      await workflows.cancel(id, feedback: feedback);
+      return Response(204);
+    } catch (e, st) {
+      _log.severe('Failed to cancel workflow run $id', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run');
+    }
+  });
+
+  // GET /api/workflows/definitions
+  router.get('/api/workflows/definitions', (Request request) async {
+    try {
+      final summaries = definitions.listSummaries();
+      return jsonResponse(200, summaries.map(_summaryToJson).toList());
+    } catch (e, st) {
+      _log.severe('Failed to list workflow definitions', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to list workflow definitions');
+    }
+  });
+
+  // GET /api/workflows/definitions/<name>
+  // Query params:
+  //   resolve=true         → returns YAML with stepDefaults applied
+  //   step=<id>            → (with resolve=true) slices to a single resolved step
+  router.get('/api/workflows/definitions/<name>', (Request request, String name) async {
+    try {
+      final def = definitions.getByName(name);
+      if (def == null) {
+        return errorResponse(404, 'DEFINITION_NOT_FOUND', 'Workflow definition not found: $name');
+      }
+
+      final params = request.url.queryParameters;
+      final shouldResolve = params['resolve'] == 'true';
+      if (!shouldResolve) {
+        final authored = definitions.authoredYaml(name) ?? resolver.emitYaml(def);
+        return Response.ok(authored, headers: {'content-type': 'application/yaml; charset=utf-8'});
+      }
+
+      final resolved = resolver.resolve(def);
+      final stepId = params['step'];
+      if (stepId != null && stepId.isNotEmpty) {
+        final slice = resolver.sliceStep(resolved, stepId);
+        if (slice == null) {
+          return errorResponse(404, 'STEP_NOT_FOUND', 'Step "$stepId" not found in workflow "$name"');
+        }
+        return Response.ok(resolver.emitYaml(slice), headers: {'content-type': 'application/yaml; charset=utf-8'});
+      }
+
+      return Response.ok(resolver.emitYaml(resolved), headers: {'content-type': 'application/yaml; charset=utf-8'});
+    } catch (e, st) {
+      _log.severe('Failed to get workflow definition $name', e, st);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get workflow definition');
+    }
+  });
+
+  // GET /api/workflows/runs/<id>/events — per-run SSE stream.
+  router.get('/api/workflows/runs/<id>/events', (Request request, String id) async {
+    final bus = eventBus;
+    if (bus == null) {
+      return errorResponse(503, 'SERVICE_UNAVAILABLE', 'Event bus not configured');
+    }
+    return _workflowRunSseHandler(id, workflows, tasks, bus);
+  });
+
+  return router;
+}
+
+typedef _ParsedWorkflowRunRequest = ({
+  WorkflowDefinition? definition,
+  Map<String, String> variables,
+  String? projectId,
+  WorkflowApprovalPolicy? approvals,
+  bool allowDirtyLocalPath,
+  bool inline,
+  Response? error,
+});
+
+_ParsedWorkflowRunRequest _workflowRunRequestError(Response error) => (
+  definition: null,
+  variables: const <String, String>{},
+  projectId: null,
+  approvals: null,
+  allowDirtyLocalPath: false,
+  inline: false,
+  error: error,
+);
+
+/// Resolves a launch request's definition name, for both encodings.
+///
+/// [htmlResponse] picks only the rendering: the form route answers a swappable
+/// HTTP 200 fragment where the JSON route answers `404 DEFINITION_NOT_FOUND`.
+({WorkflowDefinition? definition, Response? error}) _resolveWorkflowDefinition(
+  WorkflowDefinitionSource definitions,
+  String definitionName, {
+  required bool htmlResponse,
+}) {
+  final definition = definitions.getByName(definitionName.trim());
+  if (definition != null) return (definition: definition, error: null);
+  final message = 'Workflow definition not found: $definitionName';
+  return (
+    definition: null,
+    error: htmlResponse ? _workflowFormError(message) : errorResponse(404, 'DEFINITION_NOT_FOUND', message),
+  );
+}
+
+/// Injects `PROJECT` and validates required variables once, whichever encoding
+/// assembled [variables].
+_ParsedWorkflowRunRequest _shapeWorkflowRunRequest(
+  WorkflowDefinition definition, {
+  required Map<String, String> variables,
+  required String? projectId,
+  required WorkflowApprovalPolicy? approvals,
+  required bool allowDirtyLocalPath,
+  required bool inline,
+  required bool htmlResponse,
+}) {
+  if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
+    variables['PROJECT'] = projectId;
+  }
+  return (
+    definition: definition,
+    variables: variables,
+    projectId: projectId,
+    approvals: approvals,
+    allowDirtyLocalPath: allowDirtyLocalPath,
+    inline: inline,
+    error: _validateWorkflowVariables(definition, variables, htmlResponse: htmlResponse),
+  );
+}
+
+Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
+  Request request,
+  WorkflowDefinitionSource definitions,
+) async {
+  final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+  if (body.error != null) return _workflowRunRequestError(body.error!);
+  final fields = body.value!;
+
+  final definitionField = fields['definition'];
+  if (definitionField == null) {
+    return _workflowRunRequestError(errorResponse(400, 'INVALID_INPUT', 'Missing required field: definition'));
+  }
+  if (definitionField is! String || definitionField.trim().isEmpty) {
+    return _workflowRunRequestError(
+      errorResponse(400, 'INVALID_INPUT', 'Field "definition" must be a non-empty string'),
+    );
+  }
+
+  final resolved = _resolveWorkflowDefinition(definitions, definitionField, htmlResponse: false);
+  if (resolved.error != null) return _workflowRunRequestError(resolved.error!);
+
+  final variablesField = fields['variables'];
+  if (variablesField != null && variablesField is! Map) {
+    return _workflowRunRequestError(
+      errorResponse(400, 'INVALID_INPUT', 'Field "variables" must be an object', {'field': 'variables'}),
+    );
+  }
+  final rawVariables = variablesField as Map? ?? const {};
+  final projectField = fields['project'];
+  final approvalsResult = _parseApprovalPolicy(fields['approvals']);
+  if (approvalsResult.error != null) return _workflowRunRequestError(approvalsResult.error!);
+
+  return _shapeWorkflowRunRequest(
+    resolved.definition!,
+    variables: {for (final entry in rawVariables.entries) entry.key.toString(): entry.value.toString()},
+    projectId: projectField is String && projectField.trim().isNotEmpty ? projectField.trim() : null,
+    approvals: approvalsResult.policy,
+    allowDirtyLocalPath: fields['allowDirtyLocalPath'] == true,
+    inline: fields['inline'] == true,
+    htmlResponse: false,
+  );
+}
+
+Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
+  Request request,
+  WorkflowDefinitionSource definitions,
+) async {
+  final bodyResult = await readRequestBody(request, maxBytes: _maxWorkflowFormBodyBytes);
+  if (bodyResult.error != null) return _workflowRunRequestError(bodyResult.error!);
+  final fields = Uri.splitQueryString(bodyResult.body!);
+
+  final definitionName = fields['definition']?.trim();
+  if (definitionName == null || definitionName.isEmpty) {
+    return _workflowRunRequestError(_workflowFormError('Workflow definition is required.'));
+  }
+
+  final resolved = _resolveWorkflowDefinition(definitions, definitionName, htmlResponse: true);
+  if (resolved.error != null) return _workflowRunRequestError(resolved.error!);
+
+  final projectField = fields['project']?.trim();
+  return _shapeWorkflowRunRequest(
+    resolved.definition!,
+    variables: {
+      for (final entry in fields.entries)
+        if (entry.key.startsWith('var_') && entry.value.trim().isNotEmpty) entry.key.substring(4): entry.value.trim(),
+    },
+    projectId: projectField != null && projectField.isNotEmpty ? projectField : null,
+    approvals: null,
+    allowDirtyLocalPath: switch (fields['allowDirtyLocalPath']?.trim().toLowerCase()) {
+      '1' || 'true' || 'on' => true,
+      _ => false,
+    },
+    inline: false,
+    htmlResponse: true,
+  );
+}
+
+({WorkflowApprovalPolicy? policy, Response? error}) _parseApprovalPolicy(Object? raw) {
+  if (raw == null) return (policy: null, error: null);
+  if (raw is! String || raw.trim().isEmpty) {
+    return (
+      policy: null,
+      error: errorResponse(400, 'INVALID_INPUT', 'Field "approvals" must be one of: manual, auto-on-stall, auto', {
+        'field': 'approvals',
+        'allowedValues': ['manual', 'auto-on-stall', 'auto'],
+      }),
+    );
+  }
+  final policy = WorkflowApprovalPolicy.fromYaml(raw);
+  if (policy != null) return (policy: policy, error: null);
+  return (
+    policy: null,
+    error: errorResponse(400, 'INVALID_INPUT', 'Field "approvals" must be one of: manual, auto-on-stall, auto', {
+      'field': 'approvals',
+      'allowedValues': ['manual', 'auto-on-stall', 'auto'],
+    }),
+  );
+}
+
+Response? _validateWorkflowVariables(
+  WorkflowDefinition definition,
+  Map<String, String> variables, {
+  bool htmlResponse = false,
+}) {
+  final missing = missingRequiredWorkflowVariables(definition, variables);
+  if (missing.isEmpty) {
+    return null;
+  }
+  final message = missingRequiredWorkflowVariablesMessage(missing);
+  return htmlResponse
+      ? _workflowFormError(message)
+      : errorResponse(400, 'INVALID_INPUT', message, {'missingVariables': missing});
+}
+
+Future<Response> _startWorkflowResponse(
+  _ParsedWorkflowRunRequest parsed,
+  WorkflowService workflows, {
+  bool htmlResponse = false,
+}) async {
+  if (parsed.error != null) {
+    return parsed.error!;
+  }
+  final definition = parsed.definition!;
+  try {
+    final run = await workflows.start(
+      definition,
+      parsed.variables,
+      projectId: parsed.projectId,
+      approvals: parsed.approvals,
+      allowDirtyLocalPath: parsed.allowDirtyLocalPath,
+      inline: parsed.inline,
+    );
+    if (htmlResponse) {
+      final location = '/workflows/${run.id}';
+      return Response(201, headers: {'HX-Location': location, 'content-type': 'text/html; charset=utf-8'});
+    }
+    return jsonResponse(201, run.toJson());
+  } on ArgumentError catch (e) {
+    return htmlResponse
+        ? _workflowFormError(e.message.toString())
+        : errorResponse(400, 'INVALID_INPUT', e.message.toString());
+  } on WorkflowStartPreconditionException catch (e) {
+    return htmlResponse ? _workflowFormError(e.message) : errorResponse(409, 'WORKFLOW_PRECONDITION_FAILED', e.message);
+  } on StateError catch (e) {
+    _log.severe('Failed to start workflow', e);
+    return htmlResponse
+        ? _workflowFormError('Failed to start workflow')
+        : errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
+  } catch (e, st) {
+    _log.severe('Failed to start workflow', e, st);
+    return htmlResponse
+        ? _workflowFormError('Failed to start workflow')
+        : errorResponse(500, 'INTERNAL_ERROR', 'Failed to start workflow');
+  }
+}
+
+/// Renders an inline workflow-form error as an HTMX-swappable fragment.
+///
+/// Returns HTTP 200 (not 4xx/5xx) so HTMX's default `responseHandling` swaps
+/// the fragment into the form's `hx-target`; on a 4xx/5xx the body is dropped
+/// and the launch error vanishes from the UI. The JSON API path surfaces the
+/// real status code via [errorResponse] instead.
+Response _workflowFormError(String message) {
+  return Response(
+    200,
+    body: '<span class="form-error-text">${htmlEscape.convert(message)}</span>',
+    headers: {'content-type': 'text/html; charset=utf-8'},
+  );
+}
+
+/// Enriches a [WorkflowRun] with per-step status and child task IDs.
+Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks) async {
+  WorkflowDefinition definition;
+  try {
+    definition = WorkflowDefinition.fromJson(run.definitionJson);
+  } catch (e) {
+    _log.warning('Failed to deserialize definitionJson for run ${run.id}: $e');
+    return run.toJson();
+  }
+
+  final allTasks = await tasks.list();
+  final childTasks = allTasks.where((t) => t.workflowRunId == run.id).toList();
+  final tasksByStepIndex = <int, Task>{
+    for (final t in childTasks)
+      if (t.stepIndex != null) t.stepIndex!: t,
+  };
+
+  final steps = <Map<String, dynamic>>[];
+  for (var i = 0; i < definition.steps.length; i++) {
+    final step = definition.steps[i];
+    final task = tasksByStepIndex[i];
+    final stepEntry = <String, dynamic>{
+      'index': i,
+      'id': step.id,
+      'name': step.name,
+      'type': step.taskType.toJson(),
+      'status': _stepStatusWithApproval(run, i, step.id, step.taskType, task),
+      'taskId': task?.id,
+    };
+    // Attach approval metadata for approval-type steps.
+    if (step.taskType == WorkflowTaskType.approval) {
+      final approvalStatus = run.contextJson['${step.id}.approval.status'];
+      if (approvalStatus != null) {
+        stepEntry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
+      }
+    }
+    steps.add(stepEntry);
+  }
+
+  final childTaskIds = childTasks.map((t) => t.id).toList();
+  final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+  return run.toJson()
+    ..['steps'] = steps
+    ..['childTaskIds'] = childTaskIds
+    ..['isApprovalPaused'] = pendingApprovalStepId != null
+    ..['pendingApprovalStepId'] = pendingApprovalStepId;
+}
+
+/// Returns step status, handling approval-type steps which have no child task.
+String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, WorkflowTaskType stepType, Task? task) {
+  if (stepType == WorkflowTaskType.approval) {
+    final approvalStatus = run.contextJson['$stepId.approval.status'];
+    return switch (approvalStatus) {
+      'pending' => 'awaiting_approval',
+      'approved' => 'completed',
+      'rejected' => 'rejected',
+      'timed_out' => 'timed_out',
+      _ => index < run.currentStepIndex ? 'pending' : 'pending',
+    };
+  }
+  return stepStatusFromTask(run, index, task, stepId: stepId);
+}
+
+Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {
+  'name': s.name,
+  'description': s.description,
+  'stepCount': s.stepCount,
+  'variables': {
+    for (final entry in s.variables.entries)
+      entry.key: {
+        'required': entry.value.required,
+        'description': entry.value.description,
+        'default': entry.value.defaultValue,
+      },
+  },
+  'hasLoops': s.hasLoops,
+  'maxTokens': s.maxTokens,
+};
+
+/// Per-run SSE handler — streams workflow lifecycle and child task status events.
+Future<Response> _workflowRunSseHandler(
+  String runId,
+  WorkflowService workflows,
+  TaskService tasks,
+  EventBus eventBus,
+) async {
+  final run = await workflows.get(runId);
+  if (run == null) {
+    return Response.notFound(jsonEncode({'error': 'Workflow run not found: $runId'}));
+  }
+
+  final controller = StreamController<List<int>>();
+  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) async {
+    final task = event.taskId.isEmpty ? null : await tasks.get(event.taskId);
+    final displayScope = event.displayScope ?? _taskDisplayScope(task);
+    sendSseData(controller, _workflowEventPayload(event, displayScope: displayScope));
+  });
+  final parallelSub = eventBus.on<ParallelGroupCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final loopSub = eventBus.on<LoopIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final mapStepSub = eventBus.on<MapStepCompletedEvent>().where((e) => e.runId == runId).listen((event) {
+    sendSseData(controller, event.toJson());
+  });
+  final taskStatusSub = eventBus.on<TaskStatusChangedEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    final displayScope = _taskDisplayScope(task);
+    final payload = <String, dynamic>{
+      'type': 'task_status_changed',
+      'taskId': event.taskId,
+      'oldStatus': event.oldStatus.name,
+      'newStatus': event.newStatus.name,
+    };
+    final stepIndex = task?.stepIndex;
+    if (stepIndex != null) {
+      payload['stepIndex'] = stepIndex;
+    }
+    if (displayScope != null) {
+      payload['displayScope'] = displayScope;
+    }
+    sendSseData(controller, payload);
+  });
+  final tokenProgressSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) async {
+    final task = await tasks.get(event.taskId);
+    if (task?.workflowRunId != runId) return;
+    sendSseData(controller, {
+      'type': 'workflow_cli_turn_progress',
+      'taskId': event.taskId,
+      'cumulativeTokens': event.cumulativeTokens,
+    });
+  });
+  final approvalRequestedSub = eventBus.on<WorkflowApprovalRequestedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    sendSseData(controller, event.toJson());
+  });
+  final approvalResolvedSub = eventBus.on<WorkflowApprovalResolvedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) {
+    sendSseData(controller, event.toJson());
+  });
+
+  Future<void> cancelSubscriptions() => Future.wait([
+    runStatusSub.cancel(),
+    stepCompletedSub.cancel(),
+    parallelSub.cancel(),
+    loopSub.cancel(),
+    mapIterationSub.cancel(),
+    mapStepSub.cancel(),
+    taskStatusSub.cancel(),
+    tokenProgressSub.cancel(),
+    approvalRequestedSub.cancel(),
+    approvalResolvedSub.cancel(),
+  ]);
+  controller.onCancel = cancelSubscriptions;
+
+  late final List<Task> allTasks;
+  late final WorkflowRun snapshotRun;
+  try {
+    allTasks = await tasks.list();
+    snapshotRun = await workflows.get(runId) ?? run;
+  } catch (_) {
+    await cancelSubscriptions();
+    unawaited(controller.close());
+    rethrow;
+  }
+
+  // Build connected payload with current run state and step statuses.
+  WorkflowDefinition definition;
+  try {
+    definition = WorkflowDefinition.fromJson(snapshotRun.definitionJson);
+  } catch (e) {
+    _log.warning('Failed to deserialize definitionJson for run $runId: $e');
+    definition = WorkflowDefinition(name: run.definitionName, description: '', steps: const [], variables: const {});
+  }
+  final tasksByStepIndex = <int, Task>{
+    for (final t in allTasks.where((t) => t.workflowRunId == runId))
+      if (t.stepIndex != null) t.stepIndex!: t,
+  };
+  final stepsPayload = [
+    for (var i = 0; i < definition.steps.length; i++)
+      {
+        'index': i,
+        'id': definition.steps[i].id,
+        'name': definition.steps[i].name,
+        'status': _stepStatusWithApproval(
+          snapshotRun,
+          i,
+          definition.steps[i].id,
+          definition.steps[i].taskType,
+          tasksByStepIndex[i],
+        ),
+        'taskId': tasksByStepIndex[i]?.id,
+      },
+  ];
+  sendSseData(controller, {
+    'type': 'connected',
+    'run': {
+      'id': snapshotRun.id,
+      'status': snapshotRun.status.name,
+      'currentStepIndex': snapshotRun.currentStepIndex,
+      'totalTokens': snapshotRun.totalTokens,
+    },
+    'steps': stepsPayload,
+  });
+
+  return sseResponse(controller.stream);
+}
+
+String? _taskDisplayScope(Task? task) {
+  final scope = task?.configJson['displayScope'];
+  if (scope is! String) return null;
+  final trimmed = scope.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+Map<String, dynamic> _workflowEventPayload(WorkflowLifecycleEvent event, {String? displayScope}) {
+  final payload = event.toJson();
+  if (displayScope != null) {
+    payload['displayScope'] = displayScope;
+  }
+  return payload;
+}

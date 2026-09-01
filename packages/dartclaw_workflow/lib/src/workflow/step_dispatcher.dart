@@ -127,24 +127,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       if (requiredInputPath != null) {
         taskConfig = {...taskConfig, 'requiredInputPath': requiredInputPath};
       }
-      final mount = definition.gitStrategy?.externalArtifactMount;
-      if (mount != null) {
-        final resolvedSource = mount.source == null
-            ? null
-            : _templateEngine.resolveWithMap(mount.source!, context, mapCtx).trim();
-        final fromProjectId = _templateEngine.resolve(mount.fromProject, context).trim();
-        if (fromProjectId.isNotEmpty) {
-          final fromProjectDir = p.join(_dataDir, 'projects', fromProjectId);
-          final mountJson = <String, Object?>{
-            'mode': mount.mode.toJson(),
-            'fromProjectDir': fromProjectDir,
-            if (resolvedSource != null && resolvedSource.isNotEmpty) 'source': resolvedSource,
-            if (mount.fromPath != null) 'fromPath': mount.fromPath,
-            if (mount.toPath != null) 'toPath': mount.toPath,
-          };
-          taskConfig = {...taskConfig, '_workflow.externalArtifactMount': mountJson};
-        }
-      }
     }
 
     if (continuedRootStep != null) {
@@ -175,7 +157,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     final needsFinalizer = stepNeedsFinalizer(step, effectiveOutputs);
     final emitOutcomeProtocol = !needsFinalizer && !step.emitsOwnOutcome;
     // Keys the envelope claims travel out of the main prompt; the complement
-    // (`outputMode: prompt` opt-outs, `*_source`, host-owned keys) still renders
+    // (prompt-mode outputs, `*_source`, host-owned keys) still renders
     // its contract. Empty on non-finalizer steps, so all keys render.
     final finalizerCoveredKeys = needsFinalizer ? modelDerivedFinalizerKeys(step, effectiveOutputs) : const <String>[];
     final firstTaskPrompt = _skillPromptBuilder.build(
@@ -184,7 +166,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       contextSummary: contextSummary,
       outputs: effectiveOutputs,
       outputKeys: effectiveOutputKeys,
-      outputExamples: step.outputExamples,
       emitStepOutcomeProtocol: !step.isMultiPrompt && emitOutcomeProtocol,
       finalizerCoveredKeys: finalizerCoveredKeys,
       autoFrameContext: step.autoFrameContext,
@@ -193,24 +174,16 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       resolvedInputValues: resolvedInputValues,
       templatePrompt: step.prompts?.first,
       provider: taskProvider,
-      gatingSeverity: resolved.gatingSeverity,
     );
     final followUpPrompts = _buildOneShotFollowUpPrompts(
       step,
       context,
       effectiveOutputs,
       outputKeys: effectiveOutputKeys,
-      gatingSeverity: resolved.gatingSeverity,
       finalizerHandlesOutputs: needsFinalizer,
       mapCtx: mapCtx,
     );
-    final structuredSchema = needsFinalizer
-        ? buildExecutionEnvelopeSchema(
-            step,
-            effectiveOutputs,
-            gatingSeverity: resolved.gatingSeverity ?? defaultGatingSeverity,
-          )
-        : null;
+    final structuredSchema = needsFinalizer ? buildExecutionEnvelopeSchema(step, effectiveOutputs) : null;
     taskConfig = {...taskConfig, ...?extraTaskConfig};
     if (followUpPrompts.isNotEmpty) {
       taskConfig['_workflowFollowUpPrompts'] = followUpPrompts;
@@ -221,18 +194,19 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     taskConfig[WorkflowTaskConfig.workflowStepName] = step.name;
     var accumulatedTokenCount = 0;
 
-    String? lastFailureReason;
+    WorkflowStepRetryFailure? lastFailure;
     return runWithWorkflowRetry<StepOutcome?>(
       onFailure: step.onFailure,
       maxRetries: resolved.maxRetries ?? 0,
       isFailedOutcome: (result) => result?.outcome == 'failed',
-      failureReason: (result) {
-        lastFailureReason = result?.outcomeReason ?? result?.error;
-        return lastFailureReason;
+      failure: (result) {
+        lastFailure = result?.retryFailure;
+        return lastFailure;
       },
-      onRetry: (retryNumber, retryLimit, _) {
+      onRetry: (retryNumber, retryLimit, failure) {
         WorkflowExecutor._log.info(
-          "Workflow '${run.id}': retrying step '${step.id}' after failed outcome ($retryNumber/$retryLimit)",
+          "Workflow '${run.id}': retrying step '${step.id}' after failed outcome ($retryNumber/$retryLimit): "
+          '${failure?.kind}',
         );
       },
       dispatchAttempt: (attemptIndex) async {
@@ -259,7 +233,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         try {
           final description = attemptIndex == 0
               ? firstTaskPrompt
-              : _withWorkflowRetryFeedback(firstTaskPrompt, lastFailureReason);
+              : _withWorkflowRetryFeedback(firstTaskPrompt, lastFailure);
           await _createWorkflowTaskTriple(
             taskId: taskId,
             run: run,
@@ -267,7 +241,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             stepIndex: stepIndex,
             title: title,
             description: description,
-            type: TaskType.coding,
             provider: taskProvider,
             projectId: effectiveProjectId,
             maxTokens: resolved.maxTokens,
@@ -286,19 +259,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
 
         late Task finalTask;
         try {
-          finalTask = await _waitForTaskCompletion(
-            taskId,
-            step,
-            completer,
-            sub,
-            runId: run.id,
-            timeoutSeconds: resolved.timeoutSeconds,
-          );
-        } on TimeoutException {
-          final msg = 'Step "${step.name}" timed out after ${resolved.timeoutSeconds}s';
-          WorkflowExecutor._log.warning("Workflow '${run.id}': $msg");
-          await _failRun(run, msg);
-          return null;
+          finalTask = await _waitForTaskCompletion(taskId, step, completer, sub, runId: run.id);
         } on _WorkflowRunWaitAbort catch (e) {
           WorkflowExecutor._log.info("Workflow '${run.id}': step '${step.name}' wait aborted: ${e.message}");
           return null;
@@ -316,10 +277,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         StepValidationFailure? extractionFailure;
         if (finalTask.status != TaskStatus.failed && finalTask.status != TaskStatus.cancelled) {
           try {
-            final extractionStep = resolved.gatingSeverity == step.gatingSeverity
-                ? step
-                : step.copyWith(gatingSeverity: resolved.gatingSeverity);
-            outputs = await _contextExtractor.extract(extractionStep, finalTask, effectiveOutputs: effectiveOutputs);
+            outputs = await _contextExtractor.extract(step, finalTask, effectiveOutputs: effectiveOutputs);
           } on MissingArtifactFailure catch (e, st) {
             extractionFailure = StepValidationFailure(reason: e.toString(), missingArtifacts: e.missingPaths);
             WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
@@ -329,7 +287,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           } catch (e, st) {
             // Fail loud: an unexpected extraction error means the declared outputs
             // cannot be trusted, so the step must fail rather than report success
-            // with empty/partial context. Matches the map path (map_iteration_dispatcher).
+            // with empty/partial context.
             extractionFailure = StepValidationFailure(reason: e.toString());
             WorkflowExecutor._log.warning("Context extraction failed for step '${step.id}'", e, st);
           }
@@ -355,6 +313,8 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         final outputWorkspaceRoot = _outputValidationWorkspaceRoot(wj, activeWorkspaceRoot);
         final normalizedOutputs = _validateStorySpecOutputs(run, step, outputs, outputWorkspaceRoot);
         outputs = normalizedOutputs.outputs;
+        // The story-spec validator is not a catch arm and wins over all three of
+        // them, matching the `effectiveReason` precedence below.
         final validationFailure = normalizedOutputs.validationFailure ?? extractionFailure;
         final providerSessionId = _workflowStepExecutionRepository == null
             ? null
@@ -362,12 +322,6 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         if (providerSessionId != null) {
           outputs['${step.id}.providerSessionId'] = providerSessionId;
         }
-        if (_outputTransformer != null &&
-            finalTask.status != TaskStatus.failed &&
-            finalTask.status != TaskStatus.cancelled) {
-          outputs = await _outputTransformer(run, definition, step, finalTask, outputs);
-        }
-
         final (outcome, outcomeReason) = await _resolveStepOutcome(step, finalTask, runId: run.id);
         final effectiveOutcome = validationFailure != null && outcome != 'needsInput' && outcome != 'cancelled'
             ? 'failed'
@@ -387,6 +341,12 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             '${validationFailure.reason}',
           );
         }
+        final retryFailure = _stepRetryFailure(
+          outcome: effectiveOutcome,
+          reason: effectiveReason,
+          validationFailed: validationFailure != null,
+          terminalStatusFailure: _fallbackOutcomeFromTaskStatus(finalTask.status) == 'failed',
+        );
 
         StepOutcome buildTaskOutcome({
           required bool success,
@@ -404,6 +364,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           outcomeReason: reason,
           awaitingApproval: awaitingApproval,
           validationFailure: validationFailure,
+          retryFailure: retryFailure,
         );
 
         // Teardown interruption bypasses every policy branch: onFailure
@@ -491,7 +452,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             promotionStrategy: effectivePromotion,
           );
           if (promotionFailure != null) {
-            return buildTaskOutcome(success: false, error: promotionFailure, reason: outcomeReason);
+            return buildTaskOutcome(success: false, error: promotionFailure.message, reason: outcomeReason);
           }
         }
 
@@ -556,13 +517,29 @@ String? _outputValidationWorkspaceRoot(Map<String, dynamic>? worktreeJson, Strin
   return worktreePath == null || worktreePath.isEmpty ? activeWorkspaceRoot : worktreePath;
 }
 
-String _withWorkflowRetryFeedback(String prompt, String? failureReason) {
-  final reason = failureReason == null || failureReason.trim().isEmpty
-      ? 'The previous attempt failed workflow validation.'
-      : failureReason.trim();
+/// Names the typed failure the host knows an attempt hit.
+///
+/// Null for every outcome the retry loop cannot see; a validation failure wins
+/// over the task's terminal status, as the reason precedence does.
+WorkflowStepRetryFailure? _stepRetryFailure({
+  required String? outcome,
+  required String reason,
+  required bool validationFailed,
+  required bool terminalStatusFailure,
+}) {
+  if (outcome != 'failed') return null;
+  if (validationFailed) return WorkflowOutputValidationFailure(reason);
+  return terminalStatusFailure ? WorkflowTaskTerminalStatusFailure(reason) : WorkflowModelDeclaredFailure(reason);
+}
+
+/// States what the previous attempt hit. How to correct it belongs to the
+/// step's own output contract — the skill's `## Output Contract` for a
+/// DC-native skill, `buildFinalizerPrompt` for every other — not to a paragraph
+/// this engine re-teaches on every attempt.
+String _withWorkflowRetryFeedback(String prompt, WorkflowStepRetryFailure? failure) {
+  final message = failure?.message.trim();
   return '$prompt\n\n'
       '## Previous Workflow Attempt\n'
-      'The previous attempt failed workflow validation:\n'
-      '$reason\n\n'
-      'Correct that failure before returning. If you emit artifact paths, write those files first.';
+      'Failure: ${failure?.kind ?? 'unknown'}\n'
+      '${message == null || message.isEmpty ? 'No failure message was recorded.' : message}';
 }

@@ -4,6 +4,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
@@ -18,7 +20,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowExecutionCursor,
         WorkflowExecutionCursorNodeType,
         WorkflowLoop,
-        WorkflowRunStatus,
         WorkflowStep;
 import 'package:test/test.dart';
 

@@ -47,6 +47,7 @@ workspace:
   git_sync:
     enabled: true
     push_enabled: true
+    interval_minutes: 30       # git sync runs on its own schedule, not the heartbeat's
 
 # Guards enabled but relaxed for personal use
 guards:
@@ -55,19 +56,12 @@ guards:
   content:
     enabled: true
     model: haiku
-  input_sanitizer:
-    enabled: true
-    channels_only: true
 
 # Channels (uncomment to enable)
 # channels:
 #   whatsapp:
 #     enabled: true
 #     dm_access: pairing
-#     task_trigger:
-#       enabled: true
-#       prefix: "task:"
-#       auto_start: true
 #   signal:
 #     enabled: true
 #     phone_number: "+1234567890"

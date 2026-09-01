@@ -50,9 +50,6 @@ stepDefaults:
   - match: "remediate*"
     provider: "@executor"
     model: "@executor"
-  - match: "simplify-code"
-    provider: "@executor"
-    model: "@executor"
   - match: "*"
     provider: "@workflow"
     model: "@workflow"
@@ -69,13 +66,11 @@ steps:
     outputs:
       prd:
         format: path
-        resolver: filesystem
         pathPattern: '**/*prd.md'
         preferPatterns: ['prd.md']
         description: Workspace-relative path to the required PRD on disk.
       plan:
         format: path
-        resolver: filesystem
         pathPattern: '**/*plan.{json,md}'
         preferPatterns: ['plan.json', 'plan.md']
         description: "Workspace-relative path to plan.json (preferred) or plan.md (legacy) on disk; empty when no plan exists yet."
@@ -95,7 +90,6 @@ steps:
       story_specs: story_specs
       plan:
         format: path
-        resolver: filesystem
         pathPattern: '**/*plan.{json,md}'
         preferPatterns: ['plan.json', 'plan.md']
         description: "Workspace-relative path to plan.json (preferred) or plan.md (legacy) on disk; empty when no plan exists yet."
@@ -138,23 +132,6 @@ steps:
           story_result:
             schema: narrative_text
             description: Per-story result for this work item only. Report success when scoped acceptance checks pass; unrelated sibling or baseline failures are non-blocking and should be named as external context, not as this story's failure.
-
-      - id: simplify-code
-        name: Simplify Story Code
-        skill: andthen:simplify-code
-        # Per-iteration session isolation is structural – foreach_iteration_runner
-        # builds a fresh iterContext per iteration so iteration N+1's
-        # continueSession cannot resolve to iteration N's session. See the
-        # matching note in the built-in plan-and-implement.yaml.
-        provider: "@executor"
-        model: "@executor"
-        continueSession: true
-        # Best-effort cleanup: a red baseline or advisory blockage should not
-        # prevent independent story execution or plan-level review.
-        onFailure: continue
-        prompt: >-
-          --auto simplify only the changes for this story; preserve
-          behavior; no scope creep into other packages.
 
       # Per-story review: catch intent-drift + code/security defects in this
       # story before integration, instead of deferring everything to the
@@ -243,8 +220,8 @@ steps:
     name: Review Full Implementation with Council
     skill: andthen:review
     parallel: true
-    # Advisory extra-perspective pass: the codex plan-review + architecture-review
-    # carry the gating signal, and the council writes its report to the reviews
+    # Advisory extra-perspective pass: the codex plan-review carries the gating
+    # signal, and the council writes its report to the reviews
     # output-dir regardless. A council flake (provider stall, output-capture edge
     # case) must not abort the whole milestone, so continue past its failure
     # rather than failing the parallel barrier.
@@ -267,30 +244,10 @@ steps:
       plan-review-council.findings_count: findings_count
       plan-review-council.gating_findings_count: gating_findings_count
 
-  - id: architecture-review
-    name: Architecture Review
-    skill: andthen:architecture
-    parallel: true
-    onFailure: retry
-    maxRetries: 1
-    inputs: [story_specs, story_results]
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode review --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      {{context.plan}}. Scope by the plan and
-      per-story FIS – review only packages this plan touched in the
-      working tree; ignore unrelated operator work in other parts of the
-      live checkout.
-    outputs:
-      architecture-review.review_report_path: review_report_path
-      architecture-review.findings_count: findings_count
-      architecture-review.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [plan-review, plan-review-council, architecture-review]
+    aggregateReviews: [plan-review, plan-review-council]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

@@ -6,7 +6,7 @@ library;
 
 import 'dart:async';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         TaskStatus,
@@ -19,7 +19,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowPublishStatus,
         WorkflowGitStrategy,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -169,7 +168,7 @@ void main() {
 
     final baseAdapter = WorkflowTurnAdapter(
       reserveTurn: (_) => Future.value('turn-1'),
-      executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+      executeTurn: (sessionId, turnId, messages, {required source}) {},
       waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
     );
 
@@ -273,13 +272,7 @@ void main() {
         if (task == null) return;
         final session = await localSessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content:
-              'Blocked pending human decision.\n'
-              '<step-outcome>{"outcome":"needsInput","reason":"human decision required"}</step-outcome>',
-        );
+        await h.seedStepOutcome(e.taskId, outcome: 'needsInput', reason: 'human decision required');
         await h.completeTask(e.taskId);
       });
 

@@ -1,0 +1,77 @@
+# Process and storage
+port  # Server address
+host  # Server address
+data_dir  # Instance storage
+base_url  # Public links
+name  # Instance identity
+dev_mode  # Development serving
+
+# Turn limits
+governance.turn_limits.stall_timeout  # Liveness bound
+governance.turn_limits.stall_action  # Liveness response
+governance.turn_limits.turn_timeout  # Wall-clock bound
+
+# Primary agent
+agent.provider  # Primary harness
+agent.model  # Primary model
+agent.effort  # Reasoning level
+agent.execution  # Host or container placement
+agent.max_turns  # Turn bound
+agent.disallowed_tools  # Primary tool restrictions
+
+# Authentication and gateway
+auth.cookie_secure  # Session cookie security
+auth.trusted_proxies  # Forwarded-address trust
+gateway.auth_mode  # API authentication
+gateway.hsts  # HTTPS enforcement
+gateway.token  # API credential
+
+# Providers and credentials
+providers.<name>.executable  # Provider binary
+providers.<name>.approval  # Provider approval policy
+providers.<name>.pool_size  # Provider capacity
+credentials.<name>.type  # Credential kind
+
+# Isolation and guards
+container.enabled  # Container isolation
+container.image  # Container runtime image
+guards.enabled  # Guard enforcement
+guards.fail_open  # Guard failure posture
+guards.content.enabled  # Content classification
+guards.content.max_bytes  # Classification input bound
+guard_audit.max_retention_days  # Audit retention
+
+# Messaging
+channels.google_chat.enabled  # Google Chat transport
+channels.google_chat.dm_access  # Google Chat direct-message access
+channels.google_chat.group_access  # Google Chat group access
+channels.google_chat.max_chunk_size  # Google Chat compatibility setting
+channels.signal.enabled  # Signal transport
+channels.signal.dm_access  # Signal direct-message access
+channels.whatsapp.enabled  # WhatsApp transport
+channels.whatsapp.dm_access  # WhatsApp direct-message access
+
+# Memory, search and tools
+memory.journal.enabled  # Memory distillation
+memory.max_bytes  # Prompt memory bound
+memory.pruning.enabled  # Memory maintenance
+search.backend  # Search implementation
+mcp_servers.<name>.enabled  # Outbound MCP activation
+mcp_servers.<name>.network_class  # Outbound MCP reach
+mcp_servers.<name>.surface_tools  # Model-visible MCP tools
+
+# Scheduling and sessions
+scheduling.heartbeat.enabled  # Heartbeat scheduling
+scheduling.heartbeat.interval_minutes  # Heartbeat cadence
+sessions.idle_timeout_minutes  # Session expiry
+sessions.reset_hour  # Daily reset
+sessions.dm_scope  # Direct-message session scope
+sessions.group_scope  # Group session scope
+
+# Operations
+logging.level  # Log verbosity
+logging.format  # Log encoding
+workspace.git_sync.enabled  # Workspace synchronization
+workspace.git_sync.push_enabled  # Remote synchronization
+context.reserve_tokens  # Compaction reserve
+context.max_result_bytes  # Tool-result bound

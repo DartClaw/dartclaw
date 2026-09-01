@@ -87,6 +87,22 @@ void main() {
       expect(restored.loopIteration('loop-1'), 2);
     });
 
+    test('system variables survive the round-trip', () {
+      final ctx = WorkflowContext(systemVariables: {'unproduced.review': 'review.findings_count'});
+
+      expect(WorkflowContext.fromJson(ctx.toJson()).systemVariable('unproduced.review'), 'review.findings_count');
+    });
+
+    test('a context persisted before systemVariables existed still loads', () {
+      final restored = WorkflowContext.fromJson({
+        'data': {'key': 'value'},
+        'variables': {'VAR': 'foo'},
+      });
+
+      expect(restored['key'], 'value');
+      expect(restored.systemVariables, isEmpty);
+    });
+
     test('variables are unmodifiable after construction', () {
       final ctx = WorkflowContext(variables: {'VAR': 'val'});
       expect(() => (ctx.variables as dynamic)['NEW'] = 'x', throwsA(anything));

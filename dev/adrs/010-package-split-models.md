@@ -112,3 +112,9 @@ Canonical memory identity now belongs to core's corpus entry types, while shared
 `MemorySearchResult`. The former indexed-row value had no shipped consumer and was removed from `dartclaw_models`;
 SQLite projection rows remain internal to `dartclaw_storage`. This preserves the zero-dependency shared kernel without
 advertising derived storage as a domain source of truth.
+
+## Amendment (2026-08-21) – dissolve `dartclaw_models` into the kernel
+
+The independently published models boundary is superseded by
+[ADR-056](056-package-topology-consolidation.md). Its types now live in `dartclaw_kernel` with configuration and guard
+contracts, removing the re-export chain that made those three packages one effective dependency in practice.

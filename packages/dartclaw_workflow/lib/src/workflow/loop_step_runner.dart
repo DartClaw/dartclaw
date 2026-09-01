@@ -82,7 +82,7 @@ class _NestedLoopScope {
   String keyBase(String loopId) => '_loop.$loopId.foreach.$foreachStepId[$iterIndex]';
 }
 
-/// Runs loop nodes, including checkpoints and optional finalizers.
+/// Runs loop nodes, including checkpoints and convergence policy.
 extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
   /// Dispatches a `loop`-type child step of a `foreach` iteration.
   ///
@@ -233,23 +233,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       return WorkflowLoopExecutionResult(failureMessage: message, tokensConsumed: loopTokens);
     }
 
-    Future<String?> runLoopFinalizer() async {
-      if (loop.finally_ == null) return null;
-      final (updatedRun, finalizerMsg) = await _executeLoopFinalizer(
-        run,
-        definition,
-        loop,
-        context,
-        activeWorkspaceRoot: activeWorkspaceRoot,
-        onRunUpdated: onRunUpdated,
-        onFirstTaskCreated: nested?.onFirstTaskCreated,
-      );
-      run = updatedRun;
-      return finalizerMsg;
-    }
-
     Future<WorkflowLoopExecutionResult> Function()? pendingLoopExit;
-    var finalizeBeforeConverged = false;
 
     iterationLoop:
     for (var iteration = startFromIteration; iteration <= loop.maxIterations; iteration++) {
@@ -309,7 +293,6 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           }
         }
         _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: false);
-        finalizeBeforeConverged = true;
         break;
       }
 
@@ -344,15 +327,6 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           run = skippedRun;
           onRunUpdated(run);
           continue;
-        }
-
-        if (step.gate != null) {
-          final gatePasses = _gateEvaluator.evaluate(step.gate!, context);
-          if (!gatePasses) {
-            final msg = "Gate failed in loop '${loop.id}' iteration $iteration: ${step.gate}";
-            WorkflowExecutor._log.info("Workflow '${run.id}': $msg");
-            return failLoop(msg);
-          }
         }
 
         final refreshedRun = await _repository.getById(run.id) ?? run;
@@ -589,7 +563,6 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         gatePassed = true;
         WorkflowExecutor._log.info("Loop '${loop.id}' completed: exit gate passed at iteration $iteration");
         _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: true);
-        finalizeBeforeConverged = true;
         break;
       }
 
@@ -663,13 +636,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       };
     }
 
-    if (pendingLoopExit != null || finalizeBeforeConverged) {
-      final finalizerMsg = await runLoopFinalizer();
-      if (finalizerMsg != null) {
-        return failLoop(finalizerMsg);
-      }
-      if (pendingLoopExit != null) return pendingLoopExit();
-    }
+    if (pendingLoopExit != null) return pendingLoopExit();
 
     if (nested == null) {
       run = run.copyWith(
@@ -709,7 +676,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         stepId: nextStepId,
       ),
       contextJson: {
-        ...privateContextEntries(run.contextJson, exclude: '_map.current'),
+        ...privateContextEntries(run.contextJson),
         ...context.toJson(),
         '_loop.current.id': loopId,
         '_loop.current.iteration': iteration,
@@ -799,61 +766,6 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-  }
-
-  Future<(WorkflowRun, String?)> _executeLoopFinalizer(
-    WorkflowRun run,
-    WorkflowDefinition definition,
-    WorkflowLoop loop,
-    WorkflowContext context, {
-    required String? activeWorkspaceRoot,
-    required void Function(WorkflowRun) onRunUpdated,
-    void Function(String taskId)? onFirstTaskCreated,
-  }) async {
-    final finallyStepId = loop.finally_!;
-    final finallyStep = definition.steps.firstWhere((s) => s.id == finallyStepId);
-    final stepIndex = definition.steps.indexOf(finallyStep);
-
-    WorkflowExecutor._log.info("Workflow '${run.id}': executing finalizer '${finallyStep.id}' for loop '${loop.id}'");
-    final result = await _executeStep(
-      run,
-      definition,
-      finallyStep,
-      context,
-      activeWorkspaceRoot: activeWorkspaceRoot,
-      stepIndex: stepIndex,
-      onFirstTaskCreated: onFirstTaskCreated,
-    );
-    if (result == null) {
-      return (run, null);
-    }
-
-    if (!result.success) {
-      // Deliberately includes teardown-cancelled finalizers: a finalizer has
-      // no resume anchor, so a clear loop failure beats a silently skipped
-      // finalizer. On the exhaustion path this also means a failing finalizer
-      // wins over `onMaxIterations: escalate`/`continue` – the caller routes
-      // finalizerMsg to failLoop before the escalate/fall-through branches.
-      final msg = "Loop '${loop.id}' finalizer '${finallyStep.name}' failed";
-      WorkflowExecutor._log.info("Workflow '${run.id}': $msg");
-      return (run, msg);
-    }
-
-    _mergeStepResultIntoContext(context, result, fallbackStatus: result.task?.status.name ?? 'completed');
-    run = run.copyWith(totalTokens: run.totalTokens + result.tokenCount, updatedAt: DateTime.now());
-    onRunUpdated(run);
-
-    _fireStepCompletedEvent(
-      run: run,
-      step: finallyStep,
-      stepIndex: stepIndex,
-      totalSteps: definition.steps.length,
-      taskId: result.task!.id,
-      success: true,
-      tokenCount: result.tokenCount,
-    );
-
-    return (run, null);
   }
 }
 

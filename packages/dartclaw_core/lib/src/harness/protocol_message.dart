@@ -26,7 +26,7 @@ final class ToolUse extends ProtocolMessage {
 }
 
 /// Tool execution result.
-final class ToolResult extends ProtocolMessage {
+final class ToolResultMessage extends ProtocolMessage {
   final String toolId;
   final String output;
   final bool isError;
@@ -34,7 +34,7 @@ final class ToolResult extends ProtocolMessage {
   const new({required this.toolId, required this.output, this.isError = false});
 
   @override
-  String toString() => 'ToolResult(toolId: $toolId, isError: $isError)';
+  String toString() => 'ToolResultMessage(toolId: $toolId, isError: $isError)';
 }
 
 /// Non-response progress or thought text from the provider.
@@ -86,6 +86,20 @@ final class ControlRequest extends ProtocolMessage {
 /// Turn completion with result metadata.
 final class TurnComplete extends ProtocolMessage {
   final String? stopReason;
+
+  /// Provider-specific terminal subtype, when the provider reports one.
+  final String? subtype;
+
+  /// Payload the provider enforced against the turn's output schema.
+  final Map<String, dynamic>? structuredOutput;
+
+  /// The turn's authoritative assistant text, when the provider reports it on
+  /// completion rather than only as a delta stream.
+  ///
+  /// A turn that produces several agent messages — a council review's
+  /// sub-reviewers — streams their deltas interleaved, so the concatenated
+  /// stream is not the answer. This is.
+  final String? finalText;
   final double? costUsd;
   final int? durationMs;
   final int? inputTokens;
@@ -95,6 +109,9 @@ final class TurnComplete extends ProtocolMessage {
 
   const new({
     this.stopReason,
+    this.subtype,
+    this.structuredOutput,
+    this.finalText,
     this.costUsd,
     this.durationMs,
     this.inputTokens,
@@ -105,7 +122,8 @@ final class TurnComplete extends ProtocolMessage {
 
   @override
   String toString() =>
-      'TurnComplete(stopReason: $stopReason, costUsd: $costUsd, durationMs: $durationMs, '
+      'TurnComplete(stopReason: $stopReason, subtype: $subtype, structuredOutput: $structuredOutput, '
+      'costUsd: $costUsd, durationMs: $durationMs, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens, '
       'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
 }

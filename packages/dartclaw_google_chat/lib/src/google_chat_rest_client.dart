@@ -19,6 +19,12 @@ final _reactionNamePattern = RegExp(r'^spaces/[^/]+/messages/[^/]+/reactions/[^/
 /// Eyes emoji used as a typing indicator reaction in Google Chat.
 const typingIndicatorEmoji = '\u{1F440}';
 
+const ({String? messageName, String? threadName, bool usedQuotedMessageMetadata}) _emptySendResult = (
+  messageName: null,
+  threadName: null,
+  usedQuotedMessageMetadata: false,
+);
+
 /// Exception thrown when the Google Chat API returns an unusable response.
 class GoogleChatApiException implements Exception {
   /// Human-readable error message.
@@ -79,44 +85,43 @@ class GoogleChatRestClient {
     }
   }
 
-  /// Sends a plain-text message to [spaceName] and returns its resource name.
+  /// Sends a message to [spaceName] and reports what the API made of it.
   ///
-  /// When [quotedMessageName] is provided, the response quotes the referenced
-  /// message (Google Chat "reply" UI). Must be a valid message resource name
-  /// (`spaces/*/messages/*`).
-  Future<String?> sendMessage(
-    String spaceName,
-    String text, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    final result = await sendMessageWithQuoteFallback(
-      spaceName,
-      text,
-      quotedMessageName: quotedMessageName,
-      quotedMessageLastUpdateTime: quotedMessageLastUpdateTime,
-    );
-    return result.messageName;
-  }
-
-  /// Sends a plain-text message and reports whether native quoting was applied.
+  /// The payload is [text] or [card]. [threadKey] targets a keyed thread,
+  /// creating it on the first send and replying to it afterwards; [threadName]
+  /// targets an existing server-assigned thread. [quotedMessageName] makes the
+  /// message quote the referenced message (Google Chat "reply" UI) and must be a
+  /// valid message resource name (`spaces/*/messages/*`).
   ///
-  /// When a quoted send fails with 400/403 and [fallbackOnQuoteFailure] is
-  /// `true` (default), Google Chat is retried without `quotedMessageMetadata`
-  /// using [textWithoutQuote] when provided. When `false`, no retry is
-  /// attempted — the caller can handle the fallback (e.g. editing an existing
-  /// placeholder message instead of sending a new one).
-  Future<({String? messageName, bool usedQuotedMessageMetadata})> sendMessageWithQuoteFallback(
-    String spaceName,
-    String text, {
+  /// A quoted send rejected with 400 or 403 is retried once without the quote,
+  /// substituting [textWithoutQuote] for [text] when provided. Passing
+  /// [fallbackOnQuoteFailure] as `false` suppresses that retry so the caller can
+  /// handle the failure itself (e.g. editing an existing placeholder message
+  /// instead of sending a new one); it has no effect on a [card] send, which
+  /// always retries.
+  ///
+  /// Returns null names when the space name is not `spaces/{id}`, when the API
+  /// rejects the send, or when the response is unusable.
+  /// `usedQuotedMessageMetadata` reports whether the delivered message carried
+  /// the quote.
+  Future<({String? messageName, String? threadName, bool usedQuotedMessageMetadata})> send({
+    required String spaceName,
+    String? text,
+    Map<String, dynamic>? card,
+    String? threadKey,
+    String? threadName,
     String? quotedMessageName,
     String? quotedMessageLastUpdateTime,
     String? textWithoutQuote,
     bool fallbackOnQuoteFailure = true,
   }) async {
+    final threaded = threadKey != null || threadName != null;
+    final label =
+        '${threadKey != null ? 'threaded ' : (threadName != null ? 'thread-name ' : '')}'
+        '${card != null ? 'card ' : ''}send';
     if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat send for invalid space name "$spaceName"');
-      return (messageName: null, usedQuotedMessageMetadata: false);
+      _log.warning('Rejected Google Chat $label for invalid space name "$spaceName"');
+      return _emptySendResult;
     }
 
     return _queueFor(spaceName).enqueue(() async {
@@ -127,46 +132,62 @@ class GoogleChatRestClient {
         if (quotedMessageMetadata != null) {
           _log.fine('Google Chat quotedMessageMetadata payload: $quotedMessageMetadata');
         }
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({'text': text, 'quotedMessageMetadata': ?quotedMessageMetadata}),
+        final response = await _postMessage(
+          spaceName,
+          _messageBody(
+            text: text,
+            card: card,
+            threadKey: threadKey,
+            threadName: threadName,
+            quotedMessageMetadata: quotedMessageMetadata,
+          ),
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
           // Retry without quote if the quoted message was rejected (400) or
           // the bot lacks permission to quote it (403).
-          if ((response.statusCode == 400 || response.statusCode == 403) && quotedMessageName != null) {
-            if (!fallbackOnQuoteFailure) {
-              _log.warning('Google Chat quoted send failed (${response.statusCode}) — no fallback requested');
-              return (messageName: null, usedQuotedMessageMetadata: false);
+          if ((response.statusCode == 400 || response.statusCode == 403) && quotedMessageMetadata != null) {
+            final quoteLabel = 'quoted ${card != null ? 'card ' : ''}send';
+            // Only text sends offer the caller the no-retry branch.
+            if (card == null && !fallbackOnQuoteFailure) {
+              _log.warning('Google Chat $quoteLabel failed (${response.statusCode}) — no fallback requested');
+              return _emptySendResult;
             }
-            _log.warning('Google Chat quoted send failed (${response.statusCode}) — retrying without quote');
-            final retry = await _client.post(
-              Uri.parse('$_apiBase/$spaceName/messages'),
-              headers: const {'content-type': 'application/json'},
-              body: jsonEncode({'text': textWithoutQuote ?? text}),
+            _log.warning('Google Chat $quoteLabel failed (${response.statusCode}) — retrying without quote');
+            final retry = await _postMessage(
+              spaceName,
+              _messageBody(text: textWithoutQuote ?? text, card: card, threadKey: threadKey, threadName: threadName),
             );
             if (retry.statusCode >= 200 && retry.statusCode < 300) {
-              final decoded = jsonDecode(retry.body);
+              final retried = _decodeMessage(retry.body);
               return (
-                messageName: (decoded is Map<String, dynamic>) ? decoded['name'] as String? : null,
+                messageName: retried?.messageName,
+                threadName: retried?.threadName,
                 usedQuotedMessageMetadata: false,
               );
             }
           }
-          _log.warning('Google Chat send failed for $spaceName with HTTP ${response.statusCode} — ${response.body}');
-          return (messageName: null, usedQuotedMessageMetadata: false);
+          _log.warning(
+            'Google Chat $label failed for $spaceName with HTTP ${response.statusCode}'
+            '${threaded ? '' : ' — ${response.body}'}',
+          );
+          return _emptySendResult;
         }
 
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          _log.warning('Google Chat send returned invalid JSON for $spaceName');
-          return (messageName: null, usedQuotedMessageMetadata: false);
+        final decoded = _decodeMessage(response.body);
+        if (decoded == null) {
+          if (!threaded) {
+            _log.warning('Google Chat $label returned invalid JSON for $spaceName');
+          }
+          return _emptySendResult;
         }
-        return (messageName: decoded['name'] as String?, usedQuotedMessageMetadata: quotedMessageMetadata != null);
+        return (
+          messageName: decoded.messageName,
+          threadName: decoded.threadName,
+          usedQuotedMessageMetadata: quotedMessageMetadata != null,
+        );
       } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat send failed for $spaceName', error, stackTrace);
-        return (messageName: null, usedQuotedMessageMetadata: false);
+        _log.warning('Google Chat $label failed for $spaceName', error, stackTrace);
+        return _emptySendResult;
       }
     });
   }
@@ -307,66 +328,6 @@ class GoogleChatRestClient {
       _log.warning('Google Chat listSpaces failed', error, stackTrace);
       return [];
     }
-  }
-
-  /// Sends a structured Cards v2 message to [spaceName].
-  ///
-  /// When [quotedMessageName] is provided, the card quotes the referenced
-  /// message.
-  Future<String?> sendCard(
-    String spaceName,
-    Map<String, dynamic> cardPayload, {
-    String? quotedMessageName,
-    String? quotedMessageLastUpdateTime,
-  }) async {
-    if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat card send for invalid space name "$spaceName"');
-      return null;
-    }
-
-    return _queueFor(spaceName).enqueue<String?>(() async {
-      try {
-        final quotedMessageMetadata = quotedMessageName == null
-            ? null
-            : _quotedMessageMetadata(quotedMessageName, lastUpdateTime: quotedMessageLastUpdateTime);
-        if (quotedMessageMetadata != null) {
-          _log.fine('Google Chat quotedMessageMetadata payload: $quotedMessageMetadata');
-        }
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({...cardPayload, 'quotedMessageMetadata': ?quotedMessageMetadata}),
-        );
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          if ((response.statusCode == 400 || response.statusCode == 403) && quotedMessageName != null) {
-            _log.warning('Google Chat quoted card send failed (${response.statusCode}) — retrying without quote');
-            final retry = await _client.post(
-              Uri.parse('$_apiBase/$spaceName/messages'),
-              headers: const {'content-type': 'application/json'},
-              body: jsonEncode(cardPayload),
-            );
-            if (retry.statusCode >= 200 && retry.statusCode < 300) {
-              final decoded = jsonDecode(retry.body);
-              return (decoded is Map<String, dynamic>) ? decoded['name'] as String? : null;
-            }
-          }
-          _log.warning(
-            'Google Chat card send failed for $spaceName with HTTP ${response.statusCode} — ${response.body}',
-          );
-          return null;
-        }
-
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          _log.warning('Google Chat card send returned invalid JSON for $spaceName');
-          return null;
-        }
-        return decoded['name'] as String?;
-      } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat card send failed for $spaceName', error, stackTrace);
-        return null;
-      }
-    });
   }
 
   /// Edits an existing Google Chat message in place.
@@ -517,166 +478,6 @@ class GoogleChatRestClient {
     }
   }
 
-  /// Sends a text message to [spaceName] in a new or existing thread.
-  ///
-  /// [threadKey] is used with `messageReplyOption:
-  /// REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD` to create a new thread on the first
-  /// send and reply to it on subsequent sends with the same key.
-  ///
-  /// Returns the message name and server-assigned thread name from the API
-  /// response. Both fields are `null` on failure.
-  Future<({String? messageName, String? threadName})> sendMessageInThread(
-    String spaceName,
-    String text, {
-    required String threadKey,
-  }) async {
-    if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat threaded send for invalid space name "$spaceName"');
-      return (messageName: null, threadName: null);
-    }
-
-    return _queueFor(spaceName).enqueue(() async {
-      try {
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({
-            'text': text,
-            'thread': {'threadKey': threadKey},
-            'messageReplyOption': 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD',
-          }),
-        );
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          _log.warning('Google Chat threaded send failed for $spaceName with HTTP ${response.statusCode}');
-          return (messageName: null, threadName: null);
-        }
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          return (messageName: null, threadName: null);
-        }
-        final messageName = decoded['name'] as String?;
-        final thread = decoded['thread'];
-        final threadName = (thread is Map) ? thread['name'] as String? : null;
-        return (messageName: messageName, threadName: threadName);
-      } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat threaded send failed for $spaceName', error, stackTrace);
-        return (messageName: null, threadName: null);
-      }
-    });
-  }
-
-  /// Sends a structured Cards v2 message to [spaceName] in a new or existing
-  /// thread identified by [threadKey].
-  ///
-  /// Returns the message name and server-assigned thread name from the API
-  /// response. Both fields are `null` on failure.
-  Future<({String? messageName, String? threadName})> sendCardInThread(
-    String spaceName,
-    Map<String, dynamic> cardPayload, {
-    required String threadKey,
-  }) async {
-    if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat threaded card send for invalid space name "$spaceName"');
-      return (messageName: null, threadName: null);
-    }
-
-    return _queueFor(spaceName).enqueue(() async {
-      try {
-        final body = Map<String, dynamic>.of(cardPayload)
-          ..['thread'] = {'threadKey': threadKey}
-          ..['messageReplyOption'] = 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode(body),
-        );
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          _log.warning('Google Chat threaded card send failed for $spaceName with HTTP ${response.statusCode}');
-          return (messageName: null, threadName: null);
-        }
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          return (messageName: null, threadName: null);
-        }
-        final messageName = decoded['name'] as String?;
-        final thread = decoded['thread'];
-        final threadName = (thread is Map) ? thread['name'] as String? : null;
-        return (messageName: messageName, threadName: threadName);
-      } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat threaded card send failed for $spaceName', error, stackTrace);
-        return (messageName: null, threadName: null);
-      }
-    });
-  }
-
-  /// Sends a text message to an existing server-assigned thread.
-  Future<String?> sendMessageToThread(String spaceName, String text, {required String threadName}) async {
-    if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat thread-name send for invalid space name "$spaceName"');
-      return null;
-    }
-
-    return _queueFor(spaceName).enqueue<String?>(() async {
-      try {
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode({
-            'text': text,
-            'thread': {'name': threadName},
-          }),
-        );
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          _log.warning('Google Chat thread-name send failed for $spaceName with HTTP ${response.statusCode}');
-          return null;
-        }
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          return null;
-        }
-        return decoded['name'] as String?;
-      } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat thread-name send failed for $spaceName', error, stackTrace);
-        return null;
-      }
-    });
-  }
-
-  /// Sends a structured Cards v2 payload to an existing server-assigned thread.
-  Future<String?> sendCardToThread(
-    String spaceName,
-    Map<String, dynamic> cardPayload, {
-    required String threadName,
-  }) async {
-    if (!_spaceNamePattern.hasMatch(spaceName)) {
-      _log.warning('Rejected Google Chat thread-name card send for invalid space name "$spaceName"');
-      return null;
-    }
-
-    return _queueFor(spaceName).enqueue<String?>(() async {
-      try {
-        final body = Map<String, dynamic>.of(cardPayload)..['thread'] = {'name': threadName};
-        final response = await _client.post(
-          Uri.parse('$_apiBase/$spaceName/messages'),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode(body),
-        );
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          _log.warning('Google Chat thread-name card send failed for $spaceName with HTTP ${response.statusCode}');
-          return null;
-        }
-        final decoded = jsonDecode(response.body);
-        if (decoded is! Map<String, dynamic>) {
-          return null;
-        }
-        return decoded['name'] as String?;
-      } on Exception catch (error, stackTrace) {
-        _log.warning('Google Chat thread-name card send failed for $spaceName', error, stackTrace);
-        return null;
-      }
-    });
-  }
-
   /// Flushes pending writes and closes the underlying HTTP client.
   Future<void> close() async {
     final flushes = _spaceQueues.values.map((queue) => queue.flush()).toList(growable: false);
@@ -693,6 +494,41 @@ class GoogleChatRestClient {
 
   _SpaceWriteQueue _queueFor(String spaceName) {
     return _spaceQueues.putIfAbsent(spaceName, () => _SpaceWriteQueue(delay: _delay));
+  }
+
+  Future<http.Response> _postMessage(String spaceName, Map<String, dynamic> body) {
+    return _client.post(
+      Uri.parse('$_apiBase/$spaceName/messages'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode(body),
+    );
+  }
+
+  static Map<String, dynamic> _messageBody({
+    String? text,
+    Map<String, dynamic>? card,
+    String? threadKey,
+    String? threadName,
+    Map<String, String>? quotedMessageMetadata,
+  }) {
+    // Composed from a copy so the caller's card map gains no thread or quote key.
+    final body = <String, dynamic>{...?card, 'text': ?text, 'quotedMessageMetadata': ?quotedMessageMetadata};
+    if (threadKey != null) {
+      body['thread'] = {'threadKey': threadKey};
+      body['messageReplyOption'] = 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
+    } else if (threadName != null) {
+      body['thread'] = {'name': threadName};
+    }
+    return body;
+  }
+
+  static ({String? messageName, String? threadName})? _decodeMessage(String responseBody) {
+    final decoded = jsonDecode(responseBody);
+    if (decoded is! Map<String, dynamic>) {
+      return null;
+    }
+    final thread = decoded['thread'];
+    return (messageName: decoded['name'] as String?, threadName: (thread is Map) ? thread['name'] as String? : null);
   }
 
   Map<String, String> _quotedMessageMetadata(String name, {String? lastUpdateTime}) {

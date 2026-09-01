@@ -79,7 +79,7 @@ void main() {
         provider: 'gemini',
         prompts: const ['First', 'Second'],
         continuityProviders: {'claude', 'codex'},
-        expectedError: ValidationErrorType.unsupportedProviderCapability,
+        expectedError: WorkflowValidationErrorType.unsupportedProviderCapability,
       ),
       (
         name: 'multi-prompt continuity provider',
@@ -107,7 +107,7 @@ void main() {
         provider: '@executer',
         prompts: const ['Only one prompt'],
         continuityProviders: {'claude', 'codex'},
-        expectedError: ValidationErrorType.invalidReference,
+        expectedError: WorkflowValidationErrorType.invalidReference,
       ),
       (
         name: 'multi-prompt no explicit provider',
@@ -135,7 +135,7 @@ void main() {
         provider: '@executer',
         prompts: const ['First', 'Second'],
         continuityProviders: {'claude', 'codex'},
-        expectedError: ValidationErrorType.invalidReference,
+        expectedError: WorkflowValidationErrorType.invalidReference,
       ),
     ];
 
@@ -149,11 +149,11 @@ void main() {
             : validator.validate(def, continuityProviders: testCase.continuityProviders).errors;
 
         if (testCase.expectedError == null) {
-          expect(hasError(errors, type: ValidationErrorType.unsupportedProviderCapability), isFalse);
-          expect(hasError(errors, type: ValidationErrorType.invalidReference), isFalse);
+          expect(hasError(errors, type: WorkflowValidationErrorType.unsupportedProviderCapability), isFalse);
+          expect(hasError(errors, type: WorkflowValidationErrorType.invalidReference), isFalse);
         } else {
           expect(hasError(errors, type: testCase.expectedError, stepId: 's1'), isTrue);
-          if (testCase.expectedError == ValidationErrorType.invalidReference) {
+          if (testCase.expectedError == WorkflowValidationErrorType.invalidReference) {
             expect(errors.any((e) => e.message.contains('@executer') && e.message.contains('@executor')), isTrue);
           }
         }
@@ -183,7 +183,7 @@ void main() {
         );
         final report = validator.validate(def);
         expect(
-          hasError(report.errors, type: ValidationErrorType.hybridStepConstraint),
+          hasError(report.errors, type: WorkflowValidationErrorType.hybridStepConstraint),
           isFalse,
           reason: 'Known type "${type.toJson()}" should not produce a hybrid type error',
         );
@@ -210,7 +210,7 @@ void main() {
       final report = validator.validate(def);
       expect(report.errors, isEmpty);
       expect(
-        report.warnings.any((w) => w.type == ValidationErrorType.hybridStepConstraint && w.stepId == 'gate'),
+        report.warnings.any((w) => w.type == WorkflowValidationErrorType.hybridStepConstraint && w.stepId == 'gate'),
         isTrue,
         reason: 'Approval step in loop should produce a warning',
       );
@@ -241,7 +241,7 @@ void main() {
         steps: const [WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, parallel: true)],
         stepId: 'gate',
         continuityProviders: null,
-        expectedError: ValidationErrorType.hybridStepConstraint,
+        expectedError: WorkflowValidationErrorType.hybridStepConstraint,
       ),
       (
         name: 'bash step with multi-prompt list is a hard error',
@@ -255,7 +255,7 @@ void main() {
         ],
         stepId: 'build',
         continuityProviders: null,
-        expectedError: ValidationErrorType.hybridStepConstraint,
+        expectedError: WorkflowValidationErrorType.hybridStepConstraint,
       ),
       (
         name: 'approval step with multi-prompt list is a hard error',
@@ -269,7 +269,7 @@ void main() {
         ],
         stepId: 'gate',
         continuityProviders: null,
-        expectedError: ValidationErrorType.hybridStepConstraint,
+        expectedError: WorkflowValidationErrorType.hybridStepConstraint,
       ),
       (
         name: 'approval step without parallel:true produces no error',
@@ -293,7 +293,7 @@ void main() {
         ],
         stepId: 's1',
         continuityProviders: null,
-        expectedError: ValidationErrorType.hybridStepConstraint,
+        expectedError: WorkflowValidationErrorType.hybridStepConstraint,
       ),
       (
         name: 'continueSession on non-first step with no continuityProviders produces no error',
@@ -313,7 +313,7 @@ void main() {
         ],
         stepId: 's2',
         continuityProviders: {'claude'},
-        expectedError: ValidationErrorType.unsupportedProviderCapability,
+        expectedError: WorkflowValidationErrorType.unsupportedProviderCapability,
       ),
       (
         name: 'continueSession with supported provider produces no error',
@@ -424,7 +424,10 @@ void main() {
       // alias-mismatch warning at WorkflowExecutor._resolveContinueSessionProvider
       // remains the safety net.
       final report = validator.validate(def, continuityProviders: {'claude'});
-      expect(hasError(report.errors, type: ValidationErrorType.unsupportedProviderCapability, stepId: 's2'), isFalse);
+      expect(
+        hasError(report.errors, type: WorkflowValidationErrorType.unsupportedProviderCapability, stepId: 's2'),
+        isFalse,
+      );
     });
 
     test('continueSession with unknown @-prefixed provider produces invalidReference error', () {
@@ -440,7 +443,7 @@ void main() {
       expect(
         report.errors.any(
           (e) =>
-              e.type == ValidationErrorType.invalidReference &&
+              e.type == WorkflowValidationErrorType.invalidReference &&
               e.stepId == 's2' &&
               e.message.contains('@executer') &&
               e.message.contains('@executor'),
@@ -459,7 +462,45 @@ void main() {
         ],
       );
       final report = validator.validate(def, continuityProviders: {'claude'});
-      expect(hasError(report.errors, type: ValidationErrorType.hybridStepConstraint, stepId: 's2'), isTrue);
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.hybridStepConstraint, stepId: 's2'), isTrue);
+    });
+
+    test('a step declaring map_over with no per-item steps is rejected', () {
+      final def = buildDef(
+        steps: const [
+          WorkflowStep(id: 'plan', name: 'Plan', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(id: 'fanout', name: 'Fanout', prompts: ['p'], mapOver: 'stories'),
+        ],
+      );
+
+      final report = validator.validate(def);
+
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.missingField, stepId: 'fanout'), isTrue);
+      final message = report.errors.firstWhere((e) => e.stepId == 'fanout').message;
+      expect(message, contains('"fanout"'));
+      expect(message, contains('map_over'));
+      expect(message, contains('foreach_steps'));
+    });
+
+    test('a foreach controller with per-item steps validates clean', () {
+      final def = buildDef(
+        steps: const [
+          WorkflowStep(id: 'plan', name: 'Plan', prompts: ['p'], outputs: {'stories': OutputConfig()}),
+          WorkflowStep(
+            id: 'fanout',
+            name: 'Fanout',
+            taskType: WorkflowTaskType.foreach,
+            mapOver: 'stories',
+            foreachSteps: ['per-story'],
+            outputs: {'results': OutputConfig()},
+          ),
+          WorkflowStep(id: 'per-story', name: 'Per story', prompts: ['p']),
+        ],
+      );
+
+      final report = validator.validate(def);
+
+      expect(report.hasErrors, isFalse, reason: report.errors.map((e) => e.message).join('; '));
     });
 
     test('ValidationReport.isEmpty is true when both errors and warnings are empty', () {
@@ -595,7 +636,7 @@ void main() {
           expect(
             hasError(
               report.errors,
-              type: ValidationErrorType.hybridStepConstraint,
+              type: WorkflowValidationErrorType.hybridStepConstraint,
               stepId: testCase.stepId,
               messageContains: testCase.messageContains,
             ),

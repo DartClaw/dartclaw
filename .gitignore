@@ -2,8 +2,10 @@
 .agent_temp/
 .deslop/
 
-# Review files
-dev/bundle/docs/specs/**/*-review*.md
+# Review files: process output, always date-stamped. The date anchor is what
+# separates them from canonical story specs, which live in the same directory
+# and may legitimately be named "*review*" (e.g. s20-review-grammar-...).
+dev/bundle/docs/specs/**/*-review*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.md
 
 # Per-checkout workflow continuity
 dev/state/STATE.local.md
@@ -62,5 +64,12 @@ examples/sdk/*/.dartclaw-sdk-example/
 # Not committed: they are large, churn on every template/skill edit, and go
 # stale silently. CI and dev/tools/build.sh generate them; run the generator
 # once after cloning (see dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md).
-packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+packages/dartclaw_runtime/lib/src/generated/embedded_assets.g.dart
 packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
+
+# Served design-system stylesheets — copied from dev/design-system/ by the same
+# generator. Canonical content lives there; committing a second copy is what
+# made drift possible in the first place.
+packages/dartclaw_runtime/lib/src/static/tokens.css
+packages/dartclaw_runtime/lib/src/static/design-system.css
+packages/dartclaw_runtime/lib/src/static/icons.css

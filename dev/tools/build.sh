@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-VERSION_FILE="$ROOT_DIR/packages/dartclaw_server/lib/src/version.dart"
+VERSION_FILE="$ROOT_DIR/packages/dartclaw_runtime/lib/src/version.dart"
 TARGET="${DARTCLAW_RELEASE_TARGET:-}"
 SKIP_COMPILE="${DARTCLAW_BUILD_SKIP_COMPILE:-}"
 

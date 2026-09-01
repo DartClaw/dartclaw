@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../skills/provider_auth_preflight.dart';
 import 'skill_introspector.dart';

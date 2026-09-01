@@ -23,6 +23,33 @@ S03 introduced a full **durable knowledge loop** — inbox ingestion → wiki sy
 
 ## Consequences
 
+## Amendment (2026-08-20) – the merge is declared by a model turn and enforced by the host
+
+Points 3 and 4 above described ingestion and lint as they shipped in 0.17. Two things in them no longer hold.
+
+**Ingestion (point 3) is a two-turn flow.** When the extraction turn names a slug the wiki already holds, the host
+detects that collision deterministically and runs a second, page-scoped turn that is shown the stored page body and the
+new synthesis – both JSON-encoded as data, both toolless and read-only, on a cron session of their own. That turn
+declares `integrated`, `unchanged` or `new` plus `integrated_from`, `removed_content` and the merged body. The host
+keeps every enforcement decision: whether a collision exists, whether the declaration is admissible (an unrecognised
+`merge`, an `integrated_from` naming another page, or an `integrated` with no body quarantines the source), slug
+containment, frontmatter emission, the provenance floor, the `sources` union, the atomic write, and a **byte-floor
+guard** refusing a merged body under 80% of the stored one when `removed_content` is empty. That floor is a compile-time
+constant, not a config knob – a floor an operator can lower is a floor a bad merge can be configured past. Nothing
+durable is written until the merge is settled, so a refused collision leaves no memory observation and no KG fact.
+
+Rejected alternatives: showing the *extraction* turn the stored page (it has not chosen a slug yet), and giving that
+turn a wiki-read tool (untrusted-source ingestion dispatches toolless, and the guarded dispatch seam is a later story).
+
+**Lint (point 4) enforces structure, not chores.** "Wiki lint categories enforce discoverability" now means links,
+orphan reachability, frontmatter validity, degradation and KG contradictions only. The `consolidation-debt` and
+`stale` categories are retired: consolidation named a chore no code could perform, so it accrued forever, and the merge
+contract is what removes the growth it measured. Supplement-append survives only as the fallback for a merge turn that
+declares the material unrelated.
+
+0.28's guarded-write phase builds on this seam: `WikiPageStore.writePage` stays the single wiki write entry point, and
+takes the settled decision rather than growing a second write path.
+
 ## Amendment (2026-08-12) – native knowledge ownership and stable citations
 
 Wiki and KG remain source-backed knowledge, distinct from personal canonical memory. Request-level search composition has

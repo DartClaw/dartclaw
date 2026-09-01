@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'in_memory_task_repository.dart';
@@ -40,7 +41,6 @@ class TaskOps {
     required String id,
     required String title,
     required String description,
-    required TaskType type,
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
@@ -56,7 +56,6 @@ class TaskOps {
       id: id,
       title: title,
       description: description,
-      type: type,
       goalId: goalId,
       acceptanceCriteria: acceptanceCriteria,
       createdBy: createdBy,
@@ -71,7 +70,7 @@ class TaskOps {
     return task;
   }
 
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) => _repo.list(status: status, type: type);
+  Future<List<Task>> list({TaskStatus? status}) => _repo.list(status: status);
 
   Future<Task> transition(
     String taskId,
@@ -149,7 +148,6 @@ Future<Task> createTask(TaskOps tasks, String id, {required String title, requir
     id: id,
     title: title,
     description: title,
-    type: TaskType.research,
     autoStart: status != TaskStatus.draft,
     now: DateTime.parse('2026-03-13T10:00:00Z'),
   );
@@ -170,7 +168,7 @@ Future<Task> createTask(TaskOps tasks, String id, {required String title, requir
   throw UnimplementedError('Unsupported status for test helper: $status');
 }
 
-/// Convenience wrapper for creating a task that is ready for review commands.
+/// Convenience wrapper for creating a task in review.
 Future<Task> putTaskInReview(
   dynamic tasks,
   String id, {
@@ -180,6 +178,7 @@ Future<Task> putTaskInReview(
   String? sessionKey,
 }) async {
   final resolvedConfigJson = <String, dynamic>{...configJson};
+  resolvedConfigJson.putIfAbsent('needsWorktree', () => worktreeJson != null);
   if (sessionKey != null) {
     final originJson = <String, dynamic>{
       ...(resolvedConfigJson['origin'] as Map<String, dynamic>? ?? const {}),
@@ -192,7 +191,6 @@ Future<Task> putTaskInReview(
     id: id,
     title: title,
     description: title,
-    type: TaskType.coding,
     autoStart: true,
     now: DateTime.parse('2026-03-13T10:00:00Z'),
     configJson: resolvedConfigJson,
@@ -215,18 +213,5 @@ Future<Task> putTaskInReview(
     return reviewedTask;
   } on NoSuchMethodError {
     return reviewedTask;
-  }
-}
-
-/// Records review handler calls and returns a configurable result.
-class RecordingReviewHandler {
-  final List<(String, String)> calls = [];
-  final List<String?> capturedComments = [];
-  ChannelReviewResult result = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
-
-  Future<ChannelReviewResult> call(String taskId, String action, {String? comment}) async {
-    calls.add((taskId, action));
-    capturedComments.add(comment);
-    return result;
   }
 }

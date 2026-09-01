@@ -3,9 +3,11 @@ library;
 
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
 
 String _repoRoot() {
   final start =
@@ -105,9 +107,14 @@ void main() {
     // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
     final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
     addTearDown(() => smokeDir.deleteSync(recursive: true));
-    Directory(p.join(smokeDir.path, 'workspace')).createSync(recursive: true);
-    File(p.join(smokeDir.path, 'workspace', 'MEMORY.md'))
-        .writeAsStringSync('## general\n- [2026-02-23 10:00] Bundled sqlite smoke entry\n');
+    final smokeWorkspace = p.join(smokeDir.path, 'workspace');
+    Directory(smokeWorkspace).createSync(recursive: true);
+    await seedCanonicalMemory(
+      smokeWorkspace,
+      topics: const {
+        'general': ['Bundled sqlite smoke entry'],
+      },
+    );
     final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
     File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
 

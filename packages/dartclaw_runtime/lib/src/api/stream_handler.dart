@@ -1,0 +1,132 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:shelf/shelf.dart';
+
+import 'sse_broadcast.dart';
+
+/// Encodes an SSE frame with HTML content to UTF-8 bytes. Newlines in
+/// [htmlContent] are replaced with spaces because SSE data lines cannot
+/// contain literal newlines.
+List<int> _sseHtmlFrame(String event, String htmlContent) {
+  final safe = htmlContent.replaceAll('\n', ' ').replaceAll('\r', '');
+  return sseEventFrame(event, safe);
+}
+
+/// Sanitizes a tool ID for use as an HTML element id attribute.
+String _sanitizeToolId(String raw) => 'tool-${raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
+
+List<int> _turnErrorFrame(String message) {
+  const htmlEscape = HtmlEscape();
+  return _sseHtmlFrame('turn_error', '<div class="turn-error">${htmlEscape.convert(message)}</div>');
+}
+
+Iterable<List<int>> _terminalFrames(TurnOutcome outcome) sync* {
+  switch (outcome.status) {
+    case TurnStatus.completed:
+      yield _sseHtmlFrame('done', '');
+    case TurnStatus.cancelled:
+      yield _sseHtmlFrame('turn_cancelled', outcome.errorMessage ?? '');
+      yield _sseHtmlFrame('done', '');
+    case TurnStatus.failed:
+      yield _turnErrorFrame(outcome.errorMessage ?? 'Turn failed');
+      yield _sseHtmlFrame('done', '');
+  }
+}
+
+/// Returns an SSE [Response] that streams turn events in real time.
+Response sseStreamResponse(
+  AgentHarness worker,
+  TurnManager turns,
+  String sessionId,
+  String turnId, {
+  MessageRedactor? redactor,
+}) {
+  // A fast turn may settle before EventSource connects, so replay its terminal contract.
+  final outcome = turns.recentOutcome(sessionId, turnId);
+  if (outcome != null) {
+    return sseResponse(Stream.fromIterable(_terminalFrames(outcome)), headers: eventStreamHeadersNoBuffer);
+  }
+
+  // 2. Unknown turn — not active and no cached outcome.
+  if (!turns.isActiveTurn(sessionId, turnId)) {
+    return Response(
+      404,
+      body: jsonEncode({
+        'error': {'code': 'TURN_NOT_FOUND', 'message': 'Turn not found or expired'},
+      }),
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  // 3. Build SSE stream.
+  final controller = StreamController<List<int>>();
+
+  StreamSubscription<BridgeEvent>? eventSub;
+
+  // Cancel event subscription when client disconnects.
+  controller.onCancel = () {
+    eventSub?.cancel();
+  };
+
+  final toolNames = <String, String>{};
+  const htmlEscape = HtmlEscape();
+
+  eventSub = worker.events.listen((event) {
+    if (controller.isClosed) return;
+    final List<int> frame;
+    if (event is DeltaEvent) {
+      final text = redactor?.redact(event.text) ?? event.text;
+      frame = _sseHtmlFrame('delta', '<span>${htmlEscape.convert(text)}</span>');
+    } else if (event is ToolUseEvent) {
+      final id = _sanitizeToolId(event.toolId);
+      final name = htmlEscape.convert(event.toolName);
+      toolNames[event.toolId] = event.toolName;
+      frame = _sseHtmlFrame('tool_use', '<div id="$id" class="tool-indicator pending">$name</div>');
+    } else if (event is ToolResultEvent) {
+      final id = _sanitizeToolId(event.toolId);
+      final name = htmlEscape.convert(toolNames[event.toolId] ?? 'Tool');
+      final status = event.isError ? 'error' : 'success';
+      frame = _sseHtmlFrame(
+        'tool_result',
+        '<div id="$id" hx-swap-oob="outerHTML:#$id" class="tool-indicator $status">$name</div>',
+      );
+    } else {
+      return;
+    }
+    try {
+      controller.add(frame);
+    } catch (e) {
+      // Controller closed between isClosed check and add — safe to ignore.
+    }
+  });
+
+  // Await turn completion and emit terminal event, then close stream.
+  unawaited(() async {
+    try {
+      final result = await turns.waitForOutcome(sessionId, turnId);
+      if (controller.isClosed) return;
+      for (final frame in _terminalFrames(result)) {
+        controller.add(frame);
+      }
+    } catch (e) {
+      if (!controller.isClosed) {
+        try {
+          controller
+            ..add(_turnErrorFrame('Internal error'))
+            ..add(_sseHtmlFrame('done', ''));
+        } catch (e) {
+          // Controller closed — safe to ignore.
+        }
+      }
+    } finally {
+      await eventSub?.cancel();
+      await controller.close();
+    }
+  }());
+
+  return sseResponse(controller.stream, headers: eventStreamHeadersNoBuffer);
+}

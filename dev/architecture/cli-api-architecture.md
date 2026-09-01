@@ -2,13 +2,13 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.24
+**Current through**: 0.25
 
 ---
 
 ## 1. Design Goal
 
-The CLI is an operational surface for a running DartClaw instance, not just a lifecycle wrapper around `serve`, `deploy`, and token management:
+The CLI is an operational surface for a running DartClaw instance, not just a lifecycle wrapper around `serve`, `service`, and token management:
 
 - inspect and control live runtime state
 - trigger workflows against the server-owned execution model
@@ -43,7 +43,7 @@ At a high level, the CLI/API stack looks like this:
                    │ HTTP + SSE
                    ▼
 ┌──────────────────────────────────────────────┐
-│ dartclaw_server                             │
+│ dartclaw_runtime                             │
 │ - shelf routers                             │
 │ - auth middleware                           │
 │ - workflow/task/project/session services    │
@@ -52,7 +52,7 @@ At a high level, the CLI/API stack looks like this:
                    │ service calls
                    ▼
 ┌──────────────────────────────────────────────┐
-│ core / workflow / storage packages          │
+│ core / workflow packages                    │
 │ - runtime orchestration                     │
 │ - typed config                              │
 │ - SQLite repositories                       │
@@ -63,7 +63,7 @@ At a high level, the CLI/API stack looks like this:
 The key package boundary is:
 
 - `dartclaw_cli` owns command UX, transport, and process-local helpers.
-- `dartclaw_server` owns HTTP routing, auth, and operational state transitions.
+- `dartclaw_runtime` owns HTTP routing, auth, and operational state transitions.
 - `dartclaw_workflow` owns workflow execution semantics used by both server and standalone CLI execution.
 
 ## 3. CLI Runtime Structure
@@ -89,7 +89,6 @@ Local process/lifecycle command families coexist with them:
 - `status`
 - `init` / `setup`
 - `service`
-- `deploy`
 - `token`
 - `rebuild-index`
 - `google-auth`
@@ -135,18 +134,18 @@ Standalone mode is available for workflow commands with meaningful local semanti
 - `workflow status --standalone`
 - `workflow pause/resume/cancel/retry --standalone`
 
-The standalone path uses `CliWorkflowWiring` and `dartclaw_workflow` directly, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
+The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives `dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
 
 ## 5. Shared API Client
 
 The connected command path uses:
 
-- `apps/dartclaw_cli/lib/src/dartclaw_api_client.dart`
+- `packages/dartclaw_client/lib/src/dartclaw_api_client.dart` — the transport, owned by `dartclaw_client`
+- `apps/dartclaw_cli/lib/src/commands/connected_command_support.dart` — CLI-side construction (`resolveServerUri`, `apiClientFromConfig`, `resolveCliApiClient`) and the shared `DartclawApiException` error policy
 
-`DartclawApiClient` is a CLI-only transport layer built on `dart:io`:
+`DartclawApiClient` is a dependency-free transport layer built on `dart:io`, published as the client tier rather than owned by the CLI:
 
-- resolves the base URI
-- applies Bearer auth when required
+- applies Bearer auth when a token is supplied
 - normalizes error handling
 - supports JSON GET/POST/PATCH/DELETE helpers
 - opens SSE streams for workflow progress
@@ -177,6 +176,8 @@ The CLI primarily talks to these server route families:
 | Traces | `/api/traces*` | `traces` |
 
 The important design property is that these are the same server APIs used by the web UI and background integrations. The CLI is not a privileged side-channel.
+
+The `/api/scheduling/jobs*` and `/api/scheduling/tasks*` handlers are likewise not the scheduling-mutation authority. Cron validation, the fresh read of `scheduling.jobs`, the modify-write and the restart-pending marker all live in `ScheduleMutationService` (`dartclaw_runtime/lib/src/scheduling/schedule_mutation.dart`); the routes map its outcome onto their status and error codes, and the `schedule_upsert` agent tool consumes the same seam. Neither surface can drift from the other's cron rule, and neither writes `scheduling.jobs` on its own. A written job takes effect only at the next restart: `ScheduleService` takes its job list at construction, which is why every write records the restart marker and why `schedule_list` reports what the running server actually loaded rather than what config says.
 
 ## 7. Workflow Control Path
 
@@ -231,15 +232,22 @@ This keeps behavioral parity where practical, but the authoritative operational 
 
 ## 8. Workflow Trigger Surfaces
 
-Workflow triggering now exists beyond direct CLI/API calls:
+Workflow trigger surfaces, direct and indirect:
 
 | Surface | Entry point | Handler |
 |---|---|---|
+| CLI / JSON API | `POST /api/workflows/run` | `workflow_routes.dart` |
 | Web UI form | `POST /api/workflows/run-form` | `workflow_routes.dart` |
-| Web chat command | `/workflow list` (broadly available), `/workflow run ...` (admin only) via `POST /api/sessions/<id>/send` | `ChatCommandHandler` |
+| Agent tool | `workflow_list` and `workflow_run` through the registered MCP surface | `WorkflowListTool` / `WorkflowRunTool` |
 | GitHub PR webhook | `POST /webhook/github` | `GitHubWebhookHandler` |
 
 These are all server-owned surfaces. The CLI does not implement separate logic for them; it interoperates with the same workflow runtime through the API.
+
+The two launch routes are one request shaping behind two encodings: both read through the shared capped reader in
+`api_helpers.dart`, then share the definition resolution, `PROJECT` injection and required-variable validation. Only the
+field extraction and the rendering differ – the JSON route reads a `variables` object and can set `approvals`/`inline`
+and answers `errorResponse` envelopes; the form route reads `var_`-prefixed fields and answers an HTMX-swappable HTTP
+200 fragment on failure, because HTMX drops the body on a 4xx and the launch error would vanish from `/workflows`.
 
 ## 9. Local-Only Commands
 
@@ -252,7 +260,7 @@ Not every CLI command is server-backed. Some remain intentionally local:
 | `sessions cleanup` | Local maintenance against the filesystem/data directory |
 | `token *` | Local gateway token management |
 | `rebuild-index` | Local rebuild of the derived search index |
-| `serve` / `service` / `deploy` / `init` | Process and installation lifecycle |
+| `serve` / `service` / `init` | Process and installation lifecycle |
 
 This split is important because it keeps low-level maintenance available even when the server is not running.
 
@@ -263,7 +271,7 @@ Primary implementation files:
 ```
 apps/dartclaw_cli/bin/dartclaw.dart
 apps/dartclaw_cli/lib/src/runner.dart
-apps/dartclaw_cli/lib/src/dartclaw_api_client.dart
+apps/dartclaw_cli/lib/src/commands/connected_command_support.dart
 apps/dartclaw_cli/lib/src/commands/
   workflow/
   tasks/
@@ -274,7 +282,7 @@ apps/dartclaw_cli/lib/src/commands/
   traces/
   jobs/
 
-packages/dartclaw_server/lib/src/api/
+packages/dartclaw_runtime/lib/src/api/
   workflow_routes.dart
   task_routes.dart
   config_api_routes.dart

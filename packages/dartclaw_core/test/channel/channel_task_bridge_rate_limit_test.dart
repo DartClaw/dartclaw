@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel;
 import 'package:test/test.dart';
@@ -14,7 +15,7 @@ void main() {
       return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: senderJid, text: text);
     }
 
-    test('rate-limited message — includes limit, window, and exemption hint', () async {
+    test('rate-limited message — includes limit and window without review exemption', () async {
       final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 5));
       for (var i = 0; i < 5; i++) {
         limiter.check('sender@s.whatsapp.net');
@@ -30,10 +31,10 @@ void main() {
 
       expect(handled, isTrue);
       expect(channel.sentMessages, hasLength(1));
-      final text = channel.sentMessages.first.$2.text;
-      expect(text, contains('Rate limit reached'));
-      expect(text, contains('5 messages per 5 minutes'));
-      expect(text, contains('review commands (accept, reject, push back) and /status are never rate-limited'));
+      expect(
+        channel.sentMessages.first.$2.text,
+        'Rate limit reached (5 messages per 5 minutes). Please wait before trying again.',
+      );
     });
 
     test('short rate-limit windows are rendered in seconds', () async {
@@ -53,6 +54,45 @@ void main() {
       expect(handled, isTrue);
       expect(channel.sentMessages, hasLength(1));
       expect(channel.sentMessages.single.$2.text, contains('2 messages per 30 seconds'));
+    });
+
+    test('non-reserved text is rate-limited while a reserved command keeps its fast path', () async {
+      final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(minutes: 5));
+      limiter.check('sender@s.whatsapp.net');
+
+      final reservedTexts = <String>[];
+      bool isStop(String text) => text.trim().toLowerCase() == '/stop';
+      final bridge = ChannelTaskBridge(
+        reservedCommandHandler: (msg, ch) async {
+          if (!isStop(msg.text)) return null;
+          reservedTexts.add(msg.text);
+          return 'handled';
+        },
+        perSenderRateLimiter: limiter,
+        isAdmin: (_) => false,
+        isReservedCommand: isStop,
+      );
+
+      final mention = await bridge.tryHandle(
+        makeMessage(text: '@advisor please review this'),
+        channel,
+        sessionKey: 'agent:main:dm:whatsapp:sender',
+      );
+
+      expect(mention, isTrue);
+      expect(reservedTexts, isEmpty);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, contains('Rate limit reached'));
+
+      final stop = await bridge.tryHandle(
+        makeMessage(text: '/stop'),
+        channel,
+        sessionKey: 'agent:main:dm:whatsapp:sender',
+      );
+
+      expect(stop, isTrue);
+      expect(reservedTexts, ['/stop']);
+      expect(channel.sentMessages, hasLength(1));
     });
 
     test('admin sender — bypasses rate limit even at limit', () async {
@@ -76,19 +116,14 @@ void main() {
       expect(channel.sentMessages, isEmpty);
     });
 
-    test('review command — bypasses rate limit', () async {
+    test('review-shaped text is rate-limited like any other message', () async {
       final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(minutes: 1));
       limiter.check('sender@s.whatsapp.net');
 
       final bridge = ChannelTaskBridge(
         perSenderRateLimiter: limiter,
-        reviewCommandParser: const ReviewCommandParser(),
         isAdmin: (_) => false,
         isReservedCommand: (_) => false,
-        // No taskLister → review command detection will call parse but won't execute
-        // The rate limit check detects it's a review command and skips rate limiting.
-        // Without taskLister the bridge returns false (not handled) — that's fine,
-        // we just verify no rejection is sent.
       );
 
       final handled = await bridge.tryHandle(
@@ -97,19 +132,19 @@ void main() {
         sessionKey: 'agent:main:dm:whatsapp:sender',
       );
 
-      // Not rate-limited (bypassed), and no task lister = falls through
-      expect(channel.sentMessages, isEmpty);
-      expect(handled, isFalse);
+      expect(handled, isTrue);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, contains('Rate limit reached'));
     });
 
-    test('reserved command /status — bypasses rate limit', () async {
+    test('unconsumed /status text is rate-limited', () async {
       final limiter = SlidingWindowRateLimiter(limit: 1, window: const Duration(minutes: 1));
       limiter.check('sender@s.whatsapp.net');
 
       final bridge = ChannelTaskBridge(
         perSenderRateLimiter: limiter,
         isAdmin: (_) => false,
-        isReservedCommand: (text) => text.startsWith('/status') || text.startsWith('/stop'),
+        isReservedCommand: (text) => text.startsWith('/stop'),
       );
 
       final handled = await bridge.tryHandle(
@@ -118,9 +153,9 @@ void main() {
         sessionKey: 'agent:main:dm:whatsapp:sender',
       );
 
-      // Not rate-limited — falls through (no task trigger configured = false)
-      expect(handled, isFalse);
-      expect(channel.sentMessages, isEmpty);
+      expect(handled, isTrue);
+      expect(channel.sentMessages, hasLength(1));
+      expect(channel.sentMessages.single.$2.text, contains('Rate limit reached'));
     });
 
     test('reserved command /stop — bypasses rate limit', () async {
@@ -130,7 +165,7 @@ void main() {
       final bridge = ChannelTaskBridge(
         perSenderRateLimiter: limiter,
         isAdmin: (_) => false,
-        isReservedCommand: (text) => text.startsWith('/status') || text.startsWith('/stop'),
+        isReservedCommand: (text) => text.startsWith('/stop'),
       );
 
       final handled = await bridge.tryHandle(
@@ -178,10 +213,10 @@ void main() {
 
       expect(handled, isTrue);
       expect(channel.sentMessages, hasLength(1));
-      final text = channel.sentMessages.single.$2.text;
-      expect(text, contains('Rate limit reached'));
-      expect(text, contains('5 messages per 5 minutes'));
-      expect(text, contains('review commands (accept, reject, push back) and /status are never rate-limited'));
+      expect(
+        channel.sentMessages.single.$2.text,
+        'Rate limit reached (5 messages per 5 minutes). Please wait before trying again.',
+      );
     });
 
     test('no rate limiter — no rate limiting (backward compat)', () async {

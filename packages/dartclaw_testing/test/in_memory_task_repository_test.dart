@@ -7,19 +7,13 @@ void main() {
     test('stores tasks and lists them newest first with filters', () async {
       final repo = InMemoryTaskRepository();
       final older = _task(id: 'task-1', createdAt: DateTime.parse('2026-03-10T10:00:00Z'));
-      final newer = _task(
-        id: 'task-2',
-        type: TaskType.research,
-        status: TaskStatus.running,
-        createdAt: DateTime.parse('2026-03-10T11:00:00Z'),
-      );
+      final newer = _task(id: 'task-2', status: TaskStatus.running, createdAt: DateTime.parse('2026-03-10T11:00:00Z'));
 
       await repo.insert(older);
       await repo.insert(newer);
 
       expect((await repo.list()).map((task) => task.id).toList(), ['task-2', 'task-1']);
       expect((await repo.list(status: TaskStatus.running)).map((task) => task.id).toList(), ['task-2']);
-      expect((await repo.list(type: TaskType.coding)).map((task) => task.id).toList(), ['task-1']);
     });
 
     test('lists tasks by workflow run ids newest first', () async {
@@ -106,7 +100,6 @@ Task _task({
   String id = 'task-1',
   String title = 'Task title',
   String description = 'Describe the work',
-  TaskType type = TaskType.coding,
   TaskStatus status = TaskStatus.draft,
   String? workflowRunId,
   DateTime? createdAt,
@@ -116,7 +109,6 @@ Task _task({
     id: id,
     title: title,
     description: description,
-    type: type,
     status: status,
     workflowRunId: workflowRunId,
     createdAt: createdAt ?? DateTime.parse('2026-03-10T10:00:00Z'),

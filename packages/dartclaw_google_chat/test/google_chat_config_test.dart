@@ -1,5 +1,6 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_google_chat/testing.dart';
 import 'package:test/test.dart';
 
 typedef _GoogleChatExpectation = void Function(GoogleChatConfig config, List<String> warnings);
@@ -25,7 +26,6 @@ void main() {
           'group_allowlist': ['spaces/AAA'],
           'require_mention': false,
           'quote_reply': true,
-          'task_trigger': {'enabled': true, 'prefix': 'do:', 'default_type': 'automation', 'auto_start': false},
         }, warns);
 
         expect(warns, isEmpty);
@@ -43,10 +43,6 @@ void main() {
         expect(config.groupIds, ['spaces/AAA']);
         expect(config.requireMention, isFalse);
         expect(config.quoteReplyMode, QuoteReplyMode.sender);
-        expect(config.taskTrigger.enabled, isTrue);
-        expect(config.taskTrigger.prefix, 'do:');
-        expect(config.taskTrigger.defaultType, 'automation');
-        expect(config.taskTrigger.autoStart, isFalse);
       });
 
       final cases = <({String name, Map<String, Object?> yaml, _GoogleChatExpectation expectConfig})>[
@@ -87,7 +83,6 @@ void main() {
             expect(config.groupIds, isEmpty);
             expect(config.requireMention, isTrue);
             expect(config.quoteReplyMode, QuoteReplyMode.disabled);
-            expect(config.taskTrigger.enabled, isFalse);
           },
         ),
         (
@@ -223,6 +218,26 @@ void main() {
           },
         ),
         (
+          // response_prefix is inert by construction – CommonChannelFields only reads it
+          // when a default is supplied, and Google Chat supplies none.
+          name: 'unimplemented response_prefix is never read',
+          yaml: {'response_prefix': 42},
+          expectConfig: (config, warnings) => expect(warnings, isEmpty),
+        ),
+        (
+          // The one accepted new diagnostic – the key still has no effect here.
+          name: 'unimplemented max_chunk_size reports a non-positive value',
+          yaml: {'max_chunk_size': 0},
+          expectConfig: (config, warnings) =>
+              expect(warnings, ['Invalid google_chat.max_chunk_size: "0" \u2013 using default']),
+        ),
+        (
+          // Parsed and discarded, with the shared parser's warning surface.
+          name: 'unimplemented mention_patterns of the wrong type is ignored without a warning',
+          yaml: {'mention_patterns': 7},
+          expectConfig: (config, warnings) => expect(warnings, isEmpty),
+        ),
+        (
           name: 'unsupported space event type for user OAuth',
           yaml: {
             'enabled': true,
@@ -247,6 +262,138 @@ void main() {
           testCase.expectConfig(config, warnings);
         });
       }
+
+      test('registered enum vocabularies match the channel mappers', () {
+        final mapperSpellings = <String, Set<String>>{
+          'channels.google_chat.dm_access': DmAccessMode.values.map((value) => value.name).toSet(),
+          'channels.google_chat.group_access': GroupAccessMode.values.map((value) => value.name).toSet(),
+          'channels.google_chat.typing_indicator': {
+            ...TypingIndicatorMode.values.map((value) => value.name),
+            'true',
+            'false',
+          },
+          'channels.google_chat.reactions_auth': ReactionsAuth.values.map((value) => value.name).toSet(),
+          'channels.google_chat.audience.type': {'app-url', 'project-number'},
+          'channels.google_chat.feedback.status_style': GoogleChatFeedbackStatusStyle.values
+              .map((value) => value.name)
+              .toSet(),
+        };
+
+        for (final entry in mapperSpellings.entries) {
+          final declared = ConfigMeta.fields[entry.key]!.allowedValues!.toSet();
+          expect(declared, entry.value, reason: '${entry.key}: declared $declared; mapper accepts ${entry.value}');
+        }
+      });
+
+      test('every registered enum spelling executes its production mapper', () {
+        for (final expected in DmAccessMode.values) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({'dm_access': expected.name}, warnings);
+          expect(config.dmAccess, expected, reason: expected.name);
+          expect(warnings, isEmpty, reason: expected.name);
+        }
+        for (final expected in GroupAccessMode.values) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({'group_access': expected.name}, warnings);
+          expect(config.groupAccess, expected, reason: expected.name);
+          expect(warnings, isEmpty, reason: expected.name);
+        }
+        const typingMappings = {
+          'true': TypingIndicatorMode.message,
+          'message': TypingIndicatorMode.message,
+          'false': TypingIndicatorMode.disabled,
+          'disabled': TypingIndicatorMode.disabled,
+          'emoji': TypingIndicatorMode.emoji,
+        };
+        for (final entry in typingMappings.entries) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({'typing_indicator': entry.key}, warnings);
+          expect(config.typingIndicatorMode, entry.value, reason: entry.key);
+          expect(warnings, isEmpty, reason: entry.key);
+        }
+        for (final expected in ReactionsAuth.values) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({'reactions_auth': expected.name}, warnings);
+          expect(config.reactionsAuth, expected, reason: expected.name);
+          expect(warnings, isEmpty, reason: expected.name);
+        }
+        const audienceMappings = {
+          'app-url': GoogleChatAudienceMode.appUrl,
+          'project-number': GoogleChatAudienceMode.projectNumber,
+        };
+        for (final entry in audienceMappings.entries) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({
+            'audience': {'type': entry.key, 'value': 'value'},
+          }, warnings);
+          expect(config.audience!.mode, entry.value, reason: entry.key);
+          expect(warnings, isEmpty, reason: entry.key);
+        }
+        for (final expected in GoogleChatFeedbackStatusStyle.values) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({
+            'feedback': {'status_style': expected.name},
+          }, warnings);
+          expect(config.feedback.statusStyle, expected, reason: expected.name);
+          expect(warnings, isEmpty, reason: expected.name);
+        }
+      });
+
+      test('derived enum failures preserve exact warnings and defaults', () {
+        final warnings = <String>[];
+        final config = GoogleChatConfig.fromYaml({
+          'dm_access': 'bogus',
+          'group_access': 'pairing',
+          'typing_indicator': 'sometimes',
+          'reactions_auth': 'admin',
+          'audience': {'type': 'bogus', 'value': 'https://x'},
+          'feedback': {'status_style': 'loud'},
+        }, warnings);
+
+        expect(config.dmAccess, DmAccessMode.pairing);
+        expect(config.groupAccess, GroupAccessMode.disabled);
+        expect(config.typingIndicatorMode, TypingIndicatorMode.message);
+        expect(config.reactionsAuth, ReactionsAuth.disabled);
+        expect(config.audience, isNull);
+        expect(config.feedback.statusStyle, GoogleChatFeedbackStatusStyle.creative);
+        expect(warnings, [
+          'Invalid google_chat.dm_access: "bogus" — using default',
+          'Invalid google_chat.group_access: "pairing" — using default',
+          'Invalid google_chat.audience.type: "bogus" — using default',
+          'Invalid google_chat.typing_indicator: "sometimes" — using default',
+          'Invalid value for google_chat.reactions_auth: "admin" — using default',
+          'Invalid google_chat.feedback.status_style: "loud" — using default',
+        ]);
+      });
+
+      test('typing and audience aliases retain their mappings', () {
+        final falseWarnings = <String>[];
+        final boolConfig = GoogleChatConfig.fromYaml({'typing_indicator': false}, falseWarnings);
+        final stringWarnings = <String>[];
+        final stringConfig = GoogleChatConfig.fromYaml({
+          'typing_indicator': 'true',
+          'audience': {'type': 'app-url', 'value': 'https://x'},
+        }, stringWarnings);
+
+        expect(boolConfig.typingIndicatorMode, TypingIndicatorMode.disabled);
+        expect(stringConfig.typingIndicatorMode, TypingIndicatorMode.message);
+        expect(stringConfig.audience!.mode, GoogleChatAudienceMode.appUrl);
+        expect(falseWarnings, isEmpty);
+        expect(stringWarnings, isEmpty);
+      });
+
+      test('quote-reply compatibility spellings remain a recorded residual', () {
+        for (final value in ['text', 'attribution', 'true', 'false']) {
+          final warnings = <String>[];
+          final config = GoogleChatConfig.fromYaml({'quote_reply': value}, warnings);
+          expect(
+            config.quoteReplyMode,
+            value == 'false' ? QuoteReplyMode.disabled : QuoteReplyMode.sender,
+            reason: value,
+          );
+          expect(warnings, isEmpty, reason: value);
+        }
+      });
 
       test('pubsub and space_events parse/default/warn through GoogleChatConfig', () {
         final parsedWarnings = <String>[];
@@ -331,6 +478,37 @@ void main() {
         }, []);
         expect(legacy.groupIds, ['spaces/AAA', 'spaces/BBB']);
       });
+
+      // The three shared keys Google Chat does not implement must not become effective by
+      // being parsed – chunking stays pinned at 4000 and no response prefix reaches the wire.
+      test('unimplemented shared keys leave formatting and delivery unchanged', () async {
+        final warnings = <String>[];
+        final config = GoogleChatConfig.fromYaml({
+          'mention_patterns': ['@bot'],
+          'max_chunk_size': 100,
+          'response_prefix': 'PREFIX ',
+          'quote_reply': false,
+        }, warnings);
+        expect(warnings, isEmpty);
+
+        final restClient = FakeGoogleChatRestClient();
+        final channel = GoogleChatChannel(config: config, restClient: restClient);
+        final chunks = channel.formatResponse(List.filled(600, 'abcdefghi').join(' '));
+
+        expect(chunks, hasLength(2));
+        expect(chunks.first.text.length, greaterThan(100));
+        for (final chunk in chunks) {
+          expect(chunk.text.length, lessThanOrEqualTo(4000));
+        }
+        expect(chunks.first.metadata, {'isFirstChunk': true});
+
+        await channel.sendMessage('spaces/AAA', chunks.first);
+
+        expect(restClient.sentMessages, hasLength(1));
+        expect(restClient.sentMessages.single.$1, 'spaces/AAA');
+        expect(restClient.sentMessages.single.$2, chunks.first.text);
+        expect(restClient.sentMessages.single.$2, isNot(contains('PREFIX')));
+      });
     });
   });
 
@@ -414,6 +592,15 @@ void main() {
         testCase.expectConfig(config, warnings);
       });
     }
+
+    test('poll interval has no declaration maximum', () {
+      final warnings = <String>[];
+      final config = PubSubConfig.fromYaml({'poll_interval_seconds': 61}, warnings);
+
+      expect(ConfigMeta.fields['channels.google_chat.pubsub.poll_interval_seconds']!.max, isNull);
+      expect(config.pollIntervalSeconds, 61);
+      expect(warnings, isEmpty);
+    });
   });
 
   group('SpaceEventsConfig.fromYaml', () {
@@ -493,21 +680,23 @@ void main() {
     });
   });
 
-  group('Google Chat config registration', () {
-    setUpAll(ensureDartclawGoogleChatRegistered);
+  group('Google Chat config resolution', () {
+    GoogleChatConfig googleChatConfigOf(DartclawConfig config, List<String> warns) =>
+        GoogleChatConfig.fromYaml(config.channels.channelConfigs['google_chat'] ?? const {}, warns);
 
-    test('provider returns disabled defaults when package is imported', () {
+    test('a config file without a channels block yields disabled defaults', () {
       final config = DartclawConfig.load(fileReader: (_) => null, env: {'HOME': '/home/user'});
-      final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+      final warns = <String>[];
+      final googleChatConfig = googleChatConfigOf(config, warns);
 
       expect(googleChatConfig.enabled, isFalse);
       expect(googleChatConfig.webhookPath, '/integrations/googlechat');
       expect(googleChatConfig.groupAccess, GroupAccessMode.disabled);
       expect(googleChatConfig.requireMention, isTrue);
-      expect(googleChatConfig.taskTrigger.enabled, isFalse);
+      expect(warns, isEmpty);
     });
 
-    test('provider parses google chat config when package is imported', () {
+    test('the google_chat section of a loaded config parses into GoogleChatConfig', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
         fileReader: (path) => path == 'dartclaw.yaml'
@@ -525,16 +714,11 @@ channels:
     dm_access: allowlist
     group_access: open
     require_mention: false
-    task_trigger:
-      enabled: true
-      prefix: "do:"
-      default_type: custom
-      auto_start: false
 '''
             : null,
         env: {'HOME': '/home/user'},
       );
-      final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+      final googleChatConfig = googleChatConfigOf(config, <String>[]);
 
       expect(googleChatConfig.enabled, isTrue);
       expect(googleChatConfig.serviceAccount, '/tmp/google-service-account.json');
@@ -544,13 +728,9 @@ channels:
       expect(googleChatConfig.dmAccess, DmAccessMode.allowlist);
       expect(googleChatConfig.groupAccess, GroupAccessMode.open);
       expect(googleChatConfig.requireMention, isFalse);
-      expect(googleChatConfig.taskTrigger.enabled, isTrue);
-      expect(googleChatConfig.taskTrigger.prefix, 'do:');
-      expect(googleChatConfig.taskTrigger.defaultType, 'custom');
-      expect(googleChatConfig.taskTrigger.autoStart, isFalse);
     });
 
-    test('channel config warnings are surfaced during load and cached', () {
+    test('an unparseable google_chat field warns and falls back to the default', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
         fileReader: (path) => path == 'dartclaw.yaml'
@@ -568,15 +748,14 @@ channels:
         env: {'HOME': '/home/user'},
       );
 
-      expect(config.warnings, anyElement(contains('Invalid type for google_chat.group_access')));
-      config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+      final warns = <String>[];
+      final googleChatConfig = googleChatConfigOf(config, warns);
 
-      final warningCount = config.warnings.length;
-      config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
-      expect(config.warnings, hasLength(warningCount));
+      expect(warns, anyElement(contains('Invalid type for google_chat.group_access')));
+      expect(googleChatConfig.groupAccess, GroupAccessMode.disabled);
     });
 
-    test('provider parses pubsub and space_events sections', () {
+    test('the google_chat section parses its pubsub and space_events subsections', () {
       final config = DartclawConfig.load(
         configPath: 'dartclaw.yaml',
         fileReader: (path) => path == 'dartclaw.yaml'
@@ -604,7 +783,7 @@ channels:
             : null,
         env: {'HOME': '/home/user'},
       );
-      final googleChatConfig = config.getChannelConfig<GoogleChatConfig>(ChannelType.googlechat);
+      final googleChatConfig = googleChatConfigOf(config, <String>[]);
 
       expect(googleChatConfig.pubsub.projectId, 'my-gcp-project');
       expect(googleChatConfig.pubsub.subscription, 'dartclaw-chat-pull');

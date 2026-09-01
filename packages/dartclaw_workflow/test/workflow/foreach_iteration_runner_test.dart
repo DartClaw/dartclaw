@@ -6,7 +6,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MapIterationCompletedEvent,
@@ -24,11 +24,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionSuccess,
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
+        WorkflowPromotionConflictFailure,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent,
         WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/map_step_context.dart' show MapStepContext;
 import 'package:dartclaw_workflow/src/workflow/workflow_budget_monitor.dart' show foreachScopeConsumedTokens;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -44,7 +45,7 @@ void main() {
   for (final row in [
     (
       name: 'empty collection succeeds with zero tasks',
-      definition: () => h.mapStepDefinition(prompt: 'p'),
+      definition: () => h.foreachStepDefinition(prompt: 'p'),
       context: () => h.itemsContext(<dynamic>[]),
       completionStatus: TaskStatus.accepted,
       expectedTasks: 0,
@@ -52,7 +53,7 @@ void main() {
     ),
     (
       name: 'single-item collection spawns exactly one task',
-      definition: h.mapStepDefinition,
+      definition: h.foreachStepDefinition,
       context: () => h.itemsContext(['alpha']),
       completionStatus: TaskStatus.accepted,
       expectedTasks: 1,
@@ -60,7 +61,7 @@ void main() {
     ),
     (
       name: '3-item collection spawns 3 tasks (sequential by default)',
-      definition: h.mapStepDefinition,
+      definition: h.foreachStepDefinition,
       context: () => h.itemsContext(['a', 'b', 'c']),
       completionStatus: TaskStatus.accepted,
       expectedTasks: 3,
@@ -68,7 +69,7 @@ void main() {
     ),
     (
       name: 'null mapOver key fails the step cleanly',
-      definition: () => h.mapStepDefinition(prompt: 'p', mapOver: 'missing_key'),
+      definition: () => h.foreachStepDefinition(prompt: 'p', mapOver: 'missing_key'),
       context: WorkflowContext.new,
       completionStatus: TaskStatus.accepted,
       expectedTasks: 0,
@@ -76,7 +77,7 @@ void main() {
     ),
     (
       name: 'single-item failure fails the run',
-      definition: () => h.mapStepDefinition(prompt: 'p'),
+      definition: () => h.foreachStepDefinition(prompt: 'p'),
       context: () => h.itemsContext(['only-item']),
       completionStatus: TaskStatus.failed,
       expectedTasks: 1,
@@ -123,9 +124,8 @@ void main() {
       name: 'S03 foreach inner step retries completed-task failed outcome exactly once with maxRetries 1',
       completer: (String taskId, int taskCount) => h.completeTaskWithOutcome(
         taskId,
-        outcomeContent: taskCount == 1
-            ? '<step-outcome>{"outcome":"failed","reason":"missing artifact"}</step-outcome>'
-            : '<step-outcome>{"outcome":"succeeded","reason":"artifact found"}</step-outcome>',
+        outcome: taskCount == 1 ? 'failed' : 'succeeded',
+        reason: taskCount == 1 ? 'missing artifact' : 'artifact found',
       ),
       expectedRunStatus: WorkflowRunStatus.completed,
       expectedError: null,
@@ -134,10 +134,7 @@ void main() {
       name: 'S03 foreach inner step retries terminal task failure exactly once with maxRetries 1',
       completer: (String taskId, int taskCount) => taskCount == 1
           ? h.completeTask(taskId, status: TaskStatus.failed)
-          : h.completeTaskWithOutcome(
-              taskId,
-              outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"task recovered"}</step-outcome>',
-            ),
+          : h.completeTaskWithOutcome(taskId, outcome: 'succeeded', reason: 'task recovered'),
       expectedRunStatus: WorkflowRunStatus.completed,
       expectedError: null,
     ),
@@ -181,21 +178,18 @@ void main() {
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
       if (task.title.contains('Summarize')) {
         summarizeDispatched = true;
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"succeeded","reason":"summary written"}</step-outcome>',
-        );
+        await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'summary written');
         await h.completeTask(e.taskId);
         return;
       }
 
       implementDisplayScopes.add(task.configJson['displayScope']);
       implementCount++;
-      final outcome = implementCount == 1
-          ? '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>'
-          : '<step-outcome>{"outcome":"succeeded","reason":"story done"}</step-outcome>';
-      await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcome);
+      await h.seedStepOutcome(
+        e.taskId,
+        outcome: implementCount == 1 ? 'needsInput' : 'succeeded',
+        reason: implementCount == 1 ? 'story needs human decision' : 'story done',
+      );
       await h.completeTask(e.taskId);
     });
 
@@ -231,6 +225,58 @@ void main() {
     );
   });
 
+  test('continueSession foreach child inherits its own iteration session, never a sibling iteration', () async {
+    // Per-iteration session isolation is structural: the foreach runner builds
+    // a fresh iterContext per iteration, so the bare `implement.sessionId` a
+    // continueSession child resolves can never bleed across iterations. The
+    // built-in workflows no longer ship a continueSession foreach child, but
+    // custom workflows rely on this property.
+    final definition = WorkflowDefinition(
+      name: 'foreach-continue-session',
+      description: 'Foreach continueSession isolation',
+      steps: const [
+        WorkflowStep(
+          id: 'story-pipeline',
+          name: 'Story Pipeline',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: 'story_specs',
+          foreachSteps: ['implement', 'polish'],
+          outputs: {'story_results': OutputConfig()},
+        ),
+        WorkflowStep(id: 'implement', name: 'Implement', prompts: ['implement {{map.item.id}}']),
+        WorkflowStep(id: 'polish', name: 'Polish', prompts: ['polish {{map.item.id}}'], continueSession: '@previous'),
+      ],
+    );
+    final run = await h.insertRun(definition);
+
+    final implementSessionIds = <String>[];
+    final polishContinueIds = <Object?>[];
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      final task = await h.taskService.get(e.taskId);
+      if (task == null) return;
+      if (task.title.contains('Implement')) {
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        implementSessionIds.add(session.id);
+        await h.taskService.updateFields(e.taskId, sessionId: session.id);
+        await h.kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 10}));
+      } else {
+        polishContinueIds.add(task.configJson['_continueSessionId']);
+      }
+      await h.completeTask(e.taskId);
+    });
+
+    await h.executor.execute(run, definition, h.storySpecsContext(twoStorySpecs));
+    await sub.cancel();
+
+    final finalRun = await h.repository.getById('run-1');
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+    expect(implementSessionIds.toSet(), hasLength(2));
+    expect(polishContinueIds, equals(implementSessionIds));
+  });
+
   test('foreach hard failure takes precedence over later needsInput hold', () async {
     final definition = h.storyPipelineDefinition(
       name: 'strict-foreach',
@@ -251,20 +297,12 @@ void main() {
       final scope = task.configJson['displayScope'];
       if (scope == 'S02') {
         await Future<void>.delayed(const Duration(milliseconds: 20));
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>',
-        );
+        await h.seedStepOutcome(e.taskId, outcome: 'needsInput', reason: 'story needs human decision');
         await h.completeTask(e.taskId);
         return;
       }
       await Future<void>.delayed(Duration.zero);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<step-outcome>{"outcome":"failed","reason":"story cannot be implemented"}</step-outcome>',
-      );
+      await h.seedStepOutcome(e.taskId, outcome: 'failed', reason: 'story cannot be implemented');
       await h.completeTask(e.taskId);
     });
 
@@ -343,13 +381,6 @@ void main() {
     final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
     await h.repository.insert(run);
     final runtimeExecutor = h.makeExecutor(
-      outputTransformer: (run, definition, step, task, outputs) {
-        final result = Map<String, dynamic>.from(outputs);
-        if (step.id == 'implement') {
-          result['implement.branch'] = 'story-branch-${task.id}';
-        }
-        return result;
-      },
       turnAdapter: standardTurnAdapter(
         promoteWorkflowBranch: ({
           required runId,
@@ -372,13 +403,12 @@ void main() {
       if (task.title.contains('Summarize')) {
         summarizeDispatched = true;
       }
+      // The dispatcher derives `implement.branch` from the task worktree, which
+      // is what gives the promotion path a branch to merge.
+      await h.attachWorktree(e.taskId);
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<step-outcome>{"outcome":"succeeded","reason":"story done"}</step-outcome>',
-      );
+      await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'story done');
       await h.completeTask(e.taskId);
     });
 
@@ -408,13 +438,6 @@ void main() {
     final run = h.makeRun(definition).copyWith(variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'main'});
     await h.repository.insert(run);
     final runtimeExecutor = h.makeExecutor(
-      outputTransformer: (run, definition, step, task, outputs) {
-        final result = Map<String, dynamic>.from(outputs);
-        if (step.id == 'implement') {
-          result['implement.branch'] = 'story-branch-${task.id}';
-        }
-        return result;
-      },
       turnAdapter: standardTurnAdapter(
         promoteWorkflowBranch: ({
           required runId,
@@ -437,13 +460,12 @@ void main() {
       if (task.title.contains('Summarize')) {
         summarizeDispatched = true;
       }
+      // The dispatcher derives `implement.branch` from the task worktree, which
+      // is what gives the promotion path a branch to merge.
+      await h.attachWorktree(e.taskId);
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<step-outcome>{"outcome":"succeeded","reason":"story done"}</step-outcome>',
-      );
+      await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'story done');
       await h.completeTask(e.taskId);
     });
 
@@ -458,6 +480,8 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     expect(finalRun?.errorMessage, startsWith('promotion-failure:'));
     expect(summarizeDispatched, isFalse);
+    final slot = (finalRun?.contextJson['data']?['story_results'] as List<dynamic>).first as Map<Object?, Object?>;
+    expect(slot[MapStepContext.kindKey], equals('promotion-failure'));
   });
 
   test('budget-exhausted foreach cancellation fails controller and emits iteration events', () async {
@@ -479,11 +503,7 @@ void main() {
       if (task == null) return;
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<step-outcome>{"outcome":"succeeded","reason":"story done"}</step-outcome>',
-      );
+      await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'story done');
       final currentRun = await h.repository.getById('run-1');
       await h.repository.update(currentRun!.copyWith(totalTokens: 1));
       await h.completeTask(e.taskId);
@@ -539,11 +559,7 @@ steps:
       final t = await h.taskService.get(e.taskId);
       if (t!.title.contains('First Child')) {
         firstCount++;
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"done"}</step-outcome>',
-          tokenCount: 150,
-        );
+        await h.completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'done', tokenCount: 150);
       } else {
         secondCount++;
         await h.completeTask(e.taskId);
@@ -583,19 +599,11 @@ steps:
       final session = await h.sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
       if (task.title.contains('Summarize')) {
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"succeeded","reason":"summary written"}</step-outcome>',
-        );
+        await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'summary written');
         await h.completeTask(e.taskId);
         return;
       }
-      await h.messageService.insertMessage(
-        sessionId: session.id,
-        role: 'assistant',
-        content: '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>',
-      );
+      await h.seedStepOutcome(e.taskId, outcome: 'needsInput', reason: 'story needs human decision');
       await h.completeTask(e.taskId);
     });
 
@@ -665,11 +673,8 @@ steps:
       );
     });
 
-    test('end-to-end: `as:` on inline `type: foreach` parses and reaches child prompts', () async {
-      final definition = WorkflowDefinitionParser().parse(inlineForeachAsYaml);
-
-      final controller = definition.steps.firstWhere((s) => s.id == 'story-pipeline');
-      expect(controller.mapAlias, 'story', reason: 'Parser must propagate `as:` on inline foreach');
+    test('end-to-end: inline `type: foreach` resolves {{map.*}} refs in child prompts', () async {
+      final definition = WorkflowDefinitionParser().parse(inlineForeachMapRefsYaml);
 
       final descriptions = await h.executeAndCaptureDescriptions(
         definition,
@@ -681,26 +686,15 @@ steps:
       expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
     });
 
-    test('foreach with `as:` resolves aliased refs in child prompts', () async {
+    test('foreach resolves {{map.*}} refs in child prompts', () async {
       final descriptions = await h.executeAndCaptureDescriptions(
-        h.aliasedForeachDefinition(),
+        h.mapRefForeachDefinition(),
         WorkflowContext()..['stories'] = aliasStoryCollection,
       );
 
       expect(descriptions, hasLength(2));
       expect(descriptions[0], contains('Story 1/2: implement docs/s01.md'));
       expect(descriptions[1], contains('Story 2/2: implement docs/s02.md'));
-    });
-
-    test('plain mapOver step with `as:` substitutes in the controller prompt', () async {
-      final descriptions = await h.executeAndCaptureDescriptions(
-        h.aliasedMapDefinition(),
-        WorkflowContext()..['items'] = mapAliasCollection,
-      );
-
-      expect(descriptions, hasLength(2));
-      expect(descriptions[0], contains('Process item 0: first'));
-      expect(descriptions[1], contains('Process item 1: second'));
     });
 
     test('foreach iterates items and runs child steps sequentially per item', () async {
@@ -832,11 +826,7 @@ steps:
         await h.taskService.updateFields(e.taskId, sessionId: session.id);
         final itemId = (task.configJson['displayScope'] as String?) ?? '';
         final outcome = outcomeById[itemId] ?? 'succeeded';
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"$outcome","reason":"$outcome for $itemId"}</step-outcome>',
-        );
+        await h.seedStepOutcome(e.taskId, outcome: outcome, reason: '$outcome for $itemId');
         await h.completeTask(e.taskId);
       });
     }
@@ -1007,10 +997,7 @@ steps:
         e,
       ) async {
         await Future<void>.delayed(Duration.zero);
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"needsInput","reason":"story needs human decision"}</step-outcome>',
-        );
+        await h.completeTaskWithOutcome(e.taskId, outcome: 'needsInput', reason: 'story needs human decision');
       });
 
       await h.executor.execute(run, definition, context);
@@ -1119,6 +1106,7 @@ steps:
       expect(conflictedRun?.status, equals(WorkflowRunStatus.failed));
       expect(conflictedRun?.executionCursor, isNotNull);
       final conflictedSlot = conflictedRun?.executionCursor?.resultSlots.first as Map<Object?, Object?>?;
+      expect(conflictedSlot?[MapStepContext.kindKey], equals(WorkflowPromotionConflictFailure.kindValue));
       expect(conflictedSlot?['message'], contains('promotion-conflict'));
       expect(
         conflictedRun?.executionCursor?.cancelledIndices,
@@ -1329,20 +1317,7 @@ steps:
       expect(updatedRun?.status, equals(WorkflowRunStatus.completed));
     });
 
-    test('foreach exceeding maxItems fails the step', () async {
-      final definition = h.simpleForeachDefinition(name: 'foreach-max', description: 'MaxItems test', maxItems: 2);
-
-      final run = await h.insertRun(definition);
-      final context = WorkflowContext()..['items'] = ['a', 'b', 'c'];
-
-      await h.executor.execute(run, definition, context, startFromStepIndex: 1);
-
-      final updatedRun = await h.repository.getById('run-1');
-      expect(updatedRun?.status, equals(WorkflowRunStatus.failed));
-      expect(updatedRun?.errorMessage, contains('maxItems'));
-    });
-
-    test('foreach above 20 succeeds when maxItems is unset', () async {
+    test('foreach fans out over an uncapped collection – there is no item cap', () async {
       final definition = h.simpleForeachDefinition(
         name: 'foreach-uncapped',
         description: 'Uncapped foreach test',
@@ -1415,19 +1390,14 @@ steps:
           final converged = reReviewByItem[currentItem]! >= (currentItem == 0 ? 2 : 1);
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": ${converged ? 0 : 1}, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': (converged ? 0 : 1), 'review_report_path': 'rf'},
           );
         } else if (title.contains('Remediate')) {
           remediateByItem[currentItem] = remediateByItem[currentItem]! + 1;
           await h.completeTask(e.taskId);
         } else if (title.contains('Review')) {
           currentItem++;
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -1487,9 +1457,7 @@ steps:
           if (title.contains('Re-review')) reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, '
-                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'reports/story-review.md'},
           );
         }
       });
@@ -1529,11 +1497,7 @@ steps:
           await h.completeTask(e.taskId);
           return;
         }
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-        );
+        await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
       });
 
       await h.executor.execute(run, def, context);
@@ -1557,11 +1521,7 @@ steps:
         await Future<void>.delayed(Duration.zero);
         final task = await h.taskService.get(e.taskId);
         if (task!.title.contains('Review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else if (task.title.contains('Remediate')) {
           await h.completeTask(e.taskId, status: TaskStatus.cancelled);
         } else {
@@ -1602,11 +1562,7 @@ steps:
         final task = await h.taskService.get(e.taskId);
         final title = task!.title;
         if (title.contains('Re-review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 0, 'review_report_path': 'rf'});
         } else if (title.contains('Remediate')) {
           remediateRuns++;
           if (cancelNextRemediate) {
@@ -1617,11 +1573,7 @@ steps:
           }
         } else if (title.contains('Review')) {
           reviewRuns++;
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -1686,20 +1638,12 @@ steps:
         final task = await h.taskService.get(e.taskId);
         final title = task!.title;
         if (title.contains('Re-review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 0, 'review_report_path': 'rf'});
         } else if (title.contains('Remediate')) {
           // Teardown-style: every in-flight remediate ends cancelled.
           await h.completeTask(e.taskId, status: TaskStatus.cancelled);
         } else if (title.contains('Review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -1751,9 +1695,7 @@ steps:
         }
         await h.completeTaskWithOutcome(
           e.taskId,
-          outcomeContent:
-              '<workflow-context>{"gating_findings_count": 1, '
-              '"review_report_path": "reports/story-review.md"}</workflow-context>',
+          outputs: {'gating_findings_count': 1, 'review_report_path': 'reports/story-review.md'},
         );
       });
 
@@ -1807,17 +1749,13 @@ steps:
           final converged = currentItem == 0;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": ${converged ? 0 : 1}, '
-                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+            outputs: {'gating_findings_count': (converged ? 0 : 1), 'review_report_path': 'reports/story-review.md'},
           );
         } else {
           currentItem++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, '
-                '"review_report_path": "reports/story-review.md"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'reports/story-review.md'},
           );
         }
       });
@@ -1855,11 +1793,7 @@ steps:
           await h.completeTask(e.taskId);
           return;
         }
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-        );
+        await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
       });
 
       await h.executor.execute(run, def, context);
@@ -1925,11 +1859,7 @@ steps:
           await h.completeTask(e.taskId);
           return;
         }
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-        );
+        await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
       });
 
       await h.executor.execute(run, def, context);
@@ -1966,11 +1896,7 @@ steps:
         final task = await h.taskService.get(e.taskId);
         final title = task!.title;
         if (title.contains('Re-review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else if (title.contains('Remediate')) {
           await h.completeTask(e.taskId);
         } else {
@@ -1982,8 +1908,7 @@ steps:
           } else {
             await h.completeTaskWithOutcome(
               e.taskId,
-              outcomeContent:
-                  '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+              outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'},
             );
           }
         }
@@ -1997,6 +1922,11 @@ steps:
         finalRun?.status,
         WorkflowRunStatus.failed,
         reason: 'a hard failure must not be masked by the escalated hold',
+      );
+      expect(
+        finalRun?.errorMessage,
+        startsWith('foreach-hard-failure-with-escalation:'),
+        reason: 'the escalated aggregate is what stops the run under onFailure: continue',
       );
     });
 
@@ -2026,11 +1956,7 @@ steps:
           await h.completeTask(e.taskId);
           return;
         }
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent:
-              '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-        );
+        await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
       });
 
       await h.executor.execute(run, def, context);
@@ -2118,8 +2044,7 @@ steps:
           reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 0, 'review_report_path': 'rf'},
             tokenCount: 40,
           );
         } else if (title.contains('Review')) {
@@ -2163,19 +2088,14 @@ steps:
           reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'},
             tokenCount: 60,
           );
         } else if (title.contains('Remediate')) {
           remediateCount++;
           await h.completeTask(e.taskId);
         } else if (title.contains('Review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -2214,8 +2134,7 @@ steps:
           reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'},
             tokenCount: 100,
           );
         } else if (title.contains('Remediate')) {
@@ -2225,11 +2144,7 @@ steps:
           }
           await h.completeTask(e.taskId);
         } else if (title.contains('Review')) {
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -2264,8 +2179,7 @@ steps:
           reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 0, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 0, 'review_report_path': 'rf'},
             tokenCount: 80,
           );
         } else if (title.contains('Remediate')) {
@@ -2274,8 +2188,7 @@ steps:
           reviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'},
             tokenCount: 30,
           );
         } else {
@@ -2317,8 +2230,7 @@ steps:
           // Item A converges on its first pass; item B never converges.
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": ${currentItem == 0 ? 0 : 1}, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': (currentItem == 0 ? 0 : 1), 'review_report_path': 'rf'},
             tokenCount: 60,
           );
         } else if (title.contains('Remediate')) {
@@ -2326,11 +2238,7 @@ steps:
           await h.completeTask(e.taskId);
         } else if (title.contains('Review')) {
           currentItem++;
-          await h.completeTaskWithOutcome(
-            e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
-          );
+          await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
           await h.completeTask(e.taskId);
         }
@@ -2397,8 +2305,7 @@ steps:
           reReviewCount++;
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<workflow-context>{"gating_findings_count": 1, "review_report_path": "rf"}</workflow-context>',
+            outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'},
             tokenCount: 100,
           );
         } else if (title.contains('Review')) {
@@ -2496,8 +2403,8 @@ steps:
         if (task!.title.contains('Second Child')) {
           await h.completeTaskWithOutcome(
             e.taskId,
-            outcomeContent:
-                '<step-outcome>{"outcome":"succeeded","reason":"ignored by cancelled status"}</step-outcome>',
+            outcome: 'succeeded',
+            reason: 'ignored by cancelled status',
             finalStatus: TaskStatus.cancelled,
             tokenCount: 50,
           );

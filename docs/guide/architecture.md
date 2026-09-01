@@ -38,7 +38,7 @@ The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with
 - **Stores state** — sessions and messages in NDJSON files, tasks/search/turn-recovery state in SQLite, config in YAML
 - **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
 - **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
-- **Enforces security** — guard chain (input sanitization, command/file/network guards, content classification), credential isolation, container management, audit logging
+- **Enforces security** — guard chain (command/file/network/tool guards, content classification), credential isolation, container management, audit logging
 - **Runs background work** — cron scheduling, session maintenance, memory pruning, task queue processing
 
 The host never executes agent logic directly. It spawns agent binaries as subprocesses and controls what information flows in and out.
@@ -55,9 +55,9 @@ The actual agent runtimes. DartClaw supports multiple providers (since 0.13):
 
 Each provider binary is spawned as a subprocess. The Dart host manages its lifecycle, including auto-restart with exponential backoff on crash. The `HarnessFactory` creates the appropriate harness type based on the configured provider ID.
 
-Workflow execution now has a scoped exception to the normal long-lived streaming session model: bounded workflow agent steps can run through a one-shot CLI path that invokes the provider binary directly per workflow prompt while the Dart host still owns the task, session transcript, budgets, and workflow state. Interactive chat, channel turns, and ordinary task turns remain on the streaming harness path.
+Bounded workflow agent steps run through the guarded harness path on one leased worker. The Dart host owns the task, session transcript, budgets, and workflow state while the harness owns the provider process and turn protocol.
 
-In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system/advisor work, and logical agents acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. Workflow one-shots consume capacity-only leases without creating an unused streaming harness. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
+In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system work, logical agents, and workflow steps acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
 `AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies claim no guard mediation, so a container would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so those registrations are rejected at startup. ACP runs on the host only, on the long-lived surface only.
 
@@ -105,23 +105,21 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw is organized as a Dart pub workspace with twelve packages plus a CLI app. Each package has a focused role:
+DartClaw's public package tree contains twelve packages under `packages/` plus a CLI app. The repo-wide Dart workspace
+also includes the development-only `dev/fitness` package. Each public package has a focused role:
 
 ```
 packages/
-  dartclaw_models/       Zero dependencies. Shared data types such as Session,
-                         Message, MemorySearchResult, SessionKey, Task, and Goal.
+  dartclaw_kernel/       No DartClaw dependencies. Shared data, typed config,
+                         guards, classification, and deterministic utilities.
 
-  dartclaw_security/     Guard framework, concrete guards, content
-                         classification, redaction, and guard audit primitives.
+  dartclaw_core/         Runtime and persistence authority: agent harnesses,
+                         channel interfaces, events, file and SQLite
+                         persistence, FTS5/QMD search, and workflow/task seams.
 
-  dartclaw_core/         No SQLite. Harness abstraction, channel interfaces
-                         and shared routing, config, event bus, container
-                         config, and file-based services. Shareable with a
-                         future Flutter app.
+  dartclaw_acp/          ACP harness adapter and registrar composed by the CLI.
 
-  dartclaw_config/       Shared config editing/metadata utilities used by the
-                         server and config API.
+  dartclaw_bridge/       Zero-dependency container bridge wire contract.
 
   dartclaw_whatsapp/     WhatsApp integration and config registration.
 
@@ -129,13 +127,10 @@ packages/
 
   dartclaw_google_chat/  Google Chat integration and config registration.
 
-  dartclaw_storage/      SQLite3. Search index, tasks, goals, related storage
-                         services, and transient turn recovery state.
-
   dartclaw_workflow/     Unified workflow parsing, validation, registry, and
                          execution support for DartClaw.
 
-  dartclaw_server/       Shelf HTTP. API routes, web UI templates, turn
+  dartclaw_runtime/       Shelf HTTP. API routes, web UI templates, turn
                          orchestration, MCP server, scheduling, task execution,
                          and server-only behavior, workspace, maintenance, and
                          observability services.
@@ -143,17 +138,20 @@ packages/
   dartclaw_testing/      Shared test doubles and in-memory helpers reused
                          across workspace packages.
 
-  dartclaw/              Convenience umbrella package that re-exports the main
-                         SDK surface from `dartclaw_core`, `dartclaw_storage`,
-                         and the bundled channel packages.
+  dartclaw_client/       Dependency-free HTTP + SSE client for a running
+                         DartClaw server: requests, event streams, and the
+                         typed error envelope.
+
+  dartclaw/              Client-tier umbrella package that re-exports
+                         `dartclaw_client` and `dartclaw_kernel`.
 
 apps/
   dartclaw_cli/          CLI app (AOT-compilable): serve, status,
-                         rebuild-index, deploy, token, and maintenance
+                         rebuild-index, service, token, and maintenance
                          commands.
 ```
 
-The key boundaries are simple: `dartclaw_core` stays SQLite-free, concrete guards live in `dartclaw_security`, concrete channel implementations live in per-channel packages, and server-only behavior/workspace/maintenance/observability code lives in `dartclaw_server`.
+The key boundaries are simple: `dartclaw_kernel` has no workspace dependency, runtime and persistence services live in `dartclaw_core`, concrete channel implementations live in per-channel packages, and server-only behavior/workspace/maintenance/observability code lives in `dartclaw_runtime`.
 
 ## Storage Design
 
@@ -182,7 +180,7 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
     ├── MEMORY.archive.md             # Canonical archive
     ├── MEMORY.audit.md               # Content-free deletion audit (not indexed)
     ├── .dartclaw-memory-corpus.json   # Derived authenticated member manifest
-    ├── errors.md                     # Auto-populated error log
+    ├── errors.md                     # Canonical error role (capped 50)
     ├── learnings.md                  # Canonical learning role (newest 50)
     ├── SOUL.md, USER.md, TOOLS.md    # Behavior files (identity, profile, env)
     └── memory/YYYY-MM-DD.md          # Canonical observation partitions
@@ -211,7 +209,7 @@ Messages in NDJSON files use their line number as a cursor. After a crash or res
 
 Separately, active turn reservations are persisted in `state.db` via `TurnStateStore`. On restart, the server scans that table for orphaned turns, cleans the rows, and surfaces a one-time recovery notice for the affected sessions.
 
-The restart path is covered by the integration-tagged crash-recovery smoke test in `packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart`. It starts a server, reserves an active turn, kills the process, restarts against the same data directory, verifies orphan cleanup, and checks that the recovered session still renders the user-visible recovery banner and turn-failed message styling.
+The restart path is covered by the integration-tagged crash-recovery smoke test in `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`. It starts a server, reserves an active turn, kills the process, restarts against the same data directory, verifies orphan cleanup, and checks that the recovered session still renders the user-visible recovery banner and turn-failed message styling.
 
 ### Memory Search
 
@@ -238,13 +236,13 @@ TurnManager ──→ ExecutionCoordinator primary lease (main user/channel)
     │
     ▼
 TurnRunner (per-harness)
-    ├── GuardChain evaluation (input sanitizer, command/file/network guards)
+    ├── GuardChain evaluation (command/file/network guards)
     ├── System prompt composition (behavior files + context)
     ├── AgentHarness.turn() → provider protocol over stdio
     ├── SSE streaming to web UI
     ├── Message persistence (NDJSON append)
     ├── Usage tracking (token attribution)
-    └── Self-improvement (errors.md log + canonical learning capture)
+    └── Self-improvement (canonical error + learning capture)
 ```
 
 Each runner owns a layered guard chain: shared reloadable base guards plus that runner's tool filter. The harness evaluates this combined chain, so config reloads do not discard per-turn or per-task policy. SDK hosts that construct harnesses own this same composition boundary.
@@ -272,7 +270,10 @@ All channels flow through the same `ChannelManager`, which handles session key r
 
 Each channel normalizes inbound messages, formats outbound responses, and may provide best-effort typing feedback; unsupported channels use no-op hooks.
 
-For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a `ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route context, which keeps task discussion and review commands such as `accept`, `reject`, and `push back` scoped to the task instead of falling back to the shared room session.
+For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a
+`ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route
+context, keeping task discussion scoped to the task instead of falling back to the shared room session. Review decisions
+are made through the task UI, API, or the agent's `task_review` tool.
 
 Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so enabling `channels.google_chat.quote_reply: true` lets outbound replies render as native quoted replies for both webhook-originated messages and Space Events messages. Optional `channels.google_chat.feedback.*` settings let long-running turns update a placeholder message or emoji reaction while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
 
@@ -297,27 +298,29 @@ draft → queued → running → review → accepted
 
 Key components:
 
-- **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_server`
+- **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_runtime`
 - **TaskExecutor** — polls for queued tasks, acquires a provider worker lease, executes the task, collects artifacts
-- **WorktreeManager** — for coding tasks, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
+- **WorktreeManager** — for tasks declaring `configJson.needsWorktree: true`, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
 - **RunnerObserver** — derives runtime runner state and capacity metrics from coordinator lease events and snapshots
 - **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
 
-Channel-originated task creation and review do not call the service directly from `dartclaw_core`. `ChannelManager` stays in `dartclaw_core`, but it now uses injected `TaskCreator`, `TaskLister`, and review-handler callbacks supplied by `dartclaw_server`.
+Task creation and review use the runtime's UI, API, and registered agent tools. `ChannelManager` stays in `dartclaw_core`
+and owns deterministic reserved-command, thread-binding, rate-limit, and session-routing behavior.
 
-Tasks are typed (`coding`, `research`, `writing`, `analysis`, `automation`, `custom`), and each type maps to a security profile that determines which container the task runs in.
+Runnable tasks carry explicit execution declarations instead of a category. An operator may declare `workspace` or `restricted` through authenticated task creation. Legacy `research` input and pre-upgrade rows are refused with migration guidance.
 
 For a user-facing comparison of background tasks and logical-agent sessions, see the [Agents guide](agents.md).
 
 ## Project Management
 
-Added in 0.14. DartClaw can manage multiple git repositories, routing coding tasks to the correct project and pushing results back on accept.
+Added in 0.14. DartClaw can manage multiple git repositories, routing tasks to the selected project. Tasks that declare
+`configJson.needsWorktree: true` can push their isolated result back on accept.
 
 **How it works**:
 1. Register an external git repository via the web UI (`/tasks`) or the config API. Provide the remote URL and optionally a credential reference (SSH key or token name stored in the credential store).
 2. DartClaw clones the repository into `<dataDir>/projects/<projectId>/` and keeps it fresh with periodic auto-fetch.
-3. When a coding task targets that project, `WorktreeManager` creates an isolated git worktree for the task's working branch — the agent operates in this worktree, isolated from other concurrent tasks.
+3. When a task targeting that project declares `configJson.needsWorktree: true`, `WorktreeManager` creates an isolated git worktree for the task's working branch — the agent operates in this worktree, isolated from other concurrent tasks.
 4. On task accept, the result is pushed to the remote as a branch (or as a pull request, if `pr.strategy: github-pr` is configured).
 5. On task reject, the worktree is cleaned up.
 
@@ -329,8 +332,8 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 
 | Profile | Mounts | Network | Used By |
 |---------|--------|---------|---------|
-| `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, channels |
-| `restricted` | No workspace | `none` | Search agent, research tasks |
+| `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, default tasks, cron, channels |
+| `restricted` | No workspace | `none` | Search agent, explicitly declared tasks |
 
 A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs.
 
@@ -352,14 +355,14 @@ DartClaw follows **defense-in-depth** — multiple overlapping layers, each prov
 |-------|-----------|
 | **Container isolation** | Docker kernel namespaces (PID, network, mount, user). The primary security boundary. |
 | **Credential isolation** | Containerized Claude and Codex reach their provider only through the host gateway, so no provider credential enters the container. Host executions receive their provider-scoped credential directly. |
-| **Guard chain** | InputSanitizer (prompt injection), CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (agent output scanning) |
+| **Guard chain** | CommandGuard (shell injection), FileGuard (path traversal), NetworkGuard (allowlist), ContentGuard (prompt injection and agent output scanning) |
 | **Message redaction** | Outbound secret/PII redaction via configurable patterns |
 | **Audit logging** | All guard verdicts logged to date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup. Viewable in the health dashboard. |
 | **Usage tracking** | Per-agent token attribution, daily budget enforcement, and budget warnings posted to SSE and originating channels |
 | **Mount allowlist** | Only approved directories visible inside containers |
 | **XSS prevention** | Server-side HTML escaping (Trellis `tl:text`) + client-side DOMPurify |
 
-The concrete guard chain lives in `dartclaw_security` and is wired into the running server by the Dart host.
+The concrete guard chain lives in `dartclaw_kernel` and is wired into the running server by the Dart host.
 Each executing harness evaluates a runner-specific layered chain, combining reloadable base guards with that runner's turn/task tool policy.
 
 For configuration and guard details, see the [Security guide](security.md).
@@ -368,7 +371,7 @@ For configuration and guard details, see the [Security guide](security.md).
 
 DartClaw runs background work on cron schedules:
 
-- **Scheduled jobs** — user-defined cron entries (morning briefing, research tasks, custom prompts). Each job gets its own session via deterministic `SessionKey.cronSession(jobId)`.
+- **Scheduled jobs** — user-defined cron entries (morning briefings, research prompts, custom prompts). Each job gets its own session via deterministic `SessionKey.cronSession(jobId)`.
 - **Heartbeat** — periodic health check
 - **Memory pruning** — archives old entries, removes duplicates, enforces disk budget
 - **Session maintenance** — prunes idle sessions, enforces count caps and disk budgets, cleans up orphaned cron sessions

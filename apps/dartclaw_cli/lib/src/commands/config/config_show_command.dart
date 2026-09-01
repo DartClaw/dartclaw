@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' hide truncate;
 
 import '../connected_command_support.dart';
 

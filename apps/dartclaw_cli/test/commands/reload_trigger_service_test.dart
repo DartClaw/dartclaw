@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dartclaw_acp/dartclaw_acp.dart';
+import 'package:dartclaw_cli/src/commands/config_loader.dart';
 import 'package:dartclaw_cli/src/commands/reload_trigger_service.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
@@ -101,6 +103,34 @@ void main() {
         expect(notifier.reloadCalls, hasLength(1));
       });
 
+      test('the default production loader primes a valid ACP section', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_acp_default_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+        final configFile = File('${tempDir.path}/dartclaw.yaml')
+          ..writeAsStringSync('''
+harness:
+  acp:
+    agents:
+      goose:
+        binary: goose
+        topology: direct
+''');
+        final svc = ReloadTriggerService(
+          configPath: configFile.path,
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+        );
+
+        await svc.doReload();
+
+        // The loaded config, not `notifier.current`: `harness` is restart-tier,
+        // so a reload that changes nothing reloadable leaves the active config
+        // in place and reports the section as restart-required instead.
+        expect(notifier.reloadCalls, hasLength(1));
+        expect(acpConfigFor(notifier.reloadCalls.single).agents, contains('goose'));
+        expect(notifier.restartRequiredSections, contains('harness'));
+      });
+
       test('invalid reload keeps active config and logs the failure', () async {
         final records = <LogRecord>[];
         final logSub = Logger.root.onRecord.listen(records.add);
@@ -118,6 +148,37 @@ void main() {
         expect(notifier.current, same(activeConfig));
         expect(notifier.reloadCalls, isEmpty);
         expect(records.map((record) => record.message), contains(contains('config reload failed')));
+      });
+
+      test('an unparseable ACP section loaded through the production primer is refused', () async {
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        final activeConfig = notifier.current;
+        final svc = ReloadTriggerService(
+          configPath: '/tmp/dartclaw.yaml',
+          notifier: notifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+          configLoader: () => loadCliConfig(
+            fileReader: (_) => '''
+harness:
+  acp:
+    agents:
+      goose:
+        args: [acp]
+''',
+            harnessSectionPrimers: {'acp': acpConfigFor},
+          ),
+        );
+
+        await expectLater(svc.doReload(), completes);
+
+        expect(notifier.current, same(activeConfig));
+        expect(notifier.reloadCalls, isEmpty);
+        expect(
+          records.map((record) => record.message),
+          contains(contains('harness.acp.agents.goose missing "binary"')),
+        );
       });
 
       for (final testCase in const [
@@ -155,7 +216,7 @@ void main() {
         });
       }
 
-      test('deprecation diagnostics do not block reload', () async {
+      test('legacy-key advisories do not block reload', () async {
         final tempDir = Directory.systemTemp.createTempSync('reload_deprecation_');
         addTearDown(() => tempDir.deleteSync(recursive: true));
         final configFile = File('${tempDir.path}/dartclaw.yaml')
@@ -169,7 +230,10 @@ void main() {
         await svc.doReload();
 
         expect(notifier.reloadCalls, hasLength(1));
-        expect(notifier.reloadCalls.single.warnings, anyElement(contains('deprecated')));
+        expect(
+          notifier.reloadCalls.single.warnings,
+          anyElement(allOf(contains('automation.scheduled_tasks'), contains('scheduling.jobs'))),
+        );
       });
 
       test('accepted full-access advisory is logged before reload', () async {
@@ -195,7 +259,7 @@ void main() {
         );
         expect(
           records.map((record) => record.message),
-          anyElement(allOf(contains('advisory'), contains('FULL ACCESS'))),
+          anyElement(allOf(contains('advisory'), contains('approval is "never"'), contains('fully trusted'))),
         );
       });
 
@@ -225,8 +289,8 @@ void main() {
         expect(notifier.reloadCalls.single.reloadBlockingWarnings, isEmpty);
       });
 
-      test('forward-compatible custom section does not block a valid reload', () async {
-        final tempDir = Directory.systemTemp.createTempSync('reload_extension_advisory_');
+      test('an unregistered section keeps the running config instead of taking the process down', () async {
+        final tempDir = Directory.systemTemp.createTempSync('reload_unregistered_section_');
         addTearDown(() => tempDir.deleteSync(recursive: true));
         final configFile = File('${tempDir.path}/dartclaw.yaml')
           ..writeAsStringSync(
@@ -243,10 +307,9 @@ void main() {
 
         await svc.doReload();
 
-        expect(notifier.reloadCalls, hasLength(1));
-        expect(notifier.reloadCalls.single.server.maxParallelTurns, 8);
-        expect(notifier.reloadCalls.single.extensions['custom_plugin'], {'enabled': true});
-        expect(notifier.reloadCalls.single.reloadBlockingWarnings, isEmpty);
+        // A fatal parse must not propagate out of a reload: the edit is refused
+        // and the server stays on the config it is already running.
+        expect(notifier.reloadCalls, isEmpty);
       });
 
       test('invalid GitHub webhook config keeps the active config', () async {

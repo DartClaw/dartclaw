@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus, TaskType;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
 import 'package:test/test.dart';
 
@@ -27,7 +27,6 @@ void main() {
       id: 'task-readonly-dirty',
       title: 'Read-only task',
       description: 'Must not mutate the repo.',
-      type: TaskType.research,
       autoStart: true,
       projectId: 'my-app',
       configJson: const {'readOnly': true},

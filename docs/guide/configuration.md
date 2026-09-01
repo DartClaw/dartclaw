@@ -75,7 +75,7 @@ Some channel features require the server to be running before they can complete.
 
 #### Security defaults
 
-Full track does not change security defaults. Guards and the input sanitizer remain enabled unless you explicitly pass `--no-content-guard` or `--no-input-sanitizer`. These flags are available but not recommended for channel deployments.
+Full track does not change security defaults. Guards remain enabled unless you explicitly pass `--no-content-guard`. That flag is available but not recommended for channel deployments.
 
 ```bash
 # dartclaw setup is an alias for dartclaw init
@@ -117,6 +117,9 @@ Standalone workflow commands add one scoped discovery step before the default in
 
 Values support `${ENV_VAR}` substitution. CLI flags override config file values.
 
+`gateway.mcp_clients` requires it: a client token must be written as a `${VAR}` reference, never a literal, and an
+unresolved reference refuses to start. See [Context Engine Mode](context-engine.md).
+
 ### Minimal Config
 
 ```yaml
@@ -125,486 +128,396 @@ host: localhost
 data_dir: ~/.dartclaw
 ```
 
+<!-- BEGIN GENERATED CONFIG REFERENCE -->
+### Core Config
+
+These are the settings most operators need first. The exhaustive reference below documents every accepted key.
+
+| Key | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `port` | integer | 1–65535 | TCP port the HTTP server binds. Default 3333; excluded from hot reload, so a change needs a restart. (restart required) |
+| `host` | string |  | Interface the HTTP server binds. Default localhost — bind 0.0.0.0 only behind a trusted proxy. (restart required) |
+| `data_dir` | string |  | Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required) |
+| `base_url` | null or string |  | Public URL used to build absolute links for pairing, webhooks and notifications. Null falls back to the bound interface and port. (restart required) |
+| `name` | string |  | Display label for this instance, shown in the web UI and in channel replies. (restart required) |
+| `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
+| `governance.turn_limits.stall_timeout` | integer or string | minimum 0 | Duration such as 300s without provider progress before the stall action fires; zero disables it. (restart required) |
+| `governance.turn_limits.stall_action` | string | one of "cancel", "ignore", "warn" | What a stalled turn triggers: a warning, a cancellation, or nothing. (restart required) |
+| `governance.turn_limits.turn_timeout` | integer or string | minimum 0 | Wall-clock ceiling such as 1800s for a provider turn; zero disables it. (restart required) |
+| `agent.provider` | string |  | Harness driving the primary lane: claude, codex, or an ACP agent id. Must not be blank. (restart required) |
+| `agent.model` | null or string |  | Model for main chat, cron and heartbeat turns. Accepts provider/model shorthand; null leaves the choice to the harness. (restart required) |
+| `agent.effort` | null or string |  | Reasoning effort handed verbatim to the harness. Null leaves its own default. (restart required) |
+| `agent.execution` | null or string | one of "container", "host", null | Where primary-lane turns run. Selecting container demands container isolation be on — host is never substituted silently. (restart required) |
+| `agent.max_turns` | integer or null | minimum 1 | Ceiling on assistant turns inside one exchange. Null leaves the harness default. (restart required) |
+| `agent.disallowed_tools` | array |  | Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults. (restart required) |
+| `auth.cookie_secure` | boolean |  | Add the Secure attribute to the session cookie. Needed for HTTPS deployments; it breaks sign-in over plain HTTP. (restart required) |
+| `auth.trusted_proxies` | array or null |  | Addresses whose forwarded-for header is believed when resolving a client IP. Empty believes none. (restart required) |
+| `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
+| `gateway.hsts` | boolean |  | Send Strict-Transport-Security on responses. Safe only once the instance is reached over HTTPS everywhere. (restart required) |
+| `gateway.token` | string |  | Bearer credential accepted by the API and web UI. Generated when omitted, and never editable through the API. (file-only, not settable via API or CLI) |
+| `providers.<name>.executable` | string |  | Binary name or path launched for this provider. Required — an entry without it is skipped at load. (restart required) |
+| `providers.<name>.approval` | null or string | one of "never", "on-request", "unless-allow-listed", null | Prompt-gating axis. Only never opts a trusted run into full access. (restart required) |
+| `providers.<name>.pool_size` | integer | minimum 0 | Hard ceiling on concurrent worker leases for this provider. 0 means the default of one. (restart required) |
+| `credentials.<name>.type` | null or string | one of "api-key", "apiKey", "github-token", "githubToken", null | Which kind of secret the entry holds. Omitted means an API key. (file-only, not settable via API or CLI) |
+| `container.enabled` | boolean |  | Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is detected and starts in advisory mode where none is; an explicit true instead fails startup when the host cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a deterministic keep, and clearing it through the API would either strand an explicit container selection at the next boot or move neutral-profile work onto the host. (file-only, not settable via API or CLI) |
+| `container.image` | string |  | Container image agent work is executed in. Default dartclaw-agent:latest. (restart required) |
+| `guards.enabled` | boolean |  | Master switch for the whole guard pipeline. On by default; read-only, because turning enforcement off is a YAML-and-restart decision, not an API call. (file-only, not settable via API or CLI) |
+| `guards.fail_open` | boolean |  | Whether an unexpected guard failure warns instead of blocking. Fail-closed by default; read-only for the same reason as the master switch. (file-only, not settable via API or CLI) |
+| `guards.content.enabled` | boolean |  | Classify model-visible content before it reaches the agent. (restart required) |
+| `guards.content.max_bytes` | integer | minimum 1 | Bytes handed to the classifier; longer material is truncated before scoring. (restart required) |
+| `guard_audit.max_retention_days` | integer | 0–365 | Days of dated audit partitions kept before deletion. 0 keeps them indefinitely. (restart required) |
+| `channels.google_chat.enabled` | boolean |  | Run the Google Chat integration. Off leaves its transport unstarted. (restart required) |
+| `channels.google_chat.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Google Chat conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.google_chat.group_access` | string | one of "allowlist", "disabled", "open" | Which Google Chat groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
+| `channels.google_chat.max_chunk_size` | integer | minimum 1 | Accepted and discarded — outbound Google Chat chunking is pinned at 4000 characters. A non-positive value is still reported at load. (restart required) |
+| `channels.signal.enabled` | boolean |  | Run the Signal integration. Off leaves the signal-cli daemon unstarted. (restart required) |
+| `channels.signal.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Signal conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |
+| `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
+| `memory.max_bytes` | integer | minimum 1 | Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required) |
+| `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
+| `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
+| `mcp_servers.<name>.enabled` | boolean |  | Whether the server is used. It is forced off at load when its credential does not resolve. (restart required) |
+| `mcp_servers.<name>.network_class` | string | one of "local", "private", "public" | How far the server can reach, which decides what egress mediation applies. Required. (restart required) |
+| `mcp_servers.<name>.surface_tools` | array |  | Tools listed to the harness. Empty exposes none, so the model never sees them. (restart required) |
+| `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
+| `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
+| `sessions.idle_timeout_minutes` | integer | minimum 0 | Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload) |
+| `sessions.reset_hour` | integer | 0–23 | Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload) |
+| `sessions.dm_scope` | string | one of "per-channel-contact", "per-contact", "shared" | How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live) |
+| `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
+| `logging.level` | string | one of "FINE", "INFO", "SEVERE", "WARNING" | Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required) |
+| `logging.format` | string | one of "human", "json" | human is readable in a terminal; json emits line-delimited records for a log shipper. (restart required) |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live) |
+| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the configured remote. Ignored while git sync itself is off. (live) |
+| `context.reserve_tokens` | integer | minimum 1 | Tokens held back from the window so a compaction flush always fits. (reload) |
+| `context.max_result_bytes` | integer | minimum 1 | Outer cap in bytes on every successful tool result the MCP endpoint returns. An oversized one arrives as head and tail around a truncation marker. (reload) |
+
 ### Full Config Reference
 
-```yaml
-# --- Server ---
-port: 3333
-host: localhost
-data_dir: ~/.dartclaw
-worker_timeout: 600              # seconds per agent turn
+This table is generated from `schemas/dartclaw.schema.json`. Named map entries use `<name>`.
 
-# --- Harness turn monitor ---
-# Paths: harness.turn_monitor.wait_warning_after, harness.turn_monitor.stuck_after
-# Both must be positive durations with wait_warning_after <= stuck_after, and
-# stuck_after must be below worker_timeout (the global per-turn timeout above).
-# Invalid or out-of-order values fall back to these defaults. Restart-required:
-# changes are read at startup, not live-reloaded.
-harness:
-  turn_monitor:
-    wait_warning_after: 30s      # running -> waiting when an active turn wait remains this long
-    stuck_after: 120s            # waiting -> stuck before worker_timeout
-  acp:
-    agents:
-      goose:
-        binary: goose
-        args: [acp, --with-builtin, developer]
-        topology: direct         # direct | relay | unverified; omitted = unverified
-        model_provider: anthropic
-        verification: required   # required when guard mediation is claimed
-        requires_guard_mediation: true
-        required_builtins: [developer, fs, terminal]
-        container_isolation_required: false   # true has no runnable execution — see the note below
-        credential: anthropic    # optional: a credentials.<name> API-key entry presented to this agent; nothing else is
-      vibe:
-        binary: vibe-acp
-        args: []
-        topology: direct         # relay/unverified require a container and are unavailable
-        model_provider: mistral
-        verification: startup_probe
-        requires_guard_mediation: false
-        required_builtins: []
-        container_isolation_required: false
-
-# --- Gateway Auth ---
-auth:
-  cookie_secure: false          # add Secure to the session cookie when served over HTTPS
-gateway:
-  auth_mode: token               # token | none
-  token: ${DARTCLAW_TOKEN}       # auto-generated if omitted or if the variable is unset
-
-# --- Container Isolation ---
-container:
-  enabled: true                  # POSIX only; false = pragmatic mode (guards only)
-  image: dartclaw-sandbox:latest
-  mounts:
-    - ~/projects
-
-# --- Guards ---
-guards:
-  enabled: true                  # master switch (default: true)
-  fail_open: false               # fail-closed by default
-  command:
-    extra_blocked_patterns:      # regex patterns added to defaults
-      - 'curl.*--upload'
-  file:
-    extra_rules:                 # added to default protections
-      - pattern: '*.secret'
-        level: no_access
-  network:
-    extra_allowed_domains:       # added to default allowlist
-      - api.example.com
-  content:
-    enabled: true
-    model: haiku
-    max_bytes: 51200             # 50KB truncation before classification; also caps web_fetch when classification is on
-    fail_open: false             # true lets unscorable content through unchecked
-
-guard_audit:
-  max_retention_days: 30         # delete dated audit partitions older than this
-
-# --- Projects (0.14) ---
-projects:
-  fetchCooldownMinutes: 5              # auto-fetch cooldown in minutes (default: 5)
-
-  my-app:                              # project ID (any string except _local)
-    remote: git@github.com:org/app.git # required: SSH or HTTPS URL
-    branch: main                       # default branch (default: main)
-    credentials: github-main           # github-token credential reference for GitHub automation
-    default: true                      # default project for new tasks (optional)
-    clone:
-      strategy: shallow               # shallow | full | sparse (default: shallow)
-    pr:
-      strategy: github-pr             # branch-only | github-pr (default: branch-only)
-      draft: true                      # create PRs as drafts (default: false)
-      labels: [agent, automated]       # auto-apply labels (default: [])
-
-tasks:
-  artifact_retention_days: 0     # 0 = unlimited; clean terminal-task artifacts in maintenance
-
-# --- Memory ---
-memory:
-  max_bytes: 32768               # positive prompt-index byte budget
-  journal:
-    enabled: false               # distill daily turn logs into canonical observations (opt-in)
-    schedule: "0 22 * * *"
-  pruning:
-    enabled: true                # archive + dedupe recognized entries; preserve other content
-    archive_after_days: 90       # positive integer
-    schedule: "0 3 * * *"
-
-# --- Scheduling ---
-# Canonical job form: id: + structured schedule: {type:, expression:/minutes:/at:}.
-# Compatibility aliases (accepted but non-canonical): name: is equivalent to id:;
-# a bare cron string (e.g. schedule: "0 18 * * *") is equivalent to {type: cron, expression: ...}.
-# Use the canonical form for new configs. See also: docs/guide/scheduling.md.
-scheduling:
-  heartbeat:
-    enabled: true
-    interval_minutes: 30
-  jobs:
-    - id: daily-summary
-      prompt: "Summarize today's activity"
-      schedule:
-        type: cron
-        expression: "0 18 * * *"
-      delivery: announce         # announce | webhook | none
-    - id: health-check
-      prompt: "Check system health"
-      schedule:
-        type: interval
-        minutes: 5
-      delivery: none
-
-# --- Session Management ---
-concurrency:
-  max_parallel_turns: 3
-sessions:
-  idle_timeout_minutes: 0        # disabled by default (opt-in; e.g. 1440 for 24h); no upper limit — large values effectively disable the timeout
-  reset_hour: 4                  # 4 AM local
-  # NOTE: daily/idle reset only applies to main, channel, and cron sessions.
-  # User-created sessions are never auto-reset.
-
-  # --- Session Scoping (0.7) ---
-  dm_scope: per-channel-contact  # shared | per-contact | per-channel-contact (default)
-  group_scope: shared            # shared | per-member (default: shared)
-  channels:                      # optional per-channel overrides
-    whatsapp:
-      dm_scope: per-contact      # overrides global dm_scope for WhatsApp
-    signal:
-      group_scope: per-member    # overrides global group_scope for Signal
-
-  # --- Session Maintenance (0.7) ---
-  maintenance:
-    mode: warn                   # warn (dry-run) | enforce | disabled
-    prune_after_days: 30         # archive sessions inactive > N days (0 = disabled)
-    max_sessions: 0              # cap active sessions (0 = unlimited)
-    max_disk_mb: 0               # disk budget in MB (0 = unlimited)
-    cron_retention_hours: 168    # delete orphaned cron sessions > N hours (0 = disabled)
-    schedule: "0 3 * * *"        # cron expression for automatic runs (empty = disabled)
-
-# --- Logging ---
-logging:
-  level: INFO                    # INFO | WARNING | SEVERE | FINE
-  format: human                  # human | json
-  file: ~/.dartclaw/logs/dartclaw.log
-  redact_patterns:
-    - 'sk-ant-[a-zA-Z0-9-]+'
-
-# --- Channels ---
-channels:
-  whatsapp:
-    enabled: false
-    gowa_executable: whatsapp    # binary name or absolute path
-    gowa_host: 127.0.0.1        # GOWA listen address
-    gowa_port: 3000             # GOWA listen port (default: 3000)
-    gowa_db_uri: ''             # GOWA database URI (--db-uri flag)
-    dm_access: pairing           # pairing | allowlist | open | disabled
-    group_access: disabled        # allowlist | open | disabled
-    require_mention: true
-    debounce_ms: 1000
-  signal:
-    enabled: false
-    phone_number: ''              # E.164 format: +1234567890
-    executable: signal-cli        # binary name or absolute path
-    host: 127.0.0.1              # signal-cli daemon listen address
-    port: 8080                   # signal-cli daemon listen port
-    dm_access: allowlist          # allowlist | open | disabled
-    group_access: disabled        # allowlist | open | disabled
-    dm_allowlist: []              # phone numbers (E.164 format)
-    group_allowlist: []           # signal group IDs (base64)
-    require_mention: true         # require @mention in groups
-    mention_patterns: []          # regex patterns for mention detection
-    max_chunk_size: 4000          # positive max message length, including multipart labels
-  google_chat:
-    enabled: false
-    service_account: ''           # path to service account JSON or inline JSON
-    audience:
-      type: app-url               # app-url | project-number
-      value: https://assistant.example.com/integrations/googlechat
-    webhook_path: /integrations/googlechat
-    bot_user: ''                  # optional Google Chat user id for self-filtering
-    typing_indicator: true        # true | false | emoji
-    dm_access: pairing            # pairing | allowlist | open | disabled
-    dm_allowlist: []
-    group_access: disabled        # disabled | open | allowlist
-    group_allowlist: []
-    require_mention: true
-    quote_reply: false            # false | sender (text attribution) | native (quoted bubble, requires user auth)
-    reactions_auth: disabled      # disabled | user (requires chat.messages.reactions OAuth scope)
-    oauth_credentials: ''         # path to OAuth client credentials JSON (required for user-auth features)
-    pubsub:                       # Cloud Pub/Sub pull — used with space_events or standalone polling
-      project_id: ''              # GCP project ID
-      subscription: ''            # Pub/Sub subscription name
-      poll_interval_seconds: 2    # poll interval (min 1)
-      max_messages_per_pull: 100  # max messages per request (1–100)
-    space_events:                 # Workspace Events API subscriptions
-      enabled: false
-      pubsub_topic: ''            # target Pub/Sub topic for event notifications
-      event_types:                # shorthand event types; fully-qualified Google Workspace Chat names also accepted
-        - message.created
-      include_resource: true      # include full resource in event payloads
-
-# --- GitHub Webhook --- maps inbound GitHub events to workflow runs
-github:
-  enabled: false                       # master switch for the webhook handler
-  webhook_secret: ${GITHUB_WEBHOOK_SECRET}  # HMAC-SHA256 signing key; required when enabled
-  webhook_path: /webhook/github        # default endpoint mounted on the server
-  triggers:
-    - event: pull_request              # currently only pull_request is processed
-      actions: [opened, synchronize]   # which event actions launch the workflow
-      labels: []                       # optional label filter (empty = no filter)
-      workflow: code-review            # workflow definition name to launch
-
-# --- Tasks ---
-tasks:
-  completion_action: review          # review (default) | accept (auto-accept on completion)
-  worktree:
-    base_ref: main
-    stale_timeout_hours: 24
-    merge_strategy: squash        # squash | merge
-
-# --- Agent Config ---
-agent:
-  provider: claude               # default provider: claude | codex | <harness.acp.agents id>
-  max_turns: 50
-  model: opus[1m]                # also accepts shorthand like claude/opus or codex/gpt-5.4
-  effort: high                   # reasoning effort — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
-  disallowed_tools: []
-  agents:                        # logical-agent definitions – see Agents guide for details
-    search:                      # built-in default; omit to use defaults
-      provider: claude           # optional; inherits agent.provider when omitted
-      security_profile: restricted # workspace | restricted; search defaults to restricted
-      model: haiku               # per-agent model override
-      effort: low                # per-agent effort override
-      tools: [web_search, web_fetch]
-      max_response_bytes: 5242880
-    researcher:                  # reads untrusted web content, returns only schema-conforming JSON
-      description: "Researches a question and returns structured findings"
-      security_profile: restricted
-      tools: [web_search, web_fetch]
-      prompt: "Research the question and report what you found."
-      output_schema:
-        type: object
-        properties:
-          answer: {type: string}
-          sources:
-            type: array
-            items:
-              type: object
-              properties:
-                url: {type: string}
-                title: {type: string}
-              required: [url]
-        required: [answer, sources]
-    # Custom logical agents – define any number with unique IDs:
-    # summarizer:
-    #   description: "Summarizes documents"
-    #   prompt: "You are a summarization specialist..."
-    #   tools: [Read]
-    #   model: haiku
-
-# --- Workflow Defaults ---
-workflow:
-  # Operator-owned workflow workspace. When unset, DartClaw manages a default
-  # workspace under <dataDir>/workflow-workspace/ whose AGENTS.md is created on
-  # first use and auto-refreshed on upgrade while untouched; once you edit it,
-  # your version is preserved (tracked via a sibling
-  # AGENTS.md.dartclaw-managed.json marker). A custom workspace_dir is never
-  # written to or refreshed by DartClaw.
-  workspace_dir: ~/.dartclaw/workflow-workspace
-  approvals: manual              # manual | auto-on-stall | auto
-  defaults:
-    workflow:
-      model: claude/sonnet       # shorthand sets both provider + model
-    planner:
-      model: claude/opusplan
-    executor:
-      model: codex/gpt-5.4-mini
-    reviewer:
-      model: claude/opus
-
-# Recommended presets for the shipped built-in workflows:
-#
-# Claude-first
-# workflow:
-#   defaults:
-#     workflow: { model: claude/sonnet }
-#     planner:  { model: claude/opusplan }
-#     executor: { model: claude/sonnet }
-#     reviewer: { model: claude/opus }
-#
-# Codex-first
-# workflow:
-#   defaults:
-#     workflow: { model: codex/gpt-5.4 }
-#     planner:  { model: codex/gpt-5.4 }
-#     executor: { model: codex/gpt-5.4-mini }
-#     reviewer: { model: codex/gpt-5-codex }
-#
-# Mixed setup
-# workflow:
-#   defaults:
-#     workflow: { model: claude/sonnet }
-#     planner:  { model: claude/opusplan }
-#     executor: { model: codex/gpt-5.4-mini }
-#     reviewer: { model: claude/opus }
-
-# --- Providers (0.13) ---
-providers:
-  claude:
-    executable: claude           # path or binary name
-    pool_size: 2                 # hard limit: 2 concurrent background worker leases
-    inherit_user_settings: true  # default: load user + project + local Claude settings; false = project-only
-  #   auth: auto                 # auto (default) | subscription | api_key
-  #                              # auto uses a stored subscription credential when present,
-  #                              #   otherwise the configured API key.
-  #   approval: on-request       # on-request | unless-allow-listed | never (prompt-gating axis)
-  #   sandbox: workspace-write   # read-only | workspace-write | danger-full-access (OS-isolation axis)
-  #                              # approval and sandbox are independent: sandbox never relaxes
-  #                              #   prompt gating, approval never changes OS isolation. Both
-  #                              #   default OFF (dontAsk + allow-list, no sandbox change).
-  #                              #   approval: never opts a trusted run into full access and is
-  #                              #   refused under the restricted container profile (fail-closed).
-  # codex:                       # uncomment to enable Codex (OpenAI models)
-  #   executable: codex          # path to codex binary
-  #   pool_size: 2               # hard limit: 2 concurrent background worker leases
-  #   auth: auto                 # auto (default) | subscription | api_key
-  #   sandbox: workspace-write   # workspace-write | danger-full-access
-  #   approval: on-request       # on-request | unless-allow-listed | never
-  #                              # IMPORTANT: on-request is the broadest host interception;
-  #                              #   unless-allow-listed is partial and never disables it.
-  #                              #   If omitted, Codex inherits its own configuration and
-  #                              #   DartClaw cannot verify the host-interception posture.
-  #                              #   For logical agents using Codex, use approval: on-request
-  #                              #   with sandbox: read-only or workspace-write. Trusted
-  #                              #   batch use may still choose never when host guard
-  #                              #   interception is intentionally not required.
-  #                              #   See: docs/guide/agents.md § Providers
-
-# --- Credentials (0.13) ---
-# Provider API keys. Since 0.24.2 an API key is the alternative to a subscription
-# credential, not the default: subscription credentials live in DartClaw's own
-# stores under <data_dir>/credentials/ and are written by `dartclaw auth claude` /
-# `dartclaw auth codex` – never here. See security.md for setup and trade-offs.
-# Since 0.24.3 any named credential can live in the store instead of this block:
-# `dartclaw secrets set <name> --type api-key` writes it to
-# <data_dir>/credentials/named/, and it resolves as credentials.<name> at every
-# config load. A name held in both wins from the store.
-credentials:
-  anthropic:
-    api_key: ${ANTHROPIC_API_KEY}
-  # openai:                      # uncomment when using Codex
-  #   api_key: ${CODEX_API_KEY}
-  #                              # ${OPENAI_API_KEY} remains accepted as a fallback.
-  # github-main:                 # uncomment for external GitHub project automation
-  #   type: github-token
-  #   token: ${GITHUB_TOKEN}
-  #   repository: org/app        # optional repo-scope guard
-
-# --- External MCP servers (0.19) ---
-mcp_servers:
-  filesystem:
-    command: /usr/local/bin/filesystem-mcp    # stdio transport; exactly one of command or url
-    # url: https://mcp.example.com/mcp        # HTTP transport alternative
-    network_class: local                      # local | private | public
-    enabled: true
-    credential: filesystem-mcp                # reference to credentials.<name>; do not inline secrets here
-    allow_tools: [read_file, stat]            # egress allowlist; empty denies all outbound tools
-    surface_tools: [read_file]                # tools exposed to harness tools/list; empty exposes none
-    rate_limit:
-      calls: 60
-      window_seconds: 60
-    token_budget:
-      tokens: 20000
-      window_seconds: 3600
-
-# --- Context Management ---
-context:
-  reserve_tokens: 20000         # token reserve before compaction flush
-  max_result_bytes: 51200       # 50KB max tool result before trimming
-
-# --- Search ---
-search:
-  backend: fts5                  # fts5 | qmd
-  qmd:
-    host: 127.0.0.1              # literal loopback only: localhost, 127.x.x.x, or ::1
-    port: 8181
-  default_depth: standard        # fast | standard | deep
-  providers:                     # web-search providers; `brave` and `tavily` are the recognized ids
-    brave:
-      enabled: true
-      credential: brave-search   # a credentials.<name> api-key entry; exclusive with api_key
-    # tavily:
-    #   enabled: true
-    #   api_key: ${TAVILY_API_KEY}   # the alternative to credential:
-
-# --- Governance (0.12) --- rate limits, token budgets, loop detection
-governance:
-  admin_senders:                       # sender IDs exempt from rate limits (facilitators)
-    - "users/123456789012345"
-  turn_progress:
-    stall_timeout: 300s                # one-shot CLI stdout silence window
-    stall_action: cancel               # warn | cancel | ignore
-    max_duration: 1800s                # default one-shot CLI wall-clock ceiling
-  rate_limits:
-    per_sender:
-      messages: 10                     # max messages per window per sender
-      window: 5m                       # sliding window duration
-    global:
-      turns: 30                        # max agent turns per window across all senders
-      window: 1h
-  budget:
-    daily_tokens: 0                    # 0 = unlimited; daily token budget
-    action: block                      # block | warn (block new turns or warn only)
-    timezone: "UTC+1"                  # budget resets at midnight in this timezone
-                                       # supported: UTC, GMT, UTC+N, UTC-N,
-                                       # and IANA names (e.g. Europe/Stockholm), which are DST-aware
-  loop_detection:
-    enabled: false                     # disabled by default
-    max_consecutive_turns: 5           # abort if agent takes >N consecutive turns
-    max_tokens_per_minute: 10000       # abort if token velocity exceeds threshold
-    velocity_window_minutes: 2
-    max_consecutive_identical_tool_calls: 5
-    action: abort                      # abort | warn
-
-# --- Server public URL ---
-base_url: https://example.com:3333  # public base URL for absolute links
-
-# --- Workspace Git Sync ---
-workspace:
-  git_sync:
-    enabled: false
-    push_enabled: false          # push if remote configured
-
-# --- Knowledge jobs (opt-in) ---
-knowledge:
-  inbox:
-    enabled: false
-    interval_minutes: 5
-    max_bytes: 1048576
-    retry_attempts: 2
-    processed_retention_days: 30
-    delivery_mode: announce      # none | announce | webhook
-    effort: medium               # reasoning effort for the extraction turn
-  wiki_lint:
-    enabled: false
-    interval_minutes: 60
-    delivery_mode: announce      # none | announce | webhook
-
-# --- Scheduled Task Templates ---
-automation:
-  scheduled_tasks:
-    - id: daily-maintenance-review
-      schedule: "0 9 * * 1-5"
-      enabled: true
-      task:
-        title: Daily maintenance review
-        task_type: "coding"
-        description: Review open maintenance items and prepare follow-up work.
-        acceptance_criteria: Tests stay green and the worktree is ready for review.
-        auto_start: true
-```
+| Key | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| **agent** |  |  |  |
+| `agent.agents.<name>.denied_tools` | array |  | Tools blocked for this agent even when the allowlist would admit them. (restart required) |
+| `agent.agents.<name>.description` | string |  | One line shown in the spawn tool schema so a caller knows when to pick this agent. (restart required) |
+| `agent.agents.<name>.effort` | null or string |  | Reasoning-effort override for this agent. Null inherits the primary lane setting. (restart required) |
+| `agent.agents.<name>.execution` | null or string | one of "container", "host", null | Where this agent runs. Null inherits the primary lane; host contradicts a configured container profile and is refused. (restart required) |
+| `agent.agents.<name>.max_response_bytes` | integer | minimum 1 | Ceiling on what this agent returns to its caller, in bytes. Defaults to 5 MiB. (restart required) |
+| `agent.agents.<name>.model` | null or string |  | Model override for this agent. Null inherits the primary lane setting. (restart required) |
+| `agent.agents.<name>.output_schema` | object |  | Inline JSON Schema the agent answer must conform to: a closed subset of type, properties, required, items, enum and additionalProperties, with every object level forced closed. A non-conforming answer fails the turn instead of being repaired or truncated; an unsupported keyword is refused at load. (restart required) |
+| `agent.agents.<name>.prompt` | string |  | System prompt used for this agent turns. Empty leaves the agent unguided. (restart required) |
+| `agent.agents.<name>.provider` | null or string |  | Harness driving this agent. Null inherits the primary lane setting; blank is refused. (restart required) |
+| `agent.agents.<name>.security_profile` | null or string | one of "restricted", "workspace", null | Container posture: workspace can write the checkout, restricted cannot. It never selects host or container placement. (restart required) |
+| `agent.agents.<name>.tools` | array |  | Tools this agent may call. Empty enforces no allowlist at all, which is warned about at load. (restart required) |
+| `agent.disallowed_tools` | array |  | Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults. (restart required) |
+| `agent.effort` | null or string |  | Reasoning effort handed verbatim to the harness. Null leaves its own default. (restart required) |
+| `agent.execution` | null or string | one of "container", "host", null | Where primary-lane turns run. Selecting container demands container isolation be on — host is never substituted silently. (restart required) |
+| `agent.history.max_message_chars` | integer | minimum 500 | Characters of one replayed message kept when history is rebuilt. Values under 500 are refused. (restart required) |
+| `agent.history.max_total_chars` | integer | minimum 5000 | Characters of replayed history in total. Values under 5000, or below the per-message cap, are refused. (restart required) |
+| `agent.max_turns` | integer or null | minimum 1 | Ceiling on assistant turns inside one exchange. Null leaves the harness default. (restart required) |
+| `agent.model` | null or string |  | Model for main chat, cron and heartbeat turns. Accepts provider/model shorthand; null leaves the choice to the harness. (restart required) |
+| `agent.provider` | string |  | Harness driving the primary lane: claude, codex, or an ACP agent id. Must not be blank. (restart required) |
+| **alerts** |  |  |  |
+| `alerts.burst_threshold` | integer | minimum 1 | Alerts inside the cooldown that collapse into one summary instead of separate messages. (reload) |
+| `alerts.cooldown_seconds` | integer | minimum 1 | Seconds one alert type is suppressed after firing, so a flapping condition does not spam. (reload) |
+| `alerts.enabled` | boolean |  | Deliver operational alerts to the configured targets. Off silences delivery, not the log line. (reload) |
+| `alerts.routes.<name>` | array |  | Recipients this alert type is delivered to. A non-list value is skipped with a warning. (reload) |
+| `alerts.targets` | array |  | Where alerts are delivered. An empty list silences delivery even while alerting is on. (reload) |
+| **auth** |  |  |  |
+| `auth.cookie_secure` | boolean |  | Add the Secure attribute to the session cookie. Needed for HTTPS deployments; it breaks sign-in over plain HTTP. (restart required) |
+| `auth.trusted_proxies` | array or null |  | Addresses whose forwarded-for header is believed when resolving a client IP. Empty believes none. (restart required) |
+| **base_url** |  |  |  |
+| `base_url` | null or string |  | Public URL used to build absolute links for pairing, webhooks and notifications. Null falls back to the bound interface and port. (restart required) |
+| **channels** |  |  |  |
+| `channels.<name>` | object |  | Channel integrations keyed by channel name. The built-in channels are declared field by field; any other map-valued key is loaded as the definition of a channel registered by a deployer. Read-only: an object-valued field is written wholesale, so a settable container would carry the read-only Google Chat service account and audience claim past their own refusal. The individual channel fields keep their own tiers. (file-only, not settable via API or CLI) |
+| `channels.debounce_window_ms` | integer | minimum 0 | Milliseconds inbound messages from one session are coalesced into a single turn. Default 1000; 0 starts a turn per message. (restart required) |
+| `channels.google_chat.audience.type` | null or string | one of "app-url", "project-number", null | Which audience claim an inbound signed request must carry: the app URL, or the numeric project number. (file-only, not settable via API or CLI) |
+| `channels.google_chat.audience.value` | null or string |  | Expected audience matching the declared form. A request that fails it is rejected before parsing. (file-only, not settable via API or CLI) |
+| `channels.google_chat.bot_user` | null or string |  | Chat user resource name of the bot, used to drop its own messages. Null disables self-filtering. (restart required) |
+| `channels.google_chat.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Google Chat conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.google_chat.dm_allowlist` | array or null |  | Approved one-to-one Google Chat senders, used while direct access is allowlist-based. (restart required) |
+| `channels.google_chat.enabled` | boolean |  | Run the Google Chat integration. Off leaves its transport unstarted. (restart required) |
+| `channels.google_chat.feedback.enabled` | boolean |  | Post progress updates while a long turn runs. (restart required) |
+| `channels.google_chat.feedback.min_feedback_delay` | string |  | Duration such as 5s a turn must run before the first progress update appears. (restart required) |
+| `channels.google_chat.feedback.status_interval` | string |  | Duration such as 30s between progress updates once they start. (restart required) |
+| `channels.google_chat.feedback.status_style` | string | one of "creative", "minimal", "silent" | Wording of progress updates: creative, minimal, or silent. (restart required) |
+| `channels.google_chat.group_access` | string | one of "allowlist", "disabled", "open" | Which Google Chat groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
+| `channels.google_chat.group_allowlist` | array or null |  | Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model and effort. (restart required) |
+| `channels.google_chat.max_chunk_size` | integer | minimum 1 | Accepted and discarded — outbound Google Chat chunking is pinned at 4000 characters. A non-positive value is still reported at load. (restart required) |
+| `channels.google_chat.mention_patterns` | array |  | Accepted and discarded — Google Chat recognizes a mention from the platform annotation, not from a regex. (restart required) |
+| `channels.google_chat.oauth_credentials` | null or string |  | Path to the OAuth client credentials JSON needed by user-auth features such as Workspace Events subscriptions. (restart required) |
+| `channels.google_chat.pubsub.max_messages_per_pull` | integer | 1–100 | Messages requested per pull, between 1 and 100. (restart required) |
+| `channels.google_chat.pubsub.poll_interval_seconds` | integer | minimum 1 | Seconds between pulls. A lower value costs more API requests. (restart required) |
+| `channels.google_chat.pubsub.project_id` | null or string |  | GCP project holding the subscription pulled for asynchronous inbound events. (restart required) |
+| `channels.google_chat.pubsub.subscription` | null or string |  | Name of the subscription pulled for inbound events. (restart required) |
+| `channels.google_chat.quote_reply` | string | one of "disabled", "native", "sender" | How a reply attributes the inbound message: none, a text attribution line, or a native quoted bubble that needs user-level auth. (restart required) |
+| `channels.google_chat.reactions_auth` | string | one of "disabled", "user" | Reactions need user-level OAuth; disabled turns them off entirely. (restart required) |
+| `channels.google_chat.require_mention` | boolean |  | Only act on Google Chat group messages that name the bot. Off answers every message in the group. (restart required) |
+| `channels.google_chat.response_prefix` | string |  | Accepted and discarded — Google Chat applies no outbound prefix. (restart required) |
+| `channels.google_chat.service_account` | null or string |  | Service-account JSON, or a path to it, used for the Chat REST API. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI) |
+| `channels.google_chat.space_events.enabled` | boolean |  | Maintain Workspace Events subscriptions. Needs user OAuth plus a topic and subscription. (restart required) |
+| `channels.google_chat.space_events.event_types` | array or null |  | Event types subscribed to, shorthand or fully qualified. Each needs a matching OAuth scope. (restart required) |
+| `channels.google_chat.space_events.include_resource` | boolean |  | Ask for the full resource in each notification. Off delivers name-only events, which have a longer subscription lifetime. (restart required) |
+| `channels.google_chat.space_events.pubsub_topic` | null or string |  | Topic the Workspace Events subscription publishes notifications to. (restart required) |
+| `channels.google_chat.typing_indicator` | boolean or string | one of "disabled", "emoji", "false", "message", "true", false, true | How work in progress is shown: a placeholder message, an emoji reaction, or nothing. A YAML boolean is also accepted, true meaning the placeholder message. (restart required) |
+| `channels.google_chat.webhook_path` | string |  | HTTP path the synchronous Chat webhook is mounted at. (restart required) |
+| `channels.max_queue_depth` | integer | minimum 1 | Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped. (restart required) |
+| `channels.retry_policy.base_delay_ms` | integer | minimum 0 | Milliseconds of backoff before the first delivery retry, grown and jittered on later attempts. Default 1000. (restart required) |
+| `channels.retry_policy.jitter_factor` | number | 0–1 | Fraction of the backoff randomly added to each delivery retry, spreading a burst of failures apart. 0 retries on a fixed schedule; default 0.2. (restart required) |
+| `channels.retry_policy.max_attempts` | integer | minimum 1 | Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required) |
+| `channels.signal.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Signal conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.signal.dm_allowlist` | array |  | Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. (restart required) |
+| `channels.signal.enabled` | boolean |  | Run the Signal integration. Off leaves the signal-cli daemon unstarted. (restart required) |
+| `channels.signal.executable` | string |  | Binary name or absolute path of signal-cli. (restart required) |
+| `channels.signal.group_access` | string | one of "allowlist", "disabled", "open" | Which Signal groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
+| `channels.signal.group_allowlist` | array |  | Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model and effort are also accepted. (restart required) |
+| `channels.signal.host` | string |  | Address the signal-cli daemon listens on. Default 127.0.0.1. (restart required) |
+| `channels.signal.max_chunk_size` | integer | minimum 1 | Largest outbound Signal chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required) |
+| `channels.signal.mention_patterns` | array |  | Extra regexes counted as naming the bot in a Signal group, on top of the built-in detection. (restart required) |
+| `channels.signal.phone_number` | string |  | Account number registered with signal-cli, in E.164 form such as +1234567890. (restart required) |
+| `channels.signal.port` | integer | 1–65535 | Port the signal-cli daemon listens on. Default 8080. (restart required) |
+| `channels.signal.require_mention` | boolean |  | Only act on Signal group messages that name the bot. Off answers every message in the group. (restart required) |
+| `channels.signal.response_prefix` | string |  | Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required) |
+| `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. (restart required) |
+| `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |
+| `channels.whatsapp.gowa_db_uri` | null or string |  | Connection string giving the GOWA sidecar persistent pairing state. Null keeps its own local store. (restart required) |
+| `channels.whatsapp.gowa_executable` | string |  | Binary name or absolute path of the GOWA sidecar that talks to WhatsApp. (restart required) |
+| `channels.whatsapp.gowa_host` | string |  | Address the GOWA sidecar HTTP API listens on. Default 127.0.0.1. (restart required) |
+| `channels.whatsapp.gowa_port` | integer | 1–65535 | Port the GOWA sidecar HTTP API listens on. Default 3000; an instance already listening there is attached to rather than spawned. (restart required) |
+| `channels.whatsapp.group_access` | string | one of "allowlist", "disabled", "open" | Which WhatsApp groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
+| `channels.whatsapp.group_allowlist` | array |  | Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model and effort. (restart required) |
+| `channels.whatsapp.max_chunk_size` | integer | minimum 1 | Largest outbound WhatsApp chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required) |
+| `channels.whatsapp.mention_patterns` | array |  | Extra regexes counted as naming the bot in a WhatsApp group, on top of the built-in detection. (restart required) |
+| `channels.whatsapp.require_mention` | boolean |  | Only act on WhatsApp group messages that name the bot. Off answers every message in the group. (restart required) |
+| `channels.whatsapp.response_prefix` | string |  | Template prepended to the first outbound WhatsApp chunk. Understands the {model} and {agent.identity.name} placeholders. (restart required) |
+| **concurrency** |  |  |  |
+| `concurrency.max_parallel_turns` | integer | 1–10 | Ceiling on agent turns executing simultaneously across the instance. Raising it multiplies peak token spend. (reload) |
+| **container** |  |  |  |
+| `container.enabled` | boolean |  | Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is detected and starts in advisory mode where none is; an explicit true instead fails startup when the host cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a deterministic keep, and clearing it through the API would either strand an explicit container selection at the next boot or move neutral-profile work onto the host. (file-only, not settable via API or CLI) |
+| `container.image` | string |  | Container image agent work is executed in. Default dartclaw-agent:latest. (restart required) |
+| **context** |  |  |  |
+| `context.compact_instructions` | null or string |  | Extra guidance handed to the model when it compacts a conversation. Null uses the built-in wording. (restart required) |
+| `context.identifier_instructions` | null or string |  | The custom wording used when identifier preservation is set to custom. (restart required) |
+| `context.identifier_preservation` | string | one of "custom", "off", "strict" | How hard compaction works to keep literal identifiers: strict, off, or custom wording. (restart required) |
+| `context.max_result_bytes` | integer | minimum 1 | Outer cap in bytes on every successful tool result the MCP endpoint returns. An oversized one arrives as head and tail around a truncation marker. (reload) |
+| `context.reserve_tokens` | integer | minimum 1 | Tokens held back from the window so a compaction flush always fits. (reload) |
+| `context.warning_threshold` | integer | 50–99 | Percentage of the window at which the UI warns about remaining room. Clamped to 50–99. (live) |
+| **credentials** |  |  |  |
+| `credentials.<name>.api_key` | null or string |  | The key itself, normally an environment reference so the literal stays out of the file. (file-only, not settable via API or CLI) |
+| `credentials.<name>.repository` | null or string |  | Optional owner/name scope guard limiting where a GitHub token may be used. (file-only, not settable via API or CLI) |
+| `credentials.<name>.token` | null or string |  | The GitHub token, normally an environment reference so the literal stays out of the file. (file-only, not settable via API or CLI) |
+| `credentials.<name>.type` | null or string | one of "api-key", "apiKey", "github-token", "githubToken", null | Which kind of secret the entry holds. Omitted means an API key. (file-only, not settable via API or CLI) |
+| **data_dir** |  |  |  |
+| `data_dir` | string |  | Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required) |
+| **dev_mode** |  |  |  |
+| `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
+| **features** |  |  |  |
+| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, and post task notifications as new threads. (restart required) |
+| `features.thread_binding.idle_timeout_minutes` | integer | 1–1440 | Minutes of thread inactivity before the binding is dropped. The sweep runs every five minutes, so removal can lag. (restart required) |
+| **gateway** |  |  |  |
+| `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
+| `gateway.hsts` | boolean |  | Send Strict-Transport-Security on responses. Safe only once the instance is reached over HTTPS everywhere. (restart required) |
+| `gateway.mcp_clients` | array |  | Named MCP clients allowed to reach /mcp with their own bearer token, each limited to the context-engine read tools. Read-only through the API, and each token must be a ${VAR} reference. Empty leaves /mcp accepting the gateway token alone. (file-only, not settable via API or CLI) |
+| `gateway.reload.debounce_ms` | integer | minimum 100 | Milliseconds to wait after a file change before applying it, so an editor writing twice reloads once. Minimum 100. (restart required) |
+| `gateway.reload.mode` | string | one of "auto", "off", "signal" | How a YAML edit reaches the running server: off never, signal on SIGHUP, auto on file change. (restart required) |
+| `gateway.token` | string |  | Bearer credential accepted by the API and web UI. Generated when omitted, and never editable through the API. (file-only, not settable via API or CLI) |
+| **github** |  |  |  |
+| `github.enabled` | boolean |  | Accept inbound webhook deliveries and map them onto workflow runs. (restart required) |
+| `github.triggers` | array |  | Rules mapping an inbound event onto the workflow that should launch. (restart required) |
+| `github.webhook_path` | string |  | HTTP path the webhook endpoint is mounted at. (restart required) |
+| `github.webhook_secret` | null or string |  | HMAC-SHA256 key deliveries are signed with. Required once the handler is on; an unsigned delivery is refused. (restart required) |
+| **governance** |  |  |  |
+| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks. (restart required) |
+| `governance.budget.action` | string | one of "block", "warn" | What happens once the allowance is spent: refuse new turns, or only warn. (restart required) |
+| `governance.budget.daily_tokens` | integer | minimum 0 | Token allowance per day across the instance. 0 means unlimited. (restart required) |
+| `governance.budget.timezone` | string |  | Zone whose midnight resets the allowance. Accepts UTC, UTC±N, and DST-aware IANA names. (restart required) |
+| `governance.crowd_coding.effort` | null or string |  | Reasoning effort for crowd-coding turns. Null inherits the primary lane setting. (restart required) |
+| `governance.crowd_coding.model` | null or string |  | Model used for crowd-coding turns. Null inherits the primary lane setting. (restart required) |
+| `governance.loop_detection.action` | string | one of "abort", "warn" | What a detected runaway triggers: aborting the turn, or a warning only. (restart required) |
+| `governance.loop_detection.enabled` | boolean |  | Watch for a runaway agent and stop it. Off by default. (restart required) |
+| `governance.loop_detection.max_consecutive_identical_tool_calls` | integer | minimum 0 | Repeated identical tool calls tolerated before the action fires. 0 mutes this signal. (restart required) |
+| `governance.loop_detection.max_consecutive_turns` | integer | minimum 0 | Consecutive turns tolerated before the action fires. 0 mutes this signal. (restart required) |
+| `governance.loop_detection.max_tokens_per_minute` | integer | minimum 0 | Token velocity tolerated before the action fires. 0 mutes this signal. (restart required) |
+| `governance.loop_detection.velocity_window_minutes` | integer | minimum 1 | Minutes the velocity average is computed over. (restart required) |
+| `governance.queue_strategy` | string | one of "fair", "fifo" | How waiting turns are picked: fifo by arrival, or fair round-robin across senders. (restart required) |
+| `governance.rate_limits.global.turns` | integer | minimum 0 | Agent turns allowed inside the window across every sender. 0 lifts the limit. (restart required) |
+| `governance.rate_limits.global.window` | integer or string | 1–1440 | Length of the instance-wide sliding window in minutes; YAML also accepts shorthand such as 5m or 1h. (restart required) |
+| `governance.rate_limits.per_sender.max_pause_queued` | integer | minimum 0 | Messages held back per sender while a turn is paused. 0 drops them. (restart required) |
+| `governance.rate_limits.per_sender.max_queued` | integer | minimum 0 | Messages held back per sender once the limit is hit; further ones are dropped. 0 drops immediately. (restart required) |
+| `governance.rate_limits.per_sender.messages` | integer | minimum 0 | Messages one sender may send inside the window. 0 lifts the limit. (restart required) |
+| `governance.rate_limits.per_sender.window` | integer or string | 1–1440 | Length of the sliding window in minutes; YAML also accepts shorthand such as 5m or 1h. (restart required) |
+| `governance.turn_limits.stall_action` | string | one of "cancel", "ignore", "warn" | What a stalled turn triggers: a warning, a cancellation, or nothing. (restart required) |
+| `governance.turn_limits.stall_timeout` | integer or string | minimum 0 | Duration such as 300s without provider progress before the stall action fires; zero disables it. (restart required) |
+| `governance.turn_limits.turn_timeout` | integer or string | minimum 0 | Wall-clock ceiling such as 1800s for a provider turn; zero disables it. (restart required) |
+| **guard_audit** |  |  |  |
+| `guard_audit.max_retention_days` | integer | 0–365 | Days of dated audit partitions kept before deletion. 0 keeps them indefinitely. (restart required) |
+| **guards** |  |  |  |
+| `guards.command.extra_blocked_patterns` | array |  | Regexes added to the built-in destructive-command set. An invalid pattern fails the guard build rather than being skipped silently.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| `guards.command.extra_blocked_pipe_targets` | array |  | Programs added to the built-in set that must never be piped into, such as an interpreter reading from a download.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| `guards.content.classifier` | string | one of "anthropic_api", "claude_binary" | Which classifier runs: the local Claude binary, or the Anthropic API. (restart required) |
+| `guards.content.enabled` | boolean |  | Classify model-visible content before it reaches the agent. (restart required) |
+| `guards.content.fail_open` | boolean |  | Let unscorable content through when the classifier itself fails. Turning it on means unchecked material can reach the agent. (restart required) |
+| `guards.content.max_bytes` | integer | minimum 1 | Bytes handed to the classifier; longer material is truncated before scoring. (restart required) |
+| `guards.content.model` | string |  | Model the classifier uses. A cheaper one lowers the cost of every scan. (restart required) |
+| `guards.enabled` | boolean |  | Master switch for the whole guard pipeline. On by default; read-only, because turning enforcement off is a YAML-and-restart decision, not an API call. (file-only, not settable via API or CLI) |
+| `guards.fail_open` | boolean |  | Whether an unexpected guard failure warns instead of blocking. Fail-closed by default; read-only for the same reason as the master switch. (file-only, not settable via API or CLI) |
+| `guards.file.extra_rules` | array |  | Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| `guards.network.agent_overrides.<name>.extra_domains` | array |  | Hosts this agent turns may additionally reach. An empty list drops the override entirely. (file-only, not settable via API or CLI) |
+| `guards.network.extra_allowed_domains` | array |  | Hosts added to the built-in outbound allowlist. Every fetch target an MCP deployment needs must be listed here.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| `guards.network.extra_exfil_patterns` | array |  | Regexes added to the built-in exfiltration detectors. An invalid pattern fails the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| **harness** |  |  |  |
+| `harness.acp.agents.<name>.args` | array |  | Arguments passed to the executable, e.g. the ACP subcommand and its builtins. (restart required) |
+| `harness.acp.agents.<name>.binary` | string |  | Executable spawned for this ACP client. Required — a registration without it is skipped. (restart required) |
+| `harness.acp.agents.<name>.container_isolation_required` | boolean |  | Demands a container, which ACP has no runnable execution for — a true here is refused at startup. (restart required) |
+| `harness.acp.agents.<name>.container_profile` | null or string | one of "restricted", "workspace", null | Container posture the execution policy would resolve to. Leaving it set on a container-enabled deployment pins the agent to a refused policy. (restart required) |
+| `harness.acp.agents.<name>.credential` | null or string |  | Names a credentials entry whose API key is injected under the environment variable it declares. The only credential an ACP spawn ever carries. (restart required) |
+| `harness.acp.agents.<name>.model_provider` | null or string |  | Vendor whose model the client talks to. It selects validation and routing, never a credential. (restart required) |
+| `harness.acp.agents.<name>.required_builtins` | array |  | Builtins the client must load, e.g. developer for a guarded Goose registration. (restart required) |
+| `harness.acp.agents.<name>.requires_guard_mediation` | boolean |  | Operator declaration that the guard chain sees this client tool calls. It demands a direct topology plus evidence. (restart required) |
+| `harness.acp.agents.<name>.topology` | null or string | one of "direct", "relay", "unverified", null | How the client reaches its model. Omitted means unverified, which claims no guard mediation. (restart required) |
+| `harness.acp.agents.<name>.verification` | null or string |  | Evidence backing a guard-mediation claim, e.g. startup_probe. Required once mediation is claimed. (restart required) |
+| **host** |  |  |  |
+| `host` | string |  | Interface the HTTP server binds. Default localhost — bind 0.0.0.0 only behind a trusted proxy. (restart required) |
+| **knowledge** |  |  |  |
+| `knowledge.inbox.delivery_mode` | string | one of "announce", "none", "webhook" | Where the run report goes: nowhere, announced in chat, or posted to a webhook. (restart required) |
+| `knowledge.inbox.effort` | string |  | Reasoning effort of the extraction turn. Billed per file — lower it for raw material you genuinely want compressed. (restart required) |
+| `knowledge.inbox.enabled` | boolean |  | Watch the filesystem inbox and ingest what is dropped there. Off by default; every file costs one extraction turn. (restart required) |
+| `knowledge.inbox.interval_minutes` | integer | 1–1440 | Minutes between sweeps of the drop directory. Clamped to 1–1440. (restart required) |
+| `knowledge.inbox.max_bytes` | integer | 1–52428800 | Largest source file that will be read, in bytes. Anything above it is skipped. (restart required) |
+| `knowledge.inbox.processed_retention_days` | integer | 0–3650 | Days an already-ingested source is kept before deletion. 0 keeps it indefinitely. (restart required) |
+| `knowledge.inbox.retry_attempts` | integer | 0–10 | How often the nondeterministic extraction turn is retried before the source is quarantined. (restart required) |
+| `knowledge.wiki_lint.delivery_mode` | string | one of "announce", "none", "webhook" | Where the lint report goes: nowhere, announced in chat, or posted to a webhook. (restart required) |
+| `knowledge.wiki_lint.enabled` | boolean |  | Run the wiki lint report on a schedule. It reports only and never rewrites a page. (restart required) |
+| `knowledge.wiki_lint.interval_minutes` | integer | 1–1440 | Minutes between lint runs. Clamped to 1–1440. (restart required) |
+| **logging** |  |  |  |
+| `logging.file` | null or string |  | Path written in addition to stdout. Null logs to stdout only. (restart required) |
+| `logging.format` | string | one of "human", "json" | human is readable in a terminal; json emits line-delimited records for a log shipper. (restart required) |
+| `logging.level` | string | one of "FINE", "INFO", "SEVERE", "WARNING" | Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required) |
+| `logging.redact_patterns` | array or null |  | Regexes whose matches are masked before any line is written out. (reload) |
+| **mcp_servers** |  |  |  |
+| `mcp_servers.<name>.allow_tools` | array |  | Tools this server may actually run. Empty denies every outbound call. (restart required) |
+| `mcp_servers.<name>.command` | null or string |  | Executable launched for a stdio server. Exactly one of it and url must be present. (restart required) |
+| `mcp_servers.<name>.credential` | null or string |  | Names a credentials entry presented to this server. Without one the server is disabled — never inline a secret here. (restart required) |
+| `mcp_servers.<name>.enabled` | boolean |  | Whether the server is used. It is forced off at load when its credential does not resolve. (restart required) |
+| `mcp_servers.<name>.network_class` | string | one of "local", "private", "public" | How far the server can reach, which decides what egress mediation applies. Required. (restart required) |
+| `mcp_servers.<name>.rate_limit.calls` | integer | minimum 0 | Calls permitted inside the window. 0 leaves the server unthrottled. (restart required) |
+| `mcp_servers.<name>.rate_limit.window_seconds` | integer | minimum 0 | Length of the call window in seconds. Defaults to 60. (restart required) |
+| `mcp_servers.<name>.surface_tools` | array |  | Tools listed to the harness. Empty exposes none, so the model never sees them. (restart required) |
+| `mcp_servers.<name>.token_budget.tokens` | integer | minimum 0 | Tokens this server results may consume inside the window. 0 leaves it unbudgeted. (restart required) |
+| `mcp_servers.<name>.token_budget.window_seconds` | integer | minimum 0 | Length of the token window in seconds. Defaults to 60. (restart required) |
+| `mcp_servers.<name>.url` | null or string |  | Absolute endpoint of an HTTP server. Plain http is accepted only for a literal loopback host. (restart required) |
+| **memory** |  |  |  |
+| `memory.curation.enabled` | boolean |  | Revise, merge and remove canonical memory entries on a schedule. Opt-in, and it costs one turn per run. (restart required) |
+| `memory.curation.schedule` | string |  | Cron expression driving the curation run. (restart required) |
+| `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
+| `memory.journal.schedule` | string |  | Cron expression driving the distillation run. (restart required) |
+| `memory.max_bytes` | integer | minimum 1 | Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required) |
+| `memory.pruning.archive_after_days` | integer | minimum 1 | Days before a canonical memory entry is archived. Must be positive. (restart required) |
+| `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
+| `memory.pruning.schedule` | string |  | Cron expression driving the archival run. (restart required) |
+| **name** |  |  |  |
+| `name` | string |  | Display label for this instance, shown in the web UI and in channel replies. (restart required) |
+| **onboarding** |  |  |  |
+| `onboarding.expiry_days` | integer | minimum 1 | Days a pairing invitation stays valid. Minimum 1; an expired invite must be re-issued. (restart required) |
+| **port** |  |  |  |
+| `port` | integer | 1–65535 | TCP port the HTTP server binds. Default 3333; excluded from hot reload, so a change needs a restart. (restart required) |
+| **projects** |  |  |  |
+| `projects.<name>.branch` | string |  | Ref tracked and branched from. Defaults to main for a remote, and to the current checkout branch for a local path. (restart required) |
+| `projects.<name>.clone.strategy` | string | one of "full", "shallow", "sparse" | How much history is fetched. shallow is cheapest; full is needed for history-dependent work. (restart required) |
+| `projects.<name>.credentials` | null or string |  | Names a github-token credentials entry used for pushes and pull requests. (restart required) |
+| `projects.<name>.default` | boolean |  | Pick this project when a new task names none. (restart required) |
+| `projects.<name>.localPath` | null or string |  | Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required) |
+| `projects.<name>.pr.draft` | boolean |  | Open the pull request as a draft so review is opt-in. (restart required) |
+| `projects.<name>.pr.labels` | array |  | Labels applied to every pull request this project opens. (restart required) |
+| `projects.<name>.pr.strategy` | string | one of "branch-only", "github-pr" | What a finished task produces: a pushed branch only, or a GitHub pull request. (restart required) |
+| `projects.<name>.remote` | null or string |  | Git URL cloned for this project. Exactly one of it and localPath must be supplied. (restart required) |
+| `projects.allowApiLocalPath` | boolean |  | Let the API register projects pointing at existing host directories. Downgraded to false unless an allowlist bounds it. Read-only: it decides whether the API may reach the host filesystem, so it must not itself be settable through the API. (file-only, not settable via API or CLI) |
+| `projects.fetchCooldownMinutes` | integer | minimum 0 | Minutes a freshness check skips the git fetch after a successful one. Default 5. (restart required) |
+| `projects.localPathAllowlist` | array |  | Absolute directories a local-path project may live under. Empty bounds nothing, which is why it gates the API flag. Read-only for the same reason: widening it through the API would lift its own bound. (file-only, not settable via API or CLI) |
+| **providers** |  |  |  |
+| `providers.<name>.approval` | null or string | one of "never", "on-request", "unless-allow-listed", null | Prompt-gating axis. Only never opts a trusted run into full access. (restart required) |
+| `providers.<name>.auth` | null or string | one of "api_key", "auto", "subscription", null | Which credential is presented. Unset lets an alias inherit its family choice; a forced value never falls back to the other kind. (restart required) |
+| `providers.<name>.executable` | string |  | Binary name or path launched for this provider. Required — an entry without it is skipped at load. (restart required) |
+| `providers.<name>.inherit_user_settings` | boolean |  | Claude only. True loads user, project and local settings; false passes project-only sources. (restart required) |
+| `providers.<name>.pool_size` | integer | minimum 0 | Hard ceiling on concurrent worker leases for this provider. 0 means the default of one. (restart required) |
+| `providers.<name>.sandbox` | null or string |  | OS-isolation axis: read-only, workspace-write or danger-full-access. A map value is forwarded verbatim as a raw native settings block. (restart required) |
+| **scheduling** |  |  |  |
+| `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
+| `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
+| `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn or creating a task. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
+| **search** |  |  |  |
+| `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
+| `search.default_depth` | string |  | Effort a query spends when the caller names none: fast, standard or deep. (restart required) |
+| `search.providers.<name>.api_key` | string |  | Vendor API key, normally an environment reference such as ${BRAVE_API_KEY}. Exactly one of it and credential is required — an entry with neither, or both, is skipped. (file-only, not settable via API or CLI) |
+| `search.providers.<name>.credential` | null or string |  | Name of a credentials.<name> api-key entry to authenticate with, from the config file or the named credential store. Exactly one of it and api_key is required; an unknown name, a github-token entry or a blank value skips the provider. (file-only, not settable via API or CLI) |
+| `search.providers.<name>.enabled` | boolean |  | Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI) |
+| `search.qmd.host` | string |  | Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required) |
+| `search.qmd.port` | integer | 1–65535 | TCP port the qmd daemon listens on. Default 8181. (restart required) |
+| **security** |  |  |  |
+| `security.bash_step.env_allowlist` | array |  | Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required) |
+| `security.bash_step.extra_strip_patterns` | array |  | Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required) |
+| **sessions** |  |  |  |
+| `sessions.channels.<name>.dm_scope` | null or string | one of "per-channel-contact", "per-contact", "shared", null | Overrides how this channel one-to-one messages map onto sessions. (restart required) |
+| `sessions.channels.<name>.effort` | null or string |  | Reasoning-effort override for turns arriving on this channel. (restart required) |
+| `sessions.channels.<name>.group_scope` | null or string | one of "per-member", "shared", null | Overrides how this channel group messages map onto sessions. (restart required) |
+| `sessions.channels.<name>.model` | null or string |  | Model override for turns arriving on this channel. (restart required) |
+| `sessions.dm_scope` | string | one of "per-channel-contact", "per-contact", "shared" | How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live) |
+| `sessions.effort` | null or string |  | Reasoning effort for scoped conversational turns. Null inherits the primary lane setting. (restart required) |
+| `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
+| `sessions.idle_timeout_minutes` | integer | minimum 0 | Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload) |
+| `sessions.maintenance.cron_retention_hours` | integer | minimum 0 | Hours an orphaned cron session survives before deletion. 0 deletes none. (restart required) |
+| `sessions.maintenance.max_disk_mb` | integer | minimum 0 | Disk budget in megabytes for stored sessions. 0 means unbudgeted. (restart required) |
+| `sessions.maintenance.max_sessions` | integer | minimum 0 | Cap on retained sessions, oldest pruned first. 0 means uncapped. (restart required) |
+| `sessions.maintenance.mode` | string | one of "enforce", "warn" | warn reports what maintenance would remove; enforce removes it. (restart required) |
+| `sessions.maintenance.prune_after_days` | integer | minimum 0 | Days of inactivity after which a session is archived. 0 archives nothing. (restart required) |
+| `sessions.maintenance.schedule` | string |  | Cron expression driving the automatic maintenance run. An empty string disables it. (restart required) |
+| `sessions.model` | null or string |  | Model used for scoped conversational turns. Null inherits the primary lane setting. (restart required) |
+| `sessions.reset_hour` | integer | 0–23 | Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload) |
+| **source_dir** |  |  |  |
+| `source_dir` | null or string |  | Checkout root used to locate templates and static assets during development. Null uses the embedded copies. (restart required) |
+| **static_dir** |  |  |  |
+| `static_dir` | null or string |  | Directory served at /static. Null resolves under the checkout root, then the embedded copies. (restart required) |
+| **tasks** |  |  |  |
+| `tasks.artifact_retention_days` | integer | 0–3650 | Days a finished task keeps its artifacts before maintenance deletes them. 0 keeps them indefinitely. (restart required) |
+| `tasks.budget.default_max_tokens` | integer |  | Token ceiling applied to a task that names none. Any value at or below zero means unbudgeted, which is also the default. (restart required) |
+| `tasks.budget.warning_threshold` | number | 0–1 | Fraction of a task token budget at which it warns once, between 0 and 1. Defaults to 0.8; the task still fails at the full budget regardless. (restart required) |
+| `tasks.completion_action` | string | one of "accept", "review" | What a finished task does next: review parks it for a human, accept lands it without one. (restart required) |
+| `tasks.execution` | string | one of "container", "host" | Execution mode for background tasks. container demands container isolation be on; task security profiles are declared separately through the authenticated task API. (file-only, not settable via API or CLI) |
+| `tasks.worktree.base_ref` | string |  | Git ref a task worktree branches from. (restart required) |
+| `tasks.worktree.merge_strategy` | string | one of "merge", "squash" | How an accepted task lands: squash collapses its commits into one, merge keeps them. (restart required) |
+| `tasks.worktree.stale_timeout_hours` | integer | 1–168 | Hours an idle task worktree survives before cleanup removes it. (restart required) |
+| **templates_dir** |  |  |  |
+| `templates_dir` | null or string |  | Directory the Trellis page templates load from. Null resolves under the checkout root, then the embedded copies. (restart required) |
+| **usage** |  |  |  |
+| `usage.budget_warning_tokens` | integer or null | minimum 1 | Daily token count that raises a warning banner. Null shows no warning. (restart required) |
+| `usage.max_file_size_bytes` | integer | minimum 1 | Largest upload accepted through the web UI and channels, in bytes. (restart required) |
+| **workflow** |  |  |  |
+| `workflow.approvals` | string | one of "auto", "auto-on-stall", "manual" | How far a run advances unattended: manual pauses on stalls and approval steps, auto-on-stall passes stalls only, auto passes both. (restart required) |
+| `workflow.cleanup.delete_remote_branch_on_failure` | boolean |  | Delete the pushed branch when a run fails. Off keeps it for post-mortem inspection. (restart required) |
+| `workflow.defaults.executor.effort` | null or string |  | Reasoning effort for executor-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.executor.model` | null or string |  | Model for executor-role steps. Accepts provider/model shorthand. (restart required) |
+| `workflow.defaults.executor.provider` | null or string |  | Harness driving executor-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.planner.effort` | null or string |  | Reasoning effort for planner-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.planner.model` | null or string |  | Model for planner-role steps. Accepts provider/model shorthand. (restart required) |
+| `workflow.defaults.planner.provider` | null or string |  | Harness driving planner-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.reviewer.effort` | null or string |  | Reasoning effort for reviewer-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.reviewer.model` | null or string |  | Model for reviewer-role steps. Accepts provider/model shorthand. (restart required) |
+| `workflow.defaults.reviewer.provider` | null or string |  | Harness driving reviewer-role steps. Null inherits the workflow-role setting. (restart required) |
+| `workflow.defaults.workflow.effort` | null or string |  | Reasoning effort for workflow-level steps when a step names none. Null leaves the harness default. (restart required) |
+| `workflow.defaults.workflow.model` | null or string |  | Model for workflow-level turns when a step names none. Accepts provider/model shorthand. (restart required) |
+| `workflow.defaults.workflow.provider` | null or string |  | Harness driving workflow-level turns when a step names none. Null inherits the primary lane setting. (restart required) |
+| `workflow.runtime_artifacts_retention.mode` | string | one of "enforce", "warn" | Whether stale run artifacts are only reported (warn) or actually deleted (enforce) during maintenance. (restart required) |
+| `workflow.runtime_artifacts_retention.prune_after_days` | integer | minimum 0 | Age in days past which run artifacts are pruned. 0 keeps them indefinitely. (restart required) |
+| `workflow.workspace_dir` | null or string |  | Operator-owned checkout the workflow steps run in. Null lets DartClaw manage one under the instance directory and refresh its AGENTS.md on upgrade. (restart required) |
+| **workspace** |  |  |  |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live) |
+| `workspace.git_sync.interval_minutes` | integer | 1–1440 | Minutes between workspace git-sync runs. The job owns this schedule; it no longer rides the heartbeat cycle. (restart required) |
+| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the configured remote. Ignored while git sync itself is off. (live) |
+<!-- END GENERATED CONFIG REFERENCE -->
 
 With guards enabled, DartClaw's own MCP `web_fetch` is canonicalized before guard evaluation and is therefore subject to NetworkGuard's built-in allowlist plus `guards.network.extra_allowed_domains`. Existing MCP deployments must add every required non-default fetch domain. Per-agent additions under `guards.network.agent_overrides.<agent-id>.extra_domains` apply to that logical agent's turns.
 
@@ -614,7 +527,7 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 
 `knowledge.inbox.effort` sets the reasoning effort of the extraction turn (provider-specific values, same vocabulary as `agent.effort`). It defaults to `medium`, raised from the previously hardcoded `low` after already-curated sources came back visibly compressed at that setting. Be aware of what that does and does not establish: the loss was observed, but no A/B run isolated effort as its cause, and the extraction prompt was rewritten in the same change. Treat `medium` as a deliberate default rather than a measured optimum, and calibrate against the `coverage:` ratio on your own corpus. Raise it further for dense or pre-distilled batches; lower it to `low` for raw material you genuinely want compressed, since effort is billed per file and the inbox runs one turn per file. Enabling the inbox on an existing deployment therefore costs more per file on upgrade than it did at the old hardcoded `low`, unless you set `effort: low` explicitly.
 
-Effort buys the turn more deliberation. It does not raise an output ceiling: the synthesis has to land in one assistant message either way, so past some source size no effort setting reaches near-complete transfer and the answer is to split the source. Read the run report's `coverage:` line – source bytes against synthesized bytes per file – rather than the `declared-gaps=` count, which is the model's own account of itself. See the [knowledge inbox recipe](recipes/04-knowledge-inbox.md#what-the-coverage-report-can-and-cannot-tell-you).
+Effort buys the turn more deliberation. It does not raise an output ceiling: the synthesis has to land in one assistant message either way, so past some source size no effort setting reaches near-complete transfer and the answer is to split the source. Read the run report's `coverage:` line – source bytes against synthesized bytes per file. See the [knowledge inbox recipe](recipes/04-knowledge-inbox.md#what-the-coverage-report-can-and-cannot-tell-you).
 
 `workflow.approvals` controls workflow approval gates, not task review. `manual` pauses on `needsInput` and explicit approval steps; `auto-on-stall` advances past `needsInput` stalls only; `auto` also auto-accepts explicit approval steps. `headless` remains separate and only changes task completion review.
 
@@ -624,13 +537,13 @@ Effort buys the turn more deliberation. It does not raise an output ceiling: the
 
 Supported keywords: `type` (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`), `properties`, `required`, `items`, `enum`, and `additionalProperties`, plus `title`/`description`/`$schema` accepted as ignored annotations. Every object level is closed: `additionalProperties` is forced to `false` whether or not you declare it, so an unknown property fails. The root schema must be `type: object`; every schema map needs a single-string `type` (write `type: "null"` quoted for the null type — bare `type: null` is YAML's null, not a type name); `type: array` requires an `items` schema; `required` names must all appear in `properties`; `integer` accepts only whole numbers (`3.0` is a `number`, not an `integer`); and an `enum` must be non-empty with every member satisfying the declared type. Anything outside that set — `$ref`, `oneOf`/`anyOf`/`allOf`, `format`, `minimum`/`maxLength` and other bounds, `const`, `default`, `$id`, type arrays, tuple-form `items` — is **rejected when the config loads**, naming the keyword and its position in your schema. A constraint DartClaw cannot enforce is never silently ignored.
 
-Do not put an `output_schema` on the built-in `search` agent: DartClaw's own `context_research` tool spawns it internally and expects its own result packet. Define a separate agent, as `researcher` does above.
+Do not put an `output_schema` on the built-in `search` agent: DartClaw's own `context_research` tool spawns it internally and expects its own result packet. Define a separate agent for schema-bound research instead.
 
-**Note on `agent.model` scope:** The global `agent.model` applies to main chat, cron jobs, and heartbeat turns. Logical agents under `agent.agents` can override the model individually. Background tasks also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
+**Note on `agent.model` scope:** The global `agent.model` applies to main chat and every scheduled job, including the heartbeat. Logical agents under `agent.agents` can override the model individually. Background tasks also use `agent.model` by default but support per-task overrides via `configJson.model` at creation time. See [Agents](agents.md) for the full model hierarchy.
 
 **Note on `agent.provider`:** This is the fixed provider for the serialized primary lane used by main user/channel sessions, and the default provider for background routing. Interactive session creation does not accept a provider override. Logical agents may select a provider and provider-independent `security_profile` (`workspace` or `restricted`); tasks may select a provider at creation time. See [Agents § Providers](agents.md#providers) for setup details and routing behavior.
 
-**Note on `providers` section:** When omitted, DartClaw configures the selected default provider with its normal executable and worker capacity `1`. Add an explicit `providers:` section for multi-provider deployments or to customize capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one. `pool_size` is the hard concurrent worker-lease limit for that provider across tasks, schedules, system/advisor work, logical agents, and capacity-only workflow one-shots. Workers start lazily; healthy compatible workers may be cached, but cache size does not define capacity. Container/profile lifecycle is independent, so enabling both `workspace` and `restricted` does not require reserved worker capacity for each profile. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned sessions and workflow one-shots can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
+**Note on `providers` section:** When omitted, DartClaw configures the selected default provider with its normal executable and worker capacity `1`. Add an explicit `providers:` section for multi-provider deployments or to customize capacity, executables, or provider-specific options. Provider IDs are trimmed and lowercased across provider maps and agent references; normalization collisions are rejected instead of creating ambiguous routing. `pool_size: 0` means the default of one. `pool_size` is the hard concurrent worker-lease limit for that provider across tasks, schedules, system work, logical agents, and workflow steps. Workers start lazily; healthy compatible workers may be cached, but cache size does not define capacity. Container/profile lifecycle is independent, so enabling both `workspace` and `restricted` does not require reserved worker capacity for each profile. For Claude, `inherit_user_settings` defaults to `true`, so direct spawned harness workers can see user-scope Claude plugins and skills. Set it to `false` to pass `--setting-sources project` for project-only settings on the direct host path.
 
 #### Provider authentication
 
@@ -685,7 +598,7 @@ service unit. See [CLI Reference § Secrets](cli-reference.md#secrets).
 
 **Claude `approval` and `sandbox` (two orthogonal axes).** Mirroring the Codex provider's vocabulary, the Claude provider accepts two independent trusted-run knobs, both defaulting OFF:
 
-- `approval` — the **prompt-gating** axis (Claude permission-mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. Claude's one-shot path has no interactive prompt channel, so `on-request`/`unless-allow-listed` keep the default `dontAsk` + static allow-list; only `approval: never` opts a trusted run into **full access** (permission bypass, no allow-list). Full access is refused under the restricted container profile, where hooks are disabled and a bypass cannot fail closed.
+- `approval` – the **native prompt-gating** axis (Claude permission mode). Accepted values: `on-request`, `unless-allow-listed`, `never`. `approval: never` selects `bypassPermissions` for every Claude harness lane and disables the subprocess env-scrub override that would otherwise force `default`. DartClaw's guard chain still evaluates every tool call. Full access is refused under the restricted container profile, where a bypass cannot fail closed.
 - `sandbox` — the **OS-isolation** axis (Claude `sandbox` settings block). Accepted coarse values: `read-only` (sandbox on, all writes denied), `workspace-write` (sandbox on, working-dir + session-temp writes), `danger-full-access` (sandbox off). A map value is passed through verbatim as a raw native Claude `sandbox` block for advanced per-path/network rules.
 
 Claude's native sandbox is unavailable on native Windows, and restrictive Codex sandbox modes are unverified there.
@@ -697,8 +610,8 @@ The axes never cross: setting `sandbox: danger-full-access` disables OS isolatio
 
 - Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, and `required_builtins`. `container_isolation_required` defaults to `false`. `container_profile` still selects the profile the execution policy resolves to, so on a container-enabled deployment leaving it set pins the agent to a container policy that is then refused — omit it, or pair it with an explicit `execution: host`.
 - Missing `topology` defaults to `unverified`; unverified and relay ACP agents claim no guard mediation, so a container is the only boundary they could have. `topology: direct` is an operator declaration — DartClaw validates it (verification evidence, a non-relay `model_provider`, required builtins) only when the registration also sets `requires_guard_mediation: true`. Declaring `direct` without that moves the agent onto the host with no boundary and no verified claim; do it only for an agent you have established is safe to run there.
-- **ACP runs on the host only.** DartClaw mediates no provider credential or host capability for an ACP client inside a container, so every ACP container combination is unavailable. `container_isolation_required: true` — which relay and unverified topologies must set — is rejected at startup with its exact configuration path. Every other ACP registration runs only where the resolved execution policy selects host execution: on a container-enabled deployment, set `execution: host` for the agent or task type that uses it, or the turn is refused before it starts. ACP is also unavailable on the workflow one-shot surface, which implements `claude` and `codex` only.
-- Guarded Goose registrations require the `developer` builtin.
+- **ACP runs on the host only.** DartClaw mediates no provider credential or host capability for an ACP client inside a container, so every ACP container combination is unavailable. `container_isolation_required: true` – which relay and unverified topologies must set – is rejected at startup with its exact configuration path. Every other ACP registration runs only where the resolved execution policy selects host execution: on a container-enabled deployment, set `execution: host` for the agent or task lane that uses it, or the turn is refused before it starts.
+- **A guard-mediated Goose registration is refused at startup.** Goose's verified profile requires DartClaw to advertise the `terminal` reverse-call capability, and DartClaw does not — `AcpReverseCallHandlers` reports `terminal: false` and owns no terminals — so validation fails and a registration setting `requires_guard_mediation: true` throws with `Invalid harness.acp.agents.goose: guarded goose requires advertised terminal capability`. Until 0.25 that check passed against a hardcoded capability set, so a guarded Goose was admitted on a claim the host could not honour. What remains registerable is a Goose entry that does **not** set `requires_guard_mediation` — it is admitted and runs host-only with no guard-mediation claim and no verification of its topology, per the paragraph above. Vibe is unaffected: its profile requires `fs`, which DartClaw does advertise. The `developer` builtin is still required for a Goose profile match.
 - **ACP agents are credential-isolated.** `model_provider` selects validation and routing, never a credential: no DartClaw-managed provider credential reaches an ACP spawn, and a subscription token is never presented to a third-party client. The optional `credential` key is the one injection path — it names a `credentials.<name>` **API-key** entry, whose secret is injected under the environment variable name(s) that entry declares (e.g. an entry sourced from `${ANTHROPIC_API_KEY}` injects `ANTHROPIC_API_KEY`). A reference to an unknown name, to a `github-token` entry, to an entry that resolves empty, or to a literal key declaring no variable name warns at load and presents nothing. Without it, the agent authenticates itself from its own configuration, keyring, or login — as with other ACP hosts. See [Security § Authentication Modes](security.md#authentication-modes).
 - Registration defines spawn and classification only. Capacity stays under `providers.<id>.pool_size`, with default worker-lease capacity `1`.
 
@@ -727,9 +640,9 @@ with guard and audit hooks.
 
 **Note on `governance.budget.timezone`:** Two forms are accepted. Fixed UTC offsets — `UTC`, `GMT`, `UTC+N`, `UTC-N` (e.g., `UTC+1`, `UTC-5`) — and IANA timezone names like `Europe/Stockholm` or `America/New_York`. IANA names are DST-aware: the offset is resolved for each reset instant, so budget reset time follows daylight-saving transitions automatically. Only the fixed `UTC±N` forms do not adjust for DST — with those, a DST-observing region needs the offset updated seasonally or accepts the one-hour drift across transitions. An unrecognized value falls back to UTC with a warning.
 
-**Note on `governance` defaults:** Rate limits, budgets, and loop detection default to disabled/unlimited for backward compatibility. Workflow one-shot CLI liveness is on by default: `governance.turn_progress.stall_timeout` defaults to `300s`, `stall_action` defaults to `cancel`, and `max_duration` defaults to `1800s`.
+**Note on `governance` defaults:** Rate limits, budgets, and loop detection default to disabled/unlimited for backward compatibility. Turn liveness is on by default: `governance.turn_limits.stall_timeout` defaults to `300s`, `stall_action` defaults to `cancel`, and `turn_timeout` defaults to `1800s`. Setting either duration to `0` disables that limit. When both are enabled, `stall_timeout` must be shorter than `turn_timeout`.
 
-**Workflow one-shot timeout precedence:** a workflow step's `timeout_seconds` wins first, then the first matching `stepDefaults.timeout_seconds`, then `governance.turn_progress.max_duration`. The shipped global default is non-zero so one-shot workflow steps are never unbounded unless an operator explicitly sets the global value to `0`.
+**Workflow timeout precedence:** an agent step's `turn_timeout` wins first, then the first matching `stepDefaults.turn_timeout`, then `governance.turn_limits.turn_timeout`. The same `TurnRunner` wall-clock timer enforces every lane. Bash and approval steps retain their separate `timeout` fields.
 
 **Note on `github.webhook_secret`:** Accepts a literal string or a `${ENV_VAR}` reference resolved at startup. Required when `github.enabled: true` — startup logs a warning if the secret is missing. The webhook handler verifies `x-hub-signature-256: sha256=<digest>` against this secret and rejects unsigned or malformed requests with HTTP 403. See [Workflow Triggers](workflows.md#workflow-triggers) for the end-to-end setup.
 
@@ -757,7 +670,7 @@ Rules and behavior:
 - `projects.localPathAllowlist` lets you restrict which host paths are valid for `localPath` projects.
 - Non-existent paths and directories that are not yet git repositories are accepted with a warning so operators can pre-seed or mount them later.
 - Local-path projects are treated as local-only runtime projects (`remoteUrl == ''`). DartClaw does not `git clone` or `git fetch` them automatically.
-- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, the run aborts before creating coding tasks. A branch mismatch only aborts when you explicitly configured `branch:` on the local-path project, which lets you use `branch:` as an intentional drift-detection guard instead of mandatory duplicate state. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
+- Workflow start now performs a safety preflight for named local-path projects: if the working tree is dirty, the run aborts before creating workflow tasks. A branch mismatch only aborts when you explicitly configured `branch:` on the local-path project, which lets you use `branch:` as an intentional drift-detection guard instead of mandatory duplicate state. Re-run with `dartclaw workflow run --allow-dirty-localpath ...` only when you explicitly want to operate on a live dirty checkout.
 - When `gitStrategy.publish.enabled: true`, publish auto-resolves the push target from the checkout's existing `origin` remote. If `origin` is missing, workflow start fails before any coding work begins.
 
 API-created local-path projects are opt-in:
@@ -801,8 +714,8 @@ projects:
 | `--host` | `localhost` | Bind address |
 | `--data-dir` | `~/.dartclaw` | Data directory path |
 | `--source-dir` | -- | Source tree root for clone-based / development runs |
-| `--templates-dir` | `packages/dartclaw_server/lib/src/templates` | HTML templates directory (source-tree / dev override) |
-| `--static-dir` | `packages/dartclaw_server/lib/src/static` | Static assets directory (source-tree / dev override) |
+| `--templates-dir` | `packages/dartclaw_runtime/lib/src/templates` | HTML templates directory (source-tree / dev override) |
+| `--static-dir` | `packages/dartclaw_runtime/lib/src/static` | Static assets directory (source-tree / dev override) |
 | `--log-format` | `human` | Log format (`human` or `json`) |
 | `--log-file` | -- | Log file path |
 | `--log-level` | `INFO` | Log level (`FINE`, `INFO`, `WARNING`, `SEVERE`) |
@@ -810,15 +723,16 @@ projects:
 
 **Note on template resolution**: Standalone binaries embed templates, static assets, and built-in skills, so the
 `--templates-dir` and `--static-dir` overrides are only needed for clone-based or development runs. When running
-`dart run ...` or `dartclaw serve --dev`, templates are loaded from `packages/dartclaw_server/lib/src/templates`
+`dart run ...` or `dartclaw serve --dev`, templates are loaded from `packages/dartclaw_runtime/lib/src/templates`
 relative to cwd unless you override them explicitly. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree) for clone-based workarounds.
 
-### `dartclaw deploy`
+### `dartclaw service`
 
 | Subcommand | Description |
 |-----------|-------------|
-| `config` | Generate dartclaw.yaml + plist/systemd unit |
-| `secrets` | Inject secrets, start service, verify health |
+| `install` | Write and load the service unit; `--system` installs a boot-started daemon (root required) |
+| `start` / `stop` / `status` | Manage the loaded unit in the selected scope |
+| `uninstall` | Remove the unit in the selected scope |
 
 ### Status and token commands
 
@@ -918,20 +832,60 @@ dartclaw sessions cleanup [--dry-run] [--enforce]
 - `--enforce` — apply changes regardless of config mode
 - Default: uses the `mode` from config (`warn` or `enforce`)
 
+## Unrecognized Keys
+
+A key DartClaw does not recognize **stops the boot**. Earlier versions logged `Unknown config key: …` and carried on
+ignoring it, so a typo went on looking configured while doing nothing. The loader now checks the whole file and refuses
+to start, naming every offending path at once:
+
+```
+Unrecognized configuration — refusing to start with defaults:
+  Unknown config field: 'memroy'
+  Unknown config field: 'agent.moddel'
+Delete or correct these keys, or register a custom top-level section with
+DartclawConfig.registerExtensionParser before loading.
+```
+
+Fix the file **by hand** and start again. `dartclaw config set`, `PATCH /api/config` and the Settings UI all read the
+file before they write it, so they report the same refusal rather than repairing it — an unrecognized key is removed
+with an editor, not through the API.
+
+A running server is not affected by a bad edit: a reload, or a write through `PATCH /api/config`, keeps the
+configuration it is already running and reports the failure.
+
+Two things are deliberately *not* refused, so an upgrade cannot cost you your boot:
+
+- Every key listed under **Deprecated Keys** below. Those load with a warning.
+- A custom top-level section you own, once you register a parser for it with `DartclawConfig.registerExtensionParser`
+  before loading (SDK). Registration is required — an unregistered section is now an error rather than an advisory.
+
 ## Deprecated Keys
 
-The following configuration keys are deprecated. They still work but will be removed in a future version.
+The following configuration keys are deprecated. They still load, with a warning, and will be removed in a future
+version. Delete them from `dartclaw.yaml` at your convenience.
 
 | Deprecated Key | Use Instead | Notes |
 |---|---|---|
-| `memory_max_bytes` | `memory.max_bytes` | Top-level alias |
-| `guard_audit.max_entries` | `guard_audit.max_retention_days` | Parsed but ignored |
+| `memory_max_bytes` | `memory.max_bytes` | Top-level alias, still applied |
+| `workflow.execution_mode` | – | Removed in 0.16.4; steps are always one-shot |
+| `channels.google_chat.space_events.auth_mode` | – | The Pub/Sub subscription decides authentication |
+| `context.exploration_summary_threshold` | – | Configured the removed exploration summarizer |
 | `budget` (task `configJson`) | `tokenBudget` | Task `configJson` field |
 
 ### Removed Preview Keys
 
 | Removed Key | Use Instead |
 |---|---|
+| `automation.scheduled_tasks` | `scheduling.jobs` with `type: task` – entries are rewritten at load, so the schedule is unchanged |
+| `guard_audit.max_entries` | `guard_audit.max_retention_days` |
+| `container.mounts` | – host paths are not mounted into agent containers from config |
+| `container.extra_args` | – the Docker argument vector comes from the security profile alone |
+| `container.mount_allowlist` | – same, and it was read by nothing after 0.24.2 |
+| `andthen.*` | – DartClaw no longer provisions AndThen skills |
+| `advisor.*` | – Run supervision is the workflow orchestration agent |
+| `guards.input_sanitizer.*` | `guards.content` – the classifier is the only injection judge |
+| `canvas.*` | – Removed in 0.18.0 |
+| `crowd_coding.*` | `features.thread_binding` plus `governance.crowd_coding` |
 | `delegation.*` | Define logical agents under `agent.agents`; start them with `sessions_spawn` and continue them with `sessions_send` |
 | `tasks.max_concurrent` | `providers.<id>.pool_size` – per-provider worker-lease capacity for background execution |
 

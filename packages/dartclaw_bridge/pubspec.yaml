@@ -1,7 +1,7 @@
 name: dartclaw_bridge
 description: Framed stdio bridge protocol and the in-container loopback bridge executable for DartClaw isolation.
 publish_to: none
-version: 0.24.2
+version: 0.25.0
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_bridge
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues

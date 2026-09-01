@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.24.3 logical-agent output schema validation; one content-scan authority (`ContentScan`)
+**Current through**: 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
 
 ---
 
@@ -12,7 +12,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 
 | Threat | Description | Primary Defense |
 |--------|-------------|-----------------|
-| **Prompt injection** | Adversarial input via channels (WhatsApp, Signal, Google Chat) attempting to override system instructions or extract sensitive data | InputSanitizer, ContentGuard |
+| **Prompt injection** | Adversarial input via channels (WhatsApp, Signal, Google Chat) attempting to override system instructions or extract sensitive data | ContentGuard at agent boundaries and on fetched content; the per-tool-call guard chain bounds what an injected instruction can act on. Inbound channel text is not scanned on arrival (0.25) |
 | **Command injection** | Agent executing destructive commands (`rm -rf /`, fork bombs) or shell-escape chains | CommandGuard, container isolation |
 | **Data exfiltration** | Agent piping secrets to external servers via curl, base64-encoded POST, or pipe-to-shell patterns | NetworkGuard, container `network:none` |
 | **Credential theft** | Agent accessing API keys, SSH keys, cloud credentials from the host filesystem | Host-owned provider mediation, FileGuard, container mount scoping |
@@ -20,7 +20,7 @@ DartClaw is a security-conscious AI agent runtime that spawns provider CLI binar
 | **Unauthorized access** | Unauthenticated users accessing the web UI/API, or unauthorized contacts messaging via channels | AuthMiddleware, DmAccessController |
 | **Supply chain** | Malicious dependencies in the runtime chain | Zero npm/Node.js architecture, minimal deps |
 | **Container escape** | Agent breaking out of Docker isolation to access the host | Capability drops, read-only rootfs, non-root user |
-| **Cross-agent contamination** | A compromised logical agent (e.g. search agent) accessing another agent's filesystem | Per-type container isolation (ADR-012) |
+| **Cross-agent contamination** | A compromised logical agent (e.g. search agent) accessing another agent's filesystem | Per-profile, per-owner container isolation (ADR-012) |
 | **Cost overrun** | Runaway agent consuming excessive tokens, unbounded autonomous loops | Daily token budget enforcement (BudgetEnforcer), loop detection (LoopDetector) |
 | **Rate abuse** | Flooding via channel messages overwhelming the agent with requests | Per-sender rate limiting, global turn rate limiting (SlidingWindowRateLimiter) |
 | **Runaway agent loops** | Agent stuck in repetitive tool-call patterns or unbounded turn chains | LoopDetector (3 mechanisms: turn chain depth, token velocity, tool fingerprinting) |
@@ -53,7 +53,7 @@ runtime locks protect crash consistency and cooperating DartClaw writers; they a
 │  MessageRedactor (proportional redaction)                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 3: APPLICATION GUARDS                       │
-│  InputSanitizer · CommandGuard · FileGuard · NetworkGuard               │
+│  CommandGuard · FileGuard · NetworkGuard · TaskToolFilterGuard          │
 │  ToolPolicyGuard · TaskFileGuard · GuardChain (pipeline)                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                       Layer 2: NETWORK CONTROLS                         │
@@ -64,7 +64,7 @@ runtime locks protect crash consistency and cooperating DartClaw writers; they a
 │  Docker kernel namespaces (pid, net, mount, user)                       │
 │  --cap-drop ALL · --read-only · --security-opt no-new-privileges        │
 │  Non-root user (uid 1000) · tmpfs /tmp (noexec, nosuid, 100MB cap)      │
-│  Per-type containers (workspace / restricted profiles)                  │
+│  Per-profile containers (workspace / restricted profiles)               │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,7 +72,7 @@ Each layer operates independently. A failure at one layer does not compromise th
 
 ### Pragmatic Mode
 
-When Docker is unavailable (`container.enabled: false`), Layers 1 and 2 are absent. Guards (Layer 3) become the primary security boundary. This mode is suitable for personal use on a trusted machine with a single operator.
+When the effective posture is disabled — `container.enabled: false`, or an unset posture on a host where no container runtime answered the startup probe — Layers 1 and 2 are absent. Guards (Layer 3) become the primary security boundary. This mode is suitable for personal use on a trusted machine with a single operator, and the startup warning names why *this* host is in it ([ADR-055](../adrs/055-container-by-default-posture.md)).
 
 On native Windows, container isolation is unavailable even when Docker itself is installed. The accepted boundary
 depends on the per-authority bridge pipes and owner-only POSIX file permissions. Enabling containers therefore
@@ -102,7 +102,7 @@ Guard
 | **Warn** | `GuardWarn(message)` | Suspicious but allowed | Log warning, continue; pipeline returns warn if no block |
 | **Block** | `GuardBlock(reason)` | Dangerous, denied | **Short-circuit** — immediately stop evaluation, deny tool/message |
 
-**Source**: `packages/dartclaw_security/lib/src/guard_verdict.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/guard_verdict.dart`
 
 ### GuardContext
 
@@ -128,7 +128,7 @@ Every guard receives the same context object:
 
 ```
 GuardChain._evaluate(context):
-  for each guard in [InputSanitizer, CommandGuard, FileGuard, NetworkGuard, ContentGuard, ToolPolicyGuard]:
+  for each guard in [CommandGuard, FileGuard, NetworkGuard, ContentGuard, ToolPolicyGuard]:
     verdict = guard.evaluate(context)    // 5s timeout
     if exception:
       verdict = failOpen ? warn : block  // fail-closed by default
@@ -141,13 +141,13 @@ GuardChain._evaluate(context):
   return result
 ```
 
-**Source**: `packages/dartclaw_security/lib/src/guard.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/guard.dart`
 
-**Package attribution**: `dartclaw_security` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_server`.
+**Package attribution**: `dartclaw_kernel` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_runtime`.
 
 **Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: coordinator construction inputs are immutable and the security profile must match, while turn-scoped policy is rebound from the active lease/request.
 
-The same composition is the SDK host's responsibility. `DartclawServerBuilder` receives an already-constructed harness, so it cannot retrofit that harness's chain: a host wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and sets the same instance as `builder.taskToolFilterGuard`. The builder never creates one on the host's behalf — a filter outside the chain the harness evaluates is inert, and silently so.
+The same composition is the responsibility of whoever hands the runtime an already-constructed harness. `composeServerTurns` (`dartclaw_runtime`, `lib/src/server_composition.dart` — package-local, not exported) cannot retrofit that harness's chain: a composer wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and passes the same instance as `taskToolFilterGuard`. It never creates one on the composer's behalf — a filter outside the chain the harness evaluates is inert, and silently so. An out-of-package host does not compose a server directly; it calls `DartclawRuntime.build`, which owns this layering for every runner it creates.
 
 Guards evaluate canonical tool names, not provider-native strings. Provider adapters map raw tool names to the canonical taxonomy before `GuardChain.evaluateBeforeToolCall()` runs. The raw provider name is still retained in `GuardContext` for audit logging and incident forensics.
 
@@ -157,14 +157,13 @@ Provider branching is confined to protocol adapters and composition/wiring. Secu
 
 | Guard | Hook Point | Scope | What It Does |
 |-------|-----------|-------|-------------|
-| **InputSanitizer** | `messageReceived` | Channel messages (configurable) | Regex-based prompt injection detection across 4 categories |
 | **CommandGuard** | `beforeToolCall` (Bash) | All Bash tool calls | Destructive command, force operation, fork bomb, interpreter escape, pipe target blocking |
 | **FileGuard** | `beforeToolCall` (Bash, write_file, edit_file) | File operations | Glob-based path protection with 3 access levels, provider-`cwd` relative resolution, symlink resolution |
 | **NetworkGuard** | `beforeToolCall` (Bash, web_fetch) | Network operations | Domain allowlist, IP blocking, exfiltration pattern detection |
 | **EgressGuard** | `outboundMcpToolsCall` | Outbound MCP `tools/call` dispatch | Default-deny per-server/per-tool allowlist for external MCP calls |
-| **ContentGuard** | `beforeAgentSend` | Agent boundary handoff | LLM-based content classification (prompt injection, harmful content, exfiltration); schema validation runs at the same `beforeAgentSend` boundary, after the guard, for agents declaring `output_schema` |
+| **ContentGuard** | `beforeAgentSend` | Agent boundary handoff and fetched web content | LLM-based content classification (prompt injection, harmful content, exfiltration). Sole owner of injection judgment; content travels inside an untrusted-content frame. No shipped guard evaluates `messageReceived` — the hook point stays open for custom guards. Schema validation runs at the same `beforeAgentSend` boundary, after the guard, for agents declaring `output_schema` |
+| **TaskToolFilterGuard** | `beforeToolCall` | Task/workflow-step tool surface | Per-session tool allowlist; read-only sessions admit only allowlisted read-only shell commands |
 | **ToolPolicyGuard** | `beforeToolCall` | Logical-agent tool calls | 3-layer policy cascade: global deny, agent deny, sandbox allow |
-| **TaskToolFilterGuard** | `beforeToolCall` | Per-task tool allowlist | Restricts tool use to the current task's allowlist; optional read-only mode blocks mutating file/shell calls |
 
 ### Outbound MCP Egress Boundary
 
@@ -223,8 +222,22 @@ child environment under the variable name(s) the referenced credential declares,
 environment, logs, or the audit record (which retains only the credential reference). A credentialed stdio server whose
 credential declares no env var name fails closed rather than guessing one.
 
-The temporal-KG MCP mutating tools (`kg_add`, `kg_invalidate`) still sit outside the inbound dispatch-level guard/audit
-seam. TD-110 schedules that shared enforcement point and `kg_invalidate` ownership checks for 0.27.
+Inbound MCP `tools/call` dispatch carries its own guard and audit seam. `McpProtocolHandler` evaluates the composition
+root's base `GuardChain` at `beforeToolCall` and writes one `AuditEntry` per dispatch on both verdicts, after caller-policy
+authorization and schema validation and before the tool runs — one interception for every registered tool, so a newly
+registered tool cannot be forgotten. The entry carries the tool name, the dispatch decision, the tool's required
+read/write classification, and the principal: the transport-authenticated caller's authority id, or the steward
+principal when the transport authenticates the deployment rather than an individual caller. Nothing in the
+request payload participates in either. The guard sees the *canonical* tool name — a scoped view carries the
+registered-name → canonical map its caller policy authorizes by, so both layers judge the same identity — with
+the registered name preserved on `rawProviderToolName`. The seam fails
+closed — a guard block returns a tool error (`isError: true`, never a JSON-RPC error code), and an evaluator that throws
+or an audit write that fails both refuse the call without invoking the tool. Policy denial, an unknown tool name and a
+schema rejection answer before the seam and are not recorded twice.
+
+Coverage is the *base* chain only. `TaskToolFilterGuard` is constructed per runner and layered above the base chain,
+and MCP dispatch has no runner, so session read-only mode and per-task tool allowlists are not enforced at this seam.
+`kg_invalidate` keeps its own fact-ownership scope check on top of it — a domain decision, not a dispatch one.
 
 ### Guard Hot-Reload
 
@@ -232,11 +245,10 @@ Security policy can be updated without restarting the process for reloadable gua
 
 - `SecurityWiring` implements `Reconfigurable` for `security.*` (guard config lives in the `security` section)
 - A config reload rebuilds the concrete guard list from the latest `SecurityConfig`
-- Exact duplicate rules are silently deduplicated during rebuild
 - Conflicts or invalid rules preserve the existing in-memory chain instead of weakening protection
-- `MessageRedactor` still participates through a small `Reconfigurable` adapter, while `InputSanitizer` is refreshed atomically as part of the rebuilt guard chain
+- `MessageRedactor` still participates through a small `Reconfigurable` adapter; the base guard list is swapped atomically
 
-This keeps the package DAG intact: `dartclaw_security` still owns guard execution and compiled rule behavior, while `dartclaw_cli` owns the runtime reconfiguration seam.
+This keeps the package DAG intact: `dartclaw_kernel` still owns guard execution and compiled rule behavior, while `dartclaw_cli` owns the runtime reconfiguration seam.
 
 ## Canonical Tool Taxonomy
 
@@ -296,26 +308,34 @@ configured.
 
 For ACP agents, security classification is topology-scoped and independent of where the process can actually run. Direct-provider ACP agents such as verified Goose or Vibe targets can be guard-mediated when they use host-advertised `fs` capabilities and startup validation proves the declared provider is not a proxy. Other ACP topologies claim no guard mediation, so container isolation would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so that boundary is unavailable and those registrations are rejected at startup. ACP therefore runs on the host only, on the long-lived surface only; a resolved container policy for an ACP provider is refused before admission rather than weakened to host execution.
 
-**Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_harness.dart`, `packages/dartclaw_core/lib/src/harness/acp_reverse_call_handlers.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md)
+#### Execution surfaces reach the same per-provider point
 
----
+The interception point is chosen by provider, never by which surface dispatched the turn. Interactive and channel turns,
+tasks, cron and system jobs, logical-agent sessions and **workflow steps** all run their provider turns on a
+`TurnRunner` carrying a `GuardChain.layered` over the composition root's base chain, so each reaches the row above for
+its provider and a blocked call is written to the guard audit log the same way. That holds in `dartclaw serve` and in a
+standalone `dartclaw workflow` run, which composes the same root headlessly.
 
-## InputSanitizer
+Two bounds carry over from the rows above rather than being surface-specific. On **Codex** the point is the approval
+handler, so a workflow step under `approval: never` is not host-intercepted at all. **ACP** is the second, and it is an
+unenforced posture rather than a guarantee: nothing under `packages/dartclaw_runtime/lib/src` refuses an ACP provider on
+the workflow surface — a registrar's `ProviderEntry` gets worker capacity like any other, and `createWorker` refuses only
+an unknown provider, a disallowed container profile or a credential verdict — so a step naming an ACP agent leases an ACP
+worker and carries that row's reverse-call mediation, not the host tool gate. Closing that needs a refusal at admission,
+which no story in this milestone scopes.
 
-Scans inbound messages for prompt injection patterns. Channels-only by default — web UI messages bypass because the operator is trusted. Truncates oversized content at 10,000 characters to bound regex backtracking time (GuardChain's 5-second timeout provides the outer safety net).
+Two further paths sit outside the runner surface and are named so the claim is not read as universal: inbound MCP
+`tools/call` dispatch, which *is* evaluated against the composition root's base chain and audited at
+`McpProtocolHandler` but is not a runner turn, so per-runner tool policy and read-only mode do not reach it; and the
+content classifier's own provider spawn, which passes no chain.
 
-**Built-in pattern categories** (case-insensitive):
+The landed path-comparative evidence — one blocked shell command refused and audited identically on the interactive and
+workflow step paths, each entered through its own production dispatch — is Claude-scoped at the host `PreToolUse` gate
+with container isolation disabled
+(`packages/dartclaw_runtime/test/integration/guard_coverage_path_parity_integration_test.dart`). The Codex sentence
+rests on that provider's own interception evidence under its approval bound, not on that suite.
 
-| Category | Example Patterns |
-|----------|-----------------|
-| **Instruction override** | `ignore all previous`, `disregard above`, `forget your instructions`, `you are now`, `new role:` |
-| **Role-play** | `pretend you are`, `act as if`, `roleplay as` |
-| **Prompt leak** | `repeat your system prompt`, `show me your instructions`, `what are your rules` |
-| **Meta-injection** | `[INST]`, `<\|im_start\|>`, `<system>`, `<tool_result>` |
-
-Extra patterns (regex strings) can be added via `guards.input_sanitizer.extra_patterns` in config, categorized as `'custom'`.
-
-**Source**: `packages/dartclaw_security/lib/src/input_sanitizer.dart`
+**Source**: `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_acp/lib/src/acp_harness.dart`, `packages/dartclaw_acp/lib/src/acp_reverse_call_handlers.dart`, [ADR-016](../adrs/016-multi-provider-harness-architecture.md). `dartclaw_acp` owns the ACP boundary.
 
 ---
 
@@ -337,7 +357,7 @@ Safe pipe targets are explicitly allowlisted: `jq`, `grep`, `sort`, `wc`, `head`
 
 **Design note**: `$(...)` subshells are intentionally not blocked because the inner command is still scanned by all pattern categories. Variable expansion bypasses (e.g. `v=rm; $v -rf`) cannot be caught statically — container isolation is the primary defense for that class of attack.
 
-**Source**: `packages/dartclaw_security/lib/src/command_guard.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/command_guard.dart`
 
 ---
 
@@ -371,9 +391,9 @@ Glob-based file path protection for Bash, `write_file`, and `edit_file` tools. R
 
 Extra rules can be added via `guards.file.extra_rules` in config.
 
-Workflow research/writing/analysis steps run through the coding-task/worktree path and rely on `configJson.readOnly = true` plus a post-turn `git status` check against the task worktree. Restricted-profile isolation still applies to non-workflow research tasks; workflow steps express write policy through `readOnly` instead of a distinct restricted dispatch path.
+Workflow agent steps rely on `configJson.readOnly = true` plus a post-turn `git status` check against the task worktree. Workflow steps express write policy through `readOnly`, while ordinary restricted tasks require an authenticated operator declaration.
 
-**Source**: `packages/dartclaw_security/lib/src/file_guard.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/file_guard.dart`
 
 ---
 
@@ -401,7 +421,7 @@ stackoverflow.com
 
 **Per-agent overrides**: The enforced `agent_overrides` config section grants additional domains only when `GuardContext.agentId` matches that logical agent. Both shell and `web_fetch` checks use the effective global-plus-agent set. Every logical-agent turn traverses the host-dispatched session path.
 
-**Source**: `packages/dartclaw_security/lib/src/network_guard.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/network_guard.dart`
 
 ---
 
@@ -425,21 +445,21 @@ The one place a classification and its fail policy are decided, for every scanni
 - Empty input passes without reaching a classifier
 - Returns a verdict as data — blocked, label, failure reason, and the scanned span. Each call site formats its own message and decides what to do with an over-cap input; `exceedsCap` answers that question without invoking a classifier
 
-**Source**: `packages/dartclaw_security/lib/src/content_scan.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/content_scan.dart`
 
 ### Output schema validation at the same boundary
 
 `beforeAgentSend` carries a second, independent check for logical agents declaring `agent.agents.<id>.output_schema`. The two bound different things and neither substitutes for the other: ContentGuard *classifies* the text up to its byte cap, while schema validation *bounds its shape* — the result must be exactly one JSON value conforming to a deep-closed schema (every object level `additionalProperties: false`), or the turn fails. Order in `LogicalAgentSessionService._run` is guard, then schema validation, then the response-size decision; a schema-bound result over `max_response_bytes` fails rather than being truncated, because a truncated value is not the declared contract. A schema failure is not a guard verdict and writes no audit entry.
 
-**Source**: `packages/dartclaw_models/lib/src/output_schema.dart`, `packages/dartclaw_core/lib/src/agents/logical_agent_session_service.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/output_schema.dart`, `packages/dartclaw_core/lib/src/agents/logical_agent_session_service.dart`
 
-**Source**: `packages/dartclaw_security/lib/src/content_guard.dart`, `packages/dartclaw_security/lib/src/content_classifier.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/content_guard.dart`, `packages/dartclaw_kernel/lib/src/content_classifier.dart`
 
 ---
 
 ## ToolPolicyGuard
 
-3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. `TurnRunner` passes the logical-agent identity through `AgentHarness.turn`; Claude hooks, Codex approval requests, and ACP reverse-call/permission bindings attach it to `GuardContext`. It evaluates only when a logical-agent context is present (`context.agentId != null`). Main agent calls pass through.
+3-layer policy cascade wrapping `ToolPolicyCascade` for integration with the guard chain. `TurnRunner` passes the logical-agent identity through `AgentHarness.turn`; Claude hooks, Codex approval requests, ACP reverse-call/permission bindings, and the inbound MCP dispatch seam (from the transport-authenticated caller) attach it to `GuardContext`. It evaluates only when a logical-agent context is present (`context.agentId != null`). Main agent calls pass through.
 
 **Evaluation order** (most restrictive wins):
 
@@ -461,7 +481,7 @@ Example: the search agent's canonical sandbox is `{web_search, web_fetch}`, so `
 
 ### Architecture
 
-When `container.enabled: true`, the agent runs inside a Docker container. The Dart host spawns a long-lived container via `docker create` + `docker start` with `sleep infinity`, then uses `docker exec` for each turn to avoid per-turn container startup overhead.
+When the resolved posture is enabled — declared `container.enabled: true`, or an unset posture on a host where the startup probe found a runtime — the agent runs inside a container. The Dart host spawns a long-lived container via `<runtime> create` + `<runtime> start` with `sleep infinity`, then uses `<runtime> exec` for each turn to avoid per-turn container startup overhead. The runtime binary is whichever of `docker`/`podman` answered the probe, carried on the resolved config so every later call issues the same one.
 
 ### Docker Security Flags
 
@@ -490,52 +510,42 @@ Minimal Debian Bookworm slim image with only essential packages: `ca-certificate
 
 **Source**: `docker/Dockerfile`
 
-### Per-Type Container Isolation (ADR-012)
+### Declared Container Isolation (ADR-012)
 
-A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each execution owner receives its own container, so concurrent owners using the same profile never share a PID, `/tmp`, or generated-home namespace. A logical-agent container spans only that owner's turns; an ordinary task container spans its turn; `WorkflowCliRunner` holds one authority across the complete workflow step. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration.
+A security profile defines one container's mounts, network, and capabilities. It is a template, not a running container: each execution owner receives its own container, so concurrent owners using the same profile never share a PID, `/tmp`, or generated-home namespace. A logical-agent container spans only that owner's turns; an ordinary task container spans its turn; a workflow worker holds one authority across the complete workflow step. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration.
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
-| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, coding tasks, cron jobs |
-| **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, research tasks |
+| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, default tasks, cron jobs |
+| **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, explicitly declared tasks |
 
 **Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>` — deterministic 8-char FNV-1a digest of the data directory (Docker-safe local identifier, not cryptographic), collision-free across multiple DartClaw installs on the same Docker daemon.
 
-**Dispatch routing**: `ContainerDispatcher` maps task types to security profiles:
+**Task dispatch**: the task lane defaults to `workspace`. The authenticated HTTP task API may declare `workspace` or
+`restricted`; channel and model-facing task creation cannot declare a profile. The `research` category is refused so
+the former restricted boundary cannot be silently widened.
 
-```
-research  → restricted  (no filesystem access)
-coding    → workspace   (full workspace access)
-writing   → workspace
-analysis  → workspace
-automation → workspace
-custom    → workspace
-```
-
-**Source**: `packages/dartclaw_server/lib/src/container/container_manager.dart`, `packages/dartclaw_server/lib/src/container/security_profile.dart`, `packages/dartclaw_server/lib/src/container/container_dispatcher.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/container/container_manager.dart`, `packages/dartclaw_runtime/lib/src/container/security_profile.dart`, `packages/dartclaw_runtime/lib/src/execution_policy_resolver.dart`
 
 ### Execution Capacity and Process Isolation
 
-Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, advisor turns, tasks, and logical agents consume worker capacity; workflow one-shots consume capacity-only leases.
+Global governance runs before `ExecutionCoordinator`. After admission, the coordinator is the only authority that selects the fixed primary-interactive lane or acquires a provider worker lease. Main-agent user/channel turns serialize on the primary lane. Cron/system jobs, tasks, logical agents, and workflow steps consume worker capacity.
 
-`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and one complete effective execution policy — host, or container plus its profile; all other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/policy, then any healthy host worker with the same provider/policy, otherwise fresh. A logical-agent container additionally requires the exact agent principal. A mismatch or unknown health is treated as fresh. Host and container workers are never interchangeable, and neither are container workers built from different profiles.
+`providers.<id>.pool_size` bounds concurrent worker execution for that provider and excludes the primary lane. It is not a count of trusted processes or containers. An execution request carries normalized provider and one complete effective execution policy — host, or container plus its profile. A workflow request additionally carries its host-owned artifacts directory and spawn variables because both are fixed when its worker is constructed. All other construction inputs are fixed by the coordinator composition. Reuse order is exact session for that provider/policy, then any healthy host worker with the same provider/policy, otherwise fresh. A request with workflow construction inputs is always fresh and its worker is never cached. A logical-agent container additionally requires the exact agent principal. A mismatch or unknown health is treated as fresh. Host and container workers are never interchangeable, and neither are container workers built from different profiles.
 
 Released unhealthy workers are stopped and disposed. No replacement is created until teardown of the managed root process is confirmed. If confirmation is unavailable, the slot is quarantined and effective provider capacity decreases. This prevents a failed termination from turning one configured capacity slot into multiple live security principals.
 
-Reusable workers have no security-relaxing cache knobs. Host harnesses may be reused by a compatible session. A logical-agent container may be retained only for its exact session/agent owner and is destroyed on discard, eviction, or shutdown. Task containers end with the turn; workflow one-shot containers end with the step. Every authority owns a dedicated container, and destruction confirms root-process termination, revokes authority-scoped resources, removes generated state, and destroys the container. Container lifetime tracks its owner and does not change provider execution capacity. Lease state, not retained process presence, is authoritative for active execution and emergency cancellation.
+Reusable workers have no security-relaxing cache knobs. Host harnesses may be reused by a compatible session. A logical-agent container may be retained only for its exact session/agent owner and is destroyed on discard, eviction, or shutdown. Task containers end with the turn. A containerized workflow step owns one leased-worker authority for its complete prompt chain, and that authority ends with the step. Every authority owns a dedicated container, and destruction confirms root-process termination, revokes authority-scoped resources, removes generated state, and destroys the container. Container lifetime tracks its owner and does not change provider execution capacity. Lease state, not retained process presence, is authoritative for active execution and emergency cancellation.
 
 ### Multi-Provider Sandbox Interaction
 
-ADR-016 makes provider selection first-class, so sandbox settings need to reflect both deployment boundary and harness mode. This matrix mirrors the PRD sandbox interaction table and uses the same operational rule: when Docker is the boundary, use `danger-full-access` for Codex app-server and exec to avoid double-sandboxing conflicts; outside Docker, keep Codex on its own sandbox. The Docker rows are enforced in code, not just configured: containerized Codex spawns always run `danger-full-access` regardless of the configured `sandbox` option (a stricter value cannot start under the container hardening and would fail every tool call while the turn still reports success); the one exception is a read-only one-shot step, which keeps `--sandbox read-only` so it fails closed rather than open.
+ADR-016 makes provider selection first-class, so sandbox settings need to reflect the deployment boundary. When Docker is the boundary, Codex app-server uses `danger-full-access` to avoid double-sandboxing conflicts; outside Docker, Codex keeps its own sandbox. Containerized Codex spawns enforce that setting in code rather than relying on configuration. Read-only policy remains enforced by the common task guard path.
 
 | Deployment | Harness mode | Codex sandbox | Approval | Boundary note |
 |-----------|--------------|---------------|----------|---------------|
 | Docker container | `app-server` | `danger-full-access` | On | Docker is the primary boundary; Codex permissions stay active for tool approvals. |
-| Docker container | `exec` | `danger-full-access` | `--full-auto` | One-shot execution; container isolation is the boundary and no approval chain exists. |
 | Bare metal | `app-server` | `workspace-write` | On | Codex sandbox provides defense-in-depth when Docker is absent. |
-| Bare metal | `exec` | `workspace-write` | `--full-auto` | Stateless batch execution on trusted hosts; keep Codex sandbox enabled. |
 | Task worktree | `app-server` | `workspace-write` + `--cd <worktree>` + `--add-dir <data-dir>` | On | Anchor Codex to the task worktree and let it manage approvals. |
-| Task worktree | `exec` | `workspace-write` + `--cd <worktree>` + `--add-dir <data-dir>` | `--full-auto` | Same worktree anchoring, but without approval interception. |
 
 The worktree rows are intentionally narrower than the Docker rows: they assume a trusted host-side task workspace and preserve Codex's own sandboxing instead of widening to `danger-full-access`. That keeps task execution deterministic while still respecting the per-provider boundary described in ADR-016.
 
@@ -546,7 +556,7 @@ and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL wh
 
 `ContainerHealthMonitor` runs periodic health checks (every 10 seconds by default) on all managed containers. State transitions (healthy -> unhealthy, unhealthy -> healthy) are surfaced as `ContainerCrashedEvent` and `ContainerStartedEvent` via the EventBus.
 
-**Source**: `packages/dartclaw_server/lib/src/container/container_health_monitor.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart`
 
 ---
 
@@ -627,7 +637,7 @@ and its read-only open does not create a missing store.
 The host `~/.claude.json` is not mounted anywhere, and the containerized Codex home is still never seeded (below).
 
 > **Open pre-ship gate.** The raw-Bearer `setup-token` wire check
-> (`packages/dartclaw_server/test/integration/anthropic_setup_token_bearer_wire_check_test.dart`) has never been run
+> (`packages/dartclaw_runtime/test/integration/anthropic_setup_token_bearer_wire_check_test.dart`) has never been run
 > against a real token, so container-mode Claude on subscription is not yet cleared to ship as the default. There is no
 > runtime fallback: the adapter selects its header purely from `CredentialResolution.mode`, so an upstream refusal
 > surfaces as a failed turn, not a silent downgrade. If the gate fails, the documented response is to ship the container
@@ -658,11 +668,11 @@ Credential handling is then adapted to the execution boundary rather than to the
 - Host executions inject at subprocess startup: Claude as `CLAUDE_CODE_OAUTH_TOKEN` or the API-key variable in the sanitized spawn env, Codex as `CODEX_HOME` pointing at the dedicated store (the secret itself stays on disk, owned by the vendor CLI).
 - ACP registrations are credential-isolated: `harness.acp.agents.<id>` resolves no credential at all — its `model_provider` selects validation and routing only, and a subscription credential is never presented to a third-party client. The single injection path is `harness.acp.agents.<id>.credential`, naming a `credentials.<name>` API-key entry whose secret is injected under the environment variable names that entry captured. `SafeProcess.sanitize` still strips the agent's own inherited `*_API_KEY`/`*_TOKEN`, so an uncredentialed ACP agent authenticates from its own configuration, keyring, or login rather than the operator's exported variables.
 - Startup validation checks that required provider credentials are available before a harness is started, so a missing provider secret fails fast instead of surfacing as a late request-time error. A container execution whose adapter has no host credential is refused at authority registration, before any container exists.
-- `credentialRemediationFor(reason, providerId:, family:)` is the single author of refusal remediation text; container admission, the `ProviderValidator` startup gate, and the workflow one-shot preflight all consume it rather than writing their own.
+- `credentialRemediationFor(reason, providerId:, family:)` is the single author of refusal remediation text; container admission, the `ProviderValidator` startup gate, and workflow worker admission all consume it rather than writing their own.
 
 `CredentialHealthMonitor` probes hourly (built-in `credential-health` job) and once during wiring, emitting the credential-health `DartclawEvent` consumed by `AlertRouter` and surfaced on `/settings` and `GET /api/providers`. Renewal deadlines are derived, not stated: Claude is ingestion time plus the documented 365-day `setup-token` lifetime; Codex is the store's last write plus the 8-day refresh-token staleness window, deliberately not the access token's minutes-scale JWT `exp`. A Claude provider running on the vendor CLI's own login classifies `unknown` and does not alert, because `probeAuthStatus` can prove that login is live; Codex has no such exemption – its probe only proves `auth.json` parses – so the same position classifies `reauthRequired` and alerts.
 
-**Source**: `packages/dartclaw_config/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart`, `packages/dartclaw_core/lib/src/storage/named_credential_store.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_server/lib/src/alerts/credential_health_monitor.dart`, `packages/dartclaw_server/lib/src/container/gateway/`
+**Source**: `packages/dartclaw_kernel/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/subscription_credential_store.dart`, `packages/dartclaw_core/lib/src/storage/named_credential_store.dart`, `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_harness.dart`, `packages/dartclaw_core/lib/src/harness/codex_environment.dart`, `packages/dartclaw_runtime/lib/src/alerts/credential_health_monitor.dart`, `packages/dartclaw_runtime/lib/src/container/gateway/`
 
 ### Git Credential Integration
 
@@ -683,24 +693,26 @@ Project management introduces a separate credential path for git operations – 
 - `MessageRedactor` covers any credential-adjacent strings that might surface in agent output
 - Git operations run on the host, not inside the container – they do not have access to the mediated provider path and do not need it
 
-**Source**: `packages/dartclaw_server/lib/src/task/project_service.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/task/project_service.dart`
 
 ### Subprocess Hygiene
 
-Sensitive workflow and git paths are routed through `SafeProcess` in `dartclaw_security`.
+Sensitive workflow and git paths are routed through `SafeProcess` in `dartclaw_kernel`.
 
 - `SafeProcess.start` / `SafeProcess.run` require an explicit `EnvPolicy`; the wrapper always sets `includeParentEnvironment: false`, so child processes only receive the environment DartClaw constructs intentionally.
 - `EnvPolicy.sanitize` applies a pattern-based strip (`*_API_KEY`, `*_SECRET`, `*_TOKEN`, `*_CREDENTIAL`, `*_PASSWORD`) before optionally filtering to an allowlist. The workflow bash-step path uses this together with `SecurityConfig.bashStep.envAllowlist`, so normal shell basics (`PATH`, `HOME`, `LANG`, `LC_*`, `TZ`, `USER`, `SHELL`, `TERM`) survive while provider/API secrets do not.
-- The one-shot workflow CLI runner now routes through the same contract instead of relying on a raw `Process.start(... environment: sanitizedMap)` call that silently re-inherited the parent env.
+- Workflow harness workers receive an explicit sanitized spawn environment through the same contract; no workflow path starts a provider process directly.
 
 ### Git Subprocess Centralization
 
-Every production git subprocess now flows through `SafeProcess.git(... plan: GitCredentialPlan, ...)`.
+Every production git subprocess flows through one runner: `runGit(...)` in `dartclaw_kernel` (`lib/src/process/git_runner.dart`), the only production caller of `SafeProcess.git`. A fitness gate (`dev/fitness/test/safe_process_usage_test.dart`) fails the build on any direct `SafeProcess.git` / `SafeProcess.gitStart` call outside that runner, anywhere under `packages/*/lib` or `apps/*/lib` — so a second runner cannot spawn git without routing through the seam.
 
-- `EnvPolicy.credentialPlan` preserves the git-safe baseline env, strips parent secrets, overlays `GitCredentialPlan.environment`, and keeps `includeParentEnvironment: false`.
-- Workflow-owned git paths add `GIT_CONFIG_NOSYSTEM=1` so system-level git config cannot inject hooks, filter drivers, or transport helpers into workflow automation, while user-visible CLI git continues to respect normal user/system git configuration.
-- `WorktreeManager`'s default git runner always sets `noSystemConfig: true`. `git worktree add` performs a checkout, so system-level filter drivers and hooks would otherwise run inside workflow/task automation. Operators who rely on `/etc/gitconfig` (e.g. `insteadOf`, `core.sshCommand`, `core.hooksPath`) should move those to user-level (`~/.gitconfig`), which remains in effect.
-- The malicious-repo regression is now explicit in tests: a fixture repo with `core.sshCommand` cannot read `ANTHROPIC_API_KEY` from the parent process even when the git operation itself is allowed to run. A separate `post-checkout`-hook sentinel test proves workflow-owned worktree creation propagates `GIT_CONFIG_NOSYSTEM=1` to git children.
+- `EnvPolicy.credentialPlan` preserves the git-safe baseline env, strips parent secrets, overlays the caller's `ProcessEnvironmentPlan` (e.g. `GitCredentialPlan`), and keeps `includeParentEnvironment: false`.
+- **`noSystemConfig: true` is the seam's default**, so a newly added call site cannot inherit the unsafe posture by omission. Automation-owned git paths — worktree setup/cleanup, the task-accept commit path, the workflow git port, workflow-orchestrated checkouts, and every CLI workflow git call — take the default; `git worktree add` and the accept path perform checkouts and commits, so system-level filter drivers and hooks would otherwise run inside DartClaw's own automation.
+- The opt-outs are explicit at the call site and enumerable — six of them: `DiffGenerator` (review diffs must render what the operator's own git renders), `ProjectServiceImpl` clone/fetch and `RemotePushService` push (remote transport needs `insteadOf`, proxy and `sshCommand` from user or system config to work at all), `WorkflowWorktreeBinder`'s non-workflow checkout and `TaskReadOnlyGuard`'s mutation check (user-visible git in the operator's working tree), and `WorkspaceGitSync`. User-visible CLI git continues to respect normal user/system git configuration.
+- Two of those six sit on automation-owned directories and are outliers rather than classifications: `WorkspaceGitSync` commits inside DartClaw's own workspace directory, and `TaskReadOnlyGuard` runs `git status` inside the task worktree. Both keep the posture they had before the seam landed — flipping either is a behaviour change on the security-defect track, not a deduplication.
+- Operators who rely on `/etc/gitconfig` (e.g. `insteadOf`, `core.sshCommand`, `core.hooksPath`) for automation-owned paths should move those to user-level (`~/.gitconfig`), which remains in effect.
+- The malicious-repo regression is now explicit in tests: a fixture repo with `core.sshCommand` cannot read `ANTHROPIC_API_KEY` from the parent process even when the git operation itself is allowed to run. Hook-sentinel tests prove the seam's default posture (`packages/dartclaw_kernel/test/git_runner_test.dart`), workflow-owned worktree creation, and the task-accept commit path all propagate `GIT_CONFIG_NOSYSTEM=1` to git children.
 
 ### Google Chat User OAuth Refresh Tokens
 
@@ -738,7 +750,14 @@ shelf Pipeline
 - Printed at startup: `Web UI: http://localhost:<port>/?token=<hex64>`
 - Rotation: `dartclaw token rotate` generates new token, invalidates all sessions
 
-**Inbound MCP authentication**: `/mcp` requires the same bearer token whenever gateway authentication is enabled. An authentication-disabled deployment mounts the route without a bearer only when `server.host` is the literal loopback host `localhost`, `127.0.0.1`, or `::1`. Bearerless requests require an exact loopback `Host`; browser requests also require an exact loopback `Origin`. Authentication-disabled non-loopback deployments do not mount `/mcp`.
+**Inbound MCP authentication**: `/mcp` authenticates its own callers and is exempt from the gateway auth middleware, on the webhook precedent — the middleware knows only the gateway token, so a client bearer could never reach the route. `mcpRoute` compares the bearer constant-time against `gateway.token` and then against every `gateway.mcp_clients` token, and carries the same `AuthRateLimiter` instance the middleware uses, so a failed `/mcp` attempt is throttled on the same per-remote window as a failed API attempt and fires the same `FailedAuthEvent` (`source: 'mcp'`).
+
+- The gateway token reaches the unscoped handler: every registered tool, and `mcpStewardPrincipal` in the dispatch audit — it authenticates the deployment, not a person.
+- A configured client token reaches a `scopedTo` handler carrying `ContextEngineCallerPolicy` (deny-by-default over the five context-engine read tools) and an `McpCallerIdentity` of `mcp-client:<name>`. Discovery and dispatch both filter through it; a denied name and an unregistered name answer with the same JSON-RPC code and message, so a client cannot enumerate what it may not call. The policy audits each refusal; S19's dispatch seam audits each permitted call. Client tokens are configured as `${VAR}` references only, and a list the route cannot enforce is refused at load (§ `gateway.mcp_clients`).
+- A client token is confined to `/mcp`: it is never handed to `TokenService`, mints no session cookie, and does not satisfy the `?token=` bootstrap, so the REST API and web UI reject it exactly as they reject an invalid token.
+- Client removal takes effect when the route is rebuilt at restart — the client list is read at mount, like `gateway.token`. There is no live revocation path.
+
+An authentication-disabled deployment mounts the route without a bearer only when `server.host` is the literal loopback host `localhost`, `127.0.0.1`, or `::1`, and accepts no clients (`gateway.mcp_clients` under `auth_mode: none` is a startup error). Bearerless requests require an exact loopback `Host`; browser requests also require an exact loopback `Origin`. Authentication-disabled non-loopback deployments do not mount `/mcp`.
 
 **Session cookies**:
 - HMAC-SHA256 signed with gateway token as key, stateless (no server-side storage)
@@ -763,7 +782,7 @@ Cache-Control: no-store            # Auth-gated pages not cached
 - `readBounded()` caps stream reads for chunked/missing-header cases
 - `AuthRateLimiter` throttles failed auth attempts per source to blunt token-guessing brute force
 
-**Source**: `packages/dartclaw_server/lib/src/auth/auth_middleware.dart`, `packages/dartclaw_server/lib/src/auth/session_token.dart`, `packages/dartclaw_server/lib/src/auth/token_service.dart`, `packages/dartclaw_server/lib/src/auth/auth_utils.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/auth/auth_middleware.dart`, `packages/dartclaw_runtime/lib/src/auth/session_token.dart`, `packages/dartclaw_runtime/lib/src/auth/token_service.dart`, `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`
 
 ### Channel Access Control
 
@@ -807,7 +826,7 @@ All guard evaluations are logged with timestamps, verdicts, and context. The `Gu
 
 **AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard events preserve both canonical `tool` and raw provider names so policy denials remain attributable and diagnosable.
 
-**Source**: `packages/dartclaw_security/lib/src/guard_audit.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/guard_audit.dart`
 
 ### EventBus Integration
 
@@ -816,13 +835,13 @@ Guard block/warn events are published to the EventBus only when the application 
 ```
 GuardChain._evaluate()
   └── onVerdict?.call(...)
-        └── ServiceWiring callback
+        └── DartclawRuntime security wiring callback
               └── EventBus.fire(GuardBlockEvent)
                     └── GuardAuditSubscriber.subscribe()
                           └── GuardAuditLogger.logVerdict()
 ```
 
-`GuardAuditSubscriber` lives in `dartclaw_server` and bridges the event bus to the audit logger, preserving identical stdout and NDJSON output. The subscriber pattern replaced the direct `auditLogger` coupling on `GuardChain` in 0.7. The same subscriber also listens for `ToolPermissionDeniedEvent`, so provider-native denials are visible in the audit trail alongside DartClaw guard verdicts.
+`GuardAuditSubscriber` lives in `dartclaw_runtime` and bridges the event bus to the audit logger, preserving identical stdout and NDJSON output. The subscriber pattern replaced the direct `auditLogger` coupling on `GuardChain` in 0.7. The same subscriber also listens for `ToolPermissionDeniedEvent`, so provider-native denials are visible in the audit trail alongside DartClaw guard verdicts.
 
 **EventBus exception safety**: `EventBus.fire()` is wrapped in `runZonedGuarded` — subscriber exceptions are logged but never propagate to the firing code.
 
@@ -847,7 +866,7 @@ The EventBus also surfaces security-relevant infrastructure events:
 
 Abstract interface for LLM-based content classification at agent boundaries. Returns one of: `safe`, `prompt_injection`, `harmful_content`, `exfiltration_attempt`. Throws on error; the fail policy is owned by `ContentScan`, the single authority every call site scans through.
 
-**Source**: `packages/dartclaw_security/lib/src/content_classifier.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/content_classifier.dart`
 
 ### MessageRedactor
 
@@ -876,7 +895,7 @@ Extra patterns can be added via config (`logging.redact_patterns`).
 This is best-effort pattern matching, not general confidential-data classification; persistence surfaces that use it
 must document their retention and trust boundary.
 
-**Source**: `packages/dartclaw_security/lib/src/message_redactor.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/message_redactor.dart`
 
 ---
 
@@ -914,7 +933,7 @@ answers.
 - Successful bodies are bounded while streaming, before decode; non-success bodies are never returned
 - Response length capped (default and maximum 50,000 chars)
 
-**Source**: `packages/dartclaw_server/lib/src/mcp/web_fetch_tool.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/mcp/web_fetch_tool.dart`
 
 ### XSS Prevention
 
@@ -934,7 +953,9 @@ DartClaw defends against cross-site request forgery in depth rather than relying
 
 ### TaskFileGuard
 
-Per-task file access registry for coding task worktree isolation. When a coding task's git worktree is created, its path is registered as allowed. File access requests are validated against registered paths using `path.isWithin()` with canonicalized paths.
+Per-task file access registry for declared worktree isolation. When a task with `configJson.needsWorktree: true` gets a
+git worktree, its path is registered as allowed. File access requests are validated against registered paths using
+`path.isWithin()` with canonicalized paths.
 
 ```
 TaskFileGuard (multi-project)
@@ -951,9 +972,10 @@ TaskFileGuard (multi-project)
 
 **Multi-project scoping note**: The parent-directory mount (`/projects:ro`) gives the agent OS-level read access to all project clones. `TaskFileGuard` provides the application-layer write scoping — the agent is constrained to its assigned task's worktree directory and cannot write to other project directories. This application-layer boundary is acceptable for DartClaw's single-user product scope, where the primary security boundary remains Docker container isolation.
 
-This is distinct from `FileGuard` (which protects sensitive system paths globally). `TaskFileGuard` provides per-task path containment — a coding task can only modify files within its own git worktree.
+This is distinct from `FileGuard` (which protects sensitive system paths globally). `TaskFileGuard` provides path
+containment for a task after its declared git worktree has been registered.
 
-**Source**: `packages/dartclaw_server/lib/src/task/task_file_guard.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/task/task_file_guard.dart`
 
 ---
 
@@ -969,18 +991,20 @@ All governance features are configured under the `governance:` YAML section and 
 
 Admin exemptions apply to per-sender rate limiting only. Global turn rate limits and budget enforcement apply to all senders equally, including admins.
 
-**Source**: `packages/dartclaw_config/lib/src/governance_config.dart`
+**Source**: `packages/dartclaw_kernel/lib/src/governance_config.dart`
 
 ### Per-Sender Rate Limiting
 
-Sliding window rate limit on inbound channel messages, keyed by sender JID. Enforced in `ChannelTaskBridge.tryHandle()` after thread binding checks but before review command or task trigger routing.
+Sliding window rate limit on inbound channel messages, keyed by sender JID. Enforced in `ChannelTaskBridge.tryHandle()`
+after thread-binding lookup and before bound-thread or ordinary session routing.
 
 **Behavior**:
 - Rejects excess messages with a polite "too fast" response and returns `true` (consumed — not enqueued to agent)
-- Exempt: admin senders, review commands (`accept`, `reject`, `push back`), reserved commands (`/status`, `/stop`, `/pause`, `/resume`)
-- Messages routed via thread binding bypass rate limiting entirely — intentional for shared task threads where many participants may reply in the same conversation
+- Exempt: admin senders and bridge-reserved text commands (`/stop`, `/pause`, `/resume`, `/bind`, `/unbind`)
+- Review requests are ordinary model turns and receive no exemption
 
-**Configuration**: `governance.rate_limits.per_sender.messages` (max messages) + `governance.rate_limits.per_sender.window_minutes` (sliding window). 0 messages = disabled.
+**Configuration**: `governance.rate_limits.per_sender.messages` (max messages) +
+`governance.rate_limits.per_sender.window` (sliding window). 0 messages = disabled.
 
 ### Global Turn Rate Limiting
 
@@ -990,7 +1014,8 @@ Sliding window rate limit on turn requests across all sessions and senders combi
 - Defers turn reservation (waits for window capacity) rather than rejecting — ensures messages are eventually processed
 - Emits SSE `rate_limit_warning` event at 80% usage; resets hysteresis below 60%
 
-**Configuration**: `governance.rate_limits.global.turns` (max turns) + `governance.rate_limits.global.window_minutes` (sliding window). 0 turns = disabled.
+**Configuration**: `governance.rate_limits.global.turns` (max turns) + `governance.rate_limits.global.window` (sliding
+window). 0 turns = disabled.
 
 Global governance admission precedes execution allocation. A passing governance check is handed to `ExecutionCoordinator`; no surface may bypass that sequence by acquiring a runner or starting a provider process directly. Provider `pool_size` is the later hard execution boundary, not a substitute for governance.
 
@@ -998,7 +1023,7 @@ Global governance admission precedes execution allocation. A passing governance 
 
 `SlidingWindowRateLimiter` uses lazy eviction — expired entries are removed on `check()` calls, not on a background timer. `check()` both verifies and records the event atomically: a passing check records; a failing check does not inflate the counter. This makes it safe to use in deferral retry loops without self-inflating. All rate limit state is in-memory — resets on server restart.
 
-**Source**: `packages/dartclaw_config/lib/src/sliding_window_rate_limiter.dart` (re-exported from the `dartclaw_core` barrel)
+**Source**: `packages/dartclaw_kernel/lib/src/sliding_window_rate_limiter.dart` (exported from the kernel barrel)
 
 ### Daily Token Budget Enforcement
 
@@ -1020,7 +1045,7 @@ Caps daily token consumption (input + output tokens combined) with configurable 
 
 **Configuration**: `governance.budget.daily_tokens` (0 = disabled), `governance.budget.action` (`warn` | `block`), `governance.budget.timezone` (default: `UTC`).
 
-**Source**: `packages/dartclaw_server/lib/src/governance/budget_enforcer.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/governance/budget_enforcer.dart`
 
 ### Loop Detection
 
@@ -1039,7 +1064,7 @@ Detects runaway agent behavior using three independent mechanisms. Injected into
 | `abort` | Throws `LoopDetectedException`, cancels the turn. `TaskExecutor` catches and transitions the task to `failed`. |
 | `warn` | Fires `LoopDetectedEvent` on the EventBus for logging and observability. Turn continues. |
 
-**Source**: `packages/dartclaw_config/lib/src/loop_detector.dart`, `packages/dartclaw_config/lib/src/loop_detection.dart` (re-exported from the `dartclaw_core` barrel)
+**Source**: `packages/dartclaw_kernel/lib/src/loop_detector.dart`, `packages/dartclaw_kernel/lib/src/loop_detection.dart` (exported from the kernel barrel)
 
 ### Emergency Controls
 
@@ -1052,7 +1077,7 @@ Aborts all active turns and cancels all running/queued tasks in a single best-ef
 ```
 EmergencyStopHandler.execute():
   1. Cancel all active executions from the coordinator lease registry
-     (including the primary lane, worker runners, and capacity-only one-shots)
+     (including the primary lane and worker runners)
   2. Transition all running and queued tasks to cancelled
      (review/draft/accepted/rejected are left for manual resolution)
   3. Fire EmergencyStopEvent on EventBus
@@ -1063,7 +1088,7 @@ Individual failures during the sequence are logged but do not halt execution —
 
 Cancellation retains each lease until the managed root process has exited or the slot is quarantined. Releasing capacity on cancellation request alone would permit an overlapping replacement.
 
-**Source**: `packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/emergency/emergency_stop_handler.dart`
 
 #### `/pause` and `/resume` — Message Queuing
 
@@ -1076,7 +1101,7 @@ Cancellation retains each lease until the managed root process has exited or the
 
 All pause state is in-memory — resets automatically on server restart (no persistence needed — a restart already interrupts message flow).
 
-**Source**: `packages/dartclaw_server/lib/src/governance/pause_controller.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/governance/pause_controller.dart`
 
 ### Thread Binding Security
 
@@ -1104,10 +1129,10 @@ governance:
   rate_limits:
     per_sender:
       messages: 10            # 0 = disabled
-      window_minutes: 5       # sliding window duration
+      window: 5m              # sliding window duration
     global:
       turns: 60               # 0 = disabled
-      window_minutes: 60      # sliding window duration
+      window: 1h              # sliding window duration
   budget:
     daily_tokens: 100000      # 0 = disabled
     action: warn              # warn | block
@@ -1156,7 +1181,7 @@ With `--permission-prompt-tool stdio`, the binary sends `can_use_tool` control r
 
 The `claude` binary is spawned with `includeParentEnvironment: false` and a filtered copy of `Platform.environment`. Critical environment variables are cleared to prevent nesting detection errors: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`.
 
-Direct host-side Claude spawns inherit Claude's user, project, and local setting sources by default. This intentionally exposes user-scope plugins and skills to spawned sessions and workflow one-shots. Security-conscious deployments that require project-only settings can set `providers.claude.inherit_user_settings: false`, which adds `--setting-sources project` to direct Claude invocations. Containerized spawns remain unchanged; their isolation comes from container mounts, environment, and network policy rather than the Claude settings-source flag.
+Direct host-side Claude harness spawns inherit Claude's user, project, and local setting sources by default. This intentionally exposes user-scope plugins and skills to interactive and workflow workers. Security-conscious deployments that require project-only settings can set `providers.claude.inherit_user_settings: false`, which adds `--setting-sources project` to direct Claude invocations. Containerized spawns remain unchanged; their isolation comes from container mounts, environment, and network policy rather than the Claude settings-source flag.
 
 **Source**: `packages/dartclaw_core/lib/src/harness/tool_policy.dart`, ADR-001 Addendum
 
@@ -1170,10 +1195,6 @@ All security features are configurable via `dartclaw.yaml`:
 guards:
   enabled: true               # Master switch for all guards
   fail_open: false             # false = fail-closed (default, safer)
-  input_sanitizer:
-    enabled: true
-    channels_only: true        # Only scan channel messages
-    extra_patterns: []         # Additional regex patterns
   command:
     extra_blocked_patterns: [] # Additional command patterns
     extra_blocked_pipe_targets: []
@@ -1193,8 +1214,6 @@ guards:
 container:
   enabled: false               # Docker isolation
   image: dartclaw-agent:latest
-  mounts: []                   # Must remain empty; arbitrary host mounts are unsupported
-  extra_args: []               # Must remain empty; raw arguments cannot override hardening
 
 gateway:
   auth_mode: token             # token | none
@@ -1211,7 +1230,7 @@ gateway:
 | [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) | SDK integration strategy, security architecture, credential proxy pattern, control protocol |
 | [ADR-005](../adrs/005-whatsapp-integration.md) | WhatsApp integration, DM access control patterns, outpost pattern |
 | [ADR-006](../adrs/006-http-auth-scope.md) | HTTP auth mechanism (token bootstrap + HMAC session cookies), EventSource SSE auth |
-| [ADR-012](../adrs/012-per-type-container-isolation.md) | Per-type container isolation, security profiles, dispatch model |
+| [ADR-012](../adrs/012-per-type-container-isolation.md) | Per-profile, per-owner container isolation and dispatch model |
 
 ### Related Documents
 
@@ -1220,7 +1239,7 @@ gateway:
 | Data Model | `dev/architecture/data-model.md` — audit NDJSON partitions, `usage.jsonl` rotation and lifecycle |
 | Feature Comparison | `docs/specs/feature-comparison.md` — OpenClaw vs NanoClaw vs DartClaw security models |
 | Public Security Guide | `docs/guide/security.md` — user-facing summary |
-| Security Hardening PRD | `docs/specs/0.5/prd.md` — InputSanitizer, MessageRedactor, ContentClassifier |
+| Security Hardening PRD | `docs/specs/0.5/prd.md` — MessageRedactor, ContentClassifier |
 | 0.12 PRD | `docs/specs/0.12/prd.md` — Runtime governance, emergency controls, thread binding, sender attribution |
 | System Architecture | `dev/architecture/system-architecture.md` — Inbound Message Pipeline, Runtime Governance, and Emergency Controls |
 
@@ -1228,43 +1247,42 @@ gateway:
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `security/guard.dart` | `dartclaw_security` | Guard interface, GuardContext, GuardChain |
-| `security/guard_verdict.dart` | `dartclaw_security` | Sealed GuardVerdict hierarchy (pass/warn/block) |
-| `security/guard_audit.dart` | `dartclaw_security` | AuditEntry, GuardAuditLogger |
-| `security/input_sanitizer.dart` | `dartclaw_security` | Prompt injection detection |
-| `security/command_guard.dart` | `dartclaw_security` | Dangerous command blocking |
-| `security/file_guard.dart` | `dartclaw_security` | Path protection, symlink resolution |
-| `security/network_guard.dart` | `dartclaw_security` | Domain allowlist, exfiltration detection |
-| `security/content_guard.dart` | `dartclaw_security` | LLM-based content classification guard |
-| `security/content_classifier.dart` | `dartclaw_security` | ContentClassifier interface |
-| `security/message_redactor.dart` | `dartclaw_security` | Proportional secret redaction |
+| `security/guard.dart` | `dartclaw_kernel` | Guard interface, GuardContext, GuardChain |
+| `security/guard_verdict.dart` | `dartclaw_kernel` | Sealed GuardVerdict hierarchy (pass/warn/block) |
+| `security/guard_audit.dart` | `dartclaw_kernel` | AuditEntry, GuardAuditLogger |
+| `security/command_guard.dart` | `dartclaw_kernel` | Dangerous command blocking |
+| `security/file_guard.dart` | `dartclaw_kernel` | Path protection, symlink resolution |
+| `security/network_guard.dart` | `dartclaw_kernel` | Domain allowlist, exfiltration detection |
+| `security/content_guard.dart` | `dartclaw_kernel` | LLM-based content classification guard |
+| `security/content_classifier.dart` | `dartclaw_kernel` | ContentClassifier interface |
+| `security/command_vocabulary.dart` | `dartclaw_kernel` | Shared read/write/delete command sets and the read-only shell allowlist |
+| `security/message_redactor.dart` | `dartclaw_kernel` | Proportional secret redaction |
 | `agents/tool_policy_cascade.dart` | `dartclaw_core` | 3-layer tool policy, ToolPolicyGuard |
-| `security/task_tool_filter_guard.dart` | `dartclaw_security` | Per-task tool allowlist + read-only mode |
-| `container/container_manager.dart` | `dartclaw_server` | Docker container lifecycle, security flags |
-| `container/gateway/host_gateway.dart` | `dartclaw_server` | Per-authority framed-pipe host gateway (provider + MCP surfaces) |
-| `container/security_profile.dart` | `dartclaw_server` | Workspace/restricted security profiles |
-| `container/container_dispatcher.dart` | `dartclaw_server` | Task type -> security profile routing |
-| `container/container_config.dart` | `dartclaw_models` | Container configuration data type |
+| `security/task_tool_filter_guard.dart` | `dartclaw_kernel` | Per-task tool allowlist + read-only mode |
+| `container/container_manager.dart` | `dartclaw_runtime` | Docker container lifecycle, security flags |
+| `container/gateway/host_gateway.dart` | `dartclaw_runtime` | Per-authority framed-pipe host gateway (provider + MCP surfaces) |
+| `container/security_profile.dart` | `dartclaw_runtime` | Workspace/restricted security profiles |
+| `container/container_config.dart` | `dartclaw_kernel` | Container configuration data type |
 | `channel/dm_access.dart` | `dartclaw_core` | DmAccessController, pairing flow |
-| `auth/auth_middleware.dart` | `dartclaw_server` | shelf auth pipeline |
-| `auth/session_token.dart` | `dartclaw_server` | HMAC-signed stateless session tokens |
-| `auth/token_service.dart` | `dartclaw_server` | Gateway token generation, rotation, persistence |
-| `auth/auth_utils.dart` | `dartclaw_server` | Constant-time comparison, bounded body reads |
-| `auth/auth_rate_limiter.dart` | `dartclaw_server` | Throttles failed auth attempts to blunt brute force |
-| `auth/security_headers.dart` | `dartclaw_server` | Security response headers middleware |
-| `audit/guard_audit_subscriber.dart` | `dartclaw_server` | EventBus -> GuardAuditLogger bridge |
-| `mcp/web_fetch_tool.dart` | `dartclaw_server` | SSRF-hardened URL fetcher |
-| `task/task_file_guard.dart` | `dartclaw_server` | Per-task worktree path containment |
-| `container/container_health_monitor.dart` | `dartclaw_server` | Periodic container health checks |
-| `execution_coordinator.dart` | `dartclaw_server` | Post-governance lanes, capacity leases, provider/profile reuse, quarantine |
-| `worker_capacity_gate.dart` | `dartclaw_server` | Hard per-provider worker execution capacity |
+| `auth/auth_middleware.dart` | `dartclaw_runtime` | shelf auth pipeline |
+| `auth/session_token.dart` | `dartclaw_runtime` | HMAC-signed stateless session tokens |
+| `auth/token_service.dart` | `dartclaw_runtime` | Gateway token generation, rotation, persistence |
+| `auth/auth_utils.dart` | `dartclaw_runtime` | Constant-time comparison, bounded body reads |
+| `auth/auth_rate_limiter.dart` | `dartclaw_runtime` | Throttles failed auth attempts to blunt brute force |
+| `auth/security_headers.dart` | `dartclaw_runtime` | Security response headers middleware |
+| `audit/guard_audit_subscriber.dart` | `dartclaw_runtime` | EventBus -> GuardAuditLogger bridge |
+| `mcp/web_fetch_tool.dart` | `dartclaw_runtime` | SSRF-hardened URL fetcher |
+| `task/task_file_guard.dart` | `dartclaw_runtime` | Per-task worktree path containment |
+| `container/container_health_monitor.dart` | `dartclaw_runtime` | Periodic container health checks |
+| `execution_coordinator.dart` | `dartclaw_runtime` | Post-governance lanes, capacity leases, provider/profile reuse, quarantine |
+| `worker_capacity_gate.dart` | `dartclaw_runtime` | Hard per-provider worker execution capacity |
 | `harness/tool_policy.dart` | `dartclaw_core` | Control protocol tool approval/hook responses |
-| `governance_config.dart` | `dartclaw_config` | GovernanceConfig, RateLimitsConfig, BudgetConfig, LoopDetectionConfig |
-| `sliding_window_rate_limiter.dart` | `dartclaw_config` | In-memory sliding window rate limiter |
-| `loop_detector.dart` | `dartclaw_config` | 3-mechanism loop detection (turn chain, velocity, fingerprint) |
-| `loop_detection.dart` | `dartclaw_config` | LoopDetection result, LoopMechanism enum, LoopDetectedException |
+| `governance_config.dart` | `dartclaw_kernel` | GovernanceConfig, RateLimitsConfig, BudgetConfig, LoopDetectionConfig |
+| `sliding_window_rate_limiter.dart` | `dartclaw_kernel` | In-memory sliding window rate limiter |
+| `loop_detector.dart` | `dartclaw_kernel` | 3-mechanism loop detection (turn chain, velocity, fingerprint) |
+| `loop_detection.dart` | `dartclaw_kernel` | LoopDetection result, LoopMechanism enum, LoopDetectedException |
 | `channel/thread_binding.dart` | `dartclaw_core` | ThreadBinding model, ThreadBindingStore persistence |
-| `governance/budget_enforcer.dart` | `dartclaw_server` | Daily token budget enforcement, timezone-aware |
-| `governance/pause_controller.dart` | `dartclaw_server` | In-memory pause/resume with per-sender message collapsing |
-| `emergency/emergency_stop_handler.dart` | `dartclaw_server` | Emergency stop orchestration (cancel turns + tasks) |
+| `governance/budget_enforcer.dart` | `dartclaw_runtime` | Daily token budget enforcement, timezone-aware |
+| `governance/pause_controller.dart` | `dartclaw_runtime` | In-memory pause/resume with per-sender message collapsing |
+| `emergency/emergency_stop_handler.dart` | `dartclaw_runtime` | Emergency stop orchestration (cancel turns + tasks) |
 | `docker/Dockerfile` | root | Container image definition |

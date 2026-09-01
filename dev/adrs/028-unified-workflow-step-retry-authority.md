@@ -22,7 +22,7 @@ Because both read the same `maxRetries`, they **multiplied**: a step with `maxRe
 1. **Disable Layer A for workflow-owned retries.** Dispatchers pass `maxRetries: 0` for tasks spawned from `onFailure: retry` steps, so task-runtime retry cannot multiply the workflow-owned retry budget. Workflow steps without `onFailure: retry` keep the authored task-runtime retry budget for crash recovery.
 2. **One workflow-owned budget.** `onFailure: retry` + `maxRetries: N` means **at most `N + 1` total attempts** uniformly across single steps, parallel `map` items, and `foreach` inner steps. The shared retry helper lives in `dartclaw_workflow`.
 3. **Outcome-aware triggering.** Workflow retry fires on the full outcome-failure set — task crash, failed `<step-outcome>`, post-task validation failure, and missing declared artifact — uniformly across all dispatch paths.
-4. **Deterministic-failure short-circuit.** When consecutive attempts normalize to the **same error class**, the helper stops early (before exhausting `N + 1`) and surfaces that error, preserving the deterministic-failure guard without reintroducing a second retry layer.
+4. **Deterministic-failure short-circuit.** When consecutive attempts fail with the **same typed failure value**, the helper stops early (before exhausting `N + 1`) and surfaces that error, preserving the deterministic-failure guard without reintroducing a second retry layer. *(Amended in 0.25: the comparison key was the failure reason normalized to an "error class" — lowercased, prefix-stripped, cut at the first delimiter and clipped to 80 characters. It is now a `WorkflowStepRetryFailure` the dispatching call site constructs, naming the source it knows — model-declared outcome, output validation discriminated by the raising exception's runtime type, or terminal task status — and compared exactly.)*
 5. **Non-workflow tasks unchanged.** Channel-triggered and manual tasks keep Layer A (`TaskFailureHandler.markFailedOrRetry`) exactly as before; `dartclaw_server` retry code stays uncoupled from workflow outcome semantics.
 
 ## Consequences
@@ -37,7 +37,7 @@ Because both read the same `maxRetries`, they **multiplied**: a step with `maxRe
 ### Negative
 
 - Retry semantics now differ by workflow failure policy. Readers of a workflow-spawned task's row must know that `Task.maxRetries == 0` means retry is owned upstream only for `onFailure: retry` steps; non-retry workflow steps can still use task-runtime retry.
-- The short-circuit depends on error-class normalization; a too-coarse classifier could stop early on genuinely distinct transient errors, and a too-fine one weakens the guard. The normalization is the load-bearing tuning point.
+- The short-circuit depends on how finely failures are classified; a too-coarse classifier stops early on genuinely distinct transient errors, and a too-fine one weakens the guard. The classification is the load-bearing tuning point. *(Amended in 0.25: with typed comparison the guard is deliberately narrower — two reasons that differ only after the first delimiter, and two identically-worded failures from different producers, no longer collapse into one class, so those cases spend the authored budget rather than stopping at two attempts. The tuning point moved from the normalizer to the set of variants and the payload each carries.)*
 - More failure-path combinations to cover in tests (single/map/foreach × task-crash/outcome-failure/missing-artifact), plus the resume invariants below.
 
 ## Alternatives Considered
@@ -48,7 +48,7 @@ Because both read the same `maxRetries`, they **multiplied**: a step with `maxRe
 
 ## Implementation Notes
 
-- FIS provenance: 0.17 maintainer workflow, unify-workflow-step-retry.
+- FIS provenance: 0.17 maintainer workflow, unify-workflow-step-retry; amended in 0.25 by the typed workflow outcome and failure vocabulary.
 - Seam: `step_dispatcher.dart` and `map_iteration_dispatcher.dart` pass `maxRetries: 0` for `onFailure: retry` tasks. `workflow_task_factory.dart` persists the dispatch-provided value, so `fail`/`continue`/`pause` steps can retain Layer A when they author `maxRetries`.
 - Resume invariants preserved: the parallel `_parallel.failed.stepIds` resume path and the `foreach` iteration cursor still re-attempt correctly after the retry change — no double-execution on resume, no permanently-undispatchable items.
 - Built-in review steps now retry transient failures instead of aborting the whole review block.

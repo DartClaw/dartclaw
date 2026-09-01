@@ -18,7 +18,6 @@ abstract class ProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
-    bool resume = false,
   });
 
   /// Builds the JSON payload used to answer a tool approval request.

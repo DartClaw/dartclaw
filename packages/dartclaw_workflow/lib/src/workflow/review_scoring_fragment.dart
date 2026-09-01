@@ -1,7 +1,5 @@
 const defaultGatingSeverity = 'high';
 
-const reviewFindingSeverityTiers = ['critical', 'high', 'medium', 'low'];
-
 const reviewScoringFragmentThresholdToken = '{threshold}';
 
 const reviewScoringFragment = '''
@@ -20,6 +18,3 @@ Findings below `{threshold}` are reported but do not block remediation-loop conv
 
 String reviewScoringFragmentFor(String gatingSeverity) =>
     reviewScoringFragment.replaceAll(reviewScoringFragmentThresholdToken, gatingSeverity);
-
-bool isValidReviewFindingSeverity(String? value) =>
-    value != null && reviewFindingSeverityTiers.contains(value.trim().toLowerCase());

@@ -75,8 +75,8 @@ TextDelta? codexBuildAgentMessageDelta(Map<String, dynamic> item, {bool allowDel
   return TextDelta(text);
 }
 
-ToolResult codexBuildCommandExecutionToolResult(Map<String, dynamic> item) {
-  return ToolResult(
+ToolResultMessage codexBuildCommandExecutionToolResult(Map<String, dynamic> item) {
+  return ToolResultMessage(
     toolId: stringValue(item['id']) ?? '',
     output:
         stringValue(item['aggregatedOutput']) ??
@@ -87,8 +87,12 @@ ToolResult codexBuildCommandExecutionToolResult(Map<String, dynamic> item) {
   );
 }
 
-ToolResult codexBuildJsonFieldToolResult(Map<String, dynamic> item, {required String field, bool isError = false}) {
-  return ToolResult(toolId: stringValue(item['id']) ?? '', output: jsonEncode(item[field]), isError: isError);
+ToolResultMessage codexBuildJsonFieldToolResult(
+  Map<String, dynamic> item, {
+  required String field,
+  bool isError = false,
+}) {
+  return ToolResultMessage(toolId: stringValue(item['id']) ?? '', output: jsonEncode(item[field]), isError: isError);
 }
 
 TurnComplete codexBuildTurnComplete(Map<String, dynamic> usage, {required String stopReason}) {

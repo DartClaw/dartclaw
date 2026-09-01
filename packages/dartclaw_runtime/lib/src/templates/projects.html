@@ -1,0 +1,135 @@
+<div tl:fragment="projects" class="shell">
+  <div tl:utext="${sidebar}">sidebar</div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
+  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+    <tl:block tl:utext="${contentHtml}"></tl:block>
+    <tl:block tl:utext="${dialogHostHtml}"></tl:block>
+  </main>
+  </div>
+</div>
+
+<div tl:fragment="projectsContent" class="page-inner" id="projects-content" tl:attr="hx-swap-oob=${outOfBand}">
+
+  <tl:block tl:utext="${pageHeaderHtml}"></tl:block>
+
+  <div tl:if="${hasProjects}">
+    <div tl:each="project : ${projects}" class="card"
+         tl:attr="data-project-id=${project.id}">
+      <div class="card-header">
+        <div>
+          <strong class="t-heading" tl:text="${project.name}">Project Name</strong>
+          <span class="status-badge" tl:classappend="${project.statusBadgeClass}"
+                tl:text="${project.statusLabel}">Ready</span>
+          <span tl:if="${project.isLocal}" class="type-badge">Local</span>
+          <span tl:unless="${project.isLocal}" class="type-badge"
+                tl:text="${project.configDefinedLabel}">Runtime</span>
+          <span tl:if="${project.isDefault}" class="type-badge">Default</span>
+        </div>
+        <div class="card-header-actions">
+          <button class="btn btn-sm" type="button"
+                  hx-target="#projects-content" hx-swap="outerHTML"
+                  tl:attr="hx-post=${project.fetchUrl}">Fetch</button>
+          <button tl:if="${project.isEditable}" class="btn btn-ghost btn-sm" type="button"
+                  hx-target="#project-dialog-host" hx-swap="outerHTML"
+                  tl:attr="hx-get=${project.editUrl}">Edit</button>
+          <button tl:if="${project.isEditable}" class="btn btn-ghost btn-sm btn-danger" type="button"
+                  hx-target="#projects-content" hx-swap="outerHTML"
+                  tl:attr="hx-post=${project.removeUrl},hx-confirm=${project.removeConfirm}">Remove</button>
+        </div>
+      </div>
+
+      <div tl:unless="${project.isLocal}" class="card-footer t-caption">
+        <span class="text-muted" tl:text="${project.displayUrl}">https://github.com/user/repo</span>
+        <span class="type-badge" tl:text="${project.defaultBranch}">main</span>
+        <span class="text-muted">
+          Fetched: <span tl:if="${project.lastFetchAbsent}" class="value-absent"></span><span tl:unless="${project.lastFetchAbsent}" tl:attr="title=${project.lastFetchIso}" tl:text="${project.lastFetchDisplay}">2026-01-01 10:00</span>
+        </span>
+        <span class="type-badge" tl:text="${project.prStrategyLabel}">Branch Only</span>
+      </div>
+
+      <div tl:if="${project.hasError}" class="banner banner-error" data-project-error="">
+        <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+        <span tl:text="${project.errorMessage}">Clone failed</span>
+      </div>
+    </div>
+  </div>
+
+  <tl:block tl:unless="${hasProjects}" tl:utext="${emptyStateHtml}"></tl:block>
+
+</div>
+
+<div tl:fragment="projectDialogHost" id="project-dialog-host">
+  <dialog tl:if="${hasDialog}" id="add-project-dialog" class="dialog dialog--md card card-glass"
+          data-controller="dc-dialog">
+    <form id="add-project-form" hx-target="#project-dialog-host" hx-swap="outerHTML"
+          tl:attr="hx-post=${submitUrl}">
+      <div class="dialog-header">
+        <h2 class="t-heading" tl:text="${dialogTitle}">Add Project</h2>
+        <button type="button" class="btn-close" aria-label="Close" data-dialog-close data-icon="x"></button>
+      </div>
+
+      <div class="dialog-body">
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-remote-url">Remote URL</label>
+          <input type="text" id="project-remote-url" name="remoteUrl" class="form-input" required
+                 placeholder="git@github.com:user/repo.git"
+                 tl:attr="value=${remoteUrl},aria-invalid=${remoteUrlInvalid}">
+          <div class="form-error t-caption" tl:text="${remoteUrlError}"></div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-name">Name</label>
+          <input type="text" id="project-name" name="name" class="form-input" required
+                 placeholder="my-project"
+                 tl:attr="value=${name},aria-invalid=${nameInvalid}">
+          <div class="form-error t-caption" tl:text="${nameError}"></div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-branch">Default Branch</label>
+          <input type="text" id="project-branch" name="defaultBranch" class="form-input"
+                 placeholder="main" tl:attr="value=${defaultBranch}">
+        </div>
+
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-creds-ref">Credentials Reference</label>
+          <input type="text" id="project-creds-ref" name="credentialsRef" class="form-input"
+                 placeholder="github-main"
+                 tl:attr="value=${credentialsRef},aria-invalid=${credentialsRefInvalid}">
+          <div class="form-error t-caption" tl:text="${credentialsRefError}"></div>
+          <small class="form-hint t-caption">Optional. Name of a credential defined in dartclaw.yaml.</small>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-pr-strategy">PR Strategy</label>
+          <select id="project-pr-strategy" name="prStrategy" class="form-select">
+            <option value="githubPr" tl:attr="selected=${prStrategyGithubPr}">GitHub PR</option>
+            <option value="branchOnly" tl:attr="selected=${prStrategyBranchOnly}">Branch Only</option>
+          </select>
+        </div>
+
+        <label class="form-field form-field--checkbox">
+          <input type="checkbox" class="form-checkbox" id="project-pr-draft" name="draft"
+                 tl:attr="checked=${prDraft}">
+          <span>Create PRs as draft</span>
+        </label>
+
+        <div class="form-field">
+          <label class="form-label t-caption tracking-caps" for="project-labels">Labels</label>
+          <input type="text" id="project-labels" name="labels" class="form-input"
+                 placeholder="agent, automated" tl:attr="value=${prLabels}">
+          <small class="form-hint t-caption">Optional. Comma-separated labels to apply to PRs.</small>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div id="add-project-error" class="form-error t-caption" role="alert" tl:text="${formError}"></div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost" data-dialog-close>Cancel</button>
+          <button type="submit" class="btn btn-primary" tl:text="${submitLabel}">Add Project</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+</div>

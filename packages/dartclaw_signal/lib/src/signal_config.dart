@@ -1,7 +1,8 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show readString;
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'signal_dm_access.dart';
+import 'signal_sender_map.dart' show isValidSignalE164, isValidSignalUuid;
+
+import 'package:dartclaw_core/dartclaw_core.dart';
 
 /// Configuration for the Signal channel via signal-cli subprocess.
 class SignalConfig {
@@ -27,7 +28,7 @@ class SignalConfig {
   final DmAccessMode dmAccess;
 
   /// Group-message access policy for Signal groups.
-  final SignalGroupAccessMode groupAccess;
+  final GroupAccessMode groupAccess;
 
   /// Approved direct-message senders when [dmAccess] is allowlist-based.
   final List<String> dmAllowlist;
@@ -41,12 +42,6 @@ class SignalConfig {
   /// Additional regex patterns treated as bot mentions in groups.
   final List<String> mentionPatterns;
 
-  /// Retry policy for outbound delivery failures.
-  final RetryPolicy retryPolicy;
-
-  /// Per-channel task trigger configuration.
-  final TaskTriggerConfig taskTrigger;
-
   /// Creates immutable Signal channel configuration.
   const new({
     this.enabled = false,
@@ -56,13 +51,11 @@ class SignalConfig {
     this.port = 8080,
     this.maxChunkSize = 4000,
     this.dmAccess = DmAccessMode.allowlist,
-    this.groupAccess = SignalGroupAccessMode.disabled,
+    this.groupAccess = GroupAccessMode.disabled,
     this.dmAllowlist = const [],
     this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
     this.mentionPatterns = const [],
-    this.retryPolicy = const RetryPolicy(),
-    this.taskTrigger = const TaskTriggerConfig.disabled(),
   });
 
   /// Returns the group IDs from [groupAllowlist] as a plain string list.
@@ -76,14 +69,14 @@ class SignalConfig {
 
   /// Parses Signal configuration from YAML, appending warnings to [warns].
   factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
-    final common = CommonChannelFields<SignalGroupAccessMode>.fromYaml(
+    final common = CommonChannelFields<GroupAccessMode>.fromYaml(
       'signal',
       yaml,
       warns,
       defaultDmAccess: DmAccessMode.allowlist,
-      defaultGroupAccess: SignalGroupAccessMode.disabled,
+      defaultGroupAccess: GroupAccessMode.disabled,
       parseGroupAccess: (value) {
-        for (final candidate in SignalGroupAccessMode.values) {
+        for (final candidate in GroupAccessMode.values) {
           if (candidate.name == value) {
             return candidate;
           }
@@ -98,13 +91,40 @@ class SignalConfig {
     var port = 8080;
     final portRaw = yaml['port'];
     if (portRaw is int) {
-      if (portRaw >= 1 && portRaw <= 65535) {
+      final field = ConfigMeta.fields['channels.signal.port']!;
+      if (FieldConstraints.evaluate(field, portRaw) == null) {
         port = portRaw;
       } else {
-        warns.add('Invalid value for signal.port: $portRaw (must be 1-65535) — using default');
+        warns.add(
+          'Invalid value for signal.port: $portRaw '
+          '(must be ${field.min!.toInt()}-${field.max!.toInt()}) — using default',
+        );
       }
     } else if (portRaw != null) {
       warns.add('Invalid type for signal.port: "${portRaw.runtimeType}" — using default');
+    }
+
+    // A hand-written `dm_allowlist` is the one path that can still hold an
+    // entry the API would not store: `resolve` hands the allowlist a lowercase
+    // UUID, so any other casing names a sender that can never match, and the
+    // operator loses access silently. Warned rather than refused because a
+    // channel section's only load-time surface is this advisory list, which
+    // reaches `config.warnings` and blocks a hot reload.
+    for (final entry in common.dmAllowlist) {
+      if (isValidSignalUuid(entry)) {
+        if (entry != entry.toLowerCase()) {
+          warns.add(
+            'signal.dm_allowlist entry "$entry" is not lowercase and will never match an inbound sender — '
+            'rewrite it as "${entry.toLowerCase()}"',
+          );
+        }
+        continue;
+      }
+      if (isValidSignalE164(entry)) continue;
+      warns.add(
+        'signal.dm_allowlist entry "$entry" is neither an E.164 phone number (e.g. +1234567890) nor a UUID — '
+        'it will never match an inbound sender',
+      );
     }
 
     return SignalConfig(
@@ -120,8 +140,6 @@ class SignalConfig {
       groupAllowlist: common.groupAllowlist,
       requireMention: common.requireMention,
       mentionPatterns: common.mentionPatterns,
-      retryPolicy: common.retryPolicy,
-      taskTrigger: common.taskTrigger,
     );
   }
 }

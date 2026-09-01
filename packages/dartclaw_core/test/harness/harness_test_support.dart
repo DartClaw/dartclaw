@@ -2,12 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
-import 'package:dartclaw_core/src/harness/harness_config.dart';
+import 'package:dartclaw_core/src/harness/harness_launch_options.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
-import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
 import 'package:test/test.dart';
 
@@ -125,10 +124,10 @@ class SwitchableFailingSink implements IOSink {
 }
 
 class FakeClaudeContainerExecutor implements ContainerExecutor {
-  new({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl});
+  new({required this.hostRoot, required this.containerRoot, this.mcpBridgeUrl, this.profileId = 'workspace'});
 
   @override
-  final String profileId = 'workspace';
+  final String profileId;
 
   @override
   final String workingDir = '/workspace';
@@ -214,15 +213,20 @@ ClaudeCodeHarness buildClaudeHarness({
   DelayFactory? delayFactory,
   Map<String, String>? environment,
   Map<String, dynamic>? providerOptions,
-  HarnessConfig harnessConfig = const HarnessConfig(),
+  HarnessLaunchOptions harnessConfig = const HarnessLaunchOptions(),
   Duration killGracePeriod = Duration.zero,
   Duration initializeTimeout = const Duration(seconds: 10),
   PlatformCapabilities? platformCapabilities,
   GuardChain? guardChain,
   GuardAuditLogger? auditLogger,
   void Function(String toolName, String? reason)? onPermissionDenied,
+  ContainerExecutor? containerManager,
+  List<String>? declaredCanonicalTools,
+  List<String> declaredWritableRoots = const <String>[],
 }) {
   return ClaudeCodeHarness(
+    declaredCanonicalTools: declaredCanonicalTools,
+    declaredWritableRoots: declaredWritableRoots,
     cwd: '/tmp',
     processFactory: processFactory ?? defaultClaudeProcessFactory,
     commandProbe: commandProbe ?? defaultClaudeCommandProbe,
@@ -236,6 +240,7 @@ ClaudeCodeHarness buildClaudeHarness({
     guardChain: guardChain,
     auditLogger: auditLogger,
     onPermissionDenied: onPermissionDenied,
+    containerManager: containerManager,
   );
 }
 
@@ -252,7 +257,11 @@ ProcessFactory capturingInitFactory({void Function(ProcessSpawn spawn)? onSpawn,
   };
 }
 
-ProcessFactory resultEmittingFactory({Map<String, dynamic>? result, void Function(ProcessSpawn spawn)? onSpawn}) {
+ProcessFactory resultEmittingFactory({
+  Map<String, dynamic>? result,
+  String? systemInitSessionId,
+  void Function(ProcessSpawn spawn)? onSpawn,
+}) {
   final payload = <String, dynamic>{
     'type': 'result',
     'result': 'ok',
@@ -269,6 +278,11 @@ ProcessFactory resultEmittingFactory({Map<String, dynamic>? result, void Functio
     final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
     scheduleMicrotask(() {
       fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+      if (systemInitSessionId != null) {
+        fake.emitStdout(
+          jsonEncode({'type': 'system', 'subtype': 'init', 'session_id': systemInitSessionId, 'tools': []}),
+        );
+      }
     });
     Future.delayed(const Duration(milliseconds: 20), () {
       fake.emitStdout(jsonEncode(payload));
@@ -277,10 +291,14 @@ ProcessFactory resultEmittingFactory({Map<String, dynamic>? result, void Functio
   };
 }
 
-Future<List<String>> startHarnessAndCaptureArgs({Map<String, dynamic>? providerOptions}) async {
+Future<List<String>> startHarnessAndCaptureArgs({
+  Map<String, dynamic>? providerOptions,
+  List<String>? declaredCanonicalTools,
+}) async {
   List<String>? capturedArgs;
   final h = buildClaudeHarness(
     providerOptions: providerOptions,
+    declaredCanonicalTools: declaredCanonicalTools,
     processFactory: capturingInitFactory(onSpawn: (spawn) => capturedArgs = spawn.args),
   );
   addTearDown(h.dispose);

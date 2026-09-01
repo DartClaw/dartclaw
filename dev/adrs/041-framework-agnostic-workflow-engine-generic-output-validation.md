@@ -64,3 +64,16 @@ A CI gate asserts **zero** `andthen` / `dartclaw-discover-andthen` literals (cas
 1. **Status quo — keep the bespoke validators, harden the "keep in sync" comments.** Rejected: the duplication is structural (Connascence of Algorithm across a process boundary), not a comment-discipline problem. The fifth dependency stays invisible to the allowlist and the package stays AndThen-specific in fact while documented as agnostic.
 2. **Declare AndThen as an explicit fifth production dependency and own the coupling honestly.** Rejected: it codifies the very thing the package exists to avoid (framework lock-in in the control plane) and still leaves the skill ↔ engine algorithm duplication. The agnostic positioning is the product decision (ADR-025 §Positioning); this alternative reverses it.
 3. **Push only the *mutating* semantics to skills, keep read-only semantic assertions in the engine as defense-in-depth.** Rejected: a partial move keeps the skill-name dispatch surface and the drift-prone mirror, for defense-in-depth already covered generically by schema + `format: path`. Half-agnostic is not enforceable as an invariant.
+
+## Amendment (0.25) – the `format: path` boundary keeps its declared-pattern half
+
+Recorded 2026-08-20 (0.25 Lean Runtime). The generic `format: path` trust boundary now decides *which* file
+satisfies an unclaimed path output using only the output's declared `pathPattern` and `preferPatterns`, applied to
+the host-owned per-step artifacts dir instead of a `git diff` listing. The removed alternative — an engine-side
+"newest markdown" or basename rule — is what this ADR forbids: it would put framework-specific selection policy
+into `lib/src/` and, to tell `prd.md` from `plan.json`, would need AndThen filenames there. The deleted
+review-artifact recognition (`isReviewArtifactPathOutput` and its preset/count/pattern sniffing) was the last
+name-keyed selection in the engine.
+
+Selection stays in workflow YAML; validation stays generic (containment, existence, argument safety, plus the
+declared `schema:`). The fitness gate on `andthen` literals is unchanged.

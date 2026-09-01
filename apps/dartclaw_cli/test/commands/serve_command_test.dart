@@ -6,13 +6,10 @@ import 'dart:isolate';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
-import 'package:dartclaw_server/dartclaw_server.dart' show AssetResolver, LogService;
-import 'package:dartclaw_signal/dartclaw_signal.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver, LogService, loadDartclawConfig;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -28,9 +25,9 @@ late StreamSubscription<LogRecord> _testLogSubscription;
 late List<String> _expectedSevereLogSubstrings;
 
 Future<String> _resolveDartclawServerAssetDir(String child) async {
-  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_server/dartclaw_server.dart'));
+  final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
   if (uri == null) {
-    throw StateError('Could not resolve package:dartclaw_server.');
+    throw StateError('Could not resolve package:dartclaw_runtime.');
   }
   final libDir = File.fromUri(uri).parent;
   return p.join(libDir.path, 'src', child);
@@ -59,18 +56,20 @@ class _FakeWorkerService extends FakeAgentHarness {
   bool get stopped => stopCalled || disposeCalled;
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
     String? agentId,
-  }) async => {'ok': true};
+    Map<String, dynamic>? outputSchema,
+  }) async => const TurnResult();
 }
 
 const _missingBinary = 'dartclaw-definitely-missing-binary-12345';
@@ -105,7 +104,7 @@ ServeCommand _bindingFailureCommand({
   config: config,
   searchDbFactory: (_) => sqlite3.openInMemory(),
   harnessFactory: _harnessFactoryFor(worker),
-  serverFactory: (builder) => builder.build(),
+  serverFactory: (server) => server,
   serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
   stderrLine: stderrLine ?? (_) {},
   exitFn: (code) => throw _ExitIntercept(code),
@@ -170,13 +169,13 @@ void main() {
       expect(hostOption.abbr, 'H');
     });
 
-    test('has data-dir, source-dir, static-dir, templates-dir, worker-timeout options', () {
+    test('has data-dir, source-dir, static-dir and templates-dir options', () {
       final options = serveCommand.argParser.options;
       expect(options.containsKey('data-dir'), isTrue);
       expect(options.containsKey('source-dir'), isTrue);
       expect(options.containsKey('static-dir'), isTrue);
       expect(options.containsKey('templates-dir'), isTrue);
-      expect(options.containsKey('worker-timeout'), isTrue);
+      expect(options.containsKey('worker-timeout'), isFalse);
       expect(options.containsKey('offline'), isFalse);
     });
 
@@ -185,9 +184,9 @@ void main() {
       final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('- container\n- enabled\n');
       var serverBuilt = false;
       final command = ServeCommand(
-        serverFactory: (builder) {
+        serverFactory: (server) {
           serverBuilt = true;
-          return builder.build();
+          return server;
         },
         runWorkflowSkillsBootstrap: false,
       );
@@ -236,6 +235,7 @@ void main() {
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           host: '0.0.0.0',
@@ -305,6 +305,7 @@ void main() {
       var sigtermWatchCalls = 0;
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -338,12 +339,12 @@ void main() {
     });
 
     test('channel startup can be skipped while channels remain configured', () async {
-      ensureDartclawWhatsappRegistered();
       final worker = _FakeWorkerService();
       late String pairingBody;
       final tempDir = _tempDirectory('dartclaw_serve_channels_skipped_test_');
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         gateway: const GatewayConfig(authMode: 'none'),
         server: ServerConfig(
@@ -374,12 +375,11 @@ void main() {
         sigintWatch: () => Stream.value(ProcessSignal.sigint),
         sigtermWatch: () => const Stream.empty(),
         runWorkflowSkillsBootstrap: false,
+        connectChannels: false,
       );
       final localRunner = DartclawRunner()..addCommand(command);
 
-      await _captureExpectedServeLogs(
-        () => _expectExit(localRunner, code: 0, args: const ['serve', '--no-connect-channels']),
-      );
+      await _captureExpectedServeLogs(() => _expectExit(localRunner, code: 0));
 
       expect(pairingBody, contains('Not Connected'));
       expect(worker.started, isTrue);
@@ -387,11 +387,11 @@ void main() {
     });
 
     test('channels connect by default', () async {
-      ensureDartclawWhatsappRegistered();
       final worker = _FakeWorkerService();
       final tempDir = _tempDirectory('dartclaw_serve_channels_default_test_');
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -436,15 +436,13 @@ void main() {
       final worker = _FakeWorkerService();
       final tempDir = _tempDirectory();
 
-      ensureDartclawGoogleChatRegistered();
-      ensureDartclawWhatsappRegistered();
-      ensureDartclawSignalRegistered();
-
-      final config = DartclawConfig.load(
+      final config = loadDartclawConfig(
         configPath: 'dartclaw.yaml',
         fileReader: (path) {
           if (path == 'dartclaw.yaml') {
             return '''
+container:
+  enabled: false
 credentials:
   anthropic:
     api_key: anthropic-key
@@ -492,6 +490,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         agent: const AgentConfig(provider: 'claude'),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -517,6 +516,7 @@ channels:
       final tempDir = _tempDirectory('dartclaw_serve_asset_root_test_');
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -531,7 +531,7 @@ channels:
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
+        serverFactory: (server) => server,
         serveFn: (handler, address, port) async {
           capturedHandler = handler;
           throw SocketException('Address already in use');
@@ -558,6 +558,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         agent: const AgentConfig(provider: 'claude'),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         providers: ProvidersConfig(
@@ -599,6 +600,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -632,6 +634,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -669,6 +672,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         workspace: const WorkspaceConfig(gitSyncEnabled: false),
         server: ServerConfig(
@@ -712,6 +716,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
       );
 
@@ -749,6 +754,7 @@ channels:
       final tempDir = _tempDirectory();
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,

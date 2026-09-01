@@ -1,11 +1,10 @@
 import 'dart:convert';
 
-import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode, WorkflowStep;
+import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode;
 
 import 'package:logging/logging.dart';
 
 import 'json_extraction.dart';
-import 'review_finding_derivations.dart' as rfd;
 import 'schema_presets.dart';
 import 'schema_validator.dart';
 
@@ -86,25 +85,11 @@ String stringifyWorkflowValue(Object? value) {
   return jsonEncode(value);
 }
 
-/// Derives a context output value from structured output payloads.
+/// Derives a context output value from values already resolved for this step.
 ///
-/// Priority: already-extracted value → review finding count → unscoped key → default.
-dynamic deriveFromStructuredOutputs(
-  WorkflowStep step,
-  Map<String, dynamic> outputs,
-  String outputKey, {
-  required Map<String, dynamic>? workflowContextPayload,
-  required Map<String, dynamic> structuredOutputPayload,
-}) {
+/// Priority: already-extracted value → unscoped key → nested key → null.
+dynamic deriveFromStructuredOutputs(Map<String, dynamic> outputs, String outputKey) {
   if (outputs.containsKey(outputKey)) return outputs[outputKey];
-  final reviewCount = rfd.deriveReviewFindingCount(
-    outputKey,
-    outputs,
-    workflowContextPayload,
-    structuredOutputPayload,
-    gatingSeverity: step.gatingSeverity,
-  );
-  if (reviewCount != null) return reviewCount;
 
   final lastDot = outputKey.lastIndexOf('.');
   if (lastDot > 0) {
@@ -116,22 +101,4 @@ dynamic deriveFromStructuredOutputs(
     if (value is Map && value.containsKey(outputKey)) return value[outputKey];
   }
   return null;
-}
-
-/// Derives review count outputs before trusting direct model-emitted counters.
-dynamic deriveReviewCountFromStructuredOutputs(
-  WorkflowStep step,
-  Map<String, dynamic> outputs,
-  String outputKey, {
-  required Map<String, dynamic>? workflowContextPayload,
-  required Map<String, dynamic> structuredOutputPayload,
-}) {
-  if (!rfd.isReviewFindingCountKey(outputKey)) return null;
-  return rfd.deriveReviewFindingCount(
-    outputKey,
-    outputs,
-    workflowContextPayload,
-    structuredOutputPayload,
-    gatingSeverity: step.gatingSeverity,
-  );
 }

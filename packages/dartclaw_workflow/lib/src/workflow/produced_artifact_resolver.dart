@@ -128,11 +128,11 @@ List<String> _pathValues(Object? raw) {
   if (raw == null) return const <String>[];
   if (raw is String) {
     final value = raw.trim();
-    if (value.isEmpty || value == 'null') return const <String>[];
+    if (value.isEmpty) return const <String>[];
     return <String>[value];
   }
   if (raw is Iterable) {
-    return raw.map((value) => value.toString().trim()).where((value) => value.isNotEmpty && value != 'null').toList();
+    return raw.map((value) => value.toString().trim()).where((value) => value.isNotEmpty).toList();
   }
   return const <String>[];
 }
@@ -141,7 +141,7 @@ List<String> _sortedNormalized(Iterable<String> paths, {String? projectRoot, Str
   final normalized = <String>{};
   for (final path in paths) {
     final value = path.trim();
-    if (value.isEmpty || value == 'null') continue;
+    if (value.isEmpty) continue;
     if (_isRuntimeArtifactPath(value, runtimeArtifactsRoot)) continue;
     normalized.add(safeProjectRelativePath(value, projectRoot, fieldName: 'Produced artifact path', rejectRoot: true));
   }

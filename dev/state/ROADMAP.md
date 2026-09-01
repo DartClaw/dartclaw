@@ -4,20 +4,30 @@
 
 ## Active Milestone
 
-### 0.24.3 — Trust Boundaries and Credential Delivery
+### 0.25 — Lean Runtime
 
-**Status: release candidate dated 2026-08-27, awaiting pre-tag gates.** Strict schema-bound logical-agent output, one
-content-scan authority with public outbound-MCP coverage, and named credential storage with `dartclaw secrets`,
-search-provider references, and a read-only secret-location audit are implemented. See `CHANGELOG.md` for details.
+**Status: feature-complete on `feat/0.25-lean-runtime`, awaiting bundle removal, release check and merge.** 93 of 96
+stories done. The milestone deleted the re-derive/repair/default machinery and the hand-rolled chat grammars, moved
+those capabilities onto a guarded MCP tool surface (`task_create`, `task_review`, `task_bind`, `workflow_run`,
+`schedule_upsert`, `attach_media`, `wiki_write`), made container isolation the default posture where a runtime
+exists, re-cut the package topology to thirteen members behind downward-only per-package LOC ceilings, moved the
+composition root into `dartclaw_runtime` and halved the CLI app, and put workflow step turns on the same guarded
+harness path as interactive ones.
+
+**Three of seven success metrics did not hold**, and are recorded as such rather than re-baselined: the net LOC
+reduction (lib fell 1,996 against a 12,000 target and the test surface grew 7,520), the CLI's ≤ 8K lib LOC bar
+(10,491, down from 20,769), and the ≥ 40 dead-config-key removal (~29 plus 2 uncounted — several keys turned out to
+be live and were preserved under the no-regression constraint). Measured figures, the command that produced them and
+the per-clause verdicts are in [`STATE.md`](STATE.md) and [`LOC-BASELINE-0.25.md`](LOC-BASELINE-0.25.md).
+
+**Deferred to 0.30**: S63 and S64, the workflow schema-emitting validator. They stayed `spec-ready`; the preserved
+work is parked on `parked/s64-workflow-schema`.
 
 ## Planned
 
-### 0.25 — Lean Runtime: Simplification, Model-First Delegation & Ownership Integrity
+### Pluggable Database Backend & Multi-Language Search
 
-Train 1 removes repair-ladder and overrule machinery, converges duplicated runtime authorities, simplifies the package
-topology, and reduces the test surface after those deletions. Decision-gated cuts cover alerts/advisor, task types,
-deployment commands, ACP extraction, and a client-tier SDK. The later ownership/cancellation and lean-workflow-binary
-train receives its own version when scheduled.
+> Milestone number owner-assigned — this entry held "0.25" before the Lean Runtime milestone took that number.
 
 ### 0.26 — Chat & Session Experience
 
@@ -45,6 +55,12 @@ for background execution.
 Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
 
 ## Recently Shipped
+
+### 0.24.3 — Trust Boundaries and Credential Delivery ✅
+
+Released 2026-08-27. Strict schema-bound logical-agent output, one content-scan authority with public outbound-MCP
+coverage, and named credential storage with `dartclaw secrets`, search-provider references, and a read-only
+secret-location audit. See `CHANGELOG.md` for details.
 
 ### 0.23 — Design-System Refinement, Web UI Polish & Runtime Hardening ✅
 
@@ -104,7 +120,7 @@ Backlog migrations from 0.16.5 close-out triage:
 
 ### 0.16.5 — Stabilisation & Hardening ✅
 
-Consolidation sprint with zero new user-facing features. Closes the alert-classifier safety gap (`LoopDetectedEvent` + `EmergencyStopEvent` now critical via compiler-enforced exhaustive switch over `sealed DartclawEvent`), wires all 7 orphan sealed events to SSE + alerts, narrows the `dartclaw_workflow` barrel to ≤35 explicit `show` clauses, installs 13 governance fitness checks in CI (7 Level-1 + 6 Level-2), flips `public_member_api_docs` lint on in `dartclaw_models/_storage/_security/_config`, extracts `WorkflowRunRepository` / `WorkflowTaskBindingCoordinator` / `ProcessEnvironmentPlan` / `ClaudeSettingsBuilder` to their canonical packages, shrinks `dartclaw_models` to a true shared kernel (workflow / project / task-event / turn-trace / skill-info migrated to owning packages; `TaskEventKind` enum-ified), types four stringly-typed workflow flags as enums, renames `k`-prefix constants and `get*` service methods per Effective Dart, formalises ADR-023 (workflow↔task boundary) + ADR-025 (AndThen-as-runtime-prerequisite + direct skill-name resolution), refreshes `AGENTS.md` and the user guide, and bundles 13 tech-debt closures (TD-046/053/054/055/056/060/061/063/072/073/074/082/085/088/102/103) plus three explicit triage decisions. 24 catalogued stories + standalone work for workflow output presets shorthand, `aggregate-reviews` step type, AndThen direct skill-name resolution, data-dir skill provisioning, and AndThen `plan.json` adoption. See `CHANGELOG.md` for details.
+Consolidation sprint with zero new user-facing features. It closed the alert-classifier safety gap, wired orphan sealed events to SSE and alerts, narrowed the workflow barrel, installed governance fitness checks, strengthened public API documentation, moved shared seams to their canonical owners, and tightened the bottom-tier value surface that later formed `dartclaw_kernel`. It also typed workflow flags, aligned names with Effective Dart, formalised ADR-023 and ADR-025, refreshed contributor and user guidance, and closed the listed tech-debt items. See `CHANGELOG.md` for the point-in-time package details.
 
 ### 0.16.4 — CLI Operations, Connected Workflows & Workflow Platform Hardening ✅
 

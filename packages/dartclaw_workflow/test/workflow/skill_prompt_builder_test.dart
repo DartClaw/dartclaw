@@ -95,18 +95,15 @@ void main() {
       expect(result, contains('## Required Output Format'));
     });
 
-    test('context outputs append workflow-context contract', () {
+    test('context outputs append no main-prompt output contract', () {
       final result = builder.build(
         skill: 'dartclaw-review',
         resolvedPrompt: 'Review this.',
         outputs: const {'review_summary': OutputConfig(), 'findings_count': OutputConfig()},
         outputKeys: const ['review_summary', 'findings_count'],
       );
-      expect(result, contains('## Workflow Output Contract'));
-      expect(result, contains('<workflow-context>'));
-      expect(result, contains('"review_summary"'));
-      expect(result, contains('"findings_count"'));
-      expect(result, isNot(contains('Output the JSON directly')));
+      expect(result, isNot(contains('## Workflow Output Contract')));
+      expect(result, isNot(contains('workflow-context')));
     });
 
     test('no skill + prompt + schema -> prompt + Required Output Format', () {
@@ -490,7 +487,7 @@ void main() {
       },
     );
 
-    test('all-covered finalizer skill prompt omits the output-contract and step-outcome sections', () {
+    test('an all-covered finalizer skill prompt states its declared outputs but no emission protocol', () {
       final result = builder.build(
         skill: 'dartclaw-review',
         resolvedPrompt: 'Review this.',
@@ -499,14 +496,16 @@ void main() {
         finalizerCoveredKeys: const ['review_report_path', 'verdict'],
       );
 
-      expect(result, "Use the 'dartclaw-review' skill.\n\nReview this.");
+      expect(result, startsWith("Use the 'dartclaw-review' skill.\n\nReview this."));
+      expect(result, contains('## Declared Outputs'));
+      expect(result, contains('"review_report_path"'));
       expect(result, isNot(contains('## Workflow Output Contract')));
       expect(result, isNot(contains('## Step Outcome Protocol')));
       expect(result, isNot(contains('## Required Output Format')));
-      expect(result, isNot(contains('## Review Finding Scoring')));
+      expect(result, isNot(contains('<workflow-context>')));
     });
 
-    test('non-finalizer path renders every declared key; finalizer path excludes exactly the covered set', () {
+    test('the envelope covers every model-derived key of a mixed step, including *_source', () {
       const mixedStep = WorkflowStep(
         id: 'detect-spec-input',
         name: 'Detect Spec Input',
@@ -526,15 +525,11 @@ void main() {
       );
       const outputKeys = ['spec_path', 'spec_source', 'spec_confidence'];
 
-      final nonFinalizer = builder.build(
-        skill: 'dartclaw-discover-andthen-spec',
-        resolvedPrompt: 'Classify.',
-        outputs: mixedStep.outputs,
-        outputKeys: outputKeys,
-      );
-      expect(nonFinalizer, contains('"spec_path"'));
-      expect(nonFinalizer, contains('"spec_source"'));
-      expect(nonFinalizer, contains('"spec_confidence"'));
+      // Deleting the inline channel deleted the only channel `*_source` had, so
+      // it is a claim like any other — and the covered set is the whole set.
+      expect(modelDerivedFinalizerKeys(mixedStep, mixedStep.outputs), outputKeys);
+      final envelope = buildExecutionEnvelopeSchema(mixedStep, mixedStep.outputs)!;
+      expect((envelope['properties']['outputs'] as Map<String, dynamic>)['required'], outputKeys);
 
       final finalizer = builder.build(
         skill: 'dartclaw-discover-andthen-spec',
@@ -543,66 +538,41 @@ void main() {
         outputKeys: outputKeys,
         finalizerCoveredKeys: modelDerivedFinalizerKeys(mixedStep, mixedStep.outputs),
       );
-      // Only spec_source survives — spec_path (filesystem) and spec_confidence
-      // (narrative preset) are envelope-covered.
-      expect(modelDerivedFinalizerKeys(mixedStep, mixedStep.outputs), ['spec_path', 'spec_confidence']);
-      expect(finalizer, contains('"spec_source"'));
+      expect(finalizer, isNot(contains('"spec_source"')));
       expect(finalizer, isNot(contains('"spec_path"')));
       expect(finalizer, isNot(contains('"spec_confidence"')));
     });
 
-    test('opt-out and schema-less JSON outputs stay out of the derived covered set and keep their contract', () {
-      // Every key the envelope cannot or must not claim keeps its main-prompt
-      // instruction channel: an explicit `outputMode: prompt` opt-out and a
-      // schema-less `format: json` output (no envelope representation).
-      final step = WorkflowStep(
+    test('a schema-less JSON output stays out of the covered set, so it never loses an envelope slot', () {
+      // `_envelopeOutputSchema` has no representation for it, so counting it as
+      // covered would dereference a null sub-schema. The output-schema validator
+      // rejects this shape on every authorable step; only the host-set foreach
+      // aggregate reaches it.
+      const step = WorkflowStep(
         id: 'mixed-with-uncoverables',
         name: 'Mixed With Uncoverables',
         taskType: WorkflowTaskType.agent,
-        prompts: const ['Produce the outputs'],
+        prompts: ['Produce the outputs'],
         outputs: {
-          'spec_path': const OutputConfig(format: OutputFormat.path),
-          'opt_out': OutputConfig(
-            format: OutputFormat.json,
-            schema: const {
-              'type': 'object',
-              'required': ['note'],
-              'properties': {
-                'note': {'type': 'string'},
-              },
-            },
-            outputMode: OutputMode.prompt,
-          ),
-          'raw_blob': const OutputConfig(format: OutputFormat.json),
+          'spec_path': OutputConfig(format: OutputFormat.path),
+          'raw_blob': OutputConfig(format: OutputFormat.json),
         },
       );
 
       final covered = modelDerivedFinalizerKeys(step, step.outputs);
       expect(covered, ['spec_path']);
       final envelope = buildExecutionEnvelopeSchema(step, step.outputs)!;
-      final outputsSchema = envelope['properties']['outputs'] as Map<String, dynamic>;
-      expect(outputsSchema['required'], ['spec_path']);
-
-      final prompt = builder.build(
-        skill: 'dartclaw-discover-andthen-spec',
-        resolvedPrompt: 'Produce.',
-        outputs: step.outputs,
-        outputKeys: const ['spec_path', 'opt_out', 'raw_blob'],
-        finalizerCoveredKeys: covered,
-      );
-      expect(prompt, contains('"opt_out"'));
-      expect(prompt, contains('"raw_blob"'));
-      expect(prompt, isNot(contains('"spec_path"')));
+      expect((envelope['properties']['outputs'] as Map<String, dynamic>)['required'], ['spec_path']);
     });
 
     test('finalizer prompt for a review step carries field descriptions and the scoring rule', () {
-      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs, gatingSeverity: 'critical')!;
+      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
       final finalizerPrompt = buildFinalizerPrompt(schema);
 
       expect(finalizerPrompt, contains('## Declared Outputs'));
       expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
       expect(finalizerPrompt, contains('Review Finding Scoring'));
-      expect(finalizerPrompt, contains('at or above `critical`'));
+      expect(finalizerPrompt, contains('at or above `high`'));
     });
   });
 }

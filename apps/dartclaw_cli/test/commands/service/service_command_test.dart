@@ -15,6 +15,8 @@ class _FakeBackend implements ServiceBackend {
   final ServiceResult _stopResult;
   final List<String> calls = [];
   String? lastConfigPath;
+  ServiceScope? lastScope;
+  String? lastServiceUser;
 
   new({
     ServiceStatus status = ServiceStatus.notInstalled,
@@ -34,40 +36,56 @@ class _FakeBackend implements ServiceBackend {
     required String configPath,
     required int port,
     required String instanceDir,
+    required ServiceScope scope,
     String? sourceDir,
+    String? serviceUser,
   }) async {
     calls.add('install:$instanceDir');
     lastConfigPath = configPath;
+    lastScope = scope;
+    lastServiceUser = serviceUser;
     return _installResult;
   }
 
   @override
-  Future<ServiceResult> uninstall({required String instanceDir}) async {
+  Future<ServiceResult> uninstall({required String instanceDir, required ServiceScope scope}) async {
     calls.add('uninstall:$instanceDir');
+    lastScope = scope;
     return _uninstallResult;
   }
 
   @override
-  Future<ServiceStatus> status({required String instanceDir}) async {
+  Future<ServiceStatus> status({required String instanceDir, required ServiceScope scope}) async {
     calls.add('status:$instanceDir');
+    lastScope = scope;
     return _status;
   }
 
   @override
-  Future<ServiceResult> start({required String instanceDir}) async {
+  Future<ServiceResult> start({required String instanceDir, required ServiceScope scope}) async {
     calls.add('start:$instanceDir');
+    lastScope = scope;
     return _startResult;
   }
 
   @override
-  Future<ServiceResult> stop({required String instanceDir}) async {
+  Future<ServiceResult> stop({required String instanceDir, required ServiceScope scope}) async {
     calls.add('stop:$instanceDir');
+    lastScope = scope;
     return _stopResult;
   }
 }
 
 CommandRunner<void> _runner(_FakeBackend backend) =>
     CommandRunner<void>('test', 'test')..addCommand(ServiceCommand(backend: backend));
+
+/// A temp instance directory holding a config, which system scope requires.
+String _instanceWithConfig() {
+  final dir = Directory.systemTemp.createTempSync('service_cmd_instance_');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  File('${dir.path}/dartclaw.yaml').writeAsStringSync('data_dir: ${dir.path}\nport: 3333\n');
+  return dir.path;
+}
 
 void main() {
   group('ServiceCommand', () {
@@ -132,6 +150,138 @@ port: 4444
 
       expect(output.join('\n'), contains('/tmp/two'));
       expect(backend.calls, contains('status:/tmp/two'));
+    });
+
+    test('every subcommand accepts --system and defaults to user scope', () async {
+      final cmd = ServiceCommand();
+      for (final name in ['install', 'uninstall', 'status', 'start', 'stop']) {
+        expect(cmd.subcommands[name]!.argParser.options.keys, contains('system'), reason: name);
+      }
+      expect(cmd.subcommands['install']!.argParser.options.keys, contains('service-user'));
+
+      final backend = _FakeBackend();
+      await IOOverrides.runZoned(
+        () => _runner(backend).run(['service', 'status', '--instance-dir', '/tmp/scope']),
+        stdout: () => CapturingStdout([]),
+      );
+      expect(backend.lastScope, ServiceScope.user);
+    });
+
+    test('service install --system passes system scope and the SUDO_USER run-as user', () async {
+      final instanceDir = _instanceWithConfig();
+      final backend = _FakeBackend();
+      final runner = CommandRunner<void>('test', 'test')
+        ..addCommand(ServiceCommand(backend: backend, env: {'SUDO_USER': 'alice'}, detectSourceDir: () => null));
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'install', '--system', '--instance-dir', instanceDir]),
+        stdout: () => CapturingStdout([]),
+      );
+
+      expect(backend.lastScope, ServiceScope.system);
+      expect(backend.lastServiceUser, 'alice');
+    });
+
+    test('--service-user overrides SUDO_USER', () async {
+      final instanceDir = _instanceWithConfig();
+      final backend = _FakeBackend();
+      final runner = CommandRunner<void>('test', 'test')
+        ..addCommand(ServiceCommand(backend: backend, env: {'SUDO_USER': 'alice'}, detectSourceDir: () => null));
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'install', '--system', '--service-user', 'bob', '--instance-dir', instanceDir]),
+        stdout: () => CapturingStdout([]),
+      );
+
+      expect(backend.lastServiceUser, 'bob');
+    });
+
+    test('--service-user without --system is a usage error', () async {
+      final backend = _FakeBackend();
+
+      await expectLater(
+        IOOverrides.runZoned(
+          () => _runner(backend).run(['service', 'install', '--service-user', 'alice', '--instance-dir', '/tmp/one']),
+          stdout: () => CapturingStdout([]),
+        ),
+        throwsA(isA<UsageException>()),
+      );
+      expect(backend.calls, isEmpty);
+    });
+
+    test('system-scope install refuses an instance with no config rather than writing a broken unit', () async {
+      final errors = <String>[];
+      final backend = _FakeBackend();
+      final runner = CommandRunner<void>('test', 'test')
+        ..addCommand(ServiceCommand(backend: backend, env: {'SUDO_USER': 'alice'}, detectSourceDir: () => null));
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'install', '--system', '--instance-dir', '/tmp/s30-absent-instance']),
+        stderr: () => CapturingStdout(errors),
+        stdout: () => CapturingStdout([]),
+      );
+
+      expect(errors.join('\n'), contains('/tmp/s30-absent-instance/dartclaw.yaml'));
+      expect(backend.calls, isEmpty);
+      expect(exitCode, 1);
+      exitCode = 0;
+    });
+
+    test('service uninstall --system targets the system scope', () async {
+      final backend = _FakeBackend();
+      await IOOverrides.runZoned(
+        () => _runner(backend).run(['service', 'uninstall', '--system', '--instance-dir', '/opt/dartclaw']),
+        stdout: () => CapturingStdout([]),
+      );
+
+      expect(backend.calls, contains('uninstall:/opt/dartclaw'));
+      expect(backend.lastScope, ServiceScope.system);
+    });
+
+    test('system scope refuses to guess the instance under sudo', () async {
+      final errors = <String>[];
+      final backend = _FakeBackend();
+      final runner = CommandRunner<void>('test', 'test')
+        ..addCommand(ServiceCommand(backend: backend, env: {'SUDO_USER': 'alice'}, detectSourceDir: () => null));
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'install', '--system']),
+        stderr: () => CapturingStdout(errors),
+        stdout: () => CapturingStdout([]),
+      );
+
+      expect(errors.join('\n'), contains('--instance-dir'));
+      expect(backend.calls, isEmpty);
+      expect(exitCode, 1);
+      exitCode = 0;
+    });
+
+    test('unknown system-scoped status names the root requirement', () async {
+      final output = <String>[];
+      final backend = _FakeBackend(status: ServiceStatus.unknown);
+      final runner = _runner(backend);
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'status', '--system', '--instance-dir', '/opt/dartclaw']),
+        stdout: () => CapturingStdout(output),
+      );
+
+      final printed = output.join('\n');
+      expect(printed, contains('unknown'));
+      expect(printed, contains('sudo dartclaw service status --system'));
+    });
+
+    test('unknown user-scoped status stays silent about root', () async {
+      final output = <String>[];
+      final backend = _FakeBackend(status: ServiceStatus.unknown);
+      final runner = _runner(backend);
+
+      await IOOverrides.runZoned(
+        () => runner.run(['service', 'status', '--instance-dir', '/tmp/user-scope']),
+        stdout: () => CapturingStdout(output),
+      );
+
+      expect(output.join('\n'), isNot(contains('sudo')));
     });
 
     test('service start failure sets exitCode=1', () async {

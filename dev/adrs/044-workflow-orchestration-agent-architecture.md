@@ -116,6 +116,16 @@ read-only decision-object constraints elsewhere in this ADR remain unchanged.
 - A new `PromptScope` + behavior file is one more behavior surface to keep current (the package `AGENTS.md` currency discipline applies).
 - Per-hold invocations re-read run state each time (token cost), accepted because holds are low-frequency and run context is the source of truth anyway.
 
+## Amendment (0.25) – the advisor is deleted; this agent is the successor for run supervision
+
+Recorded 2026-08-20. DartClaw's `advisor` subsystem – an off-by-default channel observer that parsed free model text
+with regexes, escalated any unrecognised status to `concerning`, and consumed a `failFast` worker lease against a
+default `pool_size: 1` – is removed in 0.25 rather than reworked: its `advisor:` config section, `AdvisorMentionEvent` /
+`AdvisorInsightEvent`, the `@advisor` mention path, the Google Chat insight card, and `ExecutionSurface.advisor` are all
+gone. Nothing replaces it in 0.25; run supervision is this ADR's Workflow Orchestration Agent, whose in-engine
+decision-object seam (D1) keeps the verdict typed and the enactable actions non-destructive by construction – the
+properties the advisor's model-text-as-control-flow path lacked. See CHANGELOG `[0.25.0]`.
+
 ## Alternatives Considered
 
 - **D1 · CLI verbs as agent tools/MCP** (score 2.75 vs 4.70) — rejected: makes the agent an operator and collapses guardrails to a prompt/tool-allowlist; widens the destructive attack surface.

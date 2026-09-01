@@ -1,0 +1,971 @@
+=== agent#scalar ===
+  [blocking] Invalid type for agent: "int" — using defaults
+=== agent.agents#type-nonmap ===
+  (none)
+=== agent.disallowed_tools#type-nonlist ===
+  [blocking] Invalid type for disallowed_tools: "int" — using default
+=== agent.effort#type-nonstring ===
+  [blocking] Invalid type for effort: "int" — using defaults
+=== agent.execution#non-member ===
+  THREW: agent.execution: "__dartclaw_not_a_member__" is not a valid execution mode. Accepted values: host, container.
+=== agent.execution#type-nonstring ===
+  THREW: agent.execution: "1" is not a valid execution mode. Accepted values: host, container.
+=== agent.history#scalar ===
+  [blocking] Invalid type for history: "int" — using defaults
+=== agent.history.max_message_chars#below-min ===
+  [blocking] Invalid agent.history.max_message_chars: 499 (must be int >= 500) — using default
+=== agent.history.max_message_chars#type-nonstring ===
+  [blocking] Invalid type for max_message_chars: "bool" — using defaults
+=== agent.history.max_message_chars#type-string ===
+  [blocking] Invalid type for max_message_chars: "String" — using defaults
+=== agent.history.max_total_chars#below-min ===
+  [blocking] Invalid agent.history.max_total_chars: 4999 (must be int >= 5000) — using default
+=== agent.history.max_total_chars#type-nonstring ===
+  [blocking] Invalid type for max_total_chars: "bool" — using defaults
+=== agent.history.max_total_chars#type-string ===
+  [blocking] Invalid type for max_total_chars: "String" — using defaults
+=== agent.max_turns#below-min ===
+  (none)
+=== agent.max_turns#type-nonstring ===
+  [blocking] Invalid type for max_turns: "bool" — using defaults
+=== agent.max_turns#type-string ===
+  [blocking] Invalid type for max_turns: "String" — using defaults
+=== agent.model#type-nonstring ===
+  [blocking] Invalid type for model: "int" — using defaults
+=== agent.provider#type-nonstring ===
+  [blocking] Invalid type for provider: "int" — using defaults
+=== alerts#scalar ===
+  [blocking] Invalid type for alerts: "int" — using defaults
+=== alerts.burst_threshold#below-min ===
+  [blocking] alerts.burst_threshold must be >= 1 — using default
+=== alerts.burst_threshold#type-nonstring ===
+  [blocking] Invalid type for burst_threshold: "bool" — using default
+=== alerts.burst_threshold#type-string ===
+  [blocking] Invalid type for burst_threshold: "String" — using default
+=== alerts.cooldown_seconds#below-min ===
+  [blocking] alerts.cooldown_seconds must be >= 1 — using default
+=== alerts.cooldown_seconds#type-nonstring ===
+  [blocking] Invalid type for cooldown_seconds: "bool" — using default
+=== alerts.cooldown_seconds#type-string ===
+  [blocking] Invalid type for cooldown_seconds: "String" — using default
+=== alerts.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== alerts.routes#type-nonmap ===
+  [blocking] Invalid type for alerts.routes: "int" — using default
+=== alerts.targets#type-nonmap ===
+  [blocking] Invalid type for alerts.targets: "int" — using default
+=== auth#scalar ===
+  [blocking] Invalid type for auth: "int" — using defaults
+=== auth.cookie_secure#type-nonbool ===
+  [blocking] Invalid type for cookie_secure: "String" — using default
+=== auth.trusted_proxies#type-nonlist ===
+  [blocking] Invalid type for trusted_proxies: "int" — using default
+=== base_url#type-nonstring ===
+  [blocking] Invalid type for base_url: "int" — using defaults
+=== channels#scalar ===
+  [blocking] Invalid type for channels: "int" — using defaults
+=== channels#type-nonmap ===
+  [blocking] Invalid type for channels: "int" — using defaults
+=== channels.debounce_window_ms#below-min ===
+  (none)
+=== channels.debounce_window_ms#type-nonstring ===
+  [blocking] Invalid type for channels.debounce_window_ms: "bool" — using default
+=== channels.debounce_window_ms#type-string ===
+  [blocking] Invalid type for channels.debounce_window_ms: "String" — using default
+=== channels.google_chat#scalar ===
+  [blocking] Invalid channel config for "google_chat": "int" — skipping
+=== channels.google_chat.audience#scalar ===
+  [blocking] Invalid type for google_chat.audience: "int" — using default
+=== channels.google_chat.audience.type#non-member ===
+  [blocking] Invalid google_chat.audience.type: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.audience.type#type-nonstring ===
+  [blocking] Invalid type for google_chat.audience.type: "int" — using default
+  [blocking] Invalid google_chat.audience.type: "1" — using default
+=== channels.google_chat.audience.value#type-nonstring ===
+  [blocking] Invalid type for google_chat.audience.value: "int" — using default
+=== channels.google_chat.bot_user#type-nonstring ===
+  [blocking] Invalid type for google_chat.bot_user: "int" — using default
+=== channels.google_chat.dm_access#non-member ===
+  [blocking] Invalid google_chat.dm_access: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.dm_access#type-nonstring ===
+  [blocking] Invalid type for google_chat.dm_access: "int" — using default
+=== channels.google_chat.dm_allowlist#type-nonlist ===
+  (none)
+=== channels.google_chat.enabled#type-nonbool ===
+  [blocking] Invalid type for google_chat.enabled: "String" — using default
+=== channels.google_chat.feedback#scalar ===
+  [blocking] Invalid type for google_chat.feedback: "int" — using default
+=== channels.google_chat.feedback.enabled#type-nonbool ===
+  [blocking] Invalid type for google_chat.feedback.enabled: "String" — using default
+=== channels.google_chat.feedback.min_feedback_delay#type-nonstring ===
+  (none)
+=== channels.google_chat.feedback.status_interval#type-nonstring ===
+  (none)
+=== channels.google_chat.feedback.status_style#non-member ===
+  [blocking] Invalid google_chat.feedback.status_style: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.feedback.status_style#type-nonstring ===
+  [blocking] Invalid type for google_chat.feedback.status_style: "int" — using default
+=== channels.google_chat.group_access#non-member ===
+  [blocking] Invalid google_chat.group_access: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.group_access#type-nonstring ===
+  [blocking] Invalid type for google_chat.group_access: "int" — using default
+=== channels.google_chat.group_allowlist#type-nonlist ===
+  (none)
+=== channels.google_chat.max_chunk_size#below-min ===
+  [blocking] Invalid google_chat.max_chunk_size: "0" – using default
+=== channels.google_chat.max_chunk_size#type-nonstring ===
+  [blocking] Invalid google_chat.max_chunk_size: "true" – using default
+=== channels.google_chat.max_chunk_size#type-string ===
+  [blocking] Invalid google_chat.max_chunk_size: "not-a-number" – using default
+=== channels.google_chat.mention_patterns#type-nonlist ===
+  (none)
+=== channels.google_chat.oauth_credentials#type-nonstring ===
+  [blocking] Invalid type for google_chat.oauth_credentials: "int" — using default
+=== channels.google_chat.pubsub#scalar ===
+  [blocking] Invalid type for google_chat.pubsub: "int" — using default
+=== channels.google_chat.pubsub.max_messages_per_pull#above-max ===
+  [blocking] google_chat.pubsub.max_messages_per_pull must be <= 100 — clamped to 100
+=== channels.google_chat.pubsub.max_messages_per_pull#below-min ===
+  [blocking] google_chat.pubsub.max_messages_per_pull must be >= 1 — clamped to 1
+=== channels.google_chat.pubsub.max_messages_per_pull#type-nonstring ===
+  [blocking] Invalid type for google_chat.pubsub.max_messages_per_pull: "bool" — using default
+=== channels.google_chat.pubsub.max_messages_per_pull#type-string ===
+  [blocking] Invalid type for google_chat.pubsub.max_messages_per_pull: "String" — using default
+=== channels.google_chat.pubsub.poll_interval_seconds#below-min ===
+  [blocking] google_chat.pubsub.poll_interval_seconds must be >= 1 — clamped to 1
+=== channels.google_chat.pubsub.poll_interval_seconds#type-nonstring ===
+  [blocking] Invalid type for google_chat.pubsub.poll_interval_seconds: "bool" — using default
+=== channels.google_chat.pubsub.poll_interval_seconds#type-string ===
+  [blocking] Invalid type for google_chat.pubsub.poll_interval_seconds: "String" — using default
+=== channels.google_chat.pubsub.project_id#type-nonstring ===
+  [blocking] Invalid type for google_chat.pubsub.project_id: "int" — using default
+=== channels.google_chat.pubsub.subscription#type-nonstring ===
+  [blocking] Invalid type for google_chat.pubsub.subscription: "int" — using default
+=== channels.google_chat.quote_reply#non-member ===
+  [blocking] Invalid google_chat.quote_reply: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.quote_reply#type-nonstring ===
+  [blocking] Invalid type for google_chat.quote_reply: "int" — using default
+=== channels.google_chat.reactions_auth#non-member ===
+  [blocking] Invalid value for google_chat.reactions_auth: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.reactions_auth#type-nonstring ===
+  [blocking] Invalid type for google_chat.reactions_auth: "int" — using default
+=== channels.google_chat.require_mention#type-nonbool ===
+  [blocking] Invalid type for google_chat.require_mention: "String" — using default
+=== channels.google_chat.response_prefix#type-nonstring ===
+  (none)
+=== channels.google_chat.service_account#type-nonstring ===
+  [blocking] Invalid type for google_chat.service_account: "int" — using default
+=== channels.google_chat.space_events#scalar ===
+  [blocking] Invalid type for google_chat.space_events: "int" — using default
+=== channels.google_chat.space_events.enabled#type-nonbool ===
+  [blocking] Invalid type for google_chat.space_events.enabled: "String" — using default
+=== channels.google_chat.space_events.event_types#type-nonlist ===
+  [blocking] Invalid type for google_chat.space_events.event_types: "int" — using default
+=== channels.google_chat.space_events.include_resource#type-nonbool ===
+  [blocking] Invalid type for google_chat.space_events.include_resource: "String" — using default
+=== channels.google_chat.space_events.pubsub_topic#type-nonstring ===
+  [blocking] Invalid type for google_chat.space_events.pubsub_topic: "int" — using default
+=== channels.google_chat.typing_indicator#non-member ===
+  [blocking] Invalid google_chat.typing_indicator: "__dartclaw_not_a_member__" — using default
+=== channels.google_chat.typing_indicator#type-nonstring ===
+  [blocking] Invalid type for google_chat.typing_indicator: "int" — using default
+=== channels.google_chat.webhook_path#type-nonstring ===
+  [blocking] Invalid type for google_chat.webhook_path: "int" — using default
+=== channels.max_queue_depth#below-min ===
+  (none)
+=== channels.max_queue_depth#type-nonstring ===
+  [blocking] Invalid type for channels.max_queue_depth: "bool" — using default
+=== channels.max_queue_depth#type-string ===
+  [blocking] Invalid type for channels.max_queue_depth: "String" — using default
+=== channels.retry_policy#scalar ===
+  [blocking] Invalid type for channels.retry_policy: "int" — using default
+=== channels.retry_policy.base_delay_ms#below-min ===
+  (none)
+=== channels.retry_policy.base_delay_ms#type-nonstring ===
+  [blocking] Invalid type for retry_policy.base_delay_ms: "bool" — using default
+=== channels.retry_policy.base_delay_ms#type-string ===
+  [blocking] Invalid type for retry_policy.base_delay_ms: "String" — using default
+=== channels.retry_policy.jitter_factor#above-max ===
+  (none)
+=== channels.retry_policy.jitter_factor#below-min ===
+  (none)
+=== channels.retry_policy.jitter_factor#type-nonnumber ===
+  [blocking] Invalid type for retry_policy.jitter_factor: "bool" — using default
+=== channels.retry_policy.max_attempts#below-min ===
+  (none)
+=== channels.retry_policy.max_attempts#type-nonstring ===
+  [blocking] Invalid type for retry_policy.max_attempts: "bool" — using default
+=== channels.retry_policy.max_attempts#type-string ===
+  [blocking] Invalid type for retry_policy.max_attempts: "String" — using default
+=== channels.signal#scalar ===
+  [blocking] Invalid channel config for "signal": "int" — skipping
+=== channels.signal.dm_access#non-member ===
+  [blocking] Invalid signal.dm_access: "__dartclaw_not_a_member__" — using default
+=== channels.signal.dm_access#type-nonstring ===
+  [blocking] Invalid type for signal.dm_access: "int" — using default
+=== channels.signal.dm_allowlist#type-nonlist ===
+  (none)
+=== channels.signal.enabled#type-nonbool ===
+  [blocking] Invalid type for signal.enabled: "String" — using default
+=== channels.signal.executable#type-nonstring ===
+  [blocking] Invalid type for signal.executable: "int" — using default
+=== channels.signal.group_access#non-member ===
+  [blocking] Invalid signal.group_access: "__dartclaw_not_a_member__" — using default
+=== channels.signal.group_access#type-nonstring ===
+  [blocking] Invalid type for signal.group_access: "int" — using default
+=== channels.signal.group_allowlist#type-nonlist ===
+  (none)
+=== channels.signal.host#type-nonstring ===
+  [blocking] Invalid type for signal.host: "int" — using default
+=== channels.signal.max_chunk_size#below-min ===
+  [blocking] Invalid signal.max_chunk_size: "0" – using default
+=== channels.signal.max_chunk_size#type-nonstring ===
+  [blocking] Invalid signal.max_chunk_size: "true" – using default
+=== channels.signal.max_chunk_size#type-string ===
+  [blocking] Invalid signal.max_chunk_size: "not-a-number" – using default
+=== channels.signal.mention_patterns#type-nonlist ===
+  (none)
+=== channels.signal.phone_number#type-nonstring ===
+  [blocking] Invalid type for signal.phone_number: "int" — using default
+=== channels.signal.port#above-max ===
+  [blocking] Invalid value for signal.port: 65536 (must be 1-65535) — using default
+=== channels.signal.port#below-min ===
+  [blocking] Invalid value for signal.port: 0 (must be 1-65535) — using default
+=== channels.signal.port#type-nonstring ===
+  [blocking] Invalid type for signal.port: "bool" — using default
+=== channels.signal.port#type-string ===
+  [blocking] Invalid type for signal.port: "String" — using default
+=== channels.signal.require_mention#type-nonbool ===
+  [blocking] Invalid type for signal.require_mention: "String" — using default
+=== channels.signal.response_prefix#type-nonstring ===
+  (none)
+=== channels.whatsapp#scalar ===
+  [blocking] Invalid channel config for "whatsapp": "int" — skipping
+=== channels.whatsapp.dm_access#non-member ===
+  [blocking] Invalid whatsapp.dm_access: "__dartclaw_not_a_member__" — using default
+=== channels.whatsapp.dm_access#type-nonstring ===
+  [blocking] Invalid type for whatsapp.dm_access: "int" — using default
+=== channels.whatsapp.dm_allowlist#type-nonlist ===
+  (none)
+=== channels.whatsapp.enabled#type-nonbool ===
+  [blocking] Invalid type for whatsapp.enabled: "String" — using default
+=== channels.whatsapp.gowa_db_uri#type-nonstring ===
+  [blocking] Invalid type for whatsapp.gowa_db_uri: "int" — using default
+=== channels.whatsapp.gowa_executable#type-nonstring ===
+  [blocking] Invalid type for whatsapp.gowa_executable: "int" — using default
+=== channels.whatsapp.gowa_host#type-nonstring ===
+  [blocking] Invalid type for whatsapp.gowa_host: "int" — using default
+=== channels.whatsapp.gowa_port#above-max ===
+  (none)
+=== channels.whatsapp.gowa_port#below-min ===
+  (none)
+=== channels.whatsapp.gowa_port#type-nonstring ===
+  [blocking] Invalid type for whatsapp.gowa_port: "bool" — using default
+=== channels.whatsapp.gowa_port#type-string ===
+  [blocking] Invalid type for whatsapp.gowa_port: "String" — using default
+=== channels.whatsapp.group_access#non-member ===
+  [blocking] Invalid whatsapp.group_access: "__dartclaw_not_a_member__" — using default
+=== channels.whatsapp.group_access#type-nonstring ===
+  [blocking] Invalid type for whatsapp.group_access: "int" — using default
+=== channels.whatsapp.group_allowlist#type-nonlist ===
+  (none)
+=== channels.whatsapp.max_chunk_size#below-min ===
+  [blocking] Invalid whatsapp.max_chunk_size: "0" – using default
+=== channels.whatsapp.max_chunk_size#type-nonstring ===
+  [blocking] Invalid whatsapp.max_chunk_size: "true" – using default
+=== channels.whatsapp.max_chunk_size#type-string ===
+  [blocking] Invalid whatsapp.max_chunk_size: "not-a-number" – using default
+=== channels.whatsapp.mention_patterns#type-nonlist ===
+  (none)
+=== channels.whatsapp.require_mention#type-nonbool ===
+  [blocking] Invalid type for whatsapp.require_mention: "String" — using default
+=== channels.whatsapp.response_prefix#type-nonstring ===
+  [blocking] Invalid type for whatsapp.response_prefix: "int" — using default
+=== concurrency#scalar ===
+  [blocking] Invalid type for concurrency: "int" — using defaults
+=== concurrency.max_parallel_turns#above-max ===
+  (none)
+=== concurrency.max_parallel_turns#below-min ===
+  (none)
+=== concurrency.max_parallel_turns#type-nonstring ===
+  [blocking] Invalid type for max_parallel_turns: "bool" — using default
+=== concurrency.max_parallel_turns#type-string ===
+  [blocking] Invalid type for max_parallel_turns: "String" — using default
+=== container#scalar ===
+  [blocking] Invalid type for container: "int" — using defaults
+=== container.enabled#type-nonbool ===
+  [blocking] Invalid type for container.enabled: "String" — using default
+=== container.image#type-nonstring ===
+  [blocking] Invalid type for container.image: "int" — using default
+=== context#scalar ===
+  [blocking] Invalid type for context: "int" — using defaults
+=== context.compact_instructions#type-nonstring ===
+  [blocking] Invalid type for compact_instructions: "int" — using defaults
+=== context.identifier_instructions#type-nonstring ===
+  [blocking] Invalid type for identifier_instructions: "int" — using defaults
+=== context.identifier_preservation#non-member ===
+  [blocking] Invalid value for context.identifier_preservation: "__dartclaw_not_a_member__" — expected one of strict, off, custom; using default "strict"
+=== context.identifier_preservation#type-nonstring ===
+  [blocking] Invalid type for identifier_preservation: "int" — using defaults
+=== context.max_result_bytes#below-min ===
+  (none)
+=== context.max_result_bytes#type-nonstring ===
+  [blocking] Invalid type for max_result_bytes: "bool" — using default
+=== context.max_result_bytes#type-string ===
+  [blocking] Invalid type for max_result_bytes: "String" — using default
+=== context.reserve_tokens#below-min ===
+  (none)
+=== context.reserve_tokens#type-nonstring ===
+  [blocking] Invalid type for reserve_tokens: "bool" — using default
+=== context.reserve_tokens#type-string ===
+  [blocking] Invalid type for reserve_tokens: "String" — using default
+=== context.warning_threshold#above-max ===
+  (none)
+=== context.warning_threshold#below-min ===
+  (none)
+=== context.warning_threshold#type-nonstring ===
+  [blocking] Invalid type for warning_threshold: "bool" — using default
+=== context.warning_threshold#type-string ===
+  [blocking] Invalid type for warning_threshold: "String" — using default
+=== credentials#type-nonmap ===
+  [blocking] Invalid type for credentials: "int" — using defaults
+=== data_dir#type-nonstring ===
+  [blocking] Invalid type for data_dir: "int" — using default
+=== dev/testing/profiles/channels/data/dartclaw.yaml#corpus ===
+  (none)
+=== dev/testing/profiles/governance/data/dartclaw.yaml#corpus ===
+  (none)
+=== dev/testing/profiles/plain/data/dartclaw.yaml#corpus ===
+  (none)
+=== dev/testing/profiles/visual/data/dartclaw.yaml#corpus ===
+  [blocking] Missing required google_chat.service_account when channel is enabled
+=== dev/testing/profiles/workflows/data/dartclaw.yaml#corpus ===
+  (none)
+=== dev_mode#type-nonbool ===
+  (none)
+=== examples/dev.yaml#corpus ===
+  (none)
+=== examples/personal-assistant.yaml#corpus ===
+  [blocking] Agent "cron" has no tools configured – no sandbox allowlist will be enforced
+=== examples/production.yaml#corpus ===
+  (none)
+=== features#scalar ===
+  (none)
+=== features.thread_binding#scalar ===
+  (none)
+=== features.thread_binding.enabled#type-nonbool ===
+  (none)
+=== features.thread_binding.idle_timeout_minutes#above-max ===
+  (none)
+=== features.thread_binding.idle_timeout_minutes#below-min ===
+  (none)
+=== features.thread_binding.idle_timeout_minutes#type-nonstring ===
+  (none)
+=== features.thread_binding.idle_timeout_minutes#type-string ===
+  (none)
+=== gateway#scalar ===
+  [blocking] Invalid type for gateway: "int" — using defaults
+=== gateway.auth_mode#non-member ===
+  [blocking] Invalid gateway.auth_mode: "__dartclaw_not_a_member__" — using default
+=== gateway.auth_mode#type-nonstring ===
+  [blocking] Invalid type for auth_mode: "int" — using defaults
+=== gateway.hsts#type-nonbool ===
+  [blocking] Invalid type for hsts: "String" — using default
+=== gateway.mcp_clients#type-nonmap ===
+  THREW: gateway.mcp_clients must be a list of {name, token} entries.
+=== gateway.reload#scalar ===
+  [blocking] Invalid type for reload: "int" — using defaults
+=== gateway.reload.debounce_ms#below-min ===
+  [blocking] gateway.reload.debounce_ms must be >= 100, got 99 — using default 500
+=== gateway.reload.debounce_ms#type-nonstring ===
+  [blocking] Invalid type for debounce_ms: "bool" — using defaults
+=== gateway.reload.debounce_ms#type-string ===
+  [blocking] Invalid type for debounce_ms: "String" — using defaults
+=== gateway.reload.mode#non-member ===
+  [blocking] Invalid gateway.reload.mode: "__dartclaw_not_a_member__" — using default "signal"
+=== gateway.reload.mode#type-nonstring ===
+  [blocking] Invalid type for mode: "int" — using defaults
+=== gateway.token#type-nonstring ===
+  [blocking] Invalid type for token: "int" — using defaults
+=== github#enabled-without-secret ===
+  [blocking] github.webhook_secret is missing while github.enabled=true
+=== github#scalar ===
+  [blocking] Extension "github" expected a map but got int — storing raw value
+=== github.enabled#type-nonbool ===
+  (none)
+=== github.triggers#type-nonmap ===
+  [blocking] Error parsing extension "github": _TypeError — storing as raw data
+=== github.webhook_path#type-nonstring ===
+  [blocking] Error parsing extension "github": _TypeError — storing as raw data
+=== github.webhook_secret#type-nonstring ===
+  [blocking] Error parsing extension "github": _TypeError — storing as raw data
+=== governance#scalar ===
+  [blocking] Invalid type for governance: "int" — using defaults
+=== governance.admin_senders#type-nonlist ===
+  [blocking] Invalid type for admin_senders: "int" — using default
+=== governance.budget#scalar ===
+  [blocking] Invalid type for budget: "int" — using defaults
+=== governance.budget.action#non-member ===
+  [blocking] Unknown governance.budget.action: "__dartclaw_not_a_member__" — using default "warn"
+=== governance.budget.action#type-nonstring ===
+  [blocking] Invalid type for action: "int" — using defaults
+=== governance.budget.daily_tokens#below-min ===
+  (none)
+=== governance.budget.daily_tokens#type-nonstring ===
+  [blocking] Invalid type for daily_tokens: "bool" — using default
+=== governance.budget.daily_tokens#type-string ===
+  [blocking] Invalid type for daily_tokens: "String" — using default
+=== governance.budget.timezone#type-nonstring ===
+  [blocking] Invalid type for timezone: "int" — using defaults
+=== governance.crowd_coding#scalar ===
+  [blocking] Invalid type for crowd_coding: "int" — using defaults
+=== governance.crowd_coding.effort#type-nonstring ===
+  [blocking] Invalid type for effort: "int" — using defaults
+=== governance.crowd_coding.model#type-nonstring ===
+  [blocking] Invalid type for model: "int" — using defaults
+=== governance.loop_detection#scalar ===
+  [blocking] Invalid type for loop_detection: "int" — using defaults
+=== governance.loop_detection.action#non-member ===
+  [blocking] Unknown governance.loop_detection.action: "__dartclaw_not_a_member__" — using default "abort"
+=== governance.loop_detection.action#type-nonstring ===
+  [blocking] Invalid type for action: "int" — using defaults
+=== governance.loop_detection.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== governance.loop_detection.max_consecutive_identical_tool_calls#below-min ===
+  (none)
+=== governance.loop_detection.max_consecutive_identical_tool_calls#type-nonstring ===
+  [blocking] Invalid type for max_consecutive_identical_tool_calls: "bool" — using default
+=== governance.loop_detection.max_consecutive_identical_tool_calls#type-string ===
+  [blocking] Invalid type for max_consecutive_identical_tool_calls: "String" — using default
+=== governance.loop_detection.max_consecutive_turns#below-min ===
+  (none)
+=== governance.loop_detection.max_consecutive_turns#type-nonstring ===
+  [blocking] Invalid type for max_consecutive_turns: "bool" — using default
+=== governance.loop_detection.max_consecutive_turns#type-string ===
+  [blocking] Invalid type for max_consecutive_turns: "String" — using default
+=== governance.loop_detection.max_tokens_per_minute#below-min ===
+  (none)
+=== governance.loop_detection.max_tokens_per_minute#type-nonstring ===
+  [blocking] Invalid type for max_tokens_per_minute: "bool" — using default
+=== governance.loop_detection.max_tokens_per_minute#type-string ===
+  [blocking] Invalid type for max_tokens_per_minute: "String" — using default
+=== governance.loop_detection.velocity_window_minutes#below-min ===
+  (none)
+=== governance.loop_detection.velocity_window_minutes#type-nonstring ===
+  [blocking] Invalid type for velocity_window_minutes: "bool" — using default
+=== governance.loop_detection.velocity_window_minutes#type-string ===
+  [blocking] Invalid type for velocity_window_minutes: "String" — using default
+=== governance.queue_strategy#non-member ===
+  [blocking] Unknown governance.queue_strategy: "__dartclaw_not_a_member__" — using default "fifo"
+=== governance.queue_strategy#type-nonstring ===
+  [blocking] Invalid type for queue_strategy: "int" — using defaults
+=== governance.rate_limits#scalar ===
+  [blocking] Invalid type for rate_limits: "int" — using defaults
+=== governance.rate_limits.global#scalar ===
+  [blocking] Invalid type for global: "int" — using defaults
+=== governance.rate_limits.global.turns#below-min ===
+  (none)
+=== governance.rate_limits.global.turns#type-nonstring ===
+  [blocking] Invalid type for turns: "bool" — using default
+=== governance.rate_limits.global.turns#type-string ===
+  [blocking] Invalid type for turns: "String" — using default
+=== governance.rate_limits.global.window#above-max ===
+  (none)
+=== governance.rate_limits.global.window#below-min ===
+  (none)
+=== governance.rate_limits.global.window#type-nonstring ===
+  (none)
+=== governance.rate_limits.global.window#type-string ===
+  (none)
+=== governance.rate_limits.per_sender#scalar ===
+  [blocking] Invalid type for per_sender: "int" — using defaults
+=== governance.rate_limits.per_sender.max_pause_queued#below-min ===
+  (none)
+=== governance.rate_limits.per_sender.max_pause_queued#type-nonstring ===
+  [blocking] Invalid type for max_pause_queued: "bool" — using default
+=== governance.rate_limits.per_sender.max_pause_queued#type-string ===
+  [blocking] Invalid type for max_pause_queued: "String" — using default
+=== governance.rate_limits.per_sender.max_queued#below-min ===
+  (none)
+=== governance.rate_limits.per_sender.max_queued#type-nonstring ===
+  [blocking] Invalid type for max_queued: "bool" — using default
+=== governance.rate_limits.per_sender.max_queued#type-string ===
+  [blocking] Invalid type for max_queued: "String" — using default
+=== governance.rate_limits.per_sender.messages#below-min ===
+  (none)
+=== governance.rate_limits.per_sender.messages#type-nonstring ===
+  [blocking] Invalid type for messages: "bool" — using default
+=== governance.rate_limits.per_sender.messages#type-string ===
+  [blocking] Invalid type for messages: "String" — using default
+=== governance.rate_limits.per_sender.window#above-max ===
+  (none)
+=== governance.rate_limits.per_sender.window#below-min ===
+  (none)
+=== governance.rate_limits.per_sender.window#type-nonstring ===
+  (none)
+=== governance.rate_limits.per_sender.window#type-string ===
+  (none)
+=== governance.turn_limits#scalar ===
+  [blocking] Invalid type for turn_limits: "int" — using defaults
+=== governance.turn_limits.stall_action#non-member ===
+  [blocking] Unknown governance.turn_limits.stall_action: "__dartclaw_not_a_member__" — using default "cancel"
+=== governance.turn_limits.stall_action#type-nonstring ===
+  [blocking] Invalid type for stall_action: "int" — using defaults
+=== governance.turn_limits.stall_timeout#below-min ===
+  THREW: governance.turn_limits.stall_timeout must be a non-negative duration.
+=== governance.turn_limits.stall_timeout#type-nonstring ===
+  (none)
+=== governance.turn_limits.turn_timeout#below-min ===
+  THREW: governance.turn_limits.turn_timeout must be a non-negative duration.
+=== governance.turn_limits.turn_timeout#type-nonstring ===
+  THREW: governance.turn_limits.stall_timeout must be less than governance.turn_limits.turn_timeout when both limits are enabled.
+=== guard_audit#scalar ===
+  [blocking] Invalid type for guard_audit: "int" — using defaults
+=== guard_audit.max_retention_days#above-max ===
+  (none)
+=== guard_audit.max_retention_days#below-min ===
+  (none)
+=== guard_audit.max_retention_days#type-nonstring ===
+  [blocking] Invalid type for max_retention_days: "bool" — using default
+=== guard_audit.max_retention_days#type-string ===
+  [blocking] Invalid type for max_retention_days: "String" — using default
+=== guards#scalar ===
+  [blocking] Invalid type for guards: "int" — using defaults
+=== guards.command#scalar ===
+  (none)
+=== guards.command.extra_blocked_patterns#type-nonlist ===
+  (none)
+=== guards.command.extra_blocked_pipe_targets#type-nonlist ===
+  (none)
+=== guards.content#scalar ===
+  [blocking] Invalid type for content: "int" — using defaults
+=== guards.content.classifier#non-member ===
+  [blocking] Invalid guards.content.classifier: "__dartclaw_not_a_member__" — using default
+=== guards.content.classifier#type-nonstring ===
+  [blocking] Invalid type for classifier: "int" — using defaults
+=== guards.content.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== guards.content.fail_open#type-nonbool ===
+  [blocking] Invalid type for fail_open: "String" — using default
+=== guards.content.max_bytes#below-min ===
+  (none)
+=== guards.content.max_bytes#type-nonstring ===
+  [blocking] Invalid type for max_bytes: "bool" — using default
+=== guards.content.max_bytes#type-string ===
+  [blocking] Invalid type for max_bytes: "String" — using default
+=== guards.content.model#type-nonstring ===
+  [blocking] Invalid type for model: "int" — using defaults
+=== guards.enabled#type-nonbool ===
+  [blocking] Invalid type for guards.enabled: "String" — using default
+=== guards.fail_open#type-nonbool ===
+  [blocking] Invalid type for guards.fail_open: "String" — using default
+=== guards.file#scalar ===
+  (none)
+=== guards.file.extra_rules#type-nonmap ===
+  (none)
+=== guards.network#scalar ===
+  (none)
+=== guards.network.agent_overrides#type-nonmap ===
+  (none)
+=== guards.network.extra_allowed_domains#type-nonlist ===
+  (none)
+=== guards.network.extra_exfil_patterns#type-nonlist ===
+  (none)
+=== harness#scalar ===
+  [blocking] Invalid type for harness: "int" — using defaults
+=== harness.acp#scalar ===
+  [blocking] Invalid type for harness.acp: "int" — skipping
+=== harness.acp.agents#type-nonmap ===
+  (none)
+=== host#type-nonstring ===
+  [blocking] Invalid type for host: "int" — using default
+=== knowledge#scalar ===
+  [blocking] Invalid type for knowledge: "int" — using defaults
+=== knowledge.inbox#scalar ===
+  [blocking] Invalid type for inbox: "int" — using defaults
+=== knowledge.inbox.delivery_mode#non-member ===
+  [blocking] Invalid knowledge.inbox.delivery_mode: "__dartclaw_not_a_member__" — using default
+=== knowledge.inbox.delivery_mode#type-nonstring ===
+  [blocking] Invalid type for knowledge.inbox.delivery_mode: "int" — using default
+=== knowledge.inbox.effort#type-nonstring ===
+  [blocking] Invalid type for effort: "int" — using defaults
+=== knowledge.inbox.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== knowledge.inbox.interval_minutes#above-max ===
+  (none)
+=== knowledge.inbox.interval_minutes#below-min ===
+  (none)
+=== knowledge.inbox.interval_minutes#type-nonstring ===
+  [blocking] Invalid type for interval_minutes: "bool" — using default
+=== knowledge.inbox.interval_minutes#type-string ===
+  [blocking] Invalid type for interval_minutes: "String" — using default
+=== knowledge.inbox.max_bytes#above-max ===
+  (none)
+=== knowledge.inbox.max_bytes#below-min ===
+  (none)
+=== knowledge.inbox.max_bytes#type-nonstring ===
+  [blocking] Invalid type for max_bytes: "bool" — using default
+=== knowledge.inbox.max_bytes#type-string ===
+  [blocking] Invalid type for max_bytes: "String" — using default
+=== knowledge.inbox.processed_retention_days#above-max ===
+  (none)
+=== knowledge.inbox.processed_retention_days#below-min ===
+  (none)
+=== knowledge.inbox.processed_retention_days#type-nonstring ===
+  [blocking] Invalid type for processed_retention_days: "bool" — using default
+=== knowledge.inbox.processed_retention_days#type-string ===
+  [blocking] Invalid type for processed_retention_days: "String" — using default
+=== knowledge.inbox.retry_attempts#above-max ===
+  (none)
+=== knowledge.inbox.retry_attempts#below-min ===
+  (none)
+=== knowledge.inbox.retry_attempts#type-nonstring ===
+  [blocking] Invalid type for retry_attempts: "bool" — using default
+=== knowledge.inbox.retry_attempts#type-string ===
+  [blocking] Invalid type for retry_attempts: "String" — using default
+=== knowledge.wiki_lint#scalar ===
+  [blocking] Invalid type for wiki_lint: "int" — using defaults
+=== knowledge.wiki_lint.delivery_mode#non-member ===
+  [blocking] Invalid knowledge.wiki_lint.delivery_mode: "__dartclaw_not_a_member__" — using default
+=== knowledge.wiki_lint.delivery_mode#type-nonstring ===
+  [blocking] Invalid type for knowledge.wiki_lint.delivery_mode: "int" — using default
+=== knowledge.wiki_lint.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== knowledge.wiki_lint.interval_minutes#above-max ===
+  (none)
+=== knowledge.wiki_lint.interval_minutes#below-min ===
+  (none)
+=== knowledge.wiki_lint.interval_minutes#type-nonstring ===
+  [blocking] Invalid type for interval_minutes: "bool" — using default
+=== knowledge.wiki_lint.interval_minutes#type-string ===
+  [blocking] Invalid type for interval_minutes: "String" — using default
+=== logging#scalar ===
+  [blocking] Invalid type for logging: "int" — using defaults
+=== logging.file#type-nonstring ===
+  (none)
+=== logging.format#non-member ===
+  (none)
+=== logging.format#type-nonstring ===
+  (none)
+=== logging.level#non-member ===
+  (none)
+=== logging.level#type-nonstring ===
+  (none)
+=== logging.redact_patterns#type-nonlist ===
+  [blocking] Invalid type for redact_patterns: "int" — using default
+=== mcp_servers#type-nonmap ===
+  THREW: mcp_servers must be a map of server entries.
+=== memory#scalar ===
+  [blocking] Invalid type for memory: "int" — using defaults
+=== memory.curation#scalar ===
+  THREW: memory.curation must be a map.
+=== memory.curation.enabled#type-nonbool ===
+  (none)
+=== memory.curation.schedule#type-nonstring ===
+  THREW: memory.curation.schedule must be a string.
+=== memory.journal#scalar ===
+  THREW: memory.journal must be a map.
+=== memory.journal.enabled#type-nonbool ===
+  (none)
+=== memory.journal.schedule#type-nonstring ===
+  THREW: memory.journal.schedule must be a string.
+=== memory.max_bytes#below-min ===
+  THREW: memory.max_bytes must be a positive integer.
+=== memory.max_bytes#type-nonstring ===
+  THREW: memory.max_bytes must be a positive integer.
+=== memory.max_bytes#type-string ===
+  THREW: memory.max_bytes must be a positive integer.
+=== memory.pruning#scalar ===
+  (none)
+=== memory.pruning.archive_after_days#below-min ===
+  THREW: memory.pruning.archive_after_days must be a positive integer.
+=== memory.pruning.archive_after_days#type-nonstring ===
+  THREW: memory.pruning.archive_after_days must be a positive integer.
+=== memory.pruning.archive_after_days#type-string ===
+  THREW: memory.pruning.archive_after_days must be a positive integer.
+=== memory.pruning.enabled#type-nonbool ===
+  (none)
+=== memory.pruning.schedule#type-nonstring ===
+  (none)
+=== name#type-nonstring ===
+  [blocking] Invalid type for name: "int" — using default
+=== onboarding#scalar ===
+  [blocking] Invalid type for onboarding: "int" — using defaults
+=== onboarding.expiry_days#below-min ===
+  [blocking] Invalid onboarding.expiry_days: "0" — using default 14
+=== onboarding.expiry_days#type-nonstring ===
+  [blocking] Invalid type for expiry_days: "bool" — using default
+=== onboarding.expiry_days#type-string ===
+  [blocking] Invalid type for expiry_days: "String" — using default
+=== port#above-max ===
+  (none)
+=== port#below-min ===
+  (none)
+=== port#type-nonstring ===
+  [blocking] Invalid type for port: "bool" — using default
+=== port#type-string ===
+  [blocking] Invalid type for port: "String" — using default
+=== projects#scalar ===
+  [blocking] Invalid type for projects: "int" — using defaults
+=== projects#type-nonmap ===
+  [blocking] Invalid type for projects: "int" — using defaults
+=== projects.allowApiLocalPath#type-nonbool ===
+  [blocking] projects.allowApiLocalPath: expected a boolean — using default false
+=== projects.fetchCooldownMinutes#below-min ===
+  (none)
+=== projects.fetchCooldownMinutes#type-nonstring ===
+  [blocking] projects.fetchCooldownMinutes: expected an integer — using default 5
+=== projects.fetchCooldownMinutes#type-string ===
+  [blocking] projects.fetchCooldownMinutes: expected an integer — using default 5
+=== projects.localPathAllowlist#type-nonlist ===
+  [blocking] projects.localPathAllowlist: expected a list of absolute paths — using empty allowlist
+=== providers#type-nonmap ===
+  [blocking] Invalid type for providers: "int" — using defaults
+=== scheduling#scalar ===
+  [blocking] Invalid type for scheduling: "int" — using defaults
+=== scheduling.heartbeat#scalar ===
+  [blocking] Invalid type for heartbeat: "int" — using defaults
+=== scheduling.heartbeat.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== scheduling.heartbeat.interval_minutes#above-max ===
+  (none)
+=== scheduling.heartbeat.interval_minutes#below-min ===
+  (none)
+=== scheduling.heartbeat.interval_minutes#type-nonstring ===
+  [blocking] Invalid type for interval_minutes: "bool" — using default
+=== scheduling.heartbeat.interval_minutes#type-string ===
+  [blocking] Invalid type for interval_minutes: "String" — using default
+=== scheduling.jobs#type-nonmap ===
+  [blocking] Invalid type for jobs: "int" — using defaults
+=== search#scalar ===
+  [blocking] Invalid type for search: "int" — using defaults
+=== search.backend#non-member ===
+  [blocking] Invalid search.backend: "__dartclaw_not_a_member__" — using default
+=== search.backend#type-nonstring ===
+  [blocking] Invalid type for backend: "int" — using defaults
+=== search.default_depth#type-nonstring ===
+  [blocking] Invalid type for default_depth: "int" — using defaults
+=== search.providers#type-nonmap ===
+  [blocking] Invalid type for providers: "int" — using defaults
+=== search.qmd#scalar ===
+  [blocking] Invalid type for qmd: "int" — using defaults
+=== search.qmd.host#type-nonstring ===
+  [blocking] Invalid type for host: "int" — using default
+=== search.qmd.port#above-max ===
+  (none)
+=== search.qmd.port#below-min ===
+  (none)
+=== search.qmd.port#type-nonstring ===
+  [blocking] Invalid type for port: "bool" — using default
+=== search.qmd.port#type-string ===
+  [blocking] Invalid type for port: "String" — using default
+=== security#scalar ===
+  [blocking] Invalid type for security: "int" — using defaults
+=== security.bash_step#scalar ===
+  [blocking] Invalid type for bash_step: "int" — using defaults
+=== security.bash_step.env_allowlist#type-nonlist ===
+  [blocking] Invalid type for env_allowlist: "int" — using defaults
+=== security.bash_step.extra_strip_patterns#type-nonlist ===
+  [blocking] Invalid type for extra_strip_patterns: "int" — using defaults
+=== sessions#scalar ===
+  [blocking] Invalid type for sessions: "int" — using defaults
+=== sessions.channels#type-nonmap ===
+  [blocking] Invalid type for channels: "int" — using defaults
+=== sessions.dm_scope#non-member ===
+  [blocking] Invalid value for sessions.dm_scope: "__dartclaw_not_a_member__" — using default
+=== sessions.dm_scope#type-nonstring ===
+  [blocking] Invalid type for dm_scope: "int" — using defaults
+=== sessions.effort#type-nonstring ===
+  [blocking] Invalid type for effort: "int" — using defaults
+=== sessions.group_scope#non-member ===
+  [blocking] Invalid value for sessions.group_scope: "__dartclaw_not_a_member__" — using default
+=== sessions.group_scope#type-nonstring ===
+  [blocking] Invalid type for group_scope: "int" — using defaults
+=== sessions.idle_timeout_minutes#below-min ===
+  (none)
+=== sessions.idle_timeout_minutes#type-nonstring ===
+  [blocking] Invalid type for idle_timeout_minutes: "bool" — using default
+=== sessions.idle_timeout_minutes#type-string ===
+  [blocking] Invalid type for idle_timeout_minutes: "String" — using default
+=== sessions.maintenance#scalar ===
+  [blocking] Invalid type for maintenance: "int" — using defaults
+=== sessions.maintenance.cron_retention_hours#below-min ===
+  (none)
+=== sessions.maintenance.cron_retention_hours#type-nonstring ===
+  [blocking] Invalid type for cron_retention_hours: "bool" — using default
+=== sessions.maintenance.cron_retention_hours#type-string ===
+  [blocking] Invalid type for cron_retention_hours: "String" — using default
+=== sessions.maintenance.max_disk_mb#below-min ===
+  (none)
+=== sessions.maintenance.max_disk_mb#type-nonstring ===
+  [blocking] Invalid type for max_disk_mb: "bool" — using default
+=== sessions.maintenance.max_disk_mb#type-string ===
+  [blocking] Invalid type for max_disk_mb: "String" — using default
+=== sessions.maintenance.max_sessions#below-min ===
+  (none)
+=== sessions.maintenance.max_sessions#type-nonstring ===
+  [blocking] Invalid type for max_sessions: "bool" — using default
+=== sessions.maintenance.max_sessions#type-string ===
+  [blocking] Invalid type for max_sessions: "String" — using default
+=== sessions.maintenance.mode#non-member ===
+  [blocking] Invalid value for sessions.maintenance.mode: "__dartclaw_not_a_member__" — using default
+=== sessions.maintenance.mode#type-nonstring ===
+  [blocking] Invalid type for mode: "int" — using defaults
+=== sessions.maintenance.prune_after_days#below-min ===
+  (none)
+=== sessions.maintenance.prune_after_days#type-nonstring ===
+  [blocking] Invalid type for prune_after_days: "bool" — using default
+=== sessions.maintenance.prune_after_days#type-string ===
+  [blocking] Invalid type for prune_after_days: "String" — using default
+=== sessions.maintenance.schedule#type-nonstring ===
+  [blocking] Invalid type for schedule: "int" — using defaults
+=== sessions.model#type-nonstring ===
+  [blocking] Invalid type for model: "int" — using defaults
+=== sessions.reset_hour#above-max ===
+  (none)
+=== sessions.reset_hour#below-min ===
+  (none)
+=== sessions.reset_hour#type-nonstring ===
+  [blocking] Invalid type for reset_hour: "bool" — using default
+=== sessions.reset_hour#type-string ===
+  [blocking] Invalid type for reset_hour: "String" — using default
+=== source_dir#type-nonstring ===
+  [blocking] Invalid type for source_dir: "int" — ignoring
+=== static_dir#type-nonstring ===
+  [blocking] Invalid type for static_dir: "int" — ignoring
+=== tasks#scalar ===
+  [blocking] Invalid type for tasks: "int" — using defaults
+=== tasks.artifact_retention_days#above-max ===
+  (none)
+=== tasks.artifact_retention_days#below-min ===
+  (none)
+=== tasks.artifact_retention_days#type-nonstring ===
+  [blocking] Invalid type for artifact_retention_days: "bool" — using default
+=== tasks.artifact_retention_days#type-string ===
+  [blocking] Invalid type for artifact_retention_days: "String" — using default
+=== tasks.budget#scalar ===
+  [blocking] Invalid type for budget: "int" — using defaults
+=== tasks.budget.default_max_tokens#type-nonstring ===
+  [blocking] Invalid type for default_max_tokens: "bool" — using default
+=== tasks.budget.default_max_tokens#type-string ===
+  [blocking] Invalid type for default_max_tokens: "String" — using default
+=== tasks.budget.warning_threshold#above-max ===
+  [blocking] Invalid value for tasks.budget.warning_threshold: "2" — using default "0.8"
+=== tasks.budget.warning_threshold#below-min ===
+  [blocking] Invalid value for tasks.budget.warning_threshold: "-1" — using default "0.8"
+=== tasks.budget.warning_threshold#type-nonnumber ===
+  [blocking] Invalid value for tasks.budget.warning_threshold: "true" — using default "0.8"
+=== tasks.completion_action#non-member ===
+  [blocking] Invalid value for tasks.completion_action: "__dartclaw_not_a_member__" — using default "review"
+=== tasks.completion_action#type-nonstring ===
+  [blocking] Invalid type for completion_action: "int" — using defaults
+=== tasks.execution#non-member ===
+  THREW: tasks.execution: "__dartclaw_not_a_member__" is not a valid execution mode. Accepted values: host, container.
+=== tasks.execution#type-nonstring ===
+  THREW: tasks.execution: "1" is not a valid execution mode. Accepted values: host, container.
+=== tasks.worktree#scalar ===
+  [blocking] Invalid type for worktree: "int" — using defaults
+=== tasks.worktree.base_ref#type-nonstring ===
+  (none)
+=== tasks.worktree.merge_strategy#non-member ===
+  [blocking] Invalid value for tasks.worktree.merge_strategy: "__dartclaw_not_a_member__" — using default "squash"
+=== tasks.worktree.merge_strategy#type-nonstring ===
+  (none)
+=== tasks.worktree.stale_timeout_hours#above-max ===
+  (none)
+=== tasks.worktree.stale_timeout_hours#below-min ===
+  (none)
+=== tasks.worktree.stale_timeout_hours#type-nonstring ===
+  [blocking] Invalid type for stale_timeout_hours: "bool" — using default
+=== tasks.worktree.stale_timeout_hours#type-string ===
+  [blocking] Invalid type for stale_timeout_hours: "String" — using default
+=== templates_dir#type-nonstring ===
+  [blocking] Invalid type for templates_dir: "int" — ignoring
+=== usage#scalar ===
+  [blocking] Invalid type for usage: "int" — using defaults
+=== usage.budget_warning_tokens#below-min ===
+  (none)
+=== usage.budget_warning_tokens#type-nonstring ===
+  [blocking] Invalid type for budget_warning_tokens: "bool" — using defaults
+=== usage.budget_warning_tokens#type-string ===
+  [blocking] Invalid type for budget_warning_tokens: "String" — using defaults
+=== usage.max_file_size_bytes#below-min ===
+  (none)
+=== usage.max_file_size_bytes#type-nonstring ===
+  [blocking] Invalid type for max_file_size_bytes: "bool" — using default
+=== usage.max_file_size_bytes#type-string ===
+  [blocking] Invalid type for max_file_size_bytes: "String" — using default
+=== workflow#scalar ===
+  [blocking] Invalid type for workflow: "int" — using defaults
+=== workflow.approvals#non-member ===
+  [blocking] Invalid value for workflow.approvals: "__dartclaw_not_a_member__" (allowed: manual, auto-on-stall, auto) – using default manual
+=== workflow.approvals#type-nonstring ===
+  [blocking] Invalid type for workflow.approvals: "int" – using default manual
+=== workflow.cleanup#scalar ===
+  [blocking] Invalid type for workflow.cleanup: "int" — using defaults
+=== workflow.cleanup.delete_remote_branch_on_failure#type-nonbool ===
+  [blocking] Invalid type for workflow.cleanup.delete_remote_branch_on_failure: "String" — using default false
+=== workflow.defaults#scalar ===
+  [blocking] Invalid type for workflow.defaults: "int" — using defaults
+=== workflow.defaults.executor#scalar ===
+  [blocking] Invalid type for workflow.defaults.executor: "int" — using defaults
+=== workflow.defaults.executor.effort#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.executor.effort: "int" — ignoring
+=== workflow.defaults.executor.model#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.executor.model: "int" — ignoring
+=== workflow.defaults.executor.provider#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.executor.provider: "int" — ignoring
+=== workflow.defaults.planner#scalar ===
+  [blocking] Invalid type for workflow.defaults.planner: "int" — using defaults
+=== workflow.defaults.planner.effort#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.planner.effort: "int" — ignoring
+=== workflow.defaults.planner.model#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.planner.model: "int" — ignoring
+=== workflow.defaults.planner.provider#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.planner.provider: "int" — ignoring
+=== workflow.defaults.reviewer#scalar ===
+  [blocking] Invalid type for workflow.defaults.reviewer: "int" — using defaults
+=== workflow.defaults.reviewer.effort#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.reviewer.effort: "int" — ignoring
+=== workflow.defaults.reviewer.model#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.reviewer.model: "int" — ignoring
+=== workflow.defaults.reviewer.provider#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.reviewer.provider: "int" — ignoring
+=== workflow.defaults.workflow#scalar ===
+  [blocking] Invalid type for workflow.defaults.workflow: "int" — using defaults
+=== workflow.defaults.workflow.effort#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.workflow.effort: "int" — ignoring
+=== workflow.defaults.workflow.model#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.workflow.model: "int" — ignoring
+=== workflow.defaults.workflow.provider#type-nonstring ===
+  [blocking] Invalid type for workflow.defaults.workflow.provider: "int" — ignoring
+=== workflow.runtime_artifacts_retention#scalar ===
+  [blocking] Invalid type for workflow.runtime_artifacts_retention: "int" — using defaults
+=== workflow.runtime_artifacts_retention.mode#non-member ===
+  [blocking] Invalid value for workflow.runtime_artifacts_retention.mode: "__dartclaw_not_a_member__" (allowed: warn, enforce) — using default warn
+=== workflow.runtime_artifacts_retention.mode#type-nonstring ===
+  [blocking] Invalid type for workflow.runtime_artifacts_retention.mode: "int" — using default warn
+=== workflow.runtime_artifacts_retention.prune_after_days#below-min ===
+  [blocking] Invalid value for workflow.runtime_artifacts_retention.prune_after_days: "-1" (expected a non-negative integer) — using default 0 (disabled)
+=== workflow.runtime_artifacts_retention.prune_after_days#type-nonstring ===
+  [blocking] Invalid value for workflow.runtime_artifacts_retention.prune_after_days: "true" (expected a non-negative integer) — using default 0 (disabled)
+=== workflow.runtime_artifacts_retention.prune_after_days#type-string ===
+  [blocking] Invalid value for workflow.runtime_artifacts_retention.prune_after_days: "not-a-number" (expected a non-negative integer) — using default 0 (disabled)
+=== workflow.workspace_dir#type-nonstring ===
+  [blocking] Invalid type for workflow.workspace_dir: "int" — ignoring
+=== workspace#scalar ===
+  [blocking] Invalid type for workspace: "int" — using defaults
+=== workspace.git_sync#scalar ===
+  [blocking] Invalid type for git_sync: "int" — using defaults
+=== workspace.git_sync.enabled#type-nonbool ===
+  [blocking] Invalid type for enabled: "String" — using default
+=== workspace.git_sync.interval_minutes#above-max ===
+  (none)
+=== workspace.git_sync.interval_minutes#below-min ===
+  (none)
+=== workspace.git_sync.interval_minutes#type-nonstring ===
+  [blocking] Invalid type for interval_minutes: "bool" — using default
+=== workspace.git_sync.interval_minutes#type-string ===
+  [blocking] Invalid type for interval_minutes: "String" — using default
+=== workspace.git_sync.push_enabled#type-nonbool ===
+  [blocking] Invalid type for push_enabled: "String" — using default

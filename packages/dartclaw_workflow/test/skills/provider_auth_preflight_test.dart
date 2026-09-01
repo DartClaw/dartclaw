@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show CredentialEntry, CredentialRegistry, CredentialsConfig, ProviderAuth, ProviderEntry, ProvidersConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 

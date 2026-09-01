@@ -1,10 +1,10 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
 
 void main() {
   Task createTask({
     TaskStatus status = TaskStatus.draft,
-    TaskType type = TaskType.coding,
     Map<String, dynamic> configJson = const {},
     Map<String, dynamic>? worktreeJson,
     DateTime? startedAt,
@@ -14,7 +14,6 @@ void main() {
       id: 'task-1',
       title: 'Write task model',
       description: 'Implement the task domain model',
-      type: type,
       status: status,
       goalId: 'goal-1',
       acceptanceCriteria: 'Tests pass',
@@ -55,6 +54,25 @@ void main() {
         expect(updated.configJson, {'pushBackCount': 1});
       });
 
+      test('preserves a repository-derived legacy refusal', () {
+        final task = Task(
+          id: 'legacy',
+          title: 'Legacy task',
+          description: 'Persisted before upgrade',
+          legacyRefusal: TaskLegacyRefusal.securityProfileUndeclared,
+          createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+        );
+
+        final updated = task.copyWith(title: 'Updated');
+
+        expect(updated.legacyRefusal, TaskLegacyRefusal.securityProfileUndeclared);
+        expect(updated.toJson(), isNot(contains('legacyRefusal')));
+        expect(
+          Task.fromJson({...updated.toJson(), 'legacyRefusal': 'securityProfileUndeclared'}).legacyRefusal,
+          isNull,
+        );
+      });
+
       test('can clear nullable fields', () {
         final task = createTask(
           worktreeJson: const {'path': '/tmp/worktree'},
@@ -83,7 +101,6 @@ void main() {
           id: 'task-99',
           title: 'Minimal task',
           description: 'Describe the work',
-          type: TaskType.coding,
           createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
         );
 
@@ -247,7 +264,6 @@ void main() {
       test('round-trips through toJson and fromJson', () {
         final task = createTask(
           status: TaskStatus.review,
-          type: TaskType.research,
           configJson: const {'pushBackCount': 2, 'budget': 1000},
           worktreeJson: const {'path': '/tmp/worktree'},
           startedAt: DateTime.parse('2026-03-10T10:05:00Z'),
@@ -263,7 +279,6 @@ void main() {
           id: 'task-1',
           title: 'Minimal task',
           description: 'Describe the work',
-          type: TaskType.custom,
           createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
         );
         final json = task.toJson();
@@ -281,7 +296,6 @@ void main() {
           'id': 'task-1',
           'title': 'Task',
           'description': 'Describe the work',
-          'type': 'coding',
           'status': 'draft',
           'configJson': null,
           'createdAt': '2026-03-10T10:00:00Z',
@@ -296,7 +310,6 @@ void main() {
             'id': 'task-1',
             'title': 'Task',
             'description': 'Describe the work',
-            'type': 'coding',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
           }),
@@ -310,7 +323,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             projectId: 'my-project',
           );
@@ -322,7 +334,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
           );
           expect(task.toJson().containsKey('projectId'), isFalse);
@@ -333,7 +344,6 @@ void main() {
             'id': 'task-1',
             'title': 'T',
             'description': 'D',
-            'type': 'coding',
             'status': 'draft',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
@@ -347,7 +357,6 @@ void main() {
             'id': 'task-1',
             'title': 'T',
             'description': 'D',
-            'type': 'coding',
             'status': 'draft',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
@@ -367,7 +376,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             projectId: 'my-project',
           );
@@ -380,7 +388,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             projectId: 'my-project',
           );
@@ -394,13 +401,11 @@ void main() {
           'id': 'task-1',
           'title': 'Task',
           'description': 'Describe the work',
-          'type': 'automation',
           'status': 'running',
           'configJson': const {},
           'createdAt': '2026-03-10T10:00:00Z',
         });
 
-        expect(task.type, TaskType.automation);
         expect(task.status, TaskStatus.running);
       });
 
@@ -410,7 +415,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             workflowStepExecution: const WorkflowStepExecution(
               taskId: 'task-1',
@@ -437,7 +441,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             workflowRunId: 'run-42',
             stepIndex: 2,
@@ -455,7 +458,6 @@ void main() {
             'id': 'task-1',
             'title': 'T',
             'description': 'D',
-            'type': 'coding',
             'status': 'draft',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
@@ -477,7 +479,6 @@ void main() {
             'id': 'task-1',
             'title': 'T',
             'description': 'D',
-            'type': 'coding',
             'status': 'draft',
             'configJson': const {},
             'createdAt': '2026-03-10T10:00:00Z',
@@ -498,7 +499,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             workflowRunId: 'run-1',
             stepIndex: 1,
@@ -513,7 +513,6 @@ void main() {
             id: 'task-1',
             title: 'T',
             description: 'D',
-            type: TaskType.coding,
             createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
             workflowRunId: 'run-1',
             stepIndex: 2,
@@ -529,7 +528,6 @@ void main() {
           id: 'task-1',
           title: 'T',
           description: 'D',
-          type: TaskType.coding,
           createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
           sessionId: 'sess-1',
           provider: 'codex',
@@ -566,7 +564,6 @@ void main() {
           id: 'task-1',
           title: 'T',
           description: 'D',
-          type: TaskType.coding,
           createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
           workflowRunId: 'run-1',
           stepIndex: 4,
@@ -587,7 +584,6 @@ void main() {
           'id': 'task-1',
           'title': 'T',
           'description': 'D',
-          'type': 'coding',
           'status': 'draft',
           'configJson': const {},
           'createdAt': '2026-03-10T10:00:00Z',
@@ -623,7 +619,6 @@ void main() {
           'id': 'task-1',
           'title': 'Legacy',
           'description': 'Legacy shape',
-          'type': 'coding',
           'status': 'draft',
           'configJson': const {},
           'createdAt': '2026-03-10T10:00:00Z',

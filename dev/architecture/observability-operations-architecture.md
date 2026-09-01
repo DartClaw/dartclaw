@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.24 worker-capacity execution architecture
+**Current through**: 0.25 worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption.
 
 ---
 
@@ -39,7 +39,7 @@ Maps internal EventBus events to operator notifications delivered through config
 
 ```
 ┌──────────┐  on<DartclawEvent>  ┌─────────────┐  classify  ┌───────────────┐
-│ EventBus ├────────────────────►│ AlertRouter  ├───────────►│AlertClassifier│
+│ EventBus ├────────────────────►│ AlertRouter  ├───────────►│ classifyAlert │
 └──────────┘                     │(Reconfigurable)│          └───────┬───────┘
                                  └──────┬────────┘                   │
                                         │ throttle    ┌──────────────┘
@@ -55,9 +55,9 @@ Maps internal EventBus events to operator notifications delivered through config
                                  └────────────────────────────┘
 ```
 
-### AlertClassifier
+### classifyAlert
 
-Pure function that maps `DartclawEvent` subtypes to alert type identifiers and severity levels:
+Pure function that maps `DartclawEvent` subtypes to an alert's identity *and* its content -- type identifier, severity, body text and detail fields, returned together. It is the only place any of those are decided, and its switch names every event subtype explicitly with no wildcard arm, so a new event type fails the build until it is consciously classified ([ADR-057](../adrs/057-workflow-events-stay-in-the-sealed-event-library.md)):
 
 | Event Type | Alert Type | Severity |
 |------------|-----------|----------|
@@ -70,8 +70,6 @@ Pure function that maps `DartclawEvent` subtypes to alert type identifiers and s
 | `CompactionCompletedEvent` | `compaction` | info |
 | `LoopDetectedEvent` | `loop_detected` | critical |
 | `EmergencyStopEvent` | `emergency_stop` | critical |
-| `AdvisorInsightEvent` (status `stuck`) | `advisor_insight` | warning |
-| `AdvisorInsightEvent` (status `concerning`) | `advisor_insight` | critical |
 | `CredentialHealthChangedEvent` (`nearing-expiry`) | `credential_expiry` | warning |
 | `CredentialHealthChangedEvent` (`refresh-failure`) | `credential_refresh_failure` | warning |
 | `CredentialHealthChangedEvent` (`reauth-required`) | `credential_reauth_required` | critical |
@@ -81,11 +79,11 @@ Non-alertable events return `null` and are silently dropped -- including the `he
 
 **Non-channel filter**: Task failure alerts for tasks originating from DM or group channel sessions are suppressed -- those users are already notified via `TaskNotificationSubscriber`. Tasks with web/cron/API origin always generate alerts. On malformed `SessionKey`, the filter fails open (alert delivered rather than silently dropped).
 
-Source: `packages/dartclaw_server/lib/src/alerts/alert_classifier.dart`
+Source: `packages/dartclaw_runtime/lib/src/alerts/alert_classifier.dart`
 
 ### AlertRouter
 
-Subscribes to `EventBus.on<DartclawEvent>()` and orchestrates the full pipeline: classify, resolve targets, check throttle, format, deliver. Implements `Reconfigurable` -- watches `alerts.*` config keys and applies changes to the next event without restarting the subscription.
+Subscribes to `EventBus.on<DartclawEvent>()` and orchestrates the full pipeline: classify, resolve targets, format, check throttle, deliver. Implements `Reconfigurable` -- watches `alerts.*` config keys and applies changes to the next event without restarting the subscription.
 
 Target resolution via `AlertsConfig.routes`:
 - Empty routes map: all events go to all targets
@@ -93,19 +91,19 @@ Target resolution via `AlertsConfig.routes`:
 - `routes['compaction'] = ['0', '2']`: this type goes to target indices 0 and 2
 - No entry for a type: event is not routed (silently dropped)
 
-Source: `packages/dartclaw_server/lib/src/alerts/alert_router.dart`
+Source: `packages/dartclaw_runtime/lib/src/alerts/alert_router.dart`
 
 ### AlertFormatter
 
-Stateless formatter producing channel-appropriate `ChannelResponse` objects. Google Chat gets Cards v2 with severity-colored headers; all other channels get plain text (`[SEVERITY] Title: body`). Also handles burst summary formatting.
+Stateless formatter producing channel-appropriate `ChannelResponse` objects from an already-classified alert. Google Chat gets Cards v2 with severity-colored headers; all other channels get plain text (`[SEVERITY] Title: body`). It owns the alert-type-to-title table and burst summary formatting, and switches on no event type at all -- an event the classifier dropped cannot be rendered.
 
-Source: `packages/dartclaw_server/lib/src/alerts/alert_formatter.dart`
+Source: `packages/dartclaw_runtime/lib/src/alerts/alert_formatter.dart`
 
 ### AlertThrottle
 
-Per-key cooldown tracker. Key: `eventType:channelType:recipient`. First event delivers immediately; subsequent events within cooldown are suppressed. When cooldown expires, if `suppressedCount >= burstThreshold`, a summary is delivered. Each target+type combination is throttled independently.
+Per-key cooldown tracker. Key: `eventType:channelType:recipient`. First event delivers immediately; subsequent events within cooldown are suppressed. When cooldown expires, if `suppressedCount >= burstThreshold`, a summary is delivered, carrying the classified severity of the alerts it summarises. Each target+type combination is throttled independently.
 
-Source: `packages/dartclaw_server/lib/src/alerts/alert_throttle.dart`
+Source: `packages/dartclaw_runtime/lib/src/alerts/alert_throttle.dart`
 
 ### AlertsConfig
 
@@ -117,7 +115,7 @@ Source: `packages/dartclaw_server/lib/src/alerts/alert_throttle.dart`
 | `targets` | `[]` | Channel + recipient pairs (`AlertTarget`) |
 | `routes` | `{}` | Event type to target index mapping |
 
-Source: `packages/dartclaw_config/lib/src/alerts_config.dart`
+Source: `packages/dartclaw_kernel/lib/src/alerts_config.dart`
 
 
 ## 3. Health Monitoring
@@ -141,21 +139,31 @@ Reported metrics:
 | `pubsub` | `PubSubHealthReporter` | Pub/Sub subsystem status (if configured) |
 | `execution` | `ExecutionCoordinator.snapshot` | Primary activity plus per-provider configured/effective/active/queued/cached/quarantined worker counts |
 
-Execution health is lease-derived. A provider is capacity-degraded when quarantine reduces effective capacity, even if cached harness objects appear idle. Capacity-only workflow executions count as active provider work despite having no runner object.
+Execution health is lease-derived. A provider is capacity-degraded when quarantine reduces effective capacity, even if cached harness objects appear idle. Workflow executions count as active provider work through their leased worker.
 
-Source: `packages/dartclaw_server/lib/src/health/health_service.dart`
+**Host health is not provider availability.** `status` is the sole projection of one worker's lifecycle
+(`healthStatusForWorkerState` in `health_service.dart`, the only worker-state → health-string mapping in the
+workspace): `idle`/`busy` → `healthy`, `crashed` or no worker → `degraded`, `stopped` → `unhealthy`. Provider
+availability (`ProviderStatus.health` on `/api/providers` and the settings provider cards) answers a different
+question from different inputs — binary presence, credential resolution, credential health and capacity — and
+never reads a worker
+lifecycle: a provider whose binary is missing is `unavailable`, and one whose binary and credential resolve is
+`healthy` even with no worker running at all. Neither answer is expressible as a worker lifecycle, so the two
+vocabularies stay separate; neither derives from the other.
+
+Source: `packages/dartclaw_runtime/lib/src/health/health_service.dart`
 
 ### Health Endpoint
 
 `GET /health` returns JSON via shelf `Handler`. Used by load balancers, monitoring systems, and the web UI health dashboard (`health_page.dart` + `health_dashboard.html`).
 
-Source: `packages/dartclaw_server/lib/src/health/health_route.dart`
+Source: `packages/dartclaw_runtime/lib/src/health/health_route.dart`
 
 ### ContainerHealthMonitor
 
 Periodic check (default: 10s) for all container profiles. Fires `ContainerCrashedEvent` on healthy-to-unhealthy transitions (triggers alert routing) and `ContainerStartedEvent` on recovery. Tasks in a crashed container fail naturally via subprocess termination; this monitor provides structured event notification.
 
-Source: `packages/dartclaw_server/lib/src/container/container_health_monitor.dart`
+Source: `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart`
 
 ### PubSubHealthReporter
 
@@ -177,21 +185,21 @@ Source: `packages/dartclaw_google_chat/lib/src/pubsub_health_reporter.dart`
                ▼
 ┌──────────────────────────┐
 │  GuardAuditSubscriber    │
-│  (dartclaw_server)       │
+│  (dartclaw_runtime)       │
 │  Bridges EventBus →      │
 │  GuardAuditLogger        │
 └──────────┬───────────────┘
            ▼
 ┌──────────────────────────┐     ┌────────────────────────────┐
 │  GuardAuditLogger        │────►│  audit-YYYY-MM-DD.ndjson   │
-│  (dartclaw_security)     │     │  Date-partitioned files    │
+│  (dartclaw_kernel)     │     │  Date-partitioned files    │
 │  Stdout + file sink      │     │  in dataDir                │
 └──────────────────────────┘     └────────────────────────────┘
                                           │
                                           ▼
                                  ┌────────────────────────────┐
                                  │  AuditLogReader            │
-                                 │  (dartclaw_server)         │
+                                 │  (dartclaw_runtime)         │
                                  │  Paginated read + filter   │
                                  └────────────┬───────────────┘
                                               ▼
@@ -203,7 +211,7 @@ Source: `packages/dartclaw_google_chat/lib/src/pubsub_health_reporter.dart`
 
 ### GuardAuditLogger
 
-Structured audit logger in `dartclaw_security`. Dual output:
+Structured audit logger in `dartclaw_kernel`. Dual output:
 
 1. **Stdout logging** (always): log level varies by verdict -- INFO for pass, WARNING for warn, SEVERE for block
 2. **File sink** (when `dataDir` is set): NDJSON entries appended to date-partitioned files
@@ -216,13 +224,13 @@ File operations are fire-and-forget via `unawaited` to avoid affecting guard ver
 
 **PermissionDenied logging**: Claude Code's own permission layer events are also captured with `guard: 'PermissionDenied'` and `verdict: 'denied'`.
 
-Source: `packages/dartclaw_security/lib/src/guard_audit.dart`
+Source: `packages/dartclaw_kernel/lib/src/guard_audit.dart`
 
 ### GuardAuditSubscriber
 
-Bridges `GuardBlockEvent` and `ToolPermissionDeniedEvent` from the core EventBus into the `GuardAuditLogger`. Runs in `dartclaw_server` to avoid coupling the security package to the event bus.
+Bridges `GuardBlockEvent` and `ToolPermissionDeniedEvent` from the core EventBus into the `GuardAuditLogger`. Runs in `dartclaw_runtime` to avoid coupling the security package to the event bus.
 
-Source: `packages/dartclaw_server/lib/src/audit/guard_audit_subscriber.dart`
+Source: `packages/dartclaw_runtime/lib/src/audit/guard_audit_subscriber.dart`
 
 ### AuditLogReader
 
@@ -232,7 +240,7 @@ Filters (AND-combined):
 - `verdictFilter`: exact match on verdict string (`pass`, `warn`, `block`)
 - `guardFilter`: case-insensitive substring match on guard name
 
-Source: `packages/dartclaw_server/lib/src/audit/audit_log_reader.dart`
+Source: `packages/dartclaw_runtime/lib/src/audit/audit_log_reader.dart`
 
 
 ## 5. Usage Tracking
@@ -261,7 +269,7 @@ Turn completes
 └──────────────────┘                └────────────────┘
 ```
 
-**UsageEvent fields**: `timestamp`, `sessionId`, `agentName` (values: `main`, `search`, `heartbeat`, `cron:<jobId>`), `model`, `inputTokens`, `outputTokens`, `durationMs`.
+**UsageEvent fields**: `timestamp`, `sessionId`, `agentName` (values: `main`, `search`, `cron:<jobId>` -- the heartbeat is a scheduled job, so its turns carry `cron:heartbeat` rather than a `heartbeat` value of their own), `inputTokens`, `outputTokens`, `durationMs`.
 
 **Daily KV aggregate structure**:
 ```json
@@ -280,18 +288,18 @@ Turn completes
 
 **Budget warning**: When daily total exceeds `budgetWarningTokens`, logs a warning. The `budget_warning_posted_at` marker in KV ensures once-per-day semantics that survive process restarts.
 
-Source: `packages/dartclaw_server/lib/src/observability/usage_tracker.dart`
+Source: `packages/dartclaw_runtime/lib/src/observability/usage_tracker.dart`
 
 ### Token Accounting (0.16.4)
 
-Workflow-owned one-shot CLI turns now treat **observability** and **persistence** as separate concerns:
+Workflow-owned harness turns treat **observability** and **persistence** as separate concerns:
 
-- Codex CLI `turn.completed` usage is **cumulative per thread**, not a per-turn delta. A resumed probe on 2026-04-22 moved from `input_tokens=27401 / cached_input_tokens=20992 / output_tokens=19` to `input_tokens=54832 / cached_input_tokens=48256 / output_tokens=25`, which confirms overwrite-not-add semantics for the live usage payload.
-- The live Codex CLI currently emits `cached_input_tokens`; older internal adapters and persisted KV records use the normalized name `cache_read_tokens`. Workflow-side parsing must accept both names and normalize onto the unified schema.
+- Codex app-server `turn.completed` usage is **cumulative per thread**, not a per-turn delta. A resumed probe on 2026-04-22 moved from `input_tokens=27401 / cached_input_tokens=20992 / output_tokens=19` to `input_tokens=54832 / cached_input_tokens=48256 / output_tokens=25`, which confirms overwrite-not-add semantics for the live usage payload.
+- Codex emits `cached_input_tokens`; older persisted KV records use the normalized name `cache_read_tokens`. Protocol adaptation normalizes onto the unified schema.
 - Persisted task/session usage remains cumulative and uses the unified keys `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `total_tokens`, `effective_tokens`, `estimated_cost_usd`, `turn_count`, and `provider`.
 - For Codex, fresh input is derived as `input_tokens - cache_read_tokens`; for Claude, the provider already reports fresh input directly. This keeps budget checks and per-turn attribution on the same semantic footing across harnesses.
 - Legacy `session_cost:*` KV entries carrying the old workflow-only schema are dropped once at boot. Readers null-coalesce missing keys so the first post-upgrade render remains safe even before a fresh turn lands.
-- Long-running workflow-owned one-shot provider runs emit `WorkflowCliTurnProgressEvent`, so operators can observe a 40-minute `implement` step without waiting for process exit. Codex emits on `turn.completed` based on **delta from the previous cumulative snapshot**; claude emits once per completed assistant message using latest input/cache tokens and summed output tokens.
+- Long-running workflow-owned harness runs emit the legacy-named `WorkflowCliTurnProgressEvent`, so operators can observe a 40-minute `implement` step without waiting for process exit. Codex emits on `turn.completed` based on **delta from the previous cumulative snapshot**; Claude emits once per completed assistant message using latest input/cache tokens and summed output tokens.
 
 Budget semantics are intentionally layered:
 
@@ -306,7 +314,7 @@ Budget semantics are intentionally layered:
 | `budgetWarningTokens` | `int?` | `null` | Daily token threshold for warning (null = disabled) |
 | `maxFileSizeBytes` | `int` | 10MB | JSONL file rotation threshold |
 
-Source: `packages/dartclaw_config/lib/src/usage_config.dart`
+Source: `packages/dartclaw_kernel/lib/src/usage_config.dart`
 
 ### Turn Traces
 
@@ -318,7 +326,7 @@ Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
-Source: `packages/dartclaw_storage/lib/src/storage/turn_trace_service.dart`
+Source: `packages/dartclaw_core/lib/src/storage/turn_trace_service.dart`
 
 
 ## 6. Structured Logging
@@ -337,7 +345,7 @@ Logger.root.onRecord → LogService → LogFormatter → LogRedactor → output 
 
 Configures Dart's `logging` package. Two output targets: stderr (always) and optional file sink (append mode). Factory `LogService.fromConfig()` accepts string config values from `LoggingConfig`.
 
-Source: `packages/dartclaw_server/lib/src/logging/log_service.dart`
+Source: `packages/dartclaw_runtime/lib/src/logging/log_service.dart`
 
 ### LogFormatter
 
@@ -348,13 +356,13 @@ Two implementations:
 
 Both apply `LogRedactor` (delegates to `MessageRedactor` from `dartclaw_core`) before output.
 
-Sources: `packages/dartclaw_server/lib/src/logging/log_formatter.dart`, `log_redactor.dart`
+Sources: `packages/dartclaw_runtime/lib/src/logging/log_formatter.dart`, `log_redactor.dart`
 
 ### LogContext
 
 Zone-based log correlation. Set session/turn IDs once via `runWith()`; read anywhere downstream via static getters. Zone values are immutable per zone.
 
-Source: `packages/dartclaw_server/lib/src/logging/log_context.dart`
+Source: `packages/dartclaw_runtime/lib/src/logging/log_context.dart`
 
 ### LoggingConfig
 
@@ -365,7 +373,7 @@ Source: `packages/dartclaw_server/lib/src/logging/log_context.dart`
 | `level` | `INFO` | Minimum log level |
 | `redactPatterns` | `[]` | Additional redaction patterns |
 
-Source: `packages/dartclaw_config/lib/src/logging_config.dart`
+Source: `packages/dartclaw_kernel/lib/src/logging_config.dart`
 
 
 ## 7. Real-Time Streaming (SSE)
@@ -426,21 +434,21 @@ return Response.ok(
 
 Cleanup on client disconnect: all EventBus subscriptions are cancelled in `controller.onCancel`.
 
-Source: `packages/dartclaw_server/lib/src/api/task_sse_routes.dart`
+Source: `packages/dartclaw_runtime/lib/src/api/task_sse_routes.dart`
 
 ### Chat SSE (Per-Turn Streaming)
 
-`sseStreamResponse()` creates a per-turn SSE stream for chat UI. Events: `delta` (text chunks), tool call status, turn completion. Source: `packages/dartclaw_server/lib/src/api/stream_handler.dart`
+`sseStreamResponse()` creates a per-turn SSE stream for chat UI. Events: `delta` (text chunks), tool call status, turn completion. Source: `packages/dartclaw_runtime/lib/src/api/stream_handler.dart`
 
 ### SseBroadcast
 
-Global broadcast channel for system-level SSE events (budget warnings, rate limit warnings, loop detection, emergency stop). Separate from per-turn and task SSE. Manages client list with automatic stale-connection cleanup. Source: `packages/dartclaw_server/lib/src/api/sse_broadcast.dart`
+Global broadcast channel for system-level SSE events (budget warnings, rate limit warnings, loop detection, emergency stop). Separate from per-turn and task SSE. Manages client list with automatic stale-connection cleanup. Source: `packages/dartclaw_runtime/lib/src/api/sse_broadcast.dart`
 
 ### TaskProgressTracker
 
 Throttled progress tracker (max 1 emit/second/task). Subscribes to `TaskEventCreatedEvent`, accumulates token usage and current tool activity, emits `TaskProgressSnapshot` with: `progress` (0--100% against token budget), `currentActivity` (human-readable tool description), `tokensUsed`, `tokenBudget`, `isComplete`. Supports `seedFromEvents()` for mid-task page loads.
 
-Source: `packages/dartclaw_server/lib/src/task/task_progress_tracker.dart`
+Source: `packages/dartclaw_runtime/lib/src/task/task_progress_tracker.dart`
 
 ### RunnerObserver
 
@@ -460,15 +468,26 @@ current registries, preventing stale runner accumulation without retaining histo
 - per provider: `configured`, `effective`, `active`, `queued`, `cached`, and `quarantined` worker counts;
 - aggregate configured, active, available, queued, cached, and quarantined counts.
 
-`available = effective - active`. Cached harness count is diagnostic only and never increases capacity. Quarantined slots reduce `effective` until recovery/restart. Capacity-only workflow one-shots emit acquire/release transitions with their request and provider but no runner ID, so the same API/SSE state remains truthful.
+`available = effective - active`. Cached harness count is diagnostic only and never increases capacity. Quarantined slots reduce `effective` until recovery/restart. Workflow steps emit acquire/release transitions with their request, provider, and runner ID, so the same API/SSE state remains truthful.
 
 Coordinator events cover `acquired`, `released`, `disposed`, `quarantined`, `runnerCreated`, and `turnSettled`. Cache state is visible in lease snapshots; it does not need a separate lifecycle event.
+
+An observed worker teardown publishes exactly **one** terminal event carrying that worker's runner ID: `disposed` when
+teardown and root-process termination are confirmed, `quarantined` when they are not — and wherever a slot can still be
+withheld it is withheld first, so the crash is never reported ahead of the degradation it explains
+([ADR-058](../adrs/058-report-quarantined-workers-truthfully.md)). Coordinator shutdown is the one place it cannot: the
+gates are already closed and no replacement can be admitted at all, so that tombstone is reported without a matching
+quarantined slot rather than being reported as a clean teardown.
+`RunnerObserver` maps `quarantined` to `crashed`, clears the runner's task and session IDs, and retains that tombstone
+in `/api/runners` until restart; runner bookkeeping is dropped immediately after the terminal event, so the
+lease-release notification that follows carries no runner ID and cannot overwrite the outcome. A teardown with no
+observed runner ID (a pre-registration factory failure) stays capacity-only — no identity is invented.
 Surfaces must not emit independent lifecycle or outcome transitions; doing so would race with lease release or double-count
 turn metrics.
 
 The cache is intentionally opportunistic and unconfigured. Observability may report cache outcomes for diagnosis, but there are no cache target, TTL, hit-rate policy, or prewarm settings. Container health/lifetime is reported separately from the harness cache: only host harnesses are cacheable, and each container is bound to the single authority that owns it.
 
-Source: `packages/dartclaw_server/lib/src/task/runner_observer.dart`
+Source: `packages/dartclaw_runtime/lib/src/task/runner_observer.dart`
 
 
 ## 8. Context Monitoring
@@ -484,19 +503,13 @@ Key behaviors:
 3. **Pre-compaction flush**: `shouldFlushForCompactionSignal(compactionSignalAvailable:)` returns `true` when tokens exceed `contextWindow - reserveTokens` and no flush is pending. Suppressed when the `compactionSignalAvailable` argument is `true` (the harness delivers a deterministic signal, passed from `AgentHarness.supportsPreCompactHook`)
 4. **Compaction cycle dedup**: `shouldSkipFlush()` + `markFlushed()` prevent redundant flushes within the same compaction cycle or with identical content (SHA-256 hash)
 
-Source: `packages/dartclaw_server/lib/src/context/context_monitor.dart`
-
-### ExplorationSummarizer
-
-Type-aware structural summarization for tool output exceeding `thresholdTokens` (default: 25K tokens). Detects JSON/YAML (schema extraction), CSV/TSV (headers + sample rows), and source code (Dart/TypeScript/Python/Go -- class/function signatures). Falls back to `ResultTrimmer` head+tail truncation for unrecognized types.
-
-Source: `packages/dartclaw_server/lib/src/context/exploration_summarizer.dart`
+Source: `packages/dartclaw_runtime/lib/src/context/context_monitor.dart`
 
 ### ResultTrimmer
 
-Soft-trims oversized tool results: head (2KB) + `...[trimmed N bytes]...` + tail (2KB). Default cap: 50KB. Reconfigurable via `context.maxResultBytes`. Full result preserved in NDJSON transcript.
+Soft-trims oversized tool results: head + `...[trimmed N bytes]...` + tail, each slice up to 2KB and smaller when the cap cannot fit that much, so the returned text fits `maxResultBytes`. Default cap: 50KB. Reconfigurable via `context.maxResultBytes`. Applied by `McpProtocolHandler` to the successful text result of every `tools/call` it dispatches -- every tool registered on the handler, including `OutboundMcpToolAdapter` relays of a configured MCP server, and no other surface. A tool's error result passes through as produced. The marker is the only record that bytes were dropped; the untrimmed result is not retained.
 
-Source: `packages/dartclaw_server/lib/src/context/result_trimmer.dart`
+Source: `packages/dartclaw_runtime/lib/src/context/result_trimmer.dart`
 
 ### ContextConfig
 
@@ -505,11 +518,10 @@ Source: `packages/dartclaw_server/lib/src/context/result_trimmer.dart`
 | `reserveTokens` | `20000` | Token reserve before pre-compaction flush |
 | `maxResultBytes` | 50KB | ResultTrimmer byte cap |
 | `warningThreshold` | `80` | Context warning percentage threshold (50--99) |
-| `explorationSummaryThreshold` | `25000` | Token threshold for structural summarization |
 | `compactInstructions` | (built-in) | Custom compact instructions |
 | `identifierPreservation` | `strict` | Mode: `strict`/`off`/`custom` |
 
-Source: `packages/dartclaw_config/lib/src/context_config.dart`
+Source: `packages/dartclaw_kernel/lib/src/context_config.dart`
 
 
 ## 9. Compaction Observability (0.16)
@@ -589,44 +601,46 @@ Manages the separate `errors.md` runtime log and canonical learning entries. Eac
 
 Writes use the workspace authority's atomic transaction protocol.
 
-Source: `packages/dartclaw_server/lib/src/behavior/self_improvement_service.dart`
+Source: `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart`
 
 ### BehaviorFileService
 
 Manages behavior prompt files: `SOUL.md` (identity), `AGENTS.md`/`CLAUDE.md` (harness-specific instructions), `USER.md` (preferences), `TOOLS.md` (tool guidance), and `HEARTBEAT.md` (periodic check-in). It composes each scope's prompt with compact instructions and identifier preservation; primary turns additionally receive the fresh bounded canonical memory index projection.
 
-Source: `packages/dartclaw_server/lib/src/behavior/behavior_file_service.dart`
+Source: `packages/dartclaw_runtime/lib/src/behavior/behavior_file_service.dart`
 
 
 ## 11. Heartbeat & Scheduling
 
-### HeartbeatScheduler
+### Heartbeat job
 
-Periodic agent check-ins via `HEARTBEAT.md`. Each cycle:
+Periodic agent check-ins via `HEARTBEAT.md`, registered as the built-in `heartbeat` `ScheduledJob`. Each fire:
 1. Reads `HEARTBEAT.md` from workspace
-2. If present and non-empty, dispatches content as a turn in a unique isolated session (`agent:main:heartbeat:<timestamp>`) through provider worker capacity, never the primary-interactive lane
-3. Completes the dispatched checklist without an automatic memory-curation turn; curation starts only through the explicit `memory-curation` system action
-4. Independently attempts workspace sync via `WorkspaceGitSync`, including when the checklist is missing or empty
+2. If present and non-empty, dispatches content as a turn in a session unique to that cycle (`SessionKey.cronSession(jobId: 'heartbeat:<timestamp>')`, so the stored key URI-encodes the inner separator) through provider worker capacity, never the primary-interactive lane. Turns carry the scheduler's `cron` source and `cron:heartbeat` agent name
+3. If missing, empty, or undecodable, ends the fire quietly -- no turn, no session, no failure event, no retry attempt, and the next fire stays on schedule
+4. Completes the dispatched checklist without a memory-curation turn; curation runs only as its own opt-in `memory-curation` job
 
-Implements `Reconfigurable` -- watches `scheduling.*` for interval changes. Restarts timer if interval changes while running.
+The job is always registered and starts paused when `scheduling.heartbeat.enabled` is false, so the live toggle takes effect from either boot state. `scheduling.heartbeat.interval_minutes` requires a restart: a job's schedule is fixed at registration.
 
-Source: `packages/dartclaw_server/lib/src/behavior/heartbeat_scheduler.dart`
+Workspace git sync is a separate built-in job (`git-sync`) on `workspace.git_sync.interval_minutes`; it no longer rides the heartbeat cycle, so a disabled heartbeat leaves workspace versioning running.
+
+Source: `packages/dartclaw_runtime/lib/src/behavior/heartbeat_job.dart`, `packages/dartclaw_runtime/lib/src/workspace/workspace_git_sync_job.dart`
 
 ### ScheduleService
 
 Manages cron, interval, and one-time job execution. Each job runs in an isolated session (`SessionKey.cronSession`). Single-shot `Timer` + reschedule pattern handles variable intervals. Features: overlap prevention, retry logic (`retryAttempts` + `retryDelaySeconds`), per-job pause/resume, delivery modes (none/channel/webhook/SSE), and an on-demand prompt-job seam that reuses execution policy without changing timers or pause state. Fires `ScheduledJobFailedEvent` after all retries exhausted. Reconfigurable (job list changes require restart).
 
-Run-only `SystemAction` descriptors share read-only list/show, run-now routing, and overlap protection with jobs. They are immutable and receive no timer, pause, retry, delivery, or YAML representation. `memory-curation` is the sole memory action: one bounded snapshot, one isolated read-only/no-tools proposal turn, then the existing atomic memory-apply authority. Its bounded KV lifecycle settles to `running`, `succeeded`, `conflicted`, or `failed`; interrupted `running` state settles at startup with explicit indeterminate-commit disclosure. Heartbeat, corpus size, scheduled-job completion, apply completion, and curation completion never dispatch it.
+A `ScheduledJob` may compose its prompt when it fires instead of carrying a static one, and hand back a release for whatever per-run authority the composition established; `ScheduleService` runs that release once the turn has an outcome, whatever the outcome. The opt-in `memory-curation` job is the one consumer: each fire composes a bounded corpus snapshot into its prompt and registers that snapshot's entry IDs as the run's apply scope. `MemoryApplyService.apply` then refuses, as a whole set, any change set from that session naming an entry outside the scope, so a run can only change entries it was shown. Curation keeps no durable run record: it is observable through the same scheduling surface, delivery, and logs as any other prompt job. Heartbeat, corpus size, scheduled-job completion, and apply completion never dispatch it.
 
-Cron, system, advisor, and on-demand scheduled turns acquire provider worker leases. They never compete with user/channel turns for the fixed primary-interactive lane. Workflow-owned one-shots are reported through capacity-only leases.
+Cron, system, and on-demand scheduled turns acquire provider worker leases. They never compete with user/channel turns for the fixed primary-interactive lane. Workflow-owned steps are reported through worker leases.
 
-Source: `packages/dartclaw_server/lib/src/scheduling/schedule_service.dart`
+Source: `packages/dartclaw_runtime/lib/src/scheduling/schedule_service.dart`
 
 ### ScheduledTaskRunner
 
 Bridges `ScheduledTaskDefinition` into callback-based `ScheduledJob` instances. Dedup: checks for non-terminal tasks with matching `scheduleId` before creating new tasks via `TaskService`.
 
-Source: `packages/dartclaw_server/lib/src/scheduling/scheduled_task_runner.dart`
+Source: `packages/dartclaw_runtime/lib/src/scheduling/scheduled_task_runner.dart`
 
 ### SchedulingConfig
 
@@ -634,10 +648,10 @@ Source: `packages/dartclaw_server/lib/src/scheduling/scheduled_task_runner.dart`
 |-------|---------|-------------|
 | `jobs` | `[]` | Prompt-based scheduled job definitions |
 | `taskDefinitions` | `[]` | Task-based schedule definitions |
-| `heartbeatEnabled` | `true` | Whether heartbeat scheduler runs |
-| `heartbeatIntervalMinutes` | `30` | Minutes between heartbeat cycles |
+| `heartbeatEnabled` | `true` | Whether the built-in `heartbeat` job runs (live-togglable; the job is registered either way) |
+| `heartbeatIntervalMinutes` | `30` | Minutes between heartbeat fires (restart required) |
 
-Source: `packages/dartclaw_config/lib/src/scheduling_config.dart`
+Source: `packages/dartclaw_kernel/lib/src/scheduling_config.dart`
 
 
 ## 12. Governance Observability
@@ -674,19 +688,26 @@ Inbound turn request
 
 ### Budget Enforcement Observability
 
-`BudgetEnforcer` checks daily token consumption against configured budget:
+`BudgetEnforcer` is the daily scope over the shared `BudgetEngine`. It reports
+an outcome plus `warningIsNew`; `TurnGovernanceEnforcer` maps that onto the
+configured action:
 
-| Threshold | Decision | Observable Effect |
-|-----------|----------|-------------------|
-| < 80% | `allow` | None |
-| >= 80% (first time today) | `warn` | `budget_warning` SSE broadcast, channel notification, KV marker |
-| >= 80% (repeat) | `allow` | None (warning already posted) |
-| >= 100% (warn mode) | `warn` / `allow` | Warning + allow through |
-| >= 100% (block mode) | `block` | `BudgetExhaustedException` -- turn rejected |
+| Threshold | Outcome | Observable Effect |
+|-----------|---------|-------------------|
+| < 80% | `under` | None |
+| >= 80% (first time today) | `warning` (`warningIsNew`) | `budget_warning` SSE broadcast, channel notification, KV marker |
+| >= 80% (repeat) | `warning` | None (warning already posted) |
+| >= 100% (warn mode, first time today) | `exceeded` (`warningIsNew`) | Warning + allow through |
+| >= 100% (block mode, first time today) | `exceeded` (`warningIsNew`) | Warning with `action: block`, then `BudgetExhaustedException` -- turn rejected |
+| >= 100% (block mode, repeat) | `exceeded` | `BudgetExhaustedException` -- turn rejected, no repeat warning |
+
+Reaching 100% consumes the day's single warning, so a turn that lands straight
+at the limit still notifies the operator once.
 
 Budget status exposed via `/status` endpoint for dashboards.
 
-Source: `packages/dartclaw_server/lib/src/governance/budget_enforcer.dart`
+Source: `packages/dartclaw_runtime/lib/src/governance/budget_engine.dart`,
+`packages/dartclaw_runtime/lib/src/governance/budget_enforcer.dart`
 
 ### Rate Limiter Visibility
 
@@ -717,8 +738,8 @@ Configurable action: `warn` (log + notify) or `abort` (`LoopDetectedException`).
 
 All emergency controls are admin-only. `PauseController` state is in-memory -- resets automatically on server restart.
 
-Source: `packages/dartclaw_server/lib/src/emergency/emergency_stop_handler.dart`
-Source: `packages/dartclaw_server/lib/src/governance/pause_controller.dart`
+Source: `packages/dartclaw_runtime/lib/src/emergency/emergency_stop_handler.dart`
+Source: `packages/dartclaw_runtime/lib/src/governance/pause_controller.dart`
 
 
 ## 13. Observability Data Flow Summary
@@ -737,13 +758,12 @@ Agent Turn Execution
 ### Package Ownership
 
 - **`dartclaw_core`**: `DartclawEvent` subtypes, `EventBus`, compaction events, `TurnTrace`, `TurnTraceSummary`, `ToolCallRecord`
-- **`dartclaw_security`**: `GuardAuditLogger`, `AuditEntry`
-- **`dartclaw_config`**: `AlertsConfig`, `LoggingConfig`, `UsageConfig`, `ContextConfig`, `SchedulingConfig`
-- **`dartclaw_storage`**: `TurnTraceService` (SQLite persistence)
+- **`dartclaw_kernel`**: `GuardAuditLogger`, `AuditEntry`, `AlertsConfig`, `LoggingConfig`, `UsageConfig`, `ContextConfig`, `SchedulingConfig`
+- **`dartclaw_core`**: `TurnTraceService` (SQLite persistence)
 - **`dartclaw_google_chat`**: `PubSubHealthReporter`
-- **`dartclaw_server`**: All other observability components (alerts, audit bridging, health, usage, logging, SSE, context, governance, scheduling)
+- **`dartclaw_runtime`**: All other observability components (alerts, audit bridging, health, usage, logging, SSE, context, governance, scheduling)
 
-Execution allocation sources: `packages/dartclaw_server/lib/src/execution_coordinator.dart` and `worker_capacity_gate.dart`.
+Execution allocation sources: `packages/dartclaw_runtime/lib/src/execution_coordinator.dart` and `worker_capacity_gate.dart`.
 
 
 ---

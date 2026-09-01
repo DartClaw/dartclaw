@@ -36,7 +36,11 @@ Modes:
 
 Canaries:
   core                 Real core bridge protocol smoke.
-  step-isolation       Live workflow step/output contract probes.
+  step-isolation       Live workflow step/output contract probes. Two files,
+                       two providers by design: the env-export canary pins
+                       codex, the step/declared-output suite pins claude
+                       (only Claude's harness enforces an output schema).
+                       Each skips itself when its binary is absent.
   spec-and-implement   Single spec workflow E2E.
   plan-and-implement   Multi-story plan workflow E2E.
   merge-resolve        Live merge-resolve conflict workflow.
@@ -67,10 +71,10 @@ FULL_FILES=(
   "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart"
   "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
-  "packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart"
-  "packages/dartclaw_server/test/integration/turn_governance_integration_test.dart"
-  "packages/dartclaw_server/test/integration/thread_binding_lifecycle_integration_test.dart"
-  "apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart"
+  "packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart"
+  "packages/dartclaw_runtime/test/integration/turn_governance_integration_test.dart"
+  "packages/dartclaw_runtime/test/integration/thread_binding_lifecycle_integration_test.dart"
+  "packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart"
   "apps/dartclaw_cli/test/commands/reload_trigger_service_sigusr1_test.dart"
 )
 
@@ -177,15 +181,15 @@ case "${MODE}:${CANARY:-}" in
     ;;
   canary:server)
     FILES=(
-      "packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart"
-      "packages/dartclaw_server/test/integration/turn_governance_integration_test.dart"
-      "packages/dartclaw_server/test/integration/thread_binding_lifecycle_integration_test.dart"
+      "packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart"
+      "packages/dartclaw_runtime/test/integration/turn_governance_integration_test.dart"
+      "packages/dartclaw_runtime/test/integration/thread_binding_lifecycle_integration_test.dart"
     )
     LOG_LABEL="canary-server"
     ;;
   canary:cli)
     FILES=(
-      "apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart"
+      "packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart"
       "apps/dartclaw_cli/test/commands/reload_trigger_service_sigusr1_test.dart"
     )
     LOG_LABEL="canary-cli"
@@ -207,7 +211,7 @@ esac
 PROVIDER="${DARTCLAW_TEST_PROVIDER:-codex}"
 case "${PROVIDER}" in
   codex)
-    PLANNER_MODEL="${DARTCLAW_TEST_PLANNER_MODEL:-gpt-5.6-sol}"
+    PLANNER_MODEL="${DARTCLAW_TEST_PLANNER_MODEL:-gpt-5.6-luna}"
     PLANNER_EFFORT="medium"
     EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-gpt-5.6-luna}"
     REVIEWER_MODEL="${DARTCLAW_TEST_REVIEWER_MODEL:-gpt-5.6-luna}"

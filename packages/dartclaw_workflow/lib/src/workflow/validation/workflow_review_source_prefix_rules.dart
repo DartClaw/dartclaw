@@ -18,7 +18,7 @@ extension _WorkflowReviewSourcePrefixRules on WorkflowDefinitionValidator {
   /// `review_report_path` collides with the aggregator's bare output regardless
   /// of source count. Single-review workflows with no aggregator (e.g.
   /// `code-review.yaml`) are unaffected — their bare canonical keys are correct.
-  void _validateReviewSourcePrefixing(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateReviewSourcePrefixing(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final stepsById = {for (final step in definition.steps) step.id: step};
     final reviewedSourceIds = <String>{
       for (final step in definition.steps)

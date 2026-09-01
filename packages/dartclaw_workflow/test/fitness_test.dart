@@ -26,7 +26,7 @@ void main() {
   });
 
   group('Fitness - coupling', () {
-    test('F-COUPLE-1: dartclaw_workflow imports no dartclaw_server', () {
+    test('F-COUPLE-1: dartclaw_workflow imports no dartclaw_runtime', () {
       final offenders = <String>[];
       final workflowDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow'));
       for (final file in workflowDir.listSync(recursive: true, followLinks: false).whereType<File>()) {
@@ -34,7 +34,7 @@ void main() {
         final relative = p.relative(file.path, from: repoRoot);
         final lines = file.readAsLinesSync();
         for (final line in lines) {
-          if (line.contains("import 'package:dartclaw_server")) {
+          if (line.contains("import 'package:dartclaw_runtime")) {
             offenders.add(relative);
             break;
           }
@@ -59,9 +59,9 @@ void main() {
       expect(offenders, isEmpty, reason: offenders.join('\n'));
     });
 
-    test('F-COUPLE-3: dartclaw_server/task imports only dartclaw_workflow umbrella', () {
+    test('F-COUPLE-3: dartclaw_runtime/task imports only dartclaw_workflow umbrella', () {
       final offenders = <String>[];
-      final taskDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_server', 'lib', 'src', 'task'));
+      final taskDir = Directory(p.join(repoRoot, 'packages', 'dartclaw_runtime', 'lib', 'src', 'task'));
       for (final file in taskDir.listSync(recursive: true, followLinks: false).whereType<File>()) {
         if (!file.path.endsWith('.dart')) continue;
         final relative = p.relative(file.path, from: repoRoot);
@@ -81,7 +81,7 @@ void main() {
     test('F-CONTRACT-1: inter-package config keys defined in workflow_task_config.dart', () {
       final allowlist = baseline.allowlist['F-CONTRACT-1'] ?? const <String, Object?>{};
       final taskFiles = snapshot.contractKeysByFile.entries.where(
-        (entry) => entry.key.startsWith('packages/dartclaw_server/lib/src/task/'),
+        (entry) => entry.key.startsWith('packages/dartclaw_runtime/lib/src/task/'),
       );
       final failures = <String>[];
       for (final entry in taskFiles) {
@@ -169,7 +169,7 @@ void main() {
     });
 
     // ARCH-GATE: sentinel keys leak server-internal context keys into workflow;
-    // prevents dartclaw_server from coupling to dartclaw_workflow internals.
+    // prevents dartclaw_runtime from coupling to dartclaw_workflow internals.
     test('trigger: no new _dartclaw.internal.* sentinel keys', () {
       final sentinelMatches = <String>[];
       for (final entry in snapshot.contractKeysByFile.entries) {

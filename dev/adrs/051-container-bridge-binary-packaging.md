@@ -1,6 +1,6 @@
 # ADR-051: Container Bridge Binary Packaging — Release-Time Cross-Compile, Host-Shipped, Mounted at Create
 
-**Status:** Accepted — 2026-08-11 (targets 0.24 execution-isolation correction)
+**Status:** Accepted — 2026-08-11 (targets 0.24 execution-isolation correction). Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeliverable bridge binary downgrades to advisory mode under an inferred posture and stays fatal under an explicit one.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-015](015-container-isolation-strategy.md) (hardened Docker container boundary), [ADR-039](039-outbound-mcp-trust-boundary-and-transport.md) (Dart-owned MCP trust boundary precedent), [ADR-047](047-embedded-binary-assets.md) (embedded binary assets — the shipping mechanism this ADR extends)
@@ -66,3 +66,36 @@ Smallest change that solves the real problem (two compiler invocations + an exis
 ## References
 
 - Research appendix: [research/051-container-bridge-binary-packaging.md](research/051-container-bridge-binary-packaging.md) (Dart cross-compilation status, helper-shipping precedent survey, exec-mount traps; 2026-08 sources)
+
+## Amendment (2026-08-21) – the bridge remains a zero-dependency package
+
+The 0.25 topology consolidation leaves `dartclaw_bridge` at `packages/dartclaw_bridge/` as a standing top-level
+package with zero dependencies. This supersedes the bridge half of FR14's proposed core absorption; the storage half
+landed in core as recorded by [ADR-056](056-package-topology-consolidation.md).
+
+The decision follows the build-hook probe run with Dart 3.13.0:
+
+| Entrypoint package | `dart compile exe` result |
+|---|---|
+| pre-absorption `dartclaw_storage`, with `sqlite3` | Refused: `dart compile` does not support build hooks and names `sqlite3` |
+| pre-absorption `dartclaw_core`, before it gained `sqlite3` | Succeeded |
+| `dartclaw_bridge`, targeting Linux x64 and arm64 | Succeeded |
+| `dartclaw_cli`, with `sqlite3` | Refused with the same build-hook message |
+
+The expected refusal is not itself a sufficient safety boundary. The workspace misclassification recorded in
+[ADR-048](048-release-builds-dart-build-bundled-sqlite.md) can instead let `dart compile exe` succeed while omitting
+SQLite's native-asset mapping. After storage absorption, core therefore cannot host a supported self-contained runtime
+artifact on that path whether the SDK refuses correctly or silently emits an incomplete binary. Keeping the bridge's
+entrypoint and wire implementation together in a dependency-free package prevents both outcomes structurally.
+
+Two workarounds remain rejected:
+
+1. Switching the bridge to `dart build cli` would run hooks but cannot cross-compile. It would replace one host build
+   of both Linux targets with native runners per target despite the bridge needing no native asset.
+2. Moving the implementation and leaving a package-shaped executable stub would keep the package count while losing
+   the zero-dependency reason for it. The stub would either depend on a hook-bearing host or duplicate the wire
+   implementation, and a later cleanup could fold it away without seeing the packaging invariant.
+
+A dedicated package makes hook freedom an enforced property rather than an incidental property of whichever host
+package happens to be hook-free today. The fitness suite pins the pubspec shape, and fixed-path binary comparisons pin
+the release artifact produced by `dev/tools/build_bridge.sh`.

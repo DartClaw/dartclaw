@@ -1,0 +1,70 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:convert';
+
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:test/test.dart';
+
+import '../helpers/probe_helpers.dart';
+import 'api_test_helpers.dart';
+
+void main() {
+  group('GET /api/providers', () {
+    test('returns 200 with providers, summary counts, and redacted credential details', () async {
+      final providerStatus = ProviderStatusService(
+        providers: const ProvidersConfig(
+          entries: {
+            'claude': ProviderEntry(executable: 'claude', poolSize: 2),
+            'codex': ProviderEntry(executable: 'codex', poolSize: 1),
+            'ghost': ProviderEntry(executable: 'ghost', poolSize: 1),
+          },
+        ),
+        registry: CredentialRegistry(
+          credentials: const CredentialsConfig(
+            entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-secret-value')},
+          ),
+        ),
+        defaultProvider: 'claude',
+      );
+
+      await providerStatus.probe(
+        commandProbe: probeResults({
+          'claude': probeOk('Claude CLI 4.0.0'),
+          'codex': probeOk('Codex CLI 1.2.0'),
+          'ghost': probeMissing('ghost'),
+        }),
+        authProbe: (_, {String? providerId}) async => false,
+      );
+
+      final client = ApiRouteTestClient(providerRoutes(providerStatus: providerStatus).call);
+      final response = await client.expectResponse('GET', '/api/providers', status: 200);
+
+      final rawBody = await response.readAsString();
+      expect(rawBody, isNot(contains('anthropic-secret-value')));
+
+      final json = jsonDecode(rawBody) as Map<String, dynamic>;
+      expect(json.keys, containsAll(<String>['providers', 'summary']));
+
+      final providers = (json['providers'] as List<dynamic>).cast<Map<String, dynamic>>();
+      expect(providers, hasLength(3));
+      expect(providers.map((provider) => provider['id']), containsAll(<String>['claude', 'codex', 'ghost']));
+
+      final byId = {for (final provider in providers) provider['id'] as String: provider};
+
+      expect(byId['claude']!['credentialStatus'], 'present');
+      expect(byId['claude']!['credentialEnvVar'], 'ANTHROPIC_API_KEY');
+      expect(byId['claude']!['isDefault'], isTrue);
+      expect(byId['claude']!['health'], 'healthy');
+
+      expect(byId['codex']!['credentialStatus'], 'missing');
+      expect(byId['codex']!['credentialEnvVar'], 'CODEX_API_KEY');
+      expect(byId['codex']!['health'], 'degraded');
+
+      expect(byId['ghost']!['credentialStatus'], 'missing');
+      expect(byId['ghost']!['health'], 'unavailable');
+      expect(byId['ghost']!['errorMessage'], contains("Binary 'ghost' for provider 'ghost' was not found."));
+
+      expect(json['summary'], {'configured': 3, 'healthy': 1, 'degraded': 1});
+    });
+  });
+}

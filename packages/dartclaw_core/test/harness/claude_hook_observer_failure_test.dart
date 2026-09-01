@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess;
 import 'package:test/test.dart';
 

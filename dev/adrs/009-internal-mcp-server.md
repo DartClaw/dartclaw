@@ -129,15 +129,36 @@ Communication channels:
 
 - The 2025-03-26 Streamable HTTP transport (`type: http`) is preferred over the legacy SSE transport (`type: sse`, 2024-11-05) for new implementations — simpler protocol, no future migration needed. `mcp_dart`'s `StreamableHTTPServerTransport` provides the reference.
 - Gateway token must be written to a `0600` temp file passed via `--mcp-config`; passing inline as a CLI string exposes the token in `ps aux`
+- Amended in 0.25: guard evaluation, audit, and a required read/write tool classification became obligations of the `registerTool` contract rather than of each tool — see § Amendment (0.25) below
 
 ## Implementation Notes (Phase G)
 
 1. **Transport choice:** Target Streamable HTTP (`type: http`) from the start. `mcp_dart`'s protocol layer (`McpServer`) is reusable with a custom `ShelfStreamableTransport` bridge. Avoids future migration from deprecated SSE transport.
-2. **`McpTool` interface:** `name`, `description`, `inputSchema` (JSON Schema), `Future<String> call(Map<String, dynamic> args)`. Intentionally minimal — no MCP knowledge required from implementers.
+2. **`McpTool` interface:** `name`, `description`, `inputSchema` (JSON Schema), `access` (`McpToolAccess.read`/`.write`, required and undefaulted — see the 0.25 amendment below), `Future<ToolResult> call(Map<String, dynamic> args)`. Intentionally minimal — no MCP knowledge required from implementers.
 3. **Auth:** Gateway token written to a temp file (`chmod 0600`) at harness startup; deleted on stop. Passed as `--mcp-config <path>` flag.
 4. **Built-in conflict:** When `web_fetch` is registered on the internal server, add `HarnessConfig.disallowedTools: ['web_fetch']` to prevent the binary's built-in from competing.
 5. **`McpToolRegistry` retirement:** Remove `sdkMcpServers` initialization path in `_sendInitialize`. Delete `McpToolRegistry`, `McpToolDef`, `McpServerEntry`. Migrate memory and session tools to `McpTool` implementations registered at `DartclawServer` level.
 6. **Integration test:** Cover crash recovery → harness respawn → MCP reconnect to validate circular topology behavior under failure.
+
+## Amendment (0.25) – dispatch-level guard/audit and a required tool classification
+
+Two obligations move from the tool author to the `registerTool` contract, because enforcement a tool can forget is
+enforcement 2 of 13 tools had.
+
+`McpProtocolHandler` now guard-evaluates and audits every `tools/call` at the single dispatch site: after caller-policy
+authorization and schema validation, before invocation, evaluating the composition root's base `GuardChain` and writing
+one `AuditEntry` on both allow and deny. It fails closed — a guard block, an evaluator that throws, and an audit write
+that fails all refuse the call without running the tool — and a `scopedTo` view inherits the same chain and sink. A tool
+therefore no longer carries guard plumbing of its own; `kg_tools`' per-tool evaluator is retired onto the seam, while its
+fact-ownership scope check stays as a domain decision.
+
+`McpTool` gains `access` (`McpToolAccess.read` / `.write`), a required member with no default. A tool that omits it fails
+to compile rather than defaulting into the permissive half of a read/write partition, which is what makes a consumer's
+partition of the tool surface total. A third-party outbound adapter declares `write` regardless of what the upstream
+server does — the host cannot verify the claim.
+
+Closes TD-110. See `dev/architecture/security-architecture.md` for the coverage boundary (base chain only; per-runner
+tool policy is out of reach at this seam) and CHANGELOG `[Unreleased]`.
 
 ## References
 

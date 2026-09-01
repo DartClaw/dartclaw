@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — 2026-06-27 (0.20). Resolves the long-open seam question behind TD-070 (the unshipped 0.16.4 "S31" work) by **deciding not to relocate now** and recording the trigger that would reopen it.
+Superseded – 2026-08-23 (0.25). The recorded reopen trigger fired when workflow execution moved onto the guarded harness path. The CLI provider cluster was deleted rather than relocated.
+
+## Amendment – 2026-08-23
+
+The broader task-execution/harness-layer refactor named by this ADR's reopen trigger is complete. The one-shot CLI provider cluster has no production consumer and is deleted. Workflow steps now use the guarded harness path, so there is no cluster to relocate, no `dartclaw_task` package to create, and no package-count ceiling to raise. The test-only cross-package reach recorded below disappears with the deleted runner. TD-070 closes on this amendment.
 
 **Related:** [ADR-034](034-enforced-package-dependency-direction.md) (the package dependency allowlist this decision is measured against), [ADR-033](033-architectural-governance-via-fitness-functions.md) (the `arch_check` fitness gates, including the workspace package-count ceiling that constrains the cleanest alternative).
 
@@ -19,7 +23,7 @@ Grounding the decision against the current code:
 
 ## Decision
 
-**Keep the CLI task-execution provider cluster in `dartclaw_server/lib/src/task/` for now. Do not relocate it in 0.20.**
+**Historical decision, superseded 2026-08-23:** keep the CLI task-execution provider cluster in `dartclaw_server/lib/src/task/` for 0.20. The amendment above records its later deletion.
 
 The relocation's cost is not justified by the smell's severity:
 

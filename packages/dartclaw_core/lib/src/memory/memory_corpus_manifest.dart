@@ -171,13 +171,5 @@ final class _TransactionJournal {
   };
 }
 
-String _normalizeTransactionPath(String path) {
-  if (p.isAbsolute(path) || path.contains(r'\')) {
-    throw const MemoryCorpusRecoveryRequired('transaction path escapes the workspace');
-  }
-  final normalized = p.posix.normalize(path);
-  if (normalized == '.' || normalized == '..' || normalized.startsWith('../')) {
-    throw const MemoryCorpusRecoveryRequired('transaction path escapes the workspace');
-  }
-  return normalized;
-}
+String _normalizeTransactionPath(String path) =>
+    _containedCorpusPath(path) ?? (throw const MemoryCorpusRecoveryRequired('transaction path escapes the workspace'));

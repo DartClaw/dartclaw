@@ -56,6 +56,7 @@ void main() {
       int? maxTokens,
       int? maxRetries,
       int? timeoutSeconds,
+      int? turnTimeoutSeconds,
       List<String>? allowedTools,
     }) {
       return WorkflowStep(
@@ -68,6 +69,7 @@ void main() {
         maxTokens: maxTokens,
         maxRetries: maxRetries,
         timeoutSeconds: timeoutSeconds,
+        turnTimeoutSeconds: turnTimeoutSeconds,
         allowedTools: allowedTools,
       );
     }
@@ -80,6 +82,7 @@ void main() {
       expect(resolved.maxTokens, isNull);
       expect(resolved.maxRetries, isNull);
       expect(resolved.timeoutSeconds, isNull);
+      expect(resolved.turnTimeoutSeconds, isNull);
       expect(resolved.allowedTools, isNull);
     });
 
@@ -145,26 +148,24 @@ void main() {
           match: 'review*',
           provider: 'claude',
           model: 'claude-opus-4',
-          maxTokens: 8000,
           maxRetries: 3,
-          timeoutSeconds: 900,
+          turnTimeoutSeconds: 900,
           allowedTools: ['Read', 'Grep'],
         ),
       ];
       final resolved = resolveStepConfig(step, defaults);
       expect(resolved.provider, 'claude');
       expect(resolved.model, 'claude-opus-4');
-      expect(resolved.maxTokens, 8000);
       expect(resolved.maxRetries, 3);
-      expect(resolved.timeoutSeconds, 900);
+      expect(resolved.turnTimeoutSeconds, 900);
       expect(resolved.allowedTools, ['Read', 'Grep']);
     });
 
-    test('per-step timeout overrides stepDefaults timeout', () {
-      final step = makeStep(id: 'review-code', timeoutSeconds: 120);
-      final defaults = [const StepConfigDefault(match: 'review*', timeoutSeconds: 900)];
+    test('per-step turn timeout overrides stepDefaults turn timeout', () {
+      final step = makeStep(id: 'review-code', turnTimeoutSeconds: 120);
+      final defaults = [const StepConfigDefault(match: 'review*', turnTimeoutSeconds: 900)];
       final resolved = resolveStepConfig(step, defaults);
-      expect(resolved.timeoutSeconds, 120);
+      expect(resolved.turnTimeoutSeconds, 120);
     });
 
     test('* catch-all matches any step', () {

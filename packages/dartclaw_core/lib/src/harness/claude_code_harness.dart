@@ -4,12 +4,10 @@ import 'dart:io';
 
 import '../bridge/bridge_events.dart';
 
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show ClaudeProviderOptions, HistoryConfig, PlatformCapabilities, UnsupportedCapabilityError;
 
 import '../container/container_executor.dart';
 import '../memory/memory_apply_schema.dart';
@@ -23,8 +21,7 @@ import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
 import 'canonical_tool.dart';
 import 'conversation_history.dart';
-import 'harness_config.dart';
-import 'harness_turn_context.dart';
+import 'harness_launch_options.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
@@ -39,6 +36,9 @@ List<String> _buildClaudeArgs({
   String? mcpConfigPath,
   String? permissionMode,
   String? settings,
+  String? outputSchemaJson,
+  String? providerSessionId,
+  bool persistSession = false,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
 }) => [
@@ -49,7 +49,8 @@ List<String> _buildClaudeArgs({
   'stream-json',
   '--verbose',
   '--include-partial-messages',
-  '--no-session-persistence',
+  if (!persistSession) '--no-session-persistence',
+  if (providerSessionId != null) ...['--resume', providerSessionId],
   if (permissionMode != null) ...['--permission-mode', permissionMode],
   if (permissionMode == null && skipNativePermissions) '--dangerously-skip-permissions',
   if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions) ...[
@@ -63,14 +64,28 @@ List<String> _buildClaudeArgs({
   if (appendSystemPrompt != null) ...['--append-system-prompt', appendSystemPrompt],
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
   if (settings != null) ...['--settings', settings],
+  if (outputSchemaJson != null) ...['--json-schema', outputSchemaJson],
 ];
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
+class ClaudeCodeHarness extends BaseHarness {
   final String claudeExecutable;
   final Map<String, String> _environment;
+  final Map<String, String> _containerEnvironment;
   final Map<String, dynamic> providerOptions;
+
+  /// Canonical tools this spawn's workflow step declared, or null for a spawn
+  /// that is not a workflow step.
+  ///
+  /// When set, the derived Claude permission rules are the spawn's *total*
+  /// policy: user-scope settings are excluded so the step runs on what it
+  /// declared, not on the host operator's personal allow list.
+  final List<String>? declaredCanonicalTools;
+
+  /// Roots the step's file-mutating tools may write — its worktree and its
+  /// artifacts directory.
+  final List<String> declaredWritableRoots;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
@@ -111,27 +126,38 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
   String? _sessionId;
   String? _activeTurnSessionId;
   String? _activeAgentId;
-  Completer<Map<String, dynamic>>? _turnCompleter;
+  Completer<TurnResult>? _turnCompleter;
   late String _processWorkingDirectory;
   late String _hostProcessWorkingDirectory;
+
+  /// Whether [_hostProcessWorkingDirectory] came from an execution rather than
+  /// from the construction cwd.
+  bool _executionDirectoryIsExplicit = false;
   String? _processModel;
   String? _processEffort;
   String? _processAppendSystemPrompt;
   int? _processMaxTurns;
+  ({String? id, bool persists}) _processProviderSession = (id: null, persists: false);
+
+  /// Wire form, because that is exactly what a reused process keeps.
+  String? _processOutputSchemaJson;
 
   Completer<Map<String, dynamic>>? _initCompleter;
 
   new({
     this.claudeExecutable = 'claude',
     required super.cwd,
-    super.turnTimeout = const Duration(seconds: 600),
+    super.turnTimeout = const Duration(seconds: 1800),
     super.maxRetries = 5,
     super.baseBackoff = const Duration(seconds: 5),
     ProcessFactory? processFactory,
     CommandProbe? commandProbe,
     DelayFactory? delayFactory,
     Map<String, String>? environment,
+    Map<String, String> containerEnvironment = const {},
     Map<String, dynamic>? providerOptions,
+    this.declaredCanonicalTools,
+    this.declaredWritableRoots = const <String>[],
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
@@ -142,7 +168,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
-    super.harnessConfig = const HarnessConfig(),
+    super.harnessConfig = const HarnessLaunchOptions(),
     this.historyConfig = const HistoryConfig.defaults(),
     this.containerManager,
     ClaudeProtocolAdapter? protocolAdapter,
@@ -150,6 +176,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     Duration initializeTimeout = const Duration(seconds: 10),
     PlatformCapabilities? platformCapabilities,
   }) : _environment = environment ?? Platform.environment,
+       _containerEnvironment = Map.unmodifiable(containerEnvironment),
        providerOptions = Map<String, dynamic>.unmodifiable(providerOptions ?? const <String, dynamic>{}),
        _adapter = protocolAdapter ?? ClaudeProtocolAdapter(),
        _killGracePeriod = killGracePeriod,
@@ -166,6 +193,10 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     // host cwd, which no container has, and die with exit 127.
     _processWorkingDirectory = _resolveWorkingDirectory(null);
     _hostProcessWorkingDirectory = cwd;
+    // The construction cwd is the *server's*, not the step's. Until an
+    // execution supplies the real one, a step policy has no worktree root it
+    // may honestly grant.
+    _executionDirectoryIsExplicit = false;
     _processModel = harnessConfig.model;
     _processEffort = harnessConfig.effort;
     _processAppendSystemPrompt = harnessConfig.appendSystemPrompt;
@@ -180,6 +211,14 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
 
   @override
   bool get supportsSessionContinuity => true;
+
+  @override
+  bool get supportsProviderSessionResume => true;
+
+  /// The CLI enforces `--json-schema` and reports the validated payload on the
+  /// terminal `result` event, so the schema is honoured rather than forwarded.
+  @override
+  bool get supportsStructuredOutput => true;
 
   @override
   String skillActivationLine(String skill) => '/$skill';
@@ -201,7 +240,10 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
 
   Future<void> _startWithCleanup() async {
     try {
-      await _startInternal();
+      // A crash restart never stops first, so the previous spawn's config – and
+      // its bearer token – is live until this deletes it. Chained rather than a
+      // second statement to keep the file under its pinned method count.
+      await _deleteMcpConfig().then((_) => _startInternal());
     } catch (_) {
       try {
         await _stopInternal();
@@ -273,40 +315,51 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       platformCapabilities: platformCapabilities,
       initialTerminationAccepted: initialTerminationAccepted,
       process: process,
-    );
+    ).whenComplete(_deleteMcpConfig);
+  }
 
-    // The container sees the generated config through a bind mount, so the
-    // host-side delete removes it from both sides at once.
+  /// Deletes the generated MCP config, which carries the gateway bearer token.
+  /// Runs before every start and on every teardown, failed shutdowns included –
+  /// the credential must not survive because a kill did not go cleanly. The
+  /// container sees the config through a bind mount, so the host-side delete
+  /// removes it from both sides at once.
+  Future<void> _deleteMcpConfig() async {
     final mcpPath = _mcpConfigPath;
-    if (mcpPath != null) {
-      try {
-        await File(mcpPath).delete();
-      } catch (e) {
-        _log.fine('Failed to delete MCP config temp file: $e');
-      }
-      _mcpConfigPath = null;
+    if (mcpPath == null) return;
+    _mcpConfigPath = null;
+    try {
+      await File(mcpPath).delete();
+    } catch (e) {
+      _log.fine('Failed to delete MCP config temp file: $e');
     }
   }
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     String? agentId,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
   }) async {
+    AgentHarness.requireProviderSessionResumeSupport(this, providerSessionId, requestProviderSessionResume);
+    AgentHarness.requireStructuredOutputSupport(this, outputSchema);
     final desiredHostWorkingDirectory = _resolveHostWorkingDirectory(directory);
     final desiredWorkingDirectory = _resolveWorkingDirectory(directory);
     final desiredModel = _resolveProviderOption(model, harnessConfig.model);
     final desiredEffort = _resolveProviderOption(effort, harnessConfig.effort);
     final desiredAppendSystemPrompt = _resolveAppendSystemPrompt(systemPrompt);
     final desiredMaxTurns = _resolveMaxTurns(maxTurns);
+    final desiredPersistsSession = providerSessionId != null || requestProviderSessionResume;
+    // `--json-schema` is a spawn flag, not a per-turn field.
+    final desiredOutputSchemaJson = outputSchema == null ? null : jsonEncode(outputSchema);
 
     // First-use adoption: when the process was spawned with null effort/model
     // and the first ordinary turn supplies a non-null value, adopt it without restarting.
@@ -327,6 +380,8 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
         desiredEffort != _processEffort ||
         desiredAppendSystemPrompt != _processAppendSystemPrompt ||
         desiredMaxTurns != _processMaxTurns ||
+        (id: providerSessionId, persists: desiredPersistsSession) != _processProviderSession ||
+        desiredOutputSchemaJson != _processOutputSchemaJson ||
         currentState == WorkerState.stopped) {
       await _restartForExecution(
         hostWorkingDirectory: desiredHostWorkingDirectory,
@@ -335,6 +390,9 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
         effort: desiredEffort,
         appendSystemPrompt: desiredAppendSystemPrompt,
         maxTurns: desiredMaxTurns,
+        providerSessionId: providerSessionId,
+        persistSession: desiredPersistsSession,
+        outputSchemaJson: desiredOutputSchemaJson,
         resetConversation: sessionChanged,
       );
     }
@@ -348,7 +406,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     currentState = WorkerState.busy;
     _activeTurnSessionId = sessionId;
     _activeAgentId = agentId;
-    _turnCompleter = Completer<Map<String, dynamic>>();
+    _turnCompleter = Completer<TurnResult>();
 
     try {
       final messageContent = messages.last['content'];
@@ -377,18 +435,21 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       final payload = _adapter.buildTurnRequest(
         message: effectiveMessage,
         systemPrompt: promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty ? systemPrompt : null,
-        resume: resume,
       );
       writeJsonLine(payload);
 
-      final result = await _turnCompleter!.future.timeout(
-        turnTimeout,
-        onTimeout: () async {
-          _log.warning('Turn timeout exceeded, stopping Claude...');
-          await stop();
-          throw TimeoutException('Claude turn exceeded $turnTimeout');
-        },
-      );
+      final turnFuture = _turnCompleter!.future;
+      final effectiveTimeout = effectiveTurnTimeout;
+      final result = effectiveTimeout > Duration.zero
+          ? await turnFuture.timeout(
+              effectiveTimeout,
+              onTimeout: () async {
+                _log.warning('Turn timeout exceeded, stopping Claude...');
+                await stop();
+                throw TimeoutException('Claude turn exceeded $effectiveTimeout');
+              },
+            )
+          : await turnFuture;
       if (currentState != WorkerState.stopped) {
         crashCount = 0;
         currentState = WorkerState.idle;
@@ -468,11 +529,16 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
         },
       });
       // Create empty, tighten to owner-only, THEN write credentials — the
-      // file must never hold the bearer token at default permissions.
+      // file must never hold the bearer token at default permissions. The
+      // container-mode file carries no bearer, and the image's uid-1000 user
+      // reads it through a verbatim bind mount on native Linux, so it keeps the
+      // default mode there.
       await configFile.create(exclusive: true);
       mcpConfigPath = configFile.path;
       _mcpConfigPath = mcpConfigPath;
-      await chmodOwnerOnly(configFile.path);
+      if (mcpToken != null) {
+        await chmodOwnerOnly(configFile.path);
+      }
       await configFile.writeAsString(configJson, flush: true);
       _log.fine('Wrote MCP config to $mcpConfigPath');
 
@@ -486,9 +552,50 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       }
     }
 
-    final nativePermissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
+    final nativePermissionMode = _nativePermissionMode;
+    final skipsPermissionPrompts = nativePermissionMode == 'bypassPermissions';
+    if (skipsPermissionPrompts && cm?.profileId == 'restricted') {
+      throw StateError(
+        'Claude full-access permission mode is not honored under the restricted container '
+        'profile, which mounts no workspace – a permission bypass there would run without any containment.',
+      );
+    }
+    // A workflow step runs on the policy it declared. Deriving the CLI's allow
+    // rules from the same canonical list the guard chain enforces is what stops
+    // the provider layer from falling back to its own — which is empty for a
+    // step, and the operator's personal one when it is not.
+    final declaredTools = declaredCanonicalTools;
+    // A spawn whose execution directory is not yet known holds nothing: the
+    // alternative is deriving the worktree root from the server's own cwd,
+    // which would grant a step write access to the DartClaw checkout.
+    final declaredToolRules = declaredTools == null
+        ? null
+        : !_executionDirectoryIsExplicit
+        ? const <String>[]
+        : ClaudeSettingsBuilder.allowRulesForCanonicalTools(
+            declaredTools,
+            // The rules are matched by the CLI inside the boundary it runs in,
+            // so a containerized step needs container-side roots; host paths
+            // would match nothing there and deny every write.
+            writableRoots: writableRootsForSpawn(
+              executionDirectory: _executionDirectoryIsExplicit ? _hostProcessWorkingDirectory : null,
+              declaredRoots: declaredWritableRoots,
+              containerManager: cm,
+            ),
+          );
+    if (declaredToolRules != null) {
+      // The step's policy as the provider will see it. Without this an operator
+      // debugging a refused tool call has to reconstruct it from the CLI's own
+      // transcript, which is what this defect cost the first time.
+      _log.info(
+        declaredToolRules.isEmpty
+            ? 'Step tool policy: none — this spawn has no execution directory yet, so it may call nothing'
+            : 'Step tool policy: ${declaredToolRules.join(', ')}',
+      );
+    }
     final nativeSettings = ClaudeSettingsBuilder.buildSettings(
       providerOptions,
+      declaredToolRules: declaredToolRules,
       containerManager: containerManager,
       hostWorkingDirectory: _hostProcessWorkingDirectory,
     );
@@ -499,26 +606,27 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       mcpConfigPath: mcpConfigArgPath,
       permissionMode: nativePermissionMode,
       settings: nativeSettings,
-      settingSourcesProject: cm == null && ClaudeProviderOptions.useProjectSettingSources(providerOptions),
+      outputSchemaJson: _processOutputSchemaJson,
+      providerSessionId: _processProviderSession.id,
+      persistSession: _processProviderSession.persists,
+      // A step's declared rules are its total policy, so its spawn never reads
+      // the host operator's user-scope settings: a server lane whose tool
+      // policy varies with whoever's `~/.claude/settings.json` is on the box is
+      // nondeterministic by construction. `inherit_user_settings` governs the
+      // interactive lane only.
+      settingSourcesProject:
+          cm == null && (declaredTools != null || ClaudeProviderOptions.useProjectSettingSources(providerOptions)),
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
     );
     final Process process;
+    _sessionId = null;
     if (cm != null) {
-      // The container process gets no host environment: the provider
-      // credential, the host login path, and the shared MCP bearer all stay
-      // outside the boundary. `ANTHROPIC_BASE_URL` is set on the container
-      // itself and points only at this authority's provider bridge.
       final containerEnv = <String, String>{
+        ..._containerEnvironment,
         ...claudeContainerHardeningEnvVars,
-        // Satisfies the CLI's local auth gate only; the host adapter replaces
-        // it with the real credential. Without any key the client refuses
-        // before it ever reaches the provider bridge.
         'ANTHROPIC_API_KEY': containerClaudePlaceholderApiKey,
-        // The image rootfs is read-only, so the default `$HOME/.claude` config
-        // location is unwritable; point the CLI at the writable generated-state
-        // mount instead, which is destroyed with the container.
         'CLAUDE_CONFIG_DIR': containerGeneratedStatePath,
         if (cm.profileId == 'restricted') 'CLAUDE_CODE_SIMPLE': '1',
       };
@@ -528,6 +636,9 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
         env: containerEnv,
       );
     } else {
+      if (skipsPermissionPrompts) {
+        env['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'] = '0';
+      }
       process = await processFactory(
         claudeExecutable,
         args,
@@ -537,11 +648,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       );
     }
 
-    final generation = attachProcess(
-      process,
-      dropEmptyStdoutLines: true,
-      onStdoutError: (error) => _log.warning('stdout error: $error'),
-    );
+    final generation = attachProcess(process, dropEmptyStdoutLines: true);
     _log.info('Claude process spawned (generation: $generation, pid: ${process.pid})');
 
     await _sendInitialize();
@@ -597,12 +704,16 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
   int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
 
   bool get _nativePermissionsSkipped {
-    final permissionMode = ClaudeSettingsBuilder.buildPermissionMode(providerOptions);
+    final permissionMode = _nativePermissionMode;
     if (permissionMode != null) {
       return permissionMode == 'bypassPermissions' || permissionMode == 'dontAsk';
     }
     return containerManager?.profileId != 'restricted';
   }
+
+  String? get _nativePermissionMode =>
+      ClaudeSettingsBuilder.buildPermissionMode(providerOptions) ??
+      ClaudeProviderOptions.approvalPermissionMode(providerOptions);
 
   Future<void> _restartForExecution({
     required String hostWorkingDirectory,
@@ -611,6 +722,9 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     required String? effort,
     required String? appendSystemPrompt,
     required int? maxTurns,
+    required String? providerSessionId,
+    required bool persistSession,
+    required String? outputSchemaJson,
     bool resetConversation = false,
   }) async {
     await withLock(() async {
@@ -623,6 +737,8 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
           _processEffort == effort &&
           _processAppendSystemPrompt == appendSystemPrompt &&
           _processMaxTurns == maxTurns &&
+          _processProviderSession == (id: providerSessionId, persists: persistSession) &&
+          _processOutputSchemaJson == outputSchemaJson &&
           !resetConversation &&
           currentState != WorkerState.stopped) {
         return;
@@ -646,6 +762,12 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       if (_processMaxTurns != maxTurns) {
         changes.add('maxTurns: $_processMaxTurns -> $maxTurns');
       }
+      if (_processProviderSession != (id: providerSessionId, persists: persistSession)) {
+        changes.add('provider session changed');
+      }
+      if (_processOutputSchemaJson != outputSchemaJson) {
+        changes.add('outputSchema changed');
+      }
       if (resetConversation) {
         changes.add('logical session changed');
       }
@@ -658,10 +780,13 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       }
       _processWorkingDirectory = workingDirectory;
       _hostProcessWorkingDirectory = hostWorkingDirectory;
+      _executionDirectoryIsExplicit = true;
       _processModel = model;
       _processEffort = effort;
       _processAppendSystemPrompt = appendSystemPrompt;
       _processMaxTurns = maxTurns;
+      _processProviderSession = (id: providerSessionId, persists: persistSession);
+      _processOutputSchemaJson = outputSchemaJson;
       await _startWithCleanup();
     });
   }
@@ -697,6 +822,36 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       '  2. Use Claude CLI OAuth:     claude auth login\n'
       '  3. Use a setup token:        claude setup-token, then dartclaw auth claude',
     );
+  }
+
+  /// Roots a step's file-mutating rules are scoped to, in the filesystem the
+  /// CLI will evaluate them in.
+  ///
+  /// [executionDirectory] is null until an execution supplies the step's real
+  /// working directory; the construction cwd is the *server's* and must never
+  /// become a root — deriving from it granted workflow steps write access to
+  /// the DartClaw checkout itself (observed live 2026-08-28).
+  ///
+  /// A root the container does not mount is refused rather than dropped: a
+  /// silently narrowed policy is how a step ends up unable to write the
+  /// artifact it is required to produce. This mirrors the rule
+  /// `containerExtraEnvironment` already applies to the same directory.
+  @visibleForTesting
+  static List<String> writableRootsForSpawn({
+    required String? executionDirectory,
+    required Iterable<String> declaredRoots,
+    required ContainerExecutor? containerManager,
+  }) {
+    final hostRoots = <String>{?executionDirectory, ...declaredRoots}..removeWhere((root) => root.trim().isEmpty);
+    if (containerManager == null) return hostRoots.toList();
+    return [
+      for (final root in hostRoots)
+        containerManager.containerPathForHostPath(root) ??
+            (throw StateError(
+              'Workflow step root "$root" is not mounted in the container, so its declared tool policy '
+              'cannot be expressed to the provider.',
+            )),
+    ];
   }
 
   Future<void> _sendInitialize() async {
@@ -901,7 +1056,7 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       case proto.ToolUse(:final name, :final id, :final input):
         emitEvent(ToolUseEvent(toolName: name, toolId: id, input: input));
 
-      case proto.ToolResult(:final toolId, :final output, :final isError):
+      case proto.ToolResultMessage(:final toolId, :final output, :final isError):
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ProgressMessage():
@@ -914,8 +1069,9 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
 
       case proto.TurnComplete(
         :final stopReason,
+        :final subtype,
+        :final structuredOutput,
         :final costUsd,
-        :final durationMs,
         :final inputTokens,
         :final outputTokens,
         :final cacheReadTokens,
@@ -923,25 +1079,35 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           final isError = stopReason == 'error';
-          final result = <String, dynamic>{
-            'stop_reason': stopReason,
-            'is_error': isError,
-            'total_cost_usd': costUsd,
-            'duration_ms': durationMs,
-            'input_tokens': inputTokens,
-            'output_tokens': outputTokens,
-            'cache_read_tokens': cacheReadTokens ?? 0,
-            'cache_write_tokens': cacheWriteTokens ?? 0,
-          };
+          String? error;
           if (isError) {
             final decoded = decodeJsonObject(line);
             final detail = stringValue(decoded?['result']);
-            if (detail != null && detail.isNotEmpty) {
-              result['error'] = detail;
-            }
+            final providerErrors = decoded?['errors'];
+            final parts = [
+              if (subtype == claudeStructuredOutputRetriesExhaustedSubtype)
+                'Claude exhausted structured-output retries ($subtype)',
+              if (detail != null && detail.isNotEmpty) detail,
+              if (providerErrors is List) ...providerErrors.whereType<String>().where((message) => message.isNotEmpty),
+            ];
+            if (parts.isNotEmpty) error = parts.join(': ');
           }
-          _log.info('Terminal result: is_error=$isError');
-          _turnCompleter!.complete(result);
+          // Not `is_error`: this is derived from the synthesized stopReason, so
+          // on a retry-exhaustion event it disagrees with the provider's own line.
+          _log.info('Terminal result: stopReason=$stopReason subtype=$subtype');
+          _turnCompleter!.complete(
+            TurnResult(
+              stopReason: stopReason,
+              error: error,
+              costUsd: costUsd,
+              providerSessionId: _processProviderSession.persists ? _sessionId : null,
+              structuredOutput: structuredOutput,
+              inputTokens: inputTokens ?? 0,
+              outputTokens: outputTokens ?? 0,
+              cacheReadTokens: cacheReadTokens ?? 0,
+              cacheWriteTokens: cacheWriteTokens ?? 0,
+            ),
+          );
         }
 
       case proto.SystemInit(:final sessionId, :final toolCount, :final contextWindow):
@@ -979,9 +1145,16 @@ class ClaudeCodeHarness extends BaseHarness with HarnessTurnContextStorage {
     }
     final turnCompleter = _turnCompleter;
     if (turnCompleter != null && !turnCompleter.isCompleted) {
-      turnCompleter.completeError(StateError('Claude process exited with code $exitCode'));
+      turnCompleter.completeError(streamFailure ?? StateError('Claude process exited with code $exitCode'));
     }
   }
+
+  @override
+  Future<void> shutdownAfterStreamFailure() => shutdownCurrentProcess(
+    label: 'Claude',
+    gracePeriod: _killGracePeriod,
+    platformCapabilities: platformCapabilities,
+  ).whenComplete(_deleteMcpConfig);
 
   Future<void> _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) async {
     switch (subtype) {

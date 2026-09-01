@@ -1,0 +1,267 @@
+<div tl:fragment="settings" class="shell">
+  <div tl:utext="${sidebar}"><!-- sidebar --></div>
+  <div class="shell-main">
+  <tl:block tl:utext="${topbar}"></tl:block>
+  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+    <div class="content-inner" data-controller="dc-settings">
+
+    <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
+    <nav class="tabs tabs--sticky" role="tablist" aria-label="Settings sections" data-settings-tabs>
+      <a tl:each="tab : ${tabs}" class="tab t-label" role="tab" aria-selected="false" tabindex="-1"
+         tl:attr="href=${tab.href},id=${tab.controlId},aria-controls=${tab.panelIds}" tl:text="${tab.label}">Tab</a>
+    </nav>
+    <div class="settings-grid">
+
+      <div class="card settings-card" role="tabpanel" tl:each="panel : ${formPanels}"
+           tl:attr="id=${panel.elementId},aria-labelledby=${panel.tabControlId},data-tab=${panel.tab}">
+        <div class="card-header">
+          <span class="card-title t-heading" tl:text="${panel.title}">Section</span>
+        </div>
+        <tl:block tl:utext="${panel.formHtml}">form</tl:block>
+        <div tl:if="${panel.linkHref}" class="card-actions">
+          <a class="card-link" tl:href="${panel.linkHref}"><span class="icon icon-arrow-right" aria-hidden="true"></span><tl:block tl:text="${panel.linkLabel}">Open</tl:block></a>
+        </div>
+      </div>
+
+      <!-- WhatsApp Channel (read-only, server-rendered) -->
+      <div class="card settings-card" id="panel-channel-whatsapp" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title t-heading">WhatsApp Channel</span>
+          <tl:block tl:utext="${whatsAppStatusBadgeHtml}">badge</tl:block>
+          <span tl:if="${whatsAppHasPending}" class="pairing-badge" tl:text="${whatsAppPendingCount}">0</span>
+        </div>
+        <div tl:if="${whatsAppPhone}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${whatsAppPhone}">-</span>
+        </div>
+        <div class="card-actions">
+          <a href="/settings/channels/whatsapp" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
+        </div>
+        <div tl:unless="${whatsAppEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Signal Channel (read-only, server-rendered) -->
+      <div class="card settings-card" id="panel-channel-signal" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title t-heading">Signal Channel</span>
+          <tl:block tl:utext="${signalStatusBadgeHtml}">badge</tl:block>
+          <span tl:if="${signalHasPending}" class="pairing-badge" tl:text="${signalPendingCount}">0</span>
+        </div>
+        <div tl:if="${signalPhone}" class="card-detail">
+          Phone: <span class="card-detail-value" tl:text="${signalPhone}">-</span>
+        </div>
+        <div class="card-actions">
+          <a href="/settings/channels/signal" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
+        </div>
+        <div tl:unless="${signalEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <!-- Google Chat Channel (read-only, server-rendered) -->
+      <div class="card settings-card" id="panel-channel-googlechat" role="tabpanel" aria-labelledby="tab-channels" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title t-heading">Google Chat Channel</span>
+          <tl:block tl:utext="${googleChatStatusBadgeHtml}">badge</tl:block>
+          <span tl:if="${googleChatHasPending}" class="pairing-badge" tl:text="${googleChatPendingCount}">0</span>
+        </div>
+        <div class="card-actions">
+          <a href="/settings/channels/google_chat" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Configure</a>
+        </div>
+        <div tl:unless="${googleChatEnabled}" class="card-detail card-detail-muted">Enable in dartclaw.yaml</div>
+      </div>
+
+      <section class="provider-section" id="panel-providers" role="tabpanel" aria-labelledby="tab-providers" data-tab="providers">
+        <div class="provider-summary">
+          <div class="card card-metric card-metric--info">
+            <div class="metric-value" tl:text="${providerConfiguredCount}">0</div>
+            <div class="metric-label">Configured</div>
+          </div>
+          <div class="card card-metric card-metric--accent">
+            <div class="metric-value" tl:text="${providerHealthyCount}">0</div>
+            <div class="metric-label">Healthy</div>
+          </div>
+          <div class="card card-metric card-metric--warning">
+            <div class="metric-value" tl:text="${providerDegradedCount}">0</div>
+            <div class="metric-label">Degraded</div>
+          </div>
+        </div>
+
+        <div tl:if="${hasProviders}" class="provider-cards">
+          <article
+            tl:each="provider : ${providers}"
+            class="card provider-card"
+            tl:attr="data-provider-id=${provider.id}">
+            <div class="provider-card-header">
+              <div class="provider-name-group">
+                <div class="provider-icon" tl:classappend="${provider.iconClass}" tl:text="${provider.iconLabel}">CL</div>
+                <div>
+                  <div class="provider-title" tl:text="${provider.title}">Claude</div>
+                  <div class="provider-subtitle" tl:text="${provider.subtitle}">Provider ID: claude</div>
+                </div>
+              </div>
+              <div class="provider-badges">
+                <tl:block tl:utext="${provider.statusBadgeHtml}">badge</tl:block>
+                <span tl:if="${provider.isDefault}" class="default-badge">Default</span>
+              </div>
+            </div>
+
+            <div class="provider-details">
+              <div class="provider-detail-item">
+                <div class="detail-label">Binary</div>
+                <div class="detail-value" tl:classappend="${provider.binaryStatusClass}" tl:text="${provider.binaryStatusLabel}">Found</div>
+                <div class="detail-subvalue" tl:text="${provider.executable}">claude</div>
+              </div>
+
+              <div class="provider-detail-item">
+                <div class="detail-label">Version</div>
+                <div class="detail-value" tl:classappend="${provider.versionClass}" tl:text="${provider.versionDisplay}">unknown</div>
+              </div>
+
+              <div class="provider-detail-item">
+                <div class="detail-label">Credentials</div>
+                <div class="credential-status">
+                  <span class="credential-dot" tl:classappend="${provider.credentialDotClass}"></span>
+                  <span class="detail-value" tl:classappend="${provider.credentialValueClass}" tl:text="${provider.credentialStatusLabel}">Present</span>
+                  <tl:block tl:if="${provider.hasCredentialState}" tl:utext="${provider.credentialStateBadgeHtml}">badge</tl:block>
+                </div>
+                <div class="credential-env" tl:text="${provider.credentialEnvVarDisplay}">ANTHROPIC_API_KEY</div>
+                <div tl:if="${provider.hasCredentialMode}" class="credential-env" tl:text="${provider.credentialModeLabel}">Subscription</div>
+                <div tl:if="${provider.hasCredentialCountdown}" class="credential-env"
+                     tl:classappend="${provider.credentialCountdownClass}"
+                     tl:attr="title=${provider.credentialExpiresAtIso}" tl:text="${provider.credentialCountdownLabel}">Renewal in 20d · derived</div>
+                <div tl:if="${provider.hasCredentialLastChecked}" class="credential-env"
+                     tl:attr="title=${provider.credentialLastCheckedIso}" tl:text="${provider.credentialLastCheckedLabel}">Checked 3h ago</div>
+                <div tl:if="${provider.hasCredentialRemediation}" class="credential-env">
+                  <span tl:text="${provider.credentialRemediationLabel}">Fix:</span>
+                  <code tl:text="${provider.credentialRemediation}">claude setup-token</code>
+                </div>
+              </div>
+
+              <div class="provider-detail-item">
+                <div class="detail-label">Worker Capacity</div>
+                <div class="detail-value" tl:text="${provider.capacityUsageText}">0 of 0 worker leases active</div>
+                <div class="meter-wrapper">
+                  <div class="meter-label">
+                    <span tl:text="${provider.capacityUsageLabel}">0% of worker capacity in use</span>
+                  </div>
+                  <div class="meter" tl:classappend="${provider.capacityMeterEmptyClass}">
+                    <div class="meter-fill" tl:attr="style=${provider.capacityUsageWidthStyle}"></div>
+                  </div>
+                  <div class="t-caption text-muted" tl:text="${provider.capacityDetails}">0 queued · 0 warm · 0 quarantined</div>
+                </div>
+              </div>
+            </div>
+
+            <div tl:if="${provider.hasError}" class="provider-error-banner">
+              <span class="error-icon icon icon-triangle-alert" aria-hidden="true"></span>
+              <div class="error-text">
+                <strong tl:text="${provider.errorTitle}">Action required</strong>
+                <span tl:text="${provider.errorMessage}">Provider action required.</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div tl:unless="${hasProviders}" class="card empty-state">
+          <p>No provider runtime status is available for this server yet.</p>
+        </div>
+
+        <p class="section-note provider-section-note">
+          Provider configuration is read-only here. Update Providers and credentials in <code>dartclaw.yaml</code>, then restart if required.
+        </p>
+      </section>
+
+      <!-- Authentication (read-only, server-rendered) -->
+      <div class="card settings-card" id="panel-server-auth" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
+        <div class="card-header">
+          <span class="card-title t-heading">Authentication</span>
+          <span class="mode-badge">Token-based</span>
+        </div>
+        <div class="card-detail">Token:</div>
+        <div class="token-row">
+          <span class="token-masked">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
+        </div>
+        <div class="card-detail card-detail-hint">
+          Use <code>dartclaw token show</code> to reveal
+        </div>
+      </div>
+
+      <!-- System Health (read-only, server-rendered) -->
+      <div class="card settings-card" id="panel-server-health" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
+        <div class="card-header">
+          <span class="card-title t-heading">System Health</span>
+          <tl:block tl:utext="${healthBadgeHtml}">badge</tl:block>
+        </div>
+        <div class="card-detail">
+          Uptime: <span class="card-detail-value" tl:text="${uptimeStr}">0m</span>
+        </div>
+        <div class="card-detail">
+          Sessions: <span class="card-detail-value" tl:text="${sessionCount}">0</span>
+        </div>
+        <div class="card-detail">
+          Version: <span class="card-detail-value" tl:classappend="${versionClass}" tl:text="${version}">0.0.0</span>
+        </div>
+        <div class="card-actions">
+          <a href="/health-dashboard" class="card-link"><span class="icon icon-arrow-right" aria-hidden="true"></span>Full Dashboard</a>
+        </div>
+      </div>
+
+      <!-- Security & Guards (read-only, server-rendered — unchanged) -->
+      <div class="guard-detail-section" id="panel-security" role="tabpanel" aria-labelledby="tab-security" data-tab="security">
+        <div class="guard-detail-header">
+          <h2>Security &amp; Guards</h2>
+          <span class="mode-badge">Editable extensions</span>
+          <span tl:if="${guardsEnabled}" class="status-badge status-badge-success" tl:text="${activeGuardCount} + ' active'">0 active</span>
+          <span tl:unless="${guardsEnabled}" class="status-badge status-badge-muted">Disabled</span>
+        </div>
+        <tl:block tl:utext="${guardEditorHtml}">guard editor</tl:block>
+        <div tl:if="${hasGuardFields}" class="card guard-registry-fields">
+          <div class="card-header"><span class="card-title t-heading">Guard configuration</span></div>
+          <tl:block tl:utext="${guardFieldsHtml}">fields</tl:block>
+        </div>
+        <div tl:unless="${guardsEnabled}" class="card guard-detail-disabled">
+          <div class="card-detail card-detail-muted">
+            Guards are disabled. Enable in dartclaw.yaml under <code>guards.enabled</code>
+          </div>
+        </div>
+        <div tl:if="${guardsEnabled}" class="guard-detail-cards">
+          <details class="card guard-detail-card" tl:each="guard : ${guardConfigs}">
+            <summary class="guard-detail-summary">
+              <span class="guard-detail-name" tl:text="${guard.name}">Guard</span>
+              <span class="guard-detail-chevron icon icon-chevron-right" aria-hidden="true"></span>
+              <a class="guard-audit-link" tl:href="'/health-dashboard?guard=' + ${guard.guardKey}"><span class="icon icon-arrow-right" aria-hidden="true"></span>View events</a>
+            </summary>
+            <div class="guard-detail-body">
+              <div class="guard-config-section" tl:each="section : ${guard.sections}">
+                <div class="guard-config-section-label" tl:text="${section.label}">Section</div>
+                <div class="guard-config-items">
+                  <div class="guard-config-item" tl:each="item : ${section.items}">
+                    <span class="guard-config-item-label" tl:text="${item.label}">Label</span>
+                    <span class="guard-config-item-value" tl:classappend="${item.style}" tl:text="${item.value}">Value</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Workspace (path + git sync toggles) -->
+      <div class="card settings-card" id="panel-server-workspace" role="tabpanel" aria-labelledby="tab-server" data-tab="server">
+        <div class="card-header">
+          <span class="card-title t-heading">Workspace</span>
+        </div>
+        <div class="card-detail card-detail-mono" tl:text="${workspacePathDisplay}">~/.dartclaw/workspace/</div>
+        <div class="file-tags">
+          <span class="file-tag">SOUL.md</span>
+          <span class="file-tag">AGENTS.md</span>
+          <span class="file-tag">MEMORY.md</span>
+          <span class="file-tag">USER.md</span>
+          <span class="file-tag">TOOLS.md</span>
+          <span class="file-tag">HEARTBEAT.md</span>
+        </div>
+      </div>
+
+    </div>
+    </div>
+  </main>
+  </div>
+</div>

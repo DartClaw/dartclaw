@@ -1,0 +1,35 @@
+name: dartclaw_kernel
+description: Shared data, configuration, guard, and utility contracts for DartClaw.
+publish_to: none
+version: 0.25.0
+repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_kernel
+homepage: https://github.com/DartClaw/dartclaw
+issue_tracker: https://github.com/DartClaw/dartclaw/issues
+topics:
+  - ai
+  - config
+  - security
+  - agents
+
+false_secrets:
+  - /test/message_redactor_test.dart
+
+environment:
+  sdk: ^3.13.0
+
+resolution: workspace
+
+dependencies:
+  collection: ^1.19.1
+  meta: ^1.18.0
+  path: ^1.9.1
+  yaml: ^3.1.3
+  yaml_edit: ^2.2.4
+  logging: ^1.3.0
+
+dev_dependencies:
+  dartclaw_testing:
+    path: ../dartclaw_testing
+  fake_async: ^1.3.3
+  test: ^1.31.0
+  lints: ^6.1.0

@@ -101,4 +101,4 @@ If startup reports that the existing `memory` collection uses the legacy `*.md` 
 
 ### Memory Curation
 
-Memory curation is explicit. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.
+Curated personal memory changes through one path. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. The opt-in `memory-curation` job (`memory.curation.enabled`) is a scheduled caller of that same path, bounded to the entries its own run snapshot showed it. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.

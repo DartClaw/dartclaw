@@ -1,14 +1,17 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
         KvService,
         MessageService,
+        SqliteWorkflowRunRepository,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowDefinition,
@@ -17,13 +20,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowPersistencePorts,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowService,
         WorkflowServiceOptions,
         WorkflowStep,
         WorkflowTurnAdapter,
         WorkflowVariable,
-        WorkflowWorktreeBinding;
+        WorkflowWorktreeBinding,
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeStepOutcomeKey,
+        executionEnvelopeVersion;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -34,6 +40,7 @@ final class WorkflowServiceTestHarness {
   late MessageService messageService;
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
+  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
   late EventBus eventBus;
   late WorkflowService workflowService;
 
@@ -46,7 +53,7 @@ final class WorkflowServiceTestHarness {
     eventBus = EventBus();
     final taskRepository = SqliteTaskRepository(db);
     final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
     final executionTransactor = SqliteExecutionRepositoryTransactor(db);
     taskService = TaskService(
       taskRepository,
@@ -101,6 +108,20 @@ final class WorkflowServiceTestHarness {
           [
             const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),
           ],
+    );
+  }
+
+  /// Seeds the step outcome a step's finalizer envelope would carry.
+  Future<void> seedStepOutcome(String taskId, {required String outcome, String reason = ''}) async {
+    final wse = await workflowStepExecutionRepository.getByTaskId(taskId);
+    await workflowStepExecutionRepository.update(
+      wse!.copyWith(
+        structuredOutputJson: jsonEncode({
+          executionEnvelopeOutputsKey: const <String, dynamic>{},
+          executionEnvelopeStepOutcomeKey: {'outcome': outcome, 'reason': reason},
+          executionEnvelopeMarkerKey: executionEnvelopeVersion,
+        }),
+      ),
     );
   }
 

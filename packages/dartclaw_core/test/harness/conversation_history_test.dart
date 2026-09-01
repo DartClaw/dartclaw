@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/src/harness/conversation_history.dart';
 import 'package:test/test.dart';
 

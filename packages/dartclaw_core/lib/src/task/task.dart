@@ -1,6 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
-
-import 'package:dartclaw_config/dartclaw_config.dart' show AgentExecution, WorkflowStepExecution;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'task_status.dart';
 
@@ -18,8 +16,11 @@ class Task {
   /// Full task description or operator request.
   final String description;
 
-  /// High-level category that influences routing and defaults.
-  final TaskType type;
+  /// Repository-derived refusal for a legacy row that cannot run safely.
+  ///
+  /// This compatibility marker is deliberately absent from JSON and request
+  /// surfaces. Storage derives it from the retained legacy column.
+  final TaskLegacyRefusal? legacyRefusal;
 
   /// Current lifecycle status for this task.
   final TaskStatus status;
@@ -33,7 +34,7 @@ class Task {
   /// Arbitrary task configuration persisted as immutable JSON data.
   final Map<String, dynamic> configJson;
 
-  /// Optional worktree metadata persisted for coding-style tasks.
+  /// Optional worktree metadata persisted for a task with a declared worktree.
   final Map<String, dynamic>? worktreeJson;
 
   /// Typed view over [worktreeJson].
@@ -114,7 +115,7 @@ class Task {
     required this.id,
     required this.title,
     required this.description,
-    required this.type,
+    this.legacyRefusal,
     this.status = TaskStatus.draft,
     this.goalId,
     this.acceptanceCriteria,
@@ -159,7 +160,6 @@ class Task {
     String? id,
     String? title,
     String? description,
-    TaskType? type,
     TaskStatus? status,
     Object? goalId = _sentinel,
     Object? acceptanceCriteria = _sentinel,
@@ -186,7 +186,7 @@ class Task {
     id: id ?? this.id,
     title: title ?? this.title,
     description: description ?? this.description,
-    type: type ?? this.type,
+    legacyRefusal: legacyRefusal,
     status: status ?? this.status,
     goalId: identical(goalId, _sentinel) ? this.goalId : goalId as String?,
     acceptanceCriteria: identical(acceptanceCriteria, _sentinel)
@@ -285,7 +285,6 @@ class Task {
     'id': id,
     'title': title,
     'description': description,
-    'type': type.name,
     'status': status.name,
     'version': version,
     if (goalId != null) 'goalId': goalId,
@@ -309,7 +308,6 @@ class Task {
     id: json['id'] as String,
     title: json['title'] as String,
     description: json['description'] as String,
-    type: TaskType.values.byName(json['type'] as String),
     status: _parseStatus(json['status']),
     version: (json['version'] as int?) ?? 1,
     goalId: json['goalId'] as String?,
@@ -334,6 +332,9 @@ class Task {
   /// standalone task review/merge flow.
   bool get isWorkflowOwnedGitTask => workflowRunId != null;
 }
+
+/// Safe execution refusals derived only while reading legacy task rows.
+enum TaskLegacyRefusal { securityProfileUndeclared, worktreeUndeclared }
 
 const _sentinel = Object();
 

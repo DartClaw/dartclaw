@@ -41,9 +41,6 @@ stepDefaults:
   - match: "remediate*"
     provider: "@executor"
     model: "@executor"
-  - match: "simplify-code"
-    provider: "@executor"
-    model: "@executor"
   - match: "*"
     provider: "@workflow"
     model: "@workflow"
@@ -114,18 +111,6 @@ steps:
     maxRetries: 1
     prompt: "--auto {{context.spec_path}}"
 
-  - id: simplify-code
-    name: Simplify Code
-    skill: andthen:simplify-code
-    # provider/model resolve to @executor via the `simplify-code` stepDefault.
-    # Best-effort cleanup: red baseline or advisory blockage should be recorded
-    # without parking the live-checkout workflow after required work landed.
-    onFailure: continue
-    prompt: >-
-      --auto - simplify only the changes implementing {{context.spec_path}}
-      in the live checkout; preserve behavior; no scope creep into unrelated
-      operator work.
-
   - id: integrated-review
     name: Integrated Review
     skill: andthen:review
@@ -170,28 +155,10 @@ steps:
       integrated-review-council.findings_count: findings_count
       integrated-review-council.gating_findings_count: gating_findings_count
 
-  - id: architecture-review
-    name: Architecture Review
-    skill: andthen:architecture
-    parallel: true
-    onFailure: retry
-    maxRetries: 1
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode review --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      {{context.spec_path}}. Scope by the FIS – review
-      only packages this spec touched in the working tree; ignore unrelated
-      operator work in other parts of the live checkout.
-    outputs:
-      architecture-review.review_report_path: review_report_path
-      architecture-review.findings_count: findings_count
-      architecture-review.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [integrated-review, integrated-review-council, architecture-review]
+    aggregateReviews: [integrated-review, integrated-review-council]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

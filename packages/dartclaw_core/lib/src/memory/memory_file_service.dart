@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_security/dartclaw_security.dart' show truncateUtf8Bytes;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:uuid/uuid.dart';
 
 import 'canonical_memory.dart';
@@ -196,6 +196,7 @@ class MemoryFileService {
     archive: corpus.archive,
     observations: observations ?? corpus.observations,
     learnings: corpus.learnings,
+    errors: corpus.errors,
     audit: corpus.audit,
     verbatimMembers: corpus.verbatimMembers,
   );

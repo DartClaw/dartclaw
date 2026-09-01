@@ -1,14 +1,28 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'package:dartclaw_cli/src/commands/workflow/cli_progress_printer.dart';
 import 'package:dartclaw_cli/src/commands/workflow/live_status_line.dart';
 import 'package:dartclaw_cli/src/commands/workflow/standalone_run_harness.dart';
+import 'package:dartclaw_cli/src/commands/workflow/workflow_progress_renderer.dart' show taskProgressKey;
+
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show EventBus, Task, TaskStatus, TaskStatusChangedEvent, TaskType, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
+    show
+        EventBus,
+        MapIterationCompletedEvent,
+        Task,
+        TaskStatus,
+        TaskStatusChangedEvent,
+        WorkflowApprovalRequestedEvent,
+        WorkflowCliTurnProgressEvent,
+        WorkflowRunStatusChangedEvent,
+        WorkflowStepCompletedEvent;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository, flushAsync;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowService, WorkflowStep;
+    show WorkflowDefinition, WorkflowRun, WorkflowService, WorkflowStep;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
@@ -96,7 +110,6 @@ void main() {
         id: id,
         title: 'Task $id',
         description: '',
-        type: TaskType.coding,
         status: TaskStatus.running,
         createdAt: DateTime(2026, 7, 1),
         workflowRunId: run.id,
@@ -209,6 +222,263 @@ void main() {
       expect(liveOut.join(), isNot(contains('member-a')));
 
       await completeRun(driveFuture);
+    });
+
+    test('standalone progress consumes cumulative updates under the task key', () async {
+      await insertTask('t1', 0);
+      final driveFuture = startDrive();
+      await flushAsync(4);
+
+      fireStatus('t1', TaskStatus.queued, TaskStatus.running);
+      await flushAsync(4);
+      expect(taskProgressKey('t1'), 'task:t1');
+
+      liveOut.clear();
+      eventBus.fire(
+        WorkflowCliTurnProgressEvent(
+          taskId: 't1',
+          sessionId: 'session-t1',
+          provider: 'claude',
+          turnIndex: 1,
+          cumulativeTokens: 110,
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(2);
+      expect(liveOut.join(), contains('110 tokens'));
+
+      liveOut.clear();
+      eventBus.fire(
+        WorkflowCliTurnProgressEvent(
+          taskId: 't1',
+          sessionId: 'session-t1',
+          provider: 'claude',
+          turnIndex: 2,
+          cumulativeTokens: 330,
+          inputTokens: 300,
+          outputTokens: 30,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(2);
+      expect(liveOut.join(), contains('330 tokens'));
+
+      await completeRun(driveFuture);
+    });
+  });
+
+  // TI01 parity pins for the frame types a bash-only command-level run cannot
+  // produce (task transitions, map iterations, approvals, outcome/reason).
+  // The command-level ordered pins live in workflow_run_command_standalone_test.dart.
+  group('driveStandaloneWorkflowRun output parity', () {
+    late EventBus eventBus;
+    late InMemoryTaskRepository repo;
+    late TaskService taskService;
+    late _SettleOnlyWorkflowService service;
+    late List<String> stdoutLines;
+
+    final definition = WorkflowDefinition(
+      name: 'parity',
+      description: 'Parity fixture',
+      steps: const [
+        WorkflowStep(id: 'first', name: 'First', prompts: ['a'], provider: 'claude'),
+        WorkflowStep(id: 'mapped', name: 'Mapped', prompts: ['b'], mapOver: 'items'),
+      ],
+    );
+
+    final run = WorkflowRun(
+      id: 'run-1',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime(2026, 7, 1),
+      updatedAt: DateTime(2026, 7, 1),
+      currentStepIndex: 1,
+      definitionJson: definition.toJson(),
+      contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
+    );
+
+    setUp(() async {
+      eventBus = EventBus();
+      repo = InMemoryTaskRepository();
+      taskService = TaskService(repo);
+      service = _SettleOnlyWorkflowService();
+      stdoutLines = <String>[];
+      await repo.insert(
+        Task(
+          id: 't1',
+          title: 'Parity – First',
+          description: '',
+          status: TaskStatus.running,
+          createdAt: DateTime(2026, 7, 1),
+          workflowRunId: run.id,
+          stepIndex: 0,
+          provider: 'codex',
+          configJson: const {'displayScope': 'S01'},
+        ),
+      );
+    });
+
+    CliProgressPrinter printerFor({required bool jsonOutput}) => CliProgressPrinter(
+      totalSteps: definition.steps.length,
+      workflowName: definition.name,
+      writeLine: stdoutLines.add,
+      standalone: true,
+      liveStatusLine: LiveStatusLine(write: (_) {}, enabled: false, color: false),
+    );
+
+    /// Fires the full progress vocabulary in a fixed order, then settles the
+    /// run at an approval pause.
+    Future<void> driveFixture({required bool jsonOutput}) async {
+      final driveFuture = driveStandaloneWorkflowRun(
+        service: service,
+        taskService: taskService,
+        definition: definition,
+        eventBus: eventBus,
+        printer: printerFor(jsonOutput: jsonOutput),
+        jsonOutput: jsonOutput,
+        stdoutLine: stdoutLines.add,
+        interrupts: () => const Stream<void>.empty(),
+        exitFn: fakeExit,
+        trigger: () async => run,
+      );
+      await flushAsync(4);
+
+      eventBus.fire(
+        TaskStatusChangedEvent(
+          taskId: 't1',
+          oldStatus: TaskStatus.queued,
+          newStatus: TaskStatus.running,
+          trigger: 'test',
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(4);
+      eventBus.fire(
+        TaskStatusChangedEvent(
+          taskId: 't1',
+          oldStatus: TaskStatus.running,
+          newStatus: TaskStatus.review,
+          trigger: 'test',
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      // A real gap, so a `jsonOutput` early-return hoisted above the start-time
+      // record would zero `durationMs` instead of passing unnoticed.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      eventBus.fire(
+        WorkflowStepCompletedEvent(
+          runId: run.id,
+          stepId: 'first',
+          stepName: 'First',
+          stepIndex: 0,
+          totalSteps: 2,
+          taskId: 't1',
+          displayScope: 'S01',
+          success: false,
+          outcome: 'needsInput',
+          reason: 'waiting on operator',
+          tokenCount: 7,
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(4);
+      eventBus.fire(
+        MapIterationCompletedEvent(
+          runId: run.id,
+          stepId: 'mapped',
+          iterationIndex: 0,
+          totalIterations: 2,
+          itemId: 'S02',
+          taskId: 't2',
+          success: true,
+          outcome: 'succeeded',
+          tokenCount: 5,
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(4);
+      eventBus.fire(
+        WorkflowApprovalRequestedEvent(
+          runId: run.id,
+          stepId: 'mapped',
+          message: 'approve the plan',
+          timeoutSeconds: 60,
+          timestamp: DateTime(2026, 7, 1, 12),
+        ),
+      );
+      await flushAsync(4);
+
+      service.settledRun = run.copyWith(
+        status: WorkflowRunStatus.awaitingApproval,
+        updatedAt: DateTime(2026, 7, 1, 13),
+      );
+      eventBus.fire(
+        WorkflowRunStatusChangedEvent(
+          runId: run.id,
+          definitionName: definition.name,
+          oldStatus: WorkflowRunStatus.running,
+          newStatus: WorkflowRunStatus.awaitingApproval,
+          timestamp: DateTime(2026, 7, 1, 13),
+        ),
+      );
+      await driveFuture;
+    }
+
+    test('TI01 the --json frame sequence is renderer-authored, in order', () async {
+      await driveFixture(jsonOutput: true);
+
+      final frames = stdoutLines.map((line) => jsonDecode(line) as Map<String, dynamic>).toList();
+      expect(frames.map((frame) => '${frame['type']} ${frame.keys.join(',')}').toList(), [
+        'run_started type,run',
+        'task_status_changed type,runId,taskId,stepIndex,stepId,oldStatus,newStatus,displayScope',
+        'task_status_changed type,runId,taskId,stepIndex,stepId,oldStatus,newStatus,displayScope',
+        'workflow_step_completed '
+            'type,runId,stepId,stepIndex,totalSteps,taskId,displayScope,success,outcome,reason,tokenCount,durationMs',
+        'map_iteration_completed '
+            'type,runId,stepId,stepIndex,iterationIndex,totalIterations,itemId,displayScope,taskId,success,outcome,'
+            'tokenCount,durationMs',
+        'workflow_approval_requested type,runId,stepId,message,timeoutSeconds',
+        'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
+        'workflow_run_digest type,runId,status,steps,nextActions',
+      ]);
+      expect(frames[1]['newStatus'], 'running');
+      expect(frames[1]['stepId'], 'first');
+      expect(frames[1]['displayScope'], 'S01');
+      expect(frames[2]['newStatus'], 'review');
+      expect(frames[3]['reason'], 'waiting on operator');
+      expect(frames[3]['durationMs'], greaterThan(0));
+      expect(frames[4]['itemId'], 'S02');
+      expect(frames[4]['displayScope'], 'S02');
+      expect(frames[6]['definitionName'], 'parity');
+    });
+
+    test('TI01 text mode renders task title and task provider on the running line', () async {
+      await driveFixture(jsonOutput: false);
+
+      expect(stdoutLines, [
+        '[workflow] Starting: parity (2 steps)',
+        '[step 1/2] first[S01]: Parity – First – running (codex)',
+        '[step 1/2] first[S01]: review (auto-accepted)',
+        '[step 1/2] first[S01]: blocked (recoverable): waiting on operator',
+        // No running transition was seen for this map task, so no duration is fabricated.
+        '[step 2/2] mapped[S02]: completed (5 tokens)',
+        '[workflow] Awaiting approval at step 1/2 (mapped)',
+        '[workflow] Approval request: approve the plan',
+        '[workflow] Use `dartclaw workflow resume run-1 --standalone` to approve '
+            'or `dartclaw workflow cancel run-1 --standalone` to reject.',
+        '[digest] Run run-1 – awaitingApproval',
+        '  1. first: running',
+        '  2. mapped: not started',
+        '[digest] Next:',
+        '  dartclaw workflow resume run-1 --standalone',
+        '  dartclaw workflow cancel run-1 --standalone',
+      ]);
     });
   });
 }

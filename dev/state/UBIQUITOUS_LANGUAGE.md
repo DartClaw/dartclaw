@@ -29,13 +29,14 @@
 | Credential Resolution | The single credential one authority presents for one provider (`CredentialResolution`) – or the typed reason none can be. Exactly one of the two, never a fallback across modes; an unsatisfiable resolution is refused at execution admission | credential lookup, auth result |
 | Credential Health State | Probed operator-facing condition of a presented credential: `healthy`, `nearing-expiry`, `refresh-failure`, `reauth-required`, `contract-break`, `unknown`. Distinct from `credentialStatus`, the presence-level field it renders beside | credential status, auth status, credential health check |
 | Renewal Deadline | The derived, operator-actionable date by which a Subscription Credential must be renewed: Claude's ingestion time plus the documented ~1-year `setup-token` lifetime, Codex's last store write plus the 8-day refresh-token staleness window. Deliberately not the access token's minutes-scale JWT `exp` | expiry, expiration, token lifetime |
+| Provider Availability | Whether a configured provider can be used (`healthy`, `degraded`, `unavailable`), derived from binary presence, credential resolution, credential health and worker capacity – never from a worker lifecycle. A provider whose binary is missing is `unavailable`; one whose binary and credential resolve is `healthy` even with no worker running. Carried as `ProviderStatus.health` | provider health, provider status |
 | Codex Refresh Authority | The single-flight per-store refresher that keeps a Codex Subscription Credential usable. Drives the vendor's own `codex app-server` refresh and confirms success by re-reading the store; DartClaw never constructs a token request itself | token refresher, refresh loop, OAuth client |
 
 ## Execution Isolation
 
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
-| Execution Policy | Two-axis per-execution decision: **location** (host or container), chosen by `agent.execution` / `agent.agents.<id>.execution` / `tasks.execution.<task-type>` independently of the **security profile**. One resolver owns precedence; an unrunnable provider/location combination is refused before the turn, never downgraded to host | execution mode, isolation mode, container flag |
+| Execution Policy | Two-axis per-execution decision: **location** (host or container), chosen by `agent.execution` / `agent.agents.<id>.execution` / scalar `tasks.execution` independently of the **security profile**. One resolver owns precedence; an unrunnable provider/location combination is refused before the turn, never downgraded to host | execution mode, isolation mode, container flag |
 | Security Profile | Named container mount and permission tier (`SecurityProfile`, ADR-012): `workspace` (writable `/workspace`, read-only project clones) or `restricted` (no workspace mounts). Chosen independently of execution location | sandbox level, permission mode |
 | Principal | The single trust identity a Container Authority is bound to – a standing agent (primary lane, logical-agent session) or a one-shot job (task, workflow step). A container never crosses principals; there is no shared-across-principals scope | trust principal, owner, tenant |
 | Container Isolation | Per-authority Docker sandbox: `network:none`, `cap-drop=ALL`, read-only rootfs, `no-new-privileges`. Each Container Authority owns one single-use container whose only path off `network:none` is its per-authority framed Container Bridge to the Host Gateway | sandboxing |
@@ -48,7 +49,7 @@
 
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
-| Guard | Policy evaluator in the defense chain. Examines tool/file/network requests. Implementations: `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, `InputSanitizer`, `ToolPolicyGuard` | policy, filter, validator |
+| Guard | Policy evaluator in the defense chain. Examines tool/file/network requests. Implementations: `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, `TaskToolFilterGuard`, `ToolPolicyGuard` | policy, filter, validator |
 | Guard Chain | Sequential evaluation of multiple guards on a tool approval request | guard pipeline, validation chain |
 | Guard Verdict | Sealed outcome: `GuardPass` (allow), `GuardWarn` (log + allow), `GuardBlock` (deny) | decision, outcome, result |
 | Guard Audit | Persistent NDJSON journal of every guard verdict (`AuditEntry`: guard, hook, verdict, reason, tool, caller identity). Rotated daily with retention cleanup. Security evidence, not telemetry | guard log, security audit |
@@ -63,7 +64,7 @@
 | Turn | Single round of agent reasoning, tool execution, and response generation. Atomic work unit | iteration, cycle, pass |
 | Worker | Agent subprocess executing turns. Lifecycle: `idle`, `busy`, `crashed`, `stopped`. Operator-facing surfaces call the same thing a Runner | agent process, execution context |
 | Execution Coordinator | Post-governance execution authority. Owns one serialized primary lane plus hard per-provider worker lease capacity, lazy worker construction, compatible reuse, and lease-derived snapshots | pool coordinator |
-| Execution Lease | Temporary admission to the primary lane, a provider worker, or capacity-only workflow execution. Releasing it returns capacity and may cache a healthy compatible worker | worker slot |
+| Execution Lease | Temporary admission to the primary lane or a provider worker. Releasing it returns capacity and may cache a healthy compatible worker | worker slot |
 | Execution Fingerprint | Provider, security profile, and runtime configuration identity required for safe worker reuse | pool key |
 | Worker Capacity Gate | Bounds concurrent executions independently of reusable worker state, issuing `WorkerCapacityPermit`s. Tracks `quarantinedCount` – slots withheld after an unconfirmed teardown – against `effectiveCapacity` | semaphore, pool |
 | Session Lock | Per-session mutual exclusion plus a global parallelism cap (`SessionLockManager`). Same-session requests queue; exceeding the global cap throws `BusyTurnException` | mutex, semaphore |
@@ -113,20 +114,19 @@
 |------|-----------|-------------------|
 | Task | Discrete unit of work. Status lifecycle: draft → queued → running → interrupted → review → accepted/rejected/cancelled/failed | job, work item, request |
 | Task Status | Lifecycle state enum. Terminal: accepted, rejected, cancelled, failed. Non-terminal: draft, queued, running, interrupted, review | state, condition |
-| Task Type | Category: coding, research, writing, analysis, automation, custom. Influences routing and security profile for ordinary tasks; workflow steps preserve their authored type as metadata but execute through the coding-task path | task category, classification |
 | Task Project ID | Persisted `Task.projectId` field naming the project checkout a task runs against. Standalone tasks set it directly; workflow tasks derive it from workflow-level project binding | task project, project field, repoId |
 | Task Executor | Orchestrates lifecycle: dequeue, acquire worker, execute turn, cleanup, notify | task runner |
 | Task Service | CRUD service with atomic status transitions and optimistic locking | task manager, task repository |
-| Worktree | Isolated git worktree per coding task at `~/.dartclaw/worktrees/<taskId>/`. Keyed by task UUID – shared identity fields select bindings but never derive paths. Lifecycle: create → execute → review → merge/reject → cleanup | sandbox directory, work directory |
+| Worktree | Isolated git worktree for a task declaring `needsWorktree: true`, stored at `~/.dartclaw/worktrees/<taskId>/`. Keyed by task UUID – shared identity fields select bindings but never derive paths. Lifecycle: create → execute → review → merge/reject → cleanup | sandbox directory, work directory |
 | Diff | Computed difference between worktree and main branch. `DiffGenerator` → `DiffResult` | file changes, patch |
 | Merge | Apply worktree changes to the project base branch. `MergeExecutor` → `MergeSuccess` or `MergeConflict`. Distinct from workflow Promotion | git merge, integration |
-| Review Command | Review verb accepted from a channel or the operator surface: accept, reject, "push back: \<feedback\>" | review action, decision command |
+| Task Review | A lifecycle decision applied through the task UI, HTTP API, or `task_review` tool to a task identified by its full ID | review action, review decision |
 | Scheduled Job | Recurring or one-shot job definition (`ScheduledJob`): id, schedule type, delivery mode, and `ScheduledJobType` (`prompt` or `task`). The scheduling entity – not a `Task` | cron job, trigger, timer |
 | Schedule Type | The three schedule kinds a Scheduled Job can carry: `cron`, `interval`, `once` | frequency, recurrence, trigger type |
 | Cron Expression | Parsed 5-field expression (`minute hour dom month dow`) supporting `*`, ranges, lists, and steps. Drives next-fire computation for `ScheduleType.cron` | cron string, cron schedule |
 | Delivery Mode | How a finished Scheduled Job's result reaches the operator: `announce` (broadcast plus DM targets), `webhook` (HTTP POST), `none` | notification type, output mode |
-| Scheduled Task Definition | Config-declared template under `automation.scheduled_tasks` that the runner turns into a callback-backed Scheduled Job. Deduplicates against non-terminal tasks carrying the same schedule id instead of backfilling missed fires | auto-task, task schedule |
-| Heartbeat | Periodic self-directed cycle driven by `HEARTBEAT.md`: the scheduler reads the file each interval and dispatches non-empty content in an isolated session. Not a liveness probe | health check, keepalive |
+| Scheduled Task Definition | Config-declared `scheduling.jobs` entry with `type: task` that the runner turns into a callback-backed Scheduled Job. Deduplicates against non-terminal tasks carrying the same schedule id instead of backfilling missed fires | auto-task, task schedule |
+| Heartbeat | Periodic self-directed cycle driven by `HEARTBEAT.md`, run as the built-in `heartbeat` Scheduled Job: each fire reads the file and dispatches non-empty content in a session unique to that cycle. Not a liveness probe | health check, keepalive, heartbeat scheduler |
 
 ## Workflow Orchestration
 
@@ -178,10 +178,10 @@
 | `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a citation packet | context engine tool, research outpost, search summary |
 | wiki provenance | Frontmatter field recording who authored a wiki page's content. `human-authored` and `hybrid` rank as search-trusted; `llm-authored` ranks trusted while `sources` is populated; any other stored value is preserved untouched and reported by wiki lint | authorship, page origin |
 | `hybrid` | The wiki provenance a page takes on when a `human-authored` or `hybrid` page gains machine-synthesized content, so it is neither relabelled as machine-authored nor claimed as sole machine authorship | mixed, merged provenance |
-| supplement section | A `## Supplement from <source> (<date>)` block appended to an existing wiki page by an ingestion that collided with its slug. The prior content is never replaced | append block, merge section |
-| wiki collision | An ingestion whose chosen slug already has a stored page. Reported as *supplemented* (content appended) or *refreshed* (the page already carried the synthesis, so nothing was written) | overwrite, merge conflict |
-| consolidation debt | Wiki-lint category naming pages carrying enough supplement sections to want manual consolidation | page bloat, stale page |
-| declared drop | A source topic the extraction turn reports it deliberately left out. A self-declaration, not a measurement – the turn cannot re-read the source to diff its output | coverage gap, measured loss |
+| supplement section | A `## Supplement from <source> (<date>)` block appended to an existing wiki page. Reachable only when the merge turn declares the new material unrelated to the stored page | append block, merge section |
+| wiki collision | An ingestion whose chosen slug already has a stored page. Settled by a page-scoped merge turn and reported as *integrated* (the merged body replaced the stored one), *unchanged* (nothing but the `sources` union moved) or *supplement* (the merge called the material unrelated, so it was appended) | overwrite, merge conflict |
+| merge declaration | The merge turn's reply for one collision: `merge`, `integrated_from`, `removed_content` and the merged body. The model declares how to merge; the host decides whether the declaration is admissible | merge decision, merge result |
+| shrink floor | The compile-time share (0.8) of a stored body an integrated merge must keep while declaring no `removed_content`; below it the write is refused and the source quarantined | shrink guard, size check |
 
 ## Tool Surface
 
@@ -237,7 +237,7 @@
 | Turn Trace | Best-effort telemetry record of one turn (session, task, runner, model, provider, token counts, bounded tool-call detail) written asynchronously to the `turns` table. Queried as *traces* by API and CLI. Never called an audit | span, execution log, audit |
 | Task Event | Append-only entry on a task's user-visible timeline (`statusChanged`, `toolCalled`, `compaction`, `taskError`, …), persisted synchronously and losslessly | activity log entry, audit event |
 | Alert Routing | Classification of a `DartclawEvent` into an alert type and severity (`info`, `warning`, `critical`), resolution of configured targets, and throttled delivery | notifications, alert dispatch |
-| Health Status | Aggregated runtime health (`healthy`, `degraded`, `unhealthy`) derived from worker state, plus uptime, session count, and database size | liveness, readiness |
+| Health Status | Aggregated runtime health (`healthy`, `degraded`, `unhealthy`) projected from the host Worker's lifecycle (`WorkerState`) by `healthStatusForWorkerState` – the workspace's only such mapping – plus uptime, session count, and database size. Never derived from, and never a synonym for, Provider Availability | liveness, readiness |
 
 ## Overloaded Terms
 
@@ -249,15 +249,16 @@
 | Thread | Channel Integration | Google Chat thread within a Space | Turn Orchestration | Not used – DartClaw is single-threaded (one Dart isolate) |
 | Provider | Provider Mediation | LLM provider (claude, codex) | Channel Integration | Google Cloud service account (Google Chat) |
 | Bridge | Execution Isolation | Container Bridge / `dartclaw_bridge` – the read-only in-container executable forwarding framed provider/MCP traffic to the Host Gateway | Provider Mediation | `BridgeEvent` – harness-to-host event translation |
-| Bridge | Channel Integration | `ChannelTaskBridge` – the seam a channel consults to create or list tasks | Task & Review | The same seam from the task side, injecting `TaskCreator`/`TaskLister` callbacks |
+| Bridge | Channel Integration | `ChannelTaskBridge` – the seam that applies reserved-command, thread-binding, and rate-limit routing before normal channel dispatch | Task & Review | Task creation is model-initiated through `task_create`, not inferred from channel text |
 | Event | Observability & Alerting | `DartclawEvent` – sealed application-semantics bus payload | Provider Mediation | `BridgeEvent` – provider protocol-stream signal, no application semantics |
 | Event | Task & Review | `TaskEvent` – persisted, user-visible task timeline entry | Turn Orchestration | `ExecutionEventKind` – coordinator-internal capacity/lease signal |
 | Audit | Guarding & Audit | The guard verdict journal – security decision evidence | Observability & Alerting | Never used here: a Turn Trace is telemetry, not audit |
 | Runner | Operator Interface | API/CLI name for leased execution capacity | Turn Orchestration | Worker – the coordinator's internal name for the same thing |
+| Health | Observability & Alerting | Health Status – the host Worker's lifecycle projected onto `healthy`/`degraded`/`unhealthy` | Provider Mediation | Provider Availability – binary presence, credential resolution and capacity, projected onto `healthy`/`degraded`/`unavailable` |
 | Context | Turn Orchestration | The per-turn context window assembled for a provider call | Workflow Orchestration | Workflow Context – key-value state accumulated between steps |
 | Context Engine | Knowledge & Memory | Server-side synthesis and external-ingestion layer served over MCP | Turn Orchestration | Not the per-turn context-window assembler |
 | Budget | Runtime Governance | Token Budget – aggregate daily token spend per sender | Workflow Orchestration | Per-step budget declared on a Workflow Step |
-| Type | Workflow Orchestration | Step type – workflow dispatch kind: `agent`, `bash`, `approval`, `foreach`, `loop`, `aggregate-reviews` | Task & Review | Task type – coding, research, writing, analysis, automation, custom |
+| Type | Workflow Orchestration | Step type – workflow dispatch kind: `agent`, `bash`, `approval`, `foreach`, `loop`, `aggregate-reviews` | Scheduling | Job kind – `prompt` or `task` |
 | Merge | Task & Review | `MergeExecutor` applying a task worktree to the project base branch | Workflow Orchestration | Promotion – a Story Branch merged into the Integration Branch |
 | Project | Project Registry | `Project` – the git checkout record and its clone lifecycle | Workflow Orchestration | `WorkflowDefinition.project` – the authoring field binding steps to a checkout |
 | Tool | Tool Surface | An MCP tool published to provider binaries or consumed from an external server | Provider Mediation | A Canonical Tool Taxonomy name (`shell`, `file_read`, …) |
@@ -266,16 +267,18 @@
 ## Changelog
 
 - 2026-08-25: Added Named Credential Store under `provider-mediation` for the 0.24.3 credential and secrets CLI contract.
+- 2026-08-20: Split the overloaded "health" term: Health Status is now stated as the single projection of the host Worker's lifecycle, and Provider Availability is registered beside it as the separately derived provider-mediation term, with an Overloaded Terms row demarcating the two.
 - 2026-08-17: Added the 0.24.1 knowledge-inbox wiki vocabulary under `knowledge-memory`: wiki provenance, `hybrid`, supplement section, wiki collision, consolidation debt, declared drop.
+- 2026-08-20: Recut the wiki-collision vocabulary for the merge contract: *wiki collision* now names the settled merge, *merge declaration* and *shrink floor* added, *consolidation debt* and *declared drop* removed with the surfaces that reported them.
 - 2026-08-15: Added the 0.24.2 subscription-credential vocabulary under `provider-mediation` (ADR-053): Subscription Credential, Dedicated Credential Store, Operator Login Store, Credential Mode, Credential Resolution, Credential Health State, Renewal Deadline, Codex Refresh Authority.
 - 2026-08-14: Regrouped the whole glossary onto the 15 bounded contexts registered in `dev/architecture/context-map.md` (closes D-4): the `##` section *is* the context, so the ~50 ad-hoc "Bounded Context" labels and their column are gone. Added the missing Scheduling vocabulary under `task-review` (closes D-5) and first-time coverage for `project-registry`, `tool-surface`, `operator-interface`, and `observability-alerting`. New terms elsewhere: Security Profile, Worker Capacity Gate, Session Lock, Context Monitor, Prompt Scope, Memory Role/Provenance/Observation, Temporal Knowledge Graph, Knowledge Inbox, Knowledge Hub, QMD, Platform Capabilities. Added overloads for Message, Event, Audit, Runner, Context, Budget, Merge, Project, Tool, and the channel-task Bridge. Dropped "Dependency Reversal" and "Outpost Pattern" (generic jargon; "outpost" is already an Avoid synonym for the outbound MCP client) and the degenerate Worker/Guard/Verification overload rows.
 - 2026-08-12: Retired the pre-0.24 Credential Proxy entry (redirect to Host Gateway / Container Bridge) and updated Container Isolation to the shipped 0.24 model (per-authority single-use container, `no-new-privileges`, framed bridge as the only egress path).
 - 2026-08-12: Added 0.24 execution-isolation terms – Execution Policy, Principal, Container Authority, Host Gateway, Container Bridge (`dartclaw_bridge`); extended the Bridge overloaded-term row with the container-bridge sense.
 - 2026-08-09: Replaced legacy pool terminology with Execution Coordinator, Execution Lease, and Execution Fingerprint; capacity is lease-based and independent from optional worker reuse.
 - 2026-06-12: Added 0.19 Context Engine, Turn Context Assembler, outbound MCP client, `context_research`, egress guard, and citation packet terms.
-- 2026-05-19: Added the overloaded Type row distinguishing workflow step type from DartClaw task type.
+- 2026-08-23: Retired the task-category meaning from the overloaded Type row; workflow step and scheduled-job types remain distinct.
 - 2026-04-25: Added 0.16.4 agent-resolved-merge terms (workflow git) and the Agent Skills terms Bang Operator and Env-var Injection.
-- 2026-04-17: Clarified that workflow-authored step types remain observability metadata while workflow runtime dispatch uses coding tasks plus `readOnly` for non-mutating steps.
+- 2026-08-23: Clarified that workflow-authored step types remain workflow execution metadata while task dispatch uses explicit `readOnly` and `needsWorktree` declarations.
 - 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; updated workflow ownership to `dartclaw_workflow`; added fitness function as a 0.16.3 architecture-governance term.
 - 2026-04-04: Added the Workflows section for the 0.15 milestone.
 - 2026-03-24: Reassigned thread binding, sender attribution, review commands, and runtime governance to concrete capability areas after removing the former shared bounded context.

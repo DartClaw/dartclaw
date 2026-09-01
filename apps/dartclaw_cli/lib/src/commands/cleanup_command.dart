@@ -1,13 +1,12 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart'
-    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowRunRepository, TaskDbFactory, openTaskDb;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show RuntimeArtifactsPruneReport, WorkflowRun, WorkflowRuntimeArtifactsPruner;
+    show RuntimeArtifactsPruneReport, SqliteWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
 
 import 'config_loader.dart';
 
@@ -132,7 +131,7 @@ class CleanupCommand extends Command<void> {
     _writeLine('──────────────────────────');
     _writeLine('Mode:             ${_modeSource(report.mode, modeOverride)}');
     _writeLine('Sessions:         ${report.totalSessions} total');
-    _writeLine('Disk usage:       ${_formatBytes(report.totalDiskBytes)}');
+    _writeLine('Disk usage:       ${formatByteSize(report.totalDiskBytes)}');
     _writeLine('');
 
     if (report.actions.isEmpty) {
@@ -153,7 +152,7 @@ class CleanupCommand extends Command<void> {
       }
 
       if (report.diskReclaimedBytes > 0) {
-        _writeLine('  Disk reclaimed: ${_formatBytes(report.diskReclaimedBytes)}');
+        _writeLine('  Disk reclaimed: ${formatByteSize(report.diskReclaimedBytes)}');
       }
     }
 
@@ -178,9 +177,9 @@ class CleanupCommand extends Command<void> {
       _writeLine('No runtime-artifacts to prune.');
     } else {
       _writeLine('$verb:           ${reported.length} run${reported.length == 1 ? '' : 's'}');
-      _writeLine('Disk reclaimed:   ${_formatBytes(reclaimed)}');
+      _writeLine('Disk reclaimed:   ${formatByteSize(reclaimed)}');
       for (final action in reported) {
-        _writeLine('  - ${action.runId} (${_formatBytes(action.reclaimedBytes)})');
+        _writeLine('  - ${action.runId} (${formatByteSize(action.reclaimedBytes)})');
       }
     }
 
@@ -210,11 +209,4 @@ class CleanupCommand extends Command<void> {
     }
     return counts.entries.map((e) => '${e.key}: ${e.value}').join(', ');
   }
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }

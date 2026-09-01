@@ -1,4 +1,4 @@
-// Regression tests for cancellation threading in foreach/map iteration runners.
+// Regression tests for cancellation threading in the foreach iteration runner.
 // Verifies that isCancelled is honoured before each dispatch, preventing
 // all-N-pending iterations from being processed when the flag flips early.
 @Tags(['component'])
@@ -7,7 +7,7 @@ library;
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowStep, WorkflowTaskType;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -23,10 +23,12 @@ void main() {
         const WorkflowStep(
           id: 'map-step',
           name: 'Map Step',
-          prompts: ['Process {{map.item}}'],
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'items',
           maxParallel: 1, // serial dispatch so isCancelled can intercept between items
+          foreachSteps: ['process'],
         ),
+        const WorkflowStep(id: 'process', name: 'Process', prompts: ['Process {{map.item}}']),
       ],
     );
     final run = h.makeRun(definition);

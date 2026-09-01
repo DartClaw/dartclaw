@@ -65,30 +65,33 @@ detection stays self-contained.
 
 ## Output Contract
 
-Emit `spec_path`, `spec_source`, and `spec_confidence`.
+Emit `spec_path`, `spec_source`, and `spec_confidence` as the declared outputs of the step's
+execution envelope. The runtime asks for the envelope in a separate no-tools turn and validates it against
+the step's schema; do not hand-write a tagged block into your prose.
 
 `spec_source` must be `existing` or `synthesized`. `spec_confidence` is always `0` for discovery output.
 `spec_path` must be empty unless `spec_source` is `existing`. When `spec_source` is `existing`, `spec_path`
 must be the workspace-relative normalized form of `FEATURE` — regardless of the filename that classified it.
 
-Examples:
+If a previous attempt failed, correct the named failure before returning. Only name a path for a file that
+already exists on disk — write it first, then name it.
 
-```
-<workflow-context>
+Envelope `outputs` for a reused specification:
+
+```json
 {
   "spec_path": "path/to/existing-fis.md",
   "spec_source": "existing",
   "spec_confidence": 0
 }
-</workflow-context>
 ```
 
-```
-<workflow-context>
+Envelope `outputs` when synthesis is still owed:
+
+```json
 {
   "spec_path": "",
   "spec_source": "synthesized",
   "spec_confidence": 0
 }
-</workflow-context>
 ```

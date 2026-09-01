@@ -4,6 +4,12 @@
 
 Accepted — 2026-05-30 (implemented in 0.17; recorded retroactively during the S11 milestone-documentation pass)
 
+## Amendment – 2026-08-23
+
+The one-shot Claude provider emission site described below was deleted when workflow turns moved onto the guarded
+Claude harness. `claude_code_harness.dart` and the workflow skill-preflight probe remain the live emission sites;
+workflow workers inherit the harness setting-source behavior.
+
 **Related:** [ADR-016](016-multi-provider-harness-architecture.md) (owns harness CLI-arg construction — this adds `--setting-sources` to that surface), [ADR-025](025-andthen-as-runtime-prerequisite.md) (native user-tier install scope), [ADR-026](026-skill-reference-validation-via-harness-introspection.md) (harness-introspection skill validation). Container-path isolation is governed separately by [ADR-012](012-per-type-container-isolation.md) / [ADR-015](015-container-isolation-strategy.md); this ADR concerns only the **non-container direct spawn path**. This decision is a **trust-boundary change** and is cross-referenced from `dev/architecture/security-architecture.md`.
 
 ## Context

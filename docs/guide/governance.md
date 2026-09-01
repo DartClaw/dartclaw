@@ -104,7 +104,7 @@ Each threshold can be disabled individually by setting it to `0`. When `enabled:
 - `abort` — the current turn is cancelled and a `loop_detected` alert is emitted on the SSE event stream.
 - `warn` — the agent keeps running, but the alert is still emitted so an operator can intervene.
 
-Loop detector state is in-memory and resets on server restart. Set thresholds high enough to tolerate normal agent behaviour — for example, a long-running coding task may legitimately make many similar tool calls in sequence — and tune downward only after observing the alerts in practice.
+Loop detector state is in-memory and resets on server restart. Set thresholds high enough to tolerate normal agent behaviour — for example, a long-running code-changing task may legitimately make many similar tool calls in sequence — and tune downward only after observing the alerts in practice.
 
 ## Emergency Control Commands
 

@@ -55,48 +55,6 @@ steps:
       expect(step.outputs?['verdict']?.presetName, 'verdict');
     });
 
-    test('parses and validates gatingSeverity on steps and stepDefaults', () {
-      const yaml = '''
-name: review-threshold-workflow
-description: Workflow with review thresholds
-stepDefaults:
-  - match: review-*
-    gatingSeverity: critical
-steps:
-  - id: review-explicit
-    name: Review Explicit
-    prompt: Review
-    gatingSeverity: medium
-  - id: review-defaulted
-    name: Review Defaulted
-    prompt: Review
-''';
-      final def = parser.parse(yaml);
-
-      expect(def.stepDefaults!.single.gatingSeverity, 'critical');
-      expect(def.steps.first.gatingSeverity, 'medium');
-      expect(def.steps.last.gatingSeverity, isNull);
-      expect(resolveStepConfig(def.steps.first, def.stepDefaults).gatingSeverity, 'medium');
-      expect(resolveStepConfig(def.steps.last, def.stepDefaults).gatingSeverity, 'critical');
-    });
-
-    test('rejects invalid gatingSeverity values', () {
-      expectParseFormatError(
-        stepYaml('prompt: Review\ngatingSeverity: urgent'),
-        messageContains: ['gatingSeverity', 'critical', 'high', 'medium', 'low'],
-      );
-      expectParseFormatError(
-        workflowYaml(
-          rootFields: '''
-stepDefaults:
-  - match: review-*
-    gatingSeverity: urgent''',
-          stepFields: 'prompt: Review',
-        ),
-        messageContains: ['stepDefaults.gatingSeverity', 'critical', 'high', 'medium', 'low'],
-      );
-    });
-
     test('rejects blank step and step-default providers', () {
       expectParseFormatError(stepYaml("prompt: Run\nprovider: '   '"), messageContains: ['provider', 'blank']);
       expectParseFormatError(
@@ -284,52 +242,120 @@ project:
       );
     });
 
-    test('rejects unknown root fields through the uniform field check', () {
-      expectParseFormatError(
-        workflowYaml(rootFields: 'loops: []'),
-        messageContains: ['Unknown field "loops" under workflow'],
-      );
-    });
+    // One authority rejects unknown fields — `_rejectUnknownFields` — but it
+    // labels the block it was reading, and a block whose label never appears
+    // here is a block whose parse path is unguarded. This table is the complete
+    // enumeration of the twelve labels the parser can emit. Typo keys, not keys
+    // the DSL once had: a retired key can be re-introduced, a typo cannot.
+    for (final row in const [
+      (label: 'workflow', key: 'lops', rootFields: 'lops: []', stepFields: null),
+      (label: 'Step "s"', key: 'outpts', rootFields: null, stepFields: 'prompt: p\noutpts: []'),
+      (
+        label: 'variables.FEATURE',
+        key: 'defualt',
+        rootFields: 'variables:\n  FEATURE:\n    defualt: x',
+        stepFields: null,
+      ),
+      (
+        label: 'Step "s" output "k"',
+        key: 'pathPatern',
+        rootFields: null,
+        stepFields: 'prompt: p\noutputs:\n  k:\n    format: path\n    pathPatern: x',
+      ),
+      (
+        label: 'stepDefaults "*"',
+        key: 'prompTt',
+        rootFields: 'stepDefaults:\n  - match: "*"\n    prompTt: p',
+        stepFields: null,
+      ),
+      (
+        label: 'gitStrategy',
+        key: 'integrationBrnach',
+        rootFields: 'gitStrategy:\n  integrationBrnach: true',
+        stepFields: null,
+      ),
+      (
+        label: 'gitStrategy.worktree',
+        key: 'baseReff',
+        rootFields: 'gitStrategy:\n  worktree:\n    mode: shared\n    baseReff: main',
+        stepFields: null,
+      ),
+      (
+        label: 'gitStrategy.publish',
+        key: 'enabld',
+        rootFields: 'gitStrategy:\n  publish:\n    enabld: true',
+        stepFields: null,
+      ),
+      (
+        label: 'gitStrategy.artifacts',
+        key: 'commmit',
+        rootFields: 'gitStrategy:\n  artifacts:\n    commmit: true',
+        stepFields: null,
+      ),
+      (
+        label: 'gitStrategy.cleanup',
+        key: 'branchs',
+        rootFields: 'gitStrategy:\n  cleanup:\n    enabled: true\n    branchs: false',
+        stepFields: null,
+      ),
+      (
+        label: 'Foreach "s"',
+        key: 'max_parallell',
+        rootFields: null,
+        stepFields:
+            'type: foreach\nmap_over: items\nmax_parallell: 2\nsteps:\n  - id: child\n    name: Child\n    prompt: p',
+      ),
+      (
+        label: 'Inline loop "s"',
+        key: 'exitGaate',
+        rootFields: null,
+        stepFields: 'type: loop\nmaxIterations: 2\nexitGate: never\nexitGaate: never\nsteps:\n  - id: child\n    name: Child\n    prompt: p',
+      ),
+    ]) {
+      test('the uniform field check names the ${row.label} block', () {
+        final source = row.stepFields != null
+            ? stepYaml(row.stepFields!)
+            : workflowYaml(rootFields: row.rootFields!, stepFields: 'prompt: p');
+        // One string, not three substrings: `under gitStrategy` is a prefix of
+        // four other labels, and a key/label pair from different blocks would
+        // otherwise satisfy a split assertion.
+        expectParseFormatError(
+          source,
+          // The source path rides the same message and closes it, so the one
+          // string pins the key, the block and the file together. A parse
+          // failure that cannot name the file is not actionable for an author.
+          sourcePath: 'wf.yaml',
+          messageContains: ['Unknown field "${row.key}" under ${row.label} in "wf.yaml".'],
+        );
+      });
+    }
 
-    test('rejects unknown step fields through the uniform field check', () {
-      expectParseFormatError(
-        stepYaml('prompt: p\noutpts: []'),
-        messageContains: ['Unknown field "outpts" under Step "s"'],
-      );
-    });
-
-    test('rejects unknown variable fields through the uniform field check', () {
-      expectParseFormatError(
-        workflowYaml(rootFields: 'variables:\n  FEATURE:\n    defualt: x'),
-        messageContains: ['Unknown field "defualt" under variables.FEATURE'],
-      );
-    });
-
-    test('keeps retired-documented parser-known step fields accepted', () {
+    test('every preserved authoring key still parses into its model field', () {
       final step = parseStep(parser, '''
 prompt: p
-gate: build.status == ok
 entryGate: spec_ready == true
-outputExamples:
-  - example''');
+onError: continue
+onFailure: continue
+parallel: true
+turn_timeout: 90m
+outputs:
+  prd:
+    format: path
+    pathPattern: '**/*prd.md'
+    preferPatterns: ['prd.md']''');
 
-      expect(step.gate, 'build.status == ok');
       expect(step.entryGate, 'spec_ready == true');
-      expect(step.outputExamples, ['example']);
-    });
+      expect(step.onError, OnErrorPolicy.continueWorkflow);
+      expect(step.onFailure, OnFailurePolicy.continueWorkflow);
+      expect(step.parallel, isTrue);
+      expect(step.turnTimeoutSeconds, 5400);
+      final resolver = step.outputs!['prd']!.resolverOverride;
+      expect(resolver, isA<FileSystemOutput>());
+      expect((resolver as FileSystemOutput).pathPattern, '**/*prd.md');
+      expect(resolver.preferPatterns, ['prd.md']);
 
-    test('rejects removed executionMode at workflow root', () {
-      expectParseFormatError(
-        workflowYaml(rootFields: 'executionMode: streaming'),
-        messageContains: ['Unknown field "executionMode" under workflow'],
-      );
-    });
-
-    test('rejects removed executionMode on a step', () {
-      expectParseFormatError(
-        stepYaml('prompt: p\nexecutionMode: streaming', name: 'wf'),
-        messageContains: ['Unknown field "executionMode" under Step "s"'],
-      );
+      final approval = parser.parse(stepYaml('type: approval\nprompt: Approve?')).steps.single;
+      expect(approval.taskType, WorkflowTaskType.approval);
     });
 
     test('parses inline loop authoring', () {
@@ -363,17 +389,6 @@ steps:
       // The default inline loop fixture omits the key.
       final defaulted = parser.parse(inlineLoopWorkflowYaml);
       expect(defaulted.loops.single.onMaxIterations, 'fail');
-    });
-
-    test('rejects legacy top-level loops while inline type: loop still parses', () {
-      expectParseFormatError(
-        legacyLoopsNormalizationWorkflowYaml,
-        messageContains: ['Unknown field "loops" under workflow'],
-      );
-
-      final definition = parser.parse(inlineLoopWorkflowYaml);
-      expect(definition.loops.single.id, 'remediation-loop');
-      expect(definition.nodes.whereType<LoopNode>().single.loopId, 'remediation-loop');
     });
 
     test('parses reusable gitStrategy blocks for user-authored workflows', () {
@@ -458,18 +473,6 @@ gitStrategy:
       expect(definition.gitStrategy!.integrationBranch, isTrue);
     });
 
-    test('rejects gitStrategy.finalReview with a clear removal message', () {
-      expectParseFormatError(
-        workflowYaml(
-          rootFields: '''
-gitStrategy:
-  integrationBranch: true
-  finalReview: true''',
-        ),
-        messageContains: ['Unknown field "finalReview" under gitStrategy'],
-      );
-    });
-
     for (final row in const [
       (name: 'cleanup.enabled: false', rootFields: 'gitStrategy:\n  cleanup:\n    enabled: false', enabled: false),
       (name: 'cleanup.enabled: true', rootFields: 'gitStrategy:\n  cleanup:\n    enabled: true', enabled: true),
@@ -505,70 +508,21 @@ gitStrategy:
       });
     }
 
-    test('rejects removed per-step review field', () {
-      final yaml = '''
-name: n
-description: d
-steps:
-  - id: s1
-    name: S1
-    prompt: p
-    review: always
-  - id: s2
-    name: S2
-    prompt: p
-    review: coding-only
-  - id: s3
-    name: S3
-    prompt: p
-    review: never
-''';
+    test('agent step turn_timeout parses and timeout is refused', () {
+      final step = parseStep(parser, 'prompt: p\nturn_timeout: "30m"');
+      expect(step.turnTimeoutSeconds, 1800);
       expect(
-        () => parser.parse(yaml),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('Unknown field "review" under Step "s1"'),
-          ),
-        ),
+        () => parseStep(parser, 'prompt: p\ntimeout: "30m"'),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('turn_timeout'))),
       );
     });
 
-    for (final field in const ['project', 'review']) {
-      test('rejects removed per-step $field field on inline loop controllers', () {
-        final yaml =
-            '''
-name: n
-description: d
-steps:
-  - id: lp
-    name: Loop
-    type: loop
-    maxIterations: 2
-    exitGate: never
-    $field: removed
-    steps:
-      - id: child
-        name: Child
-        prompt: p
-''';
-        expect(
-          () => parser.parse(yaml),
-          throwsA(
-            isA<FormatException>().having(
-              (e) => e.message,
-              'message',
-              contains('Unknown field "$field" under Inline loop "lp"'),
-            ),
-          ),
-        );
-      });
-    }
-
-    test('parses timeout string to seconds', () {
-      final step = parseStep(parser, 'prompt: p\ntimeout: "30m"');
-      expect(step.timeoutSeconds, 1800);
+    test('turn_timeout rejects negative values but accepts zero', () {
+      expect(parseStep(parser, 'prompt: p\nturn_timeout: 0').turnTimeoutSeconds, 0);
+      expect(
+        () => parseStep(parser, 'prompt: p\nturn_timeout: -1'),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('zero or greater'))),
+      );
     });
 
     test('parses parallel: true', () {
@@ -837,22 +791,6 @@ outputs:
         expect(config.inlineSchema!['required'], ['name']);
       });
 
-      test('parses narrative resolver alias and round-trips through json', () {
-        final config = parseStep(parser, '''
-prompt: p
-outputs:
-  story_result:
-    format: text
-    resolver: narrative
-    schema:
-      type: string''').outputs!['story_result']!;
-
-        expect(config.resolverOverride, isA<InlineOutput>());
-        final roundTripped = OutputConfig.fromJson(config.toJson());
-        expect(roundTripped.resolverOverride, isA<InlineOutput>());
-        expect(outputResolverFor('story_result', roundTripped), isA<InlineOutput>());
-      });
-
       test('object-form output infers format from schema preset', () {
         final inferred = parseStep(parser, '''
 prompt: p
@@ -871,25 +809,25 @@ outputs:
         expect(inferred.toJson(), explicit.toJson());
       });
 
-      test('parses filesystem resolver options and round-trips through json', () {
+      test('a format: path output round-trips its declared selector through json', () {
         final config = parseStep(parser, '''
 prompt: p
 outputs:
   spec_path:
     format: path
-    resolver: filesystem
     pathPattern: '**/*.md'
-    listMode: false''').outputs!['spec_path']!;
+    preferPatterns: ['spec.md']''').outputs!['spec_path']!;
 
         final resolver = config.resolverOverride;
         expect(resolver, isA<FileSystemOutput>());
         final fileSystemResolver = resolver! as FileSystemOutput;
         expect(fileSystemResolver.pathPattern, '**/*.md');
+        expect(fileSystemResolver.preferPatterns, ['spec.md']);
         expect(fileSystemResolver.listMode, isFalse);
 
         final roundTrippedResolver = OutputConfig.fromJson(config.toJson()).resolverOverride as FileSystemOutput;
         expect(roundTrippedResolver.pathPattern, '**/*.md');
-        expect(roundTrippedResolver.listMode, isFalse);
+        expect(roundTrippedResolver.preferPatterns, ['spec.md']);
       });
 
       test('format path with pathPattern infers filesystem resolver', () {
@@ -899,19 +837,11 @@ outputs:
   spec_path:
     format: path
     pathPattern: "**/*.md"''').outputs!['spec_path']!;
-        final explicit = parseStep(parser, '''
-prompt: p
-outputs:
-  spec_path:
-    format: path
-    resolver: filesystem
-    pathPattern: "**/*.md"''').outputs!['spec_path']!;
 
         final resolver = outputResolverFor('spec_path', inferred);
         expect(resolver, isA<FileSystemOutput>());
         expect((resolver as FileSystemOutput).pathPattern, '**/*.md');
         expect(resolver.matches('docs/spec.md'), isTrue);
-        expect(inferred.toJson(), explicit.toJson());
       });
 
       test('format path with preferPatterns infers filesystem resolver', () {
@@ -927,37 +857,10 @@ outputs:
         expect((resolver as FileSystemOutput).preferPatterns, ['plan.json']);
       });
 
-      test('rejects unknown fields inside resolver object maps', () {
+      test('rejects the path selector on a non-path output', () {
         expectParseFormatError(
-          stepYaml('''
-prompt: p
-outputs:
-  spec_path:
-    format: path
-    resolver:
-      kind: filesystem
-      pathPatter: "**/*.md"'''),
-          messageContains: ['Unknown field "pathPatter" under Step "s" output "spec_path" resolver'],
-        );
-        expectParseFormatError(
-          stepYaml('''
-prompt: p
-outputs:
-  spec_path:
-    format: path
-    resolver:
-      kind: filesystem
-      path_pattern: "**/*.md"'''),
-          messageContains: ['Unknown field "path_pattern" under Step "s" output "spec_path" resolver'],
-        );
-      });
-
-      test('rejects filesystem resolver options on non-filesystem resolvers', () {
-        expectParseFormatError(
-          stepYaml(
-            'prompt: p\noutputs:\n  result:\n    format: text\n    resolver: narrative\n    pathPattern: "**/*.md"',
-          ),
-          messageContains: ['pathPattern/listMode', 'resolver: filesystem'],
+          stepYaml('prompt: p\noutputs:\n  result:\n    format: text\n    pathPattern: "**/*.md"'),
+          messageContains: ['pathPattern/preferPatterns', 'format: path'],
         );
       });
 
@@ -985,113 +888,7 @@ outputs:
         expect(parseStep(parser, 'prompt: p').outputs, isNull);
       });
 
-      test('parses outputExamples as string list', () {
-        final examples = parseStep(parser, '''
-prompt: p
-outputExamples:
-  - |
-    <workflow-context>
-    {"prd":"docs/prd.md"}
-    </workflow-context>
-  - |
-    <workflow-context>
-    {"prd":""}
-    </workflow-context>''').outputExamples;
-        expect(examples, hasLength(2));
-        expect(examples![0], contains('{"prd":"docs/prd.md"}'));
-        expect(examples[1], contains('{"prd":""}'));
-      });
-
-      test('rejects non-list outputExamples', () {
-        expectParseFormatError(stepYaml('prompt: p\noutputExamples: nope'), messageContains: ['outputExamples']);
-      });
-
-      test('rejects non-string outputExamples entries', () {
-        expectParseFormatError(stepYaml('prompt: p\noutputExamples:\n  - 42'), messageContains: ['outputExamples']);
-      });
-
-      group('setValue parsing', () {
-        test('absent setValue leaves hasSetValue false', () {
-          final config = parseStep(parser, 'prompt: p\noutputs:\n  k:\n    format: text').outputs!['k']!;
-          expect(config.hasSetValue, isFalse);
-          expect(config.setValue, isNull);
-        });
-
-        test('setValue: null is parsed as explicit null', () {
-          final config = parseStep(
-            parser,
-            'prompt: p\noutputs:\n  k:\n    format: text\n    setValue: null',
-          ).outputs!['k']!;
-          expect(config.hasSetValue, isTrue);
-          expect(config.setValue, isNull);
-        });
-
-        test('setValue parses string, number, bool literals', () {
-          const yaml = '''
-name: n
-description: d
-steps:
-  - id: a
-    name: A
-    prompt: p
-    outputs:
-      k:
-        format: text
-        setValue: "literal"
-  - id: b
-    name: B
-    prompt: p
-    outputs:
-      k:
-        format: text
-        setValue: 42
-  - id: c
-    name: C
-    prompt: p
-    outputs:
-      k:
-        format: text
-        setValue: true
-''';
-          final def = parser.parse(yaml);
-          expect(def.steps[0].outputs!['k']!.setValue, 'literal');
-          expect(def.steps[1].outputs!['k']!.setValue, 42);
-          expect(def.steps[2].outputs!['k']!.setValue, true);
-        });
-
-        test('setValue parses list and map literals deeply', () {
-          const yaml = '''
-name: n
-description: d
-steps:
-  - id: a
-    name: A
-    prompt: p
-    outputs:
-      k:
-        format: text
-        setValue: [a, b, c]
-  - id: b
-    name: B
-    prompt: p
-    outputs:
-      k:
-        format: text
-        setValue:
-          nested:
-            inner: value
-          list:
-            - 1
-            - 2
-''';
-          final def = parser.parse(yaml);
-          final listValue = def.steps[0].outputs!['k']!.setValue;
-          expect(listValue, ['a', 'b', 'c']);
-          final mapValue = def.steps[1].outputs!['k']!.setValue as Map;
-          expect(mapValue['nested'], {'inner': 'value'});
-          expect(mapValue['list'], [1, 2]);
-        });
-
+      group('outputs parsing', () {
         test('outputs-only step derives outputKeys from outputs.keys', () {
           final step = parseStep(parser, '''
 prompt: p
@@ -1104,78 +901,10 @@ outputs:
           expect(step.outputKeys.toSet(), {'summary', 'count'});
         });
 
-        test('parser throws FormatException on legacy contextInputs: with migration message', () {
-          for (final row in const [
-            (
-              stepId: 's',
-              stepName: 'S',
-              fields: 'prompt: p\ncontextInputs: [foo]',
-              messageContains: ['Unknown field "contextInputs" under Step "s"'],
-            ),
-            (
-              stepId: 'ctrl',
-              stepName: 'Controller',
-              fields: '''
-type: foreach
-map_over: items
-contextInputs: [foo]
-steps:
-  - id: child
-    name: Child
-    prompt: p''',
-              messageContains: ['Unknown field "contextInputs" under Foreach "ctrl"'],
-            ),
-            (
-              stepId: 'lp',
-              stepName: 'Loop',
-              fields: '''
-type: loop
-maxIterations: 2
-exitGate: never
-contextInputs: [foo]
-steps:
-  - id: child
-    name: Child
-    prompt: p''',
-              messageContains: ['Unknown field "contextInputs" under Inline loop "lp"'],
-            ),
-          ]) {
-            expectParseFormatError(
-              stepYaml(row.fields, stepId: row.stepId, stepName: row.stepName),
-              messageContains: row.messageContains,
-            );
-          }
-        });
-
-        test('rejects removed per-step extraction field', () {
-          expectParseFormatError(
-            stepYaml('''
-prompt: p
-extraction:
-  type: artifact
-  path: output.txt'''),
-            messageContains: ['Unknown field "extraction" under Step "s"'],
-          );
-        });
-
-        test('parser throws on contextOutputs through uniform field check', () {
-          final yaml = stepYaml('prompt: p\ncontextOutputs: [foo]', name: 'wf');
-          expect(
-            () => parser.parse(yaml),
-            throwsA(
-              isA<FormatException>().having(
-                (e) => e.message,
-                'message',
-                contains('Unknown field "contextOutputs" under Step "s"'),
-              ),
-            ),
-          );
-        });
-
         test('unknown field error takes precedence over malformed outputs', () {
           final yaml = stepYaml('''
 prompt: p
-contextOutputs: [summary]
+outpts: [summary]
 outputs:
   summary:
     format: nope''');
@@ -1185,7 +914,7 @@ outputs:
               isA<FormatException>().having(
                 (e) => e.message,
                 'message',
-                allOf(contains('Unknown field "contextOutputs" under Step "s"'), isNot(contains('unknown format'))),
+                allOf(contains('Unknown field "outpts" under Step "s"'), isNot(contains('unknown format'))),
               ),
             ),
           );
@@ -1195,17 +924,6 @@ outputs:
           final step = parseStep(parser, 'prompt: p');
           expect(step.outputs, isNull);
           expect(step.outputKeys, isEmpty);
-        });
-
-        test('set_value snake_case alias parses identically to setValue', () {
-          final config = parseStep(parser, '''
-prompt: p
-outputs:
-  k:
-    format: text
-    set_value: "alias-form"''').outputs!['k']!;
-          expect(config.hasSetValue, isTrue);
-          expect(config.setValue, 'alias-form');
         });
       });
     });
@@ -1245,8 +963,7 @@ prompt:
 stepDefaults:
   - match: "review*"
     model: claude-opus-4
-    maxTokens: 8000
-    timeout_seconds: 900
+    turn_timeout: 900
   - match: "*"
     provider: claude''',
       );
@@ -1255,8 +972,7 @@ stepDefaults:
       expect(def.stepDefaults!.length, 2);
       expect(def.stepDefaults![0].match, 'review*');
       expect(def.stepDefaults![0].model, 'claude-opus-4');
-      expect(def.stepDefaults![0].maxTokens, 8000);
-      expect(def.stepDefaults![0].timeoutSeconds, 900);
+      expect(def.stepDefaults![0].turnTimeoutSeconds, 900);
       expect(def.stepDefaults![1].match, '*');
       expect(def.stepDefaults![1].provider, 'claude');
     });
@@ -1264,6 +980,39 @@ stepDefaults:
     test('parses without stepDefaults (backward compat)', () {
       final def = parser.parse(minimalWorkflowYaml);
       expect(def.stepDefaults, isNull);
+    });
+
+    test('stepDefaults turn_timeout accepts durations and zero but rejects negative values', () {
+      final durationDefinition = parser.parse(
+        workflowYaml(stepFields: 'prompt: p', tailFields: 'stepDefaults:\n  - match: "*"\n    turn_timeout: 90m'),
+      );
+      expect(durationDefinition.stepDefaults!.single.turnTimeoutSeconds, 5400);
+
+      final definition = parser.parse(
+        workflowYaml(stepFields: 'prompt: p', tailFields: 'stepDefaults:\n  - match: "*"\n    turn_timeout: 0'),
+      );
+      expect(definition.stepDefaults!.single.turnTimeoutSeconds, 0);
+      expectParseFormatError(
+        workflowYaml(stepFields: 'prompt: p', tailFields: 'stepDefaults:\n  - match: "*"\n    turn_timeout: -1'),
+        messageContains: const ['zero or greater'],
+      );
+    });
+
+    test('stepDefaults timeout matching an agent names turn_timeout', () {
+      final definition = parser.parse(
+        workflowYaml(stepFields: 'prompt: p', tailFields: 'stepDefaults:\n  - match: "*"\n    timeout: 60'),
+      );
+
+      final errors = WorkflowDefinitionValidator().validate(definition).errors;
+
+      expect(
+        errors,
+        contains(
+          isA<WorkflowValidationError>()
+              .having((error) => error.type, 'type', WorkflowValidationErrorType.hybridStepConstraint)
+              .having((error) => error.message, 'message', contains('use turn_timeout')),
+        ),
+      );
     });
 
     test('throws FormatException when stepDefaults is not a list', () {
@@ -1277,18 +1026,6 @@ stepDefaults:
       );
     });
 
-    test('rejects stepDefaults maxCostUsd through the uniform field check', () {
-      expectParseFormatError(
-        workflowYaml(
-          tailFields: '''
-stepDefaults:
-  - match: "*"
-    maxCostUsd: 2.5''',
-        ),
-        messageContains: const ['Unknown field "maxCostUsd" under stepDefaults "*"'],
-      );
-    });
-
     test('throws FormatException when stepDefaults entry missing match field', () {
       expectParseFormatError(
         workflowYaml(
@@ -1296,15 +1033,6 @@ stepDefaults:
 stepDefaults:
   - model: claude-opus-4''',
         ),
-      );
-    });
-  });
-
-  group('step maxCostUsd rejection (S01)', () {
-    test('rejects step maxCostUsd through the uniform field check', () {
-      expectParseFormatError(
-        stepYaml('prompt: p\nmaxCostUsd: 2.0'),
-        messageContains: const ['Unknown field "maxCostUsd" under Step "s"'],
       );
     });
   });
@@ -1350,61 +1078,6 @@ stepDefaults:
       expect(step.isMapStep, isFalse);
     });
 
-    test('parses `as:` loop variable name on a map step', () {
-      final step = parseStep(parser, "prompt: 'Implement {{story.item.spec_path}}'\nmap_over: story_specs\nas: story");
-      expect(step.mapAlias, 'story');
-    });
-
-    test('parses camelCase alias `mapAlias:` as the same field', () {
-      expect(parseStep(parser, 'prompt: p\nmap_over: items\nmapAlias: thing').mapAlias, 'thing');
-    });
-
-    test('absent `as:` defaults to null (legacy `map.*` only)', () {
-      expect(parseStep(parser, 'prompt: p\nmap_over: items').mapAlias, isNull);
-    });
-
-    // Invalid/reserved `as:` values on a map step all reject; the two positive
-    // false-positive guards (single-letter `m`, `map_foo`) are kept explicit below.
-    for (final aliasValue in const ['"has-hyphen"', 'map', 'context', 'workflow', '""', '"   "', '42']) {
-      test('rejects invalid/reserved `as: $aliasValue` on a map step', () {
-        expectParseFormatError(stepYaml('prompt: p\nmap_over: items\nas: $aliasValue'));
-      });
-    }
-
-    test('reserved `as: workflow` names the reservation in the message', () {
-      expectParseFormatError(
-        stepYaml('prompt: p\nmap_over: items\nas: workflow'),
-        messageContains: const ['is reserved'],
-      );
-    });
-
-    test('parses `as:` on an inline `type: foreach` controller', () {
-      final def = parser.parse(inlineForeachAsWorkflowYaml);
-      final controller = def.steps.firstWhere((s) => s.id == 'story-pipeline');
-      expect(controller.mapAlias, 'story');
-      expect(controller.isForeachController, isTrue);
-    });
-
-    test('parses `mapAlias:` camelCase alias on inline foreach', () {
-      final def = parser.parse(inlineForeachMapAliasWorkflowYaml);
-      final controller = def.steps.firstWhere((s) => s.id == 'fe');
-      expect(controller.mapAlias, 'thing');
-    });
-
-    test('rejects reserved `as: context` on inline foreach', () {
-      expect(() => parser.parse(inlineForeachReservedContextWorkflowYaml), throwsFormatException);
-    });
-
-    test('accepts single-letter `as: m` (substring of reserved "map")', () {
-      final def = parser.parse(mapAliasSingleLetterWorkflowYaml);
-      expect(def.steps[0].mapAlias, 'm');
-    });
-
-    test('accepts `as: map_foo` (starts with "map" but not a dotted map ref)', () {
-      final def = parser.parse(mapAliasPrefixedWorkflowYaml);
-      expect(def.steps[0].mapAlias, 'map_foo');
-    });
-
     for (final testCase in [
       (value: '4', expected: 4, matcher: isA<int>()),
       (value: '"unlimited"', expected: 'unlimited', matcher: isA<String>()),
@@ -1428,15 +1101,8 @@ stepDefaults:
       expectParseFormatError(stepYaml('prompt: p\nmap_over: items\nmax_parallel:\n  nested: bad'));
     });
 
-    // Numeric-bound rejections share the "positive integer" message across both
-    // fields and values (incl. max_items explicit null on plain + foreach steps).
-    for (final (field, value) in const [
-      ('max_parallel', '0'),
-      ('max_parallel', '-2'),
-      ('max_items', '0'),
-      ('max_items', '-1'),
-      ('max_items', 'null'),
-    ]) {
+    // Numeric-bound rejections share the "positive integer" message.
+    for (final (field, value) in const [('max_parallel', '0'), ('max_parallel', '-2')]) {
       test('$field: $value throws FormatException naming positive integer', () {
         expectParseFormatError(
           stepYaml('prompt: p\nmap_over: items\n$field: $value'),
@@ -1444,18 +1110,6 @@ stepDefaults:
         );
       });
     }
-
-    for (final testCase in const [('max_items', 50), ('maxItems', 10)]) {
-      test('parses ${testCase.$1}', () {
-        final step = parseStep(parser, 'prompt: p\nmap_over: items\n${testCase.$1}: ${testCase.$2}');
-        expect(step.maxItems, testCase.$2);
-      });
-    }
-
-    test('max_items absent -> uncapped', () {
-      final step = parseStep(parser, 'prompt: p\nmap_over: items');
-      expect(step.maxItems, isNull);
-    });
 
     test('isMapStep true when map_over set', () {
       final step = parseStep(parser, 'prompt: p\nmap_over: results');
@@ -1539,11 +1193,11 @@ steps:
     }
 
     test('timeoutSeconds alias parses correctly', () {
-      expect(parseStep(parser, 'prompt: p\ntimeoutSeconds: 45').timeoutSeconds, 45);
+      expect(parseStep(parser, 'type: bash\nscript: echo ok\ntimeoutSeconds: 45').timeoutSeconds, 45);
     });
 
     test('timeout_seconds alias parses correctly', () {
-      expect(parseStep(parser, 'prompt: p\ntimeout_seconds: 45').timeoutSeconds, 45);
+      expect(parseStep(parser, 'type: bash\nscript: echo ok\ntimeout_seconds: 45').timeoutSeconds, 45);
     });
 
     test('hybrid bash step with all new fields', () {
@@ -1657,7 +1311,7 @@ steps:
       expect(foreachNode.childStepIds, ['implement', 'validate', 'review']);
     });
 
-    test('foreach with max_parallel and max_items parses correctly', () {
+    test('foreach parses max_parallel', () {
       const yaml = '''
 name: n
 description: d
@@ -1667,30 +1321,13 @@ steps:
     type: foreach
     map_over: items
     max_parallel: 2
-    max_items: 50
     steps:
       - id: child
         name: Child
         prompt: Process {{map.item}}
 ''';
       final def = parser.parse(yaml);
-      final controller = def.steps[0];
-      expect(controller.maxParallel, 2);
-      expect(controller.maxItems, 50);
-    });
-
-    test('foreach max_items explicit null throws FormatException', () {
-      expectParseFormatError(
-        stepYaml('''
-type: foreach
-map_over: items
-max_items: null
-steps:
-  - id: child
-    name: Child
-    prompt: Process {{map.item}}'''),
-        messageContains: const ['positive integer'],
-      );
+      expect(def.steps[0].maxParallel, 2);
     });
 
     for (final testCase in const [
@@ -1813,72 +1450,22 @@ steps:
       expect(def.steps[1].entryGate, 'prd_source == synthesized');
     });
 
-    test('parses gitStrategy.artifacts + externalArtifactMount', () {
-      final def = parser.parse(gitArtifactsExternalMountWorkflowYaml);
+    test('parses gitStrategy.artifacts', () {
+      final def = parser.parse(gitArtifactsWorkflowYaml);
       final artifacts = def.gitStrategy!.artifacts!;
       expect(artifacts.commit, isTrue);
       expect(artifacts.commitMessage, 'chore(workflow): artifacts for run {{runId}}');
       expect(artifacts.project, '{{DOC_PROJECT}}');
-      final mount = def.gitStrategy!.externalArtifactMount!;
-      expect(mount.mode, WorkflowExternalArtifactMountMode.perStoryCopy);
-      expect(mount.fromProject, '{{DOC_PROJECT}}');
-      expect(mount.source, '{{map.item.spec_path}}');
-      expect(def.toJson()['gitStrategy']['worktree']['externalArtifactMount']['mode'], 'per-story-copy');
+      expect(def.gitStrategy!.worktree!.mode, WorkflowGitWorktreeMode.perMapItem);
     });
 
-    test('parses bind-mount externalArtifactMount with unchanged JSON', () {
-      final def = parser.parse(bindMountExternalArtifactWorkflowYaml);
-      final mount = def.gitStrategy!.externalArtifactMount!;
-      expect(mount.mode, WorkflowExternalArtifactMountMode.bindMount);
-      expect(mount.source, '/tmp/artifacts');
-      expect(mount.toPath, '.andthen/artifacts');
-      expect(def.toJson()['gitStrategy']['worktree']['externalArtifactMount']['mode'], 'bind-mount');
-    });
-
-    test('rejects unknown externalArtifactMount mode', () {
-      expect(
-        () => parser.parse(badExternalArtifactMountWorkflowYaml, sourcePath: 'bad-mount.yaml'),
-        throwsA(
-          isA<FormatException>().having(
-            (error) => error.message,
-            'message',
-            allOf(
-              contains('gitStrategy.worktree.externalArtifactMount.mode'),
-              contains('symlink'),
-              contains('per-story-copy'),
-              contains('bind-mount'),
-              contains('bad-mount.yaml'),
-            ),
-          ),
-        ),
-      );
-    });
-
-    test('rejects legacy flat externalArtifactMount through the uniform field check', () {
-      const yaml = '''
-name: n
-description: d
-gitStrategy:
-  worktree: per-map-item
-  externalArtifactMount:
-    mode: per-story-copy
-    fromProject: DOC
-    source: '{{map.item.spec_path}}'
-steps:
-  - id: s
-    name: S
-    prompt: p
-''';
-      expect(
-        () => parser.parse(yaml),
-        throwsA(
-          isA<FormatException>().having(
-            (error) => error.message,
-            'message',
-            contains('Unknown field "externalArtifactMount" under gitStrategy'),
-          ),
-        ),
-      );
+    test('both surviving gitStrategy.worktree forms still parse', () {
+      const stepsBlock = 'steps:\n  - id: s\n    name: S\n    prompt: p\n';
+      for (final worktree in const ['worktree: per-map-item', 'worktree:\n    mode: per-map-item']) {
+        final def = parser.parse('name: n\ndescription: d\ngitStrategy:\n  $worktree\n$stepsBlock');
+        expect(def.gitStrategy!.worktree!.mode, WorkflowGitWorktreeMode.perMapItem);
+        expect(def.gitStrategy!.worktree!.toJsonValue(), 'per-map-item');
+      }
     });
 
     test('rejects unknown worktree mode with field context', () {

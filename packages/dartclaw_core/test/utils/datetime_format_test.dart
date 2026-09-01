@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
+import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime, tryParseIsoInstant;
 import 'package:test/test.dart';
 
 void main() {
@@ -41,6 +41,39 @@ void main() {
 
     test('returns an unparseable non-empty string verbatim', () {
       expect(formatLocalDateTime('not-a-date'), 'not-a-date');
+    });
+  });
+
+  group('tryParseIsoInstant', () {
+    test('reads a bare date as that day in UTC', () {
+      expect(tryParseIsoInstant('2026-08-19'), DateTime.utc(2026, 8, 19));
+    });
+
+    test('reads offset-bearing timestamps as the same instant regardless of spelling', () {
+      expect(tryParseIsoInstant('2026-08-19T10:00:00Z'), DateTime.utc(2026, 8, 19, 10));
+      expect(tryParseIsoInstant('2026-08-19 10:00:00+02:00'), DateTime.utc(2026, 8, 19, 8));
+    });
+
+    test('rejects a calendar-invalid date rather than rolling it forward', () {
+      // DateTime.utc(2026, 2, 30) silently becomes 2026-03-02; the caller's
+      // quarantine contract depends on that being a rejection, not a value.
+      expect(tryParseIsoInstant('2026-02-30'), isNull);
+      expect(tryParseIsoInstant('2026-13-01'), isNull);
+    });
+
+    test('rejects out-of-range time fields and an invalid offset', () {
+      expect(tryParseIsoInstant('2026-08-19T25:00:00Z'), isNull);
+      expect(tryParseIsoInstant('2026-08-19T10:61:00Z'), isNull);
+      expect(tryParseIsoInstant('2026-08-19T10:00:00+25:00'), isNull);
+    });
+
+    test('rejects a timestamp that names no offset', () {
+      expect(tryParseIsoInstant('2026-08-19T10:00:00'), isNull);
+    });
+
+    test('rejects text that is not a date at all', () {
+      expect(tryParseIsoInstant('yesterday'), isNull);
+      expect(tryParseIsoInstant(''), isNull);
     });
   });
 }

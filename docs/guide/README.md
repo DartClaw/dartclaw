@@ -19,7 +19,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
 | [Workspace](workspace.md) | Behavior files (SOUL.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md), prompt assembly, git sync |
-| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, input sanitizer, content guard |
+| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, content guard |
 
 ## Features
 
@@ -28,12 +28,13 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Agents](agents.md) | Providers (Claude, Codex, ACP), logical-agent sessions, worker capacity, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, explicit memory curation |
-| [Tasks](tasks.md) | Task lifecycle, review workflow, coding tasks, worktrees |
+| [Tasks](tasks.md) | Task lifecycle, review workflow, declared worktrees |
 | [Governance](governance.md) | Admin senders, rate limits, daily token budgets, loop detection, and the `/stop` / `/pause` / `/resume` emergency controls |
 | [Workflows](workflows.md) | Writing custom workflows, progressive refinement, trigger surfaces (chat, web forms, GitHub PR webhook), YAML field reference, built-in workflows |
 | [AndThen Skills](andthen-skills.md) | Canonical `andthen:<name>` workflow references, provider aliases, and DartClaw-native skill provisioning |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
 | [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |
+| [Context Engine Mode](context-engine.md) | Sharing the knowledge surface read-only over `/mcp` with named client tokens |
 
 ## Channels
 

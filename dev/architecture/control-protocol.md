@@ -2,7 +2,8 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.24 worker-capacity execution architecture
+**Current through**: 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+provider-session threading, and capacity-only lane retirement
 
 ---
 
@@ -13,23 +14,20 @@ DartClaw communicates with provider binaries over bidirectional subprocess proto
 | Dimension | Claude Code protocol | Codex JSON-RPC JSONL protocol | ACP stdio JSON-RPC protocol |
 |---|---|---|---|
 | Wire format | Ad-hoc JSONL messages over stdin/stdout | JSON-RPC 2.0-like messages over stdin/stdout, serialized as JSONL | JSON-RPC 2.0 over subprocess stdio |
-| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start`, and `turn/start`; Codex streams notifications and approval requests back | `AcpHarness` drives ACP session methods; direct agents may make host reverse-calls for filesystem operations |
+| Direction | DartClaw sends turn and control requests; the binary streams events, control requests, and results back | DartClaw sends `initialize`, `initialized`, `thread/start` or `thread/resume`, and `turn/start`; Codex streams notifications and approval requests back | `AcpHarness` drives ACP session methods; direct agents may make host reverse-calls for filesystem operations |
 | Lifecycle | Spawn `claude`, initialize once, then send user turns against the long-lived process | Spawn `codex app-server`, complete `initialize`/`initialized`, create a thread, then send turns against that thread | Spawn configured ACP binary such as `goose acp` or `vibe-acp`, initialize once, then route turns through `AcpClient` |
 | Streaming | `content_block_delta`, assistant/tool blocks, and `compact_boundary` compaction markers | `item/agentMessage/delta`, `item/started`, `item/completed`, `turn/completed`, `turn/failed` | ACP session updates adapted into DartClaw bridge events by `AcpProtocolAdapter` |
 | Tool approval | `control_request` plus hook callbacks (`can_use_tool`, `PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`) | JSON-RPC approval requests from server to client; DartClaw evaluates guards and replies allow/deny | Handler-level reverse-calls route through `GuardChain.evaluateBeforeToolCall(...)` before host file or terminal actions |
-| Session continuity | DartClaw owns persistence and replay; a pooled process restarts when its logical session changes | DartClaw also owns continuity; cached thread IDs are cleared on crash and history is replayed into a new thread | Each turn opens a fresh ACP session and injects bounded persisted history; relay and unverified topologies require a container boundary DartClaw cannot mediate and are unavailable |
+| Session continuity | DartClaw-owned replay is the default; an explicit provider-session request enables persistent Claude storage and cross-process `--resume` | DartClaw-owned replay is the default; durable system or dedicated homes can explicitly use `thread/resume` across app-server processes | Each turn opens a fresh ACP session and injects bounded persisted history; provider-session resume is refused |
 
-### Workflow One-Shot Exception
+### Workflow bounded-turn path
 
-Workflow-owned bounded agent steps now always use the one-shot execution path. In that mode, DartClaw still owns the task row, workflow state, session transcript, budget checks, and structured-output persistence, but the provider binary is invoked directly per workflow prompt (`claude -p` / `codex exec`) instead of reusing the interactive app-server/stream-json subprocess.
+Workflow-owned agent steps lease a coordinator worker and run their complete bounded prompt chain through that worker's guarded `TurnRunner`. DartClaw retains ownership of the task row, workflow state, session transcript, budget checks, structured-output persistence, cancellation, and progress monitoring. There is no separate provider-CLI execution stack.
 
-This is intentionally a workflow-only exception:
-
-- The one-shot remains inside the common post-governance execution authority. It acquires a capacity-only lease from the selected provider's `pool_size`, runs the direct CLI process, then releases the lease. It never enters the reusable harness cache.
-- Main-agent user and channel turns use the fixed serialized primary-interactive lane. Cron/system jobs, advisor turns, ordinary tasks, and logical-agent turns use provider worker capacity and may use compatible long-lived harnesses.
-- Workflow YAML step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`); the workflow runtime dispatches every workflow step through the coding-task path and expresses write intent through `readOnly` (set on the task config when `step_config_policy.stepIsReadOnly()` holds).
-- `format: json` with `schema` defaults to native structured output. The heuristic JSON parser is retained only as a post-failure fallback.
-- **One-shot stdout is streamed, not buffered** – and this is load-bearing for operability, not cosmetic. Both providers emit incremental NDJSON on stdout for the duration of the turn: `claude -p --output-format stream-json --verbose --include-partial-messages` (the terminal `type: "result"` event carries the result text, `session_id`, cost, and the `usage.{input_tokens,output_tokens,cache_read_input_tokens,cache_creation_input_tokens}` counts) and `codex exec --json`. The CLI stall monitor (FR00/TD-062) resets its silence timer on each stdout line, so the older buffered single-object mode (`claude -p --output-format json`, which emits one object only at completion) starved it of any liveness signal and false-tripped on every turn longer than `governance.turn_progress.stall_timeout` – even while the provider was actively working. Streaming restores the per-line liveness that keeps stall detection meaningful for long claude turns (e.g. the opus review council).
+- Main-agent user and channel turns use the fixed serialized primary-interactive lane. Cron/system jobs, ordinary tasks, logical-agent turns, and workflow steps use provider worker capacity.
+- Workflow YAML step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`); the workflow runtime dispatches every workflow step through the task execution path and expresses write intent through `readOnly` (set on the task config when `step_config_policy.stepIsReadOnly()` holds).
+- `format: json` with `schema` has **two enforcement modes, and the step declares neither** — the provider decides. Where the protocol returns typed structured output, the schema is forwarded and the provider enforces it; Claude is that case. Where it does not — Codex app-server has no typed validated readback — the schema is **withheld** from the harness, so nothing claims enforcement it lacks, and the finalizer envelope carries the structure instead: the prompt declares one JSON object, the runner reads the reply body as that object, and `SchemaValidator` validates it host-side, with one retry and then `missing_envelope` / `malformed_envelope`. Reading the declared object is not prose parsing — there is one shape, one decode, no fallback strategy and no repair.
+- The main prompt, follow-ups, envelope finalizer, and retry reserve turns on the same worker. Provider protocol streaming supplies the liveness events used by turn-progress governance.
 
 ### Execution allocation boundary
 
@@ -93,7 +91,7 @@ claude --print \
        --output-format stream-json \
        --verbose \
        --include-partial-messages \
-       --no-session-persistence \
+       [--no-session-persistence | --resume <provider-session-id>] \
        --dangerously-skip-permissions \      # default; replaced by the permission flags below per the matrix
        [--permission-mode <mode>] \
        [--permission-prompt-tool stdio] \
@@ -102,7 +100,8 @@ claude --print \
        --model opus[1m] \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
-       [--mcp-config <path>]
+       [--mcp-config <path>] \
+       [--json-schema <json>]
 ```
 
 | Flag | Purpose |
@@ -112,16 +111,18 @@ claude --print \
 | `--output-format stream-json` | Emit JSONL on stdout |
 | `--verbose` | Include all stream events (not just final result) |
 | `--include-partial-messages` | Emit `assistant` messages with partial tool blocks |
-| `--no-session-persistence` | Disable the binary's own session storage; DartClaw manages persistence |
+| `--no-session-persistence` | Disable the binary's own session storage; emitted on ordinary turns where DartClaw manages persistence, but omitted when a turn requests provider-session resume |
+| `--resume <provider-session-id>` | Resume a persistent Claude session; emitted only for an explicit provider-session id and paired with persistence enabled |
 | `--dangerously-skip-permissions` | Disable Claude's native permission gate (which assumes an interactive TTY); DartClaw's own guard chain, `disallowedTools`, and container isolation are the real enforcement boundary. **Default** – emitted when no `permissionMode` is configured and the profile is not `restricted`. See the permission-flag matrix below |
 | `--permission-mode <mode>` | Emitted only when `providers.claude.options.permissionMode` is set, to one of Claude's canonical modes (`acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`) |
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL `can_use_tool` channel (not an interactive TTY). Emitted only when native permissions are *not* skipped – the `restricted` container profile, or a non-`bypassPermissions`/`dontAsk` `permissionMode`. **Not** emitted in the default config |
 | `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--settings <json>` | Inline settings JSON (sandbox / permissions allow-deny). Emitted only when the provider's `sandbox`/`permissions`/`settings` options are present |
-| `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessConfig` |
-| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessConfig`) |
+| `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
+| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessLaunchOptions`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
 | `--mcp-config` | Path to ephemeral MCP config file pointing at DartClaw's internal MCP server |
+| `--json-schema` | Inline JSON Schema the CLI enforces on the turn's final output, emitted only when `turn(outputSchema: ...)` supplies one. Process-level, so a changed schema joins the desired-state comparison and restarts the process – **dropping** the schema restarts too, and every restart re-injects the bounded `<conversation_history>` replay, so alternating schema-bearing and schema-free turns pays two restarts and two replays per pair |
 
 #### Permission-flag selection
 
@@ -152,7 +153,7 @@ These are stripped before spawning. The parent environment is otherwise inherite
 
 ### Claude settings sources
 
-Direct host-side Claude spawns omit `--setting-sources` by default. Claude's default is to load user, project, and local settings, which makes user-scope plugins, skills, agents, commands, and MCP configuration visible to spawned sessions and workflow one-shots. Set `providers.claude.inherit_user_settings: false` to restore the previous project-only posture; DartClaw then passes `--setting-sources project` before `--model` on long-lived harness spawns and before prompt execution on the workflow one-shot path. Containerized Claude spawns do not use this flag because the container provides the isolation boundary.
+Direct host-side Claude harness spawns omit `--setting-sources` by default. Claude's default is to load user, project, and local settings, which makes user-scope plugins, skills, agents, commands, and MCP configuration visible to interactive and workflow workers. Set `providers.claude.inherit_user_settings: false` to restore the previous project-only posture; DartClaw then passes `--setting-sources project` before `--model` on every direct harness spawn. Containerized Claude spawns do not use this flag because the container provides the isolation boundary.
 
 ### Containerized spawning
 
@@ -225,9 +226,9 @@ Key fields in the `request` object:
 | Field | Source | Description |
 |---|---|---|
 | `hooks` | Hardcoded | Unfiltered `PreToolUse` (30s, all built-ins and dynamic MCP tools), `PostToolUse` (10s, audit), `PermissionDenied` (10s, audit), and `PreCompact` (10s, compaction signal) |
-| `disallowedTools` | `HarnessConfig.disallowedTools` | Tool blocklist enforced by the binary |
-| `maxTurns` | `HarnessConfig.maxTurns` | Safety cap on agentic loops |
-| `model` | `HarnessConfig.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
+| `disallowedTools` | `HarnessLaunchOptions.disallowedTools` | Tool blocklist enforced by the binary |
+| `maxTurns` | `HarnessLaunchOptions.maxTurns` | Safety cap on agentic loops |
+| `model` | `HarnessLaunchOptions.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
 | `sdkMcpServers` | Fallback only | In-protocol MCP tools (used when no HTTP MCP server is configured) |
 
 **claude → Dart:**
@@ -515,7 +516,10 @@ Signals the end of a turn with cost and token metadata.
 }
 ```
 
-Parsed into `TurnResult(stopReason, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`. Completes the pending `_turnCompleter` future, ending the `turn()` call.
+A turn spawned with `--json-schema` additionally carries `structured_output` (the payload the CLI validated against the
+schema) and, when validation never succeeded, `subtype: "error_max_structured_output_retries"`.
+
+Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
 
 ---
 
@@ -532,8 +536,9 @@ ClaudeMessage (sealed)
 ├── ToolUseBlock        – name, id, input
 ├── ToolResultBlock     – toolId, output, isError
 ├── ControlRequest      – requestId, subtype, data
-└── TurnResult          – stopReason, costUsd, durationMs, inputTokens, outputTokens,
-                          cacheReadInputTokens, cacheCreationInputTokens
+└── TerminalResult      – stopReason, subtype, structuredOutput, costUsd, durationMs,
+                          inputTokens, outputTokens, cacheReadInputTokens,
+                          cacheCreationInputTokens
 ```
 
 Parsing is done by `parseJsonlLine(String line)` which returns `ClaudeMessage?` – `null` for malformed JSON, unknown types, or irrelevant lifecycle events.
@@ -552,7 +557,7 @@ BridgeEvent (sealed)
 └── CompactionCompletedBridgeEvent  – Codex `contextCompaction` completed
 ```
 
-`ControlRequest` and `TurnResult` are handled internally by the harness and never forwarded to consumers. `ToolUseEvent` and `ToolResultEvent` are also used internally for `ToolCallRecord` correlation (see [Enriched Turn Data Extraction](#7-enriched-turn-data-extraction)).
+`ControlRequest` and `TerminalResult` are handled internally by the harness and never forwarded to consumers. `ToolUseEvent` and `ToolResultEvent` are also used internally for `ToolCallRecord` correlation (see [Enriched Turn Data Extraction](#7-enriched-turn-data-extraction)).
 
 ---
 
@@ -567,14 +572,14 @@ User (Web/Channel/Cron/Task)
 TurnManager.startTurn(sessionId, messages) → reserveTurn(sessionId)
   │ same-session reservations run one at a time, in arrival order
   │ (per-session SessionMutationCoordinator chain; see session-state-architecture § 6)
-  │ (TaskExecutor and the advisor skip this box and call the coordinator directly)
+  │ (TaskExecutor skips this box and calls the coordinator directly)
   ▼
 ExecutionCoordinator.acquire(request)
   │ admission: TurnGovernanceEnforcer checks (budget, loop, rate limit),
   │            then ① acquire session lock (SessionLockManager)
   │ fixed primary lease for main user/channel turns
-  │ provider worker lease for cron/system/advisor/task/logical-agent turns
-  ├─ capacity-only provider lease ──► WorkflowCliRunner (workflow one-shots)
+  │ provider worker lease for cron/system/task/logical-agent turns
+  ├─ provider worker lease ──► WorkflowOneShotRunner (bounded workflow prompt chain)
   │
   │ runner-backed lease
   ▼
@@ -601,7 +606,7 @@ _runTurn()
   │   └─ SystemInitEvent → context-window update only (not counted as progress)
   │
   ▼
-AgentHarness.turn(sessionId, messages, systemPrompt, agentId?, directory?, model?, effort?)
+AgentHarness.turn(sessionId, messages, systemPrompt, agentId?, providerSessionId?, requestProviderSessionResume?, ...)
   │
   │ ⑦ Reconcile provider-specific persona, working directory, model, and effort state
   │   └─ Claude restarts once when its spawn-time desired state changes
@@ -624,7 +629,7 @@ claude binary (internal processing)
   │    │                                  + credential stripping
   │    └─ PostToolUse ─────────────────► GuardAuditLogger.logPostToolUse()
   │ ── assistant (tool_result) ────────► ToolResultEvent
-  │ ── result ─────────────────────────► TurnResult → complete turnCompleter
+  │ ── result ─────────────────────────► TerminalResult → complete turnCompleter
   │
   ▼
 Back in _runTurn()
@@ -638,27 +643,26 @@ Back in _runTurn()
   │ ⑯ Post-turn guard: GuardChain.evaluateBeforeAgentSend()
   │   └─ block → insert "[Response blocked by guard: ...]" → return failed
   │
-  │ ⑰ Apply ExplorationSummarizer (type-aware summary or ResultTrimmer fallback)
-  │ ⑱ Apply MessageRedactor to the persisted summary (proportional content redaction)
-  │ ⑲ Persist assistant message to MessageService
-  │ ⑳ Append redacted main/user/channel tool-using turns to daily log (YYYY-MM-DD.md)
+  │ ⑰ Apply MessageRedactor to the assistant reply (proportional content redaction)
+  │ ⑱ Persist assistant message to MessageService
+  │ ⑲ Append redacted main/user/channel tool-using turns to daily log (YYYY-MM-DD.md)
   │
-  │ ㉑ If ContextMonitor.shouldFlushForCompactionSignal(...): run pre-compaction flush turn
+  │ ⑳ If ContextMonitor.shouldFlushForCompactionSignal(...): run pre-compaction flush turn
   │
   ▼
 Finally block
-  │ ㉒ Remove active turn from _activeTurns
-  │ ㉓ Release session lock
-  │ ㉔ Delete turn-state row from TurnStateStore
-  │ ㉕ Cache TurnOutcome (TTL: 30s)
-  │ ㉖ Complete _outcomePending completer
-  │ ㉗ Release the execution lease; cache, dispose, or quarantine the worker
+  │ ㉑ Remove active turn from _activeTurns
+  │ ㉒ Release session lock
+  │ ㉓ Delete turn-state row from TurnStateStore
+  │ ㉔ Cache TurnOutcome (TTL: 30s)
+  │ ㉕ Complete _outcomePending completer
+  │ ㉖ Release the execution lease; cache, dispose, or quarantine the worker
   ▼
-TurnOutcome { turnId, sessionId, status, responseText?, inputTokens, outputTokens,
-              turnDuration, cacheReadTokens, cacheWriteTokens, toolCalls }
+TurnOutcome { turnId, sessionId, status, responseText?, structuredOutput?, providerSessionId?,
+              inputTokens, outputTokens, turnDuration, cacheReadTokens, cacheWriteTokens, toolCalls }
 ```
 
-When a stall timer is configured, the monitor starts immediately before `AgentHarness.turn()` and stops in the `finally` block with the rest of turn cleanup. Stall actions are intentionally narrow:
+When a stall budget is enabled, `TurnLivenessTracker` starts immediately before `AgentHarness.turn()` and stops in the `finally` block with the rest of turn cleanup. Stall actions are intentionally narrow:
 - `warn` logs and emits SSE `turn_progress_stall`
 - `cancel` emits the same event and aborts the active turn
 - `ignore` logs only
@@ -679,7 +683,7 @@ stopped ──start()──► idle ──turn()──► busy ──result─�
 
 ## 7. Enriched Turn Data Extraction
 
-`TurnRunner._runTurnInner()` collects richer data from the turn stream beyond the final `TurnResult` message. This enrichment is transparent to consumers – they receive the final `TurnOutcome` with all fields populated.
+`TurnRunner._runTurnInner()` collects richer data from the turn stream beyond the final `TurnResult`. This enrichment is transparent to consumers – they receive the final `TurnOutcome` with all fields populated.
 
 ### ToolCallRecord Capture
 
@@ -718,7 +722,9 @@ TurnOutcome
 ├── turnDuration: Duration        – wall-clock elapsed via Stopwatch
 ├── cacheReadTokens: int          – normalized by ProtocolAdapter
 ├── cacheWriteTokens: int         – normalized by ProtocolAdapter
-└── toolCalls: List<ToolCallRecord> – correlated from stream events
+├── toolCalls: List<ToolCallRecord> – correlated from stream events
+├── structuredOutput: Map<String, dynamic>? – completed provider payload after output guards pass
+└── providerSessionId: String?    – provider-reported identity; absent when unreported or guard-blocked
 ```
 
 At runner settlement, `ExecutionCoordinator` forwards the enriched outcome to `RunnerObserver`; `TurnTraceService` and
@@ -761,7 +767,7 @@ claude binary
         │     Fail-closed: guard exceptions → block verdict.
         │     5-second timeout per guard.
         │
-        │   Guard types: CommandGuard, FileGuard, InputSanitizer, etc.
+        │   Guard types: CommandGuard, FileGuard, NetworkGuard, etc.
         │   Verdicts: pass / warn / block
         │
         ├─► If block → deny response (hookSpecificOutput.permissionDecision: "deny")
@@ -800,33 +806,74 @@ abstract class AgentHarness {
   Stream<BridgeEvent> get events;      // persistent broadcast stream
 
   Future<void> start();
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     String? agentId,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
   });
+  bool get supportsProviderSessionResume; // defaults to false on the contract
+  bool get supportsStructuredOutput;    // defaults to false on the contract
   Future<void> cancel();
   Future<void> stop();
   Future<void> dispose();
 }
 ```
 
+`turn()` returns a typed `TurnResult` (`stopReason`, `error`, `costUsd`, `sessionTitle`, `providerSessionId`, `structuredOutput`, and
+non-nullable `inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`, plus `isError`/`isCancelled`
+predicates). The field set is the union every consumer reads, so a provider that cannot supply a value must still name
+it — a key one harness never emits is a compile error rather than a silent zero.
+
+#### Provider-session resume is explicit and durability-gated
+
+`providerSessionId` resumes a provider-owned conversation, while `requestProviderSessionResume` bootstraps or continues
+a session whose id can be used by a later process. Supplying an id implies the request. A harness whose
+`supportsProviderSessionResume` is false refuses either input before provider work, and `TurnResult.providerSessionId`
+is non-null only when the provider state outlives the current process. Claude supports the contract by enabling session
+persistence and using `--resume`. Codex supports it only with a resolved system or dedicated `CODEX_HOME`; isolated and
+container auth-clean homes are non-durable. ACP refuses it. DartClaw-owned history replay remains the default when neither
+input is supplied.
+
+#### Structured output is per-provider, and refused by name where it is unavailable
+
+`outputSchema` is an opaque JSON Schema the provider must enforce; the payload comes back on
+`TurnResult.structuredOutput` and the harness never judges, repairs, or scrapes it. `supportsStructuredOutput` defaults
+to `false` on the contract, and `AgentHarness.requireStructuredOutputSupport(...)` — called at the entry of every
+`turn()` — throws `UnsupportedHarnessCapabilityException` naming the provider and the capability before any provider
+work happens. An unenforceable schema therefore fails loudly instead of being dropped into a result the caller cannot
+distinguish from an enforced one.
+
+The refusal is a **call each implementation makes**, not a shape the type system imposes: `turn()` is not sealed, so a
+harness adopting the contract with `implements` inherits no body and could omit it. What makes it a guarantee rather
+than a convention is `dev/fitness/test/structured_output_refusal_test.dart`, which fails the build on any concrete
+harness in any workspace member's `lib/` that declares fewer refusal calls than harnesses. Sealing `turn()` behind a
+`performTurn()` hook is the structural alternative; it reverses this section's stated decision and breaks every
+`implements` adopter, so it needs an ADR rather than a refactor.
+
+| Harness | `supportsStructuredOutput` | Channel |
+|---|---|---|
+| `ClaudeCodeHarness` | `true` | `--json-schema` spawn flag; payload on the terminal `result` event's `structured_output`. Process-level, so a changed schema restarts the process |
+| `CodexHarness` | `false` | `turn/start` accepts an `outputSchema` param, but the app server returns the final assistant message as plain `text` with no field distinguishing a schema-validated payload from ordinary prose. Recovering it would mean parsing that text, which is a heuristic rather than enforcement evidence, so support is not claimed |
+| `AcpHarness` | `false` | ACP's `session/prompt` has no output-schema field at all |
+
 ### Concrete implementations
 
-Three concrete implementations exist today:
+Three concrete implementations exist today. `dartclaw_core` owns Claude and Codex; `dartclaw_acp` owns ACP and registers it through the generic factory seam:
 
 - `ClaudeCodeHarness` – Claude Code JSONL protocol (primary, default)
 - `CodexHarness` – Codex JSON-RPC app-server protocol (see [Codex JSON-RPC Protocol](#codex-json-rpc-protocol))
 - `AcpHarness` – ACP stdio JSON-RPC protocol for configured ACP agents such as Goose and Vibe
 
-`HarnessFactory` creates provider-specific instances from `HarnessConfig` and ACP registration entries. `ExecutionCoordinator` owns post-governance allocation; reusable runners are only its opportunistic process cache. Each provider identity has worker capacity from `providers.<id>.pool_size`. Logical-agent sessions acquire an exact provider lease and never use the primary-interactive lane. ACP agent registration controls spawn and security classification, not custom capacity. Provider selection changes the factory/adapter used by wiring, never orchestration semantics.
+`HarnessFactory` creates built-in instances and accepts generic registrations. `AcpHarnessRegistrar` in `dartclaw_acp` contributes ACP entries without a server-side ACP branch. `ExecutionCoordinator` owns post-governance allocation; reusable runners are only its opportunistic process cache. Each provider identity has worker capacity from `providers.<id>.pool_size`. Logical-agent sessions acquire an exact provider lease and never use the primary-interactive lane. ACP agent registration controls spawn and security classification, not custom capacity. Provider selection changes the factory/adapter used by wiring, never orchestration semantics.
 
 #### ClaudeCodeHarness
 
@@ -842,12 +889,12 @@ Key behavioral properties:
 | Event stream | Broadcast `StreamController` – survives process restarts |
 | Session isolation | Restarts when a pooled worker changes DartClaw session; cold turns replay bounded persisted history |
 
-### HarnessConfig
+### HarnessLaunchOptions
 
 Configuration forwarded in the initialize handshake:
 
 ```dart
-class HarnessConfig {
+class HarnessLaunchOptions {
   final List<String> disallowedTools;  // Tool blocklist
   final int? maxTurns;                 // Safety cap
   final String? model;                 // Model selection (supports [1m] suffix)
@@ -860,7 +907,7 @@ class HarnessConfig {
 
 #### AcpHarness
 
-`AcpHarness` wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, and required built-ins. Its container fields (`container_isolation_required`, `container_profile`) are inputs to the startup compatibility computation, not a runnable placement — see below. Missing `topology` defaults to `unverified`. Every turn creates and closes a provider session, so DartClaw injects bounded replay-safe history before the current message rather than relying on provider-side continuity.
+`AcpHarness`, its config DTOs/parser, validation and registration live in `dartclaw_acp`. It wraps an ACP agent subprocess using stdio JSON-RPC. The configured `harness.acp.agents.<id>` entry supplies the binary, args, topology, model provider, verification evidence, and required built-ins. Its container fields (`container_isolation_required`, `container_profile`) are inputs to the startup compatibility computation, not a runnable placement — see below. Missing `topology` defaults to `unverified`. Every turn creates and closes a provider session, so DartClaw injects bounded replay-safe history before the current message rather than relying on provider-side continuity.
 
 Only direct-provider ACP agents that advertise and honor host `fs` capabilities can be classified as guard-mediated. Goose direct-provider targets require the `developer` extension, a direct model provider selector, and verification evidence when guard mediation is required; known proxy selectors such as `claude-acp` and `codex-acp` are rejected as direct-provider claims. Vibe must prove the declared provider is non-proxy or pass startup verification before DartClaw marks it guard-mediated.
 
@@ -880,7 +927,7 @@ DartClaw does not advertise `terminal.create` and rejects all ACP terminal lifec
 
 ### Per-turn execution changes
 
-The harness contract supports per-turn persona, working directory, model, and effort overrides. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes. Codex applies persona/model/effort to its session thread. ACP prepends the persona to the prompt and ignores model/effort overrides.
+The harness contract supports per-turn persona, working directory, model, effort, output-schema, and provider-session inputs. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes — the output schema and provider-session id included, since both are spawn flags. That cost is symmetric: adding or dropping either input is a change, and each restart re-injects the bounded history replay. Codex applies persona/model/effort to its session thread, uses `thread/resume` for an explicit durable provider session, and refuses an output schema. ACP prepends the persona to the prompt, ignores model/effort overrides, and refuses output-schema and provider-session inputs.
 
 ```
 turn(directory: "/worktrees/task-42")
@@ -956,9 +1003,14 @@ abstract interface class McpTool {
   String get name;
   String get description;
   Map<String, dynamic> get inputSchema;
+  McpToolAccess get access; // read | write — required, no default
   Future<ToolResult> call(Map<String, dynamic> args);
 }
 ```
+
+`access` is undefaulted so a new tool cannot omit the read/write answer a consumer partitioning the tool surface
+depends on. Dispatch itself is guarded and audited once for every registered tool — see
+[Security Architecture](security-architecture.md#guard-chain) — so a tool carries no guard plumbing of its own.
 
 The MCP router (`mcp_router.dart`) handles bearer or exact-loopback request validation, content-type validation, payload size limits (1 MB), and exact loopback origin checking for browser clients.
 
@@ -989,11 +1041,14 @@ Startup uses a two-step handshake:
 1. DartClaw sends `initialize`.
 2. Codex responds, then DartClaw sends `initialized`.
 
-Only after that does DartClaw create or resume a thread with `thread/start`. The first turn for a session creates a thread; later turns reuse the cached thread ID for that DartClaw session.
+Only after that does DartClaw create a thread with `thread/start`, or load an explicitly requested durable thread with
+`thread/resume {"threadId": "…"}`. The first ordinary turn for a session creates a thread; later turns reuse its cached ID.
 
 ### Turn lifecycle
 
-Each turn is issued with `turn/start` on the active thread. DartClaw passes the current user message plus its own replayed history, so Codex sees a deterministic, DartClaw-owned conversation history rather than depending on Codex session persistence.
+Each turn is issued with `turn/start` on the active thread. By default DartClaw passes the current user message plus its
+own replayed history. An explicit provider-session id instead loads the rollout from a durable system or dedicated
+`CODEX_HOME`; a missing rollout fails the turn and never falls back to `thread/start`.
 
 When the app-server exits unexpectedly, DartClaw clears the cached thread IDs, restarts the process with backoff, re-runs the handshake, creates a fresh thread, and replays the saved history into the next `turn/start` request.
 
@@ -1004,12 +1059,13 @@ Codex emits turn and item notifications over stdout. DartClaw parses and maps th
 | Codex notification | DartClaw handling |
 |---|---|
 | `turn/started` | Lifecycle marker; ignored by the protocol adapter |
-| `item/agentMessage/delta` | `DeltaEvent` for incremental text streaming |
+| `item/agentMessage/delta` | `DeltaEvent` for incremental text streaming. Carries an `itemId`: a turn that completes several agent messages interleaves their deltas on one stream, so the accumulation is a display artefact, never the answer |
 | `item/started` (`contextCompaction`) | `CompactionStartingBridgeEvent` |
 | `item/started` (tool item) | `ToolUseEvent` for typed tool items such as `commandExecution`, `fileChange`, `mcpToolCall`, and `webSearch` (legacy snake-case aliases remain accepted) |
 | `item/completed` (`contextCompaction`) | `CompactionCompletedBridgeEvent` |
 | `item/completed` (tool item / agent message) | `ToolResultEvent` for completed tool items and final agent messages |
-| `turn/completed` | Completes the pending turn with usage metadata |
+| `turn/completed` | Completes the pending turn. Carries **no usage** at codex-cli 0.146.0 — its params are `threadId` and `turn` — and its `turn.items` carry each completed item's authoritative text, which is what the turn's response is read from for `phase: final_answer` agent messages rather than the accumulated deltas |
+| `thread/tokenUsage/updated` | The turn's usage. `tokenUsage.last` is this turn's, `tokenUsage.total` the thread's running sum; `inputTokens` includes `cachedInputTokens`, normalised to the fresh-input convention on arrival. Held until the `turn/completed` it precedes |
 | `turn/failed` | Completes the pending turn with an error stop reason |
 
 This is the Codex path implemented by `CodexProtocolAdapter`. The adapter also accepts the v0.118.0 `ClientResponse` envelope variants while preserving the same `SystemInit` and thread-id extraction behavior.
@@ -1059,7 +1115,7 @@ that inherited posture is not verifiable, serve warns whenever tool-restricted a
 
 Codex guard enforcement covers only operations for which app-server emits an approval request. `on-request` provides
 the broadest available interception, but provider-safe operations may still execute without a host callback. A missing
-or unrecognized approval response can hold the provider turn until DartClaw's `worker_timeout`; server requests
+or unrecognized approval response can hold the provider turn until DartClaw's `governance.turn_limits.turn_timeout`; server requests
 therefore always receive a terminal fail-closed response when guard evaluation fails or the requested authority is
 unsupported.
 
@@ -1071,10 +1127,11 @@ Codex app-server is treated as ephemeral. If the process exits unexpectedly, Dar
 2. Marks the worker crashed and applies the normal exponential backoff restart policy.
 3. Spawns a fresh `codex app-server`.
 4. Repeats `initialize` / `initialized`.
-5. Creates a new thread.
+5. Creates a new thread for the default replay mode. A caller that explicitly supplies a durable provider-session id uses `thread/resume` instead.
 6. Replays DartClaw-owned history from the NDJSON message store into the next `turn/start` request via `previous_response_items`.
 
-This keeps continuity under DartClaw's control and avoids depending on provider-managed session storage after a crash.
+This keeps ordinary continuity under DartClaw's control. Provider-managed resume is an explicit alternative and is
+advertised only when the resolved `CODEX_HOME` outlives the worker process.
 
 ## 11. Execution Coordination and Harness Reuse
 
@@ -1091,15 +1148,14 @@ ExecutionCoordinator
   ├── primary-interactive gate (fixed capacity 1)
   │     └── main-agent user + channel turns
   └── provider worker gates (`providers.<id>.pool_size` each)
-        ├── worker: cron/system jobs, advisor, tasks, logical agents
-        └── capacity-only: workflow one-shot provider invocations
+        └── worker: cron/system jobs, tasks, logical agents, workflow steps
 ```
 
-The primary-interactive lane is fixed, serialized, and tied to the configured primary provider. It is outside `pool_size`. Worker and capacity-only requests consume one lease from the selected provider. Ordinary worker surfaces may queue; nested logical-agent requests fail fast to avoid waiting on a slot held by their caller.
+The primary-interactive lane is fixed, serialized, and tied to the configured primary provider. It is outside `pool_size`. Worker requests consume one lease from the selected provider. Ordinary worker surfaces may queue; nested logical-agent requests fail fast to avoid waiting on a slot held by their caller.
 
 ### Capacity is not a process count
 
-`providers.<id>.pool_size` is a hard ceiling on concurrent worker and capacity-only executions for that provider. Idle cached harnesses consume no lease. A capacity-only one-shot has a lease but no `TurnRunner`. Container count and container lifetime do not affect the limit.
+`providers.<id>.pool_size` is a hard ceiling on concurrent worker executions for that provider. Workflow steps use single-use workers, while idle cached harnesses consume no lease. Container count and container lifetime do not affect the limit.
 
 The coordinator returns an idempotent `ExecutionLease`. The lease is released exactly once on every success, failure, cancellation, or setup-error path. Its active set is the source of truth for runtime busy/free/current-work observability.
 
@@ -1149,7 +1205,7 @@ Caller cancellation does not yet cascade to a `sessions_spawn` or `sessions_send
 
 Per-harness turn execution engine. Each `TurnRunner` wraps a single `AgentHarness` and encapsulates the full turn lifecycle: guard evaluation, message persistence, event streaming, cost tracking, and crash recovery.
 
-The same bridge-event stream also drives progress-aware stall detection. `TurnRunner._runTurnInner()` starts a `TurnProgressMonitor` when `governance.turn_progress.stall_timeout > 0` and resets it only on forward-progress events (`DeltaEvent`, `ToolUseEvent`, `ToolResultEvent`). Those same events also call `SessionResetService.touchActivity(sessionId)`, so long-running turns keep the session alive based on actual harness activity rather than wall-clock turn age.
+The same bridge-event stream drives one `TurnLivenessTracker` per turn. It resets stall accounting only on forward-progress events (`DeltaEvent`, `ToolUseEvent`, `ToolResultEvent`), while the wall-clock turn budget never resets. A known tool-approval wait suspends stall accounting until the decision resolves. Those progress events also call `SessionResetService.touchActivity(sessionId)`, so long-running turns keep the session alive based on actual harness activity rather than wall-clock turn age.
 
 **Key state:**
 
@@ -1159,8 +1215,7 @@ The same bridge-event stream also drives progress-aware stall detection. `TurnRu
 | `_cancelledTurns` | `Set<String>` | Turn IDs that have been cancelled |
 | `_recentOutcomes` | `Map<String, (TurnOutcome, DateTime)>` | TTL-cached outcomes (default 30s) |
 | `_outcomePending` | `Map<String, Completer<TurnOutcome>>` | Pending outcome waiters |
-| `_stallTimeout` | `Duration` | Silent-turn threshold from `governance.turn_progress.stall_timeout` (`Duration.zero` disables monitoring) |
-| `_stallAction` | `TurnProgressAction` | Stall policy: `warn`, `cancel`, or `ignore` |
+| `_turnLimits` | `TurnLimitsConfig` | Stall and wall-clock budgets from `governance.turn_limits`; zero disables the corresponding limit |
 | `profileId` | `String` | Security profile (e.g., `workspace`, `restricted`) |
 
 **Reserve → Execute → Complete lifecycle:**
@@ -1178,25 +1233,21 @@ waitForOutcome(sessionId, turnId) → TurnOutcome
 
 This two-phase design (reserve + execute) allows the caller to insert pre-execution work (e.g., persisting the user message) between reservation and execution.
 
+`TurnRunner` is the single enforcement site for interactive, logical-agent, task, and workflow turns. An agent workflow step may override the wall-clock budget with `turn_timeout`; otherwise it inherits `governance.turn_limits.turn_timeout`. Harness deadlines are crash backstops derived from the effective turn budget, not a second operator-facing limit.
+
 ---
 
-## 13. Container Dispatch
+## 13. Task Container Placement
 
-Task types are routed to different security profiles via `resolveProfile()`:
+The task lane defaults to `workspace`; an authenticated operator
+may declare `securityProfile: workspace|restricted` on `POST /api/tasks`. The profile is persisted in task
+configuration and passed to the one execution-policy resolver. Channel and model-facing creation seams cannot carry
+the declaration, and the retired `research` category is refused rather than widened.
 
-```dart
-String resolveProfile(TaskType taskType) {
-  return switch (taskType) {
-    TaskType.research => 'restricted',
-    _ => 'workspace',
-  };
-}
-```
-
-| Task type | Profile | Container characteristics |
+| Declaration | Profile | Container characteristics |
 |---|---|---|
-| `coding`, `writing`, `general` | `workspace` | Full workspace mount at `/project`, read-write access |
-| `research` | `restricted` | No workspace mount, no project filesystem access |
+| omitted or `workspace` | `workspace` | Full workspace mount at `/project`, read-write access |
+| `restricted` | `restricted` | No workspace mount, no project filesystem access |
 
 The caller resolves the provider-neutral security profile, then submits it as part of an `ExecutionRequest`. Provider identity is data; only provider composition/wiring selects the concrete adapter or factory.
 
@@ -1356,17 +1407,17 @@ Inbound messages from all channels (WhatsApp, Signal, Google Chat) flow through 
 | Step | Check | Condition | Outcome |
 |---|---|---|---|
 | 0 | Reserved commands | Handler returns non-null | Consumed – no further processing |
-| 1 | Thread binding | `features.thread_binding.enabled` + matching binding | Enqueued to bound task session, returns `true` |
-| 2 | Per-sender rate limit | Rate limit exceeded (non-admin, non-reserved, non-review) | Rejected with rate-limit message, returns `true` |
-| 3 | Review commands | `/accept`, `/reject`, `/push back` | Dispatched to task review handler, returns `true` |
-| 4 | Task trigger | Trigger keyword in message text | Task created and acknowledgement sent, returns `true` |
+| 1 | Thread-binding lookup | Matching binding | Captures bound task/session context |
+| 2 | Per-sender rate limit | Rate limit exceeded (non-admin, non-reserved) | Rejected with rate-limit message, returns `true` |
+| 3 | Bound-thread routing | Matching binding and enqueue callback | Enqueued to bound task session, returns `true` |
 | – | Fall-through | None of the above | Returns `false` – normal session routing via queue |
 
 When `tryHandle()` returns `false`, the message is enqueued with the derived session key as normal.
 
 ### Thread Binding
 
-Thread binding enables per-task conversation threads in Google Chat Spaces. When `features.thread_binding.enabled` is `true`:
+Thread binding enables per-task conversation threads in Google Chat Spaces. It is opt-in through
+`features.thread_binding.enabled`; when disabled, the runtime does not create the binding store or wire binding behavior:
 
 **Outbound – binding creation**: `TaskNotificationSubscriber` posts the initial task notification (queued→running) to a new Google Chat thread using `threadKey = "task-{taskId}"`. The REST client returns the server-assigned `thread.name`. `TaskNotificationSubscriber` calls `ThreadBindingStore.create()` to map the thread to the task's session.
 
@@ -1416,13 +1467,16 @@ The lowest-level transport is implemented in `ndjson_channel.dart`:
 ```dart
 StreamChannel<String> ndjsonChannel(
   Stream<List<int>> input,
-  StreamSink<List<int>> output,
-)
+  StreamSink<List<int>> output, {
+  void Function(Object error)? onStreamError,
+})
 ```
 
 **Input pipeline**: `bytes → utf8.decode → LineSplitter → filter empty → String events`
 
 **Output pipeline**: `String → append '\n' → utf8.encode → bytes`
+
+`onStreamError`, when supplied, takes ownership of every input error – notably the `FormatException` `utf8.decoder` raises on a byte it cannot decode, including the partial multi-byte sequence a dying writer leaves behind – so nothing downstream sees it. The error does not end the stream: `handleError` consumes it and the stream runs on until the input ends. `AcpClient` passes it through so `AcpHarness` can treat an undecodable agent stdout as a provider fault; without it the error reaches the `json_rpc_2.Peer`, which parks it on the `listen()` future nothing awaits until close.
 
 `ClaudeCodeHarness` does not use `ndjsonChannel` directly – it manages the stdin/stdout streams inline for tighter control over the process lifecycle. The `ndjsonChannel` utility exists for the bridge abstraction layer and testing.
 
@@ -1454,28 +1508,30 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart` | `ClaudeCodeHarness` – all JSONL handling, spawn, lifecycle |
 | `packages/dartclaw_core/lib/src/harness/claude_protocol.dart` | `ClaudeMessage` sealed hierarchy + `parseJsonlLine()` |
 | `packages/dartclaw_core/lib/src/harness/agent_harness.dart` | `AgentHarness` abstract interface |
-| `packages/dartclaw_core/lib/src/harness/harness_config.dart` | `HarnessConfig` – initialize handshake fields |
+| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – initialize handshake fields |
 | `packages/dartclaw_core/lib/src/harness/tool_policy.dart` | `ToolApprovalPolicy`, response builders |
 | `packages/dartclaw_core/lib/src/harness/mcp_tool.dart` | `McpTool` interface |
 | `packages/dartclaw_core/lib/src/harness/tool_result.dart` | `ToolResult` sealed class |
 | `packages/dartclaw_core/lib/src/bridge/bridge_events.dart` | `BridgeEvent` sealed hierarchy |
-| `packages/dartclaw_core/lib/src/bridge/ndjson_channel.dart` | NDJSON transport utility |
+| `packages/dartclaw_acp/lib/src/ndjson_channel.dart` | ACP NDJSON transport utility |
+| `packages/dartclaw_acp/lib/src/acp_harness.dart` | `AcpHarness` – ACP lifecycle and turns |
+| `packages/dartclaw_acp/lib/src/acp_protocol_adapter.dart` | ACP session updates to core bridge events |
+| `packages/dartclaw_acp/lib/src/acp_harness_registrar.dart` | ACP config composition and generic runtime registration |
 | `packages/dartclaw_core/lib/src/security/guard.dart` | `Guard`, `GuardChain` |
 | `packages/dartclaw_core/lib/src/security/guard_audit.dart` | `GuardAuditLogger`, `GuardAuditSubscriber` |
-| `packages/dartclaw_server/lib/src/container/container_manager.dart` | `ContainerManager` – Docker lifecycle |
-| `packages/dartclaw_server/lib/src/container/container_dispatcher.dart` | `resolveProfile()` – task type → security profile |
-| `packages/dartclaw_server/lib/src/turn_manager.dart` | `TurnManager` – orchestration wrapper |
-| `packages/dartclaw_server/lib/src/turn_runner.dart` | `TurnRunner` – per-harness turn execution |
-| `packages/dartclaw_server/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, provider/profile reuse, quarantine, lease snapshots |
-| `packages/dartclaw_server/lib/src/worker_capacity_gate.dart` | Hard per-provider execution-capacity permits |
-| `packages/dartclaw_server/lib/src/mcp/mcp_server.dart` | `McpProtocolHandler` – JSON-RPC 2.0 handler |
-| `packages/dartclaw_server/lib/src/mcp/mcp_router.dart` | `/mcp` shelf route with auth/validation |
-| `packages/dartclaw_server/lib/src/task/task_executor.dart` | `TaskExecutor` – coordinator-aware task dispatch |
-| `packages/dartclaw_server/lib/src/container/container_health_monitor.dart` | Container health polling |
+| `packages/dartclaw_runtime/lib/src/container/container_manager.dart` | `ContainerManager` – Docker lifecycle |
+| `packages/dartclaw_runtime/lib/src/turn_manager.dart` | `TurnManager` – orchestration wrapper |
+| `packages/dartclaw_runtime/lib/src/turn_runner.dart` | `TurnRunner` – per-harness turn execution |
+| `packages/dartclaw_runtime/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, provider/profile reuse, quarantine, lease snapshots |
+| `packages/dartclaw_runtime/lib/src/worker_capacity_gate.dart` | Hard per-provider execution-capacity permits |
+| `packages/dartclaw_runtime/lib/src/mcp/mcp_server.dart` | `McpProtocolHandler` – JSON-RPC 2.0 handler |
+| `packages/dartclaw_runtime/lib/src/mcp/mcp_router.dart` | `/mcp` shelf route with auth/validation |
+| `packages/dartclaw_runtime/lib/src/task/task_executor.dart` | `TaskExecutor` – coordinator-aware task dispatch |
+| `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart` | Container health polling |
 | `packages/dartclaw_core/lib/src/channel/channel_manager.dart` | `ChannelManager` – inbound routing entry point |
 | `packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart` | `ChannelTaskBridge` – routing precedence logic |
 | `packages/dartclaw_core/lib/src/channel/thread_binding.dart` | `ThreadBinding`, `ThreadBindingStore`, `extractThreadId` |
-| `packages/dartclaw_server/lib/src/task/task_notification_subscriber.dart` | Thread binding auto-creation on task notifications |
+| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart` | Thread binding auto-creation on task notifications |
 
 ### External references
 

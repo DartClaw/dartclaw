@@ -62,20 +62,20 @@ class ResolvedStepConfig {
   final String? provider;
   final String? model;
   final String? effort;
-  final String? gatingSeverity;
   final int? maxTokens;
   final int? maxRetries;
   final int? timeoutSeconds;
+  final int? turnTimeoutSeconds;
   final List<String>? allowedTools;
 
   const new({
     this.provider,
     this.model,
     this.effort,
-    this.gatingSeverity,
     this.maxTokens,
     this.maxRetries,
     this.timeoutSeconds,
+    this.turnTimeoutSeconds,
     this.allowedTools,
   });
 }
@@ -121,10 +121,10 @@ ResolvedStepConfig resolveStepConfig(
     provider: provider,
     model: model,
     effort: effort,
-    gatingSeverity: step.gatingSeverity ?? matched?.gatingSeverity,
-    maxTokens: step.maxTokens ?? matched?.maxTokens,
+    maxTokens: step.maxTokens,
     maxRetries: step.maxRetries ?? matched?.maxRetries,
     timeoutSeconds: step.timeoutSeconds ?? matched?.timeoutSeconds,
+    turnTimeoutSeconds: step.turnTimeoutSeconds ?? matched?.turnTimeoutSeconds,
     allowedTools: step.allowedTools ?? matched?.allowedTools,
   );
 }

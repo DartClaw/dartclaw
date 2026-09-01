@@ -1,0 +1,373 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_google_chat/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGoogleJwtVerifier;
+import 'package:shelf/shelf.dart';
+import 'package:test/test.dart';
+
+Map<String, dynamic> _payload({
+  String type = 'MESSAGE',
+  String? text = 'Hello agent',
+  String senderType = 'HUMAN',
+  String senderName = 'users/123',
+  String userName = 'users/123',
+  String userDisplayName = 'Alice',
+  String spaceType = 'DM',
+  String spaceName = 'spaces/AAAA',
+  List<Map<String, dynamic>> annotations = const [],
+}) {
+  return {
+    'type': type,
+    'space': {'name': spaceName, 'type': spaceType, 'displayName': 'Primary'},
+    'message': {
+      'name': '$spaceName/messages/BBBB',
+      'sender': {'name': senderName, 'type': senderType},
+      'text': text,
+      'annotations': annotations,
+    },
+    'user': {'name': userName, 'displayName': userDisplayName, 'type': 'HUMAN'},
+  };
+}
+
+Map<String, dynamic> _payloadWithSpace(Map<String, dynamic> space) {
+  return {
+    'type': 'MESSAGE',
+    'space': space,
+    'message': {
+      'name': '${space['name']}/messages/BBBB',
+      'sender': {'name': 'users/123', 'type': 'HUMAN'},
+      'text': 'Hello agent',
+      'annotations': const <Map<String, dynamic>>[],
+    },
+    'user': {'name': 'users/123', 'displayName': 'Alice', 'type': 'HUMAN'},
+  };
+}
+
+Future<Response> _post(GoogleChatWebhookHandler handler, {required Object body}) {
+  return handler.handle(
+    Request(
+      'POST',
+      Uri.parse('http://localhost/integrations/googlechat'),
+      headers: {'authorization': 'Bearer token'},
+      body: body is String ? body : jsonEncode(body),
+    ),
+  );
+}
+
+void main() {
+  late FakeGoogleChatRestClient restClient;
+  late FakeGoogleJwtVerifier jwtVerifier;
+  late ChannelMessage? dispatchedMessage;
+
+  GoogleChatWebhookHandler buildHandler({
+    DmAccessMode dmMode = DmAccessMode.open,
+    Set<String> dmAllowlist = const {},
+    GroupAccessMode groupAccess = GroupAccessMode.disabled,
+    List<GroupEntry> groupAllowlist = const [],
+    bool requireMention = true,
+    String? botUser,
+  }) {
+    final dmAccess = DmAccessController(mode: dmMode, allowlist: dmAllowlist);
+    final mentionGating = MentionGating(
+      requireMention: requireMention,
+      mentionPatterns: const [],
+      ownJid: botUser ?? '',
+    );
+    final channel = GoogleChatChannel(
+      config: GoogleChatConfig(
+        webhookPath: '/integrations/googlechat',
+        typingIndicatorMode: TypingIndicatorMode.disabled,
+        groupAccess: groupAccess,
+        groupAllowlist: groupAllowlist,
+        requireMention: requireMention,
+        botUser: botUser,
+      ),
+      restClient: restClient,
+      dmAccess: dmAccess,
+      mentionGating: mentionGating,
+    );
+    return GoogleChatWebhookHandler(
+      channel: channel,
+      jwtVerifier: jwtVerifier,
+      config: channel.config,
+      dmAccess: dmAccess,
+      mentionGating: mentionGating,
+      dispatchMessage: (message) async {
+        dispatchedMessage = message;
+        return 'Agent reply';
+      },
+      responseTimeout: const Duration(milliseconds: 50),
+    );
+  }
+
+  setUp(() {
+    restClient = FakeGoogleChatRestClient();
+    jwtVerifier = FakeGoogleJwtVerifier();
+    dispatchedMessage = null;
+  });
+
+  group('DM access control', () {
+    test('dm_access: open — allows all senders', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.open);
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('dm_access: disabled — blocks all senders', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.disabled);
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(await response.readAsString(), '{}');
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('dm_access: allowlist — allows listed sender', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.allowlist, dmAllowlist: {'users/123'});
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('dm_access: allowlist — blocks unlisted sender', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.allowlist, dmAllowlist: {'users/999'});
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('dm_access: pairing — sends pairing code for unknown sender', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.pairing);
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+      expect(restClient.sentMessages, hasLength(1));
+      expect(restClient.sentMessages.first.$1, 'spaces/AAAA');
+      expect(restClient.sentMessages.first.$2, contains('pairing code'));
+    });
+
+    test('dm_access: pairing — allows already-allowlisted sender', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.pairing, dmAllowlist: {'users/123'});
+      final response = await _post(handler, body: _payload());
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+      expect(restClient.sentMessages, isEmpty);
+    });
+  });
+
+  group('space type resolution', () {
+    // `space.type` is deprecated in favour of `space.spaceType`; a payload
+    // carrying only the current key must still be classified as a DM, or
+    // DmAccessController is never consulted for it.
+    test('a spaceType-only direct message is access-checked as a DM, not admitted as a group', () async {
+      final handler = buildHandler(
+        dmMode: DmAccessMode.disabled,
+        groupAccess: GroupAccessMode.open,
+        requireMention: false,
+      );
+      final response = await _post(
+        handler,
+        body: _payloadWithSpace({'name': 'spaces/AAAA', 'spaceType': 'DIRECT_MESSAGE', 'displayName': 'Primary'}),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('a spaceType-only direct message reaches an allowlisted DM sender with a DM group jid', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.allowlist, dmAllowlist: {'users/123'});
+      final response = await _post(
+        handler,
+        body: _payloadWithSpace({'name': 'spaces/AAAA', 'spaceType': 'DIRECT_MESSAGE'}),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.groupJid, isNull);
+      // Reply threading keys off the normalized value, not the wire spelling.
+      expect(dispatchedMessage!.metadata['spaceType'], 'DM');
+    });
+
+    test('a payload carrying neither space-type key fails closed to DM access control', () async {
+      final handler = buildHandler(
+        dmMode: DmAccessMode.disabled,
+        groupAccess: GroupAccessMode.open,
+        requireMention: false,
+      );
+      final response = await _post(handler, body: _payloadWithSpace({'name': 'spaces/AAAA'}));
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('a spaceType-only named space is still classified as a group', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
+      final response = await _post(handler, body: _payloadWithSpace({'name': 'spaces/GRP', 'spaceType': 'SPACE'}));
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
+      expect(dispatchedMessage!.metadata['spaceType'], 'SPACE');
+    });
+
+    test('the deprecated type key still wins and behaves as before', () async {
+      final handler = buildHandler(
+        dmMode: DmAccessMode.disabled,
+        groupAccess: GroupAccessMode.open,
+        requireMention: false,
+      );
+      final dmResponse = await _post(
+        handler,
+        body: _payloadWithSpace({'name': 'spaces/AAAA', 'type': 'DM', 'spaceType': 'SPACE'}),
+      );
+      expect(dmResponse.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+
+      final groupResponse = await _post(handler, body: _payloadWithSpace({'name': 'spaces/GRP', 'type': 'ROOM'}));
+      expect(groupResponse.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
+    });
+  });
+
+  group('Group access control', () {
+    test('group_access: disabled — drops group messages', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.disabled);
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('group_access: open — allows all group messages', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('group_access: allowlist — allows listed space', () async {
+      final handler = buildHandler(
+        groupAccess: GroupAccessMode.allowlist,
+        groupAllowlist: [const GroupEntry(id: 'spaces/GRP')],
+        requireMention: false,
+      );
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('group_access: allowlist — blocks unlisted space', () async {
+      final handler = buildHandler(
+        groupAccess: GroupAccessMode.allowlist,
+        groupAllowlist: [const GroupEntry(id: 'spaces/OTHER')],
+        requireMention: false,
+      );
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+  });
+
+  group('Mention gating', () {
+    test('requireMention: true — drops group message without mention', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: true, botUser: 'users/bot');
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNull);
+    });
+
+    test('requireMention: true — processes group message with bot mention', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: true, botUser: 'users/bot');
+      final response = await _post(
+        handler,
+        body: _payload(
+          spaceType: 'ROOM',
+          spaceName: 'spaces/GRP',
+          annotations: [
+            {
+              'type': 'USER_MENTION',
+              'userMention': {
+                'user': {'name': 'users/bot'},
+              },
+            },
+          ],
+        ),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('requireMention: false — processes group message without mention', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false, botUser: 'users/bot');
+      final response = await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
+      );
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+
+    test('DM messages bypass mention gating', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.open, requireMention: true, botUser: 'users/bot');
+      final response = await _post(handler, body: _payload(spaceType: 'DM'));
+      expect(response.statusCode, 200);
+      expect(dispatchedMessage, isNotNull);
+    });
+  });
+
+  group('Session keying fields', () {
+    test('DM message has senderJid=user.name and no groupJid', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.open);
+      await _post(
+        handler,
+        body: _payload(spaceType: 'DM', userName: 'users/456'),
+      );
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.senderJid, 'users/456');
+      expect(dispatchedMessage!.groupJid, isNull);
+    });
+
+    test('ROOM message has senderJid=user.name and groupJid=space.name', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
+      await _post(
+        handler,
+        body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP', userName: 'users/789'),
+      );
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.senderJid, 'users/789');
+      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
+    });
+
+    test('SPACE message has groupJid=space.name', () async {
+      final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
+      await _post(
+        handler,
+        body: _payload(spaceType: 'SPACE', spaceName: 'spaces/TEAM', userName: 'users/111'),
+      );
+      expect(dispatchedMessage, isNotNull);
+      expect(dispatchedMessage!.senderJid, 'users/111');
+      expect(dispatchedMessage!.groupJid, 'spaces/TEAM');
+    });
+
+    test('metadata includes spaceName', () async {
+      final handler = buildHandler(dmMode: DmAccessMode.open);
+      await _post(handler, body: _payload(spaceName: 'spaces/XYZ'));
+      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/XYZ');
+    });
+  });
+}

@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:test/test.dart';
 
@@ -68,14 +69,64 @@ void main() {
       expect(warns.single, contains('max_chunk_size'));
     });
 
-    test('fromYaml parses retry_policy', () {
+    test('registered access vocabularies match the shared mappers', () {
+      expect(
+        ConfigMeta.fields['channels.signal.dm_access']!.allowedValues!.toSet(),
+        DmAccessMode.values.map((value) => value.name).toSet(),
+      );
+      expect(
+        ConfigMeta.fields['channels.signal.group_access']!.allowedValues!.toSet(),
+        GroupAccessMode.values.map((value) => value.name).toSet(),
+      );
+    });
+
+    test('invalid access values keep channel-specific warnings and defaults', () {
       final warns = <String>[];
-      final config = SignalConfig.fromYaml({
-        'retry_policy': {'max_attempts': 5, 'base_delay_ms': 2000},
-      }, warns);
-      expect(warns, isEmpty);
-      expect(config.retryPolicy.maxAttempts, 5);
-      expect(config.retryPolicy.baseDelay, const Duration(milliseconds: 2000));
+      final config = SignalConfig.fromYaml({'dm_access': 'bogus', 'group_access': 'pairing'}, warns);
+
+      expect(config.dmAccess, DmAccessMode.allowlist);
+      expect(config.groupAccess, GroupAccessMode.disabled);
+      expect(warns, [
+        'Invalid signal.dm_access: "bogus" — using default',
+        'Invalid signal.group_access: "pairing" — using default',
+      ]);
+    });
+
+    test('declared port endpoints are accepted', () {
+      final lowWarnings = <String>[];
+      final highWarnings = <String>[];
+
+      expect(SignalConfig.fromYaml({'port': 1}, lowWarnings).port, 1);
+      expect(SignalConfig.fromYaml({'port': 65535}, highWarnings).port, 65535);
+      expect(lowWarnings, isEmpty);
+      expect(highWarnings, isEmpty);
+    });
+  });
+
+  // TD-142: the API can no longer store an unusable dm_allowlist entry, so a
+  // hand-written `dartclaw.yaml` is the one way one still arrives. It is named
+  // at load rather than costing the operator their access silently.
+  group('dm_allowlist entries that can never match are named at load', () {
+    List<String> warningsFor(List<String> allowlist) {
+      final warns = <String>[];
+      SignalConfig.fromYaml({'enabled': true, 'dm_allowlist': allowlist}, warns);
+      return warns;
+    }
+
+    test('a mixed-case UUID is named with the spelling to rewrite it as', () {
+      final warns = warningsFor(['A1B2C3D4-E5F6-7890-ABCD-EF1234567890']);
+      expect(warns, hasLength(1));
+      expect(warns.single, contains('A1B2C3D4-E5F6-7890-ABCD-EF1234567890'));
+      expect(warns.single, contains('a1b2c3d4-e5f6-7890-abcd-ef1234567890'));
+      expect(warns.single, contains('never match'));
+    });
+
+    test('a malformed phone is named', () {
+      expect(warningsFor(['+abc']).single, contains('+abc'));
+    });
+
+    test('a lowercase UUID and a well-formed phone are silent', () {
+      expect(warningsFor(['a1b2c3d4-e5f6-7890-abcd-ef1234567890', '+15551234567']), isEmpty);
     });
   });
 }

@@ -1,0 +1,66 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+
+import 'package:dartclaw_runtime/src/generated/embedded_assets.g.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('embedded server assets match every runtime-read source byte', () async {
+    final packageRoot = await _packageRoot();
+    final expectedText = <String, List<int>>{};
+    final expectedBinary = <String, List<int>>{};
+
+    _collectAssets(Directory('$packageRoot/lib/src/templates'), 'templates', expectedText, excludeDart: true);
+    _collectAssets(Directory('$packageRoot/lib/src/static'), 'static', expectedText, binary: expectedBinary);
+    final bridgeAssets = Directory('${Directory(packageRoot).parent.parent.path}/build/bridge-embed');
+    if (bridgeAssets.existsSync()) {
+      _collectAssets(bridgeAssets, 'bridge', expectedText, binary: expectedBinary);
+    }
+
+    expect(embeddedServerAssets.keys.toSet(), expectedText.keys.toSet());
+    for (final entry in expectedText.entries) {
+      expect(utf8.encode(embeddedServerAssets[entry.key]!), entry.value, reason: entry.key);
+    }
+    expect(embeddedServerBinaryAssets.keys.toSet(), expectedBinary.keys.toSet());
+    for (final entry in expectedBinary.entries) {
+      expect(embeddedServerBinaryAssets[entry.key], entry.value, reason: entry.key);
+    }
+    final firstBinary = embeddedServerBinaryAssets[expectedBinary.keys.first]!;
+    expect(() => firstBinary[0] = 0, throwsUnsupportedError);
+    expect(() => embeddedServerAssets['unexpected'] = 'value', throwsUnsupportedError);
+    expect(() => embeddedServerBinaryAssets['unexpected'] = <int>[1], throwsUnsupportedError);
+  });
+}
+
+/// Mirrors `_binaryAssetExtensions` in `dev/tools/embed_assets.dart`; both must change together.
+const _binaryAssetExtensions = <String>{'.png', '.woff2', '.gz'};
+
+void _collectAssets(
+  Directory root,
+  String prefix,
+  Map<String, List<int>> text, {
+  Map<String, List<int>>? binary,
+  bool excludeDart = false,
+}) {
+  for (final file in root.listSync(recursive: true).whereType<File>()) {
+    final relative = file.path.substring(root.path.length + 1).replaceAll('\\', '/');
+    if (relative.split('/').any((part) => part.startsWith('.')) || (excludeDart && relative.endsWith('.dart'))) {
+      continue;
+    }
+    final key = '$prefix/$relative';
+    if (binary != null && _binaryAssetExtensions.any(relative.toLowerCase().endsWith)) {
+      binary[key] = file.readAsBytesSync();
+    } else {
+      text[key] = file.readAsBytesSync();
+    }
+  }
+}
+
+Future<String> _packageRoot() async {
+  final library = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
+  if (library == null) {
+    throw StateError('Could not resolve dartclaw_runtime package root');
+  }
+  return File.fromUri(library).parent.parent.path;
+}

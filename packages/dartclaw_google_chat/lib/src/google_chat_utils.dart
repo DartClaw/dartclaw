@@ -33,13 +33,35 @@ String? resolveMessageText(Map<String, dynamic> message) {
   return null;
 }
 
+/// Resolves the normalized space type from a Google Chat `space` resource.
+///
+/// Reads the deprecated `type` key and the current `spaceType` key; `type` wins
+/// when both are present. `DIRECT_MESSAGE` normalizes to `DM`, so one spelling
+/// reaches every consumer of the result.
+///
+/// Returns `DM` when the resource carries neither key, or carries a non-string
+/// value for both: a message that cannot be proven to come from a named space
+/// is access-checked as a direct message rather than admitted under the group
+/// policy.
+String resolveSpaceType(Map<String, dynamic>? space) {
+  final raw = switch (space) {
+    {'type': final String type} => type,
+    {'spaceType': final String spaceType} => spaceType,
+    _ => null,
+  };
+  return switch (raw) {
+    null || 'DIRECT_MESSAGE' => 'DM',
+    final type => type,
+  };
+}
+
 /// Resolves the group JID from a Google Chat space type and name.
 ///
-/// Returns `null` for DMs (no group context). Returns the space name for
-/// `ROOM`, `SPACE`, and unknown types.
+/// Returns `null` for a direct message under either spelling (no group
+/// context). Returns the space name for `ROOM`, `SPACE`, and unknown types.
 String? resolveGroupJid({required String spaceType, required String spaceName}) {
   return switch (spaceType) {
-    'DM' => null,
+    'DM' || 'DIRECT_MESSAGE' => null,
     _ => spaceName,
   };
 }

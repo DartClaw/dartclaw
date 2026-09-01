@@ -1,5 +1,6 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunStatus;
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
 import 'package:test/test.dart';
 
 WorkflowRun buildRun({
@@ -63,8 +64,8 @@ void main() {
         totalTokens: 1234,
         currentStepIndex: 3,
         definitionJson: {'name': 'pipeline', 'steps': []},
-        executionCursor: WorkflowExecutionCursor.map(
-          stepId: 'map-step',
+        executionCursor: WorkflowExecutionCursor.foreach(
+          stepId: 'foreach-step',
           stepIndex: 4,
           totalItems: 3,
           completedIndices: const [0, 2],
@@ -94,8 +95,8 @@ void main() {
       expect(restored.totalTokens, 1234);
       expect(restored.currentStepIndex, 3);
       expect(restored.definitionJson['name'], 'pipeline');
-      expect(restored.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.map);
-      expect(restored.executionCursor?.nodeId, 'map-step');
+      expect(restored.executionCursor?.nodeType, WorkflowExecutionCursorNodeType.foreach);
+      expect(restored.executionCursor?.nodeId, 'foreach-step');
       expect(restored.executionCursor?.completedIndices, [0, 2]);
       expect(restored.executionCursor?.failedIndices, [2]);
       expect(restored.executionCursor?.completedSubStepIdsByIndex, {

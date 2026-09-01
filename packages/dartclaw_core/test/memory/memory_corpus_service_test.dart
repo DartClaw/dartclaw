@@ -80,6 +80,19 @@ CanonicalMemoryCorpus _allRoleCorpus() {
         ),
       ],
     ),
+    errors: MemoryErrorDocument(
+      entries: [
+        CanonicalMemoryError(
+          id: '2b28cf51-3a1f-4d55-9a3e-6c6c53f7a1b2',
+          revision: 1,
+          summary: 'GUARD_BLOCK',
+          content: 'Blocked prompt injection attempt.',
+          created: updated,
+          updated: updated,
+          provenance: MemorySourceRef(sourceLocator: 'runtime-error', sessionRef: 'sess-1'),
+        ),
+      ],
+    ),
   );
 }
 
@@ -631,6 +644,7 @@ void main() {
   test('reconciles runtime-learning and dated-observation edits and deletion', () async {
     final cases = <({String path, MemoryRole role, bool remove})>[
       (path: 'learnings.md', role: MemoryRole.learning, remove: false),
+      (path: 'errors.md', role: MemoryRole.error, remove: false),
       (path: 'memory/2026-08-11.md', role: MemoryRole.observation, remove: false),
       (path: 'memory/2026-08-11.md', role: MemoryRole.observation, remove: true),
     ];
@@ -647,7 +661,11 @@ void main() {
         file.deleteSync();
       } else {
         file.writeAsStringSync(
-          file.readAsStringSync().replaceFirst('Preserve', 'Keep').replaceFirst('Observed', 'Saw'),
+          file
+              .readAsStringSync()
+              .replaceFirst('Preserve', 'Keep')
+              .replaceFirst('Observed', 'Saw')
+              .replaceFirst('Blocked', 'Stopped'),
         );
       }
       final reopened = MemoryCorpusService(workspaceDir: caseDir.path);
@@ -658,6 +676,66 @@ void main() {
       expect(snapshot.externalChanges.single.wasRemoved, testCase.remove, reason: testCase.path);
       await reopened.close();
     }
+  });
+
+  // errors.md is a first-class corpus member: the manifest lists it with
+  // the error role and a record count, and the status snapshot exposes that count.
+  test('manifest lists errors.md as an error member with a record count', () async {
+    _writeCorpus(workspace, _allRoleCorpus());
+    final authority = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(authority.close);
+
+    final manifest = await authority.manifest();
+
+    expect(manifest.paths, contains('errors.md'));
+    expect(manifest.status.errorEntryCount, 1);
+    expect(manifest.status.learningEntryCount, 1);
+    final selection = await authority.selectPaths(const ['errors.md']);
+    expect(selection.corpus.errors!.entries.single.summary, 'GUARD_BLOCK');
+  });
+
+  // Every existing workspace carries a state file written before the
+  // error role existed. Reading its absent count as null instead of zero makes
+  // the persisted status disagree with its own fresh scan, and startup fails.
+  test('a state file predating the error role still authenticates without reconciliation', () async {
+    _writeCorpus(workspace, _corpus());
+    final initial = MemoryCorpusService(workspaceDir: workspace.path);
+    final before = (await initial.manifest()).collectionRevision;
+    await initial.close();
+    final stateFile = File(p.join(workspace.path, '.dartclaw-memory-corpus.json'));
+    final state = jsonDecode(stateFile.readAsStringSync()) as Map<String, dynamic>;
+    expect((state['status'] as Map<String, dynamic>).remove('errorEntryCount'), 0);
+    stateFile.writeAsStringSync(jsonEncode(state));
+
+    final reopened = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(reopened.close);
+    final manifest = await reopened.manifest();
+
+    expect(manifest.collectionRevision, before);
+    expect(manifest.status.errorEntryCount, 0);
+  });
+
+  // A role-scoped mutation must leave every unselected member byte-identical.
+  test('a learning-scoped change leaves errors.md byte-identical', () async {
+    _writeCorpus(workspace, _allRoleCorpus());
+    final authority = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(authority.close);
+    final errorsFile = File(p.join(workspace.path, 'errors.md'));
+    final before = errorsFile.readAsBytesSync();
+    final manifest = await authority.manifest();
+
+    final result = await authority.changeSelected<void>(
+      expectedRevision: manifest.collectionRevision,
+      include: (role, _) => role == MemoryRole.learning,
+      prepare: (selected) => MemoryCorpusChange(
+        value: null,
+        replacement: CanonicalMemoryCorpus(index: selected.index, learnings: MemoryLearningDocument()),
+      ),
+    );
+
+    expect(result.wasCommitted, isTrue);
+    expect(errorsFile.readAsBytesSync(), before);
+    expect((await authority.manifest()).status.errorEntryCount, 1);
   });
 
   test('invalid stopped edit leaves bytes and revision untouched', () async {

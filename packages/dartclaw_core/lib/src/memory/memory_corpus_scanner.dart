@@ -67,6 +67,10 @@ Future<_CorpusState> _scanCorpusState(String root) async {
         for (final entry in document.entries) {
           if (!nonActiveIds.add(entry.id)) throw MemoryCorpusValidationException(['duplicate record ID: ${entry.id}']);
         }
+      case MemoryErrorDocument():
+        for (final entry in document.entries) {
+          if (!nonActiveIds.add(entry.id)) throw MemoryCorpusValidationException(['duplicate record ID: ${entry.id}']);
+        }
       case MemoryAuditDocument():
         for (final record in document.records) {
           if (!retiredIds.add(record.entryId)) {

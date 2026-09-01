@@ -4,14 +4,12 @@ import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show BashShellPolicy, PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show killWithEscalation;
 
 import 'workflow_definition.dart' show ActionNode, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
 
-import 'package:dartclaw_security/dartclaw_security.dart' show EnvPolicy, SafeProcess, defaultSensitivePatterns;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 

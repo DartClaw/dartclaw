@@ -7,7 +7,7 @@
 // integration worktree left dirty by upstream skills) and exercise explicit
 // error paths the happy-path suite didn't cover.
 //
-// The existing `apps/dartclaw_cli/test/commands/workflow/workflow_git_support_test.dart`
+// The existing `packages/dartclaw_runtime/test/runtime/workflow_git_support_test.dart`
 // covers "temporary integration worktree" scenarios (integration not checked
 // out anywhere). This file covers the **inline** mode (integration checked out
 // at `projectDir`), which is where Issue B reproduces, plus the three failure
@@ -15,10 +15,11 @@
 @Tags(['component'])
 library;
 
-import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
+
+import 'workflow_git_test_support.dart';
 
 void main() {
   group('promoteWorkflowBranchLocally — inline integration worktree', () {

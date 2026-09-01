@@ -7,20 +7,20 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION_FILE="$REPO_ROOT/packages/dartclaw_server/lib/src/version.dart"
+VERSION_FILE="$REPO_ROOT/packages/dartclaw_runtime/lib/src/version.dart"
 
 pubspecs=(
   "$REPO_ROOT/packages/dartclaw/pubspec.yaml"
-  "$REPO_ROOT/packages/dartclaw_config/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_acp/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_bridge/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_client/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_core/pubspec.yaml"
-  "$REPO_ROOT/packages/dartclaw_models/pubspec.yaml"
-  "$REPO_ROOT/packages/dartclaw_security/pubspec.yaml"
-  "$REPO_ROOT/packages/dartclaw_storage/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_kernel/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_testing/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_whatsapp/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_signal/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_google_chat/pubspec.yaml"
-  "$REPO_ROOT/packages/dartclaw_server/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_runtime/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_workflow/pubspec.yaml"
   "$REPO_ROOT/apps/dartclaw_cli/pubspec.yaml"
 )

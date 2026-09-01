@@ -1,15 +1,17 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan, truncate;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteAgentExecutionRepository, SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDb, TaskDbFactory;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show SqliteAgentExecutionRepository, SqliteTaskRepository, openTaskDb, TaskDbFactory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
-import 'agent_text_scrub.dart';
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends ConnectedCommand {

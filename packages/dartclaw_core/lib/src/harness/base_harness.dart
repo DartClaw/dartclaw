@@ -3,19 +3,20 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 
 import '../bridge/bridge_events.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
-import 'harness_config.dart';
+import 'harness_launch_options.dart';
+import 'harness_turn_context.dart';
 import 'process_lifecycle.dart';
 import 'process_types.dart';
 
 /// Shared lifecycle base for subprocess-backed harnesses.
-abstract class BaseHarness extends AgentHarness with SequentialLock {
+abstract class BaseHarness extends AgentHarness with SequentialLock, ProcessLifecycleOwner, HarnessTurnContextStorage {
   new({
     required this.log,
     required this.cwd,
@@ -37,6 +38,8 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   /// Maximum time allowed for a single turn.
   final Duration turnTimeout;
 
+  Duration get effectiveTurnTimeout => activeTurnContext?.turnTimeout ?? turnTimeout;
+
   /// Maximum number of crash recovery attempts before giving up.
   final int maxRetries;
 
@@ -53,15 +56,27 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   final DelayFactory delayFactory;
 
   /// Shared initialize-handshake configuration.
-  final HarnessConfig harnessConfig;
+  final HarnessLaunchOptions harnessConfig;
+
+  /// Ceiling applied to each output stream, checked at chunk admission against
+  /// two independent budgets – bytes held in an unterminated line, and bytes
+  /// admitted since the harness last entered [WorkerState.busy]. Either
+  /// crossing it is a breach.
+  ///
+  /// Production always runs at [defaultProcessOutputLimitBytes]; suites lower it
+  /// so a breach can be provoked without allocating the real ceiling.
+  @visibleForTesting
+  int maxOutputBytesPerStream = defaultProcessOutputLimitBytes;
+
+  final Map<String, int> _outstandingBytesByStream = <String, int>{};
+  final Map<String, int> _admittedBytesByStream = <String, int>{};
+  final Set<String> _failedStreams = <String>{};
+  Exception? _streamFailure;
 
   WorkerState _state = WorkerState.stopped;
   bool _stopping = false;
   int _crashCount = 0;
   int _spawnGeneration = 0;
-  Process? _process;
-  final Set<Process> _windowsTeardownPending = <Process>{};
-  final Set<Process> _windowsExitObservedDuringTeardown = <Process>{};
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
   final StreamController<BridgeEvent> _eventsCtrl = StreamController<BridgeEvent>.broadcast();
@@ -88,6 +103,11 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
 
   @protected
   set currentState(WorkerState value) {
+    // Entering a turn scopes the volume budget to that turn. The outstanding
+    // budget is deliberately left alone: an unterminated line outlives a turn
+    // inside the decoders' own carry-over buffer, so clearing it here would
+    // leave a newline-free flood unbounded across turns.
+    if (value == WorkerState.busy) _admittedBytesByStream.clear();
     _state = value;
   }
 
@@ -114,12 +134,8 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   int nextSpawnGeneration() => ++_spawnGeneration;
 
   @protected
-  Process? get currentProcess => _process;
-
-  @protected
-  set currentProcess(Process? value) {
-    _process = value;
-  }
+  @override
+  Logger get processLifecycleLog => log;
 
   @protected
   StreamSubscription<String>? get stdoutSubscription => _stdoutSub;
@@ -136,6 +152,16 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   set stderrSubscription(StreamSubscription<String>? value) {
     _stderrSub = value;
   }
+
+  /// The first stream fault that ended the attached process, if any – an
+  /// output-ceiling breach or an undecodable stream.
+  @protected
+  Exception? get streamFailure => _streamFailure;
+
+  /// Tears the managed process down after a stream fault, through
+  /// [shutdownCurrentProcess] so termination stays confirmable.
+  @protected
+  Future<void> shutdownAfterStreamFailure();
 
   @protected
   void emitEvent(BridgeEvent event) {
@@ -155,7 +181,7 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
       if (_state == WorkerState.busy) {
         throw StateError(busyMessage);
       }
-      if (_process != null) {
+      if (currentProcess != null) {
         throw StateError('Cannot start: previous process exit has not been confirmed');
       }
       await beforeStart?.call();
@@ -172,15 +198,6 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
   }
 
   @protected
-  Future<void> closeCurrentProcessStdin({Process? process}) async {
-    try {
-      await (process ?? _process)?.stdin.close();
-    } catch (error) {
-      log.fine('Failed to close stdin during shutdown: $error');
-    }
-  }
-
-  @protected
   Future<void> shutdownCurrentProcess({
     required String label,
     required Duration gracePeriod,
@@ -188,44 +205,16 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
     bool? initialTerminationAccepted,
     Process? process,
   }) async {
-    final activeProcess = process ?? _process;
+    final activeProcess = process ?? currentProcess;
     beginIntentionalProcessTeardown(activeProcess, platformCapabilities);
     await cancelTrackedSubscriptions();
-    await closeCurrentProcessStdin(process: activeProcess);
-
-    if (activeProcess != null) {
-      final result = await killWithEscalation(
-        activeProcess,
-        label: label,
-        gracePeriod: gracePeriod,
-        log: log,
-        initialTerminationAccepted: initialTerminationAccepted,
-        platformCapabilities: platformCapabilities,
-      );
-      completeIntentionalProcessTeardown(activeProcess, result, platformCapabilities);
-    }
-  }
-
-  /// Prevents the exit watcher from releasing Windows ownership before teardown is classified.
-  @protected
-  void beginIntentionalProcessTeardown(Process? process, PlatformCapabilities platformCapabilities) {
-    if (process != null && !platformCapabilities.posixSignalsAvailable) {
-      _windowsTeardownPending.add(process);
-    }
-  }
-
-  /// Applies the authoritative teardown result to process ownership.
-  @protected
-  void completeIntentionalProcessTeardown(
-    Process process,
-    ProcessTerminationResult result,
-    PlatformCapabilities platformCapabilities,
-  ) {
-    _windowsTeardownPending.remove(process);
-    final exitObserved = _windowsExitObservedDuringTeardown.remove(process);
-    if (result.confirmsOwnershipRelease() || exitObserved) {
-      if (identical(_process, process)) _process = null;
-    }
+    await terminateOwnedProcess(
+      label: label,
+      gracePeriod: gracePeriod,
+      platformCapabilities: platformCapabilities,
+      process: activeProcess,
+      initialTerminationAccepted: initialTerminationAccepted,
+    );
   }
 
   @protected
@@ -248,38 +237,12 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
         throw StateError('Harness stopped during backoff');
       }
       if (_state == WorkerState.crashed) {
-        if (_process != null) {
+        if (currentProcess != null) {
           throw StateError('Cannot recover: previous process exit has not been confirmed');
         }
         await restart();
       }
     });
-  }
-
-  @protected
-  void watchProcessExit({required int generation, required void Function(int exitCode) onUnexpectedExit}) {
-    final process = _process;
-    if (process == null) {
-      return;
-    }
-
-    unawaited(
-      process.exitCode.then((code) {
-        final windowsTeardownPending = _windowsTeardownPending.contains(process);
-        if (windowsTeardownPending) {
-          _windowsExitObservedDuringTeardown.add(process);
-        } else if (identical(_process, process)) {
-          _process = null;
-        }
-        if (generation != _spawnGeneration) {
-          return;
-        }
-        if (_state == WorkerState.stopped || _stopping) {
-          return;
-        }
-        onUnexpectedExit(code);
-      }),
-    );
   }
 
   @protected
@@ -297,21 +260,22 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
     bool dropEmptyStdoutLines = false,
     bool dropEmptyStderrLines = false,
     bool watchForUnexpectedExit = true,
-    void Function(Object error)? onStdoutError,
   }) {
     final generation = nextSpawnGeneration();
-    _windowsTeardownPending.remove(process);
-    _windowsExitObservedDuringTeardown.remove(process);
     currentProcess = process;
+    _outstandingBytesByStream.clear();
+    _admittedBytesByStream.clear();
+    _failedStreams.clear();
+    _streamFailure = null;
 
-    stdoutSubscription = process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+    stdoutSubscription = _boundedLines(process.stdout, 'stdout').listen((line) {
       if (dropEmptyStdoutLines && line.trim().isEmpty) {
         return;
       }
       handleProcessStdoutLine(line);
-    }, onError: onStdoutError);
+    });
 
-    stderrSubscription = process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+    stderrSubscription = _boundedLines(process.stderr, 'stderr').listen((line) {
       if (dropEmptyStderrLines && line.trim().isEmpty) {
         return;
       }
@@ -319,15 +283,83 @@ abstract class BaseHarness extends AgentHarness with SequentialLock {
     });
 
     if (watchForUnexpectedExit) {
-      watchProcessExit(generation: generation, onUnexpectedExit: handleUnexpectedProcessExit);
+      watchOwnedProcessExit(process, (code) {
+        if (generation != _spawnGeneration || _state == WorkerState.stopped || _stopping) return;
+        handleUnexpectedProcessExit(code);
+      });
     }
 
     return generation;
   }
 
+  /// Enforces [maxOutputBytesPerStream]'s two budgets on the raw bytes, ahead
+  /// of the UTF-8 and line decoders.
+  ///
+  /// `LineSplitter` buffers a newline-free stream without bound, so a
+  /// post-decode check would never be reached in the flood case that matters,
+  /// and its carry-over buffer outlives a turn – the outstanding count is
+  /// therefore released by every line terminator the chunk delivers and never
+  /// reset. `LineSplitter` ends a line on a lone CR as well as on LF, so
+  /// releasing on LF alone would starve a CR-only progress stream of releases
+  /// and kill a healthy process. Releasing is also what a provider flooding
+  /// terminated lines would exploit, so the admitted count bounds one turn's
+  /// total – the closest a reused process has to a per-spawn ceiling.
+  /// A breached stream is abandoned rather than closed: closing would flush a
+  /// partial multi-byte sequence out of `utf8.decoder` as a `FormatException`.
+  /// A provider that dies mid-character raises that `FormatException` anyway
+  /// when its own stream ends, so decoder faults are caught here and routed to
+  /// [_failStream] instead of reaching the isolate as an unhandled error.
+  Stream<String> _boundedLines(Stream<List<int>> output, String streamName) {
+    return output
+        .transform(
+          StreamTransformer<List<int>, List<int>>.fromHandlers(
+            handleData: (chunk, sink) {
+              if (_failedStreams.contains(streamName)) return;
+              final outstanding = _outstandingBytesByStream[streamName] ?? 0;
+              final admitted = _admittedBytesByStream[streamName] ?? 0;
+              final lastTerminator = max(chunk.lastIndexOf(0x0a), chunk.lastIndexOf(0x0d));
+              // Charged after this chunk's own terminators release, so a line is
+              // measured whole, not against the headroom left before it arrived.
+              final held = lastTerminator < 0 ? outstanding + chunk.length : chunk.length - lastTerminator - 1;
+              final total = admitted + chunk.length;
+              if (held > maxOutputBytesPerStream || total > maxOutputBytesPerStream) {
+                final breach = ProcessOutputLimitException(streamName: streamName, maxBytes: maxOutputBytesPerStream);
+                _failStream(streamName, breach);
+                return;
+              }
+              _outstandingBytesByStream[streamName] = held;
+              _admittedBytesByStream[streamName] = total;
+              sink.add(chunk);
+            },
+          ),
+        )
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .handleError(
+          (Object error) => _failStream(streamName, ProcessStreamException(streamName: streamName, cause: error)),
+        );
+  }
+
+  /// Records the first fault to end a stream and tears the process down, so a
+  /// breach and a decode fault take one route and neither reaches the isolate.
+  /// [handleUnexpectedProcessExit] then prefers the recorded fault over the exit
+  /// code – always so for a breach, which causes the kill; a decode fault raised
+  /// by the provider's own death races the exit it accompanies.
+  void _failStream(String streamName, Exception failure) {
+    _failedStreams.add(streamName);
+    log.severe(failure);
+    if (_streamFailure != null) return;
+    _streamFailure = failure;
+    unawaited(
+      shutdownAfterStreamFailure().catchError(
+        (Object error, StackTrace stackTrace) => log.warning('Teardown after $streamName fault failed', error),
+      ),
+    );
+  }
+
   @protected
   void writeJsonLine(Map<String, dynamic> message, {String? processNotRunningMessage}) {
-    final process = _process;
+    final process = currentProcess;
     if (process == null) {
       if (processNotRunningMessage != null) {
         throw StateError(processNotRunningMessage);

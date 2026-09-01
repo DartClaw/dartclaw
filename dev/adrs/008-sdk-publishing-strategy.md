@@ -1,7 +1,7 @@
 # ADR-008: SDK Publishing Strategy
 
-**Status:** Accepted (revised 2026-03-12; narrowed 2026-08-06)
-**Date:** 2026-03-01 (revised 2026-03-12, 2026-08-06)
+**Status:** Accepted (revised 2026-03-12; narrowed 2026-08-06; client-tier-first 2026-08-20)
+**Date:** 2026-03-01 (revised 2026-03-12, 2026-08-06, 2026-08-20)
 **Deciders:** DartClaw team
 
 ## Context
@@ -64,6 +64,8 @@ If the split is not needed, `dartclaw` remains the single published package.
 ### All packages published (revised 2026-03-12; narrowed 2026-08-06)
 
 > **Narrowed 2026-08-06** — the blanket "all packages will be published" claim below no longer holds. Publication intent is now per-package; `dartclaw_server` and `dartclaw_workflow` are undecided. See [Per-package publication intent](#per-package-publication-intent-2026-08-06).
+>
+> **Narrowed further 2026-08-20** — the publishable set is now the *client tier* only, and the runtime packages are deferred rather than "Planned". See [Client-tier-first publication](#client-tier-first-publication-2026-08-20).
 
 ~~The `publish_to: none` on `dartclaw_server` and `dartclaw_cli` signals "not for external use."~~ **Revised: all packages will be published**, including `dartclaw_server` and `dartclaw_cli`. This supersedes the original decision to keep server and CLI as internal-only.
 
@@ -91,6 +93,34 @@ The 2026-03-12 revision asserted that every package ships to pub.dev. That is no
 `publish_to: none` is currently set on every package and is a pre-publication placeholder, not a statement of intent — do not read it as evidence either way. It is removed per-package at first publish.
 
 **Consequence for generated assets ([ADR-047](047-embedded-binary-assets.md))**: ADR-047 originally justified committing `embedded_assets.g.dart` with "pub.dev doesn't run generators; SDK consumers need them present" — a rationale that only holds for packages that ship. Since nothing is published today and both owning packages are undecided, ADR-047 was amended the same day: the generated libraries are now gitignored and emitted by the build. The publish-time requirement does not disappear — a published package must physically contain its generated library — so whichever of these two packages ships first must verify inclusion with `dart pub publish --dry-run` before its first release. See the ADR-047 amendment for the procedure.
+
+### Client-tier-first publication (2026-08-20)
+
+The 2026-08-06 table listed `dartclaw_core`, `dartclaw_storage`, `dartclaw_security` and the three channel packages as **Planned**. That was the wrong shape of promise: those packages are the *runtime*, and embedding the DartClaw runtime in a foreign process is not something the project can support at a pub.dev compatibility promise today. Meanwhile the surface external consumers actually use — a running server's HTTP API and SSE streams — had no package at all: the only client was buried in `apps/dartclaw_cli/lib/src/`, so every consumer had to fork the runtime or copy a file.
+
+**Decision: publish the client tier first, and only the client tier.**
+
+Two tiers, and only one of them is a product:
+
+1. **Client tier** — `dartclaw_client` (HTTP + SSE transport, zero dependencies) and the `dartclaw` umbrella, which re-exports `dartclaw_client` plus `dartclaw_models`. This is the publishable set. A consumer holding a base URI and a token can drive a running server with no runtime package, no server package, and no DartClaw data directory.
+2. **Fork the runtime** — everything else. Clone the repository, depend on `dartclaw_core` / `dartclaw_security` / `dartclaw_storage` by path, and own the fork. No publication, no compatibility promise.
+
+There is deliberately no third "embeddable orchestration runtime" tier. It stays out until a real consumer asks for it; "fork the runtime" is the documented answer until then.
+
+Revised publication intent, superseding the 2026-08-06 table:
+
+| Package | Intent | Note |
+|---|---|---|
+| `dartclaw_client` | **Planned (first wave)** | The client tier. Zero dependencies by construction — no `dartclaw_*` package, nothing from pub — which is both its selling point and what keeps it free of build hooks and so `dart compile exe`-safe. |
+| `dartclaw` (umbrella) | **Planned (first wave)** | Re-cut to the client tier: re-exports `dartclaw_client` and `dartclaw_models` only. It no longer re-exports `dartclaw_core`, `dartclaw_storage`, or the channel packages. |
+| `dartclaw_models` | **Planned (first wave)** | The DTO types the endpoints carry. Reached through the umbrella; publishable in its own right. |
+| `dartclaw_core`, `dartclaw_storage`, `dartclaw_security`, `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` | **Deferred** | Was "Planned". Fork-the-runtime tier: available in the repo, not shipped, no compatibility promise. Revisit when a consumer needs the runtime in-process and the surface is stable enough to support. |
+| `dartclaw_workflow`, `dartclaw_server`, `dartclaw_config` | **Undecided** | Unchanged from 2026-08-06. |
+| `dartclaw_cli`, `dartclaw_testing`, `dartclaw_bridge` | **Repo-only (leaning)** | Unchanged from 2026-08-06; `dartclaw_bridge` is the in-container bridge executable and joins the same category. |
+
+**Breaking change for umbrella consumers**: `import 'package:dartclaw/dartclaw.dart'` no longer yields `AgentHarness`, `Guard`, `MemoryService`, or the channel types. Code that used the umbrella for runtime types depends on `dartclaw_core` (and `dartclaw_security` / `dartclaw_storage`) directly — which is what the four projects under `examples/sdk/` now do.
+
+**Export-count ceilings retired.** The barrel export-count gates went with this change: `arch_check.dart`'s `L2 barrel export ceiling`, the `barrel_export_count_test.dart` fitness function and its allowlist, and `dartclaw_core`'s `barrel_export_test.dart`. They were sized for a world where the umbrella advertised the whole runtime; the umbrella now has two export lines and never had an allowlist entry. The cost is real and is recorded here rather than lost: `dartclaw_core`'s barrel sat at 100 allowlisted exports against a nominal 80 ceiling, and that ceiling was the only numeric gate on its public-surface growth. The replacement is the per-package downward-only LOC ceilings this milestone's package-topology work introduces (the runtime-rename and thin-CLI stories, S36/S37, own that gate), plus `barrel_show_clauses_test.dart`, which is retained: it enforces export *hygiene* (every export line carries a `show` clause) rather than a count, and is not what this change retires.
 
 ### Private customization layer
 
@@ -286,6 +316,23 @@ apps/
 
 ## Revision History
 
+### 2026-08-20: Client-tier-first publication
+
+**Superseded aspects of the 2026-08-06 revision:**
+- ~~`dartclaw_core`, `dartclaw_storage`, `dartclaw_security` and the three channel packages are **Planned**~~ → **Deferred**; they are the fork-the-runtime tier, not a published product
+- ~~The `dartclaw` umbrella re-exports the full SDK surface~~ → it re-exports the client tier only (`dartclaw_client` + `dartclaw_models`)
+
+**Added:**
+- `dartclaw_client` — the extracted HTTP/SSE transport, zero dependencies, first publish wave alongside the umbrella and `dartclaw_models`
+- The export-count ceilings are retired; `barrel_show_clauses_test.dart` is retained
+
+**Preserved aspects (still valid):**
+- Per-package intent as the mechanism; `publish_to: none` as a placeholder that signals nothing
+- Namespace reservation, versioning, mono-repo structure, the `dartclaw` umbrella as the prime namespace
+- The ADR-047 generated-asset consequence
+
+**Trigger:** the 0.25 packaging audit — every package `publish_to: none`, `docs/sdk/` conceding the strategy was unratified, and the umbrella re-exporting an incoherent surface — against the one consumer contract that was concrete: an external app composing typed DTOs and a client against a running `dartclaw serve`.
+
 ### 2026-08-06: Per-package publication intent
 
 **Superseded aspects of the 2026-03-12 revision:**
@@ -323,3 +370,12 @@ apps/
 - Dart pre-1.0 versioning: https://dart.dev/tools/pub/versioning
 - Dart publishing (verified publisher flow): https://dart.dev/tools/pub/publishing
 - Research sources are summarized in the linked research appendix.
+
+## Amendment (2026-08-21) – core absorbs storage
+
+[ADR-056](056-package-topology-consolidation.md) supersedes the split that kept SQLite outside `dartclaw_core`.
+`dartclaw_core` now owns the SQLite repositories, search backends, memory services and knowledge graph previously
+packaged as `dartclaw_storage`; the runtime tier remains deferred from publication. The earlier `No sqlite3` rule and
+its `dart pub deps` verification step are retired. Because `sqlite3` carries a native-asset build hook, a
+`dart compile exe` target cannot live in core. The standalone, dependency-free bridge remains outside core, and S89
+owns the corresponding ADR-051 amendment and binary proof.

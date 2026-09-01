@@ -13,7 +13,7 @@ operational commands used to inspect, maintain, and deploy a DartClaw runtime.
 
 - Building a complete CLI app on top of the DartClaw SDK packages.
 - Starting the reference server with `serve`.
-- Top-level command families covered: `init`, `serve`, `service` (install/start/stop/uninstall), `status`, `runners`, `config`, `jobs`, `projects`, `sessions`, `tasks`, `traces`, `workflow` (run/runs/pause/resume/cancel/status/validate/show), `deploy`, `rebuild-index`, `token`, `google-auth`. See [`cli-reference.md`](../../docs/guide/cli-reference.md) for the full surface.
+- Top-level command families covered: `init`, `serve`, `service` (install/start/stop/uninstall), `status`, `runners`, `config`, `jobs`, `projects`, `sessions`, `tasks`, `traces`, `workflow` (run/runs/pause/resume/cancel/status/validate/show), `rebuild-index`, `token`, `google-auth`. See [`cli-reference.md`](../../docs/guide/cli-reference.md) for the full surface.
 - Wiring workspace configuration, storage, and channels into executable tooling.
 
 ## Getting Started
@@ -29,10 +29,7 @@ Use `dart run dartclaw_cli:dartclaw --help` to inspect the full command set.
 ## Built With
 
 - [`dartclaw_core`](https://pub.dev/packages/dartclaw_core)
-- [`dartclaw_storage`](https://pub.dev/packages/dartclaw_storage)
-- [`dartclaw_server`](https://pub.dev/packages/dartclaw_server)
-- [`dartclaw_whatsapp`](https://pub.dev/packages/dartclaw_whatsapp)
-- [`dartclaw_signal`](https://pub.dev/packages/dartclaw_signal)
+- [`dartclaw_runtime`](https://pub.dev/packages/dartclaw_runtime)
 - [`dartclaw_google_chat`](https://pub.dev/packages/dartclaw_google_chat)
 
 ## Documentation

@@ -1,7 +1,7 @@
 part of '../workflow_definition_validator.dart';
 
 extension _WorkflowStructureRules on WorkflowDefinitionValidator {
-  void _validateNormalizedNodes(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateNormalizedNodes(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final stepById = {for (final step in definition.steps) step.id: step};
     final loopById = {for (final loop in definition.loops) loop.id: loop};
     final seenStepIds = <String>{};
@@ -14,29 +14,23 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
             errors.add(_refErr(stepId, 'Normalized action node references unknown step "$stepId".'));
             continue;
           }
-          if (step.isMapStep) {
-            errors.add(_contextErr(stepId, 'Step "$stepId" is map-backed but was normalized as an action node.'));
+          if (step.isForeachController) {
+            errors.add(
+              _contextErr(stepId, 'Step "$stepId" is a foreach controller but was normalized as an action node.'),
+            );
           }
           if (step.parallel) {
             errors.add(_contextErr(stepId, 'Step "$stepId" is parallel but was normalized as an action node.'));
           }
           _recordNormalizedStep(stepId, seenStepIds, errors);
 
-        case MapNode(stepId: final stepId):
-          final step = stepById[stepId];
-          if (step == null) {
-            errors.add(_refErr(stepId, 'Normalized map node references unknown step "$stepId".'));
-            continue;
-          }
-          if (!step.isMapStep) {
-            errors.add(_contextErr(stepId, 'Step "$stepId" is not a map step but was normalized as a map node.'));
-          }
-          _recordNormalizedStep(stepId, seenStepIds, errors);
-
         case ParallelGroupNode(stepIds: final stepIds):
           if (stepIds.isEmpty) {
             errors.add(
-              _err(ValidationErrorType.missingField, 'Normalized parallel group must contain at least one step.'),
+              _err(
+                WorkflowValidationErrorType.missingField,
+                'Normalized parallel group must contain at least one step.',
+              ),
             );
             continue;
           }
@@ -51,18 +45,18 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
                 _contextErr(stepId, 'Parallel group step "$stepId" is missing parallel:true in the authored step.'),
               );
             }
-            if (step.isMapStep) {
-              errors.add(_contextErr(stepId, 'Parallel group step "$stepId" cannot also be a map step.'));
+            if (step.isForeachController) {
+              errors.add(_contextErr(stepId, 'Parallel group step "$stepId" cannot also be a foreach controller.'));
             }
             _recordNormalizedStep(stepId, seenStepIds, errors);
           }
 
-        case LoopNode(loopId: final loopId, stepIds: final stepIds, finallyStepId: final finallyStepId):
+        case LoopNode(loopId: final loopId, stepIds: final stepIds):
           final loop = loopById[loopId];
           if (loop == null) {
             errors.add(
               _err(
-                ValidationErrorType.invalidReference,
+                WorkflowValidationErrorType.invalidReference,
                 'Normalized loop node references unknown loop "$loopId".',
                 loopId: loopId,
               ),
@@ -72,30 +66,17 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
           if (!_sameStringList(loop.steps, stepIds)) {
             errors.add(
               _err(
-                ValidationErrorType.contextInconsistency,
+                WorkflowValidationErrorType.contextInconsistency,
                 'Loop "$loopId" node step order does not match the authored loop body.',
                 loopId: loopId,
               ),
             );
           }
-          if (loop.finally_ != finallyStepId) {
-            errors.add(
-              _err(
-                ValidationErrorType.contextInconsistency,
-                'Loop "$loopId" node finalizer does not match the authored loop finalizer.',
-                loopId: loopId,
-              ),
-            );
-          }
-          final loopNodeStepIds = <String>[...stepIds];
-          if (finallyStepId != null) {
-            loopNodeStepIds.add(finallyStepId);
-          }
-          for (final stepId in loopNodeStepIds) {
+          for (final stepId in stepIds) {
             if (!stepById.containsKey(stepId)) {
               errors.add(
                 _err(
-                  ValidationErrorType.invalidReference,
+                  WorkflowValidationErrorType.invalidReference,
                   'Loop "$loopId" node references unknown step "$stepId".',
                   stepId: stepId,
                   loopId: loopId,
@@ -128,7 +109,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
           if (childStepIds.isEmpty) {
             errors.add(
               _err(
-                ValidationErrorType.missingField,
+                WorkflowValidationErrorType.missingField,
                 'Foreach node "$controllerStepId" must have at least one child step.',
                 stepId: controllerStepId,
               ),
@@ -144,15 +125,15 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
             }
             _recordNormalizedStep(childStepId, seenStepIds, errors);
             // A foreach-nested loop's controller appears as a child step; its
-            // body (and finalizer) steps are owned by the loop and are not
-            // emitted as separate nodes, so account for them here.
+            // body steps are owned by the loop and are not emitted as separate
+            // nodes, so account for them here.
             final nestedLoop = loopById[childStepId];
             if (nestedLoop != null) {
               for (final loopStepId in nestedLoop.steps) {
                 if (!stepById.containsKey(loopStepId)) {
                   errors.add(
                     _err(
-                      ValidationErrorType.invalidReference,
+                      WorkflowValidationErrorType.invalidReference,
                       'Foreach-nested loop "$childStepId" references unknown step "$loopStepId".',
                       stepId: loopStepId,
                       loopId: childStepId,
@@ -161,10 +142,6 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
                   continue;
                 }
                 _recordNormalizedStep(loopStepId, seenStepIds, errors, loopId: childStepId);
-              }
-              final finalizer = nestedLoop.finally_;
-              if (finalizer != null && stepById.containsKey(finalizer)) {
-                _recordNormalizedStep(finalizer, seenStepIds, errors, loopId: childStepId);
               }
             }
           }
@@ -178,11 +155,16 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _recordNormalizedStep(String stepId, Set<String> seenStepIds, List<ValidationError> errors, {String? loopId}) {
+  void _recordNormalizedStep(
+    String stepId,
+    Set<String> seenStepIds,
+    List<WorkflowValidationError> errors, {
+    String? loopId,
+  }) {
     if (!seenStepIds.add(stepId)) {
       errors.add(
         _err(
-          ValidationErrorType.duplicateId,
+          WorkflowValidationErrorType.duplicateId,
           'Step "$stepId" is represented more than once in the normalized execution graph.',
           stepId: stepId,
           loopId: loopId,
@@ -199,23 +181,27 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     return true;
   }
 
-  void _validateRequiredFields(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateRequiredFields(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     if (definition.name.isEmpty) {
-      errors.add(_err(ValidationErrorType.missingField, 'Workflow name must not be empty.'));
+      errors.add(_err(WorkflowValidationErrorType.missingField, 'Workflow name must not be empty.'));
     }
     if (definition.description.isEmpty) {
-      errors.add(_err(ValidationErrorType.missingField, 'Workflow description must not be empty.'));
+      errors.add(_err(WorkflowValidationErrorType.missingField, 'Workflow description must not be empty.'));
     }
     if (definition.steps.isEmpty) {
-      errors.add(_err(ValidationErrorType.missingField, 'Workflow must have at least one step.'));
+      errors.add(_err(WorkflowValidationErrorType.missingField, 'Workflow must have at least one step.'));
     }
     for (final step in definition.steps) {
       if (step.id.isEmpty) {
-        errors.add(_err(ValidationErrorType.missingField, 'Step must have a non-empty id.', stepId: '<empty>'));
+        errors.add(_err(WorkflowValidationErrorType.missingField, 'Step must have a non-empty id.', stepId: '<empty>'));
       }
       if (step.name.isEmpty) {
         errors.add(
-          _err(ValidationErrorType.missingField, 'Step "${step.id}" must have a non-empty name.', stepId: step.id),
+          _err(
+            WorkflowValidationErrorType.missingField,
+            'Step "${step.id}" must have a non-empty name.',
+            stepId: step.id,
+          ),
         );
       }
       // Prompt is optional when skill is present or when the step type owns
@@ -229,14 +215,18 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
           !isForeachOrLoop &&
           !isAggregateReviews) {
         errors.add(
-          _err(ValidationErrorType.missingField, 'Step "${step.id}" must have at least one prompt.', stepId: step.id),
+          _err(
+            WorkflowValidationErrorType.missingField,
+            'Step "${step.id}" must have at least one prompt.',
+            stepId: step.id,
+          ),
         );
       } else if (step.prompts != null) {
         for (final p in step.prompts!) {
           if (p.isEmpty) {
             errors.add(
               _err(
-                ValidationErrorType.missingField,
+                WorkflowValidationErrorType.missingField,
                 'Step "${step.id}" has an empty prompt — all prompts must be non-empty.',
                 stepId: step.id,
               ),
@@ -248,32 +238,32 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateUniqueStepIds(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateUniqueStepIds(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final seen = <String>{};
     for (final step in definition.steps) {
       if (!seen.add(step.id)) {
-        errors.add(_err(ValidationErrorType.duplicateId, 'Duplicate step id "${step.id}".', stepId: step.id));
+        errors.add(_err(WorkflowValidationErrorType.duplicateId, 'Duplicate step id "${step.id}".', stepId: step.id));
       }
     }
   }
 
-  void _validateUniqueLoopIds(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateUniqueLoopIds(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final seen = <String>{};
     for (final loop in definition.loops) {
       if (!seen.add(loop.id)) {
-        errors.add(_err(ValidationErrorType.duplicateId, 'Duplicate loop id "${loop.id}".', loopId: loop.id));
+        errors.add(_err(WorkflowValidationErrorType.duplicateId, 'Duplicate loop id "${loop.id}".', loopId: loop.id));
       }
     }
   }
 
-  void _validateLoopReferences(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateLoopReferences(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
     for (final loop in definition.loops) {
       for (final stepId in loop.steps) {
         if (!stepIds.contains(stepId)) {
           errors.add(
             _err(
-              ValidationErrorType.invalidReference,
+              WorkflowValidationErrorType.invalidReference,
               'Loop "${loop.id}" references non-existent step "$stepId".',
               loopId: loop.id,
             ),
@@ -283,12 +273,12 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopMaxIterations(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateLoopMaxIterations(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     for (final loop in definition.loops) {
       if (loop.maxIterations <= 0) {
         errors.add(
           _err(
-            ValidationErrorType.missingMaxIterations,
+            WorkflowValidationErrorType.missingMaxIterations,
             'Loop "${loop.id}" must have maxIterations > 0 (got ${loop.maxIterations}).',
             loopId: loop.id,
           ),
@@ -297,14 +287,14 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopStepOverlap(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateLoopStepOverlap(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final stepToLoop = <String, String>{};
     for (final loop in definition.loops) {
       for (final stepId in loop.steps) {
         if (stepToLoop.containsKey(stepId)) {
           errors.add(
             _err(
-              ValidationErrorType.loopOverlap,
+              WorkflowValidationErrorType.loopOverlap,
               'Step "$stepId" appears in multiple loops: "${stepToLoop[stepId]}" and "${loop.id}".',
               loopId: loop.id,
             ),
@@ -316,7 +306,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateAggregateReviewsPlacement(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateAggregateReviewsPlacement(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final aggregatorIds = {
       for (final step in definition.steps)
         if (step.taskType == WorkflowTaskType.aggregateReviews) step.id,
@@ -328,7 +318,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
         if (aggregatorIds.contains(stepId)) {
           errors.add(
             _err(
-              ValidationErrorType.invalidReference,
+              WorkflowValidationErrorType.invalidReference,
               'Aggregate-reviews step "$stepId" must not appear inside loop "${loop.id}": its reserved '
               'unscoped outputs ({review_report_path, findings_count, gating_findings_count}) are meant to be '
               'written once per fan-out, and re-execution would overwrite them each iteration. Sources whose '
@@ -348,7 +338,7 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
         if (aggregatorIds.contains(childId)) {
           errors.add(
             _err(
-              ValidationErrorType.invalidReference,
+              WorkflowValidationErrorType.invalidReference,
               'Aggregate-reviews step "$childId" must not appear inside foreach step "${step.id}": its '
               'reserved unscoped outputs ({review_report_path, findings_count, gating_findings_count}) are meant '
               'to be written once per fan-out, and per-iteration re-execution would overwrite them. Sources '
@@ -362,40 +352,13 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateLoopFinalizers(WorkflowDefinition definition, List<ValidationError> errors) {
-    final stepIds = definition.steps.map((s) => s.id).toSet();
-    for (final loop in definition.loops) {
-      final finallyStep = loop.finally_;
-      if (finallyStep == null) continue;
-
-      if (!stepIds.contains(finallyStep)) {
-        errors.add(
-          _err(
-            ValidationErrorType.invalidReference,
-            'Loop "${loop.id}" finalizer "$finallyStep" references a non-existent step.',
-            loopId: loop.id,
-          ),
-        );
-      } else if (loop.steps.contains(finallyStep)) {
-        errors.add(
-          _err(
-            ValidationErrorType.loopOverlap,
-            'Loop "${loop.id}" finalizer "$finallyStep" must not be one of the loop\'s '
-            'iteration steps.',
-            loopId: loop.id,
-          ),
-        );
-      }
-    }
-  }
-
-  void _validateProviderAliases(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateProviderAliases(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     for (final step in definition.steps) {
       final provider = step.provider;
       if (provider == null || !provider.startsWith('@') || workflowRoleDefaultAliases.contains(provider)) continue;
       errors.add(
         _err(
-          ValidationErrorType.invalidReference,
+          WorkflowValidationErrorType.invalidReference,
           'Step "${step.id}": provider "$provider" is not a known role alias. '
           'Supported aliases: ${workflowRoleDefaultAliases.join(', ')}.',
           stepId: step.id,
@@ -404,18 +367,40 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateStepDefaults(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateStepTimeoutFields(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
+    for (final step in definition.steps) {
+      final isAgent = step.taskType == WorkflowTaskType.agent;
+      final invalid = isAgent && step.timeoutSeconds != null
+          ? ('timeout', 'an agent', 'turn_timeout')
+          : !isAgent && step.turnTimeoutSeconds != null
+          ? ('turn_timeout', 'a non-agent', 'timeout')
+          : null;
+      if (invalid == null) continue;
+      errors.add(_timeoutErr('Step "${step.id}"', invalid, step.id));
+    }
+  }
+
+  void _validateStepDefaults(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final defaults = definition.stepDefaults;
     if (defaults == null || defaults.isEmpty) return;
     final stepIds = definition.steps.map((s) => s.id).toList();
     for (final d in defaults) {
+      final matchingSteps = definition.steps.where((step) => globMatchStepId(d.match, step.id));
+      for (final invalid in [
+        if (d.timeoutSeconds != null && matchingSteps.any((step) => step.taskType == WorkflowTaskType.agent))
+          ('timeout', 'an agent', 'turn_timeout'),
+        if (d.turnTimeoutSeconds != null && matchingSteps.any((step) => step.taskType != WorkflowTaskType.agent))
+          ('turn_timeout', 'a non-agent', 'timeout'),
+      ]) {
+        errors.add(_timeoutErr('stepDefaults pattern "${d.match}"', invalid));
+      }
       final provider = d.provider;
       if (provider != null && provider.startsWith('@') && !workflowRoleDefaultAliases.contains(provider)) {
         final matchingStepIds = stepIds.where((id) => globMatchStepId(d.match, id)).toList();
         final matchingSteps = matchingStepIds.isEmpty ? 'no current steps' : matchingStepIds.join(', ');
         errors.add(
           _err(
-            ValidationErrorType.invalidReference,
+            WorkflowValidationErrorType.invalidReference,
             'stepDefaults pattern "${d.match}" uses provider "$provider", '
             'which is not a known role alias. Supported aliases: ${workflowRoleDefaultAliases.join(', ')}. '
             'Matching steps: $matchingSteps.',

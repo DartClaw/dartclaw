@@ -44,12 +44,9 @@ class InMemoryTaskRepository implements TaskRepository {
   }
 
   @override
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) async {
+  Future<List<Task>> list({TaskStatus? status}) async {
     final tasks = _tasks.values.where((task) {
       if (status != null && task.status != status) {
-        return false;
-      }
-      if (type != null && task.type != type) {
         return false;
       }
       return true;

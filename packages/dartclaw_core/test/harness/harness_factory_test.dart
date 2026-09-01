@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, AcpAgentTopology, PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -58,7 +58,7 @@ void main() {
         cwd: '/tmp/workspace',
         executable: '/usr/local/bin/claude',
         turnTimeout: const Duration(seconds: 42),
-        harnessConfig: const HarnessConfig(model: 'sonnet', effort: 'medium'),
+        harnessConfig: const HarnessLaunchOptions(model: 'sonnet', effort: 'medium'),
         containerManager: containerManager,
         guardChain: guardChain,
         auditLogger: auditLogger,
@@ -156,7 +156,7 @@ void main() {
         cwd: '/tmp/workspace',
         executable: '/usr/local/bin/codex',
         turnTimeout: const Duration(seconds: 42),
-        harnessConfig: const HarnessConfig(
+        harnessConfig: const HarnessLaunchOptions(
           model: 'gpt-5',
           mcpServerUrl: 'http://127.0.0.1:3333/mcp',
           mcpGatewayToken: 'test-token',
@@ -201,79 +201,24 @@ void main() {
       expect(harness, isA<FakeAgentHarness>());
     });
 
-    test('registered ACP agents receive guard, permission, and audit seams', () {
-      final factory = HarnessFactory();
-      final guardChain = GuardChain(guards: const []);
-      Future<AcpPermissionResult> permissionDecision(AcpPermissionRequest request) async {
-        return const AcpPermissionResult(granted: true);
-      }
+    test('registerFirstClaim preserves the first registrar claim', () {
+      final first = FakeAgentHarness();
+      final second = FakeAgentHarness();
+      final factory = HarnessFactory()
+        ..registerFirstClaim('third-party', (_) => first)
+        ..registerFirstClaim('third-party', (_) => second);
 
-      void audit(AcpReverseCallAuditEvent event) {}
-
-      factory.registerAcpAgent(
-        'goose-direct',
-        const AcpAgentConfig(binary: 'goose', args: ['acp'], containerIsolationRequired: false),
-      );
-
-      final harness = factory.create(
-        'goose-direct',
-        HarnessFactoryConfig(
-          cwd: '/tmp/workspace',
-          guardChain: guardChain,
-          acpPermissionDecision: permissionDecision,
-          acpReverseCallAudit: audit,
-        ),
-      ) as AcpHarness;
-
-      expect(harness.guardChain, same(guardChain));
-      expect(harness.permissionDecision, same(permissionDecision));
-      expect(harness.onReverseCallAudit, same(audit));
+      expect(factory.create('third-party', const HarnessFactoryConfig(cwd: '/tmp')), same(first));
     });
 
-    test('container-required ACP agents fail closed without a container manager', () {
-      final factory = HarnessFactory();
-      factory.registerAcpAgent('goose-relay', const AcpAgentConfig(binary: 'goose', containerIsolationRequired: true));
+    test('the first extension claim replaces a constructor-installed built-in', () {
+      final first = FakeAgentHarness();
+      final second = FakeAgentHarness();
+      final factory = HarnessFactory()
+        ..registerFirstClaim('claude', (_) => first)
+        ..registerFirstClaim('claude', (_) => second);
 
-      expect(
-        () => factory.create('goose-relay', const HarnessFactoryConfig(cwd: '/tmp/workspace')),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('requires container isolation but no container manager is wired'),
-          ),
-        ),
-      );
-    });
-
-    test('ACP agents refuse a supplied container manager instead of discarding it', () {
-      final factory = HarnessFactory();
-      factory.registerAcpAgent(
-        'goose-direct',
-        const AcpAgentConfig(binary: 'goose', args: ['acp'], topology: AcpAgentTopology.direct),
-      );
-
-      expect(
-        () => factory.create(
-          'goose-direct',
-          const HarnessFactoryConfig(
-            cwd: '/tmp/workspace',
-            containerManager: _FakeContainerExecutor(),
-            environment: {'ANTHROPIC_API_KEY': 'host-secret'},
-          ),
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            allOf(
-              contains('was given a container manager'),
-              contains('no container provider-credential or host-capability mediation'),
-              isNot(contains('host-secret')),
-            ),
-          ),
-        ),
-      );
+      expect(factory.create('claude', const HarnessFactoryConfig(cwd: '/tmp')), same(first));
     });
 
     test('probeContinuityProviders returns built-in providers that support session continuity', () {

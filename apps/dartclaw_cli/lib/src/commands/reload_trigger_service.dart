@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show ConfigDelta, ConfigNotifier, DartclawConfig, PlatformCapabilities, ReloadConfig, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+
+import 'config_loader.dart';
 
 final _log = Logger('ReloadTriggerService');
 
@@ -46,7 +47,7 @@ class ReloadTriggerService {
   }) : _configPath = configPath,
        _notifier = notifier,
        _reloadConfig = reloadConfig,
-       _configLoader = configLoader ?? (() => DartclawConfig.load(configPath: configPath)),
+       _configLoader = configLoader ?? (() => loadCliConfig(configPath: configPath)),
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _sigusr1Watch = sigusr1Watch ?? (() => ProcessSignal.sigusr1.watch()),
        _fileWatch =

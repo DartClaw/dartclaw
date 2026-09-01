@@ -64,7 +64,7 @@ Notice the level of specificity: concrete technologies, explicit exclusions, and
 
 ## HEARTBEAT.md Format
 
-HEARTBEAT.md uses a checklist format. The heartbeat scheduler processes the entire file in a single turn at configured intervals.
+HEARTBEAT.md uses a checklist format. The built-in heartbeat job processes the entire file in a single turn at configured intervals.
 
 ```markdown
 - [ ] Check server health at https://status.example.com
@@ -132,7 +132,7 @@ Replace the test interval with your target cron expression and set the log level
 
 Use `memory_observe` for journal observations and runtime learnings. Use `memory_apply` only for explicit personal-memory curation: read the current collection and entry revisions, then submit one atomic add/revise/merge/remove change set with unique correlation IDs. Stale or invalid sets do not partially apply, and exact no-ops do not advance the collection revision.
 
-Heartbeat does not automatically consolidate or rewrite personal memory. Git sync may still commit workspace changes after heartbeat.
+Heartbeat does not automatically consolidate or rewrite personal memory. Git sync commits workspace changes on its own schedule, whether or not the heartbeat ran.
 
 **Note on config layout**: `memory.max_bytes` and memory pruning settings are both nested under `memory:`:
 
@@ -170,35 +170,16 @@ Key points:
 
 See [Configuration](../configuration.md) for full session config reference.
 
-## Channel-to-Task Integration (0.9+)
+## Channel-to-Task Integration
 
-With `task_trigger` enabled on a channel, users can create background tasks from WhatsApp, Signal, or Google Chat by sending messages with a configured prefix:
+Users ask for background work in ordinary language. The agent calls `task_create` with the agreed description and
+project, then reports the full task ID returned by the runtime. Requests to inspect or decide completed work cause the
+agent to call `task_list`, `review_list`, or `task_review`.
 
-```
-task: Research Dart isolate performance patterns
-task: coding Fix the login page CSS
-```
-
-Review completed tasks directly from the channel:
-```
-accept          (if only one task is in review)
-accept abc123   (if multiple tasks are in review)
-reject abc123
-```
-
-Enable per channel in `dartclaw.yaml`:
-
-```yaml
-channels:
-  whatsapp:
-    task_trigger:
-      enabled: true
-      prefix: "task:"            # prefix that triggers task creation
-      default_type: "research"    # type when not specified
-      auto_start: true           # start immediately or queue as draft
-```
-
-See [Scheduled Task Queue](03-scheduled-task-queue.md) for more on the task system.
+Thread binding remains deterministic where a channel supplies a thread identity. `/bind <full-task-id>` and `/unbind`
+operate without a model turn; the agent can instead call `task_bind` with explicit channel and thread identifiers or
+`task_unbind` with the full task ID. See [Tasks](../tasks.md#agent-tool-surface) for tool schemas and [Using DartClaw in
+a Group](08-crowd-coding.md) for a complete shared-room setup.
 
 ## Heartbeat vs Cron Jobs
 
@@ -210,12 +191,12 @@ DartClaw has two independent scheduling mechanisms. They serve different purpose
 | **Purpose** | Ongoing maintenance (git sync, checklist review) | Time-of-day tasks with unique prompts (briefings, reports, scans) |
 | **Schedule** | Fixed interval (`interval_minutes`) | Cron expression or interval per job |
 | **Memory writes** | Only when the checklist explicitly invokes a role-appropriate tool | Only when the job prompt explicitly invokes a role-appropriate tool |
-| **Git sync** | Attempts to commit on every timer cycle | Changes are picked up by the next heartbeat cycle |
+| **Git sync** | Attempts to commit on every git-sync interval | Changes are picked up by the next git-sync cycle |
 | **Delivery** | Results logged only | Configurable: `none`, `announce`, `webhook` |
 | **Session** | New isolated session each run | Same session reused per job ID (history accumulates) |
 
 **When to use which:**
-- Use **heartbeat** for the "background maintenance loop" -- git sync and recurring checks that don't need specific delivery
+- Use **heartbeat** for the "background maintenance loop" -- recurring checks that don't need specific delivery (git sync has its own schedule)
 - Use **cron jobs** for "things that happen at specific times" -- morning briefings, daily journals, weekly reviews, knowledge scans
 
 They can (and typically do) run together. Heartbeat handles the plumbing; cron jobs handle the content.
@@ -227,7 +208,7 @@ Once your assistant is running, use these built-in tools to verify it's working:
 ### Web UI dashboards
 
 - **Health Dashboard** (`/health-dashboard`) -- server uptime, guard audit log (recent blocks), system status. Check here first if something seems wrong
-- **Memory Dashboard** (`/memory`) -- canonical role counts, bounded prompt-index usage, observation coverage, curation lifecycle, and search index status. Use it to verify journal observations and curated topic entries without treating the index file as the data body
+- **Memory Dashboard** (`/memory`) -- canonical role counts, bounded prompt-index usage, observation coverage, and search index status. Use it to verify journal observations and curated topic entries without treating the index file as the data body
 - **Task Dashboard** (`/tasks`) -- active and completed tasks, review queue. Shows task execution status if you're using the task system
 - **Settings** (`/settings`) -- channel connection status, guard configuration, scheduling job list. Verify channels are connected and jobs are registered
 
@@ -242,9 +223,9 @@ logging:
 
 Key log patterns to look for:
 - `CronScheduler` -- job firing events
-- `HeartbeatScheduler` -- heartbeat cycle events
+- `HeartbeatJob` -- heartbeat checklist reads
 - `memory_apply` / `memory_observe` -- explicit memory writes
-- `GitSync` -- commit and push events
+- `WorkspaceGitSync` -- commit and push events
 - `announce` -- delivery routing decisions
 
 ### Runner metrics (0.8+)

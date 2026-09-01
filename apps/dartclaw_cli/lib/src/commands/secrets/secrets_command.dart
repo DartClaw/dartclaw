@@ -1,8 +1,8 @@
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn;
 
 import '../auth/secret_input.dart';
 import '../credential_subcommand.dart';
-import '../serve_command.dart' show ExitFn;
 import 'secrets_audit_command.dart';
 import 'secrets_list_command.dart';
 import 'secrets_rm_command.dart';

@@ -1,7 +1,8 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show AgentExecution, Task, TaskStatus, TaskStatusChangedEvent, TaskType, WorkflowStepExecution;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskStatusChangedEvent;
 
 import 'workflow_definition.dart' show OutputConfig, WorkflowDefinition, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
@@ -27,7 +28,6 @@ Future<void> createWorkflowTaskTriple({
   required int stepIndex,
   required String title,
   required String description,
-  required TaskType type,
   required String? provider,
   required String? projectId,
   required int? maxTokens,
@@ -85,7 +85,6 @@ Future<void> createWorkflowTaskTriple({
     id: taskId,
     title: title,
     description: description,
-    type: type,
     status: TaskStatus.queued,
     configJson: sanitizedTaskConfig,
     createdAt: timestamp,
@@ -136,20 +135,20 @@ Map<String, dynamic> buildStepConfig(
   if (resolved.effort != null) config['effort'] = resolved.effort;
   if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;
   if (resolved.allowedTools != null) config['allowedTools'] = resolved.allowedTools;
-  if (resolved.timeoutSeconds != null) config[WorkflowTaskConfig.workflowTimeoutSeconds] = resolved.timeoutSeconds;
+  if (resolved.turnTimeoutSeconds != null) {
+    config[WorkflowTaskConfig.workflowTurnTimeoutSeconds] = resolved.turnTimeoutSeconds;
+  }
   final isReadOnlyStep = step_config_policy.stepIsReadOnly(step, resolved);
   if (isReadOnlyStep) {
     config['readOnly'] = true;
   }
-  if (step_config_policy.stepNeedsWorktree(
+  config[WorkflowTaskConfig.needsWorktree] = step_config_policy.stepNeedsWorktree(
     definition,
     step,
     resolved,
     resolvedWorktreeMode: resolvedWorktreeMode,
     effectiveOutputs: effectiveOutputs,
-  )) {
-    config['_workflowNeedsWorktree'] = true;
-  }
+  );
   final branch = context.variables['BRANCH']?.trim();
   if (branch != null && branch.isNotEmpty) {
     config['_baseRef'] = branch;
@@ -179,7 +178,6 @@ List<String> buildOneShotFollowUpPrompts(
   Map<String, OutputConfig>? effectiveOutputs, {
   required List<String> outputKeys,
   MapContext? mapCtx,
-  String? gatingSeverity,
   bool finalizerHandlesOutputs = false,
   required WorkflowTemplateEngine templateEngine,
   required SkillPromptBuilder skillPromptBuilder,
@@ -203,10 +201,8 @@ List<String> buildOneShotFollowUpPrompts(
             resolvedPrompt: resolvedPrompt,
             outputs: effectiveOutputs,
             outputKeys: outputKeys,
-            outputExamples: step.outputExamples,
             emitStepOutcomeProtocol: !finalizerHandlesOutputs && !step.emitsOwnOutcome,
             finalizerCoveredKeys: finalizerCoveredKeys,
-            gatingSeverity: gatingSeverity,
           )
         : resolvedPrompt;
     followUps.add(built);
@@ -220,7 +216,6 @@ Map<String, dynamic> stripWorkflowStepConfig(Map<String, dynamic> taskConfig) {
   for (final key in const <String>{
     '_workflowGit',
     '_workflowWorkspaceDir',
-    '_workflow.externalArtifactMount',
     '_workflowFollowUpPrompts',
     '_workflowStructuredSchema',
     '_workflowProviderSessionId',
@@ -261,7 +256,6 @@ WorkflowStepExecution buildWorkflowStepExecutionFromConfig({
     structuredSchemaJson: encodeJsonString(taskConfig['_workflowStructuredSchema']),
     structuredOutputJson: encodeJsonString(taskConfig['_workflowStructuredOutputPayload']),
     followUpPromptsJson: encodeJsonString(taskConfig['_workflowFollowUpPrompts']),
-    externalArtifactMount: encodeJsonString(taskConfig['_workflow.externalArtifactMount']),
     mapIterationIndex: intOrNull(taskConfig['_mapIterationIndex']),
     mapIterationTotal: intOrNull(taskConfig['_mapIterationTotal']),
     stepTokenBreakdownJson: tokenBreakdown,

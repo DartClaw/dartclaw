@@ -3,14 +3,14 @@ import 'dart:io';
 
 import 'package:args/args.dart' show ArgResults;
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show formatLocalDateTime;
 import 'package:meta/meta.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn, TokenService, WriteLine;
 
-import '../dartclaw_api_client.dart';
 import 'cli_global_options.dart';
 import 'config_loader.dart';
-import 'serve_command.dart' show ExitFn, WriteLine;
 
 export 'cli_global_options.dart' show globalOptionString;
 
@@ -83,11 +83,63 @@ DartclawApiClient resolveCliApiClient({
     return apiClient;
   }
   final effectiveConfig = config ?? loadCliConfig(configPath: globalOptionString(globalResults, 'config'));
-  return DartclawApiClient.fromConfig(
+  return apiClientFromConfig(
     config: effectiveConfig,
     serverOverride: serverOverride(globalResults),
     tokenOverride: globalOptionString(globalResults, 'token'),
   );
+}
+
+/// Builds a [DartclawApiClient] from local [config] plus the CLI's overrides.
+///
+/// The token comes from `--token` when given, is omitted entirely when the
+/// gateway runs with `auth_mode: none`, and otherwise falls back to
+/// `gateway.token` and then the `gateway_token` file under the data directory.
+DartclawApiClient apiClientFromConfig({
+  required DartclawConfig config,
+  String? serverOverride,
+  String? tokenOverride,
+  HttpClient Function()? httpClientFactory,
+  ApiTransport? transport,
+}) {
+  final trimmedTokenOverride = tokenOverride?.trim();
+  final token = trimmedTokenOverride != null && trimmedTokenOverride.isNotEmpty
+      ? trimmedTokenOverride
+      : config.gateway.authMode == 'none'
+      ? null
+      : config.gateway.token ?? TokenService.loadFromFile(config.server.dataDir);
+  return DartclawApiClient(
+    baseUri: resolveServerUri(config: config, serverOverride: serverOverride),
+    token: token,
+    httpClientFactory: httpClientFactory,
+    transport: transport,
+  );
+}
+
+/// Resolves the server base URI from [config] and an optional `--server`
+/// [serverOverride], which may be a bare port, a host, or a full URL.
+Uri resolveServerUri({required DartclawConfig config, String? serverOverride}) {
+  final raw = serverOverride?.trim();
+  if (raw == null || raw.isEmpty) {
+    return Uri(scheme: 'http', host: 'localhost', port: config.server.port);
+  }
+
+  if (RegExp(r'^\d+$').hasMatch(raw)) {
+    return Uri(scheme: 'http', host: 'localhost', port: int.parse(raw));
+  }
+
+  final candidate = raw.contains('://') ? Uri.parse(raw) : Uri.parse('http://$raw');
+  final host = candidate.host.isEmpty ? 'localhost' : candidate.host;
+  final useConfigPort = !raw.contains('://') && !candidate.hasPort;
+  final scheme = candidate.scheme.isEmpty ? 'http' : candidate.scheme;
+  final path = candidate.path.isEmpty ? '' : candidate.path;
+  if (candidate.hasPort) {
+    return Uri(scheme: scheme, host: host, port: candidate.port, path: path);
+  }
+  if (useConfigPort) {
+    return Uri(scheme: scheme, host: host, port: config.server.port, path: path);
+  }
+  return Uri(scheme: scheme, host: host, path: path);
 }
 
 void writePrettyJson(WriteLine writeLine, Object? value) {

@@ -1,18 +1,14 @@
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show AcpAgentConfig, HistoryConfig, PlatformCapabilities;
-
 import 'agent_harness.dart';
-import 'acp_harness.dart';
-import 'acp_reverse_call_handlers.dart';
 import 'claude_code_harness.dart';
 import 'claude_protocol_adapter.dart';
 import 'canonical_tool.dart';
 import 'codex_harness.dart';
 import 'codex_protocol_adapter.dart';
 import '../container/container_executor.dart';
-import 'harness_config.dart';
+import 'harness_launch_options.dart';
 import 'process_types.dart';
 
 /// Configuration bundle used when constructing a harness through [HarnessFactory].
@@ -34,13 +30,27 @@ class HarnessFactoryConfig {
   final Duration turnTimeout;
 
   /// Provider-agnostic harness configuration forwarded during initialization.
-  final HarnessConfig harnessConfig;
+  final HarnessLaunchOptions harnessConfig;
 
   /// Provider-specific options forwarded to the concrete harness.
   final Map<String, dynamic> providerOptions;
 
+  /// Canonical tool names this spawn's step declared, and the roots its
+  /// file-mutating tools may write.
+  ///
+  /// Set only for a workflow-step spawn. When present, the derived Claude
+  /// permission rules become the spawn's total policy: the operator's
+  /// user-scope settings are excluded, so a step runs on what it declared
+  /// rather than on whatever the host's `~/.claude/settings.json` happens to
+  /// allow. Null leaves today's behaviour, inheritance included.
+  final List<String>? declaredCanonicalTools;
+  final List<String> declaredWritableRoots;
+
   /// Environment variables visible to the provider subprocess.
   final Map<String, String> environment;
+
+  /// Request-scoped variables visible only to a containerized provider subprocess.
+  final Map<String, String> containerEnvironment;
 
   /// Optional process factory used by subprocess-backed harnesses.
   final ProcessFactory? processFactory;
@@ -59,12 +69,6 @@ class HarnessFactoryConfig {
 
   /// Exact DartClaw MCP tool names mapped to their guard semantic.
   final Map<String, CanonicalTool> ownMcpToolCanonicals;
-
-  /// Optional approval decision callback used by ACP reverse-call permission requests.
-  final AcpPermissionDecision? acpPermissionDecision;
-
-  /// Optional audit sink for ACP reverse-call handler decisions and lifecycle calls.
-  final AcpReverseCallAuditSink? acpReverseCallAudit;
 
   /// Memory apply callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
@@ -102,19 +106,20 @@ class HarnessFactoryConfig {
   const new({
     required this.cwd,
     this.executable = 'claude',
-    this.turnTimeout = const Duration(seconds: 600),
-    this.harnessConfig = const HarnessConfig(),
+    this.turnTimeout = const Duration(seconds: 1800),
+    this.harnessConfig = const HarnessLaunchOptions(),
     this.historyConfig = const HistoryConfig.defaults(),
     this.providerOptions = const <String, dynamic>{},
+    this.declaredCanonicalTools,
+    this.declaredWritableRoots = const <String>[],
     this.environment = const <String, String>{},
+    this.containerEnvironment = const <String, String>{},
     this.processFactory,
     this.platformCapabilities,
     this.containerManager,
     this.guardChain,
     this.auditLogger,
     this.ownMcpToolCanonicals = const {},
-    this.acpPermissionDecision,
-    this.acpReverseCallAudit,
     this.onMemoryApply,
     this.onMemoryObserve,
     this.onContextualMemoryApply,
@@ -131,6 +136,7 @@ class HarnessFactory {
   static final _log = Logger('HarnessFactory');
 
   final Map<String, AgentHarness Function(HarnessFactoryConfig config)> _factories = {};
+  final Set<String> _firstClaimedProviders = {};
 
   /// Cached probe instances used by [skillActivationLineFor]. Probes are
   /// stateless relative to skills — the activation line depends only on
@@ -154,38 +160,15 @@ class HarnessFactory {
     _activationProbes.remove(providerId);
   }
 
-  /// Registers a configured ACP agent as a provider identity.
+  /// Registers the first extension claim for [providerId].
   ///
-  /// A supplied container manager is required authority, never an optional
-  /// optimization: it is honored or the construction fails. No ACP container
-  /// combination is mediated, so honoring one is impossible and a supplied
-  /// manager fails closed rather than being discarded so the process silently
-  /// lands on the host.
-  void registerAcpAgent(String providerId, AcpAgentConfig agent) {
-    register(providerId, (config) {
-      if (agent.containerIsolationRequired && config.containerManager == null) {
-        throw StateError('ACP provider "$providerId" requires container isolation but no container manager is wired');
-      }
-      if (config.containerManager != null) {
-        throw StateError(
-          'ACP provider "$providerId" was given a container manager, but DartClaw provides no container '
-          'provider-credential or host-capability mediation for an ACP client. Select host execution for it.',
-        );
-      }
-      return AcpHarness(
-        cwd: config.cwd,
-        executable: agent.binary,
-        arguments: agent.args,
-        turnTimeout: config.turnTimeout,
-        historyConfig: config.historyConfig,
-        processFactory: config.processFactory,
-        environment: config.environment,
-        guardChain: config.guardChain,
-        permissionDecision: config.acpPermissionDecision,
-        onReverseCallAudit: config.acpReverseCallAudit,
-        platformCapabilities: config.platformCapabilities,
-      );
-    });
+  /// Constructor-installed built-ins are defaults rather than registrar
+  /// claims, so the first extension may replace one. Later extension claims
+  /// are ignored to keep factory ownership aligned with the runtime's
+  /// first-claim-wins provider, policy and credential lookups.
+  void registerFirstClaim(String providerId, AgentHarness Function(HarnessFactoryConfig config) factory) {
+    if (!_firstClaimedProviders.add(providerId)) return;
+    register(providerId, factory);
   }
 
   /// Creates a harness for [providerId] using [config].
@@ -227,10 +210,8 @@ class HarnessFactory {
   /// provider is not registered, so callers working with an unknown
   /// provider still get the portable verbose form.
   ///
-  /// This is the entry point used by the workflow one-shot CLI path
-  /// (which spawns `codex exec` / `claude --json` directly, without
-  /// holding a live harness instance) and by prompt builders that only
-  /// have a provider name to go on. Keeps the activation-line decision
+  /// This is the entry point used by prompt builders that only have a
+  /// provider name to go on. Keeps the activation-line decision
   /// owned by each harness — adding a new harness automatically lights
   /// up correct activation without any central switch to update.
   String skillActivationLineFor(String? providerId, String skill) {
@@ -278,11 +259,14 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     historyConfig: config.historyConfig,
     containerManager: config.containerManager,
     environment: config.environment,
+    containerEnvironment: config.containerEnvironment,
     processFactory: config.processFactory,
     guardChain: config.guardChain,
     auditLogger: config.auditLogger,
     protocolAdapter: ClaudeProtocolAdapter(ownMcpToolCanonicals: config.ownMcpToolCanonicals),
     platformCapabilities: config.platformCapabilities,
+    declaredCanonicalTools: config.declaredCanonicalTools,
+    declaredWritableRoots: config.declaredWritableRoots,
   );
 }
 
@@ -292,6 +276,7 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     executable: config.executable == 'claude' ? 'codex' : config.executable,
     turnTimeout: config.turnTimeout,
     environment: config.environment,
+    containerEnvironment: config.containerEnvironment,
     processFactory: config.processFactory,
     harnessConfig: config.harnessConfig,
     providerOptions: config.providerOptions,

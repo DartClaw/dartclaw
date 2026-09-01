@@ -4,11 +4,18 @@
 
 Accepted — 2026-05-31 (implemented in 0.16.5, building on 0.16.4 workflow-execution unification; recorded retroactively during an ADR-gap review of 0.16.4–0.16.6)
 
+## Amendment – 2026-08-23
+
+The `_ClaudeTaskPolicy` settings renderer and the one-shot CLI providers described below were retired with their
+provider process path. Workflow tasks now execute through guarded harness workers: `TaskToolFilterGuard` enforces the
+canonical `allowedTools`/read-only policy before tool calls for both Claude and Codex. The historical Context, Decision,
+and References below are superseded where they present the renderer or deleted files as live.
+
 **Related:** [ADR-016](016-multi-provider-harness-architecture.md) (multi-provider harness — this adds per-harness capability translation it did not specify), [ADR-001](001-sdk-integration-and-security-architecture.md) (security-by-design posture).
 
 ## Context
 
-DartClaw runs tasks across heterogeneous harnesses (Claude Code, Codex) whose native capability-restriction primitives differ. The runtime needs a provider-neutral way to express two task-level intents — "this task may use only these tools" and "this task is read-only" — and translate them per harness. The harnesses are asymmetric: Claude's one-shot path supports permission settings that can enforce an allowed-tools set, while the Codex CLI supports a sandbox read-only mode but has **no native tool-allowlist** mechanism. 0.16.4 unified workflow-authored agent steps onto the coding-task path and expressed non-mutating intent through `allowedTools`-derived read-only checks; 0.16.5 formalized this as a request-level capability contract. Leaving the asymmetry implicit risked silent over-permissioning — a caller could request a restricted tool set and assume uniform enforcement.
+DartClaw runs tasks across heterogeneous harnesses (Claude Code, Codex) whose native capability-restriction primitives differ. The runtime needs a provider-neutral way to express two task-level intents — "this task may use only these tools" and "this task is read-only" — and translate them per harness. The harnesses are asymmetric: Claude's one-shot path supports permission settings that can enforce an allowed-tools set, while the Codex CLI supports a sandbox read-only mode but has **no native tool-allowlist** mechanism. 0.16.4 unified workflow-authored agent steps onto the shared task execution path and expressed non-mutating intent through `allowedTools`-derived read-only checks; 0.16.5 formalized this as a request-level capability contract. Leaving the asymmetry implicit risked silent over-permissioning — a caller could request a restricted tool set and assume uniform enforcement.
 
 ## Decision
 

@@ -1,7 +1,6 @@
 import '../harness/agent_harness.dart';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PromptScope;
-import 'package:dartclaw_models/dartclaw_models.dart' show ExecutionPolicy;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'turn_outcome.dart';
 
@@ -43,7 +42,11 @@ abstract interface class TurnRunner {
     String? effort,
     String? systemPromptOverride,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? taskId,
+    Duration? turnTimeout,
     bool isHumanInput = false,
     PromptScope? promptScope,
   });
@@ -55,7 +58,6 @@ abstract interface class TurnRunner {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
-    bool resume = false,
   });
 
   /// Rolls back a [reserveTurn] reservation without executing.

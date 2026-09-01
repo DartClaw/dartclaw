@@ -140,4 +140,29 @@ void main() {
       expect(map.resolve(sourceUuid: '12bfcd5a-3363-45f4-94b6-3fe247f11ab8'), '+1234567890');
     });
   });
+
+  // TD-142: signal-cli's casing is not part of the identity. Before this,
+  // `resolve` handed back whatever casing arrived, `DmAccessController` compared
+  // by exact string, and an allowlisted sender lost access the moment the
+  // channel reported the same UUID in a different case.
+  group('UUID casing is not part of the identity', () {
+    const lower = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const upper = 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890';
+
+    test('a uuid-only sender resolves to the canonical lowercase spelling', () {
+      final map = SignalSenderMap(filePath: '${Directory.systemTemp.path}/dartclaw-td142-a.json');
+      expect(map.resolve(sourceUuid: upper), lower);
+      expect(map.resolve(sourceUuid: lower), lower);
+    });
+
+    test('the same sender in two casings is one identity', () {
+      final map = SignalSenderMap(filePath: '${Directory.systemTemp.path}/dartclaw-td142-b.json');
+      expect(map.resolve(sourceUuid: upper), map.resolve(sourceUuid: lower));
+    });
+
+    test('an invalid uuid is returned untouched — it has no canonical form here', () {
+      final map = SignalSenderMap(filePath: '${Directory.systemTemp.path}/dartclaw-td142-c.json');
+      expect(map.resolve(sourceUuid: 'NOT-A-UUID'), 'NOT-A-UUID');
+    });
+  });
 }

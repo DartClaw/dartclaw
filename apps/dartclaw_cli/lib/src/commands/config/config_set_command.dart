@@ -1,5 +1,5 @@
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta, ConfigMutability;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../connected_command_support.dart';
 

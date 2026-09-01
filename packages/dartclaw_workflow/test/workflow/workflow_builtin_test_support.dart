@@ -14,7 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart' show stepArtifactsDirEnvVar;
 import 'package:dartclaw_workflow/src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -22,7 +22,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         Task,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType,
         WorkflowContext,
         WorkflowDefinition,
         WorkflowDefinitionParser,
@@ -32,7 +31,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome;
 import 'package:path/path.dart' as p;
@@ -51,37 +49,19 @@ Future<String> _resolveWorkflowDefinitionsDir() async {
   return p.join(libDir.path, 'src', 'workflow', 'definitions');
 }
 
-String contextOutput(Map<String, Object?> values) {
-  return '<workflow-context>${jsonEncode(values)}</workflow-context>';
-}
-
 class StubResponse {
-  final String assistantContent;
+  /// The declared outputs this step's finalizer envelope carries.
+  final Map<String, Object?> outputs;
   final Map<String, dynamic>? worktreeJson;
 
-  const new({required this.assistantContent, this.worktreeJson});
+  const new({required this.outputs, this.worktreeJson});
 }
 
-/// Architecture-review stub. When [stepArtifactsDir] is supplied the report is
-/// materialized into that host-owned dir (the deterministic capture source);
-/// omit it to exercise the clean-review stub path (findings == 0 only).
-StubResponse architectureReviewStub({int findingsCount = 0, int? gatingFindingsCount, String? stepArtifactsDir}) =>
-    StubResponse(
-      assistantContent: contextOutput({
-        if (stepArtifactsDir != null)
-          'architecture-review.review_report_path': p.join(stepArtifactsDir, 'architecture-review-codex-2026-04-29.md'),
-        'findings_count': findingsCount,
-        'gating_findings_count': gatingFindingsCount ?? findingsCount,
-        'architecture-review.findings_count': findingsCount,
-        'architecture-review.gating_findings_count': gatingFindingsCount ?? findingsCount,
-      }),
-    );
-
 StubResponse integratedReviewCouncilStub({int findingsCount = 0, int? gatingFindingsCount}) => StubResponse(
-  assistantContent: contextOutput({
+  outputs: {
     'integrated-review-council.findings_count': findingsCount,
     'integrated-review-council.gating_findings_count': gatingFindingsCount ?? findingsCount,
-  }),
+  },
 );
 
 StubResponse specAndImplementCommonStub(
@@ -96,28 +76,27 @@ StubResponse specAndImplementCommonStub(
 }) {
   return switch (queued.stepKey) {
     'spec' => StubResponse(
-      assistantContent: contextOutput({
-        'spec_path': specPath,
-        'spec_source': specSource,
-        'spec_confidence': specConfidence,
-      }),
+      outputs: {'spec_path': specPath, 'spec_source': specSource, 'spec_confidence': specConfidence},
     ),
-    'revise-spec' when includeReviseSpec => StubResponse(assistantContent: contextOutput(const {})),
-    'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': diffSummary})),
+    'revise-spec' when includeReviseSpec => StubResponse(outputs: const {}),
+    'implement' => StubResponse(outputs: {'diff_summary': diffSummary}),
     'integrated-review' => StubResponse(
-      assistantContent: contextOutput(
-        reviewReportContext(queued.stepKey, stepArtifactsDir: stepArtifactsDirForTask(queued.task), findingsCount: 0),
+      outputs: reviewReportContext(
+        queued.stepKey,
+        stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+        findingsCount: 0,
       ),
     ),
     'remediate' when includeRemediation => StubResponse(
-      assistantContent: contextOutput({'remediation_summary': remediationSummary, 'diff_summary': diffSummary}),
+      outputs: {'remediation_summary': remediationSummary, 'diff_summary': diffSummary},
     ),
     're-review' when includeRemediation => StubResponse(
-      assistantContent: contextOutput(
-        reviewReportContext(queued.stepKey, stepArtifactsDir: stepArtifactsDirForTask(queued.task), findingsCount: 0),
+      outputs: reviewReportContext(
+        queued.stepKey,
+        stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+        findingsCount: 0,
       ),
     ),
-    'architecture-review' => architectureReviewStub(),
     'integrated-review-council' => integratedReviewCouncilStub(),
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
@@ -133,57 +112,41 @@ StubResponse planAndImplementCommonStub(
 }) {
   return switch (queued.stepKey) {
     'implement' => StubResponse(
-      assistantContent: contextOutput({'story_result': storyResult}),
+      outputs: {'story_result': storyResult},
       worktreeJson: {'branch': branch, 'path': worktreePath, 'createdAt': DateTime.now().toIso8601String()},
     ),
-    'quick-review' || 'simplify-code' => StubResponse(assistantContent: contextOutput({})),
+    'quick-review' => StubResponse(outputs: {}),
     // Per-story review + nested remediation loop. A clean review (0 gating
     // findings) makes the story-remediation loop's entry gate skip it; the
     // loop body stubs cover the converging case when a test forces findings.
-    'review-story' || 're-review-story' => StubResponse(
-      assistantContent: contextOutput({'findings_count': 0, 'gating_findings_count': 0}),
-    ),
-    'remediate-story' => StubResponse(assistantContent: contextOutput({'remediation_summary': remediationSummary})),
+    'review-story' || 're-review-story' => StubResponse(outputs: {'findings_count': 0, 'gating_findings_count': 0}),
+    'remediate-story' => StubResponse(outputs: {'remediation_summary': remediationSummary}),
     'plan-review' => StubResponse(
-      assistantContent: contextOutput({
+      outputs: {
         'implementation_summary': 'complete',
         'remediation_plan': 'none',
         'needs_remediation': false,
         'findings_count': 0,
         'plan-review.findings_count': 0,
         'plan-review.gating_findings_count': 0,
-      }),
+      },
     ),
-    'remediate' => StubResponse(
-      assistantContent: contextOutput({'remediation_summary': remediationSummary, 'diff_summary': diffSummary}),
-    ),
+    'remediate' => StubResponse(outputs: {'remediation_summary': remediationSummary, 'diff_summary': diffSummary}),
     're-review' => StubResponse(
-      assistantContent: contextOutput({
+      outputs: {
         'remediation_plan': 'No further remediation',
         'findings_count': 0,
         're-review.findings_count': 0,
         'gating_findings_count': 0,
         're-review.gating_findings_count': 0,
-      }),
+      },
     ),
-    'update-state' => StubResponse(assistantContent: contextOutput({'state_update_summary': 'done'})),
-    'architecture-review' => StubResponse(
-      assistantContent: contextOutput({
-        'architecture-review.findings_count': 0,
-        'architecture-review.gating_findings_count': 0,
-      }),
-    ),
+    'update-state' => StubResponse(outputs: {'state_update_summary': 'done'}),
     'plan-review-council' => StubResponse(
-      assistantContent: contextOutput({
-        'plan-review-council.findings_count': 0,
-        'plan-review-council.gating_findings_count': 0,
-      }),
+      outputs: {'plan-review-council.findings_count': 0, 'plan-review-council.gating_findings_count': 0},
     ),
     'integrated-review-council' => StubResponse(
-      assistantContent: contextOutput({
-        'integrated-review-council.findings_count': 0,
-        'integrated-review-council.gating_findings_count': 0,
-      }),
+      outputs: {'integrated-review-council.findings_count': 0, 'integrated-review-council.gating_findings_count': 0},
     ),
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
@@ -264,7 +227,6 @@ class QueuedTaskRecord {
   final String stepKey;
   final String taskId;
   final String? projectId;
-  final TaskType type;
   final String title;
   final String description;
   final Map<String, dynamic> configJson;
@@ -273,7 +235,6 @@ class QueuedTaskRecord {
     required this.stepKey,
     required this.taskId,
     required this.projectId,
-    required this.type,
     required this.title,
     required this.description,
     required this.configJson,
@@ -306,7 +267,7 @@ final class BuiltInWorkflowDriver {
   WorkflowTurnAdapter _defaultTurnAdapter() {
     return WorkflowTurnAdapter(
       reserveTurn: (_) => Future.value('turn-1'),
-      executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+      executeTurn: (sessionId, turnId, messages, {required source}) {},
       waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
       initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async =>
           WorkflowGitIntegrationBranchResult(
@@ -332,47 +293,18 @@ final class BuiltInWorkflowDriver {
   Future<void> _completeTask(String taskId, {TaskStatus status = TaskStatus.accepted}) =>
       harness.completeTask(taskId, status: status);
 
-  Map<String, dynamic>? _decodeStubPayload(String content) {
-    final contextMatch = RegExp(r'<workflow-context>\s*([\s\S]*?)\s*</workflow-context>').firstMatch(content);
-    final raw = contextMatch?.group(1) ?? content;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return Map<String, dynamic>.from(decoded);
-      if (decoded is Map) return decoded.map((key, value) => MapEntry('$key', value));
-    } on FormatException {
-      return null;
-    }
-    return null;
-  }
-
-  String _normalizeStubProjectRoot(String content) {
-    final decoded = _decodeStubPayload(content);
-    if (decoded == null) return content;
-    var changed = false;
-    void rewriteProjectRoot(Map<String, dynamic> map) {
-      final root = map['project_root'];
-      if (root is String && root.startsWith('/repo/')) {
-        map['project_root'] = tempDir.path;
-        changed = true;
-      }
-    }
-
-    rewriteProjectRoot(decoded);
-    if (!changed) return content;
-    if (content.contains('<workflow-context>')) {
-      return contextOutput(decoded);
-    }
-    return jsonEncode(decoded);
+  Map<String, Object?> _normalizeStubProjectRoot(Map<String, Object?> outputs) {
+    final root = outputs['project_root'];
+    if (root is! String || !root.startsWith('/repo/')) return outputs;
+    return {...outputs, 'project_root': tempDir.path};
   }
 
   void _materializeClaimedPathOutputs(
     Task task,
-    String content,
+    Map<String, Object?> decoded,
     WorkflowContext context,
     Map<String, dynamic>? worktreeJson,
   ) {
-    final decoded = _decodeStubPayload(content);
-    if (decoded == null) return;
     final roots = <String>[];
     final worktreePath = (worktreeJson?['path'] as String?)?.trim();
     if (worktreePath != null && worktreePath.isNotEmpty) roots.add(worktreePath);
@@ -412,7 +344,6 @@ final class BuiltInWorkflowDriver {
     writeRelative(planPath, body: planBody);
     writeRelative(decoded['spec_path'] as String?, body: '# FIS\n\n## Scope\n');
     writeRelative(decoded['review_report_path'] as String?);
-    writeRelative(decoded['architecture-review.review_report_path'] as String?);
     final planDir = planPath == null || planPath.trim().isEmpty ? null : p.dirname(planPath.trim());
     if (storySpecs is Map) {
       final items = storySpecs['items'];
@@ -434,9 +365,11 @@ final class BuiltInWorkflowDriver {
     }
   }
 
-  Future<void> _attachAssistantOutput(
+  /// Persists the execution envelope the step's finalizer turn would have
+  /// written, and materializes any file its path claims name.
+  Future<void> _attachStepOutputs(
     Task task, {
-    required String content,
+    required Map<String, Object?> outputs,
     required WorkflowContext context,
     Map<String, dynamic>? worktreeJson,
   }) async {
@@ -447,10 +380,10 @@ final class BuiltInWorkflowDriver {
         (projectId == null || projectId == '_local'
             ? {'path': tempDir.path}
             : {'path': p.join(tempDir.path, 'projects', projectId), 'branch': 'main'});
-    final normalizedContent = _normalizeStubProjectRoot(content);
-    _materializeClaimedPathOutputs(task, normalizedContent, context, effectiveWorktreeJson);
+    final normalized = _normalizeStubProjectRoot(outputs);
+    _materializeClaimedPathOutputs(task, normalized, context, effectiveWorktreeJson);
     await harness.taskService.updateFields(task.id, sessionId: session.id, worktreeJson: effectiveWorktreeJson);
-    await harness.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: normalizedContent);
+    await harness.seedDeclaredOutputs(task.id, normalized);
   }
 
   void _ensureProjectRepo(String projectId) {
@@ -506,31 +439,21 @@ final class BuiltInWorkflowDriver {
       final trimmed = feature.trim();
       final isMarkdownPath = trimmed.endsWith('.md') && !trimmed.contains('\n') && trimmed.contains('/');
       return StubResponse(
-        assistantContent: contextOutput({
+        outputs: {
           'spec_path': isMarkdownPath ? trimmed : '',
           'spec_source': isMarkdownPath ? 'existing' : 'synthesized',
           'spec_confidence': 0,
-        }),
+        },
       );
     }
 
     StubResponse normalizeDiscoverAndthenPlanResponse(String rawStepKey, StubResponse response) {
       if (rawStepKey != 'discover-plan-state') return response;
-      final decoded = _decodeStubPayload(response.assistantContent);
-      if (decoded == null) {
-        return StubResponse(
-          assistantContent: contextOutput({
-            'prd': 'docs/specs/test/prd.md',
-            'plan': '',
-            'story_specs': {'items': <Map<String, dynamic>>[]},
-          }),
-          worktreeJson: response.worktreeJson,
-        );
-      }
+      final decoded = Map<String, Object?>.from(response.outputs);
       decoded['prd'] ??= 'docs/specs/test/prd.md';
       decoded['plan'] ??= '';
       decoded['story_specs'] ??= {'items': <Map<String, dynamic>>[]};
-      return StubResponse(assistantContent: contextOutput(decoded), worktreeJson: response.worktreeJson);
+      return StubResponse(outputs: decoded, worktreeJson: response.worktreeJson);
     }
 
     final sub = harness.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
@@ -554,7 +477,6 @@ final class BuiltInWorkflowDriver {
           stepKey: stepKey,
           taskId: task.id,
           projectId: task.projectId,
-          type: task.type,
           title: task.title,
           description: task.description,
           configJson: Map<String, dynamic>.from(task.configJson),
@@ -570,15 +492,9 @@ final class BuiltInWorkflowDriver {
       );
       final response = switch (rawStepKey) {
         'detect-spec-input' => detectSpecInputResponse(variables['FEATURE'] ?? ''),
-        'simplify-code' => StubResponse(assistantContent: contextOutput({})),
         _ => normalizeDiscoverAndthenPlanResponse(rawStepKey, await responseForStep(queued)),
       };
-      await _attachAssistantOutput(
-        task,
-        content: response.assistantContent,
-        context: context,
-        worktreeJson: response.worktreeJson,
-      );
+      await _attachStepOutputs(task, outputs: response.outputs, context: context, worktreeJson: response.worktreeJson);
       await _completeTask(task.id);
     });
 

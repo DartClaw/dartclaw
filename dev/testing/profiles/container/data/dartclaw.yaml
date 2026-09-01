@@ -1,0 +1,21 @@
+# DartClaw — Container Testing Profile (real container isolation, end to end)
+# Usage: bash dev/testing/profiles/container/run.sh
+#
+# Declared true rather than left to detection: this profile exists to prove the
+# container path, so a host without a runtime must be reported as a skip by the
+# runner, never silently downgraded to the host lane.
+
+port: 3341
+
+container:
+  enabled: true
+
+gateway:
+  auth_mode: none
+
+guards:
+  enabled: true
+
+scheduling:
+  heartbeat:
+    enabled: false

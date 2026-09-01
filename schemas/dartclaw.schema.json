@@ -1,0 +1,2765 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "denied_tools": {
+                "description": "Tools blocked for this agent even when the allowlist would admit them. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "description": {
+                "description": "One line shown in the spawn tool schema so a caller knows when to pick this agent. (restart required)",
+                "type": "string"
+              },
+              "effort": {
+                "description": "Reasoning-effort override for this agent. Null inherits the primary lane setting. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "execution": {
+                "description": "Where this agent runs. Null inherits the primary lane; host contradicts a configured container profile and is refused. (restart required)",
+                "enum": [
+                  "container",
+                  "host",
+                  null
+                ],
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "max_response_bytes": {
+                "description": "Ceiling on what this agent returns to its caller, in bytes. Defaults to 5 MiB. (restart required)",
+                "minimum": 1,
+                "type": "integer"
+              },
+              "model": {
+                "description": "Model override for this agent. Null inherits the primary lane setting. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "output_schema": {
+                "description": "Inline JSON Schema the agent answer must conform to: a closed subset of type, properties, required, items, enum and additionalProperties, with every object level forced closed. A non-conforming answer fails the turn instead of being repaired or truncated; an unsupported keyword is refused at load. (restart required)",
+                "type": "object"
+              },
+              "prompt": {
+                "description": "System prompt used for this agent turns. Empty leaves the agent unguided. (restart required)",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Harness driving this agent. Null inherits the primary lane setting; blank is refused. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "security_profile": {
+                "description": "Container posture: workspace can write the checkout, restricted cannot. It never selects host or container placement. (restart required)",
+                "enum": [
+                  "restricted",
+                  "workspace",
+                  null
+                ],
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "tools": {
+                "description": "Tools this agent may call. Empty enforces no allowlist at all, which is warned about at load. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "description": "Logical agents keyed by the id the session tools address them with. The built-in search agent is defined here too. (restart required)",
+          "type": "object"
+        },
+        "disallowed_tools": {
+          "description": "Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults. (restart required)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effort": {
+          "description": "Reasoning effort handed verbatim to the harness. Null leaves its own default. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "execution": {
+          "description": "Where primary-lane turns run. Selecting container demands container isolation be on — host is never substituted silently. (restart required)",
+          "enum": [
+            "container",
+            "host",
+            null
+          ],
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "history": {
+          "additionalProperties": false,
+          "properties": {
+            "max_message_chars": {
+              "description": "Characters of one replayed message kept when history is rebuilt. Values under 500 are refused. (restart required)",
+              "minimum": 500,
+              "type": "integer"
+            },
+            "max_total_chars": {
+              "description": "Characters of replayed history in total. Values under 5000, or below the per-message cap, are refused. (restart required)",
+              "minimum": 5000,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "max_turns": {
+          "description": "Ceiling on assistant turns inside one exchange. Null leaves the harness default. (restart required)",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "Model for main chat, cron and heartbeat turns. Accepts provider/model shorthand; null leaves the choice to the harness. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "provider": {
+          "description": "Harness driving the primary lane: claude, codex, or an ACP agent id. Must not be blank. (restart required)",
+          "type": "string"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "alerts": {
+      "additionalProperties": false,
+      "properties": {
+        "burst_threshold": {
+          "description": "Alerts inside the cooldown that collapse into one summary instead of separate messages. (reload)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cooldown_seconds": {
+          "description": "Seconds one alert type is suppressed after firing, so a flapping condition does not spam. (reload)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "enabled": {
+          "description": "Deliver operational alerts to the configured targets. Off silences delivery, not the log line. (reload)",
+          "type": "boolean"
+        },
+        "routes": {
+          "additionalProperties": {
+            "description": "Recipients this alert type is delivered to. A non-list value is skipped with a warning. (reload)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Which targets each alert type reaches, keyed by alert type. While this map is empty every alert type reaches every configured target; once it holds any entry it acts as an allowlist and a type with no entry reaches nothing. (reload)",
+          "type": "object"
+        },
+        "targets": {
+          "description": "Where alerts are delivered. An empty list silences delivery even while alerting is on. (reload)",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "channel": {
+                "description": "Channel the alert is sent over, e.g. signal. Required and non-blank, or the target is skipped. (reload)",
+                "type": "string"
+              },
+              "recipient": {
+                "description": "Address on that channel, e.g. a phone number or space id. Required and non-blank, or the target is skipped. (reload)",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "auth": {
+      "additionalProperties": false,
+      "properties": {
+        "cookie_secure": {
+          "description": "Add the Secure attribute to the session cookie. Needed for HTTPS deployments; it breaks sign-in over plain HTTP. (restart required)",
+          "type": "boolean"
+        },
+        "trusted_proxies": {
+          "description": "Addresses whose forwarded-for header is believed when resolving a client IP. Empty believes none. (restart required)",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "base_url": {
+      "description": "Public URL used to build absolute links for pairing, webhooks and notifications. Null falls back to the bound interface and port. (restart required)",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "channels": {
+      "additionalProperties": {
+        "type": "object"
+      },
+      "description": "Channel integrations keyed by channel name. The built-in channels are declared field by field; any other map-valued key is loaded as the definition of a channel registered by a deployer. Read-only: an object-valued field is written wholesale, so a settable container would carry the read-only Google Chat service account and audience claim past their own refusal. The individual channel fields keep their own tiers. (file-only, not settable via API or CLI)",
+      "properties": {
+        "debounce_window_ms": {
+          "description": "Milliseconds inbound messages from one session are coalesced into a single turn. Default 1000; 0 starts a turn per message. (restart required)",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "google_chat": {
+          "additionalProperties": false,
+          "properties": {
+            "audience": {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "description": "Which audience claim an inbound signed request must carry: the app URL, or the numeric project number. (file-only, not settable via API or CLI)",
+                  "enum": [
+                    "app-url",
+                    "project-number",
+                    null
+                  ],
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "value": {
+                  "description": "Expected audience matching the declared form. A request that fails it is rejected before parsing. (file-only, not settable via API or CLI)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "bot_user": {
+              "description": "Chat user resource name of the bot, used to drop its own messages. Null disables self-filtering. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "dm_access": {
+              "description": "Who may open a one-to-one Google Chat conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open",
+                "pairing"
+              ],
+              "type": "string"
+            },
+            "dm_allowlist": {
+              "description": "Approved one-to-one Google Chat senders, used while direct access is allowlist-based. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "enabled": {
+              "description": "Run the Google Chat integration. Off leaves its transport unstarted. (restart required)",
+              "type": "boolean"
+            },
+            "feedback": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "description": "Post progress updates while a long turn runs. (restart required)",
+                  "type": "boolean"
+                },
+                "min_feedback_delay": {
+                  "description": "Duration such as 5s a turn must run before the first progress update appears. (restart required)",
+                  "type": "string"
+                },
+                "status_interval": {
+                  "description": "Duration such as 30s between progress updates once they start. (restart required)",
+                  "type": "string"
+                },
+                "status_style": {
+                  "description": "Wording of progress updates: creative, minimal, or silent. (restart required)",
+                  "enum": [
+                    "creative",
+                    "minimal",
+                    "silent"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "group_access": {
+              "description": "Which Google Chat groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open"
+              ],
+              "type": "string"
+            },
+            "group_allowlist": {
+              "description": "Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model and effort. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "max_chunk_size": {
+              "description": "Accepted and discarded — outbound Google Chat chunking is pinned at 4000 characters. A non-positive value is still reported at load. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mention_patterns": {
+              "description": "Accepted and discarded — Google Chat recognizes a mention from the platform annotation, not from a regex. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "oauth_credentials": {
+              "description": "Path to the OAuth client credentials JSON needed by user-auth features such as Workspace Events subscriptions. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "pubsub": {
+              "additionalProperties": false,
+              "properties": {
+                "max_messages_per_pull": {
+                  "description": "Messages requested per pull, between 1 and 100. (restart required)",
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "poll_interval_seconds": {
+                  "description": "Seconds between pulls. A lower value costs more API requests. (restart required)",
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "project_id": {
+                  "description": "GCP project holding the subscription pulled for asynchronous inbound events. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "subscription": {
+                  "description": "Name of the subscription pulled for inbound events. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "quote_reply": {
+              "description": "How a reply attributes the inbound message: none, a text attribution line, or a native quoted bubble that needs user-level auth. (restart required)",
+              "enum": [
+                "disabled",
+                "native",
+                "sender"
+              ],
+              "type": "string"
+            },
+            "reactions_auth": {
+              "description": "Reactions need user-level OAuth; disabled turns them off entirely. (restart required)",
+              "enum": [
+                "disabled",
+                "user"
+              ],
+              "type": "string"
+            },
+            "require_mention": {
+              "description": "Only act on Google Chat group messages that name the bot. Off answers every message in the group. (restart required)",
+              "type": "boolean"
+            },
+            "response_prefix": {
+              "description": "Accepted and discarded — Google Chat applies no outbound prefix. (restart required)",
+              "type": "string"
+            },
+            "service_account": {
+              "description": "Service-account JSON, or a path to it, used for the Chat REST API. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "space_events": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "description": "Maintain Workspace Events subscriptions. Needs user OAuth plus a topic and subscription. (restart required)",
+                  "type": "boolean"
+                },
+                "event_types": {
+                  "description": "Event types subscribed to, shorthand or fully qualified. Each needs a matching OAuth scope. (restart required)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "include_resource": {
+                  "description": "Ask for the full resource in each notification. Off delivers name-only events, which have a longer subscription lifetime. (restart required)",
+                  "type": "boolean"
+                },
+                "pubsub_topic": {
+                  "description": "Topic the Workspace Events subscription publishes notifications to. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "typing_indicator": {
+              "description": "How work in progress is shown: a placeholder message, an emoji reaction, or nothing. A YAML boolean is also accepted, true meaning the placeholder message. (restart required)",
+              "enum": [
+                "disabled",
+                "emoji",
+                "false",
+                "message",
+                "true",
+                false,
+                true
+              ],
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "webhook_path": {
+              "description": "HTTP path the synchronous Chat webhook is mounted at. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "max_queue_depth": {
+          "description": "Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped. (restart required)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "retry_policy": {
+          "additionalProperties": false,
+          "properties": {
+            "base_delay_ms": {
+              "description": "Milliseconds of backoff before the first delivery retry, grown and jittered on later attempts. Default 1000. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "jitter_factor": {
+              "description": "Fraction of the backoff randomly added to each delivery retry, spreading a burst of failures apart. 0 retries on a fixed schedule; default 0.2. (restart required)",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "max_attempts": {
+              "description": "Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "signal": {
+          "additionalProperties": false,
+          "properties": {
+            "dm_access": {
+              "description": "Who may open a one-to-one Signal conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open",
+                "pairing"
+              ],
+              "type": "string"
+            },
+            "dm_allowlist": {
+              "description": "Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "description": "Run the Signal integration. Off leaves the signal-cli daemon unstarted. (restart required)",
+              "type": "boolean"
+            },
+            "executable": {
+              "description": "Binary name or absolute path of signal-cli. (restart required)",
+              "type": "string"
+            },
+            "group_access": {
+              "description": "Which Signal groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open"
+              ],
+              "type": "string"
+            },
+            "group_allowlist": {
+              "description": "Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model and effort are also accepted. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "host": {
+              "description": "Address the signal-cli daemon listens on. Default 127.0.0.1. (restart required)",
+              "type": "string"
+            },
+            "max_chunk_size": {
+              "description": "Largest outbound Signal chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mention_patterns": {
+              "description": "Extra regexes counted as naming the bot in a Signal group, on top of the built-in detection. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "phone_number": {
+              "description": "Account number registered with signal-cli, in E.164 form such as +1234567890. (restart required)",
+              "type": "string"
+            },
+            "port": {
+              "description": "Port the signal-cli daemon listens on. Default 8080. (restart required)",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "require_mention": {
+              "description": "Only act on Signal group messages that name the bot. Off answers every message in the group. (restart required)",
+              "type": "boolean"
+            },
+            "response_prefix": {
+              "description": "Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "whatsapp": {
+          "additionalProperties": false,
+          "properties": {
+            "dm_access": {
+              "description": "Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open",
+                "pairing"
+              ],
+              "type": "string"
+            },
+            "dm_allowlist": {
+              "description": "Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "description": "Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required)",
+              "type": "boolean"
+            },
+            "gowa_db_uri": {
+              "description": "Connection string giving the GOWA sidecar persistent pairing state. Null keeps its own local store. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "gowa_executable": {
+              "description": "Binary name or absolute path of the GOWA sidecar that talks to WhatsApp. (restart required)",
+              "type": "string"
+            },
+            "gowa_host": {
+              "description": "Address the GOWA sidecar HTTP API listens on. Default 127.0.0.1. (restart required)",
+              "type": "string"
+            },
+            "gowa_port": {
+              "description": "Port the GOWA sidecar HTTP API listens on. Default 3000; an instance already listening there is attached to rather than spawned. (restart required)",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "group_access": {
+              "description": "Which WhatsApp groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open"
+              ],
+              "type": "string"
+            },
+            "group_allowlist": {
+              "description": "Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model and effort. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "max_chunk_size": {
+              "description": "Largest outbound WhatsApp chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mention_patterns": {
+              "description": "Extra regexes counted as naming the bot in a WhatsApp group, on top of the built-in detection. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "require_mention": {
+              "description": "Only act on WhatsApp group messages that name the bot. Off answers every message in the group. (restart required)",
+              "type": "boolean"
+            },
+            "response_prefix": {
+              "description": "Template prepended to the first outbound WhatsApp chunk. Understands the {model} and {agent.identity.name} placeholders. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "concurrency": {
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_turns": {
+          "description": "Ceiling on agent turns executing simultaneously across the instance. Raising it multiplies peak token spend. (reload)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "container": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is detected and starts in advisory mode where none is; an explicit true instead fails startup when the host cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a deterministic keep, and clearing it through the API would either strand an explicit container selection at the next boot or move neutral-profile work onto the host. (file-only, not settable via API or CLI)",
+          "type": "boolean"
+        },
+        "image": {
+          "description": "Container image agent work is executed in. Default dartclaw-agent:latest. (restart required)",
+          "type": "string"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "compact_instructions": {
+          "description": "Extra guidance handed to the model when it compacts a conversation. Null uses the built-in wording. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "identifier_instructions": {
+          "description": "The custom wording used when identifier preservation is set to custom. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "identifier_preservation": {
+          "description": "How hard compaction works to keep literal identifiers: strict, off, or custom wording. (restart required)",
+          "enum": [
+            "custom",
+            "off",
+            "strict"
+          ],
+          "type": "string"
+        },
+        "max_result_bytes": {
+          "description": "Outer cap in bytes on every successful tool result the MCP endpoint returns. An oversized one arrives as head and tail around a truncation marker. (reload)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "reserve_tokens": {
+          "description": "Tokens held back from the window so a compaction flush always fits. (reload)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "warning_threshold": {
+          "description": "Percentage of the window at which the UI warns about remaining room. Clamped to 50–99. (live)",
+          "maximum": 99,
+          "minimum": 50,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "credentials": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "description": "The key itself, normally an environment reference so the literal stays out of the file. (file-only, not settable via API or CLI)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "repository": {
+            "description": "Optional owner/name scope guard limiting where a GitHub token may be used. (file-only, not settable via API or CLI)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "token": {
+            "description": "The GitHub token, normally an environment reference so the literal stays out of the file. (file-only, not settable via API or CLI)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "description": "Which kind of secret the entry holds. Omitted means an API key. (file-only, not settable via API or CLI)",
+            "enum": [
+              "api-key",
+              "apiKey",
+              "github-token",
+              "githubToken",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "description": "API-key and GitHub-token entries keyed by the name other sections reference. Read-only: secret material is never editable through the API, and subscription credentials never live here. (file-only, not settable via API or CLI)",
+      "type": "object"
+    },
+    "data_dir": {
+      "description": "Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required)",
+      "type": "string"
+    },
+    "dev_mode": {
+      "description": "Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required)",
+      "type": "boolean"
+    },
+    "features": {
+      "additionalProperties": false,
+      "properties": {
+        "thread_binding": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Route messages in a bound thread straight to that task session, and post task notifications as new threads. (restart required)",
+              "type": "boolean"
+            },
+            "idle_timeout_minutes": {
+              "description": "Minutes of thread inactivity before the binding is dropped. The sweep runs every five minutes, so removal can lag. (restart required)",
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "gateway": {
+      "additionalProperties": false,
+      "properties": {
+        "auth_mode": {
+          "description": "token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI)",
+          "enum": [
+            "none",
+            "token"
+          ],
+          "type": "string"
+        },
+        "hsts": {
+          "description": "Send Strict-Transport-Security on responses. Safe only once the instance is reached over HTTPS everywhere. (restart required)",
+          "type": "boolean"
+        },
+        "mcp_clients": {
+          "description": "Named MCP clients allowed to reach /mcp with their own bearer token, each limited to the context-engine read tools. Read-only through the API, and each token must be a ${VAR} reference. Empty leaves /mcp accepting the gateway token alone. (file-only, not settable via API or CLI)",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "description": "Client name. Appears as the audit principal for every tool call the client makes. (file-only, not settable via API or CLI)",
+                "type": "string"
+              },
+              "token": {
+                "description": "Bearer credential written as a ${VAR} environment reference. A literal value, or a reference resolving to nothing, refuses to start. (file-only, not settable via API or CLI)",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "reload": {
+          "additionalProperties": false,
+          "properties": {
+            "debounce_ms": {
+              "description": "Milliseconds to wait after a file change before applying it, so an editor writing twice reloads once. Minimum 100. (restart required)",
+              "minimum": 100,
+              "type": "integer"
+            },
+            "mode": {
+              "description": "How a YAML edit reaches the running server: off never, signal on SIGHUP, auto on file change. (restart required)",
+              "enum": [
+                "auto",
+                "off",
+                "signal"
+              ],
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "token": {
+          "description": "Bearer credential accepted by the API and web UI. Generated when omitted, and never editable through the API. (file-only, not settable via API or CLI)",
+          "type": "string"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "github": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Accept inbound webhook deliveries and map them onto workflow runs. (restart required)",
+          "type": "boolean"
+        },
+        "triggers": {
+          "description": "Rules mapping an inbound event onto the workflow that should launch. (restart required)",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "description": "Event actions that launch the workflow, e.g. opened and synchronize. Omitted uses those two. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "event": {
+                "description": "Webhook event the rule matches. Only pull_request is processed today; omitted defaults to it. (restart required)",
+                "type": "string"
+              },
+              "labels": {
+                "description": "Labels the pull request must carry. Empty applies no label filter. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "workflow": {
+                "description": "Name of the workflow definition launched on a match. Omitted defaults to code-review. (restart required)",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "webhook_path": {
+          "description": "HTTP path the webhook endpoint is mounted at. (restart required)",
+          "type": "string"
+        },
+        "webhook_secret": {
+          "description": "HMAC-SHA256 key deliveries are signed with. Required once the handler is on; an unsigned delivery is refused. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "governance": {
+      "additionalProperties": false,
+      "properties": {
+        "admin_senders": {
+          "description": "Sender IDs exempt from rate limits and budget blocks. (restart required)",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "budget": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "description": "What happens once the allowance is spent: refuse new turns, or only warn. (restart required)",
+              "enum": [
+                "block",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "daily_tokens": {
+              "description": "Token allowance per day across the instance. 0 means unlimited. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timezone": {
+              "description": "Zone whose midnight resets the allowance. Accepts UTC, UTC±N, and DST-aware IANA names. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "crowd_coding": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "Reasoning effort for crowd-coding turns. Null inherits the primary lane setting. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "model": {
+              "description": "Model used for crowd-coding turns. Null inherits the primary lane setting. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "loop_detection": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "description": "What a detected runaway triggers: aborting the turn, or a warning only. (restart required)",
+              "enum": [
+                "abort",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Watch for a runaway agent and stop it. Off by default. (restart required)",
+              "type": "boolean"
+            },
+            "max_consecutive_identical_tool_calls": {
+              "description": "Repeated identical tool calls tolerated before the action fires. 0 mutes this signal. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "max_consecutive_turns": {
+              "description": "Consecutive turns tolerated before the action fires. 0 mutes this signal. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "max_tokens_per_minute": {
+              "description": "Token velocity tolerated before the action fires. 0 mutes this signal. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "velocity_window_minutes": {
+              "description": "Minutes the velocity average is computed over. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "queue_strategy": {
+          "description": "How waiting turns are picked: fifo by arrival, or fair round-robin across senders. (restart required)",
+          "enum": [
+            "fair",
+            "fifo"
+          ],
+          "type": "string"
+        },
+        "rate_limits": {
+          "additionalProperties": false,
+          "properties": {
+            "global": {
+              "additionalProperties": false,
+              "properties": {
+                "turns": {
+                  "description": "Agent turns allowed inside the window across every sender. 0 lifts the limit. (restart required)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "window": {
+                  "description": "Length of the instance-wide sliding window in minutes; YAML also accepts shorthand such as 5m or 1h. (restart required)",
+                  "maximum": 1440,
+                  "minimum": 1,
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "per_sender": {
+              "additionalProperties": false,
+              "properties": {
+                "max_pause_queued": {
+                  "description": "Messages held back per sender while a turn is paused. 0 drops them. (restart required)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "max_queued": {
+                  "description": "Messages held back per sender once the limit is hit; further ones are dropped. 0 drops immediately. (restart required)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "messages": {
+                  "description": "Messages one sender may send inside the window. 0 lifts the limit. (restart required)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "window": {
+                  "description": "Length of the sliding window in minutes; YAML also accepts shorthand such as 5m or 1h. (restart required)",
+                  "maximum": 1440,
+                  "minimum": 1,
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "turn_limits": {
+          "additionalProperties": false,
+          "properties": {
+            "stall_action": {
+              "description": "What a stalled turn triggers: a warning, a cancellation, or nothing. (restart required)",
+              "enum": [
+                "cancel",
+                "ignore",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "stall_timeout": {
+              "description": "Duration such as 300s without provider progress before the stall action fires; zero disables it. (restart required)",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "turn_timeout": {
+              "description": "Wall-clock ceiling such as 1800s for a provider turn; zero disables it. (restart required)",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "guard_audit": {
+      "additionalProperties": false,
+      "properties": {
+        "max_retention_days": {
+          "description": "Days of dated audit partitions kept before deletion. 0 keeps them indefinitely. (restart required)",
+          "maximum": 365,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "guards": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "additionalProperties": false,
+          "properties": {
+            "extra_blocked_patterns": {
+              "description": "Regexes added to the built-in destructive-command set. An invalid pattern fails the guard build rather than being skipped silently.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "extra_blocked_pipe_targets": {
+              "description": "Programs added to the built-in set that must never be piped into, such as an interpreter reading from a download.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "classifier": {
+              "description": "Which classifier runs: the local Claude binary, or the Anthropic API. (restart required)",
+              "enum": [
+                "anthropic_api",
+                "claude_binary"
+              ],
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Classify model-visible content before it reaches the agent. (restart required)",
+              "type": "boolean"
+            },
+            "fail_open": {
+              "description": "Let unscorable content through when the classifier itself fails. Turning it on means unchecked material can reach the agent. (restart required)",
+              "type": "boolean"
+            },
+            "max_bytes": {
+              "description": "Bytes handed to the classifier; longer material is truncated before scoring. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "model": {
+              "description": "Model the classifier uses. A cheaper one lowers the cost of every scan. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "enabled": {
+          "description": "Master switch for the whole guard pipeline. On by default; read-only, because turning enforcement off is a YAML-and-restart decision, not an API call. (file-only, not settable via API or CLI)",
+          "type": "boolean"
+        },
+        "fail_open": {
+          "description": "Whether an unexpected guard failure warns instead of blocking. Fail-closed by default; read-only for the same reason as the master switch. (file-only, not settable via API or CLI)",
+          "type": "boolean"
+        },
+        "file": {
+          "additionalProperties": false,
+          "properties": {
+            "extra_rules": {
+              "description": "Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "level": {
+                    "description": "How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only. (file-only, not settable via API or CLI)",
+                    "enum": [
+                      "no_access",
+                      "no_delete",
+                      "read_only"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob the rule applies to, e.g. **/*.secret. Required and non-blank. (file-only, not settable via API or CLI)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "network": {
+          "additionalProperties": false,
+          "properties": {
+            "agent_overrides": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "extra_domains": {
+                    "description": "Hosts this agent turns may additionally reach. An empty list drops the override entirely. (file-only, not settable via API or CLI)",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "description": "Per-logical-agent outbound widenings keyed by agent id. They add to the allowlist and never narrow it.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "type": "object"
+            },
+            "extra_allowed_domains": {
+              "description": "Hosts added to the built-in outbound allowlist. Every fetch target an MCP deployment needs must be listed here.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "extra_exfil_patterns": {
+              "description": "Regexes added to the built-in exfiltration detectors. An invalid pattern fails the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "harness": {
+      "additionalProperties": false,
+      "properties": {
+        "acp": {
+          "additionalProperties": false,
+          "properties": {
+            "agents": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments passed to the executable, e.g. the ACP subcommand and its builtins. (restart required)",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "binary": {
+                    "description": "Executable spawned for this ACP client. Required — a registration without it is skipped. (restart required)",
+                    "type": "string"
+                  },
+                  "container_isolation_required": {
+                    "description": "Demands a container, which ACP has no runnable execution for — a true here is refused at startup. (restart required)",
+                    "type": "boolean"
+                  },
+                  "container_profile": {
+                    "description": "Container posture the execution policy would resolve to. Leaving it set on a container-enabled deployment pins the agent to a refused policy. (restart required)",
+                    "enum": [
+                      "restricted",
+                      "workspace",
+                      null
+                    ],
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "credential": {
+                    "description": "Names a credentials entry whose API key is injected under the environment variable it declares. The only credential an ACP spawn ever carries. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "model_provider": {
+                    "description": "Vendor whose model the client talks to. It selects validation and routing, never a credential. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "required_builtins": {
+                    "description": "Builtins the client must load, e.g. developer for a guarded Goose registration. (restart required)",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "requires_guard_mediation": {
+                    "description": "Operator declaration that the guard chain sees this client tool calls. It demands a direct topology plus evidence. (restart required)",
+                    "type": "boolean"
+                  },
+                  "topology": {
+                    "description": "How the client reaches its model. Omitted means unverified, which claims no guard mediation. (restart required)",
+                    "enum": [
+                      "direct",
+                      "relay",
+                      "unverified",
+                      null
+                    ],
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "verification": {
+                    "description": "Evidence backing a guard-mediation claim, e.g. startup_probe. Required once mediation is claimed. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "description": "ACP provider identities keyed by id. Each registration defines a spawn and its security classification; ACP runs on the host only. (restart required)",
+              "type": "object"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "host": {
+      "description": "Interface the HTTP server binds. Default localhost — bind 0.0.0.0 only behind a trusted proxy. (restart required)",
+      "type": "string"
+    },
+    "knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "inbox": {
+          "additionalProperties": false,
+          "properties": {
+            "delivery_mode": {
+              "description": "Where the run report goes: nowhere, announced in chat, or posted to a webhook. (restart required)",
+              "enum": [
+                "announce",
+                "none",
+                "webhook"
+              ],
+              "type": "string"
+            },
+            "effort": {
+              "description": "Reasoning effort of the extraction turn. Billed per file — lower it for raw material you genuinely want compressed. (restart required)",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Watch the filesystem inbox and ingest what is dropped there. Off by default; every file costs one extraction turn. (restart required)",
+              "type": "boolean"
+            },
+            "interval_minutes": {
+              "description": "Minutes between sweeps of the drop directory. Clamped to 1–1440. (restart required)",
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_bytes": {
+              "description": "Largest source file that will be read, in bytes. Anything above it is skipped. (restart required)",
+              "maximum": 52428800,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "processed_retention_days": {
+              "description": "Days an already-ingested source is kept before deletion. 0 keeps it indefinitely. (restart required)",
+              "maximum": 3650,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "retry_attempts": {
+              "description": "How often the nondeterministic extraction turn is retried before the source is quarantined. (restart required)",
+              "maximum": 10,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "wiki_lint": {
+          "additionalProperties": false,
+          "properties": {
+            "delivery_mode": {
+              "description": "Where the lint report goes: nowhere, announced in chat, or posted to a webhook. (restart required)",
+              "enum": [
+                "announce",
+                "none",
+                "webhook"
+              ],
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Run the wiki lint report on a schedule. It reports only and never rewrites a page. (restart required)",
+              "type": "boolean"
+            },
+            "interval_minutes": {
+              "description": "Minutes between lint runs. Clamped to 1–1440. (restart required)",
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "logging": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "Path written in addition to stdout. Null logs to stdout only. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "format": {
+          "description": "human is readable in a terminal; json emits line-delimited records for a log shipper. (restart required)",
+          "enum": [
+            "human",
+            "json"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "description": "Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required)",
+          "enum": [
+            "FINE",
+            "INFO",
+            "SEVERE",
+            "WARNING"
+          ],
+          "type": "string"
+        },
+        "redact_patterns": {
+          "description": "Regexes whose matches are masked before any line is written out. (reload)",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "mcp_servers": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_tools": {
+            "description": "Tools this server may actually run. Empty denies every outbound call. (restart required)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "description": "Executable launched for a stdio server. Exactly one of it and url must be present. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "credential": {
+            "description": "Names a credentials entry presented to this server. Without one the server is disabled — never inline a secret here. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabled": {
+            "description": "Whether the server is used. It is forced off at load when its credential does not resolve. (restart required)",
+            "type": "boolean"
+          },
+          "network_class": {
+            "description": "How far the server can reach, which decides what egress mediation applies. Required. (restart required)",
+            "enum": [
+              "local",
+              "private",
+              "public"
+            ],
+            "type": "string"
+          },
+          "rate_limit": {
+            "additionalProperties": false,
+            "properties": {
+              "calls": {
+                "description": "Calls permitted inside the window. 0 leaves the server unthrottled. (restart required)",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "window_seconds": {
+                "description": "Length of the call window in seconds. Defaults to 60. (restart required)",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "surface_tools": {
+            "description": "Tools listed to the harness. Empty exposes none, so the model never sees them. (restart required)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token_budget": {
+            "additionalProperties": false,
+            "properties": {
+              "tokens": {
+                "description": "Tokens this server results may consume inside the window. 0 leaves it unbudgeted. (restart required)",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "window_seconds": {
+                "description": "Length of the token window in seconds. Defaults to 60. (restart required)",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "url": {
+            "description": "Absolute endpoint of an HTTP server. Plain http is accepted only for a literal loopback host. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "description": "External MCP servers keyed by the name their tools are surfaced under. Each entry declares exactly one transport. (restart required)",
+      "type": "object"
+    },
+    "memory": {
+      "additionalProperties": false,
+      "properties": {
+        "curation": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Revise, merge and remove canonical memory entries on a schedule. Opt-in, and it costs one turn per run. (restart required)",
+              "type": "boolean"
+            },
+            "schedule": {
+              "description": "Cron expression driving the curation run. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "journal": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required)",
+              "type": "boolean"
+            },
+            "schedule": {
+              "description": "Cron expression driving the distillation run. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "max_bytes": {
+          "description": "Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pruning": {
+          "additionalProperties": false,
+          "properties": {
+            "archive_after_days": {
+              "description": "Days before a canonical memory entry is archived. Must be positive. (restart required)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "enabled": {
+              "description": "Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required)",
+              "type": "boolean"
+            },
+            "schedule": {
+              "description": "Cron expression driving the archival run. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "name": {
+      "description": "Display label for this instance, shown in the web UI and in channel replies. (restart required)",
+      "type": "string"
+    },
+    "onboarding": {
+      "additionalProperties": false,
+      "properties": {
+        "expiry_days": {
+          "description": "Days a pairing invitation stays valid. Minimum 1; an expired invite must be re-issued. (restart required)",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "port": {
+      "description": "TCP port the HTTP server binds. Default 3333; excluded from hot reload, so a change needs a restart. (restart required)",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "projects": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "description": "Ref tracked and branched from. Defaults to main for a remote, and to the current checkout branch for a local path. (restart required)",
+            "type": "string"
+          },
+          "clone": {
+            "additionalProperties": false,
+            "properties": {
+              "strategy": {
+                "description": "How much history is fetched. shallow is cheapest; full is needed for history-dependent work. (restart required)",
+                "enum": [
+                  "full",
+                  "shallow",
+                  "sparse"
+                ],
+                "type": "string"
+              }
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "credentials": {
+            "description": "Names a github-token credentials entry used for pushes and pull requests. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "default": {
+            "description": "Pick this project when a new task names none. (restart required)",
+            "type": "boolean"
+          },
+          "localPath": {
+            "description": "Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pr": {
+            "additionalProperties": false,
+            "properties": {
+              "draft": {
+                "description": "Open the pull request as a draft so review is opt-in. (restart required)",
+                "type": "boolean"
+              },
+              "labels": {
+                "description": "Labels applied to every pull request this project opens. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "strategy": {
+                "description": "What a finished task produces: a pushed branch only, or a GitHub pull request. (restart required)",
+                "enum": [
+                  "branch-only",
+                  "github-pr"
+                ],
+                "type": "string"
+              }
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "remote": {
+            "description": "Git URL cloned for this project. Exactly one of it and localPath must be supplied. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "description": "Absolute directories a local-path project may live under. Empty bounds nothing, which is why it gates the API flag. Read-only for the same reason: widening it through the API would lift its own bound. (restart required)",
+      "properties": {
+        "allowApiLocalPath": {
+          "description": "Let the API register projects pointing at existing host directories. Downgraded to false unless an allowlist bounds it. Read-only: it decides whether the API may reach the host filesystem, so it must not itself be settable through the API. (file-only, not settable via API or CLI)",
+          "type": "boolean"
+        },
+        "fetchCooldownMinutes": {
+          "description": "Minutes a freshness check skips the git fetch after a successful one. Default 5. (restart required)",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "localPathAllowlist": {
+          "description": "Absolute directories a local-path project may live under. Empty bounds nothing, which is why it gates the API flag. Read-only for the same reason: widening it through the API would lift its own bound. (file-only, not settable via API or CLI)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "providers": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "description": "Prompt-gating axis. Only never opts a trusted run into full access. (restart required)",
+            "enum": [
+              "never",
+              "on-request",
+              "unless-allow-listed",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "auth": {
+            "description": "Which credential is presented. Unset lets an alias inherit its family choice; a forced value never falls back to the other kind. (restart required)",
+            "enum": [
+              "api_key",
+              "auto",
+              "subscription",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "executable": {
+            "description": "Binary name or path launched for this provider. Required — an entry without it is skipped at load. (restart required)",
+            "type": "string"
+          },
+          "inherit_user_settings": {
+            "description": "Claude only. True loads user, project and local settings; false passes project-only sources. (restart required)",
+            "type": "boolean"
+          },
+          "pool_size": {
+            "description": "Hard ceiling on concurrent worker leases for this provider. 0 means the default of one. (restart required)",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sandbox": {
+            "description": "OS-isolation axis: read-only, workspace-write or danger-full-access. A map value is forwarded verbatim as a raw native settings block. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "description": "Harness providers keyed by id. Keys beyond the ones declared here are forwarded verbatim as provider-specific options. (restart required)",
+      "type": "object"
+    },
+    "scheduling": {
+      "additionalProperties": false,
+      "properties": {
+        "heartbeat": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Run the periodic unattended turn. Off means nothing fires from the schedule. (live)",
+              "type": "boolean"
+            },
+            "interval_minutes": {
+              "description": "Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required)",
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "jobs": {
+          "description": "Unattended jobs, each firing a prompt turn or creating a task. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required)",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery": {
+                "description": "Where the result goes: nowhere, announced in chat, or posted to a webhook. (restart required)",
+                "enum": [
+                  "announce",
+                  "none",
+                  "webhook"
+                ],
+                "type": "string"
+              },
+              "effort": {
+                "description": "Reasoning-effort override for this job turn. Null inherits the primary lane setting. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "enabled": {
+                "description": "Whether the job is active. Defaults to true. (restart required)",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "Stable identifier for this job. Required; name is accepted as a compatibility alias. (restart required)",
+                "type": "string"
+              },
+              "model": {
+                "description": "Model override for this job turn. Null inherits the primary lane setting. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "name": {
+                "description": "Compatibility alias for id. Prefer id in new configs. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "prompt": {
+                "description": "Text handed to the agent when a prompt job fires. Required for that kind, and passed through unvalidated. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "retry": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempts": {
+                    "description": "How often a failed firing is retried. Defaults to 0, meaning no retry. (restart required)",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "delay_seconds": {
+                    "description": "Seconds waited between retries. Defaults to 60. (restart required)",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "description": "Shorthand form: a bare five-field cron expression, equivalent to a cron map with that expression. (restart required)",
+                "properties": {
+                  "at": {
+                    "description": "ISO-8601 instant a once schedule fires at. Required for that kind, and an unparseable value is refused. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "expression": {
+                    "description": "Five-field cron expression. Required for a cron schedule, and a job without one is refused. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "minutes": {
+                    "description": "Minutes between firings for an interval schedule. Must be at least 1, or the job is refused. (restart required)",
+                    "minimum": 1,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "description": "Map form: which schedule kind the entry carries. Omitted inside a map means cron. (restart required)",
+                    "enum": [
+                      "cron",
+                      "interval",
+                      "once"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": [
+                  "object",
+                  "string"
+                ]
+              },
+              "task": {
+                "additionalProperties": false,
+                "description": "Template the created task is built from. Required when the kind is task. (restart required)",
+                "properties": {
+                  "acceptance_criteria": {
+                    "description": "What the created task must satisfy before it is considered finished. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "auto_start": {
+                    "description": "Queue the created task at once instead of leaving it a draft. Defaults to true. (restart required)",
+                    "type": "boolean"
+                  },
+                  "description": {
+                    "description": "Body handed to the agent as the task brief. Required. (restart required)",
+                    "type": "string"
+                  },
+                  "effort": {
+                    "description": "Reasoning-effort override for the created task. Null inherits the primary lane setting. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "model": {
+                    "description": "Model override for the created task. Null inherits the primary lane setting. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "task_type": {
+                    "description": "Retired compatibility alias. Optional and ignored; research and coding are refused. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "title": {
+                    "description": "Title given to the created task. Required. (restart required)",
+                    "type": "string"
+                  },
+                  "token_budget": {
+                    "description": "Token ceiling for the created task. Null leaves it unbudgeted. (restart required)",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "description": "Retired compatibility field. Optional and ignored; research and coding are refused. (restart required)",
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  }
+                },
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "type": {
+                "description": "What firing does: run a prompt turn, or create a task from the block below. Defaults to prompt. (restart required)",
+                "enum": [
+                  "prompt",
+                  "task"
+                ],
+                "type": "string"
+              },
+              "webhook_url": {
+                "description": "Endpoint the result is posted to when delivery is by webhook. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "search": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "description": "Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required)",
+          "enum": [
+            "fts5",
+            "qmd"
+          ],
+          "type": "string"
+        },
+        "default_depth": {
+          "description": "Effort a query spends when the caller names none: fast, standard or deep. (restart required)",
+          "type": "string"
+        },
+        "providers": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "api_key": {
+                "description": "Vendor API key, normally an environment reference such as ${BRAVE_API_KEY}. Exactly one of it and credential is required — an entry with neither, or both, is skipped. (file-only, not settable via API or CLI)",
+                "type": "string"
+              },
+              "credential": {
+                "description": "Name of a credentials.<name> api-key entry to authenticate with, from the config file or the named credential store. Exactly one of it and api_key is required; an unknown name, a github-token entry or a blank value skips the provider. (file-only, not settable via API or CLI)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "enabled": {
+                "description": "Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI)",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "description": "Web-search vendors keyed by provider id; brave and tavily are the recognized ids. Read-only: each entry carries or names a credential, which is never editable through the API. (file-only, not settable via API or CLI)",
+          "type": "object"
+        },
+        "qmd": {
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "description": "Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required)",
+              "type": "string"
+            },
+            "port": {
+              "description": "TCP port the qmd daemon listens on. Default 8181. (restart required)",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "security": {
+      "additionalProperties": false,
+      "properties": {
+        "bash_step": {
+          "additionalProperties": false,
+          "properties": {
+            "env_allowlist": {
+              "description": "Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "extra_strip_patterns": {
+              "description": "Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "sessions": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "dm_scope": {
+                "description": "Overrides how this channel one-to-one messages map onto sessions. (restart required)",
+                "enum": [
+                  "per-channel-contact",
+                  "per-contact",
+                  "shared",
+                  null
+                ],
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "effort": {
+                "description": "Reasoning-effort override for turns arriving on this channel. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "group_scope": {
+                "description": "Overrides how this channel group messages map onto sessions. (restart required)",
+                "enum": [
+                  "per-member",
+                  "shared",
+                  null
+                ],
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "model": {
+                "description": "Model override for turns arriving on this channel. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "description": "Per-channel overrides keyed by channel name. An entry that sets nothing is dropped rather than stored empty. (restart required)",
+          "type": "object"
+        },
+        "dm_scope": {
+          "description": "How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live)",
+          "enum": [
+            "per-channel-contact",
+            "per-contact",
+            "shared"
+          ],
+          "type": "string"
+        },
+        "effort": {
+          "description": "Reasoning effort for scoped conversational turns. Null inherits the primary lane setting. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "group_scope": {
+          "description": "How group messages map onto sessions: one shared per group, or one per member. (live)",
+          "enum": [
+            "per-member",
+            "shared"
+          ],
+          "type": "string"
+        },
+        "idle_timeout_minutes": {
+          "description": "Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload)",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maintenance": {
+          "additionalProperties": false,
+          "properties": {
+            "cron_retention_hours": {
+              "description": "Hours an orphaned cron session survives before deletion. 0 deletes none. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "max_disk_mb": {
+              "description": "Disk budget in megabytes for stored sessions. 0 means unbudgeted. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "max_sessions": {
+              "description": "Cap on retained sessions, oldest pruned first. 0 means uncapped. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mode": {
+              "description": "warn reports what maintenance would remove; enforce removes it. (restart required)",
+              "enum": [
+                "enforce",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "prune_after_days": {
+              "description": "Days of inactivity after which a session is archived. 0 archives nothing. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "schedule": {
+              "description": "Cron expression driving the automatic maintenance run. An empty string disables it. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "model": {
+          "description": "Model used for scoped conversational turns. Null inherits the primary lane setting. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "reset_hour": {
+          "description": "Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload)",
+          "maximum": 23,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "source_dir": {
+      "description": "Checkout root used to locate templates and static assets during development. Null uses the embedded copies. (restart required)",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "static_dir": {
+      "description": "Directory served at /static. Null resolves under the checkout root, then the embedded copies. (restart required)",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "tasks": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_retention_days": {
+          "description": "Days a finished task keeps its artifacts before maintenance deletes them. 0 keeps them indefinitely. (restart required)",
+          "maximum": 3650,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "budget": {
+          "additionalProperties": false,
+          "properties": {
+            "default_max_tokens": {
+              "description": "Token ceiling applied to a task that names none. Any value at or below zero means unbudgeted, which is also the default. (restart required)",
+              "type": "integer"
+            },
+            "warning_threshold": {
+              "description": "Fraction of a task token budget at which it warns once, between 0 and 1. Defaults to 0.8; the task still fails at the full budget regardless. (restart required)",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "completion_action": {
+          "description": "What a finished task does next: review parks it for a human, accept lands it without one. (restart required)",
+          "enum": [
+            "accept",
+            "review"
+          ],
+          "type": "string"
+        },
+        "execution": {
+          "description": "Execution mode for background tasks. container demands container isolation be on; task security profiles are declared separately through the authenticated task API. (file-only, not settable via API or CLI)",
+          "enum": [
+            "container",
+            "host"
+          ],
+          "type": "string"
+        },
+        "worktree": {
+          "additionalProperties": false,
+          "properties": {
+            "base_ref": {
+              "description": "Git ref a task worktree branches from. (restart required)",
+              "type": "string"
+            },
+            "merge_strategy": {
+              "description": "How an accepted task lands: squash collapses its commits into one, merge keeps them. (restart required)",
+              "enum": [
+                "merge",
+                "squash"
+              ],
+              "type": "string"
+            },
+            "stale_timeout_hours": {
+              "description": "Hours an idle task worktree survives before cleanup removes it. (restart required)",
+              "maximum": 168,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "templates_dir": {
+      "description": "Directory the Trellis page templates load from. Null resolves under the checkout root, then the embedded copies. (restart required)",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "usage": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_warning_tokens": {
+          "description": "Daily token count that raises a warning banner. Null shows no warning. (restart required)",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_file_size_bytes": {
+          "description": "Largest upload accepted through the web UI and channels, in bytes. (restart required)",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "workflow": {
+      "additionalProperties": false,
+      "properties": {
+        "approvals": {
+          "description": "How far a run advances unattended: manual pauses on stalls and approval steps, auto-on-stall passes stalls only, auto passes both. (restart required)",
+          "enum": [
+            "auto",
+            "auto-on-stall",
+            "manual"
+          ],
+          "type": "string"
+        },
+        "cleanup": {
+          "additionalProperties": false,
+          "properties": {
+            "delete_remote_branch_on_failure": {
+              "description": "Delete the pushed branch when a run fails. Off keeps it for post-mortem inspection. (restart required)",
+              "type": "boolean"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "defaults": {
+          "additionalProperties": false,
+          "properties": {
+            "executor": {
+              "additionalProperties": false,
+              "properties": {
+                "effort": {
+                  "description": "Reasoning effort for executor-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "model": {
+                  "description": "Model for executor-role steps. Accepts provider/model shorthand. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "description": "Harness driving executor-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "planner": {
+              "additionalProperties": false,
+              "properties": {
+                "effort": {
+                  "description": "Reasoning effort for planner-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "model": {
+                  "description": "Model for planner-role steps. Accepts provider/model shorthand. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "description": "Harness driving planner-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "reviewer": {
+              "additionalProperties": false,
+              "properties": {
+                "effort": {
+                  "description": "Reasoning effort for reviewer-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "model": {
+                  "description": "Model for reviewer-role steps. Accepts provider/model shorthand. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "description": "Harness driving reviewer-role steps. Null inherits the workflow-role setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "workflow": {
+              "additionalProperties": false,
+              "properties": {
+                "effort": {
+                  "description": "Reasoning effort for workflow-level steps when a step names none. Null leaves the harness default. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "model": {
+                  "description": "Model for workflow-level turns when a step names none. Accepts provider/model shorthand. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "description": "Harness driving workflow-level turns when a step names none. Null inherits the primary lane setting. (restart required)",
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "runtime_artifacts_retention": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "description": "Whether stale run artifacts are only reported (warn) or actually deleted (enforce) during maintenance. (restart required)",
+              "enum": [
+                "enforce",
+                "warn"
+              ],
+              "type": "string"
+            },
+            "prune_after_days": {
+              "description": "Age in days past which run artifacts are pruned. 0 keeps them indefinitely. (restart required)",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "workspace_dir": {
+          "description": "Operator-owned checkout the workflow steps run in. Null lets DartClaw manage one under the instance directory and refresh its AGENTS.md on upgrade. (restart required)",
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "workspace": {
+      "additionalProperties": false,
+      "properties": {
+        "git_sync": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "description": "Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live)",
+              "type": "boolean"
+            },
+            "interval_minutes": {
+              "description": "Minutes between workspace git-sync runs. The job owns this schedule; it no longer rides the heartbeat cycle. (restart required)",
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "push_enabled": {
+              "description": "Also push those commits to the configured remote. Ignored while git sync itself is off. (live)",
+              "type": "boolean"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
+    }
+  },
+  "title": "DartClaw configuration",
+  "type": "object"
+}

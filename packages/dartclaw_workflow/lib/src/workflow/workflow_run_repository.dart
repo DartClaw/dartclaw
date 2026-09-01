@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'workflow_run.dart' show WorkflowRun, WorkflowWorktreeBinding;
 

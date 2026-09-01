@@ -3,6 +3,11 @@
 
 port: 3336
 
+# Declared, not inferred: these profiles exercise the host lane, and an
+# undeclared posture would isolate wherever a container runtime happens to exist.
+container:
+  enabled: false
+
 gateway:
   auth_mode: token
 

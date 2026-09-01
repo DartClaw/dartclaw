@@ -385,7 +385,7 @@ Terminal-aesthetic design language for a developer-focused AI agent runtime. Cat
 - `showcase.html` — interactive component reference
 - `assets/` — local copies of the brand logos so the folder is self-contained (canonical originals: repo-root `assets/`)
 
-**Source-of-truth scope** – `tokens.css`, `components.css`, and `icons.css` are canonical. Their served counterparts under `packages/dartclaw_server/lib/src/static/` are byte-identical beneath a two-line SHA-256 provenance header; live-only extensions in those three served files are drift. `DESIGN.md` and `showcase.html` are prose and demo artifacts that are never synced. The icon-inventory test in `packages/dartclaw_server/test/static/design_system_icons_sync_test.dart` is an additional completeness check, not a different sync policy.
+**Source-of-truth scope** – `tokens.css`, `components.css`, and `icons.css` are the only copies. `dart run dev/tools/embed_assets.dart` writes them to `packages/dartclaw_runtime/lib/src/static/{tokens,design-system,icons}.css` under a generated-file header; those served files are gitignored build output, so there is nothing to sync and nothing to reconcile – edit canon and regenerate. `DESIGN.md` and `showcase.html` are prose and demo artifacts that are never generated from the stylesheets.
 
 ## Overview
 
@@ -1333,7 +1333,6 @@ These remain as Unicode characters — text/punctuation, not UI icons:
 
 ```
 card card-tint-accent    ← running task (green hover)
-card card-tint-info      ← research task (blue hover)
 card card-tint-error     ← failed task (red hover)
 card card-tint-warning   ← queued task (amber hover)
 ```

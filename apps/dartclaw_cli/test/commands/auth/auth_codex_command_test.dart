@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_cli/src/commands/auth/auth_codex_command.dart';
 import 'package:dartclaw_cli/src/commands/auth/auth_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderIdentity;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

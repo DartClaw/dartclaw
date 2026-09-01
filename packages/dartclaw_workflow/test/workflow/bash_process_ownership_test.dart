@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:dartclaw_workflow/src/workflow/bash_process_owner.dart';
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';

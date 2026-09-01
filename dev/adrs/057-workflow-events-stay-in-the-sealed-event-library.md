@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-08-19 (0.25 planning; owner ruling D3). This ADR records a **refusal**: a proposed package-boundary
+Accepted — 2026-08-19 (0.25 planning; owner ruling of that date, recorded as D3 in the milestone plan). This ADR records a **refusal**: a proposed package-boundary
 correction is declined and the current placement is ratified. The decision is accepted; the *proposal* it evaluates is
 rejected.
 
@@ -18,7 +18,7 @@ classification the preserved exhaustiveness protects), [ADR-010](010-package-spl
 `packages/dartclaw_core/lib/src/events/workflow_events.dart` holds 14 workflow event classes (884 lines) in
 `dartclaw_core`, the package every non-workflow deployment depends on. Nothing inside `dartclaw_core` references them:
 producers are in `dartclaw_workflow`, consumers in `dartclaw_server` and `apps/dartclaw_cli`. On a dependency-graph
-reading this is a misplacement with an obvious fix, and two planning documents recorded it as one:
+reading this is a misplacement with an obvious fix, and three planning documents recorded it as one:
 
 - 0.25's workflow package review (`package-review/workflow.md` § S5 and § 7 note 1) — *"Pure move; risk: low"*, on the
   stated grounds that *"Dependency direction already permits it (workflow → core, never the reverse)"*.
@@ -26,7 +26,7 @@ reading this is a misplacement with an obvious fix, and two planning documents r
   *"workflow events leave core"*.
 - The same reasoning generalised in `package-review/core.md` § 4.2 to all 13 event payload files, *"~1,300 LOC to move"*.
 
-**Both claims are false, and the reasoning error behind them is worth naming.** The audit checked the *package*
+**All three claims are false, and the reasoning error behind them is worth naming.** The audit checked the *package*
 dependency graph and concluded the move was mechanical. The blocking constraint is not in the package graph; it is in
 the **library** graph. `dartclaw_event.dart` declares `sealed class DartclawEvent`, and all 15 payload files —
 `workflow_events.dart` among them — are `part of 'dartclaw_event.dart'`. Sixteen files, one library. Dart scopes
@@ -39,7 +39,7 @@ That leaves exactly one way to perform the move: unseal `DartclawEvent`. Unseali
 diff and visible only in a future incident.
 
 `classifyAlert` in `packages/dartclaw_server/lib/src/alerts/alert_classifier.dart` is a **wildcard-free exhaustive
-switch over the whole hierarchy** — every one of the ~40 event types is named, either mapped to an alert type and
+switch over the whole hierarchy** — every event type in the hierarchy is named, either mapped to an alert type and
 severity or explicitly returned as `null`. `AlertFormatter._body` and `_details` carry the same shape today. Because the
 switch has no `_ =>` arm, the compiler refuses to build when a new event type is added without an explicit decision
 about it. Sealedness is what makes that refusal possible.
@@ -55,7 +55,7 @@ did not survive verification.
 The property is being deliberately **concentrated**, not retired, in the same milestone. The alerts re-cut moves body
 and detail content into the classification result and leaves `AlertFormatter` with no event switch at all, so
 `alert_classifier.dart` becomes the single wildcard-free consumer of the sealed base and the sole `DartclawEvent` target
-of `packages/dartclaw_testing/test/fitness/enum_exhaustive_consumer_test.dart`. Unsealing would remove the compiler
+of `dev/fitness/test/enum_exhaustive_consumer_test.dart`. Unsealing would remove the compiler
 guarantee from precisely the seam the milestone is investing in.
 
 ### Decision drivers
@@ -112,11 +112,12 @@ which was already known and is not sufficient:
   alertable/not-alertable decision, backed by the compiler rather than by review attention.
 - The SSE wire type strings (`workflow_status_changed`, `workflow_step_completed`, `parallel_group_completed`,
   `workflow_budget_warning`, `loop_iteration_completed`, `map_iteration_completed`, `map_step_completed`,
-  `workflow_approval_requested`, `workflow_approval_resolved`, `workflow_serialization_enacted`, `step_skipped`) and the
+  `approval_requested`, `approval_resolved`, `workflow_serialization_enacted`, `step_skipped` — the two approval
+  strings are also accepted on input under `workflow_`-prefixed aliases) and the
   `WorkflowLifecycleEvent.fromJson` dispatch are untouched, so the server↔web-UI contract carries no risk from this
   question at all.
-- 65 consumer files across `packages/` and `apps/` need no rebinding, and 0.25 sheds a high-risk story from its
-  critical path without losing a Must/P0 capability.
+- Every consumer of these types across `packages/` and `apps/` needs no rebinding, and 0.25 sheds a high-risk story
+  from its critical path without losing a Must/P0 capability.
 - The refusal is recorded with its evidence, so the next audit that reaches the same conclusion from the same
   dependency-graph reading meets a written answer.
 
@@ -124,8 +125,8 @@ which was already known and is not sufficient:
 
 - `dartclaw_core` keeps 884 lines of workflow-shaped types it never uses, and the layering complaint stands unaddressed.
   Every deployment that does not run workflows still compiles them.
-- The `dartclaw_event.dart` part-chain remains a 16-file single library that only grows; adding an event means editing
-  a file in core regardless of which package owns the concept.
+- The `dartclaw_event.dart` part-chain remains one single library spanning `dartclaw_event.dart` and its payload
+  files; adding an event means editing a file in core regardless of which package owns the concept.
 - 0.25's FR11 acceptance criterion is delivered incomplete by one clause. The clause is withdrawn rather than failed,
   and no success metric moves: the proposal was LOC-neutral (a move, not a deletion).
 
@@ -157,7 +158,7 @@ which was already known and is not sufficient:
   their wire type strings.
 - `packages/dartclaw_server/lib/src/alerts/alert_classifier.dart#classifyAlert` — the wildcard-free exhaustive switch
   this decision preserves.
-- `packages/dartclaw_testing/test/fitness/enum_exhaustive_consumer_test.dart` — the `DartclawEvent` exhaustive-consumer
+- `dev/fitness/test/enum_exhaustive_consumer_test.dart` — the `DartclawEvent` exhaustive-consumer
   fitness target (ADR-033).
 - Dart 3.13.0 (workspace `sdk: ^3.13.0`); `invalid_use_of_type_outside_library` reproduced with a two-package probe,
   2026-08-19.

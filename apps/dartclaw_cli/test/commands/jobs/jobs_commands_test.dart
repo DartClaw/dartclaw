@@ -7,7 +7,7 @@ import 'package:dartclaw_cli/src/commands/jobs/jobs_delete_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_list_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_run_command.dart';
 import 'package:dartclaw_cli/src/commands/jobs/jobs_show_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
@@ -122,50 +122,14 @@ void main() {
       expect(jsonDecode(output.single), jobs);
     });
 
-    test('list presents the system action persisted lifecycle', () async {
-      final transport = FakeApiTransport(
-        sendResponses: [
-          jsonResponse(200, [
-            {
-              'id': 'memory-curation',
-              'type': 'system_action',
-              'schedule': 'on demand',
-              'lifecycle': {'state': 'succeeded'},
-            },
-          ]),
-        ],
-      );
-      final output = <String>[];
-      final runner = CommandRunner<void>('dartclaw', 'test')
-        ..addCommand(
-          JobsListCommand(
-            apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
-            writeLine: output.add,
-          ),
-        );
-
-      await runner.run(['list']);
-
-      expect(output.last, contains('system_action (succeeded)'));
-      expect(output.last, contains('on demand'));
-      expect(output.last, isNot(contains('<invalid>')));
-    });
-
-    test('show joins bounded terminal-safe lifecycle and live index evidence', () async {
-      final action = 'Stop DartClaw\u0007 then ${List.filled(600, 'x').join()}';
+    // A job's field values reach the terminal verbatim otherwise; control characters
+    // and unbounded strings are the two ways a server response could corrupt it.
+    test('show renders job fields terminal-safe and bounded', () async {
       final payload = {
-        'id': 'memory-curation',
-        'type': 'system_action',
-        'lifecycle': {
-          'state': 'conflicted',
-          'committedRevision': 43,
-          'currentRevision': 44,
-          'changedIds': ['A\u001b', 'B'],
-          'operationReasons': {'C': 'invalid\u0007 operation'},
-          'failureReason': 'proposal\u001b rejected',
-          'action': action,
-        },
-        'index': {'state': 'degraded', 'action': action},
+        'id': 'daily-summary',
+        'schedule': '0 8 * * *',
+        'prompt': 'Summarize\u0007 then ${List.filled(600, 'x').join()}',
+        'delivery': 'announce\u001b',
       };
       final transport = FakeApiTransport(sendResponses: [jsonResponse(200, payload), jsonResponse(200, payload)]);
       final output = <String>[];
@@ -175,25 +139,14 @@ void main() {
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
-      await runner.run(['show', 'memory-curation']);
+      await runner.run(['show', 'daily-summary']);
 
-      expect(
-        output,
-        containsAll([
-          'lifecycle: conflicted',
-          'currentRevision: 44',
-          'committedRevision: 43',
-          'changedIds: A , B',
-          'operationReason C: invalid  operation',
-          'reason: proposal  rejected',
-          'index: degraded',
-        ]),
-      );
+      expect(output, containsAll(['id: daily-summary', 'schedule: 0 8 * * *', 'delivery: announce ']));
       expect(output, everyElement(allOf(isNot(contains('\u0007')), isNot(contains('\u001b')))));
       expect(output.map((line) => line.length), everyElement(lessThanOrEqualTo(513)));
 
       output.clear();
-      await runner.run(['show', 'memory-curation', '--json']);
+      await runner.run(['show', 'daily-summary', '--json']);
       expect(jsonDecode(output.single), payload);
     });
 
@@ -203,6 +156,59 @@ void main() {
 
       expect(
         () => runner.run(['create', '--name', 'bad-job', '--schedule', 'not-cron', '--prompt', 'Hello']),
+        throwsA(isA<UsageException>()),
+      );
+    });
+
+    test('create posts a task job without a category option', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(201, {
+            'job': {'name': 'task-job'},
+          }),
+        ],
+      );
+      final command = JobsCreateCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run([
+        'create',
+        '--name',
+        'task-job',
+        '--schedule',
+        '0 9 * * *',
+        '--type',
+        'task',
+        '--title',
+        'Review',
+        '--description',
+        'Review open work',
+      ]);
+
+      expect(transport.requests.single.body, isNot(contains('task_type')));
+    });
+
+    test('create refuses the retired task-type option', () {
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(JobsCreateCommand());
+
+      expect(
+        () => runner.run([
+          'create',
+          '--name',
+          'task-job',
+          '--schedule',
+          '0 9 * * *',
+          '--type',
+          'task',
+          '--title',
+          'Review',
+          '--description',
+          'Review open work',
+          '--task-type',
+          'analysis',
+        ]),
         throwsA(isA<UsageException>()),
       );
     });

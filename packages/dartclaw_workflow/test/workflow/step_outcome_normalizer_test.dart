@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
@@ -295,7 +297,13 @@ void main() {
             await Future<void>.delayed(Duration.zero);
             await h.completeTaskWithOutcome(
               event.taskId,
-              outcomeContent: 'Done.\n\n<workflow-context>{"story_specs":{"items":[{"id":"S01","title":"One","spec_path":"fis/s01-a.md"}]}}</workflow-context>',
+              outputs: {
+                'story_specs': {
+                  'items': [
+                    {'id': 'S01', 'title': 'One', 'spec_path': 'fis/s01-a.md'},
+                  ],
+                },
+              },
             );
           });
       addTearDown(completionSub.cancel);

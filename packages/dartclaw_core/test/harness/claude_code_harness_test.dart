@@ -2,25 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/src/agents/tool_policy_cascade.dart';
 import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/claude_code_harness.dart';
-import 'package:dartclaw_core/src/harness/harness_config.dart';
+import 'package:dartclaw_core/src/harness/harness_launch_options.dart';
 import 'package:dartclaw_core/src/harness/tool_policy.dart';
 import 'package:dartclaw_core/src/worker/worker_state.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess, FakeProcess;
-import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'harness_test_support.dart';
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+part 'claude_provider_session_resume_cases.dart';
+
+const _mcpOptions = HarnessLaunchOptions(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token');
 
 void main() {
   group('ClaudeCodeHarness', () {
@@ -31,7 +30,7 @@ void main() {
         final h = ClaudeCodeHarness(cwd: '/tmp');
         expect(h.claudeExecutable, 'claude');
         expect(h.cwd, '/tmp');
-        expect(h.turnTimeout, const Duration(seconds: 600));
+        expect(h.turnTimeout, const Duration(seconds: 1800));
         expect(h.maxRetries, 5);
         expect(h.baseBackoff, const Duration(seconds: 5));
         expect(h.toolPolicy, ToolApprovalPolicy.allowAll);
@@ -214,7 +213,7 @@ void main() {
 
         // Clean up: kill process so the pending turn completes with error.
         fakeProcess.exit(1);
-        await turnFuture.catchError((_) => <String, dynamic>{});
+        await turnFuture.catchError((_) => const TurnResult());
       });
 
       test('spawns process with correct arguments and cleaned env', () async {
@@ -253,9 +252,8 @@ void main() {
 
       test('writes MCP config with owner-only permissions', () async {
         List<String>? capturedArgs;
-
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token'),
+          harnessConfig: _mcpOptions,
           processFactory: capturingInitFactory(
             onSpawn: (spawn) {
               capturedArgs = spawn.args;
@@ -277,7 +275,7 @@ void main() {
       test('spawn failure deletes the credential-bearing MCP config', () async {
         late String configPath;
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token'),
+          harnessConfig: _mcpOptions,
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             configPath = args[args.indexOf('--mcp-config') + 1];
             throw StateError('spawn failed');
@@ -440,7 +438,7 @@ void main() {
           commandProbe: defaultClaudeCommandProbe,
           delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-          harnessConfig: const HarnessConfig(disallowedTools: ['Computer']),
+          harnessConfig: const HarnessLaunchOptions(disallowedTools: ['Computer']),
           containerManager: container,
         );
         addTeardownAsync(() => h.dispose());
@@ -517,7 +515,7 @@ void main() {
               systemPrompt: 'system',
               directory: taskDir.path,
             )
-            .catchError((_) => <String, dynamic>{});
+            .catchError((_) => const TurnResult());
 
         expect(container.lastCommand, containsAll(['--settings', '/workspace/task-worktree/.claude/settings.json']));
       });
@@ -573,9 +571,9 @@ void main() {
           }),
         );
         final failed = await failedTurn;
-        expect(failed['stop_reason'], 'error');
-        expect(failed['is_error'], isTrue);
-        expect(failed['error'], contains('401 Invalid authentication credentials'));
+        expect(failed.stopReason, 'error');
+        expect(failed.isError, isTrue);
+        expect(failed.error, contains('401 Invalid authentication credentials'));
         expect(harness.state, WorkerState.idle);
 
         final nextTurn = harness.turn(
@@ -588,8 +586,8 @@ void main() {
         await pumpEventQueue();
         fake.emitStdout(jsonEncode({'type': 'result', 'is_error': false, 'stop_reason': 'end_turn', 'result': 'ok'}));
         final succeeded = await nextTurn;
-        expect(succeeded['stop_reason'], 'end_turn');
-        expect(succeeded['is_error'], isFalse);
+        expect(succeeded.stopReason, 'end_turn');
+        expect(succeeded.isError, isFalse);
         expect(harness.state, WorkerState.idle);
       });
 
@@ -722,7 +720,7 @@ void main() {
         List<String>? capturedArgs;
 
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: 'test behavior prompt'),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: 'test behavior prompt'),
           processFactory: capturingInitFactory(
             onSpawn: (spawn) {
               capturedArgs = spawn.args;
@@ -760,7 +758,7 @@ void main() {
       test('logical-agent persona and model restart once, then empty restores defaults once', () async {
         final spawns = <List<String>>[];
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(model: 'opus', appendSystemPrompt: 'DEFAULT'),
+          harnessConfig: const HarnessLaunchOptions(model: 'opus', appendSystemPrompt: 'DEFAULT'),
           processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
         );
         addTeardownAsync(() => h.dispose());
@@ -791,7 +789,7 @@ void main() {
       test('logical-agent model and effort restart even when persona matches the configured prompt', () async {
         final spawns = <List<String>>[];
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: 'DEFAULT'),
           processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
         );
         addTeardownAsync(() => h.dispose());
@@ -818,7 +816,7 @@ void main() {
         const revision41 = 'SAFE STATIC CONTENT\n\nCollection revision: 41';
         const revision42 = 'SAFE STATIC CONTENT\n\nCollection revision: 42';
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: revision41),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: revision41),
           processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
         );
         addTeardownAsync(() => h.dispose());
@@ -848,7 +846,7 @@ void main() {
         const primaryPrompt = 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42';
         const restrictedPrompt = 'SAFE RESTRICTED CONTENT';
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: primaryPrompt),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: primaryPrompt),
           processFactory: resultEmittingFactory(onSpawn: (spawn) => spawns.add(spawn.args)),
         );
         addTeardownAsync(() => h.dispose());
@@ -1115,7 +1113,7 @@ void main() {
           ),
         );
         fake.exit(1);
-        await turnFuture.catchError((_) => <String, dynamic>{});
+        await turnFuture.catchError((_) => const TurnResult());
       });
 
       test('PreToolUse does not emit approval resolved when hook response write fails', () async {
@@ -1379,7 +1377,7 @@ void main() {
         );
 
         fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
-        expect((await turn)['is_error'], isFalse);
+        expect((await turn).isError, isFalse);
         expect(h.state, WorkerState.idle);
       });
     });
@@ -1686,7 +1684,7 @@ void main() {
         final fake = makeKillTrackingClaudeProcess(completeExitOnKill: true);
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
-          turnTimeout: Duration.zero,
+          turnTimeout: const Duration(milliseconds: 1),
           processFactory: capturingInitFactory(process: fake),
           commandProbe: defaultClaudeCommandProbe,
           delayFactory: noOpClaudeDelay,
@@ -1759,7 +1757,7 @@ void main() {
           ],
           systemPrompt: '',
         );
-        expect(result['is_error'], isFalse);
+        expect(result.isError, isFalse);
         expect(h.state, WorkerState.idle);
         expect(spawnIndex, 2);
       });
@@ -1775,7 +1773,7 @@ void main() {
 
         // Harness spawned with no effort (null).
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(effort: null),
+          harnessConfig: const HarnessLaunchOptions(effort: null),
           processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
@@ -1802,7 +1800,7 @@ void main() {
         var spawnCount = 0;
 
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(effort: 'low'),
+          harnessConfig: const HarnessLaunchOptions(effort: 'low'),
           processFactory: resultEmittingFactory(onSpawn: (_) => spawnCount++),
         );
         addTeardownAsync(() => h.dispose());
@@ -1828,7 +1826,7 @@ void main() {
         var spawnCount = 0;
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
-          harnessConfig: const HarnessConfig(effort: 'low'),
+          harnessConfig: const HarnessLaunchOptions(effort: 'low'),
           killGracePeriod: Duration.zero,
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
             spawnCount++;
@@ -1902,7 +1900,7 @@ void main() {
 
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
-          harnessConfig: const HarnessConfig(model: 'sonnet'),
+          harnessConfig: const HarnessLaunchOptions(model: 'sonnet'),
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) =>
               makeProcess(),
           commandProbe: defaultClaudeCommandProbe,
@@ -2015,6 +2013,8 @@ void main() {
       });
     });
 
+    registerClaudeProviderSessionResumeTests();
+
     // -------------------------------------------------------------------------
     // T13: Parameter-change restart emits warning log
     // -------------------------------------------------------------------------
@@ -2026,7 +2026,7 @@ void main() {
         addTearDown(sub.cancel);
 
         final h = buildClaudeHarness(
-          harnessConfig: const HarnessConfig(model: 'sonnet'),
+          harnessConfig: const HarnessLaunchOptions(model: 'sonnet'),
           processFactory: resultEmittingFactory(result: const {'session_id': 's1'}),
         );
         addTeardownAsync(() => h.dispose());

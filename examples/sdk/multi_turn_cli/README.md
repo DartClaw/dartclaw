@@ -2,7 +2,7 @@
 
 Small DartClaw SDK example that keeps multi-turn conversation history in a local `SessionService` and `MessageService` store.
 
-This example uses `dependency_overrides` that point at local workspace packages because the SDK is still pre-publication. Once the SDK packages are published, replace the overrides with normal package dependencies.
+This is a **fork-the-runtime** example: it depends on `dartclaw_core` directly through `dependency_overrides` pointing at this checkout. The runtime packages are not published and carry no compatibility promise — see [ADR-008](../../../dev/adrs/008-sdk-publishing-strategy.md). If you only need to drive a running `dartclaw serve`, use the client tier instead: [SDK Quick Start](../../../docs/sdk/quick-start.md).
 
 Prerequisites:
 

@@ -1,4 +1,4 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show ChannelType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'group_entry.dart';
 

@@ -69,6 +69,28 @@ The core insight is verified: **integration-branch integrity rests on the reentr
 
 Aligns with the **Core Philosophy (Binding)** — "smallest change / reuse before you build / root causes over workarounds / when in doubt leave it out." Each verdict refuses a superficially-clean deletion that would smuggle a regression (E1's six behavior changes, E3's load-bearing mechanism, E4's self-wedging phase collapse), and each makes the win *provable* before committing — including explicit exits (E1 pivot to keep-both, E3 coverage-only). Honors the DO-NOT-RE-OPEN discipline (E2 untouched) and the heightened conservative gate for E4's destructive-git surface.
 
+## Amendment (0.25) – E1's keep-both premise no longer holds
+
+Recorded 2026-08-19 (0.25 Lean Runtime). E1's verdict – *keep both controllers; do not pursue the desugar* – rested
+on the map controller still having a reason to exist. A repo-wide check found **zero** `type: map` YAML keys: no
+shipped or custom workflow in the repository authors the single-step map shape. With no users, the six-surface
+behavior risk that defeated the desugar does not apply to a **deletion**, which is a different option than the one
+E1 priced.
+
+0.25 therefore deletes `MapNode`, `map_iteration_runner.dart`, `map_iteration_dispatcher.dart` and the
+`WorkflowExecutionCursorNodeType.map` value outright. The authored shape the controller served – `map_over` without
+per-item steps – becomes a validation error naming `foreach_steps`, so a workflow written against the retired shape
+fails at load rather than silently normalizing into a plain action step. A *persisted* run that already carries the
+retired shape hydrates (its snapshot re-normalizes to an action node, keeping the run inspectable) but the executor
+refuses to run that step with the same message – the resume path never validates, so the refusal has to live at
+dispatch. Both halves keep the PRD's rule that a contract violation is a visible failure, not a silent repair. `foreach` keeps the shared machinery E1
+protected: `MapContext`, `MapStepContext`, `MapStepResult`, `iteration_dispatch_engine.dart`, the `Map*` events,
+the `{{map.*}}` template grammar, `_map.<stepId>.promotedIds`, and the `per-map-item` worktree mode are untouched,
+as are the live `map_over` / `max_parallel` authoring keys. The `_map.current.*` progress namespace was written only
+by the map runner and is retired with it; `foreach` already had its own `_foreach.current.*`.
+
+This amends E1 only. E3 and E4 stand as recorded.
+
 ## References
 
 - Design reports: [`design-e1-…`](../bundle/docs/specs/0.20/workflow-simplification-residue/design-e1-map-foreach-controller-consolidation.md) · [`design-e3-…`](../bundle/docs/specs/0.20/workflow-simplification-residue/design-e3-foreach-token-attribution.md) · [`design-e4-…`](../bundle/docs/specs/0.20/workflow-simplification-residue/design-e4-merge-resolve-serialization.md)

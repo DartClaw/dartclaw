@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
 
 /// Refusal of a dedicated store that resolves onto an operator login store.

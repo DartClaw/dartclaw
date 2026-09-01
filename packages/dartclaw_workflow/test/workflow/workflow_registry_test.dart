@@ -278,7 +278,7 @@ steps:
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['andthen:review', 'andthen:plan', 'andthen:architecture', 'dartclaw-discover-andthen-plan'],
+        ['andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
         // quick-review was replaced by the per-story review + nested loop.
         [
           'andthen:quick-review',
@@ -358,6 +358,21 @@ steps:
   // Custom discovery
   // ------------------------------------------------------------------
   group('loadFromDirectory()', () {
+    test('committed maintainer workflows parse and validate', () async {
+      final registry = _makeRegistry();
+      final directory = p.join(workflowRepositoryRoot(), '.dartclaw', 'workflows', 'custom');
+
+      await registry.loadFromDirectory(directory);
+
+      expect(registry.exclusions, isEmpty);
+      expect(registry.listCustom().map((workflow) => workflow.name).toSet(), {
+        'multi-agent-review-inline',
+        'plan-and-implement-inline',
+        'review-and-remediate-inline',
+        'spec-and-implement-inline',
+      });
+    });
+
     test('valid custom .yaml is loaded and available via getByName()', () async {
       File(p.join(tempDir.path, 'my-workflow.yaml')).writeAsStringSync(_validCustomYaml('my-workflow'));
 

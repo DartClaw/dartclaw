@@ -61,7 +61,10 @@ Static checks             format, analyzer, architecture, fitness
 
 **Targets**: Parsers, validators, models, config readers, pattern matchers, guard evaluators, guard chains, state machines, output normalization, path containment, redaction, budget math, schema presets, and other dense pure logic.
 
-**Sociable tests are welcome here.** When a behavior involves multiple classes working together (e.g., `GuardChain` + `Guard` implementations, `ReviewCommandParser` + value objects), test them together through the entry-point's public API. Only introduce test doubles when a collaborator crosses an external boundary or is genuinely impractical to construct.
+**Sociable tests are welcome here.** When a behavior involves multiple classes working together (e.g., `GuardChain` +
+`Guard` implementations, `ChannelTaskBridge` + `ThreadBindingRouter`), test them together through the entry-point's
+public API. Only introduce test doubles when a collaborator crosses an external boundary or is genuinely impractical to
+construct.
 
 **Characteristics**:
 - Run in microseconds
@@ -179,17 +182,17 @@ test('real harness completes a turn', () async {
 }, timeout: Timeout(Duration(seconds: 60)));
 ```
 
-The CLI E2E coverage now includes [`apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart`](../../apps/dartclaw_cli/test/e2e/server_builder_integration_test.dart), which boots the real `ServiceWiring`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
+The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
 
 ```dart
 @Tags(['integration'])
-test('ServiceWiring builds a server that serves / and /health', () async {
-  final result = await wiring.wire();
+test('DartclawRuntime builds a server that serves / and /health', () async {
+  final result = await DartclawRuntime.build(config, /* … */);
 
-  final rootResponse = await result.server.handler(Request('GET', Uri.parse('http://localhost/')));
+  final rootResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/')));
   expect(rootResponse.statusCode, equals(302));
 
-  final healthResponse = await result.server.handler(Request('GET', Uri.parse('http://localhost/health')));
+  final healthResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/health')));
   expect(healthResponse.statusCode, equals(200));
 });
 ```
@@ -240,12 +243,12 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 | Preset | Workflow | Planner | Executor / Reviewer | Sandbox | API key env var |
 |---|---|---|---|---|---|
-| `codex` | `gpt-5.4` | `gpt-5.6-sol` (`medium`) | `gpt-5.6-luna` | `danger-full-access` | `CODEX_API_KEY` |
-| `claude` | `claude-opus-4-7` | `claude-opus-4-7` | `claude-sonnet-4-6` | `dontAsk` | `ANTHROPIC_API_KEY` |
+| `codex` | `gpt-5.4` | `gpt-5.6-luna` (`medium`) | `gpt-5.6-luna` | `danger-full-access` | `CODEX_API_KEY` |
+| `claude` | `claude-opus-5` | `claude-opus-5` | `claude-sonnet-5` | `dontAsk` | `ANTHROPIC_API_KEY` |
 
-(The claude `Sandbox` column is the `permissionMode`. It must be `dontAsk`, **not** `bypassPermissions` — the Claude workflow one-shot runner rejects `bypassPermissions` for any step that declares an `allowedTools` policy, i.e. every workflow step.)
+(The claude `Sandbox` column is the `permissionMode`. It stays `dontAsk`, **not** `bypassPermissions`, so provider prompts remain compatible with the guarded harness path.)
 
-The fixture default provider is `codex`: planner runs on `gpt-5.6-sol` at medium effort, while executor and reviewer run on `gpt-5.6-luna`. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. Claude one-shot spawns print a benign stderr notice (`Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`); the CLI does force default mode when the scrub var is set, but the step tool policy rides in `--settings` permission rules, which default mode enforces identically in headless runs (allowed tools run, everything else is denied, never prompted) — verified live 2026-07-07: a claude plan-and-implement canary ran discovery, both story implementations, simplify, and all reviews green with the var set. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
+The fixture default provider is `codex`: planner, executor and reviewer all run on `gpt-5.6-luna` (planner at medium effort). The product recommendation for planning stays `gpt-5.6-sol` (`docs/guide/workflows.md`); the test mapping uses luna because on sol the plan step's sub-agent fan-out ended the turn after the first story spec, and luna is quicker and cheaper for the fixture. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. A Claude harness may print the benign stderr notice `Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`; the CLI does force default mode when the scrub var is set, while the host guard chain remains authoritative for step tool policy. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
 
 **Run the integration tier against Claude explicitly** (e.g. the other integration files):
 
@@ -257,11 +260,11 @@ DARTCLAW_TEST_PROVIDER=claude ANTHROPIC_API_KEY=... \
 Mix-and-match works too — e.g. pin a specific per-role model:
 
 ```bash
-DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-4-7 \
+DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-5 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
-**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct one-shot spawns.
+**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct harness spawns.
 
 ### Visual / UI Smoke Tests (Manual)
 
@@ -288,7 +291,7 @@ These categories get comprehensive test coverage — no exceptions.
 
 ### Security-Critical Components
 - **Guard implementations** — every pattern with both blocking (true positive) AND non-blocking (false positive) cases
-- **Input sanitizer** — injection patterns, encoding bypass attempts, legitimate input that must pass
+- **Content guard** — classifier verdicts at the agent boundary, fail-open vs fail-closed on classifier error, legitimate content that must pass
 - **Message redactor** — secret patterns, PII patterns, partial redaction correctness
 - **Auth middleware** — valid token, invalid token, missing token, expired token, rate limiting
 - **SSRF protection** — private IP ranges, DNS rebinding, localhost variants
@@ -305,7 +308,7 @@ These categories get comprehensive test coverage — no exceptions.
 ### Public API Contracts
 - **Barrel exports** — one smoke test per package verifying the public API surface
 - **Contract tests** — any interface with multiple implementations (e.g., `SearchBackend`) gets a shared test suite that all implementations must pass
-- **Dartdoc lint rail** — `public_member_api_docs` is enabled in `dartclaw_models`, `dartclaw_storage`, `dartclaw_security`, and `dartclaw_config`; new undocumented public surface in those packages fails CI.
+- **Dartdoc lint rail** — `public_member_api_docs` is enabled in `dartclaw_kernel` and `dartclaw_core`; new undocumented public surface in those packages fails CI.
 
 ---
 
@@ -336,7 +339,13 @@ These get coverage when the risk justifies it.
 
 ### Shared Test Doubles and Helpers (`dartclaw_testing` package)
 
-All shared fakes live in `packages/dartclaw_testing/`. This is the canonical source — **never redeclare fakes locally in test files**.
+Shared fakes for core-and-below boundaries live in `packages/dartclaw_testing/`. This is the canonical source — **never redeclare fakes locally in test files**.
+
+**Where a double lives** (three homes, in this order):
+
+1. **A double for a port owned by `dartclaw_core` or `dartclaw_kernel`** → `dartclaw_testing`, exported from its barrel. That package production-depends on core-and-below only, so consuming one shared double never drags an upper-tier package into a suite's dependency closure.
+2. **A double for a port owned above core, used by more than one package** → the package that owns the port, in `lib/src/testing/`, re-exported from that package's `lib/testing.dart` with an explicit `show` clause. A `test/` tree is not reachable across packages, so the port's owner is the only home every consumer already depends on. The package barrel must not re-export it, so the production surface stays free of test-only symbols. Import it as `package:dartclaw_google_chat/testing.dart` or `package:dartclaw_workflow/testing.dart` — the `package:http/testing.dart` idiom.
+3. **A helper used by exactly one package** → that package's own test tree. Nothing that one package uses belongs in the shared package.
 
 **Boundary rule for fakes**: Fakes should replace *external boundaries* — systems that are slow, non-deterministic, or outside the process (harness binaries, channel networks, third-party REST APIs, subprocesses). Do not create fakes for internal collaborators that can participate as real objects. Each fake is a maintenance surface that can drift from the real implementation it replaces.
 
@@ -348,23 +357,34 @@ All shared fakes live in `packages/dartclaw_testing/`. This is the canonical sou
 | `FakeProcess` | Subprocess simulation | Stream-backed stdout/stderr, kill tracking |
 | `CapturingFakeProcess` | Subprocess I/O assertions | Captures stdin lines and decoded JSON maps |
 | `FakeCodexProcess` | Codex/Claude harness protocol tests | JSON-RPC helpers and outbound message capture |
-| `FakeGoogleChatRestClient` | Google Chat REST boundary | Configurable responses and request recording |
-| `FakeGoogleJwtVerifier` | Google Chat auth boundary | Deterministic accept/reject verification |
+| `FakeChannelManager` | Channel registry routing | Records dispatched messages per channel |
+| `FakeContentClassifier` | Content-guard boundary | Configurable classification verdicts |
 | `FakeProjectService` | Project CRUD flows | Callback-driven state and freshness checks |
 | `FakeTurnManager` | Turn lifecycle control | Reserve/execute/cancel hooks and configurable outcomes |
 | `NullIoSink` | Discard-all IOSink for subprocess tests | No-op `write`, `add`, `close` — silences stdout/stderr |
 | `InMemorySessionService` | Session storage without filesystem | Full API mirror, zero I/O |
 | `InMemoryTaskRepository` | Task storage without SQLite | Full CRUD, in-memory |
+| `InMemoryWorkflowStepExecutionRepository` | Workflow-step storage without SQLite | Full kernel repository contract, in-memory |
 | `RecordingMessageQueue` | Queue routing assertions | Enqueued-message recording, optional forwarding |
-| `RecordingReviewHandler` | Review flow assertions | Captures review calls and comments |
 | `TaskOps` | Channel/task test scaffolding | Shared create/transition/update helpers |
 | `TestEventBus` | Event bus with recording | Event capture, subscription verification |
 
-**Rule**: When you need a test double, check `dartclaw_testing` first. If a suitable fake doesn't exist, add it there — not in the test file.
+Doubles served from their owning package's `testing.dart` instead of the shared barrel:
+
+| Fake / helper | Entry point | Port it replaces |
+|---------------|-------------|------------------|
+| `FakeGoogleChatRestClient` | `package:dartclaw_google_chat/testing.dart` | `GoogleChatRestClient` |
+| `FakeGitGateway` | `package:dartclaw_workflow/testing.dart` | `WorkflowGitPort` |
+| `FakeSkillIntrospector` | `package:dartclaw_workflow/testing.dart` | `SkillIntrospector` |
+| `FakeProviderAuthPreflight` | `package:dartclaw_workflow/testing.dart` | `ProviderAuthPreflight` |
+
+**Rule**: When you need a test double, check `dartclaw_testing` first, then the owning package's `testing.dart`. If a suitable fake doesn't exist, add it to whichever of the three homes above applies — not to the test file.
 
 **Fake drift audit** (at each milestone): For each fake in `dartclaw_testing`, verify it still faithfully represents the interface it replaces. Look for methods added to the real interface but missing from the fake, or behavioral assumptions in the fake that no longer match reality. Fakes that drift from their real counterparts produce false confidence — tests pass while production breaks.
 
 Related helpers such as `channelOriginJson`, `createTask`, `flushAsync`, `latestRequestId`, `noOpDelay`, `pumpEventLoop`, `putTaskInReview`, `respondToLatestThreadStart`, `shortTaskId`, `startHarness`, and `waitForSentMessage` are also exported from `dartclaw_testing` for reuse.
+
+Single-package helpers live with their consumer: `WorkflowGitFixture` in `packages/dartclaw_workflow/test/workflow/component/workflow_git_test_support.dart`, `InMemoryAgentExecutionRepository` / `InMemoryExecutionRepositoryTransactor` in `packages/dartclaw_runtime/test/helpers/`, and `captureRootLogs` in `apps/dartclaw_cli/test/helpers/log_test_helpers.dart`. `FakeGoogleJwtVerifier` is shared from `dartclaw_testing` because the core-owned port now has consumers in the Google Chat and server packages.
 
 ### Test Configuration
 
@@ -484,17 +504,17 @@ For the full framework, see [research: behavior-focused testing](../research/beh
 ```bash
 # Run all tests for a package
 dart test packages/dartclaw_core
-dart test packages/dartclaw_server
-dart test packages/dartclaw_security
+dart test packages/dartclaw_runtime
+dart test packages/dartclaw_kernel
 
 # Run a specific test file
-dart test packages/dartclaw_server/test/api/task_routes_test.dart
+dart test packages/dartclaw_runtime/test/api/task_routes_test.dart
 
 # Run tests matching a name pattern
 dart test packages/dartclaw_core --name "SessionKey"
 
 # Run only contract tests
-dart test -t contract packages/dartclaw_storage
+dart test -t contract packages/dartclaw_core
 ```
 
 ### Mixed Local Integration Gates
@@ -506,7 +526,7 @@ Layer 2/3 CLI/server tests exercise real local resources — binding ports, star
 # process, placing dartclaw_cli's cwd-mutating suites beside server/workflow
 # suites that resolve relative paths.
 dart test --reporter=failures-only packages/dartclaw_workflow
-dart test --reporter=failures-only packages/dartclaw_server
+dart test --reporter=failures-only packages/dartclaw_runtime
 dart test --reporter=failures-only apps/dartclaw_cli
 ```
 
@@ -558,12 +578,9 @@ Each FIS should specify which layers are needed and why, referencing this strate
 
 | Package | Target | Rationale |
 |---------|--------|-----------|
-| `dartclaw_security` | 85%+ | Security-critical — comprehensive coverage is non-negotiable |
-| `dartclaw_core` | 80%+ | Foundation — bridges, events, config, session management |
-| `dartclaw_models` | 70%+ | Pure data classes — test serialization, factories, edge cases |
-| `dartclaw_config` | 80%+ | Config parsing errors cascade everywhere |
-| `dartclaw_storage` | 80%+ | Data integrity — crash recovery, cursor behavior |
-| `dartclaw_server` | 70%+ | Largest package; many lines are template rendering |
+| `dartclaw_kernel` | 85%+ | Shared config and guard contracts are security-critical |
+| `dartclaw_core` | 80%+ | Runtime foundations and data integrity — bridges, events, persistence, crash recovery |
+| `dartclaw_runtime` | 70%+ | Largest package; many lines are template rendering |
 | Channel packages | 75%+ | Message routing, webhook parsing, access control |
 | `dartclaw_testing` | 60%+ | Test infrastructure — lower bar acceptable |
 | `dartclaw_cli` | 60%+ | CLI wiring; core logic tested via server package |
@@ -590,7 +607,7 @@ These are guidance targets, not enforcement gates. A package at 65% with well-ch
 
 ## Fitness Functions
 
-DartClaw ships a fitness suite at `packages/dartclaw_testing/test/fitness/` that runs on every commit and catches the drift classes surfaced in earlier milestones.
+DartClaw ships a fitness suite at `dev/fitness/` – a dev-rooted workspace member that declares no production dependencies and imports none, so a repo-wide gate can never depend on the code it governs. It runs on every commit and catches the drift classes surfaced in earlier milestones.
 
 Run locally: `bash dev/tools/run-fitness.sh`
 
@@ -602,9 +619,9 @@ The L1 checks (plus a separate `dart format --line-length=120 --set-exit-if-chan
 | `max_file_loc_test.dart` | No `lib/src/**/*.dart` file exceeds 1,500 LOC |
 | `package_cycles_test.dart` | Zero cycles in the workspace package dependency graph |
 | `constructor_param_count_test.dart` | No public constructor has more than 12 parameters |
-| `no_cross_package_env_plan_duplicates_test.dart` | `ProcessEnvironmentPlan` implementations live only in `dartclaw_security` |
+| `no_cross_package_env_plan_duplicates_test.dart` | `ProcessEnvironmentPlan` implementations live only in `dartclaw_kernel` |
 | `safe_process_usage_test.dart` | No raw `Process.run/start('git', ...)` in production code |
 
-Intentional exceptions are committed as plain-text allowlists under `packages/dartclaw_testing/test/fitness/allowlist/<test-name>.txt`. Each allowlist entry requires a `  # rationale` comment — no silent waivers. See `packages/dartclaw_testing/test/fitness/README.md` for per-test "How to resolve a failure" guidance.
+Intentional exceptions are committed as plain-text allowlists under `dev/fitness/test/allowlist/<test-name>.txt`. Each allowlist entry requires a `  # rationale` comment — no silent waivers. See `dev/fitness/README.md` for per-test "How to resolve a failure" guidance.
 
-A Level-2 suite in the same directory extends these checks with dependency-direction data, cross-package `src/` import hygiene, testing-package dependency shape, barrel export ceilings, enum/event consumer exhaustiveness, and per-file method-count ceilings. The crash-recovery smoke lives under `packages/dartclaw_server/test/integration/` and is explicitly gated with `--run-skipped -t integration`.
+A Level-2 suite in the same directory extends these checks with dependency-direction data, cross-package `src/` import hygiene, testing-package dependency shape, enum/event consumer exhaustiveness, and per-file method-count ceilings. The crash-recovery smoke lives under `packages/dartclaw_runtime/test/integration/` and is explicitly gated with `--run-skipped -t integration`.

@@ -1,6 +1,6 @@
 # ADR-052: Native Provider Web Tools Denied for All Container Profiles
 
-**Status:** Accepted – 2026-08-13 (proposed 2026-08-12, 0.24 execution-isolation correction)
+**Status:** Accepted – 2026-08-13 (proposed 2026-08-12, 0.24 execution-isolation correction). Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — this denial now applies to default installs, not only to installs that asked for containers.
 **Deciders:** DartClaw team (operator-ratified 2026-08-13)
 
 **Related:** [ADR-012](012-per-type-container-isolation.md) (per-type container isolation and profiles), [ADR-015](015-container-isolation-strategy.md) (hardened Docker `network:none` boundary), [ADR-035](035-cross-harness-task-capability-trust-mapping.md) (cross-harness tool trust mapping), [ADR-039](039-outbound-mcp-trust-boundary-and-transport.md) (host-mediated MCP egress boundary). Reverses the S03 FIS decision note `scoped-mcp-applies-to-workspace-profile` and its OC03/TI05 `[x]` criteria (`dev/bundle/docs/specs/0.24-execution-isolation/s03-claude-and-codex-container-parity.md`).

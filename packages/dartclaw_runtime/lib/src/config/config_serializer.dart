@@ -1,0 +1,349 @@
+import 'dart:convert';
+
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+
+import '../runtime_config.dart';
+import 'channel_config_resolver.dart';
+
+/// Converts [DartclawConfig] to the structured JSON shape returned by
+/// `GET /api/config`.
+///
+/// Live-mutable fields are read from [RuntimeConfig] (current runtime state)
+/// rather than [DartclawConfig] (startup YAML) so the UI reflects toggle
+/// changes without restart.
+class ConfigSerializer {
+  const new();
+
+  /// Serializes the full config to the nested camelCase JSON shape.
+  ///
+  /// [config] provides startup-time values and defaults.
+  /// [runtime] provides current toggle state for live-mutable fields.
+  Map<String, dynamic> toJson(DartclawConfig config, {required RuntimeConfig runtime}) {
+    ensureGitHubWebhookConfigRegistered();
+
+    final googleChatConfig = resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat);
+    final signalConfig = resolveChannelConfig<SignalConfig>(config, ChannelType.signal);
+    final whatsAppConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);
+    GitHubWebhookConfig? githubConfig;
+    try {
+      githubConfig = config.extension<GitHubWebhookConfig>('github');
+    } catch (_) {
+      githubConfig = null; // Extension absent or malformed — omit GitHub fields from serialized view.
+    }
+    return {
+      'port': config.server.port,
+      'host': config.server.host,
+      'name': config.server.name,
+      'dataDir': config.server.dataDir,
+      'baseUrl': config.server.baseUrl,
+      'memoryMaxBytes': config.memory.maxBytes,
+      'agent': {
+        'provider': config.agent.provider,
+        'model': config.agent.model,
+        'effort': config.agent.effort,
+        'maxTurns': config.agent.maxTurns,
+      },
+      'auth': {'cookieSecure': config.auth.cookieSecure, 'trustedProxies': config.auth.trustedProxies},
+      'concurrency': {'maxParallelTurns': config.server.maxParallelTurns},
+      'guardAudit': {'maxRetentionDays': config.security.guardAuditMaxRetentionDays},
+      'tasks': {
+        'artifactRetentionDays': config.tasks.artifactRetentionDays,
+        'completionAction': config.tasks.completionAction,
+        'worktree': {
+          'baseRef': config.tasks.worktreeBaseRef,
+          'staleTimeoutHours': config.tasks.worktreeStaleTimeoutHours,
+          'mergeStrategy': config.tasks.worktreeMergeStrategy,
+        },
+      },
+      'sessions': {
+        'resetHour': config.sessions.resetHour,
+        'idleTimeoutMinutes': config.sessions.idleTimeoutMinutes,
+        'dmScope': config.sessions.scopeConfig.dmScope.toYaml(),
+        'groupScope': config.sessions.scopeConfig.groupScope.toYaml(),
+        'model': config.sessions.scopeConfig.model,
+        'effort': config.sessions.scopeConfig.effort,
+        'channels': {
+          for (final entry in config.sessions.scopeConfig.channels.entries)
+            entry.key: {
+              if (entry.value.dmScope != null) 'dmScope': entry.value.dmScope!.toYaml(),
+              if (entry.value.groupScope != null) 'groupScope': entry.value.groupScope!.toYaml(),
+              if (entry.value.model != null) 'model': entry.value.model,
+              if (entry.value.effort != null) 'effort': entry.value.effort,
+            },
+        },
+        'maintenance': {
+          'mode': config.sessions.maintenanceConfig.mode.toYaml(),
+          'pruneAfterDays': config.sessions.maintenanceConfig.pruneAfterDays,
+          'maxSessions': config.sessions.maintenanceConfig.maxSessions,
+          'maxDiskMb': config.sessions.maintenanceConfig.maxDiskMb,
+          'cronRetentionHours': config.sessions.maintenanceConfig.cronRetentionHours,
+          'schedule': config.sessions.maintenanceConfig.schedule,
+        },
+      },
+      'logging': {'level': config.logging.level, 'format': config.logging.format},
+      'scheduling': {
+        'heartbeat': {
+          // Live-mutable: read from RuntimeConfig
+          'enabled': runtime.heartbeatEnabled,
+          'intervalMinutes': config.scheduling.heartbeatIntervalMinutes,
+        },
+        'jobs': config.scheduling.jobs,
+      },
+      'context': {
+        'reserveTokens': config.context.reserveTokens,
+        'maxResultBytes': config.context.maxResultBytes,
+        'warningThreshold': config.context.warningThreshold,
+        'compactInstructions': config.context.compactInstructions,
+        'identifierPreservation': config.context.identifierPreservation.toJson(),
+        'identifierInstructions': config.context.identifierInstructions,
+      },
+      'search': {'backend': config.search.backend},
+      'guards': {
+        'content': {
+          'enabled': config.security.contentGuardEnabled,
+          'classifier': config.security.contentGuardClassifier,
+          'model': config.security.contentGuardModel,
+          'maxBytes': config.security.contentGuardMaxBytes,
+        },
+      },
+      'security': {
+        'bashStep': {
+          'envAllowlist': config.security.bashStep.envAllowlist,
+          'extraStripPatterns': config.security.bashStep.extraStripPatterns,
+        },
+      },
+      'memory': {
+        'maxBytes': config.memory.maxBytes,
+        'pruning': {
+          'enabled': config.memory.pruningEnabled,
+          'archiveAfterDays': config.memory.archiveAfterDays,
+          'schedule': config.memory.pruningSchedule,
+        },
+        'journal': {'enabled': config.memory.journalEnabled, 'schedule': config.memory.journalSchedule},
+        'curation': {'enabled': config.memory.curationEnabled, 'schedule': config.memory.curationSchedule},
+      },
+      'knowledge': {
+        'inbox': {
+          'enabled': config.knowledge.inbox.enabled,
+          'intervalMinutes': config.knowledge.inbox.intervalMinutes,
+          'maxBytes': config.knowledge.inbox.maxBytes,
+          'retryAttempts': config.knowledge.inbox.retryAttempts,
+          'processedRetentionDays': config.knowledge.inbox.processedRetentionDays,
+          'deliveryMode': config.knowledge.inbox.deliveryMode,
+          'effort': config.knowledge.inbox.effort,
+        },
+        'wikiLint': {
+          'enabled': config.knowledge.wikiLint.enabled,
+          'intervalMinutes': config.knowledge.wikiLint.intervalMinutes,
+          'deliveryMode': config.knowledge.wikiLint.deliveryMode,
+        },
+      },
+      'usage': {
+        'budgetWarningTokens': config.usage.budgetWarningTokens,
+        'maxFileSizeBytes': config.usage.maxFileSizeBytes,
+      },
+      'workspace': {
+        'gitSync': {
+          // Live-mutable: read from RuntimeConfig
+          'enabled': runtime.gitSyncEnabled,
+          'pushEnabled': runtime.gitSyncPushEnabled,
+          'intervalMinutes': config.workspace.gitSyncIntervalMinutes,
+        },
+      },
+      'workflow': {
+        'workspaceDir': config.workflow.workspaceDir,
+        'approvals': config.workflow.approvals.yamlValue,
+        'defaults': {
+          'workflow': {
+            'provider': config.workflow.defaults.workflow.provider,
+            'model': config.workflow.defaults.workflow.model,
+          },
+          'planner': {
+            'provider': config.workflow.defaults.planner.provider,
+            'model': config.workflow.defaults.planner.model,
+          },
+          'executor': {
+            'provider': config.workflow.defaults.executor.provider,
+            'model': config.workflow.defaults.executor.model,
+          },
+          'reviewer': {
+            'provider': config.workflow.defaults.reviewer.provider,
+            'model': config.workflow.defaults.reviewer.model,
+          },
+        },
+      },
+      'channels': {
+        'whatsapp': {
+          'enabled': whatsAppConfig.enabled,
+          'dmAccess': whatsAppConfig.dmAccess.name,
+          'groupAccess': whatsAppConfig.groupAccess.name,
+          'requireMention': whatsAppConfig.requireMention,
+        },
+        'signal': {
+          'enabled': signalConfig.enabled,
+          'dmAccess': signalConfig.dmAccess.name,
+          'groupAccess': signalConfig.groupAccess.name,
+          'requireMention': signalConfig.requireMention,
+        },
+        'googleChat': {
+          'enabled': googleChatConfig.enabled,
+          'serviceAccount': _serializeGoogleServiceAccount(googleChatConfig.serviceAccount),
+          'oauthCredentials': googleChatConfig.oauthCredentials != null,
+          'audience': googleChatConfig.audience == null
+              ? null
+              : {
+                  'type': _googleChatAudienceMode(googleChatConfig.audience!.mode),
+                  'value': googleChatConfig.audience!.value,
+                },
+          'webhookPath': googleChatConfig.webhookPath,
+          'botUser': googleChatConfig.botUser,
+          'typingIndicator': googleChatConfig.typingIndicatorMode.name,
+          'quoteReplyMode': googleChatConfig.quoteReplyMode.name,
+          'reactionsAuth': googleChatConfig.reactionsAuth.name,
+          'feedback': {
+            'enabled': googleChatConfig.feedback.enabled,
+            'minFeedbackDelay': _durationString(googleChatConfig.feedback.minFeedbackDelay),
+            'statusInterval': _durationString(googleChatConfig.feedback.statusInterval),
+            'statusStyle': googleChatConfig.feedback.statusStyle.name,
+          },
+          'dmAccess': googleChatConfig.dmAccess.name,
+          'dmAllowlist': googleChatConfig.dmAllowlist,
+          'groupAccess': googleChatConfig.groupAccess.name,
+          'groupAllowlist': googleChatConfig.groupIds,
+          'requireMention': googleChatConfig.requireMention,
+        },
+      },
+      'gateway': {
+        'authMode': config.gateway.authMode,
+        'token': config.gateway.token != null ? '***' : null,
+        'hsts': config.gateway.hsts,
+      },
+      if (githubConfig != null)
+        'github': {
+          'enabled': githubConfig.enabled,
+          'webhookSecret': githubConfig.webhookSecret == null ? null : '***',
+          'webhookPath': githubConfig.webhookPath,
+          'triggers': [
+            for (final trigger in githubConfig.triggers)
+              {
+                'event': trigger.event,
+                'actions': trigger.actions,
+                'labels': trigger.labels,
+                'workflow': trigger.workflow,
+              },
+          ],
+        },
+      'governance': {
+        'adminSenders': config.governance.adminSenders,
+        'queueStrategy': config.governance.queueStrategy.name,
+        'crowdCoding': {'model': config.governance.crowdCoding.model, 'effort': config.governance.crowdCoding.effort},
+        'turnLimits': {
+          'stallTimeout': _durationString(config.governance.turnLimits.stallTimeout),
+          'stallAction': config.governance.turnLimits.stallAction.name,
+          'turnTimeout': _durationString(config.governance.turnLimits.turnTimeout),
+        },
+        'rateLimits': {
+          'perSender': {
+            'messages': config.governance.rateLimits.perSender.messages,
+            'window': config.governance.rateLimits.perSender.windowMinutes,
+            'maxQueued': config.governance.rateLimits.perSender.maxQueued,
+            'maxPauseQueued': config.governance.rateLimits.perSender.maxPauseQueued,
+          },
+          'global': {
+            'turns': config.governance.rateLimits.global.turns,
+            'window': config.governance.rateLimits.global.windowMinutes,
+          },
+        },
+        'budget': {
+          'dailyTokens': config.governance.budget.dailyTokens,
+          'action': config.governance.budget.action.name,
+          'timezone': config.governance.budget.timezone,
+        },
+        'loopDetection': {
+          'enabled': config.governance.loopDetection.enabled,
+          'maxConsecutiveTurns': config.governance.loopDetection.maxConsecutiveTurns,
+          'maxTokensPerMinute': config.governance.loopDetection.maxTokensPerMinute,
+          'velocityWindowMinutes': config.governance.loopDetection.velocityWindowMinutes,
+          'maxConsecutiveIdenticalToolCalls': config.governance.loopDetection.maxConsecutiveIdenticalToolCalls,
+          'action': config.governance.loopDetection.action.name,
+        },
+      },
+      'alerts': {
+        'enabled': config.alerts.enabled,
+        'cooldownSeconds': config.alerts.cooldownSeconds,
+        'burstThreshold': config.alerts.burstThreshold,
+        'targets': [
+          for (final t in config.alerts.targets) {'channel': t.channel, 'recipient': t.recipient},
+        ],
+        'routes': config.alerts.routes,
+      },
+    };
+  }
+
+  /// Serializes [ConfigMeta.fields] to the `_meta.fields` shape.
+  ///
+  /// Each entry includes mutability, type, description, and any constraints
+  /// (min, max, allowedValues, nullable).
+  Map<String, dynamic> metaJson() {
+    final result = <String, dynamic>{};
+    for (final entry in ConfigMeta.fields.entries) {
+      final f = entry.value;
+      final fieldMap = <String, dynamic>{
+        'mutable': f.mutability.name,
+        'type': _typeLabel(f.type),
+        'description': f.description,
+      };
+      if (f.min != null) fieldMap['min'] = f.min;
+      if (f.max != null) fieldMap['max'] = f.max;
+      if (f.allowedValues != null) fieldMap['allowedValues'] = f.allowedValues;
+      if (f.nullable) fieldMap['nullable'] = true;
+      result[f.yamlPath] = fieldMap;
+    }
+    return result;
+  }
+
+  static String _typeLabel(ConfigFieldType type) => switch (type) {
+    ConfigFieldType.int_ => 'int',
+    ConfigFieldType.double_ => 'number',
+    ConfigFieldType.string => 'string',
+    ConfigFieldType.bool_ => 'bool',
+    ConfigFieldType.enum_ => 'enum',
+    ConfigFieldType.stringList => 'string[]',
+    ConfigFieldType.objectList => 'object[]',
+    ConfigFieldType.objectMap => 'object',
+  };
+
+  static String _googleChatAudienceMode(GoogleChatAudienceMode mode) => switch (mode) {
+    GoogleChatAudienceMode.appUrl => 'app-url',
+    GoogleChatAudienceMode.projectNumber => 'project-number',
+  };
+
+  static String? _serializeGoogleServiceAccount(String? serviceAccount) {
+    final normalized = serviceAccount?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    if (!normalized.startsWith('{')) {
+      return normalized;
+    }
+
+    try {
+      final decoded = jsonDecode(normalized);
+      if (decoded is Map<String, dynamic>) {
+        final clientEmail = decoded['client_email'];
+        if (clientEmail is String && clientEmail.trim().isNotEmpty) {
+          return clientEmail.trim();
+        }
+      }
+    } catch (e) {
+      // Fall through to a generic redaction marker for malformed inline JSON.
+    }
+
+    return '***';
+  }
+
+  static String _durationString(Duration duration) => '${duration.inSeconds}s';
+}

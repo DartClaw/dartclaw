@@ -38,14 +38,9 @@ void main() {
       );
     });
 
-    test('includes threadId and resume flags while ignoring systemPrompt', () {
+    test('includes threadId while ignoring systemPrompt', () {
       final adapter = CodexProtocolAdapter();
-      final payload = adapter.buildTurnRequest(
-        message: 'Hello',
-        systemPrompt: 'Be concise',
-        threadId: 'thread-123',
-        resume: true,
-      );
+      final payload = adapter.buildTurnRequest(message: 'Hello', systemPrompt: 'Be concise', threadId: 'thread-123');
 
       expect(payload['method'], 'turn/start');
       expect(payload['params'], isA<Map<String, dynamic>>());
@@ -54,7 +49,7 @@ void main() {
       ]);
       expect(payload['params']?['threadId'], 'thread-123');
       expect(payload['params']?['system_prompt'], isNull);
-      expect(payload['params']?['resume'], isTrue);
+      expect(payload['params']?['resume'], isNull);
     });
 
     test('includes previousResponseItems and dynamic settings', () {
@@ -121,6 +116,11 @@ void main() {
         'id': 'thread-1',
         'method': 'thread/start',
         'params': {'session_id': 'sess-123'},
+      });
+      expect(adapter.buildThreadResumeRequest(id: 'resume-1', threadId: 'thread-123'), {
+        'id': 'resume-1',
+        'method': 'thread/resume',
+        'params': {'threadId': 'thread-123'},
       });
     });
 

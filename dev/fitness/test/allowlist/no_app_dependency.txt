@@ -1,0 +1,9 @@
+# Library packages that declare a dependency on an application package.
+#
+# Entry format: `packages/<name>/pubspec.yaml:<block>:<app package>  # <rationale>`
+# where <block> is `dependencies` or `dev_dependencies` — no trailing colon.
+#
+# Committed empty and intended to stay so: an application composes libraries,
+# never the other way round. An entry has to name why the app is the only
+# possible owner of the declaration the library needs — which is a reason to
+# move the declaration, not to grant the edge.

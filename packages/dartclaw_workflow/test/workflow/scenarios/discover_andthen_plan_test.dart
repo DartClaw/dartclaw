@@ -3,7 +3,7 @@ library;
 
 import 'dart:convert';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show OutputConfig, OutputFormat, TaskType, WorkflowStep;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show OutputConfig, OutputFormat, WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -29,8 +29,10 @@ void main() {
       expect(skill, contains('normalized to `pending`'));
       expect(skill, isNot(contains('project_index')));
       // Examples for DC-native skills live in SKILL.md alongside the contract –
-      // the workflow YAML does not duplicate them via outputExamples.
-      expect(skill, contains('<workflow-context>'));
+      // the workflow YAML does not duplicate them via outputExamples. They show
+      // the envelope's `outputs`, never a tagged block.
+      expect(skill, contains('execution envelope'));
+      expect(skill, isNot(contains('<workflow-context>')));
     });
 
     test('extracts flat prd, plan, and story_specs outputs', () async {
@@ -216,19 +218,15 @@ Future<Map<String, dynamic>> _extractDiscoverAndthenPlanOutputs(
   required Map<String, dynamic> payload,
 }) async {
   final session = await harness.sessions.getOrCreateMainSession();
-  await harness.messages.insertMessage(
-    sessionId: session.id,
-    role: 'assistant',
-    content: '<workflow-context>${jsonEncode(payload)}</workflow-context>',
-  );
+  final runId = 'run-discover-plan-${DateTime.now().microsecondsSinceEpoch}';
   final task = await harness.tasks.create(
     id: 'task-${DateTime.now().microsecondsSinceEpoch}',
     title: 'Discover',
     description: 'Discover',
-    type: TaskType.research,
     autoStart: true,
   );
   await harness.tasks.updateFields(task.id, sessionId: session.id, worktreeJson: {'path': projectRoot});
+  await harness.seedEnvelopeOutputs(task.id, payload, workflowRunId: runId);
   final taskWithSession = (await harness.tasks.get(task.id))!;
   final extractor = harness.contextExtractor();
   return extractor.extract(

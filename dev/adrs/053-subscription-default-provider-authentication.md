@@ -1,6 +1,6 @@
 # ADR-053: Subscription-Default Provider Authentication via Host-Mediated OAuth
 
-**Status:** Accepted – 2026-08-14 (0.24.2 correction; owner-ratified 2026-08-14)
+**Status:** Accepted – 2026-08-14 (0.24.2 correction; owner-ratified 2026-08-14). Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — this credential story is what makes container isolation the default posture rather than an opt-in.
 **Deciders:** DartClaw team (owner-ratified 2026-08-14)
 
 **Related:** [ADR-001](001-sdk-integration-and-security-architecture.md) (security architecture, original credential-proxy pattern), [ADR-015](015-container-isolation-strategy.md) (hardened `network:none` boundary), [ADR-051](051-container-bridge-binary-packaging.md) (host gateway bridge), [ADR-052](052-native-provider-web-tools-denied-all-container-profiles.md) (host gateway as the provider-traffic enforcement point), [ADR-037](037-universal-acp-harness.md) (**amended 2026-08-17**: ACP registrations are excluded from this credential model — no subscription token, no implicit `model_provider` mapping). Supersedes the 0.24 posture "containerized Claude supports API-key mediation only; OAuth/setup-token authentication remains host-only" (`dev/architecture/security-architecture.md` § Credential Security; 0.24-execution-isolation PRD, commit `fcc3a759`).

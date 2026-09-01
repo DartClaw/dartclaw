@@ -1,8 +1,7 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show CredentialExpiry, ProjectStatus, WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../task/task_status.dart';
 
-part 'advisor_events.dart';
 part 'agent_execution_events.dart';
 part 'runner_events.dart';
 part 'auth_events.dart';

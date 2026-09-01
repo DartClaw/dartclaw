@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/workflow/credential_preflight.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -61,11 +61,11 @@ void main() {
   });
 
   group('default model resolution', () {
-    test('codex preset defaults planner to Sol and executor/reviewer to Luna', () {
+    test('codex preset defaults planner, executor and reviewer to Luna', () {
       final fixture = E2EFixture(environment: const {});
       expect(fixture.provider, 'codex');
       expect(fixture.workflowModel, 'gpt-5.4');
-      expect(fixture.plannerModel, 'gpt-5.6-sol');
+      expect(fixture.plannerModel, 'gpt-5.6-luna');
       expect(fixture.executorModel, 'gpt-5.6-luna');
       expect(fixture.reviewerModel, 'gpt-5.6-luna');
       expect(fixture.sandbox, 'danger-full-access');
@@ -91,13 +91,18 @@ void main() {
       expect(fixture.executorModel, 'gpt-5.6-luna');
     });
 
+    test('turn-timeout env var overrides the default budget', () {
+      final fixture = E2EFixture(environment: const {'DARTCLAW_TEST_TURN_TIMEOUT': '42'});
+      expect(fixture.turnTimeout, 42);
+    });
+
     test('claude provider switches preset models, sandbox, and executable', () {
       final fixture = E2EFixture(environment: const {'DARTCLAW_TEST_PROVIDER': 'claude'});
       expect(fixture.provider, 'claude');
-      expect(fixture.workflowModel, 'claude-opus-4-7');
-      expect(fixture.plannerModel, 'claude-opus-4-7');
-      expect(fixture.executorModel, 'claude-sonnet-4-6');
-      expect(fixture.reviewerModel, 'claude-sonnet-4-6');
+      expect(fixture.workflowModel, 'claude-opus-5');
+      expect(fixture.plannerModel, 'claude-opus-5');
+      expect(fixture.executorModel, 'claude-sonnet-5');
+      expect(fixture.reviewerModel, 'claude-sonnet-5');
       expect(fixture.sandbox, 'dontAsk');
     });
 
@@ -106,7 +111,7 @@ void main() {
         environment: const {'DARTCLAW_TEST_PROVIDER': 'claude', 'DARTCLAW_TEST_EXECUTOR_MODEL': 'claude-haiku-4-5'},
       );
       expect(fixture.executorModel, 'claude-haiku-4-5');
-      expect(fixture.reviewerModel, 'claude-sonnet-4-6');
+      expect(fixture.reviewerModel, 'claude-sonnet-5');
     });
 
     test('claude preset materializes claude provider entry with permissionMode', () async {
@@ -124,22 +129,34 @@ void main() {
       expect(fixture.config.workflow.defaults.planner.effort, isNull);
     });
 
+    test('codex preset materializes harness approval and sandbox options', () async {
+      final fixture = await E2EFixture(projectCredentials: null, environment: const {}).build();
+      addTearDown(fixture.dispose);
+
+      final entry = fixture.config.providers.entries['codex'];
+      expect(entry, isNotNull);
+      expect(entry!.executable, 'codex');
+      expect(entry.options['approval'], 'never');
+      expect(entry.options['sandbox'], 'danger-full-access');
+      expect(entry.options.containsKey('permissionMode'), isFalse);
+    });
+
     test('withProvider realigns unspecified role models with the new provider preset', () {
-      final swapped = E2EFixture(environment: const {}).withProvider(value: 'claude', workflowModel: 'claude-opus-4-7');
+      final swapped = E2EFixture(environment: const {}).withProvider(value: 'claude', workflowModel: 'claude-opus-5');
       expect(swapped.provider, 'claude');
-      expect(swapped.workflowModel, 'claude-opus-4-7');
-      expect(swapped.plannerModel, 'claude-opus-4-7');
-      expect(swapped.executorModel, 'claude-sonnet-4-6');
-      expect(swapped.reviewerModel, 'claude-sonnet-4-6');
+      expect(swapped.workflowModel, 'claude-opus-5');
+      expect(swapped.plannerModel, 'claude-opus-5');
+      expect(swapped.executorModel, 'claude-sonnet-5');
+      expect(swapped.reviewerModel, 'claude-sonnet-5');
       expect(swapped.sandbox, 'dontAsk');
     });
 
     test('withProvider keeps explicit per-role overrides while realigning the rest', () {
       final swapped = E2EFixture(environment: const {})
-          .withProvider(value: 'claude', workflowModel: 'claude-opus-4-7', executorModel: 'claude-haiku-4-5');
+          .withProvider(value: 'claude', workflowModel: 'claude-opus-5', executorModel: 'claude-haiku-4-5');
       expect(swapped.executorModel, 'claude-haiku-4-5');
-      expect(swapped.plannerModel, 'claude-opus-4-7');
-      expect(swapped.reviewerModel, 'claude-sonnet-4-6');
+      expect(swapped.plannerModel, 'claude-opus-5');
+      expect(swapped.reviewerModel, 'claude-sonnet-5');
       expect(swapped.sandbox, 'dontAsk');
     });
 

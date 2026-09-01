@@ -1,15 +1,14 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../service/service_backend.dart';
-import '../service/setup_verifier.dart';
 import 'setup_apply.dart';
-import 'setup_preflight.dart';
+import 'setup_checks.dart';
 import 'setup_state.dart';
 
 typedef _SetupDefaults = ({
@@ -31,18 +30,9 @@ typedef _SetupDefaults = ({
   String? googleChatServiceAccount,
   String? googleChatAudienceType,
   String? googleChatAudience,
-  bool containerEnabled,
+  bool? containerEnabled,
   String? containerImage,
   bool contentGuardEnabled,
-  bool inputSanitizerEnabled,
-});
-
-typedef _PreflightRunner = Future<SetupPreflight> Function({
-  required List<String> providers,
-  required int port,
-  required String instanceDir,
-  bool workflowTrack,
-  Future<ProcessResult> Function(String, List<String>)? runProcess,
 });
 
 abstract class _InitImpl extends Command<void> {
@@ -50,30 +40,27 @@ abstract class _InitImpl extends Command<void> {
   String get description => 'Set up a DartClaw instance (config, workspace scaffold, onboarding)';
 
   final Logger _logger;
-  final _PreflightRunner _runPreflight;
+  final SetupChecks _setupChecks;
   final Future<List<String>> Function(SetupState) _applySetup;
   final void Function(String) _writeLine;
   final bool Function() _hasTerminal;
   final DartclawConfig? Function(String? configPath) _loadConfig;
-  final SetupVerifier _verifier;
   final ServiceBackend? _serviceBackend;
 
   new({
     Logger? logger,
-    _PreflightRunner? runPreflight,
+    SetupChecks? setupChecks,
     Future<List<String>> Function(SetupState)? applySetup,
     void Function(String)? writeLine,
     bool Function()? hasTerminal,
     DartclawConfig? Function(String? configPath)? loadConfig,
-    SetupVerifier? verifier,
     ServiceBackend? serviceBackend,
   }) : _logger = logger ?? Logger(),
-       _runPreflight = runPreflight ?? SetupPreflight.run,
+       _setupChecks = setupChecks ?? SetupChecks(),
        _applySetup = applySetup ?? SetupApply.apply,
        _writeLine = writeLine ?? stdout.writeln,
        _hasTerminal = hasTerminal ?? (() => stdout.hasTerminal),
        _loadConfig = loadConfig ?? _defaultLoadConfig,
-       _verifier = verifier ?? SetupVerifier(),
        _serviceBackend = serviceBackend {
     argParser
       ..addFlag('workflow', help: 'Configure a minimal standalone workflow setup', negatable: false)
@@ -160,8 +147,7 @@ abstract class _InitImpl extends Command<void> {
       ..addOption('google-chat-audience', help: 'Google Chat JWT audience value', valueHelp: 'value')
       ..addFlag('container', help: 'Enable Docker container isolation (Full track)')
       ..addOption('container-image', help: 'Docker image for isolated agent execution', valueHelp: 'image')
-      ..addFlag('no-content-guard', help: 'Disable content guard (Full track; not recommended)', negatable: false)
-      ..addFlag('no-input-sanitizer', help: 'Disable input sanitizer (Full track; not recommended)', negatable: false);
+      ..addFlag('no-content-guard', help: 'Disable content guard (Full track; not recommended)', negatable: false);
   }
 
   @override
@@ -202,7 +188,7 @@ abstract class _InitImpl extends Command<void> {
       _writeLine('');
     }
 
-    final preflight = await _runPreflight(
+    final preflight = await _setupChecks.preflight(
       providers: state.providers,
       port: state.port,
       instanceDir: state.instanceDir,
@@ -244,7 +230,7 @@ abstract class _InitImpl extends Command<void> {
 
     final configPath = state.configPath;
     final verifyProgress = isTerminal ? _logger.progress('Verifying configuration') : null;
-    final verification = await _verifier.verify(
+    final verification = await _setupChecks.verify(
       configPath: configPath,
       providerIds: state.providers,
       instanceDir: state.instanceDir,
@@ -408,10 +394,11 @@ abstract class _InitImpl extends Command<void> {
           configPath: configPath,
           port: state.port,
           instanceDir: state.instanceDir,
+          scope: ServiceScope.user,
           sourceDir: sourceDir,
         );
         if (installResult.success) {
-          final startResult = await backend.start(instanceDir: state.instanceDir);
+          final startResult = await backend.start(instanceDir: state.instanceDir, scope: ServiceScope.user);
           _writeLine(
             startResult.success
                 ? 'Service installed and started.'
@@ -528,7 +515,6 @@ abstract class _InitImpl extends Command<void> {
           'container',
           'container-image',
           'no-content-guard',
-          'no-input-sanitizer',
         ].any(argResults!.wasParsed);
 
     final gowaPortArg = argResults!['gowa-port'] as String?;
@@ -579,7 +565,6 @@ abstract class _InitImpl extends Command<void> {
           ? argResults!['container-image'] as String?
           : defaults.containerImage,
       contentGuardEnabled: argResults!.wasParsed('no-content-guard') ? false : defaults.contentGuardEnabled,
-      inputSanitizerEnabled: argResults!.wasParsed('no-input-sanitizer') ? false : defaults.inputSanitizerEnabled,
     );
   }
 
@@ -853,7 +838,9 @@ abstract class _InitImpl extends Command<void> {
 
     final containerEnabled = _logger.confirm(
       'Enable Docker container isolation?',
-      defaultValue: argResults!.wasParsed('container') ? argResults!['container'] as bool : defaults.containerEnabled,
+      defaultValue: argResults!.wasParsed('container')
+          ? argResults!['container'] as bool
+          : defaults.containerEnabled ?? true,
     );
     String? containerImage;
     if (containerEnabled) {
@@ -866,14 +853,8 @@ abstract class _InitImpl extends Command<void> {
     final contentGuardEnabled = !(argResults!['no-content-guard'] as bool)
         ? _logger.confirm('Enable content guard?', defaultValue: defaults.contentGuardEnabled)
         : false;
-    final inputSanitizerEnabled = !(argResults!['no-input-sanitizer'] as bool)
-        ? _logger.confirm('Enable input sanitizer?', defaultValue: defaults.inputSanitizerEnabled)
-        : false;
     if (!contentGuardEnabled) {
       _logger.warn('Content guard disabled — not recommended for channel deployments.');
-    }
-    if (!inputSanitizerEnabled) {
-      _logger.warn('Input sanitizer disabled — not recommended for channel deployments.');
     }
 
     _writeLine('');
@@ -904,7 +885,6 @@ abstract class _InitImpl extends Command<void> {
       containerEnabled: containerEnabled,
       containerImage: containerImage,
       contentGuardEnabled: contentGuardEnabled,
-      inputSanitizerEnabled: inputSanitizerEnabled,
     );
   }
 
@@ -997,10 +977,9 @@ abstract class _InitImpl extends Command<void> {
       googleChatServiceAccount: googleChat?['service_account'] as String?,
       googleChatAudienceType: googleChatAudience is Map ? googleChatAudience['type'] as String? : null,
       googleChatAudience: googleChatAudience is Map ? googleChatAudience['value'] as String? : null,
-      containerEnabled: existingConfig?.container.enabled ?? false,
+      containerEnabled: existingConfig?.container.declaredEnabled,
       containerImage: existingConfig?.container.image,
       contentGuardEnabled: existingConfig?.security.contentGuardEnabled ?? true,
-      inputSanitizerEnabled: existingConfig?.security.inputSanitizerEnabled ?? true,
     );
   }
 
@@ -1025,10 +1004,9 @@ abstract class _InitImpl extends Command<void> {
       googleChatServiceAccount: base.googleChatServiceAccount,
       googleChatAudienceType: base.googleChatAudienceType,
       googleChatAudience: base.googleChatAudience,
-      containerEnabled: false,
+      containerEnabled: null,
       containerImage: base.containerImage,
       contentGuardEnabled: base.contentGuardEnabled,
-      inputSanitizerEnabled: base.inputSanitizerEnabled,
     );
   }
 
@@ -1125,8 +1103,8 @@ abstract class _InitImpl extends Command<void> {
 
   String? _detectSourceDir() {
     final cwd = Directory.current.path;
-    if (Directory('$cwd/packages/dartclaw_server/lib/src/templates').existsSync() &&
-        Directory('$cwd/packages/dartclaw_server/lib/src/static').existsSync()) {
+    if (Directory('$cwd/packages/dartclaw_runtime/lib/src/templates').existsSync() &&
+        Directory('$cwd/packages/dartclaw_runtime/lib/src/static').existsSync()) {
       return cwd;
     }
     return null;
@@ -1139,12 +1117,11 @@ class InitCommand extends _InitImpl {
 
   new({
     super.logger,
-    super.runPreflight,
+    super.setupChecks,
     super.applySetup,
     super.writeLine,
     super.hasTerminal,
     super.loadConfig,
-    super.verifier,
     super.serviceBackend,
   });
 }
@@ -1155,12 +1132,11 @@ class SetupAliasCommand extends _InitImpl {
 
   new({
     super.logger,
-    super.runPreflight,
+    super.setupChecks,
     super.applySetup,
     super.writeLine,
     super.hasTerminal,
     super.loadConfig,
-    super.verifier,
     super.serviceBackend,
   });
 

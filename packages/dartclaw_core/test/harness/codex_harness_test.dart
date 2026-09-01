@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/src/bridge/bridge_events.dart';
+import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
-import 'package:dartclaw_core/src/harness/harness_config.dart';
+import 'package:dartclaw_core/src/harness/harness_launch_options.dart';
 import 'package:dartclaw_core/src/harness/process_types.dart';
-import 'package:dartclaw_security/dartclaw_security.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'harness_test_support.dart';
+
+part 'codex_provider_session_resume_cases.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -47,7 +49,7 @@ CodexHarness _buildHarness({
   CommandProbe? commandProbe,
   DelayFactory? delayFactory,
   Map<String, String>? environment,
-  HarnessConfig harnessConfig = const HarnessConfig(),
+  HarnessLaunchOptions harnessConfig = const HarnessLaunchOptions(),
   Map<String, dynamic>? providerOptions,
   GuardChain? guardChain,
   PlatformCapabilities? platformCapabilities,
@@ -79,7 +81,7 @@ CodexHarness _buildHarness({
 /// Builds a harness over a fresh fake process, starts it, and registers disposal.
 Future<({CodexHarness harness, FakeCodexProcess fake})> _startedHarness({
   FakeCodexProcess? process,
-  HarnessConfig harnessConfig = const HarnessConfig(),
+  HarnessLaunchOptions harnessConfig = const HarnessLaunchOptions(),
   Map<String, dynamic>? providerOptions,
   GuardChain? guardChain,
   Duration turnTimeout = const Duration(seconds: 600),
@@ -319,7 +321,7 @@ void main() {
         fake.emitTurnCompleted(inputTokens: 5, outputTokens: 10);
 
         final result = await turnFuture;
-        expect(result['stop_reason'], 'completed');
+        expect(result.stopReason, 'completed');
       });
 
       test('spawns with isolated CODEX_HOME env and cleans it up on stop', () async {
@@ -332,7 +334,7 @@ void main() {
             capturedEnvironment = environment == null ? null : Map<String, String>.from(environment);
             return fake;
           },
-          harnessConfig: const HarnessConfig(
+          harnessConfig: const HarnessLaunchOptions(
             appendSystemPrompt: 'follow the rules',
             mcpServerUrl: 'http://127.0.0.1:3333/mcp',
             mcpGatewayToken: 'test-token',
@@ -362,6 +364,8 @@ void main() {
     });
 
     group('turn()', () {
+      registerCodexProviderSessionResumeTests();
+
       test(
         'lazily creates a thread on first turn, streams events, auto-approves requests, and returns usage',
         () async {
@@ -399,13 +403,12 @@ void main() {
           final result = await turnFuture;
 
           expect(harness.state, WorkerState.idle);
-          expect(result['stop_reason'], 'completed');
-          expect(result.containsKey('total_cost_usd'), isFalse);
-          // input_tokens is normalized to fresh-only (12 raw - 7 cached = 5).
-          expect(result['input_tokens'], 5);
-          expect(result['output_tokens'], 34);
-          expect(result['cache_read_tokens'], 7);
-          expect(result['duration_ms'], isA<int>());
+          expect(result.stopReason, 'completed');
+          expect(result.costUsd, isNull);
+          // inputTokens is normalized to fresh-only (12 raw - 7 cached = 5).
+          expect(result.inputTokens, 5);
+          expect(result.outputTokens, 34);
+          expect(result.cacheReadTokens, 7);
           expect(events.length, 6);
           expect(events[0], isA<DeltaEvent>());
           expect(
@@ -509,7 +512,7 @@ void main() {
 
       test('scoped instructions create and replace only the session thread', () async {
         final (:harness, :fake) = await _startedHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: 'DEFAULT'),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: 'DEFAULT'),
         );
 
         final logicalAgentTurn = harness.turn(
@@ -550,7 +553,7 @@ void main() {
 
       test('primary memory revision replaces only its stale thread with full developer instructions', () async {
         final (:harness, :fake) = await _startedHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: 'SAFE STATIC CONTENT'),
+          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: 'SAFE STATIC CONTENT'),
         );
 
         Future<void> completeTurn(String sessionId, String prompt, String threadId) async {
@@ -591,7 +594,9 @@ void main() {
 
       test('explicit non-primary instructions displace configured primary memory', () async {
         final (:harness, :fake) = await _startedHarness(
-          harnessConfig: const HarnessConfig(appendSystemPrompt: 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42'),
+          harnessConfig: const HarnessLaunchOptions(
+            appendSystemPrompt: 'PRIVATE MEMORY SENTINEL\n\nCollection revision: 42',
+          ),
         );
 
         final turn = harness.turn(
@@ -743,7 +748,7 @@ void main() {
 
       test('falls back to harnessConfig.model when per-turn model is null', () async {
         final (:harness, :fake) = await _startedHarness(
-          harnessConfig: const HarnessConfig(model: 'gpt-5-default'),
+          harnessConfig: const HarnessLaunchOptions(model: 'gpt-5-default'),
           providerOptions: const {'sandbox': 'workspace-write', 'approval': 'on-request'},
         );
 
@@ -788,11 +793,16 @@ void main() {
 
         final result = await resultFuture;
 
-        expect(result['stop_reason'], 'error');
-        expect(result['error'], 'boom');
-        expect(result['duration_ms'], isA<int>());
-        expect(result['duration_ms'], greaterThanOrEqualTo(0));
-        expect(result.containsKey('total_cost_usd'), isFalse);
+        expect(result.isError, isTrue);
+        expect(result.error, 'boom');
+        expect(result.costUsd, isNull);
+        // Codex reports no usage with a failure, so the error arm carries zeroes.
+        expect([
+          result.inputTokens,
+          result.outputTokens,
+          result.cacheReadTokens,
+          result.cacheWriteTokens,
+        ], everyElement(0));
       });
 
       test('failed completed turn preserves detail and does not poison the next turn', () async {
@@ -815,7 +825,7 @@ void main() {
             },
           },
         });
-        expect(await failedTurn, containsPair('error', 'authentication required'));
+        expect((await failedTurn).error, 'authentication required');
         expect(harness.state, WorkerState.idle);
 
         final incompatibleTurn = harness.turn(
@@ -827,7 +837,7 @@ void main() {
         );
         await pumpEventLoop();
         fake.emitTurnFailed('unsupported app-server protocol version');
-        expect(await incompatibleTurn, containsPair('error', 'unsupported app-server protocol version'));
+        expect((await incompatibleTurn).error, 'unsupported app-server protocol version');
 
         final nextTurn = harness.turn(
           sessionId: 'sess-auth',
@@ -838,7 +848,7 @@ void main() {
         );
         await pumpEventLoop();
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
-        expect(await nextTurn, containsPair('stop_reason', 'completed'));
+        expect((await nextTurn).stopReason, 'completed');
       });
 
       test('rejects a concurrent first turn while lazy thread creation is in progress', () async {
@@ -1172,7 +1182,7 @@ void main() {
         );
         await respondToLatestThreadStart(fake);
         fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
-        expect(await turn, containsPair('stop_reason', 'completed'));
+        expect((await turn).stopReason, 'completed');
         expect(harness.state, WorkerState.idle);
       });
     });

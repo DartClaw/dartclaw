@@ -114,7 +114,7 @@ fi
 section "4. Embedded assets"
 if {
   dart run dev/tools/embed_assets.dart
-  test -s packages/dartclaw_server/lib/src/generated/embedded_assets.g.dart
+  test -s packages/dartclaw_runtime/lib/src/generated/embedded_assets.g.dart
   test -s packages/dartclaw_workflow/lib/src/generated/embedded_assets.g.dart
 } > /tmp/release_check_assets.log 2>&1; then
   pass "embedded assets generated"
@@ -188,7 +188,7 @@ Manual gates still required before tagging:
     Claude/Codex parity inside the shipped image — are proven here or nowhere.
     Run on Linux Docker *and* on Docker Desktop/OrbStack and record both results
     (engine, host OS, date, pass counts) in the release PR:
-        (cd packages/dartclaw_server && dart test --run-skipped -t integration \
+        (cd packages/dartclaw_runtime && dart test --run-skipped -t integration \
           test/integration/container_provider_parity_integration_test.dart \
           test/integration/mediated_provider_turn_integration_test.dart \
           test/integration/mediated_codex_turn_integration_test.dart \
@@ -217,7 +217,7 @@ Manual gates still required before tagging:
                    acceptance: store or renew the token (claude setup-token,
                    then dartclaw auth claude) and re-run.
     Record the outcome in the release PR:
-        (cd packages/dartclaw_server && dart test --run-skipped -t integration \
+        (cd packages/dartclaw_runtime && dart test --run-skipped -t integration \
           test/integration/anthropic_setup_token_bearer_wire_check_test.dart)
   - UI smoke test:       bash dev/testing/profiles/plain/run.sh
                          (requires a running dev server)

@@ -2,21 +2,26 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_cancel_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_pause_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_resume_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_retry_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteWorkflowRunRepository, openTaskDb, openTaskDbInMemory;
-import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show FakeAgentHarness, FakeProviderAuthPreflight, FakeSkillIntrospector;
+import 'package:dartclaw_core/dartclaw_core.dart' show openSearchDb, openTaskDb, openTaskDbInMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep, WorkflowTaskType, skillProvisionerMarkerFile;
+    show
+        SqliteWorkflowRunRepository,
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowStep,
+        WorkflowTaskType,
+        skillProvisionerMarkerFile;
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -469,15 +474,19 @@ Future<WorkflowRun?> runOf(DartclawConfig config, String runId) async {
 }
 
 Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition definition) async {
-  final wiring = CliWorkflowWiring(
-    config: config,
+  final staging = await DartclawRuntime.stageHeadless(
+    config,
     dataDir: config.server.dataDir,
     harnessFactory: fakeHarness(),
+    searchDbFactory: openSearchDb,
+    taskDbFactory: openTaskDb,
+    stderrLine: (_) {},
+    exitFn: (code) => throw StateError('Unexpected exit($code) while seeding an approval-paused run'),
     runWorkflowSkillsBootstrap: false,
     providerAuthPreflight: FakeProviderAuthPreflight(),
     skillIntrospector: FakeSkillIntrospector(const {}),
   );
-  await wiring.wire();
+  final wiring = await staging.completeForExecution({config.agent.provider});
   try {
     // Event-driven settle (no real-time polling): subscribe before start so the
     // approval-pause transition can't be missed.
@@ -493,7 +502,7 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
     await sub.cancel();
     return run.id;
   } finally {
-    await wiring.dispose();
+    await wiring.shutdown();
   }
 }
 

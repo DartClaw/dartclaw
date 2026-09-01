@@ -7,9 +7,8 @@ import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ProviderValidator;
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepCompletedEvent;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveConfig,
@@ -20,15 +19,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowStep,
         WorkflowVariable;
-import 'package:dartclaw_server/dartclaw_server.dart' show LogService;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, LogService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        EventBus,
-        MergeResolveAttemptArtifact,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowRunStatus,
-        WorkflowRunStatusChangedEvent;
+    show EventBus, MergeResolveAttemptArtifact, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -116,7 +109,6 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
         name: 'Story foreach',
         taskType: WorkflowTaskType.foreach,
         mapOver: 'stories',
-        mapAlias: 'story',
         maxParallel: 2,
         foreachSteps: ['apply-story'],
       ),
@@ -214,14 +206,14 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       .withLoggingLevel('FINE')
       .build();
 
-  CliWorkflowWiring? wiring;
+  DartclawRuntime? runtime;
   final diagnosticSubs = <StreamSubscription<Object>>[];
   String? runId;
   var lastStepId = '<none>';
   try {
-    wiring = await _wireUp(fixture);
+    runtime = await _wireUp(fixture);
     diagnosticSubs.add(
-      wiring.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
+      runtime.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
         lastStepId = event.stepId;
         log.info(
           'Step completed: ${event.stepId} '
@@ -230,22 +222,22 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       }),
     );
     diagnosticSubs.add(
-      wiring.eventBus.on<TaskStatusChangedEvent>().listen((event) {
+      runtime.eventBus.on<TaskStatusChangedEvent>().listen((event) {
         log.info('Task ${event.taskId}: ${event.oldStatus} -> ${event.newStatus}');
       }),
     );
 
-    final run = await wiring.workflowService.start(definition, const {
+    final run = await runtime.workflowService.start(definition, const {
       'PROJECT': _projectId,
       'BRANCH': 'main',
     }, projectId: _projectId);
     runId = run.id;
-    final completionFuture = _awaitWorkflowCompletion(wiring.eventBus, run.id);
+    final completionFuture = _awaitWorkflowCompletion(runtime.eventBus, run.id);
 
     final terminalStatus = await completionFuture.timeout(
       _testTimeout,
       onTimeout: () async {
-        await wiring?.workflowService.cancel(run.id);
+        await runtime?.workflowService.cancel(run.id);
         fail(
           'Workflow timed out after ${_testTimeout.inMinutes} minutes; '
           'runId=${run.id}; last step ID=$lastStepId; preserved artifacts=${artifactDir.path}',
@@ -253,9 +245,9 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       },
     );
 
-    final refreshedRun = await wiring.workflowService.get(run.id);
+    final refreshedRun = await runtime.workflowService.get(run.id);
     if (terminalStatus != WorkflowRunStatus.completed) {
-      final failureDetails = await _workflowFailureDetails(wiring, run.id, refreshedRun?.errorMessage);
+      final failureDetails = await _workflowFailureDetails(runtime, run.id, refreshedRun?.errorMessage);
       throw _RunFailure('workflow terminal status was $terminalStatus; $failureDetails', original: failureDetails);
     }
     expect(terminalStatus, equals(WorkflowRunStatus.completed));
@@ -274,7 +266,7 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
     expect(stateMdContent, contains(_storyOneMarker));
     expect(stateMdContent, contains(_storyTwoMarker));
 
-    final tasks = (await wiring.taskService.list()).where((task) => task.workflowRunId == run.id).toList();
+    final tasks = (await runtime.taskService.list()).where((task) => task.workflowRunId == run.id).toList();
     final mergeResolveTask = _singleMergeResolveTask(tasks);
     final conflictIndex = mergeResolveTask.workflowStepExecution?.mapIterationIndex;
     expect(conflictIndex, isNotNull, reason: 'merge-resolve task must carry the conflicted iteration index');
@@ -286,7 +278,7 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
     );
     expect(mergeResolveTask.worktreeJson?['path'], equals(storyTask.worktreeJson?['path']));
 
-    final artifacts = await _readMergeResolveArtifacts(wiring, storyTask);
+    final artifacts = await _readMergeResolveArtifacts(runtime, storyTask);
     final resolvedArtifacts = artifacts
         .where((artifact) => artifact.value.outcome == 'resolved')
         .toList(growable: false);
@@ -315,26 +307,28 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
     for (final sub in diagnosticSubs) {
       await sub.cancel();
     }
-    if (wiring != null) {
-      await wiring.dispose();
+    if (runtime != null) {
+      await runtime.shutdown();
     }
     await fixture.dispose();
   }
 }
 
-Future<CliWorkflowWiring> _wireUp(E2EFixtureInstance fixture) async {
-  final wiring = CliWorkflowWiring(
-    config: fixture.config,
+Future<DartclawRuntime> _wireUp(E2EFixtureInstance fixture) async {
+  final staging = await DartclawRuntime.stageHeadless(
+    fixture.config,
     dataDir: fixture.config.server.dataDir,
+    harnessFactory: HarnessFactory(),
     searchDbFactory: (_) => sqlite3.openInMemory(),
     taskDbFactory: (_) => sqlite3.openInMemory(),
+    stderrLine: (_) {},
+    exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
   );
-  await wiring.wire();
-  return wiring;
+  return staging.completeForExecution({fixture.config.agent.provider});
 }
 
-Future<String> _workflowFailureDetails(CliWorkflowWiring wiring, String runId, String? runError) async {
-  final tasks = (await wiring.taskService.list()).where((task) => task.workflowRunId == runId).toList();
+Future<String> _workflowFailureDetails(DartclawRuntime runtime, String runId, String? runError) async {
+  final tasks = (await runtime.taskService.list()).where((task) => task.workflowRunId == runId).toList();
   final failedTasks = tasks
       .where((task) => task.status.name == 'failed')
       .map((task) {
@@ -360,7 +354,6 @@ void _assertDefinitionContract(WorkflowDefinition definition) {
   expect(seed.outputKeys, contains('stories'));
   expect(foreach.taskType, equals(WorkflowTaskType.foreach));
   expect(foreach.mapOver, equals('stories'));
-  expect(foreach.mapAlias, equals('story'));
 }
 
 Task _singleMergeResolveTask(List<Task> tasks) {
@@ -381,8 +374,8 @@ Task _storyTaskForIteration(List<Task> tasks, int iterationIndex) {
   return matches.single;
 }
 
-Future<List<_ArtifactEvidence>> _readMergeResolveArtifacts(CliWorkflowWiring wiring, Task storyTask) async {
-  final records = await wiring.taskService.listArtifacts(storyTask.id);
+Future<List<_ArtifactEvidence>> _readMergeResolveArtifacts(DartclawRuntime runtime, Task storyTask) async {
+  final records = await runtime.taskService.listArtifacts(storyTask.id);
   final artifacts = <_ArtifactEvidence>[];
   for (final record in records.where((artifact) => artifact.name.startsWith('merge_resolve_iter_'))) {
     final file = File(record.path);

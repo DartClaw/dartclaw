@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_server/dartclaw_server.dart' show dartclawVersion;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

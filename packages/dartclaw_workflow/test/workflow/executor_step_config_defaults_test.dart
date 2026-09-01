@@ -3,6 +3,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -15,9 +17,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowStep,
-        WorkflowTaskConfig;
+        WorkflowTaskConfig,
+        WorkflowTaskType;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -157,7 +159,7 @@ void main() {
         steps: const [
           WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p']),
         ],
-        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 900)],
+        stepDefaults: const [StepConfigDefault(match: 'implement', turnTimeoutSeconds: 900)],
       );
 
       final run = makeDefaultsRun(definition);
@@ -166,17 +168,24 @@ void main() {
       final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
           .single;
 
-      expect(task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds], 900);
+      expect(task.configJson[WorkflowTaskConfig.workflowTurnTimeoutSeconds], 900);
     });
 
-    test('mapOver iterations inherit timeout from matching stepDefaults', () async {
+    test('foreach child iterations inherit timeout from matching stepDefaults', () async {
       final definition = WorkflowDefinition(
         name: 'wf',
         description: 'desc',
         steps: const [
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p {{map.item}}'], mapOver: 'items'),
+          WorkflowStep(
+            id: 'story-pipeline',
+            name: 'Story Pipeline',
+            taskType: WorkflowTaskType.foreach,
+            mapOver: 'items',
+            foreachSteps: ['implement'],
+          ),
+          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p {{map.item}}']),
         ],
-        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 900)],
+        stepDefaults: const [StepConfigDefault(match: 'implement', turnTimeoutSeconds: 900)],
       );
 
       final run = makeDefaultsRun(definition);
@@ -190,41 +199,10 @@ void main() {
       final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, context))).single;
 
       expect(
-        task.configJson[WorkflowTaskConfig.workflowTimeoutSeconds],
+        task.configJson[WorkflowTaskConfig.workflowTurnTimeoutSeconds],
         900,
         reason: 'mapOver child tasks must use the same resolved timeout defaults as single-step dispatch',
       );
-    });
-
-    test('mapOver iteration wait timeout uses matching stepDefaults', () async {
-      final definition = WorkflowDefinition(
-        name: 'wf',
-        description: 'desc',
-        steps: const [
-          WorkflowStep(id: 'implement', name: 'Implement', prompts: ['p {{map.item}}'], mapOver: 'items'),
-        ],
-        stepDefaults: const [StepConfigDefault(match: 'implement', timeoutSeconds: 1)],
-      );
-
-      final run = makeDefaultsRun(definition);
-      await h.repository.insert(run);
-      final context = WorkflowContext(
-        data: const {
-          'items': ['a'],
-        },
-      );
-
-      final taskIds = <String>[];
-      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) {
-        taskIds.add(e.taskId);
-      });
-
-      await h.executor.execute(run, definition, context).timeout(const Duration(seconds: 10));
-      await sub.cancel();
-
-      expect(taskIds, hasLength(1));
-      final finalRun = await h.repository.getById('run-s03');
-      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
     test('no stepDefaults on definition: existing behavior unchanged', () async {
@@ -297,27 +275,6 @@ void main() {
         expect(leakedWorkflowKeys, isEmpty, reason: 'Task.configJson must not carry _workflow* keys');
       },
     );
-  });
-
-  group('step timeout', () {
-    test('step timeout pauses workflow', () async {
-      const timeoutSeconds = 1;
-      final definition = h.makeDefinition(
-        steps: [
-          const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1'], timeoutSeconds: timeoutSeconds),
-        ],
-      );
-
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-
-      // Do NOT complete the task — let it time out.
-      await h.executor.execute(run, definition, WorkflowContext());
-
-      final finalRun = await h.repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-      expect(finalRun?.errorMessage, contains('timed out'));
-    }, timeout: const Timeout(Duration(seconds: 10)));
   });
 
   group('budget warning', () {

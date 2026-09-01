@@ -17,10 +17,11 @@
 @Tags(['component'])
 library;
 
-import 'package:dartclaw_cli/src/commands/workflow/workflow_git_support.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
+
+import 'workflow_git_test_support.dart';
 
 void main() {
   group('parallel story promotion — disjoint file sets', () {

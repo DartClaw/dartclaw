@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -11,6 +13,9 @@ typedef FakeReserveTurnCallback = Future<String> Function(
   String? systemPromptOverride,
   ExecutionPolicy? workerPolicy,
   int? maxTurns,
+  Map<String, dynamic>? outputSchema,
+  String? providerSessionId,
+  bool requestProviderSessionResume,
   String? taskId,
   bool isHumanInput,
   PromptScope? promptScope,
@@ -35,6 +40,9 @@ typedef FakeStartTurnCallback = Future<String> Function(
   String? effort,
   String? systemPromptOverride,
   int? maxTurns,
+  Map<String, dynamic>? outputSchema,
+  String? providerSessionId,
+  bool requestProviderSessionResume,
   String? taskId,
   bool isHumanInput,
   List<String>? allowedTools,
@@ -59,11 +67,15 @@ typedef RecordedReserveTurn = ({
   String? systemPromptOverride,
   ExecutionPolicy? workerPolicy,
   int? maxTurns,
+  Map<String, dynamic>? outputSchema,
+  String? providerSessionId,
+  bool requestProviderSessionResume,
   String? taskId,
   bool isHumanInput,
   PromptScope? promptScope,
   List<String>? allowedTools,
   bool readOnly,
+  Duration? turnTimeout,
 });
 
 typedef RecordedExecuteTurn = ({
@@ -72,7 +84,6 @@ typedef RecordedExecuteTurn = ({
   List<Map<String, dynamic>> messages,
   String? source,
   String agentName,
-  bool resume,
 });
 
 typedef RecordedStartTurn = ({
@@ -84,11 +95,15 @@ typedef RecordedStartTurn = ({
   String? effort,
   String? systemPromptOverride,
   int? maxTurns,
+  Map<String, dynamic>? outputSchema,
+  String? providerSessionId,
+  bool requestProviderSessionResume,
   String? taskId,
   bool isHumanInput,
   List<String>? allowedTools,
   bool readOnly,
   PromptScope? promptScope,
+  Duration? turnTimeout,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
@@ -220,11 +235,15 @@ class FakeTurnManager implements TurnManager {
     String? systemPromptOverride,
     ExecutionPolicy? workerPolicy,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? taskId,
     bool isHumanInput = false,
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    Duration? turnTimeout,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -236,11 +255,15 @@ class FakeTurnManager implements TurnManager {
       systemPromptOverride: systemPromptOverride,
       workerPolicy: workerPolicy,
       maxTurns: maxTurns,
+      outputSchema: outputSchema,
+      providerSessionId: providerSessionId,
+      requestProviderSessionResume: requestProviderSessionResume,
       taskId: taskId,
       isHumanInput: isHumanInput,
       promptScope: promptScope,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
       readOnly: readOnly,
+      turnTimeout: turnTimeout,
     ));
     final callback = onReserveTurn;
     if (callback != null) {
@@ -253,6 +276,9 @@ class FakeTurnManager implements TurnManager {
         systemPromptOverride: systemPromptOverride,
         workerPolicy: workerPolicy,
         maxTurns: maxTurns,
+        outputSchema: outputSchema,
+        providerSessionId: providerSessionId,
+        requestProviderSessionResume: requestProviderSessionResume,
         taskId: taskId,
         isHumanInput: isHumanInput,
         promptScope: promptScope,
@@ -278,7 +304,6 @@ class FakeTurnManager implements TurnManager {
     List<Map<String, dynamic>> messages, {
     String? source,
     String agentName = 'main',
-    bool resume = false,
   }) {
     executeTurnCallCount += 1;
     executedTurns.add((
@@ -287,7 +312,6 @@ class FakeTurnManager implements TurnManager {
       messages: _cloneMessages(messages),
       source: source,
       agentName: agentName,
-      resume: resume,
     ));
     final callback = onExecuteTurn;
     if (callback != null) {
@@ -320,11 +344,15 @@ class FakeTurnManager implements TurnManager {
     String? effort,
     String? systemPromptOverride,
     int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? taskId,
     bool isHumanInput = false,
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    Duration? turnTimeout,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -336,11 +364,15 @@ class FakeTurnManager implements TurnManager {
       effort: effort,
       systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
+      outputSchema: outputSchema,
+      providerSessionId: providerSessionId,
+      requestProviderSessionResume: requestProviderSessionResume,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools == null ? null : List.unmodifiable(allowedTools),
       readOnly: readOnly,
       promptScope: promptScope,
+      turnTimeout: turnTimeout,
     ));
     final callback = onStartTurn;
     if (callback != null) {
@@ -353,6 +385,9 @@ class FakeTurnManager implements TurnManager {
         effort: effort,
         systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
+        outputSchema: outputSchema,
+        providerSessionId: providerSessionId,
+        requestProviderSessionResume: requestProviderSessionResume,
         taskId: taskId,
         isHumanInput: isHumanInput,
         allowedTools: allowedTools,
@@ -369,11 +404,15 @@ class FakeTurnManager implements TurnManager {
       effort: effort,
       systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
+      outputSchema: outputSchema,
+      providerSessionId: providerSessionId,
+      requestProviderSessionResume: requestProviderSessionResume,
       taskId: taskId,
       isHumanInput: isHumanInput,
       allowedTools: allowedTools,
       readOnly: readOnly,
       promptScope: promptScope,
+      turnTimeout: turnTimeout,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;

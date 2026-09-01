@@ -19,13 +19,6 @@ void main() {
   final snap = _snap();
 
   group('ToolStartedProgressEvent', () {
-    test('constructs with required fields', () {
-      final e = ToolStartedProgressEvent(snapshot: snap, toolName: 'bash', toolCallCount: 3);
-      expect(e.toolName, 'bash');
-      expect(e.toolCallCount, 3);
-      expect(e.snapshot, same(snap));
-    });
-
     test('equality and hashCode', () {
       final a = ToolStartedProgressEvent(snapshot: snap, toolName: 'bash', toolCallCount: 1);
       final b = ToolStartedProgressEvent(snapshot: _snap(), toolName: 'bash', toolCallCount: 1);
@@ -38,13 +31,6 @@ void main() {
   });
 
   group('ToolCompletedProgressEvent', () {
-    test('constructs with required fields', () {
-      final e = ToolCompletedProgressEvent(snapshot: snap, toolName: 'bash', isError: true);
-      expect(e.toolName, 'bash');
-      expect(e.isError, isTrue);
-      expect(e.snapshot, same(snap));
-    });
-
     test('equality and hashCode', () {
       final a = ToolCompletedProgressEvent(snapshot: snap, toolName: 'bash', isError: false);
       final b = ToolCompletedProgressEvent(snapshot: _snap(), toolName: 'bash', isError: false);
@@ -57,12 +43,6 @@ void main() {
   });
 
   group('TextDeltaProgressEvent', () {
-    test('constructs with required fields', () {
-      final e = TextDeltaProgressEvent(snapshot: snap, text: 'hello');
-      expect(e.text, 'hello');
-      expect(e.snapshot, same(snap));
-    });
-
     test('equality and hashCode', () {
       final a = TextDeltaProgressEvent(snapshot: snap, text: 'abc');
       final b = TextDeltaProgressEvent(snapshot: _snap(), text: 'abc');
@@ -82,13 +62,6 @@ void main() {
   });
 
   group('ProviderProgressEvent', () {
-    test('constructs with provider progress fields', () {
-      final e = ProviderProgressEvent(snapshot: snap, kind: 'tool_call_update', text: 'Read config');
-      expect(e.kind, 'tool_call_update');
-      expect(e.text, 'Read config');
-      expect(e.snapshot, same(snap));
-    });
-
     test('equality and hashCode', () {
       final a = ProviderProgressEvent(snapshot: snap, kind: 'tool_call_update', text: 'Read config');
       final b = ProviderProgressEvent(snapshot: _snap(), kind: 'tool_call_update', text: 'Read config');
@@ -101,13 +74,6 @@ void main() {
   });
 
   group('TurnStallProgressEvent', () {
-    test('constructs with required fields', () {
-      final e = TurnStallProgressEvent(snapshot: snap, stallTimeout: const Duration(seconds: 30), action: 'warn');
-      expect(e.stallTimeout, const Duration(seconds: 30));
-      expect(e.action, 'warn');
-      expect(e.snapshot, same(snap));
-    });
-
     test('equality and hashCode', () {
       final a = TurnStallProgressEvent(snapshot: snap, stallTimeout: const Duration(seconds: 30), action: 'warn');
       final b = TurnStallProgressEvent(snapshot: _snap(), stallTimeout: const Duration(seconds: 30), action: 'warn');

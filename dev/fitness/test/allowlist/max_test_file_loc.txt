@@ -1,0 +1,21 @@
+# Allowlist for max_test_file_loc_test.dart
+# Format: <relative-path-from-repo-root>  # <LOC>; <shrink-target>
+# Rationale is mandatory - name the current LOC and how the file will shrink.
+#
+# The leading integer is a RATCHET baseline: the check fails if the file grows
+# past it. Shrink freely and refresh the number downward; growing past it (or
+# above the ceiling for a new file) is what the check catches. Entries pointing
+# at a missing file, or at a file that has dropped back under the ceiling, also
+# fail - remove them. LOC values refreshed to measured current on 2026-08-12;
+# four entries removed (dropped under the ceiling): task_routes_test.dart,
+# server_builder_integration_test.dart, cli_workflow_wiring_test.dart,
+# serialize_remaining_escalation_test.dart.
+
+packages/dartclaw_workflow/test/workflow/foreach_iteration_runner_test.dart  # 2583 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_workflow/test/workflow/workflow_service_test.dart  # 2198 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_runtime/test/turn_runner_test.dart  # 2294 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_runtime/test/api/session_routes_test.dart  # 2037 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_core/test/harness/claude_code_harness_test.dart  # 2070 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_workflow/test/workflow/workflow_definition_parser_test.dart  # 1908 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_workflow/test/workflow/executor_sequential_test.dart  # 1554 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_runtime/test/api/config_api_routes_test.dart  # 1484 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md

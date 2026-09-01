@@ -1,6 +1,8 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelMessage, ChannelType;
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelMessage;
 import 'package:logging/logging.dart';
 
 import 'google_chat_utils.dart' as utils;

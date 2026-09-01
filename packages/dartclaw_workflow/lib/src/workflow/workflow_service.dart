@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart'
-    show PlatformCapabilities, WorkflowApprovalPolicy, WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
@@ -83,7 +82,6 @@ class WorkflowService {
   final Uuid _uuid;
   final WorkflowRoleDefaults _roleDefaults;
   final WorkflowApprovalPolicy _approvalPolicyDefault;
-  final WorkflowStepOutputTransformer? _outputTransformer;
   final StructuredOutputFallbackRecorder? _structuredOutputFallbackRecorder;
   final SkillIntrospector? _skillIntrospector;
   final ProviderAuthPreflight? _providerAuthPreflight;
@@ -188,7 +186,6 @@ class WorkflowService {
        _dataDir = dataDir,
        _roleDefaults = options.roleDefaults,
        _approvalPolicyDefault = options.approvalPolicyDefault,
-       _outputTransformer = options.outputTransformer,
        _structuredOutputFallbackRecorder = options.structuredOutputFallbackRecorder,
        _skillIntrospector = options.skillIntrospector,
        _providerAuthPreflight = options.providerAuthPreflight,
@@ -693,12 +690,6 @@ class WorkflowService {
           "loop '${cursor.nodeId}' at iteration ${cursor.iteration ?? 1}"
           "${cursor.stepId != null ? ', step ${cursor.stepId}' : ''}",
         );
-      case WorkflowExecutionCursorNodeType.map:
-        _log.info(
-          "$action workflow '${run.definitionName}' (${run.id}): "
-          "map step '${cursor.nodeId}' with ${cursor.completedIndices.length}/"
-          '${cursor.totalItems ?? cursor.resultSlots.length} settled iteration(s)',
-        );
       case WorkflowExecutionCursorNodeType.foreach:
         _log.info(
           "$action workflow '${run.definitionName}' (${run.id}): "
@@ -727,12 +718,10 @@ class WorkflowService {
           messageService: _messageService,
           dataDir: _dataDir,
           workflowStepExecutionRepository: _persistencePorts?.workflowStepExecutionRepository,
-          workflowGitPort: _gitContext?.gitPort,
           structuredOutputFallbackRecorder: _structuredOutputFallbackRecorder,
         ),
         turnAdapter: _turnAdapter,
         workflowGitPort: _gitContext?.gitPort,
-        outputTransformer: _outputTransformer,
         skillIntrospector: _skillIntrospector,
         providerAuthPreflight: _providerAuthPreflight,
         skillPreflightConfig: _skillPreflightConfig,

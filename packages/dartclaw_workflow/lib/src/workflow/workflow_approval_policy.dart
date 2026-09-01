@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowApprovalPolicy;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'workflow_run.dart' show WorkflowRun;
 

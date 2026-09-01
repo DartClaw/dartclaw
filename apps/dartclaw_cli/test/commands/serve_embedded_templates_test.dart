@@ -1,10 +1,12 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/serve_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
-import 'package:dartclaw_server/dartclaw_server.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -34,6 +36,7 @@ void main() {
       });
 
       final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         server: ServerConfig(
           dataDir: tempDir.path,
@@ -47,7 +50,7 @@ void main() {
         config: config,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
-        serverFactory: (builder) => builder.build(),
+        serverFactory: (server) => server,
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
         stderrLine: stderrLines.add,
         exitFn: (code) => throw _ExitIntercept(code),

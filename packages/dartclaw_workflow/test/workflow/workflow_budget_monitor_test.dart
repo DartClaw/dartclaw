@@ -2,11 +2,12 @@
 // single-warning dedup, edge thresholds, and token accounting.
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, WorkflowBudgetWarningEvent;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowStep;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_budget_monitor.dart'
     show checkWorkflowBudgetWarning, workflowBudgetExceeded;
 import 'package:test/test.dart';

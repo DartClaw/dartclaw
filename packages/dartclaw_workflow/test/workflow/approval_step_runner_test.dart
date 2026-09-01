@@ -4,26 +4,12 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
-
 import 'package:fake_async/fake_async.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SessionType;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        OnFailurePolicy,
-        SessionService,
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowApprovalRequestedEvent,
-        WorkflowApprovalResolvedEvent,
-        WorkflowContext,
-        WorkflowDefinition,
-        WorkflowGitStrategy,
-        WorkflowRun,
-        WorkflowRunStatus,
-        WorkflowStep;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
     show ApprovalStepDependencies, executeApprovalStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
@@ -64,13 +50,7 @@ void main() {
         if (task == null) return;
         final session = await sessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content:
-              'Blocked pending human decision.\n'
-              '<step-outcome>{"outcome":"needsInput","reason":"ambiguous requirements"}</step-outcome>',
-        );
+        await h.seedStepOutcome(task.id, outcome: 'needsInput', reason: 'ambiguous requirements');
         await h.completeTask(e.taskId);
       });
 
@@ -117,11 +97,7 @@ void main() {
         if (task == null) return;
         final session = await sessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"failed","reason":"guarded"}</step-outcome>',
-        );
+        await h.seedStepOutcome(task.id, outcome: 'failed', reason: 'guarded');
         await h.completeTask(e.taskId);
       });
 
@@ -162,13 +138,7 @@ void main() {
         if (task == null) return;
         final session = await sessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content:
-              'Blocked pending human decision.\n'
-              '<step-outcome>{"outcome":"needsInput","reason":"all findings were notes"}</step-outcome>',
-        );
+        await h.seedStepOutcome(task.id, outcome: 'needsInput', reason: 'all findings were notes');
         await h.completeTask(e.taskId);
       });
 
@@ -213,11 +183,7 @@ void main() {
         if (task == null) return;
         final session = await sessionService.createSession(type: SessionType.task);
         await h.taskService.updateFields(task.id, sessionId: session.id);
-        await h.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content: '<step-outcome>{"outcome":"failed","reason":"tool crashed"}</step-outcome>',
-        );
+        await h.seedStepOutcome(task.id, outcome: 'failed', reason: 'tool crashed');
         await h.completeTask(e.taskId);
       });
 

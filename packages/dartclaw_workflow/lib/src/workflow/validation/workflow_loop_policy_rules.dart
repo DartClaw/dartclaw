@@ -5,7 +5,7 @@ extension _WorkflowLoopPolicyRules on WorkflowDefinitionValidator {
   ///
   /// `continue` is a top-level loop policy; `escalate` is its foreach-nested
   /// counterpart for remediation loops that should pause for review.
-  void _validateLoopMaxIterationsPolicy(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateLoopMaxIterationsPolicy(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     const allowed = {
       WorkflowLoop.onMaxIterationsFail,
       WorkflowLoop.onMaxIterationsContinue,
@@ -20,7 +20,7 @@ extension _WorkflowLoopPolicyRules on WorkflowDefinitionValidator {
       if (!allowed.contains(loop.onMaxIterations)) {
         errors.add(
           _err(
-            ValidationErrorType.invalidLoopPolicy,
+            WorkflowValidationErrorType.invalidLoopPolicy,
             'Loop "${loop.id}" has invalid onMaxIterations "${loop.onMaxIterations}" '
             '(must be "${WorkflowLoop.onMaxIterationsFail}", "${WorkflowLoop.onMaxIterationsContinue}", '
             'or "${WorkflowLoop.onMaxIterationsEscalate}").',
@@ -33,7 +33,7 @@ extension _WorkflowLoopPolicyRules on WorkflowDefinitionValidator {
       if (loop.onMaxIterations == WorkflowLoop.onMaxIterationsContinue && foreachNestedLoopIds.contains(loop.id)) {
         errors.add(
           _err(
-            ValidationErrorType.invalidLoopPolicy,
+            WorkflowValidationErrorType.invalidLoopPolicy,
             'Loop "${loop.id}" is nested under a foreach body and cannot use '
             'onMaxIterations "${WorkflowLoop.onMaxIterationsContinue}"; nested loops must keep '
             'fail-on-exhaustion or opt into "${WorkflowLoop.onMaxIterationsEscalate}".',
@@ -45,7 +45,7 @@ extension _WorkflowLoopPolicyRules on WorkflowDefinitionValidator {
       if (loop.onMaxIterations == WorkflowLoop.onMaxIterationsEscalate && !foreachNestedLoopIds.contains(loop.id)) {
         errors.add(
           _err(
-            ValidationErrorType.invalidLoopPolicy,
+            WorkflowValidationErrorType.invalidLoopPolicy,
             'Loop "${loop.id}" is not nested under a foreach body and cannot use '
             'onMaxIterations "${WorkflowLoop.onMaxIterationsEscalate}"; top-level loops must use '
             '"${WorkflowLoop.onMaxIterationsContinue}" for max-iteration fall-through.',

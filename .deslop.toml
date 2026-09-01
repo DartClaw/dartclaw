@@ -1,10 +1,10 @@
 [defaults]
 exclude = [
-  "packages/dartclaw_server/lib/src/static/hljs.min.js",
-  "packages/dartclaw_server/lib/src/static/hljs-dart.min.js",
-  "packages/dartclaw_server/lib/src/static/htmx.min.js",
-  "packages/dartclaw_server/lib/src/static/marked.min.js",
-  "packages/dartclaw_server/lib/src/static/purify.min.js",
-  "packages/dartclaw_server/lib/src/static/sse.js",
-  "packages/dartclaw_server/lib/src/static/stimulus.min.js",
+  "packages/dartclaw_runtime/lib/src/static/hljs.min.js",
+  "packages/dartclaw_runtime/lib/src/static/hljs-dart.min.js",
+  "packages/dartclaw_runtime/lib/src/static/htmx.min.js",
+  "packages/dartclaw_runtime/lib/src/static/marked.min.js",
+  "packages/dartclaw_runtime/lib/src/static/purify.min.js",
+  "packages/dartclaw_runtime/lib/src/static/sse.js",
+  "packages/dartclaw_runtime/lib/src/static/stimulus.min.js",
 ]

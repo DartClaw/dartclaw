@@ -1,6 +1,14 @@
 part of 'bash_step_runner.dart';
 
-typedef WindowsProcessTreeTerminator = Future<ProcessResult> Function(int rootPid);
+/// Invokes the platform's process-tree kill (`taskkill /T /F`) for [rootPid]
+/// and reports its raw result.
+///
+/// This is the *invocation*, not the termination verdict. The verdict type is
+/// core's `WindowsProcessTreeTerminator` (`Future<bool> Function(int)`), which
+/// `killWithEscalation` takes and which core does not barrel-export, so it is
+/// named structurally here; [_windowsTerminatorFor] is the one place an exit
+/// code becomes a verdict.
+typedef WindowsProcessTreeKillCommand = Future<ProcessResult> Function(int rootPid);
 typedef PosixProcessIdentityLookup = Future<String?> Function(int pid);
 typedef PosixProcessSnapshot = ({String identity, int parentPid});
 typedef PosixProcessSnapshotLookup = Future<PosixProcessSnapshot?> Function(int pid);
@@ -23,7 +31,7 @@ Future<bool> terminateBashProcessTree(
   PlatformCapabilities capabilities, {
   required String? rootProcessIdentity,
   Duration gracePeriod = const Duration(seconds: 2),
-  WindowsProcessTreeTerminator? windowsTreeTerminator,
+  WindowsProcessTreeKillCommand? windowsTreeTerminator,
   Map<int, String> knownDescendantIdentities = const <int, String>{},
   void Function(Map<int, String> identities)? onOwnedDescendantsChanged,
   PosixProcessIdentityLookup? posixProcessIdentityLookup,
@@ -72,7 +80,7 @@ Future<bool> cleanupTimedOutBashProcess(
   required Future<Map<int, String>> descendantTracking,
   required bool rootExitAlreadyObserved,
   Duration gracePeriod = const Duration(seconds: 2),
-  WindowsProcessTreeTerminator? windowsTreeTerminator,
+  WindowsProcessTreeKillCommand? windowsTreeTerminator,
   PosixProcessIdentityLookup? posixProcessIdentityLookup,
   PosixProcessSnapshotLookup? posixProcessSnapshotLookup,
   PosixChildPidLookup? posixChildPidLookup,
@@ -134,7 +142,7 @@ Future<bool> _terminateWindowsBashProcessTree(
   Process process,
   PlatformCapabilities capabilities, {
   required Duration gracePeriod,
-  WindowsProcessTreeTerminator? windowsTreeTerminator,
+  WindowsProcessTreeKillCommand? windowsTreeTerminator,
   required bool windowsTreeCleanupPreviouslyUnconfirmed,
   void Function(bool unconfirmed)? onWindowsTreeCleanupStateChanged,
   required bool rootExitAlreadyObserved,
@@ -146,13 +154,13 @@ Future<bool> _terminateWindowsBashProcessTree(
     gracePeriod: gracePeriod,
     log: _log,
     platformCapabilities: capabilities,
-    windowsProcessTreeTerminator: _adaptWindowsTreeTerminator(windowsTreeTerminator),
+    windowsProcessTreeTerminator: _windowsTerminatorFor(windowsTreeTerminator),
   );
   onWindowsTreeCleanupStateChanged?.call(!result.processTreeTerminationAccepted);
   return result.exitConfirmed && result.processTreeTerminationAccepted;
 }
 
-Future<bool> Function(int rootPid)? _adaptWindowsTreeTerminator(WindowsProcessTreeTerminator? terminator) {
+Future<bool> Function(int rootPid)? _windowsTerminatorFor(WindowsProcessTreeKillCommand? terminator) {
   if (terminator == null) return null;
   return (rootPid) async {
     try {
@@ -317,7 +325,7 @@ Future<void> retryOwnedBashProcesses(
   BashProcessOwner owner,
   PlatformCapabilities capabilities, {
   Duration gracePeriod = const Duration(seconds: 2),
-  WindowsProcessTreeTerminator? windowsTreeTerminator,
+  WindowsProcessTreeKillCommand? windowsTreeTerminator,
   PosixProcessIdentityLookup? posixProcessIdentityLookup,
   PosixProcessSnapshotLookup? posixProcessSnapshotLookup,
   PosixChildPidLookup? posixChildPidLookup,

@@ -3,8 +3,6 @@
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 void main() {
-  ensureDartclawWhatsappRegistered();
-
   final warnings = <String>[];
   final config = WhatsAppConfig.fromYaml({
     'enabled': true,
@@ -12,15 +10,13 @@ void main() {
     'gowa_port': 3000,
     'group_access': 'allowlist',
     'group_allowlist': ['123456789@g.us'],
-    'task_trigger': {'enabled': true, 'prefix': 'task:'},
   }, warnings);
 
   final formatted = formatResponse(
-    'MEDIA:docs/mockup.png\nStatus update sent from the example package.',
+    'Status update sent from the example package.',
     model: 'Claude',
     agentName: 'DartClaw',
     maxChunkSize: config.maxChunkSize,
-    workspaceDir: '.',
   );
 
   print('WhatsApp enabled: ${config.enabled}');

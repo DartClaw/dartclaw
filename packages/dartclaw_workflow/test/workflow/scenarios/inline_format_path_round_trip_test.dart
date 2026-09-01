@@ -2,7 +2,7 @@
 library;
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ContextExtractor, OutputConfig, OutputFormat, TaskType, WorkflowStep;
+    show ContextExtractor, OutputConfig, OutputFormat, WorkflowStep;
 import 'package:test/test.dart';
 
 import '../scenario_test_support.dart';
@@ -26,18 +26,13 @@ void main() {
     harness.writeProjectFile(projectRoot, claimedPath, '# inline output\n');
 
     final session = await harness.sessions.getOrCreateMainSession();
-    await harness.messages.insertMessage(
-      sessionId: session.id,
-      role: 'assistant',
-      content: '<workflow-context>{"artifact": "$claimedPath"}</workflow-context>',
-    );
-
     final task = await harness.tasks.create(
       id: 'task-inline-format-path',
       title: 'Inline format: path',
       description: 'Emit a path output under project.localPath',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': true},
       autoStart: true,
+      workflowRunId: 'run-inline-format-path',
     );
     // Mirror the Phase-1 fix: inline-mode tasks have worktreeJson populated
     // with the project's own local checkout path after the inline-branch
@@ -46,6 +41,12 @@ void main() {
       task.id,
       sessionId: session.id,
       worktreeJson: {'path': projectRoot, 'branch': 'main'},
+    );
+    await harness.seedEnvelopeOutputs(
+      task.id,
+      const {'artifact': claimedPath},
+      workflowRunId: 'run-inline-format-path',
+      stepId: 'emit-artifact',
     );
     final taskWithSession = (await harness.tasks.get(task.id))!;
 

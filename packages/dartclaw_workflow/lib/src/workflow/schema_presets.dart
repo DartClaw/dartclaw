@@ -80,9 +80,7 @@ OutputResolver defaultOutputResolverFor(String outputKey, OutputConfig? config) 
   return InlineOutput(schemaKey: outputKey);
 }
 
-const _pathListOutputSuffix = '_paths';
-
-bool _looksLikePathList(String outputKey) => outputKey.endsWith(_pathListOutputSuffix);
+bool _looksLikePathList(String outputKey) => outputKey.endsWith('_paths');
 
 OutputResolver _withSchemaKey(OutputResolver resolver, String fieldName) {
   return switch (resolver) {
@@ -108,8 +106,8 @@ final schemaPresets = _validatedSchemaPresets({
   'review_report_path': reviewReportPathPreset,
 });
 
-/// Whether [presetName] identifies a review-report path preset.
-///
+/// Whether [presetName] identifies a review-report path preset. Read by
+/// `aggregate-reviews` wiring and validation only — never by output resolution.
 bool isReviewReportPathPreset(String? presetName) => presetName == 'review_report_path';
 
 Map<String, SchemaPreset> _validatedSchemaPresets(Map<String, SchemaPreset> presets) {
@@ -232,6 +230,8 @@ const findingsCountPreset = SchemaPreset(
 const reviewReportPathPreset = SchemaPreset(
   name: 'review_report_path',
   format: OutputFormat.path,
+  // Step-artifacts selector: markdown only, so an agent's scratch file cannot take its place.
+  defaultResolver: FileSystemOutput(pathPattern: '**/*.md', listMode: false),
   schema: {'type': 'string'},
   description: 'Path to the review report file written by the invoking review skill. The form is dictated by the skill contract: absolute when the skill writes via --output-dir outside the project root; otherwise project-root-relative. Aggregate-reviews joins relative values under the active workspace root.',
 );

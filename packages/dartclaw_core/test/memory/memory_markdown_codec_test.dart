@@ -51,6 +51,19 @@ void main() {
           ),
         ],
       ),
+      MemoryErrorDocument(
+        entries: [
+          CanonicalMemoryError(
+            id: '3a2b1c0d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+            revision: 1,
+            summary: 'GUARD_BLOCK',
+            content: 'Blocked prompt injection\n\nResolution: retried',
+            created: created,
+            updated: updated,
+            provenance: MemorySourceRef(sourceLocator: 'runtime-error', sessionRef: 'sess-1'),
+          ),
+        ],
+      ),
       MemoryAuditDocument(
         records: [
           MemoryDeletionAudit(entryId: entryId, deletedAt: updated, reason: 'User requested', provenance: source()),
@@ -76,6 +89,7 @@ void main() {
         MemoryArchiveDocument(),
         MemoryObservationDocument(date: '2026-08-11'),
         MemoryLearningDocument(),
+        MemoryErrorDocument(),
         MemoryAuditDocument(),
       ];
       for (final document in empty) {
@@ -103,6 +117,35 @@ void main() {
       final parsed = codec.parse(codec.render(document)) as MemoryLearningDocument;
 
       expect(parsed.entries.map((entry) => entry.summary), ['first inserted', 'second inserted']);
+    });
+
+    // Errors are a canonical role: the wire name resolves and a
+    // multi-record document survives render -> parse -> render byte-for-byte.
+    test('error documents round-trip byte-for-byte and resolve their wire role', () {
+      CanonicalMemoryError error(String id, String summary) => CanonicalMemoryError(
+        id: id,
+        revision: 1,
+        summary: summary,
+        content: 'Context for $summary\nsecond line',
+        created: created,
+        updated: updated,
+        provenance: MemorySourceRef(sourceLocator: 'runtime-error', sessionRef: 'sess-$summary'),
+      );
+      final document = MemoryErrorDocument(
+        entries: [
+          error('ffffffff-ffff-4fff-8fff-ffffffffffff', 'TURN_FAILURE'),
+          error('00000000-0000-4000-8000-000000000000', 'GUARD_BLOCK'),
+        ],
+      );
+
+      final rendered = codec.render(document);
+      final parsed = codec.parse(rendered) as MemoryErrorDocument;
+
+      expect(MemoryRole.parse('error'), MemoryRole.error);
+      expect(rendered, contains('Role: error'));
+      expect(codec.render(parsed), rendered);
+      expect(parsed, document);
+      expect(parsed.entries.map((entry) => entry.summary), ['TURN_FAILURE', 'GUARD_BLOCK']);
     });
 
     test('rejects unsupported formats, roles, and non-canonical line endings', () {

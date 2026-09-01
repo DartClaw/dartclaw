@@ -15,3 +15,5 @@ Validate workflow definitions and related packaged assets with the local CLI.
 - Treat validation errors as blocking and warnings as informational.
 - When checking a release archive, confirm the packaged workflow skill bundle includes the expected skill files.
 - Keep the check focused on workflow definitions and packaging integrity.
+- If a previous attempt failed, correct the named failure before returning; only name a path for a file that
+  already exists on disk.

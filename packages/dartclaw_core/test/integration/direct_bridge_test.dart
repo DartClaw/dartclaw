@@ -47,8 +47,7 @@ void main() {
         systemPrompt: 'You are a test assistant. Follow instructions exactly.',
       );
 
-      expect(result, isNotNull);
-      expect(result['stop_reason'], isNotNull);
+      expect(result.stopReason, isNotNull);
       expect(events.whereType<DeltaEvent>(), isNotEmpty, reason: 'should receive text deltas');
     } finally {
       await sub.cancel();

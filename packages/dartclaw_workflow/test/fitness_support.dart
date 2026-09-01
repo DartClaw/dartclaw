@@ -136,7 +136,7 @@ String? sizeViolationMessage(String filePath, int currentLoc, int ceiling) {
 FitnessSnapshot collectFitnessSnapshot(String repoRoot) {
   final files = [
     ..._listDartFiles(p.join(repoRoot, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow')),
-    ..._listDartFiles(p.join(repoRoot, 'packages', 'dartclaw_server', 'lib', 'src', 'task')),
+    ..._listDartFiles(p.join(repoRoot, 'packages', 'dartclaw_runtime', 'lib', 'src', 'task')),
   ]..sort((a, b) => a.path.compareTo(b.path));
 
   final fileLoc = <String, int>{};

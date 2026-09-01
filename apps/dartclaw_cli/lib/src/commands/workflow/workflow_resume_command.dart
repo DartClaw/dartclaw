@@ -31,7 +31,7 @@ class WorkflowResumeCommand extends WorkflowRunIdCommand {
       await runStandaloneLifecycle(
         runId: runId,
         provisionWorkers: true,
-        action: (session) => driveStandaloneExecution(session, () => session.wiring.workflowService.resume(runId)),
+        action: (session) => driveStandaloneExecution(session, () => session.runtime.workflowService.resume(runId)),
       );
     } else {
       await runAgainstRun(runId: runId, pathSuffix: 'resume', verb: 'resumed');

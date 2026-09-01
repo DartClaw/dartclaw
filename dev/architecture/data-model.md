@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.24
+**Current through**: 0.25 kernel formation and storage absorption.
 
 ---
 
@@ -50,7 +50,7 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 │   ├── MEMORY.archive.md             # [MD]     Canonical archive
 │   ├── MEMORY.audit.md               # [MD]     Content-free deletion audit (never indexed)
 │   ├── .dartclaw-memory-corpus.json   # [JSON]   Derived authenticated member manifest
-│   ├── errors.md                     # [MD]     Auto-populated error log (capped 50)
+│   ├── errors.md                     # [MD]     Canonical error role (newest 50)
 │   ├── learnings.md                  # [MD]     Canonical learning role (newest 50)
 │   ├── memory/
 │   │   └── YYYY-MM-DD.md            # [MD]     Daily turn logs
@@ -61,7 +61,7 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 │   ├── HEARTBEAT.md                  # [MD]     Periodic task checklist (read-only by runtime)
 │   └── .git/                         # [Git]    Workspace version control
 ├── worktrees/
-│   └── <taskId>/                     #          Git worktree for coding tasks
+│   └── <taskId>/                     #          Git worktree for tasks that declare one
 ├── projects/
 │   └── <projectId>/                  # [Git]    Full git repository clone per project
 └── logs/                             #          Application logs
@@ -74,13 +74,20 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 | **Relational queries** | `search.db`, `tasks.db`, `state.db` | SQLite prepared statements | WAL (`tasks.db`, `state.db`), single-thread (`search.db`) |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, OAuth store, projects) |
-| **Structured text** | Canonical memory documents, `errors.md`, daily logs | Temp file → rename or append | Shared corpus lock/write queue |
+| **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
 | **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
 | **Append-only SQLite** | `task_events` (in `tasks.db`) | Synchronous insert | `TaskEventService` (WAL) |
 
 Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
 exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
 files fail closed above 64 MiB. Recursive memory/wiki requests admit at most 1,000 regular files and 64 MiB of body bytes.
+
+`errors.md` and `learnings.md` are canonical corpus members with the `error` and `learning` roles, not independently
+capped logs: both are written through the shared corpus authority under one collection revision and the same CAS and
+lock the curated roles use, and a role-scoped write leaves every unselected member byte-identical. The `error` role is
+not searchable — it is excluded from the derived search index, unlike `learning`. A pre-canonical `errors.md` is
+converted to the error role by memory preflight at startup; unrecognised remainder text is preserved verbatim under
+`memory/legacy/`.
 
 `.dartclaw-memory-corpus.json` is non-authoritative coordination state. It records the authenticated identity, role,
 length, digest, and record IDs of each canonical member so ordinary reads and sparse writes can select only relevant
@@ -110,7 +117,7 @@ Session
 
 **Storage**: `sessions/<id>/meta.json` (atomic full rewrite)
 **Messages**: `sessions/<id>/messages.ndjson` (append-only, cursor = line number)
-**Package**: `dartclaw_models` (model), `dartclaw_core` (service)
+**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
 
 #### Session Key (Deterministic Routing)
 
@@ -157,7 +164,7 @@ Message
 ```
 
 **Storage**: One JSON object per line in `messages.ndjson`. Cursor is assigned on read (line number), not stored.
-**Package**: `dartclaw_models` (model), `dartclaw_core` (service)
+**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
 
 ### Task
 
@@ -168,7 +175,6 @@ Task
 ├── id: String (UUID)
 ├── title: String
 ├── description: String
-├── type: TaskType {coding, research, writing, analysis, automation, custom}
 ├── status: TaskStatus (state machine — see below)
 ├── goalId: String? → Goal.id
 ├── projectId: String? → Project.id (file-based, not FK-enforced; null = implicit _local project)
@@ -181,8 +187,8 @@ Task
 └── completedAt: DateTime?
 ```
 
-**Storage**: `tasks.db` → `tasks` table (WAL mode, indexed on status+type)
-**Package**: `dartclaw_core` (model), `dartclaw_storage` (repository), `dartclaw_server` (service)
+**Storage**: `tasks.db` → `tasks` table (WAL mode, indexed on status; the legacy `type` column remains through 0.25 for refusal compatibility)
+**Package**: `dartclaw_core` (model and repository), `dartclaw_runtime` (service)
 
 Task JSON and API surfaces now expose nested `agentExecution` and `workflowStepExecution` objects when hydrated. The task row itself keeps only task-owned lifecycle and artifact fields; runtime provider/session/model state lives on `AgentExecution`, and workflow-only metadata lives on `WorkflowStepExecution`.
 
@@ -224,7 +230,6 @@ WorkflowStepExecution
 ├── structuredSchemaJson: String?
 ├── structuredOutputJson: String?
 ├── followUpPromptsJson: String?
-├── externalArtifactMount: String?
 ├── mapIterationIndex: int?
 ├── mapIterationTotal: int?
 └── stepTokenBreakdownJson: String?
@@ -252,7 +257,9 @@ Note: short IDs (6-char hex prefix of the task UUID) are computed at display tim
 
 Tasks with `TaskOrigin` receive channel status notifications via `TaskNotificationSubscriber`. Tasks without `TaskOrigin` (web/API-created) receive no channel notifications. The `recipientId` is the concrete target for `Channel.sendMessage()` calls — it differs per channel type and must be extracted from the inbound message context at task creation time.
 
-**Per-group project binding**: When a task is created from a group channel message, `ChannelTaskBridge` looks up the `GroupEntry.project` from `GroupConfigResolver` using the message's `groupJid`. If a project is configured, it is passed as `projectId` to `TaskCreator` and stored in `Task.projectId`. Groups without a `project` field fall back to the default project (null).
+**Per-group project binding**: `GroupConfigResolver` resolves a `GroupEntry.project` from channel type and group ID for
+the channel turn. Agent tool calls can pass that resolved project ID when creating work. Groups without a `project`
+field fall back to the default project.
 
 #### Sender Attribution
 
@@ -426,7 +433,7 @@ Runtime governance uses a mix of in-memory and persisted state:
 | Loop detection turn chain depth | In-memory (`LoopDetector._turnChainDepth`) | Transient | Server restart or human message |
 | Loop detection token velocity | In-memory (`LoopDetector._tokenVelocityWindow`) | Transient | Server restart |
 | Loop detection tool fingerprints | In-memory (`LoopDetector._consecutiveToolCalls`) | Transient | Turn completion |
-| Active turn stall timers | In-memory (`TurnProgressMonitor` per active turn) | Transient | Turn completion or server restart |
+| Active turn liveness and wall-clock timers | In-memory (`TurnLivenessTracker` plus runner timer per active turn) | Transient | Turn completion or server restart |
 | Pause state + message queue | In-memory (`PauseController`) | Transient | Server restart |
 
 **Design rationale**: Rate limit and loop detection state is intentionally in-memory. A server restart naturally resets these counters, which is acceptable because restarts already interrupt all active processing. Budget state uses the existing `UsageTracker` daily aggregation pipeline via KvService, avoiding any new persistence mechanism.
@@ -478,26 +485,6 @@ AlertsConfig                                 # top-level alerts:
 - `CompactionCompletedEvent` can cause a persisted `TaskEventKind.compaction` row when the compacted session belongs to an active running task
 - `ReloadConfig` and `AlertsConfig` live in `dartclaw.yaml` and participate in hot-reload via `ConfigNotifier`
 
-### Advisor Events and Config
-
-The advisor observer has three runtime-facing concepts:
-
-```text
-AdvisorConfig
-├── enabled: bool
-├── model: String?
-├── effort: String?
-├── triggers: List<String>
-├── periodicIntervalMinutes: int
-├── maxWindowTurns: int
-└── maxPriorReflections: int
-```
-
-- `AdvisorConfig` lives in the top-level `advisor:` section of `dartclaw.yaml`
-- `AdvisorMentionEvent` captures explicit `@advisor` invocations from channel traffic
-- `AdvisorInsightEvent` carries structured advisor output (`status`, `observation`, `suggestion`, `triggerType`, `taskIds`, `sessionKey`) for downstream consumers
-- The advisor context window and prior reflections are intentionally in-memory only and reset on restart
-
 ### Project
 
 Projects represent external git repositories managed by DartClaw.
@@ -525,7 +512,7 @@ Project
 **Storage**: `<dataDir>/projects.json` — JSON array of project objects, atomic writes (temp file + rename).
 **Clones**: `<dataDir>/projects/<projectId>/` — full or shallow git repositories.
 **Implicit `_local` project**: Synthesized from `Directory.current.path` at startup; not persisted in `projects.json`.
-**Package**: `dartclaw_config` (model), `dartclaw_core` (service interface), `dartclaw_server` (implementation)
+**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service interface), `dartclaw_runtime` (implementation)
 
 ### Turn Trace
 
@@ -552,7 +539,7 @@ TurnTrace (turns table)
 
 **Storage**: `tasks.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
-**Package**: `dartclaw_core` (`ToolCallRecord`), `dartclaw_storage` (`TurnTraceService`)
+**Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
 **Multi-service co-location note**: `tasks.db` contains eight tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`, `goals`, and `kg_facts` plus its `kg_facts_lookup` index) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`, `SqliteGoalRepository`, `TemporalKnowledgeGraphService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
 
@@ -583,7 +570,7 @@ TaskEvent (task_events table)
 **Storage**: `tasks.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
 **Write pattern**: Synchronous — no event loss on crash. Opposite design choice from turn traces (fire-and-forget) because task events are operational data, not analytical.
 **Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
-**Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`), `dartclaw_storage` (`TaskEventService`), `dartclaw_server` (`TaskEventRecorder`)
+**Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
 
 ### Workflow Models
 
@@ -611,23 +598,23 @@ WorkflowStep
 ├── project: String?
 ├── provider: String?
 ├── model: String?
-├── timeoutSeconds: int?
+├── turnTimeoutSeconds: int?                 # agent-turn override
+├── timeoutSeconds: int?                     # bash/approval operation deadline
 ├── review: StepReviewMode                   {always, codingOnly, never}
 ├── parallel: bool
-├── gate: String?                            # step-id.key operator value expression
+├── entryGate: String?                       # skip-when-false gate; the only gate a step declares
 ├── inputs: List<String>
 ├── outputs: Map<String, OutputConfig>?      # canonical context-write declarations; keys exposed as outputKeys
 ├── evaluator: bool                          # minimal prompt scope for reviewer steps
-├── maxTokens: int?
+├── maxTokens: int?                          # host-set only (merge-resolve token ceiling); not an authoring key
 ├── maxCostUsd: double?
 ├── maxRetries: int?
 ├── allowedTools: List<String>?
 ├── skill: String?                           # Agent Skills skill name
 ├── mapOver: String?                         # context key naming a JSON array
 ├── maxParallel: Object?                     # int, "unlimited", or template string
-├── maxItems: int?                           # optional collection-size ceiling; null = uncapped
 ├── continueSession: bool                    # reuse the preceding agent step's resolved root session
-├── onError: String?                         # failure policy (`pause`, `continue`, provider-specific future values)
+├── onError: String?                         # engine-level error policy (`pause` default, `continue`)
 └── workdir: String?                         # explicit working directory for bash steps
 
 OutputConfig
@@ -639,7 +626,6 @@ StepConfigDefault                            # entry in stepDefaults list
 ├── match: String                            # glob pattern matched against step IDs
 ├── provider: String?
 ├── model: String?
-├── maxTokens: int?
 ├── maxCostUsd: double?
 ├── maxRetries: int?
 └── allowedTools: List<String>?
@@ -648,8 +634,7 @@ WorkflowLoop
 ├── id: String
 ├── steps: List<String>                      # step IDs that repeat
 ├── maxIterations: int                       # hard cap
-├── exitGate: String                         # early-exit condition expression
-└── finally_: String?                        # step ID run once after loop exits
+└── exitGate: String                         # early-exit condition expression
 
 MapContext                                   # per-iteration state for map steps
 ├── item: Object                             # current element (Map, String, int, etc.)
@@ -676,7 +661,9 @@ WorkflowSummary                              # discovery projection, not persist
 
 **Discovery contract**: listing surfaces do not materialize full prompt-bearing definitions. `WorkflowDefinitionSource.listSummaries()` projects `WorkflowSummary` records for browsers and pickers, while detail/execution paths fetch the full `WorkflowDefinition` by name. This keeps discovery payloads small while preserving a single definition source of truth.
 
-**Worktree bridge**: `OutputConfig.source` lets downstream workflow steps read persisted coding-task metadata directly (`worktree.branch`, `worktree.path`) instead of requiring the agent to restate those values in context text. This is the durable seam that connects workflow execution to task/worktree persistence.
+**Worktree bridge**: `OutputConfig.source` lets downstream workflow steps read persisted task worktree metadata directly
+(`worktree.branch`, `worktree.path`) instead of requiring the agent to restate those values in context text. This is the
+durable seam that connects workflow execution to task/worktree persistence.
 
 **Package**: `dartclaw_workflow` (`WorkflowDefinition`, `WorkflowStep`, `WorkflowLoop`, `WorkflowVariable`, `OutputConfig`, `OutputFormat`, `StepConfigDefault`, `MapContext`, `WorkflowContext`, parser, validator, template engine, schema presets), `dartclaw_core` (`WorkflowLifecycleEvent` family)
 
@@ -750,19 +737,18 @@ WorkflowSummary                              # discovery projection, not persist
 ## Package Ownership
 
 ```
-dartclaw_models     (zero deps)         Session, Message, MemorySearchResult, SessionKey,
-                                        TaskType, channel/agent/container config models
+dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, shared enums,
+                                        DartclawConfig, ConfigMeta, ConfigWriter,
+                                        GuardChain, GuardAuditLogger, Project,
+                                        AgentExecution, deterministic utilities
      ▲
      │
-dartclaw_core       (no sqlite3)        SessionService, MessageService, KvService,
-     ▲                                  MemoryFileService, parsed config models,
-     │                                  Task*, Goal*, TaskEvent, TaskEventKind,
-     │                                  ToolCallRecord, EventBus, GovernanceConfig,
-     │                                  LoopDetector, SlidingWindowRateLimiter,
+dartclaw_core       (runtime + sqlite3) SessionService, MessageService, KvService,
+     ▲                                  MemoryFileService, Task*, Goal*, EventBus,
      │                                  ThreadBindingStore, ProjectService (interface),
      │                                  HarnessFactory, harness interfaces
      │
-dartclaw_storage    (sqlite3)           SqliteTaskRepository, SqliteGoalRepository,
+dartclaw_core    (sqlite3)           SqliteTaskRepository, SqliteGoalRepository,
      ▲                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
      │                                  SqliteWorkflowRunRepository,
@@ -770,17 +756,14 @@ dartclaw_storage    (sqlite3)           SqliteTaskRepository, SqliteGoalReposito
      │                                  TurnStateStore, TurnTraceService,
      │                                  TaskEventService
      │
-dartclaw_security   (security)          GuardAuditLogger, GuardChain, MessageRedactor
-     ▲
-     │
-dartclaw_config     (yaml_edit)         ConfigWriter, ConfigValidator, ConfigMeta,
-     ▲                                  Project, AgentExecution, WorkflowStepExecution
-     │
 dartclaw_workflow   (core + storage)    WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
-     │                                  WorkflowContext, schema presets, built-in skills
+     │                                  WorkflowContext, schema presets, built-in skills,
+     │                                  WorkflowRunRepository + WorkflowStepExecutionRepository
+     │                                  (ports; SQLite impls in dartclaw_core, which
+     │                                  depends on this package), WorkflowMaterializer
      │
-dartclaw_server     (shelf, http)       TaskService (wraps repository),
+dartclaw_runtime     (shelf, http)       TaskService (wraps repository),
      ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,
      │                                  ProjectService (implementation), TaskEventRecorder,
      │                                  BudgetEnforcer, PauseController, ScopeReconciler,
@@ -842,8 +825,8 @@ Append-only logs that must not block the caller:
 |------|-------------------|---------|
 | `audit-YYYY-MM-DD.ndjson` | Delete partitions older than `guard_audit.max_retention_days` (default: 30) | Session-maintenance job |
 | `usage.jsonl` | Rename to `.1` when >10MB | On write |
-| `errors.md` | Keep newest N entries (default: 50) | On write |
-| `learnings.md` | Keep newest N entries (default: 50) | On write |
+| `errors.md` | Keep newest N records (default: 50) | On write (canonical error role, shared corpus lock) |
+| `learnings.md` | Keep newest N records (default: 50) | On write (canonical learning role, shared corpus lock) |
 | Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
 | `search.db` | Full rebuild from searchable canonical roles | Manual (`dartclaw rebuild-index`) |

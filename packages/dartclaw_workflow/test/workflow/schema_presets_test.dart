@@ -179,17 +179,20 @@ void main() {
       expect(filesystem.pathPattern, '**/*');
     });
 
-    test('review_report_path preset resolves the uniform glob (name-agnostic; recognition is preset-based)', () {
-      // The preset carries no key-specific pattern: review-artifact recognition
-      // keys on the preset itself (see review_artifact_policy), and the unclaimed
-      // backstop scans the reviews/ output dir where `**/*` correctly matches
-      // every report (including architecture reports whose names lack "review").
+    test('review_report_path preset declares the markdown selector, not a key-specific pattern', () {
+      // Name-agnostic: it matches any markdown report an agent leaves in its step
+      // artifacts dir, including architecture reports whose names lack "review",
+      // and excludes a non-markdown scratch file. Nothing keys on the preset name
+      // to pick a resolution path.
       final review = outputResolverFor(
         'review_report_path',
         const OutputConfig(format: OutputFormat.path, schema: 'review_report_path'),
       );
 
-      expect((review as FileSystemOutput).pathPattern, '**/*');
+      expect((review as FileSystemOutput).pathPattern, '**/*.md');
+      expect(review.matches('s09-council-review.md'), isTrue);
+      expect(review.matches('architecture-2026-04-01.md'), isTrue);
+      expect(review.matches('raw-findings.json'), isFalse);
     });
 
     test('new presets expose canonical descriptions and schemas', () {

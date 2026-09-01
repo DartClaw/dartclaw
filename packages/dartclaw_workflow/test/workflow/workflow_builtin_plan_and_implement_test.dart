@@ -1,6 +1,4 @@
-import 'dart:convert';
-
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show TaskType, WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
 import 'workflow_builtin_test_support.dart';
@@ -18,7 +16,7 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-plan-state' => StubResponse(
-            assistantContent: jsonEncode({
+            outputs: ({
               'framework': 'dart',
               'project_root': '/repo/demo',
               'document_locations': {'product': 'PRODUCT.md'},
@@ -27,15 +25,11 @@ void main() {
             }),
           ),
           'prd' => StubResponse(
-            assistantContent: contextOutput({
-              'prd': 'docs/specs/test/prd.md',
-              'prd_source': 'synthesized',
-              'prd_confidence': 9,
-            }),
+            outputs: {'prd': 'docs/specs/test/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
           ),
           // The merged plan step now emits stories + story_specs in one pass.
           'plan' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'plan': 'docs/specs/test/plan.md',
               'plan_source': 'synthesized',
               'stories': {
@@ -82,9 +76,9 @@ void main() {
                   },
                 ],
               },
-            }),
+            },
           ),
-          'revise-story-spec' => StubResponse(assistantContent: contextOutput({})),
+          'revise-story-spec' => StubResponse(outputs: {}),
           _ => planAndImplementCommonStub(
             queued,
             storyResult: 'STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
@@ -106,27 +100,9 @@ void main() {
     expect(trace.count('revise-story-spec'), 1);
     expect(trace.count('implement'), 2);
     expect(trace.count('quick-review'), 0, reason: 'quick-review is replaced by the per-story review + nested loop');
-    expect(trace.count('simplify-code'), 2);
+    expect(trace.count('simplify-code'), 0, reason: 'simplify-code retired with the andthen plugin split');
     expect(trace.count('review-story'), 2);
     expect(trace.count('plan-review'), 1);
-
-    // Per-iteration `continueSession` isolation guard: each iteration's
-    // simplify-code (the continueSession step now that quick-review is gone)
-    // must inherit a *distinct* implement session id, never the prior
-    // iteration's. Foreach runs each iteration in a fresh iterContext so the
-    // bare `${implement.id}.sessionId` never bleeds across iterations; this
-    // assertion is the runtime check that proves that structural property.
-    final continueSessionTasks = trace.tasksForStep('simplify-code');
-    expect(continueSessionTasks, hasLength(2));
-    final iter0SessionId = continueSessionTasks[0].configJson['_continueSessionId'];
-    final iter1SessionId = continueSessionTasks[1].configJson['_continueSessionId'];
-    expect(iter0SessionId, isNotNull, reason: 'iteration 0 simplify-code should resolve a continueSessionId');
-    expect(iter1SessionId, isNotNull, reason: 'iteration 1 simplify-code should resolve a continueSessionId');
-    expect(
-      iter0SessionId,
-      isNot(equals(iter1SessionId)),
-      reason: 'per-iteration session isolation: continueSession must resolve to distinct ids across iterations',
-    );
 
     // Per-story results are aggregated in story_results from the foreach controller outputs.
     final storyResults = trace.context['story_results'] as List<dynamic>;
@@ -149,7 +125,7 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-plan-state' => StubResponse(
-            assistantContent: jsonEncode({
+            outputs: ({
               'framework': 'dart',
               'project_root': '/repo/demo-project',
               'document_locations': {'product': 'PRODUCT.md'},
@@ -157,14 +133,10 @@ void main() {
             }),
           ),
           'prd' => StubResponse(
-            assistantContent: contextOutput({
-              'prd': 'docs/specs/project-bound/prd.md',
-              'prd_source': 'synthesized',
-              'prd_confidence': 9,
-            }),
+            outputs: {'prd': 'docs/specs/project-bound/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
           ),
           'plan' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'plan': 'docs/specs/project-bound/plan.md',
               'plan_source': 'synthesized',
               'stories': {
@@ -191,7 +163,7 @@ void main() {
                   },
                 ],
               },
-            }),
+            },
           ),
           _ => planAndImplementCommonStub(
             queued,
@@ -205,25 +177,12 @@ void main() {
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
     expect(trace.tasksForStep('discover-plan-state').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('discover-plan-state').single.type, TaskType.coding);
     expect(trace.tasksForStep('plan').single.projectId, 'demo-project');
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('plan').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('plan').single.type, TaskType.coding);
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('implement').single.type, TaskType.coding);
-    expect(trace.tasksForStep('simplify-code').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('simplify-code').single.type, TaskType.coding);
-    // simplify-code uses `continueSession: true` to pin to the implement task's
-    // harness session – the dispatcher must have threaded the prior root's
-    // session id through `_continueSessionId`. Provider-session id only
-    // propagates when the implement task actually emitted one (the test stub
-    // does not, so that key stays absent).
-    expect(trace.tasksForStep('simplify-code').single.configJson.containsKey('_continueSessionId'), isTrue);
-    expect(trace.tasksForStep('simplify-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
     expect(trace.tasksForStep('plan-review').single.projectId, 'demo-project');
-    expect(trace.tasksForStep('plan-review').single.type, TaskType.coding);
-    expect(trace.tasksForStep('plan-review').single.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(trace.tasksForStep('plan-review').single.configJson['needsWorktree'], isTrue);
     expect(trace.tasksForStep('update-state'), isEmpty);
   });
 
@@ -241,7 +200,7 @@ void main() {
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
             'discover-plan-state' => StubResponse(
-              assistantContent: jsonEncode({
+              outputs: ({
                 'framework': 'none',
                 'project_root': '/repo/demo-project',
                 'document_locations': {'product': null},
@@ -249,14 +208,10 @@ void main() {
               }),
             ),
             'prd' => StubResponse(
-              assistantContent: contextOutput({
-                'prd': 'docs/specs/demo/prd.md',
-                'prd_source': 'synthesized',
-                'prd_confidence': 9,
-              }),
+              outputs: {'prd': 'docs/specs/demo/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
             ),
             'plan' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 'plan': 'docs/specs/demo/plan.md',
                 'plan_source': 'synthesized',
                 'story_specs': {
@@ -275,7 +230,7 @@ void main() {
                     },
                   ],
                 },
-              }),
+              },
             ),
             _ => planAndImplementCommonStub(
               queued,
@@ -289,8 +244,7 @@ void main() {
       final reviewStories = trace.tasksForStep('review-story');
       expect(reviewStories, hasLength(2));
       for (final reviewStory in reviewStories) {
-        expect(reviewStory.type, TaskType.coding);
-        expect(reviewStory.configJson['_workflowNeedsWorktree'], isTrue);
+        expect(reviewStory.configJson['needsWorktree'], isTrue);
       }
     },
   );
@@ -308,15 +262,15 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-plan-state' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'prd': 'docs/specs/test/prd.md',
               'plan': '',
               'story_specs': {'items': <Map<String, dynamic>>[]},
-            }),
+            },
           ),
-          'prd' => StubResponse(assistantContent: contextOutput({'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'})),
+          'prd' => StubResponse(outputs: {'prd': '# PRD\n\nDISCOVERY_SCOPE_PRD'}),
           'plan' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'stories': {
                 'items': [
                   {
@@ -341,7 +295,7 @@ void main() {
                   },
                 ],
               },
-            }),
+            },
           ),
           _ => planAndImplementCommonStub(queued, storyResult: 'STORY_RESULT'),
         };
@@ -364,7 +318,7 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-plan-state' => StubResponse(
-            assistantContent: jsonEncode({
+            outputs: ({
               'framework': 'none',
               'project_root': '/repo/demo-project',
               'document_locations': {'product': null},
@@ -372,14 +326,10 @@ void main() {
             }),
           ),
           'prd' => StubResponse(
-            assistantContent: contextOutput({
-              'prd': 'docs/specs/demo/prd.md',
-              'prd_source': 'synthesized',
-              'prd_confidence': 8,
-            }),
+            outputs: {'prd': 'docs/specs/demo/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 8},
           ),
           'plan' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'plan': 'docs/specs/demo/plan.md',
               'plan_source': 'synthesized',
               'story_specs': {
@@ -392,7 +342,7 @@ void main() {
                   },
                 ],
               },
-            }),
+            },
           ),
           _ => planAndImplementCommonStub(queued, storyResult: 'Implemented the thin story.'),
         };
@@ -421,7 +371,7 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'discover-plan-state' => StubResponse(
-            assistantContent: jsonEncode({
+            outputs: ({
               'framework': 'none',
               'project_root': '/repo/demo-project',
               'document_locations': {'product': null},
@@ -429,14 +379,10 @@ void main() {
             }),
           ),
           'prd' => StubResponse(
-            assistantContent: contextOutput({
-              'prd': 'docs/specs/demo/prd.md',
-              'prd_source': 'synthesized',
-              'prd_confidence': 9,
-            }),
+            outputs: {'prd': 'docs/specs/demo/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
           ),
           'plan' => StubResponse(
-            assistantContent: contextOutput({
+            outputs: {
               'plan': 'docs/specs/demo/plan.md',
               'plan_source': 'synthesized',
               'story_specs': {
@@ -444,7 +390,7 @@ void main() {
                   {'id': 'S01', 'title': 'Story One', 'spec_path': 'fis/s01-story-one.md', 'dependencies': <String>[]},
                 ],
               },
-            }),
+            },
           ),
           _ => planAndImplementCommonStub(queued),
         };
@@ -471,7 +417,7 @@ void main() {
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
             'discover-plan-state' => StubResponse(
-              assistantContent: jsonEncode({
+              outputs: ({
                 'framework': 'dart',
                 'project_root': '/repo/demo',
                 'document_locations': {'product': 'PRODUCT.md'},
@@ -480,14 +426,10 @@ void main() {
               }),
             ),
             'prd' => StubResponse(
-              assistantContent: contextOutput({
-                'prd': 'docs/specs/loop/prd.md',
-                'prd_source': 'synthesized',
-                'prd_confidence': 9,
-              }),
+              outputs: {'prd': 'docs/specs/loop/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
             ),
             'plan' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 'plan': 'docs/specs/loop/plan.md',
                 'plan_source': 'synthesized',
                 'stories': {
@@ -530,12 +472,10 @@ void main() {
                     },
                   ],
                 },
-              }),
+              },
             ),
             'implement' => StubResponse(
-              assistantContent: contextOutput({
-                'story_result': 'LOOP_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
-              }),
+              outputs: {'story_result': 'LOOP_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}'},
               worktreeJson: {
                 'branch': queued.mapIndex == 0 ? 'loop-alpha' : 'loop-beta',
                 'path': '/tmp/worktrees/${queued.mapIndex == 0 ? 'loop-alpha' : 'loop-beta'}',
@@ -544,12 +484,11 @@ void main() {
             ),
             // Per-story review reports clean so the story-remediation loop's
             // entry gate skips it; the plan-level loop is what this test drives.
-            'review-story' || 're-review-story' => StubResponse(
-              assistantContent: contextOutput({'findings_count': 0, 'gating_findings_count': 0}),
-            ),
-            'remediate-story' => StubResponse(assistantContent: contextOutput({'remediation_summary': 'none'})),
+            'review-story' ||
+            're-review-story' => StubResponse(outputs: {'findings_count': 0, 'gating_findings_count': 0}),
+            'remediate-story' => StubResponse(outputs: {'remediation_summary': 'none'}),
             'plan-review' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 ...reviewReportContext(
                   queued.stepKey,
                   stepArtifactsDir: stepArtifactsDirForTask(queued.task),
@@ -558,40 +497,24 @@ void main() {
                 'implementation_summary': 'Batch needs remediation',
                 'remediation_plan': 'Fix the lingering review findings',
                 'needs_remediation': true,
-              }),
+              },
             ),
             'plan-review-council' => StubResponse(
-              assistantContent: contextOutput({
-                'plan-review-council.findings_count': 0,
-                'plan-review-council.gating_findings_count': 0,
-              }),
+              outputs: {'plan-review-council.findings_count': 0, 'plan-review-council.gating_findings_count': 0},
             ),
             'remediate' => StubResponse(
-              assistantContent: contextOutput({
-                'remediation_summary': 'Remediated batch findings',
-                'diff_summary': 'REMEDIATED_DIFF',
-              }),
+              outputs: {'remediation_summary': 'Remediated batch findings', 'diff_summary': 'REMEDIATED_DIFF'},
             ),
             're-review' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 'remediation_plan': 'No further remediation needed',
                 'findings_count': 0,
                 're-review.findings_count': 0,
                 'gating_findings_count': 0,
                 're-review.gating_findings_count': 0,
-              }),
+              },
             ),
-            'update-state' => StubResponse(
-              assistantContent: contextOutput({'state_update_summary': 'updated after remediation'}),
-            ),
-            'architecture-review' => StubResponse(
-              assistantContent: contextOutput({
-                'architecture-review.findings_count': 0,
-                'architecture-review.gating_findings_count': 0,
-              }),
-            ),
-            // simplify-code declares no outputs in plan-and-implement.yaml.
-            'simplify-code' => StubResponse(assistantContent: contextOutput({})),
+            'update-state' => StubResponse(outputs: {'state_update_summary': 'updated after remediation'}),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -617,26 +540,22 @@ void main() {
           responseForStep: (queued) async {
             switch (queued.stepKey) {
               case 'discover-plan-state':
-                return StubResponse(assistantContent: contextOutput(row.discover));
+                return StubResponse(outputs: row.discover);
               case 'prd':
                 return StubResponse(
-                  assistantContent: contextOutput({
-                    'prd': 'docs/specs/reused/prd.md',
-                    'prd_source': 'synthesized',
-                    'prd_confidence': 9,
-                  }),
+                  outputs: {'prd': 'docs/specs/reused/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
                 );
               case 'plan':
-                return StubResponse(assistantContent: contextOutput(row.plan!));
+                return StubResponse(outputs: row.plan!);
               case 'plan-review':
                 return StubResponse(
-                  assistantContent: contextOutput({
+                  outputs: {
                     ...reviewReportContext(
                       queued.stepKey,
                       stepArtifactsDir: stepArtifactsDirForTask(queued.task),
                       findingsCount: row.planReviewFindings,
                     ),
-                  }),
+                  },
                 );
               default:
                 return planAndImplementCommonStub(
@@ -657,9 +576,6 @@ void main() {
         expect(trace.count('plan-review'), row.expectPlanReview, reason: '${row.name}: plan-review count');
         if (row.expectQuickReview != null) {
           expect(trace.count('quick-review'), row.expectQuickReview, reason: '${row.name}: quick-review count');
-        }
-        if (row.expectSimplifyCode != null) {
-          expect(trace.count('simplify-code'), row.expectSimplifyCode, reason: '${row.name}: simplify-code count');
         }
         if (row.expectRevisePrd != null) {
           expect(trace.count('revise-prd'), row.expectRevisePrd, reason: '${row.name}: revise-prd count');
@@ -706,7 +622,6 @@ class _DiscoveryRow {
   final int expectImplement;
   final int expectPlanReview;
   final int? expectQuickReview;
-  final int? expectSimplifyCode;
   final int? expectRevisePrd;
   final int? expectRemediate;
   final int? expectReReview;
@@ -725,7 +640,6 @@ class _DiscoveryRow {
     required this.expectImplement,
     required this.expectPlanReview,
     this.expectQuickReview,
-    this.expectSimplifyCode,
     this.expectRevisePrd,
     this.expectRemediate,
     this.expectReReview,
@@ -810,7 +724,6 @@ final List<_DiscoveryRow> _discoveryMatrix = [
     expectImplement: 0,
     expectPlanReview: 1,
     expectQuickReview: 0,
-    expectSimplifyCode: 0,
   ),
   // uses-PRD-when-only-plan: only an active plan path was discovered, but its
   // empty story catalog is unproven over a non-JSON plan, so the skill blanks

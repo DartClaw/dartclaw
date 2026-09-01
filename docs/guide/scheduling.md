@@ -1,20 +1,25 @@
 # Scheduling
 
-DartClaw supports periodic tasks via the heartbeat scheduler and cron-style job scheduling.
+DartClaw supports periodic tasks via the built-in heartbeat job and cron-style job scheduling.
 
 ## Heartbeat
 
-The heartbeat scheduler checks `HEARTBEAT.md` at regular intervals (default: 30 minutes). A non-empty checklist creates
-an isolated session; missing or empty checklists skip the agent turn while workspace git sync can still run.
+The heartbeat is a built-in scheduled job that checks `HEARTBEAT.md` at regular intervals (default: 30 minutes). A
+non-empty checklist runs in a session unique to that cycle; a missing, empty, or unreadable checklist skips the fire
+entirely -- it is not recorded as a failure and does not consume a retry.
 
 ### Configuration
 
 ```yaml
 scheduling:
   heartbeat:
-    enabled: true              # default
-    interval_minutes: 30       # default
+    enabled: true              # default; takes effect at runtime, no restart
+    interval_minutes: 30       # default; requires a restart
 ```
+
+`enabled` can be flipped at runtime from the Scheduling page or `PATCH /api/config`, in either direction and from either
+boot state. `interval_minutes` requires a restart: a scheduled job's schedule is fixed when the job is registered, which
+is the same contract the rest of `scheduling.*` already has.
 
 ### HEARTBEAT.md Format
 
@@ -31,10 +36,13 @@ The agent processes the entire checklist in a single turn. Results are logged bu
 ### Heartbeat Lifecycle
 
 1. Read `HEARTBEAT.md` from workspace
-2. If present and non-empty, dispatch to an isolated session (`agent:main:heartbeat:<ISO8601>`)
-3. Attempt to commit workspace changes if git sync is enabled, even when the checklist was missing or empty
+2. If present and non-empty, dispatch to a session unique to that cycle, keyed `agent:main:cron:` plus a URI-encoded `heartbeat:<ISO8601>`
+3. Otherwise end the fire quietly and stay on schedule
 
-Heartbeat does not autonomously curate personal memory. Run the immutable `memory-curation` system action explicitly when semantic curation is intended; use `memory_observe` for journal-style capture.
+Workspace git sync runs on [its own schedule](workspace.md#git-sync), not on the heartbeat cycle -- turning the
+heartbeat off leaves workspace versioning running.
+
+Heartbeat does not curate personal memory. Enable the opt-in `memory-curation` job (`memory.curation.enabled`) when semantic curation is intended; use `memory_observe` for journal-style capture.
 
 ## Cron Jobs
 
@@ -108,11 +116,20 @@ Only one execution of a job can run at a time. A second request is rejected, and
 on-demand run is active is skipped; the next recurring fire remains on schedule. For a one-time job, a fire skipped in
 this window is lost. Outside that window, an on-demand run neither consumes nor cancels its pending one-time fire.
 
-The same run endpoint exposes the immutable `memory-curation` system action. It creates one bounded, isolated proposal turn and lets the host apply the proposal atomically. It has no cron schedule, retry, delivery, pause/toggle state, or YAML form, and its reserved ID cannot be used by a configured job. A second request while it runs is rejected. Failures and conflicts require another explicit request; DartClaw never starts curation from heartbeat, memory size, or job completion.
+### Memory curation
 
-Job list/show responses join its persisted lifecycle with current index health. A successful canonical commit therefore
-remains `succeeded` even when the independent derived index is `degraded`; follow the index repair action instead of
-replaying the committed curation.
+`memory.curation.enabled` registers a built-in `memory-curation` prompt job on `memory.curation.schedule` (default
+`0 3 * * *`, after the journal's 22:00 default so a run sees that night's observations). It behaves like every other
+built-in prompt job: pause and resume it from the Scheduling page, run it on demand with `dartclaw jobs run
+memory-curation`, and observe the run in the server logs; the built-in job's delivery is `none` and is not configurable. It keeps no durable run record.
+
+Each fire composes its own prompt from a bounded snapshot of the current corpus, and the entries in that snapshot are
+the only ones the run may change. A `memory_apply` call from the run naming any other entry is refused as a whole set,
+with the offending operation reporting that its target or source was not in the bounded snapshot — the run cannot
+rewrite entries it was never shown. The scope covers only that run: an ordinary `memory_apply` caller is unaffected.
+
+While `memory.curation.enabled` is set, a `scheduling.jobs` entry claiming the `memory-curation` ID is refused at config
+load as a duplicate job ID, the same way `memory-journal` is.
 
 ## Scheduled Task Jobs
 
@@ -127,8 +144,7 @@ scheduling:
       enabled: true
       task:
         title: Daily maintenance review
-        task_type: "coding"
-        description: Review maintenance items and prepare a coding task if changes are needed.
+        description: Review maintenance items and prepare a code change if needed.
         acceptance_criteria: Tests stay green and the worktree is ready for review.
         auto_start: true
 ```

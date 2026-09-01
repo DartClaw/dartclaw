@@ -1,8 +1,8 @@
 # shelf_server
 
-Minimal DartClaw SDK example that hosts an agent behind a Shelf endpoint. It is intentionally small and does not reproduce the full `dartclaw_server` reference implementation.
+Minimal DartClaw SDK example that hosts an agent behind a Shelf endpoint. It is intentionally small and does not reproduce the full `dartclaw_runtime` reference implementation.
 
-This example uses `dependency_overrides` that point at local workspace packages because the SDK is still pre-publication. Once the SDK packages are published, replace the overrides with normal package dependencies.
+This is a **fork-the-runtime** example: it depends on `dartclaw_core` directly through `dependency_overrides` pointing at this checkout. The runtime packages are not published and carry no compatibility promise — see [ADR-008](../../../dev/adrs/008-sdk-publishing-strategy.md). If you only need to drive a running `dartclaw serve`, use the client tier instead: [SDK Quick Start](../../../docs/sdk/quick-start.md).
 
 Prerequisites:
 
@@ -29,4 +29,4 @@ dart run shelf_server --port 8095
 curl -N -X POST http://127.0.0.1:8095/turn -d 'Explain DartClaw in one sentence.'
 ```
 
-`dartclaw_server` is the full reference implementation with auth, persistence, channels, HTMX pages, and operational APIs. This example only shows the SDK hosting seam.
+`dartclaw_runtime` is the full reference implementation with auth, persistence, channels, HTMX pages, and operational APIs. This example only shows the SDK hosting seam.

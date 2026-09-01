@@ -152,7 +152,8 @@ class GoogleChatFeedbackStrategy implements ChannelFeedbackStrategy {
 
     switch (channel.config.typingIndicatorMode) {
       case TypingIndicatorMode.message:
-        final placeholder = await _restClient.sendMessage(context.recipientJid, _openingMessage(snapshot));
+        final opening = await _restClient.send(spaceName: context.recipientJid, text: _openingMessage(snapshot));
+        final placeholder = opening.messageName;
         if (placeholder == null) {
           return;
         }

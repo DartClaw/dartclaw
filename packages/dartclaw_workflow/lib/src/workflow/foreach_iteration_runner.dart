@@ -1,6 +1,9 @@
 part of 'workflow_executor.dart';
 
 extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
+  int? _resolveMaxParallel(Object? raw, WorkflowContext context, String stepId) =>
+      step_config_policy.resolveMaxParallel(raw, context, stepId, templateEngine: _templateEngine);
+
   Future<MapStepResult?> _executeForeachStep(
     WorkflowRun run,
     WorkflowDefinition definition,
@@ -19,42 +22,40 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       stepId: controllerStep.id,
       mapOverKey: controllerStep.mapOver!,
     );
-    if (resolvedCollection.error != null) {
-      return MapStepResult(results: const [], totalTokens: 0, success: false, error: resolvedCollection.error);
-    }
-    final collection = resolvedCollection.collection!;
-    final maxItems = controllerStep.maxItems;
-    if (maxItems != null && collection.length > maxItems) {
+    final collectionError = resolvedCollection.error;
+    if (collectionError != null) {
       return MapStepResult(
         results: const [],
         totalTokens: 0,
-        success: false,
-        error:
-            "Foreach step '${controllerStep.id}': collection has ${collection.length} items "
-            'which exceeds maxItems ($maxItems). '
-            'Consider decomposing into smaller batches.',
+        failure: WorkflowForeachControllerFailure(collectionError),
       );
     }
+    final collection = resolvedCollection.collection!;
     if (collection.isEmpty) {
       WorkflowExecutor._log.warning(
         "Workflow '${run.id}': foreach step '${controllerStep.id}' has empty collection – "
         'succeeding with empty result array',
       );
-      return const MapStepResult(results: [], totalTokens: 0, success: true);
+      return const MapStepResult(results: [], totalTokens: 0);
     }
     final int? maxParallel;
     try {
       maxParallel = _resolveMaxParallel(controllerStep.maxParallel, context, controllerStep.id);
     } on ArgumentError catch (e) {
-      return MapStepResult(results: const [], totalTokens: 0, success: false, error: e.message.toString());
+      return MapStepResult(
+        results: const [],
+        totalTokens: 0,
+        failure: WorkflowForeachControllerFailure(e.message.toString()),
+      );
     }
     final childSteps = childStepIds.map((id) => stepById[id]).nonNulls.toList(growable: false);
     if (childSteps.length != childStepIds.length) {
       return MapStepResult(
         results: const [],
         totalTokens: 0,
-        success: false,
-        error: "Foreach step '${controllerStep.id}': one or more child steps are missing from the definition",
+        failure: WorkflowForeachControllerFailure(
+          "Foreach step '${controllerStep.id}': one or more child steps are missing from the definition",
+        ),
       );
     }
     final strategy = definition.gitStrategy;
@@ -80,8 +81,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         return MapStepResult(
           results: const [],
           totalTokens: 0,
-          success: false,
-          error: "Foreach step '${controllerStep.id}': ${e.message}",
+          failure: WorkflowForeachControllerFailure("Foreach step '${controllerStep.id}': ${e.message}"),
         );
       }
     }
@@ -93,16 +93,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     // (authored `worktree: inline` or `--inline`) serializes here, matching the
     // dispatcher's worktree-provisioning gate.
     final effectiveMaxParallel = resolvedWorktreeMode == 'inline' ? 1 : maxParallel;
-    final mapCtx = MapStepContext(collection: collection, maxParallel: effectiveMaxParallel, maxItems: maxItems);
+    final mapCtx = MapStepContext(collection: collection, maxParallel: effectiveMaxParallel);
     final completedIds = <String>{};
-    restoreIterationProgress(
+    final legacyStateFailure = restoreIterationProgress(
       mapCtx,
       completedIds,
       resumeCursor,
+      stepId: controllerStep.id,
       nodeType: WorkflowExecutionCursorNodeType.foreach,
       collectionLength: collection.length,
       markFailedAndCancelledItemsReady: false,
     );
+    if (legacyStateFailure != null) {
+      // Returned ahead of the first persist, so the legacy cursor is still on
+      // disk when the run fails and the operator can see where it stopped.
+      return MapStepResult(results: const [], totalTokens: 0, failure: legacyStateFailure);
+    }
     if (resumeCursor?.completedSubStepIdsByIndex.isNotEmpty == true) {
       context['_foreach.${controllerStep.id}.completedSubStepIdsByIndex'] = resumeCursor!.completedSubStepIdsByIndex
           .map((key, value) => MapEntry('$key', value));
@@ -120,9 +126,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     );
 
     var totalTokens = 0;
-    String? serializeFailureMessage;
-    // Controller-level failure message (budget exhaustion, unexpected exceptions).
-    String? controllerFailureMessage;
+    WorkflowSerializeRemainingSettleTimeout? serializeFailure;
+    // Controller-level failure (budget exhaustion, unexpected exceptions).
+    WorkflowForeachControllerFailure? controllerFailure;
     void emitCancelledIterationEvents(Iterable<int> indices) {
       for (final index in indices) {
         _eventBus.fire(
@@ -160,20 +166,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         promotedIds: promotedIds,
       );
       if (serializeResult != null) {
-        serializeFailureMessage = serializeResult;
+        serializeFailure = serializeResult;
       }
     }
 
     while (engine.hasWork(hasSerializedWork: pendingSerializeRemainingIteration() != null)) {
-      if (serializeFailureMessage != null) break;
+      if (serializeFailure != null) break;
       final serializeIter = pendingSerializeRemainingIteration();
       if (serializeIter != null) {
         await enactSerializeRemaining(serializeIter);
         continue;
       }
       if (mapCtx.budgetExhausted) {
-        controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
-        final cancelledByBudget = engine.cancelPending('Cancelled: budget exhausted');
+        controllerFailure ??= WorkflowForeachControllerFailure(
+          "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted",
+        );
+        final cancelledByBudget = engine.cancelPending(const WorkflowIterationCancelled('Cancelled: budget exhausted'));
         await _persistForeachProgress(
           run,
           controllerStep,
@@ -203,7 +211,6 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           item: (collection[iterIndex] as Object?) ?? '',
           index: iterIndex,
           length: collection.length,
-          alias: controllerStep.mapAlias,
         );
         final controllerResolved = resolveStepConfig(
           controllerStep,
@@ -262,13 +269,15 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               st,
             );
             if (!mapCtx.completedIndices.contains(iterIndex)) {
-              controllerFailureMessage =
-                  "foreach-controller-failure: foreach step '${controllerStep.id}' iteration $iterIndex failed unexpectedly: $e";
+              controllerFailure = WorkflowForeachControllerFailure(
+                "foreach-controller-failure: foreach step '${controllerStep.id}' iteration $iterIndex "
+                'failed unexpectedly: $e',
+              );
               await recordIterationFailureAndDecrement(
                 _eventBus,
                 mapCtx: mapCtx,
                 iterIndex: iterIndex,
-                failureMessage: 'Unexpected iteration error: $e',
+                failure: WorkflowIterationFailure('Unexpected iteration error: $e'),
                 taskId: firstTaskIds[iterIndex],
                 run: run,
                 step: controllerStep,
@@ -342,7 +351,9 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             '${engine.pending.length} items remain blocked on unresolved dependencies; leaving them pending for resume.',
           );
           if (controllerStep.onFailure == OnFailurePolicy.continueWorkflow) {
-            final cancelledByDep = engine.cancelPending('Cancelled: dependency failed');
+            final cancelledByDep = engine.cancelPending(
+              const WorkflowIterationCancelled('Cancelled: dependency failed'),
+            );
             await _persistForeachProgress(
               run,
               controllerStep,
@@ -356,14 +367,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           break;
         }
 
-        final cancellationMessage = depGraph.hasDependencies
-            ? 'Cancelled: dependency deadlock'
-            : 'Cancelled: dispatch stall';
+        final cancellation = depGraph.hasDependencies
+            ? const WorkflowIterationCancelled('Cancelled: dependency deadlock')
+            : const WorkflowIterationCancelled('Cancelled: dispatch stall');
         WorkflowExecutor._log.warning(
           "Workflow '${run.id}': foreach step '${controllerStep.id}' – "
           '${engine.pending.length} items stalled; cancelling.',
         );
-        final cancelledByStall = engine.cancelPending(cancellationMessage);
+        final cancelledByStall = engine.cancelPending(cancellation);
         await _persistForeachProgress(
           run,
           controllerStep,
@@ -396,11 +407,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       run = await _checkWorkflowBudgetWarning(run, definition, additionalTokens: foreachConsumedTokens);
       if (_workflowBudgetExceeded(run, definition, additionalTokens: foreachConsumedTokens)) {
         mapCtx.budgetExhausted = true;
-        controllerFailureMessage ??= "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted";
+        controllerFailure ??= WorkflowForeachControllerFailure(
+          "foreach-controller-failure: foreach step '${controllerStep.id}' budget exhausted",
+        );
       }
     }
-    if (serializeFailureMessage != null) {
-      return MapStepResult(results: const [], totalTokens: 0, success: false, error: serializeFailureMessage);
+    final settledSerializeFailure = serializeFailure;
+    if (settledSerializeFailure != null) {
+      return MapStepResult(results: const [], totalTokens: 0, failure: settledSerializeFailure);
     }
     if (engine.hasInFlight) {
       final activeSerializeState = _SerializeRemainingState.read(context, stepId: controllerStep.id);
@@ -474,12 +488,12 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         timestamp: DateTime.now(),
       ),
     );
-    if (controllerFailureMessage != null) {
+    final settledControllerFailure = controllerFailure;
+    if (settledControllerFailure != null) {
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
-        success: false,
-        error: controllerFailureMessage,
+        failure: settledControllerFailure,
       );
     }
     final escalatedHold = _foreachEscalatedHold(mapCtx);
@@ -489,30 +503,34 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         final message = slot is Map ? slot['message'] : slot;
         WorkflowExecutor._log.warning("Foreach step '${controllerStep.id}' iteration [$index] failed: $message");
       }
-      final hasPromotionConflict = mapCtx.failedIndices.any((index) {
-        final slot = mapCtx.results[index];
-        return slot is Map && (slot['message'] as String?)?.startsWith('promotion-conflict') == true;
-      });
-      final hasPromotionFailure = mapCtx.failedIndices.any((index) {
-        final slot = mapCtx.results[index];
-        final message = slot is Map ? slot['message'] as String? : null;
-        return message?.startsWith('promotion failed:') == true;
-      });
+      final hasPromotionConflict = mapCtx.failedIndices.any(
+        (index) => mapCtx.failures[index] is WorkflowPromotionConflictFailure,
+      );
+      final hasPromotionFailure = mapCtx.failedIndices.any(
+        (index) => mapCtx.failures[index] is WorkflowPromotionFailure,
+      );
+      // Single-valued, not a set: a conflict co-occurring with an escalation
+      // must lose, or `keepCursor` flips.
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
-        success: false,
-        error:
-            controllerFailureMessage ??
-            (escalatedHold != null
-                ? "foreach-hard-failure-with-escalation: Foreach step '${controllerStep.id}': "
-                      '${mapCtx.failedIndices.length} iteration(s) failed; escalation-marked blocked item(s) '
-                      'also require review'
-                : hasPromotionConflict
-                ? "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts"
-                : hasPromotionFailure
-                ? "promotion-failure: foreach step '${controllerStep.id}' has unpromoted item failures"
-                : "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed"),
+        failure: escalatedHold != null
+            ? WorkflowEscalatedHardFailure(
+                "foreach-hard-failure-with-escalation: Foreach step '${controllerStep.id}': "
+                '${mapCtx.failedIndices.length} iteration(s) failed; escalation-marked blocked item(s) '
+                'also require review',
+              )
+            : hasPromotionConflict
+            ? WorkflowPromotionConflictFailure(
+                "promotion-conflict: foreach step '${controllerStep.id}' has unresolved promotion conflicts",
+              )
+            : hasPromotionFailure
+            ? WorkflowPromotionFailure(
+                "promotion-failure: foreach step '${controllerStep.id}' has unpromoted item failures",
+              )
+            : WorkflowIterationFailure(
+                "Foreach step '${controllerStep.id}': ${mapCtx.failedIndices.length} iteration(s) failed",
+              ),
       );
     }
     // An escalated remediation exhaustion (`onMaxIterations: escalate`) is an
@@ -555,7 +573,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           "Foreach step '${controllerStep.id}': ${mapCtx.blockedCount} item(s) blocked (recoverable): "
           '${_sanitizeAgentReportedText(blockedIds.join(', '))}';
     }
-    return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens, success: true);
+    return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens);
   }
 
   Future<void> _dispatchForeachIteration({
@@ -607,13 +625,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     Future<void> persistProgress() =>
         _persistForeachProgress(run, controllerStep, context, mapCtx, stepIndex: stepIndex, promotedIds: promotedIds);
 
-    Future<void> failAndReturn(String message, String? taskId) {
+    Future<void> failAndReturn(WorkflowFailure failure, String? taskId) {
       _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
       return recordIterationFailureAndDecrement(
         _eventBus,
         mapCtx: mapCtx,
         iterIndex: iterIndex,
-        failureMessage: message,
+        failure: failure,
         taskId: taskId,
         run: run,
         step: controllerStep,
@@ -648,7 +666,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         }
         if (mapCtx.budgetExhausted) {
           await failAndReturn(
-            "Foreach child step '${childStep.id}' not dispatched: workflow budget exceeded",
+            WorkflowIterationFailure("Foreach child step '${childStep.id}' not dispatched: workflow budget exceeded"),
             firstTaskId,
           );
           return;
@@ -693,14 +711,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             status == WorkflowRunStatus.cancelled) {
           // The task wait was aborted by a run-level transition (teardown,
           // pause, or a sibling's dependency hold) – not a task-creation
-          // failure. Leave the iteration unsettled so resume re-runs it,
-          // mirroring the map dispatcher's abort seam.
+          // failure. The iteration stays unsettled so resume re-runs it.
           mapCtx.aborted = true;
           await persistProgress();
           mapCtx.inFlightCount--;
           return;
         }
-        await failAndReturn("Foreach child step '${childStep.id}' failed to create task", null);
+        await failAndReturn(
+          WorkflowIterationFailure("Foreach child step '${childStep.id}' failed to create task"),
+          null,
+        );
         return;
       }
       if (childIndex == 0) {
@@ -761,7 +781,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           _clearCompletedForeachSubStepIds(context, controllerStep.id, iterIndex);
           mapCtx.recordBlocked(
             iterIndex,
-            'blocked: $reason',
+            WorkflowIterationBlockedHold(reason),
             result.task?.id,
             requiresDependencyHold: result.requiresDependencyHold,
           );
@@ -796,7 +816,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           );
           return;
         }
-        await failAndReturn("Foreach child step '${childStep.id}' failed", result.task?.id);
+        await failAndReturn(WorkflowIterationFailure("Foreach child step '${childStep.id}' failed"), result.task?.id);
         _fireStepCompletedEvent(
           run: run,
           step: childStep,
@@ -848,19 +868,31 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       final integrationBranchValue = integrationBranch;
 
       if (promote == null) {
-        await failAndReturn('promotion failed: host promotion callback is not configured', firstTaskId);
+        await failAndReturn(
+          const WorkflowPromotionFailure('promotion failed: host promotion callback is not configured'),
+          firstTaskId,
+        );
         return;
       }
       if (projectIdValue == null || projectIdValue.isEmpty) {
-        await failAndReturn('promotion failed: foreach iteration has no project binding', firstTaskId);
+        await failAndReturn(
+          const WorkflowPromotionFailure('promotion failed: foreach iteration has no project binding'),
+          firstTaskId,
+        );
         return;
       }
       if (storyBranch == null || storyBranch.isEmpty) {
-        await failAndReturn('promotion failed: task worktree branch is unavailable', firstTaskId);
+        await failAndReturn(
+          const WorkflowPromotionFailure('promotion failed: task worktree branch is unavailable'),
+          firstTaskId,
+        );
         return;
       }
       if (integrationBranchValue == null || integrationBranchValue.isEmpty) {
-        await failAndReturn('promotion failed: integration branch is not initialized', firstTaskId);
+        await failAndReturn(
+          const WorkflowPromotionFailure('promotion failed: integration branch is not initialized'),
+          firstTaskId,
+        );
         return;
       }
       var stopAfterPromotion = false;
@@ -885,7 +917,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
               context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
               context['${controllerStep.id}[$iterIndex].promotion_sha'] = commitSha;
-            case PromotionConflict(:final conflictingFiles, :final details):
+            case PromotionConflict(:final conflictingFiles, :final details, :final failure):
               final mergeResolveConfig = definition.gitStrategy?.mergeResolve;
               if (mergeResolveConfig != null && mergeResolveConfig.enabled) {
                 final resolveResult = await _resolveMergePromotionConflict(
@@ -913,7 +945,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                   onFirstTaskCreated: recordFirstTaskId,
                 );
                 if (resolveResult == null) {
-                  await failAndReturn('merge-resolve failed', firstTaskId);
+                  // A worktree cleanup error or a cancelled resolver task: no
+                  // promotion verdict, so this settles as an ordinary iteration
+                  // failure rather than a promotion one.
+                  await failAndReturn(const WorkflowIterationFailure('merge-resolve failed'), firstTaskId);
                   stopAfterPromotion = true;
                   return;
                 }
@@ -933,11 +968,12 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                     return;
                   case WorkflowGitPromotionConflict():
                   case WorkflowGitPromotionError():
-                    final conflictMsg =
-                        'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}';
+                    // A post-merge-resolve error is deliberately recorded as a
+                    // conflict: it keeps the resume cursor and the
+                    // dependency-hold exclusion the conflict path owns.
                     context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
                     context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
-                    await failAndReturn(conflictMsg, firstTaskId);
+                    await failAndReturn(failure, firstTaskId);
                     stopAfterPromotion = true;
                     return;
                 }
@@ -945,16 +981,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                 // merge-resolve disabled – byte-identical to pre-feature behavior.
                 context['${controllerStep.id}[$iterIndex].promotion'] = 'conflict';
                 context['${controllerStep.id}[$iterIndex].promotion_details'] = details;
-                await failAndReturn(
-                  'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
-                  firstTaskId,
-                );
+                await failAndReturn(failure, firstTaskId);
                 stopAfterPromotion = true;
                 return;
               }
-            case PromotionError(:final failureMessage):
+            case PromotionError(:final failure):
               context['${controllerStep.id}[$iterIndex].promotion'] = 'failed';
-              await failAndReturn(failureMessage, firstTaskId);
+              await failAndReturn(failure, firstTaskId);
               stopAfterPromotion = true;
               return;
             case PromotionSerializeRemaining():
@@ -1042,11 +1075,18 @@ MapStepResult _serializeRemainingSettleTimeoutResult(WorkflowStep step, int inFl
     MapStepResult(
       results: const [],
       totalTokens: 0,
-      success: false,
-      error:
-          "serialize-remaining settle-timeout: foreach step '${step.id}' still had "
-          '$inFlightCount in-flight iteration(s) after ${settleTimeout.inMilliseconds}ms',
+      failure: serializeRemainingSettleTimeoutFailure(step, inFlightCount, settleTimeout),
     );
+
+/// The settle-timeout failure both of its producers build.
+WorkflowSerializeRemainingSettleTimeout serializeRemainingSettleTimeoutFailure(
+  WorkflowStep step,
+  int inFlightCount,
+  Duration settleTimeout,
+) => WorkflowSerializeRemainingSettleTimeout(
+  "serialize-remaining settle-timeout: foreach step '${step.id}' still had "
+  '$inFlightCount in-flight iteration(s) after ${settleTimeout.inMilliseconds}ms',
+);
 
 typedef _MergeStepResult = void Function(WorkflowContext, StepOutcome, {String? fallbackStatus});
 
@@ -1086,13 +1126,6 @@ String? _foreachDependencyHold(
   Iterable<int> pending, {
   bool includeFailures = true,
 }) {
-  bool isPromotionFailure(int index) {
-    final slot = mapCtx.results[index];
-    final message = slot is Map ? slot['message'] as String? : null;
-    if (message == null) return false;
-    return message.startsWith('promotion-conflict') || message.startsWith('promotion failed:');
-  }
-
   bool blockedRequiresDependencyHold(int index) {
     if (includeFailures) return true;
     final slot = mapCtx.results[index];
@@ -1106,7 +1139,7 @@ String? _foreachDependencyHold(
     if (includeFailures) ...mapCtx.failedIndices,
   };
   for (final index in candidateIndices) {
-    if (mapCtx.failedIndices.contains(index) && isPromotionFailure(index)) continue;
+    if (mapCtx.failedIndices.contains(index) && _isPromotionFailure(mapCtx.failures[index])) continue;
     final id = depGraph.idAt(index);
     if (id != null) settledIds.add(id);
   }
@@ -1117,7 +1150,7 @@ String? _foreachDependencyHold(
       final dependentId = depGraph.idAt(dependentIndex) ?? 'item #$dependentIndex';
       final blockerIndex = depGraph.indexOfId(blockerId);
       final state = blockerIndex != null && mapCtx.blockedIndices.contains(blockerIndex) ? 'blocked' : 'failed';
-      final blockerDetail = blockerIndex == null ? null : _foreachBlockerDetail(mapCtx.results[blockerIndex]);
+      final blockerDetail = blockerIndex == null ? null : _foreachBlockerDetail(mapCtx.failures[blockerIndex]);
       // Resume guidance must match restore semantics: a blocked item stays
       // pending (resume re-runs it); a failed item is restored as settled and
       // is never re-dispatched, so resume would re-pause on the same hold.
@@ -1133,6 +1166,22 @@ String? _foreachDependencyHold(
   }
   return null;
 }
+
+/// Whether [failure] is one of the two promotion outcomes that carry their own
+/// resume-cursor recovery path, and so are excluded from the dependency hold.
+///
+/// Enumerated rather than defaulted: a new variant must decide here.
+bool _isPromotionFailure(WorkflowFailure? failure) => switch (failure) {
+  WorkflowPromotionConflictFailure() || WorkflowPromotionFailure() => true,
+  WorkflowForeachControllerFailure() ||
+  WorkflowSerializeRemainingSettleTimeout() ||
+  WorkflowEscalatedHardFailure() ||
+  WorkflowIterationFailure() ||
+  WorkflowIterationBlockedHold() ||
+  WorkflowIterationCancelled() ||
+  WorkflowLegacyIterationStateFailure() ||
+  null => false,
+};
 
 /// Builds a pause reason when a foreach item settled blocked carrying the
 /// escalation marker (`MapStepContext.requiresDependencyHoldKey`, written by a
@@ -1156,7 +1205,7 @@ String? _foreachEscalatedHold(MapStepContext mapCtx) {
   // First blocker's step-reported detail; a parallel plan can escalate several
   // leaves at once, so the id list names them all while one detail keeps the
   // reason bounded.
-  final blockerDetail = _foreachBlockerDetail(mapCtx.results[markedIndices.first]);
+  final blockerDetail = _foreachBlockerDetail(mapCtx.failures[markedIndices.first]);
   final subject = storyIds.length == 1
       ? "Story '${storyIds.single}'"
       : "Stories ${storyIds.map((id) => "'$id'").join(', ')}";
@@ -1167,14 +1216,10 @@ String? _foreachEscalatedHold(MapStepContext mapCtx) {
       'land manual fixes on the integration branch or in the spec, not on the abandoned story branch.';
 }
 
-String? _foreachBlockerDetail(dynamic resultSlot) {
-  if (resultSlot is! Map) return null;
-  final message = resultSlot['message'];
-  if (message is! String) return null;
-  final trimmed = message.trim();
-  if (trimmed.isEmpty) return null;
-  final detail = trimmed.startsWith('blocked: ') ? trimmed.substring('blocked: '.length) : trimmed;
-  return _sanitizeAgentReportedText(detail);
+String? _foreachBlockerDetail(WorkflowFailure? failure) {
+  final trimmed = failure?.message.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  return _sanitizeAgentReportedText(trimmed);
 }
 
 /// Flattens and bounds agent-reported text before embedding it in an

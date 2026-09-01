@@ -156,14 +156,12 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 **Steps:**
 1. Open a session at `/sessions/<id>`
 2. Focus the composer
-3. Type `/`, then dismiss the command palette
-4. Type `@`, then dismiss the reference palette
-5. Drag or paste a small text file into the composer
-6. Start a send, then observe the streaming state
+3. Type `@`, then dismiss the reference palette
+4. Drag or paste a small text file into the composer
+5. Start a send, then observe the streaming state
 
 **Pass:**
 - Composer renders as the rich shell, not a plain textarea-only form
-- Slash palette opens with keyboard-selectable command rows and dismisses cleanly
 - Reference palette opens with selectable context rows and dismisses cleanly
 - Attachment chip appears with filename/status and can be removed before send
 - Send/stop control switches state during streaming without layout shift
@@ -388,7 +386,7 @@ content directly (NDJSON file or SQLite).
 
 **Fail:** Indistinguishable from a successful assistant message
 
-**Automated proof:** `dart test --run-skipped -t integration packages/dartclaw_server/test/integration/crash_recovery_smoke_test.dart` verifies orphaned turn cleanup across a real restart boundary and asserts the recovered session renders `.msg-turn-failed`.
+**Automated proof:** `dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart` verifies orphaned turn cleanup across a real restart boundary and asserts the recovered session renders `.msg-turn-failed`.
 
 ---
 
@@ -399,7 +397,7 @@ content directly (NDJSON file or SQLite).
 1. Navigate to `/tasks`
 
 **Pass:**
-- Status and type filters visible
+- Status filter visible; no task-category filter or badge is present
 - "New Task" button opens the create-task dialog
 - Existing tasks grouped by status with clickable titles (or empty-state card "No tasks yet" when none)
 - Execution Capacity / providers section renders without console errors
@@ -411,14 +409,14 @@ content directly (NDJSON file or SQLite).
 
 ### TC-21: Task Detail Progression *(requires a task to start)*
 **Steps:**
-1. Plain profile: create an **Automation** draft task at `/tasks/<id>`; Coding tasks require a registered, ready Git
-   project, while Research tasks require the `restricted` profile supplied by container isolation
+1. Plain profile: create a draft task with **Needs worktree** off at `/tasks/<id>`; tasks requesting worktrees require a
+   registered, ready Git project, while tasks declared with the `restricted` profile have no workspace mount
 2. Click **Start Task** (or equivalent transition); do not manually reload afterwards
 
 **Pass:**
 - Draft state shows the start action; queued/running state takes over without reload
 - Once a session is attached, the embedded task session shows at least the initial user prompt
-- For coding tasks: timeline / diff sections render after the first events
+- For tasks with `needsWorktree: true`: timeline / diff sections render after the first events
 - No console errors
 
 **Fail:** Page stale after start; manual reload required to see new state
@@ -443,11 +441,12 @@ content directly (NDJSON file or SQLite).
 
 ### TC-23: Memory Dashboard — Prune Action
 **Steps:**
-1. On `/memory`, click "Prune Now"; confirm within ~4s
+1. On `/memory`, click "Prune Now"
+2. Confirm in the shared confirmation dialog
 
-**Pass:** Two-step confirm flow runs without error; overview metrics + pruner history refresh
+**Pass:** A toast reports the archived and de-duplicated counts; overview metrics + pruner history refresh
 immediately after success (not on the next 30s poll)
-**Fail:** No confirmation step; metrics stale after a successful prune; button stuck disabled
+**Fail:** No confirmation dialog or outcome toast; metrics stale after a successful prune; control stuck disabled
 
 ---
 
@@ -462,6 +461,8 @@ immediately after success (not on the next 30s poll)
 - Edit pre-populates fields; name field disabled in edit mode
 - Delete uses an inline confirmation row
 - Job names containing `"` `'` `<` `&` render safely in the confirmation
+- A newly written job is marked `Restart to run`, while a job already loaded by the running scheduler is not
+- The restart banner appears with the successful mutation response, without a page reload
 
 **Fail:** Form doesn't open; cron preview missing; raw HTML in confirmation; layout breaks on special chars
 

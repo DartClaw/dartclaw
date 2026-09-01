@@ -4,13 +4,7 @@ import 'package:test/test.dart';
 void main() {
   group('TaskStatus — push-back transition (review → running)', () {
     test('review allows transition to running', () {
-      final task = Task(
-        id: 'task-1',
-        title: 'Test task',
-        description: 'desc',
-        type: TaskType.research,
-        createdAt: DateTime.utc(2026, 3, 21),
-      );
+      final task = Task(id: 'task-1', title: 'Test task', description: 'desc', createdAt: DateTime.utc(2026, 3, 21));
       final queued = task.transition(TaskStatus.queued);
       final running = queued.transition(TaskStatus.running);
       final review = running.transition(TaskStatus.review);
@@ -21,26 +15,14 @@ void main() {
     });
 
     test('review still allows transition to accepted', () {
-      final task = Task(
-        id: 'task-1',
-        title: 'Test task',
-        description: 'desc',
-        type: TaskType.research,
-        createdAt: DateTime.utc(2026, 3, 21),
-      );
+      final task = Task(id: 'task-1', title: 'Test task', description: 'desc', createdAt: DateTime.utc(2026, 3, 21));
       final review = task.transition(TaskStatus.queued).transition(TaskStatus.running).transition(TaskStatus.review);
 
       expect(() => review.transition(TaskStatus.accepted), returnsNormally);
     });
 
     test('review still allows transition to rejected', () {
-      final task = Task(
-        id: 'task-1',
-        title: 'Test task',
-        description: 'desc',
-        type: TaskType.research,
-        createdAt: DateTime.utc(2026, 3, 21),
-      );
+      final task = Task(id: 'task-1', title: 'Test task', description: 'desc', createdAt: DateTime.utc(2026, 3, 21));
       final review = task.transition(TaskStatus.queued).transition(TaskStatus.running).transition(TaskStatus.review);
 
       expect(() => review.transition(TaskStatus.rejected), returnsNormally);

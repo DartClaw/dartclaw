@@ -13,7 +13,7 @@ Future<void> main() async {
     systemPrompt: 'You are a test harness.',
   );
 
-  harness.completeSuccess(const {'ok': true, 'message': 'done'});
+  harness.completeSuccess(const TurnResult(stopReason: 'completed'));
   final turnResult = await turnFuture;
 
   final eventFuture = eventBus.expectEvent<TaskStatusChangedEvent>();

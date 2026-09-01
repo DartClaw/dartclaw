@@ -37,6 +37,7 @@ enum MemoryRole {
   archive('archive'),
   observation('observation'),
   learning('learning'),
+  error('error'),
   audit('audit'),
   wiki('wiki'),
   kg('kg');
@@ -229,6 +230,39 @@ final class CanonicalMemoryLearning extends CanonicalMemoryRecord {
   @override
   bool operator ==(Object other) =>
       other is CanonicalMemoryLearning &&
+      id == other.id &&
+      revision == other.revision &&
+      summary == other.summary &&
+      content == other.content &&
+      created == other.created &&
+      updated == other.updated &&
+      provenance._hasSameFieldsAs(other.provenance);
+
+  @override
+  int get hashCode => Object.hash(id, revision, summary, content, created, updated, provenance);
+}
+
+/// A bounded runtime-failure record stored outside personal topic memory.
+final class CanonicalMemoryError extends CanonicalMemoryRecord {
+  new({
+    required super.id,
+    required super.revision,
+    required this.summary,
+    required this.content,
+    required super.created,
+    required super.updated,
+    required super.provenance,
+  }) {
+    _requireText(summary, 'summary');
+    _requireText(content, 'content');
+  }
+
+  final String summary;
+  final String content;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CanonicalMemoryError &&
       id == other.id &&
       revision == other.revision &&
       summary == other.summary &&

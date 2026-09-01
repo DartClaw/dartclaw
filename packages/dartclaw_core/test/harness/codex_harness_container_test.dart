@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities, UnsupportedCapabilityError;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/src/container/container_executor.dart';
 import 'package:dartclaw_core/src/harness/codex_environment.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
-import 'package:dartclaw_core/src/harness/harness_config.dart';
+import 'package:dartclaw_core/src/harness/harness_launch_options.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -104,13 +104,15 @@ final class _RecordingCodexContainer implements ContainerExecutor {
 
 CodexHarness _harness(
   _RecordingCodexContainer container, {
-  HarnessConfig harnessConfig = const HarnessConfig(),
+  HarnessLaunchOptions harnessConfig = const HarnessLaunchOptions(),
   Map<String, String>? environment,
+  Map<String, String> containerEnvironment = const {},
 }) => CodexHarness(
   cwd: container.hostRoot,
   containerManager: container,
   environment:
       environment ?? {'OPENAI_API_KEY': _hostApiKeySentinel, 'CODEX_HOME': '/home/tester/.codex', 'PATH': '/usr/bin'},
+  containerEnvironment: containerEnvironment,
   harnessConfig: harnessConfig,
   // Points the seeding lifecycle's source at the temp root, so a host home
   // planted below is genuinely copyable and the assertion can fail.
@@ -192,6 +194,25 @@ void main() {
       await harness.stop();
     });
 
+    test('passes request-scoped environment to the concrete container launch', () async {
+      final harness = _harness(
+        container,
+        containerEnvironment: const {
+          'DARTCLAW_STEP_ARTIFACTS_DIR': '/runtime-artifacts',
+          'ANDTHEN_REPORT_PATH': '/runtime-artifacts/report.md',
+        },
+      );
+      await _start(harness, container);
+
+      final environment = container.environments.last!;
+      expect(environment['DARTCLAW_STEP_ARTIFACTS_DIR'], '/runtime-artifacts');
+      expect(environment['ANDTHEN_REPORT_PATH'], '/runtime-artifacts/report.md');
+      expect(environment['CODEX_HOME'], '${_RecordingCodexContainer.containerStateRoot}/codex-home');
+      expect(environment.values, isNot(contains(_hostApiKeySentinel)));
+
+      await harness.stop();
+    });
+
     test('disables the Codex OS sandbox – the container is the boundary', () async {
       final harness = _harness(container);
       await _start(harness, container);
@@ -202,6 +223,22 @@ void main() {
       // danger-full-access inside the boundary.
       final spawn = container.commands.last.join(' ');
       expect(spawn, contains('sandbox_permissions=["disk-full-read-write-access", "network-full-access"]'));
+
+      final process = container.spawned!;
+      final turn = harness.turn(
+        sessionId: 'container-sandbox',
+        messages: const [
+          {'role': 'user', 'content': 'test'},
+        ],
+        systemPrompt: '',
+      );
+      await respondToLatestThreadStart(process);
+      await waitForSentMessage(process, 'turn/start');
+      final params = process.sentMessages.lastWhere((message) => message['method'] == 'turn/start')['params'];
+      expect(params, isA<Map<String, dynamic>>());
+      expect((params as Map<String, dynamic>)['sandboxPolicy'], {'type': 'dangerFullAccess'});
+      process.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turn;
 
       await harness.stop();
     });
@@ -306,7 +343,7 @@ void main() {
       final scoped = _RecordingCodexContainer(hostRoot: root.path, mcpBridgeUrl: 'http://127.0.0.1:8081/mcp');
       final harness = _harness(
         scoped,
-        harnessConfig: const HarnessConfig(
+        harnessConfig: const HarnessLaunchOptions(
           mcpServerUrl: 'http://127.0.0.1:3000/mcp',
           mcpGatewayToken: _sharedMcpBearerSentinel,
         ),
@@ -327,7 +364,7 @@ void main() {
     test('configures no MCP server when the authority was granted no tools', () async {
       final harness = _harness(
         container,
-        harnessConfig: const HarnessConfig(
+        harnessConfig: const HarnessLaunchOptions(
           mcpServerUrl: 'http://127.0.0.1:3000/mcp',
           mcpGatewayToken: _sharedMcpBearerSentinel,
         ),
@@ -366,7 +403,7 @@ void main() {
     final scoped = _RecordingCodexContainer(hostRoot: root.path, mcpBridgeUrl: 'http://127.0.0.1:8081/mcp');
     final harness = _harness(
       scoped,
-      harnessConfig: const HarnessConfig(
+      harnessConfig: const HarnessLaunchOptions(
         mcpServerUrl: 'http://127.0.0.1:3000/mcp',
         mcpGatewayToken: _sharedMcpBearerSentinel,
       ),

@@ -1,25 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         EventBus,
         MapIterationCompletedEvent,
         Task,
-        TaskStatus,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
         WorkflowCliTurnProgressEvent,
         WorkflowRunStatusChangedEvent,
         WorkflowStepCompletedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowService, WorkflowTaskType;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn, TaskService, WriteLine;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowService;
 
-import '../serve_command.dart' show ExitFn, WriteLine;
 import 'cli_progress_printer.dart';
-import 'workflow_event_printer_dispatch.dart';
+import 'workflow_progress_renderer.dart';
 import 'workflow_run_digest.dart';
 
 /// Drives an already-wired standalone workflow run to its next settle point.
@@ -29,6 +26,10 @@ import 'workflow_run_digest.dart';
 /// the executor asynchronously), and awaits a terminal / `paused` /
 /// `awaitingApproval` status before returning the final [WorkflowRun]. The
 /// caller maps that status to a process exit code via [standaloneWorkflowExitCode].
+///
+/// Step progress renders through the shared [WorkflowProgressRenderer]; this
+/// lane owns its renderer-authored `--json` payloads, the settle sequence and
+/// the interrupt handling.
 ///
 /// Shared by `workflow run --standalone` and the standalone lifecycle commands
 /// (`resume`/`retry`) so both render identical step-progress output. Because
@@ -48,8 +49,82 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
 }) async {
   final runCompleter = Completer<WorkflowRun>();
   String? activeRunId;
-  final stepStartTimes = <String, DateTime>{};
   WorkflowApprovalRequestedEvent? lastApprovalEvent;
+
+  final renderer = WorkflowProgressRenderer(
+    definition: definition,
+    printer: printer,
+    jsonOutput: jsonOutput,
+    resolveStepContext: (update) async {
+      final runId = activeRunId;
+      final taskId = update.taskId;
+      if (runId == null || taskId == null) return null;
+      final task = await taskService.get(taskId);
+      if (task == null || task.workflowRunId != runId) return null;
+      final stepIndex = task.stepIndex;
+      if (stepIndex == null) return null;
+      return TaskStepContext(
+        stepIndex: stepIndex,
+        stepId: definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id,
+        title: task.title,
+        provider: task.provider ?? definition.steps[stepIndex].provider,
+        displayScope: taskDisplayScope(task),
+      );
+    },
+    jsonSink: jsonOutput
+        ? WorkflowProgressJsonSink(
+            taskTransition: (update, context) {
+              final payload = <String, Object?>{
+                'type': 'task_status_changed',
+                'runId': activeRunId,
+                'taskId': update.taskId,
+                'stepIndex': context.stepIndex,
+                'stepId': context.stepId,
+                'oldStatus': update.oldStatus?.name,
+                'newStatus': update.newStatus.name,
+              };
+              if (context.displayScope != null) {
+                payload['displayScope'] = context.displayScope;
+              }
+              stdoutLine(jsonEncode(payload));
+            },
+            stepCompleted: (event, duration) => stdoutLine(
+              jsonEncode({
+                'type': 'workflow_step_completed',
+                'runId': event.runId,
+                'stepId': event.stepId,
+                'stepIndex': event.stepIndex,
+                'totalSteps': event.totalSteps,
+                'taskId': event.taskId,
+                if (event.displayScope != null) 'displayScope': event.displayScope,
+                'success': event.success,
+                if (event.outcome != null) 'outcome': event.outcome,
+                if (event.reason != null) 'reason': event.reason,
+                'tokenCount': event.tokenCount,
+                'durationMs': duration.inMilliseconds,
+              }),
+            ),
+            mapIterationCompleted: (event, stepIndex, duration) => stdoutLine(
+              jsonEncode({
+                'type': 'map_iteration_completed',
+                'runId': event.runId,
+                'stepId': event.stepId,
+                'stepIndex': stepIndex,
+                'iterationIndex': event.iterationIndex,
+                'totalIterations': event.totalIterations,
+                if (event.itemId != null) 'itemId': event.itemId,
+                if (event.itemId != null) 'displayScope': event.itemId,
+                'taskId': event.taskId,
+                'success': event.success,
+                if (event.outcome != null) 'outcome': event.outcome,
+                if (event.reason != null) 'reason': event.reason,
+                'tokenCount': event.tokenCount,
+                'durationMs': duration.inMilliseconds,
+              }),
+            ),
+          )
+        : null,
+  );
 
   final runSub = eventBus.on<WorkflowRunStatusChangedEvent>().listen((event) {
     final runId = activeRunId;
@@ -97,148 +172,25 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
 
   final stepSub = eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
     if (activeRunId != null && event.runId != activeRunId) return;
-    final key = progressStartKey(stepIndex: event.stepIndex, taskId: event.taskId, displayScope: event.displayScope);
-    final startTime = stepStartTimes.remove(key);
-    final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
-    if (jsonOutput) {
-      stdoutLine(
-        jsonEncode({
-          'type': 'workflow_step_completed',
-          'runId': event.runId,
-          'stepId': event.stepId,
-          'stepIndex': event.stepIndex,
-          'totalSteps': event.totalSteps,
-          'taskId': event.taskId,
-          if (event.displayScope != null) 'displayScope': event.displayScope,
-          'success': event.success,
-          if (event.outcome != null) 'outcome': event.outcome,
-          if (event.reason != null) 'reason': event.reason,
-          'tokenCount': event.tokenCount,
-          'durationMs': duration.inMilliseconds,
-        }),
-      );
-      return;
-    }
-    dispatchWorkflowStepCompletedToPrinter(
-      printer: printer,
-      event: event,
-      duration: startTime != null ? duration : null,
-      progressKey: key,
-    );
+    renderer.stepCompleted(event, displayScope: event.displayScope);
   });
 
   final mapIterationSub = eventBus.on<MapIterationCompletedEvent>().listen((event) {
     if (activeRunId != null && event.runId != activeRunId) return;
-    final stepIndex = definition.steps.indexWhere((step) => step.id == event.stepId);
-    if (stepIndex < 0) return;
-    if (definition.steps[stepIndex].taskType == WorkflowTaskType.foreach && event.taskId.trim().isNotEmpty) return;
-    final key = progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: event.itemId);
-    final startTime = stepStartTimes.remove(key);
-    final duration = startTime != null ? DateTime.now().difference(startTime) : Duration.zero;
-    if (jsonOutput) {
-      stdoutLine(
-        jsonEncode({
-          'type': 'map_iteration_completed',
-          'runId': event.runId,
-          'stepId': event.stepId,
-          'stepIndex': stepIndex,
-          'iterationIndex': event.iterationIndex,
-          'totalIterations': event.totalIterations,
-          if (event.itemId != null) 'itemId': event.itemId,
-          if (event.itemId != null) 'displayScope': event.itemId,
-          'taskId': event.taskId,
-          'success': event.success,
-          if (event.outcome != null) 'outcome': event.outcome,
-          if (event.reason != null) 'reason': event.reason,
-          'tokenCount': event.tokenCount,
-          'durationMs': duration.inMilliseconds,
-        }),
-      );
-      return;
-    }
-    dispatchMapIterationCompletedToPrinter(
-      printer: printer,
-      event: event,
-      stepIndex: stepIndex,
-      duration: startTime != null ? duration : null,
-      progressKey: key,
-      displayScope: event.itemId,
-    );
+    renderer.mapIterationCompleted(event, displayScope: event.itemId);
   });
 
-  // Live per-step token ticks: the workflow CLI provider fires this per turn
-  // with the task's cumulative tokens. `stepTokens` is a no-op unless that task
-  // is a currently-running step of this run, so it needs no run-id scoping.
   final tokenSub = eventBus.on<WorkflowCliTurnProgressEvent>().listen((event) {
-    if (jsonOutput) return;
-    final key = taskProgressKey(event.taskId);
-    if (key != null) printer.stepTokens(key, event.cumulativeTokens);
+    renderer.turnProgress(taskId: event.taskId, cumulativeTokens: event.cumulativeTokens);
   });
-
-  // Task ids that settled while the running-branch task fetch below was still
-  // in flight – their deferred stepRunning must not resurrect a live entry.
-  final settledTaskIds = <String>{};
 
   final taskSub = eventBus.on<TaskStatusChangedEvent>().listen((event) {
-    final runId = activeRunId;
-    if (runId == null) return;
-    if (taskSettlesLiveEntry(event.newStatus)) {
-      // Parallel-group members settle long before the group barrier fires
-      // WorkflowStepCompletedEvent – retire the live entry now so the live
-      // line counts actually-running tasks. Keys are task-scoped, so a
-      // foreign run's task id can never match an entry; no run scoping needed.
-      settledTaskIds.add(event.taskId);
-      final key = taskProgressKey(event.taskId);
-      if (key != null) printer.stepSettled(key, countTokens: event.newStatus == TaskStatus.accepted);
-      return;
-    }
-    if (event.newStatus == TaskStatus.running || event.newStatus == TaskStatus.review) {
-      // A fresh running supersedes an earlier settle (failed/interrupted tasks
-      // re-queue on retry under the same id).
-      if (event.newStatus == TaskStatus.running) settledTaskIds.remove(event.taskId);
-      taskService.get(event.taskId).then((task) {
-        if (task == null || task.workflowRunId != runId) return;
-        final stepIndex = task.stepIndex;
-        if (stepIndex == null) return;
-        final stepId = definition.steps.length > stepIndex ? definition.steps[stepIndex].id : task.id;
-        final displayScope = taskDisplayScope(task);
-        final runningKey = progressStartKey(stepIndex: stepIndex, taskId: event.taskId, displayScope: displayScope);
-        if (event.newStatus == TaskStatus.running) {
-          stepStartTimes[runningKey] = DateTime.now();
-        }
-        if (jsonOutput) {
-          final payload = {
-            'type': 'task_status_changed',
-            'runId': runId,
-            'taskId': event.taskId,
-            'stepIndex': stepIndex,
-            'stepId': stepId,
-            'oldStatus': event.oldStatus.name,
-            'newStatus': event.newStatus.name,
-          };
-          if (displayScope != null) {
-            payload['displayScope'] = displayScope;
-          }
-          stdoutLine(jsonEncode(payload));
-          return;
-        }
-        if (event.newStatus == TaskStatus.running) {
-          // Settled while this fetch was in flight – the live entry is gone
-          // and must stay gone.
-          if (settledTaskIds.contains(event.taskId)) return;
-          printer.stepRunning(
-            stepIndex,
-            stepId,
-            task.title,
-            task.provider ?? definition.steps[stepIndex].provider,
-            displayScope: displayScope,
-            progressKey: runningKey,
-          );
-        } else {
-          printer.stepReview(stepIndex, stepId, displayScope: displayScope);
-        }
-      });
-    }
+    if (activeRunId == null) return;
+    unawaited(
+      renderer.taskStatusChanged(
+        TaskProgressUpdate(taskId: event.taskId, newStatus: event.newStatus, oldStatus: event.oldStatus),
+      ),
+    );
   });
 
   StreamSubscription<void>? sigintSub;
@@ -328,38 +280,6 @@ int standaloneWorkflowExitCode(WorkflowRunStatus status) {
     WorkflowRunStatus.pending || WorkflowRunStatus.running => 1,
   };
 }
-
-/// Stable key for matching a step's start time to its completion event,
-/// keyed by task id when present, else step index plus optional display scope.
-String progressStartKey({required int stepIndex, String? taskId, String? displayScope}) {
-  final normalizedTaskId = taskId?.trim();
-  if (normalizedTaskId != null && normalizedTaskId.isNotEmpty) {
-    return 'task:$normalizedTaskId';
-  }
-  final normalizedScope = displayScope?.trim();
-  if (normalizedScope != null && normalizedScope.isNotEmpty) {
-    return 'step:$stepIndex:$normalizedScope';
-  }
-  return 'step:$stepIndex';
-}
-
-/// Key for matching a task-scoped event (live token tick, terminal settle) to
-/// its running step. Such events carry only a taskId, which always dominates
-/// [progressStartKey]'s step-index path – so this returns that `task:<id>` key
-/// directly and yields null for a blank taskId, rather than letting it
-/// collapse to `step:0` and mis-attribute the event to whichever step holds
-/// that key.
-String? taskProgressKey(String? taskId) {
-  final normalized = taskId?.trim();
-  if (normalized == null || normalized.isEmpty) return null;
-  return progressStartKey(stepIndex: 0, taskId: normalized);
-}
-
-/// Whether [status] means the task is no longer executing, so its live-line
-/// entry must be retired immediately. Terminal states plus `interrupted`
-/// (execution stopped, resumable) qualify; `review` does not – workflow tasks
-/// auto-accept, so review resolves within the same settle.
-bool taskSettlesLiveEntry(TaskStatus status) => status.terminal || status == TaskStatus.interrupted;
 
 /// Reads a task's `displayScope` config value, normalized to null when blank.
 String? taskDisplayScope(Task task) {

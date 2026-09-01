@@ -82,8 +82,10 @@ void main() {
       expect(content, contains('existing'));
       expect(content, contains('synthesized'));
       // Examples for DC-native skills live in SKILL.md (single source) – the
-      // workflow YAML does not duplicate them via outputExamples.
-      expect(content, contains('<workflow-context>'));
+      // workflow YAML does not duplicate them via outputExamples. They show the
+      // envelope's `outputs`, never a tagged block.
+      expect(content, contains('execution envelope'));
+      expect(content, isNot(contains('<workflow-context>')));
 
       // Strong-signal vocabulary the strengthened classifier keys on – pins the
       // multi-signal contract so a regression to a single header/filename gate fails.
@@ -116,8 +118,10 @@ void main() {
       expect(content, contains('Do not emit a separate warning, log, or context key for normalization'));
       expect(content, isNot(contains('project_index')));
       // Examples for DC-native skills live in SKILL.md (single source) – the
-      // workflow YAML does not duplicate them via outputExamples.
-      expect(content, contains('<workflow-context>'));
+      // workflow YAML does not duplicate them via outputExamples. They show the
+      // envelope's `outputs`, never a tagged block.
+      expect(content, contains('execution envelope'));
+      expect(content, isNot(contains('<workflow-context>')));
     });
 
     test('workflow-variable-consuming skills include the canonical defense phrase', () {

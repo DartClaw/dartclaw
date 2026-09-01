@@ -30,12 +30,14 @@ final class CanonicalMemoryCorpus {
     MemoryArchiveDocument? archive,
     Iterable<MemoryObservationDocument> observations = const [],
     MemoryLearningDocument? learnings,
+    MemoryErrorDocument? errors,
     MemoryAuditDocument? audit,
     Iterable<VerbatimMemoryMember> verbatimMembers = const [],
   }) : topics = List.unmodifiable(topics.toList()..sort((left, right) => left.topic.compareTo(right.topic))),
        archive = archive,
        observations = List.unmodifiable(observations.toList()..sort((left, right) => left.date.compareTo(right.date))),
        learnings = learnings,
+       errors = errors,
        audit = audit,
        verbatimMembers = List.unmodifiable(
          verbatimMembers.toList()..sort((left, right) => left.path.compareTo(right.path)),
@@ -46,6 +48,7 @@ final class CanonicalMemoryCorpus {
   final MemoryArchiveDocument? archive;
   final List<MemoryObservationDocument> observations;
   final MemoryLearningDocument? learnings;
+  final MemoryErrorDocument? errors;
   final MemoryAuditDocument? audit;
   final List<VerbatimMemoryMember> verbatimMembers;
 
@@ -66,6 +69,7 @@ final class CanonicalMemoryCorpus {
       addCanonical('memory/${observation.date}.md', observation);
     }
     if (learnings case final learnings?) addCanonical('learnings.md', learnings);
+    if (errors case final errors?) addCanonical('errors.md', errors);
     if (audit case final audit?) addCanonical('MEMORY.audit.md', audit);
     for (final member in verbatimMembers) {
       if (inventory.containsKey(member.path)) {
@@ -139,6 +143,11 @@ final class MemoryCorpusValidator {
     for (final learning in corpus.learnings?.entries ?? const <CanonicalMemoryLearning>[]) {
       if (!nonActiveIds.add(learning.id) || active.containsKey(learning.id)) {
         errors.add('duplicate canonical record ID: ${learning.id}');
+      }
+    }
+    for (final record in corpus.errors?.entries ?? const <CanonicalMemoryError>[]) {
+      if (!nonActiveIds.add(record.id) || active.containsKey(record.id)) {
+        errors.add('duplicate canonical record ID: ${record.id}');
       }
     }
 

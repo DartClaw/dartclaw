@@ -57,14 +57,14 @@ final class _IterationDispatchEngine {
     });
   }
 
-  /// Cancels every remaining pending iteration with [message] and returns their
-  /// indices in cancellation order. The map controller ignores the result; the
-  /// foreach controller uses it to emit its per-iteration completion events.
-  List<int> cancelPending(String message) {
+  /// Cancels every remaining pending iteration with [failure] and returns their
+  /// indices in cancellation order, which the foreach controller uses to emit
+  /// its per-iteration completion events.
+  List<int> cancelPending(WorkflowIterationCancelled failure) {
     final cancelled = <int>[];
     while (pending.isNotEmpty) {
       final index = pending.removeFirst();
-      mapCtx.recordCancelled(index, message);
+      mapCtx.recordCancelled(index, failure);
       cancelled.add(index);
     }
     return cancelled;
@@ -130,37 +130,48 @@ final class _IterationDispatchEngine {
   return (collection: resolved, error: null);
 }
 
-void restoreIterationProgress(
+/// Rehydrates [mapCtx] from a persisted [cursor].
+///
+/// Returns a [WorkflowLegacyIterationStateFailure] instead of restoring when a
+/// failed slot carries no discriminator this release recognises: such a slot
+/// may be a promotion conflict, and restoring it as an ordinary failure would
+/// silently make its dependents permanently undispatchable. Nothing is mutated
+/// on that path, so the persisted cursor still describes where the run stopped.
+WorkflowLegacyIterationStateFailure? restoreIterationProgress(
   MapStepContext mapCtx,
   Set<String> completedIds,
   WorkflowExecutionCursor? cursor, {
+  required String stepId,
   required WorkflowExecutionCursorNodeType nodeType,
   required int collectionLength,
   bool markFailedAndCancelledItemsReady = true,
 }) {
-  if (cursor == null || cursor.nodeType != nodeType) return;
+  if (cursor == null || cursor.nodeType != nodeType) return null;
 
-  final safeResultSlots = cursor.resultSlots.isEmpty
-      ? List<dynamic>.filled(collectionLength, null)
-      : List<dynamic>.from(cursor.resultSlots);
-  if (safeResultSlots.length < collectionLength) {
-    safeResultSlots.addAll(List<dynamic>.filled(collectionLength - safeResultSlots.length, null));
-  } else if (safeResultSlots.length > collectionLength) {
-    safeResultSlots.removeRange(collectionLength, safeResultSlots.length);
-  }
-
+  final safeResultSlots = _sizedResultSlots(cursor.resultSlots, collectionLength);
   final failed = cursor.failedIndices.toSet();
   final cancelled = cursor.cancelledIndices.toSet();
+  final scan = _restoredFailedSlots(
+    cursor,
+    safeResultSlots,
+    failed: failed,
+    cancelled: cancelled,
+    collectionLength: collectionLength,
+  );
+  final legacyIndex = scan.legacyIndex;
+  if (legacyIndex != null) return _legacyIterationStateFailure(stepId, legacyIndex);
+  final restoredFailures = scan.failures;
+
   for (final index in cursor.completedIndices) {
     if (index < 0 || index >= collectionLength) continue;
     final slotValue = safeResultSlots[index];
     final isFailed = failed.contains(index);
     final isCancelled = cancelled.contains(index);
     if (isCancelled) {
-      mapCtx.recordCancelled(index, _restoredIterationCancellationMessage(slotValue));
-    } else if (isFailed) {
-      final restoredFailure = _restoredIterationFailureMessage(slotValue);
-      if (restoredFailure.startsWith('promotion-conflict')) {
+      mapCtx.recordCancelled(index, WorkflowIterationCancelled(_restoredIterationCancellationMessage(slotValue)));
+    } else if (_restoresAsFailure(index, failed: failed, cancelled: cancelled, collectionLength: collectionLength)) {
+      final restoredFailure = restoredFailures[index]!;
+      if (restoredFailure is WorkflowPromotionConflictFailure) {
         continue;
       }
       mapCtx.recordFailure(index, restoredFailure, _restoredIterationTaskId(slotValue));
@@ -173,10 +184,69 @@ void restoreIterationProgress(
       completedIds.add(itemId);
     }
   }
+  return null;
 }
 
-String _restoredIterationFailureMessage(dynamic slotValue) =>
-    slotValue is Map && slotValue['message'] is String ? slotValue['message'] as String : 'Failed before restart';
+/// Rebuilds the typed failure of every failed slot the cursor carries.
+///
+/// A non-null `legacyIndex` names the first slot whose discriminator this
+/// release does not recognise; the caller fails the resume rather than
+/// restoring it, and nothing has been mutated by then.
+({Map<int, WorkflowFailure> failures, int? legacyIndex}) _restoredFailedSlots(
+  WorkflowExecutionCursor cursor,
+  List<dynamic> safeResultSlots, {
+  required Set<int> failed,
+  required Set<int> cancelled,
+  required int collectionLength,
+}) {
+  final failures = <int, WorkflowFailure>{};
+  for (final index in cursor.completedIndices) {
+    if (!_restoresAsFailure(index, failed: failed, cancelled: cancelled, collectionLength: collectionLength)) continue;
+    final restored = _restoredIterationFailure(safeResultSlots[index]);
+    if (restored == null) return (failures: failures, legacyIndex: index);
+    failures[index] = restored;
+  }
+  return (failures: failures, legacyIndex: null);
+}
+
+/// The one index filter the pre-scan and the restore loop share.
+///
+/// Cancellation wins over failure, as it does everywhere else in the engine.
+/// Written once because the restore loop consumes the pre-scan's map under a
+/// non-null assertion: two filters that drifted apart would crash mid-restore,
+/// after earlier indices had already been recorded.
+bool _restoresAsFailure(
+  int index, {
+  required Set<int> failed,
+  required Set<int> cancelled,
+  required int collectionLength,
+}) => index >= 0 && index < collectionLength && failed.contains(index) && !cancelled.contains(index);
+
+List<dynamic> _sizedResultSlots(List<dynamic> resultSlots, int collectionLength) {
+  final sized = resultSlots.isEmpty ? List<dynamic>.filled(collectionLength, null) : List<dynamic>.from(resultSlots);
+  if (sized.length < collectionLength) {
+    sized.addAll(List<dynamic>.filled(collectionLength - sized.length, null));
+  } else if (sized.length > collectionLength) {
+    sized.removeRange(collectionLength, sized.length);
+  }
+  return sized;
+}
+
+WorkflowLegacyIterationStateFailure _legacyIterationStateFailure(String stepId, int index) =>
+    WorkflowLegacyIterationStateFailure(
+      "Foreach step '$stepId' cannot resume: iteration $index was recorded by a release with a different "
+      'workflow failure vocabulary, so its promotion-conflict recovery path cannot be reconstructed. '
+      'Start a fresh run.',
+    );
+
+WorkflowFailure? _restoredIterationFailure(dynamic slotValue) {
+  if (slotValue is! Map) return null;
+  final message = slotValue['message'];
+  return workflowFailureFromPersisted(
+    slotValue[MapStepContext.kindKey],
+    message is String ? message : 'Failed before restart',
+  );
+}
 
 String _restoredIterationCancellationMessage(dynamic slotValue) =>
     slotValue is Map && slotValue['message'] is String ? slotValue['message'] as String : 'Cancelled before restart';

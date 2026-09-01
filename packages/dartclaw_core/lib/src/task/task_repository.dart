@@ -1,5 +1,3 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
-
 import 'task.dart';
 import 'task_artifact.dart';
 import 'task_status.dart';
@@ -13,7 +11,7 @@ abstract class TaskRepository {
   Future<Task?> getById(String id);
 
   /// Lists tasks ordered by newest first.
-  Future<List<Task>> list({TaskStatus? status, TaskType? type});
+  Future<List<Task>> list({TaskStatus? status});
 
   /// Lists tasks whose `workflowRunId` is in [runIds], ordered by newest first.
   ///

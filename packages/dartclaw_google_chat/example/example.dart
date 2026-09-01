@@ -3,8 +3,6 @@
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 
 void main() {
-  ensureDartclawGoogleChatRegistered();
-
   final warnings = <String>[];
   final config = GoogleChatConfig.fromYaml({
     'enabled': true,

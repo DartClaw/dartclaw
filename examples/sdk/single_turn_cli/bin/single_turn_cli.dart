@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw/dartclaw.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 
 const _defaultPrompt = 'What is the capital of France?';
 
@@ -23,7 +23,7 @@ Future<void> runSingleTurnCli(List<String> args) async {
       ],
       systemPrompt: 'You are a concise assistant.',
     );
-    stdout.writeln('\n\nstop_reason=${result['stop_reason']}');
+    stdout.writeln('\n\nstop_reason=${result.stopReason}');
   } finally {
     await sub.cancel();
     await harness.dispose();

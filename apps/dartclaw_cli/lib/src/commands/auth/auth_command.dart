@@ -1,6 +1,6 @@
 import 'package:args/command_runner.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn;
 
-import '../serve_command.dart' show ExitFn;
 import 'auth_claude_command.dart';
 import 'auth_codex_command.dart';
 import 'auth_subcommand.dart';

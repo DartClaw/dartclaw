@@ -6,6 +6,7 @@ import 'workflow_definition.dart' show WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 
 import 'map_step_context.dart';
+import 'workflow_failure.dart';
 import 'workflow_turn_adapter.dart';
 
 /// Outcome of a single iteration promotion attempt.
@@ -23,14 +24,14 @@ final class PromotionSuccess extends PromotionOutcome {
 final class PromotionConflict extends PromotionOutcome {
   final List<String> conflictingFiles;
   final String details;
-  final String failureMessage;
-  const new({required this.conflictingFiles, required this.details, required this.failureMessage});
+  final WorkflowPromotionConflictFailure failure;
+  const new({required this.conflictingFiles, required this.details, required this.failure});
 }
 
 /// Promotion encountered a hard error.
 final class PromotionError extends PromotionOutcome {
-  final String failureMessage;
-  const new(this.failureMessage);
+  final WorkflowPromotionFailure failure;
+  const new(this.failure);
 }
 
 /// The promote callback is not configured on the turn adapter.
@@ -91,14 +92,14 @@ Future<void> recordIterationFailureAndDecrement(
   EventBus eventBus, {
   required MapStepContext mapCtx,
   required int iterIndex,
-  required String failureMessage,
+  required WorkflowFailure failure,
   required String? taskId,
   required WorkflowRun run,
   required WorkflowStep step,
   required int iterTokens,
   required Future<void> Function() persistProgress,
 }) async {
-  mapCtx.recordFailure(iterIndex, failureMessage, taskId);
+  mapCtx.recordFailure(iterIndex, failure, taskId);
   await persistProgress();
   mapCtx.inFlightCount--;
   fireIterationFailureEvent(
@@ -158,10 +159,11 @@ Future<PromotionOutcome> callPromote({
     WorkflowGitPromotionConflict(:final conflictingFiles, :final details) => PromotionConflict(
       conflictingFiles: conflictingFiles,
       details: details,
-      failureMessage:
-          'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
+      failure: WorkflowPromotionConflictFailure(
+        'promotion-conflict: ${conflictingFiles.isEmpty ? 'merge conflict' : conflictingFiles.join(', ')}',
+      ),
     ),
-    WorkflowGitPromotionError(:final message) => PromotionError('promotion failed: $message'),
+    WorkflowGitPromotionError(:final message) => PromotionError(WorkflowPromotionFailure('promotion failed: $message')),
     WorkflowGitPromotionSerializeRemaining() => const PromotionSerializeRemaining(),
   };
 }

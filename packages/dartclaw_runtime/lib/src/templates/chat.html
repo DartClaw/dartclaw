@@ -1,0 +1,118 @@
+<div tl:fragment="userMessage" class="msg msg-user print-in">
+  <div class="msg-role"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">You</span></div>
+  <div class="msg-content"><p tl:text="${content}">Message</p></div>
+  <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
+</div>
+
+<div tl:fragment="assistantMessage" class="msg msg-assistant print-in">
+  <div class="msg-role">Assistant</div>
+  <div class="msg-content" data-markdown="" tl:text="${content}">Response</div>
+</div>
+
+<div tl:fragment="guardBlock" class="msg msg-guard-block">
+  <div class="guard-block-header">
+    <span class="guard-block-icon icon icon-shield-alert" aria-hidden="true"></span>
+    <span class="guard-block-label">GUARD BLOCKED</span>
+  </div>
+  <div class="guard-block-reason" tl:text="${detail}">Blocked</div>
+</div>
+
+<div tl:fragment="turnFailed" class="msg msg-turn-failed">
+  <div class="msg-turn-failed-header">
+    <span class="msg-turn-failed-icon icon icon-triangle-alert" aria-hidden="true"></span>
+    <span class="msg-turn-failed-label">Turn failed</span>
+  </div>
+  <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
+</div>
+
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in" data-controller="dc-chat dc-tasks"
+  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor}">
+  <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
+  <div class="chat-load-earlier">
+    <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""
+            tl:attr="hidden=${loadEarlierHidden}">
+      Load earlier messages
+    </button>
+  </div>
+  <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
+  <div tl:if="${hasTurnStatus}" class="turn-status-panel"
+       tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+    <div class="turn-status-row">
+      <span class="meta-label">Turn</span>
+      <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
+      <span class="meta-value" data-turn-status-reason
+            tl:classappend="${turnStatus.reasonAbsent} ? 'value-absent' : ''"
+            tl:text="${turnStatus.reasonLabel}">session lock</span>
+    </div>
+    <div class="turn-status-times">
+      <span class="turn-status-time"><span class="turn-status-time-label t-caption">waiting since</span><span class="turn-status-time-value" data-turn-status-waiting tl:text="${turnStatus.waitingSince}"></span></span>
+      <span class="turn-status-time"><span class="turn-status-time-label t-caption">stuck since</span><span class="turn-status-time-value" data-turn-status-stuck tl:text="${turnStatus.stuckSince}"></span></span>
+      <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
+    </div>
+    <button type="button" class="btn btn-ghost" data-turn-cancel
+            tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},hidden=${turnStatus.cancelHidden},disabled=${turnStatus.cancelDisabled}">
+      Cancel Turn
+    </button>
+  </div>
+  <div tl:if="${readOnly}" class="input-area">
+    <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
+  </div>
+  <div tl:unless="${readOnly}" class="input-area">
+    <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
+          data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
+      <div class="composer-context" data-dc-chat-target="contextTray" hidden></div>
+      <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette" hidden>
+        <div class="composer-palette-header">References</div>
+        <div class="composer-palette-list" role="listbox" aria-label="References"></div>
+      </div>
+      <label class="sr-only" for="message-input">Message</label>
+      <textarea id="message-input" name="message" rows="1"
+                tl:attr="placeholder=${placeholder},disabled=${inputDisabled},autofocus=${autofocus}"></textarea>
+      <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
+      <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
+      <div class="composer-toolbar">
+        <div class="composer-hints" aria-label="Composer shortcuts">
+          <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> send</span>
+        </div>
+        <div class="chip-row" aria-label="Suggested prompts">
+          <button type="button" class="chip chip--ref" data-action="dc-chat#applySuggestion"
+                  data-text="Summarize this session">Summarize</button>
+          <button type="button" class="chip chip--ref" data-action="dc-chat#applySuggestion"
+                  data-text="What changed since the last turn?">What's changed?</button>
+        </div>
+        <div class="composer-meta">
+          <button id="send-btn" class="btn btn-primary btn-icon composer-send" type="submit"
+                  data-icon="arrow-up" aria-label="Send" title="Send"
+                  tl:attr="disabled=${inputDisabled}"></button>
+        </div>
+      </div>
+      <div class="composer-recovery" data-dc-chat-target="recovery" hidden></div>
+    </form>
+  </div>
+</main>
+
+<tl:block tl:fragment="sendResponse">
+  <div class="msg msg-user print-in">
+    <div class="msg-role">You</div>
+    <div class="msg-content"><p tl:text="${message}">message</p></div>
+    <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
+  </div>
+  <div class="msg msg-assistant print-in" id="streaming-msg"
+       hx-ext="sse"
+       tl:attr="sse-connect=${sseUrl}"
+       sse-close="done">
+    <div class="msg-role">Assistant</div>
+    <div class="msg-content" id="streaming-content"
+         sse-swap="delta" hx-swap="beforeend"></div>
+    <div class="msg-thinking"><span class="claw-loader"><span></span><span></span><span></span></span><span
+        class="msg-thinking-label">thinking</span></div>
+    <div id="tool-container"
+         sse-swap="tool_use" hx-swap="beforeend">
+    </div>
+    <div sse-swap="tool_result" hx-swap="none"></div>
+    <div sse-swap="turn_cancelled" hx-swap="none"
+         data-action="htmx:sseMessage->dc-chat#handleTurnCancelled"></div>
+    <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden
+         data-action="htmx:afterSwap->dc-chat#handleTurnError"></div>
+  </div>
+</tl:block>

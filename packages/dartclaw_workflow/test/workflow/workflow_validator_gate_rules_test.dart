@@ -10,83 +10,7 @@ void main() {
     validator = WorkflowDefinitionValidator();
   });
 
-  group('gate expressions', () {
-    test('valid gate expression produces no error', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1', outputs: {'status': OutputConfig()}),
-          step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done'),
-        ],
-      );
-      expect(validator.validate(def).errors, isEmpty);
-    });
-
-    test('gate expression accepts slash, quoted, and spaced values', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1', outputs: {'branch': OutputConfig(), 'label': OutputConfig(), 'quoted': OutputConfig()}),
-          step(
-            id: 's2',
-            name: 'S2',
-            prompt: 'p',
-            gate: 's1.branch == feature/foo && s1.quoted == "feature/foo" && s1.label == needs review',
-          ),
-        ],
-      );
-      expect(validator.validate(def).errors, isEmpty);
-    });
-
-    test('gate expression accepts the same bare-key grammar as entryGate', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1', outputs: {'spec_ready': OutputConfig(), 'status': OutputConfig()}),
-          step(id: 's2', name: 'S2', prompt: 'p', gate: 'spec_ready == true && s1.status == done'),
-        ],
-      );
-
-      expect(validator.validate(def).errors, isEmpty);
-    });
-
-    test('gate expression with extra operator syntax produces invalidGate error', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1', outputs: {'score': OutputConfig()}),
-          step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.score > 0 < 1'),
-        ],
-      );
-      final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidGate), true);
-    });
-
-    test('gate referencing non-existent step produces invalidReference error', () {
-      final def = buildDef(
-        steps: [step(id: 's1', gate: 'nonexistent.status == done')],
-      );
-      final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidReference), true);
-    });
-
-    test('gate with invalid operator produces invalidGate error', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1'),
-          step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status INVALID done'),
-        ],
-      );
-      final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidGate), true);
-    });
-
-    test('compound gate with && is parsed correctly', () {
-      final def = buildDef(
-        steps: [
-          step(id: 's1', outputs: {'status': OutputConfig(), 'score': OutputConfig()}),
-          step(id: 's2', name: 'S2', prompt: 'p', gate: 's1.status == done && s1.score >= 90'),
-        ],
-      );
-      expect(validator.validate(def).errors, isEmpty);
-    });
-
+  group('loop gate expressions', () {
     test('loop entryGate is validated alongside exitGate', () {
       final def = buildDef(
         steps: [
@@ -163,8 +87,8 @@ void main() {
       expect(
         errors,
         contains(
-          isA<ValidationError>()
-              .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+          isA<WorkflowValidationError>()
+              .having((error) => error.type, 'type', WorkflowValidationErrorType.invalidReference)
               .having((error) => error.loopId, 'loopId', 'lp')
               .having((error) => error.message, 'message', contains('gating_finding_count')),
         ),
@@ -199,8 +123,8 @@ void main() {
       expect(
         errors,
         contains(
-          isA<ValidationError>()
-              .having((error) => error.type, 'type', ValidationErrorType.invalidReference)
+          isA<WorkflowValidationError>()
+              .having((error) => error.type, 'type', WorkflowValidationErrorType.invalidReference)
               .having((error) => error.loopId, 'loopId', 'lp')
               .having((error) => error.message, 'message', contains('gating_findings_count'))
               .having((error) => error.message, 'message', contains('inside the loop body')),
@@ -208,7 +132,10 @@ void main() {
       );
       // exitGate should be accepted — no invalidReference error on the same loop for that gate.
       final exitGateErrors = errors.where(
-        (e) => e.type == ValidationErrorType.invalidReference && e.loopId == 'lp' && e.message.contains('exitGate'),
+        (e) =>
+            e.type == WorkflowValidationErrorType.invalidReference &&
+            e.loopId == 'lp' &&
+            e.message.contains('exitGate'),
       );
       expect(exitGateErrors, isEmpty);
     });
@@ -228,7 +155,7 @@ void main() {
       );
 
       final errors = validator.validate(def).errors;
-      expect(hasError(errors, type: ValidationErrorType.invalidGate, loopId: 'lp'), isTrue);
+      expect(hasError(errors, type: WorkflowValidationErrorType.invalidGate, loopId: 'lp'), isTrue);
     });
   });
 
@@ -261,7 +188,7 @@ void main() {
         ],
       );
       final report = validator.validate(def);
-      expect(hasError(report.errors, type: ValidationErrorType.invalidGate), isFalse);
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.invalidGate), isFalse);
     });
 
     test('accepts unary empty checks', () {
@@ -279,7 +206,7 @@ void main() {
         ],
       );
       final report = validator.validate(def);
-      expect(hasError(report.errors, type: ValidationErrorType.invalidGate), isFalse);
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.invalidGate), isFalse);
     });
 
     test('rejects malformed entryGate expression', () {
@@ -292,7 +219,92 @@ void main() {
         ],
       );
       final report = validator.validate(def);
-      expect(hasError(report.errors, type: ValidationErrorType.invalidGate, stepId: 's2'), isTrue);
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.invalidGate, stepId: 's2'), isTrue);
+    });
+
+    test('accepts slash, quoted and spaced comparison values, and compound &&', () {
+      final def = WorkflowDefinition(
+        name: 'wf',
+        description: 'd',
+        steps: const [
+          WorkflowStep(
+            id: 's1',
+            name: 'S1',
+            prompts: ['p'],
+            outputs: {'branch': OutputConfig(), 'label': OutputConfig(), 'quoted': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 's2',
+            name: 'S2',
+            prompts: ['p'],
+            entryGate: 's1.branch == feature/foo && s1.quoted == "feature/foo" && s1.label == needs review',
+          ),
+        ],
+      );
+      expect(hasError(validator.validate(def).errors, type: WorkflowValidationErrorType.invalidGate), isFalse);
+    });
+
+    for (final malformed in const ['s1.score > 0 < 1', 's1.status INVALID done']) {
+      test('rejects malformed entryGate "$malformed"', () {
+        final def =
+            WorkflowDefinition(
+              name: 'wf',
+              description: 'd',
+              steps: const [
+                WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+              ],
+            ).copyWith(
+              steps: [
+                const WorkflowStep(id: 's1', name: 'S1', prompts: ['p']),
+                WorkflowStep(id: 's2', name: 'S2', prompts: const ['p'], entryGate: malformed),
+              ],
+            );
+        expect(
+          hasError(validator.validate(def).errors, type: WorkflowValidationErrorType.invalidGate, stepId: 's2'),
+          isTrue,
+        );
+      });
+    }
+  });
+
+  // The validator and the evaluator read one gate-grammar declaration, so
+  // neither can accept an expression the other rejects.
+  group('single gate-grammar declaration', () {
+    const expression = 'review_report_path isNotEmpty && findings_count < 5';
+    const rejected = 'plan.status == = accepted';
+
+    WorkflowDefinition defWith({required String stepGate, required String loopGate}) => WorkflowDefinition(
+      name: 'wf',
+      description: 'd',
+      steps: [
+        const WorkflowStep(
+          id: 'review',
+          name: 'Review',
+          prompts: ['p'],
+          outputs: {'review_report_path': OutputConfig(), 'findings_count': OutputConfig()},
+        ),
+        WorkflowStep(id: 'gated', name: 'Gated', prompts: const ['p'], entryGate: stepGate),
+      ],
+      loops: [
+        WorkflowLoop(id: 'lp', steps: const ['gated'], maxIterations: 2, exitGate: loopGate),
+      ],
+    );
+
+    test('an expression both sides accept validates clean and evaluates', () {
+      final report = validator.validate(defWith(stepGate: expression, loopGate: expression));
+      expect(hasError(report.errors, type: WorkflowValidationErrorType.invalidGate), isFalse);
+
+      final context = WorkflowContext(data: {'review_report_path': 'reviews/r.md', 'findings_count': 2});
+      expect(GateEvaluator().evaluate(expression, context), isTrue);
+    });
+
+    test('an expression neither side can parse is rejected by both, naming the expression', () {
+      final report = validator.validate(defWith(stepGate: rejected, loopGate: rejected));
+      final gateErrors = report.errors.where((error) => error.type == WorkflowValidationErrorType.invalidGate);
+      expect(gateErrors, isNotEmpty);
+      expect(gateErrors.every((error) => error.message.contains(rejected)), isTrue);
+
+      expect(GateEvaluator().evaluate(rejected, WorkflowContext()), isFalse);
     });
   });
 }

@@ -68,7 +68,7 @@ dartclaw serve
 
 Open the pairing page at `http://localhost:<port>/signal/pairing`.
 
-#### Device Linking (Recommended)
+#### Device Linking
 
 Links DartClaw as a secondary device to your existing Signal account. Your phone remains the primary device.
 
@@ -120,7 +120,7 @@ See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration
 ## Known Limitations
 
 - **No media sending**: signal-cli supports attachments, but `SignalChannel` currently sends text only. Media support is planned for a future release.
-- **Device linking only**: The pairing UI does not currently expose SMS or voice registration.
+- **Device linking only**: SMS and voice number registration were removed in 0.25; linking DartClaw as a secondary device to an account that already exists on a phone is the only pairing flow.
 - **No Safety Number verification**: Signal Safety Number changes are not surfaced to the user.
 - **Startup time**: signal-cli can take 10-30 seconds to become reachable. DartClaw polls health for up to 30 seconds.
 
@@ -215,13 +215,13 @@ These tests verify the full Signal integration. Tests requiring a phone/number a
 4. Verify: server continues running; web UI works
 5. Verify: `/signal/pairing` shows "signal-cli Not Reachable"
 
-### T10: InputSanitizer on Channel Messages (requires phone)
+### T10: Guard Chain on a Channel-Initiated Turn (requires phone)
 
-1. With `guards.input_sanitizer.enabled: true` and `channels_only: true` (default)
-2. Send a Signal DM containing an injection pattern (e.g. "ignore all previous instructions")
-3. Verify: guard blocks the message (`source='channel'`)
+1. With `guards.enabled: true`
+2. Send a Signal DM asking the agent to run a destructive command (e.g. "delete everything under /tmp with rm -rf")
+3. Verify: `CommandGuard` blocks the tool call, not the message
 4. Verify: SEVERE log from `GuardAuditLogger`
-5. Verify: turn does NOT execute
+5. Verify: the reply reports the block
 6. Verify: a normal follow-up message is processed normally
 
 ### T11: MessageRedactor on Channel Responses (requires phone)

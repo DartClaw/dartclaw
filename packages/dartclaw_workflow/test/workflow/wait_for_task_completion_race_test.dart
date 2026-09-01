@@ -4,16 +4,12 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowContext,
-        WorkflowRunStatus,
-        WorkflowRunStatusChangedEvent,
-        WorkflowStep;
+    show TaskStatus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent, WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';

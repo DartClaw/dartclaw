@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -65,6 +67,24 @@ void main() {
 
       final List<String> enqueuedSessionKeys = [];
       final msg = makeGchatMessage(threadName: 'spaces/AAAA/threads/CCCC');
+
+      final handled = await bridge.tryHandle(
+        msg,
+        channel,
+        sessionKey: 'default-session',
+        enqueue: (msg, ch, sessionKey) => enqueuedSessionKeys.add(sessionKey),
+      );
+
+      expect(handled, isTrue);
+      expect(enqueuedSessionKeys, equals(['bound-session-key']));
+    });
+
+    test('review-shaped text in a bound thread routes to the bound task session', () async {
+      final setup = await setupWithBinding();
+      final bridge = setup.bridge;
+
+      final List<String> enqueuedSessionKeys = [];
+      final msg = makeGchatMessage(text: 'accept', threadName: 'spaces/AAAA/threads/CCCC');
 
       final handled = await bridge.tryHandle(
         msg,

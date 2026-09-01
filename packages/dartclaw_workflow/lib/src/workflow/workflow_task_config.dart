@@ -1,12 +1,14 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, WorkflowStepExecution, WorkflowStepExecutionRepository;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task;
 
 import 'workflow_run_paths.dart' show stepArtifactsDirEnvVar;
 
 /// Typed accessors and key constants for workflow-owned task execution metadata.
 ///
-/// The `dartclaw_workflow` and `dartclaw_server` packages now communicate
+/// The `dartclaw_workflow` and `dartclaw_runtime` packages now communicate
 /// workflow-only execution state through `WorkflowStepExecution` rows instead
 /// of `_workflow*` entries in `Task.configJson`. Generic task settings such as
 /// `model`, `allowedTools`, or `reviewMode` remain on the task; workflow-only
@@ -21,7 +23,7 @@ import 'workflow_run_paths.dart' show stepArtifactsDirEnvVar;
 abstract final class WorkflowTaskConfig {
   // ---------------------------------------------------------------------------
   // Workflow-internal keys — static constants for sites that read/write these
-  // keys via Task.configJson directly (e.g. step_dispatcher, map_iteration).
+  // keys via Task.configJson directly (e.g. step_dispatcher, foreach_iteration_runner).
   // ---------------------------------------------------------------------------
 
   /// Task-config key carrying the serialized workflow git strategy metadata.
@@ -40,8 +42,8 @@ abstract final class WorkflowTaskConfig {
   /// Task-config key carrying the zero-based iteration index for map steps.
   static const String mapIterationIndex = '_mapIterationIndex';
 
-  /// Task-config key marking a task as requiring a worktree.
-  static const String workflowNeedsWorktree = '_workflowNeedsWorktree';
+  /// Public task-config key declaring whether a task requires a worktree.
+  static const String needsWorktree = 'needsWorktree';
 
   /// Task-config key carrying merge-resolve environment variables.
   static const String mergeResolveEnv = '_workflowMergeResolveEnv';
@@ -57,7 +59,7 @@ abstract final class WorkflowTaskConfig {
   static const String workflowStepName = 'workflowStepName';
 
   /// Task-config key carrying the authored workflow step timeout in seconds.
-  static const String workflowTimeoutSeconds = 'workflowTimeoutSeconds';
+  static const String workflowTurnTimeoutSeconds = 'workflowTurnTimeoutSeconds';
 
   // ---------------------------------------------------------------------------
   // Cross-package typed accessors (server-side reads route through here).

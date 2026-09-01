@@ -116,6 +116,20 @@ final class MemoryLearningDocument extends CanonicalMemoryDocument {
   int get hashCode => Object.hashAll(entries);
 }
 
+/// Canonical bounded runtime errors with stable entry identity.
+final class MemoryErrorDocument extends CanonicalMemoryDocument {
+  new({Iterable<CanonicalMemoryError> entries = const []}) : entries = immutableMemoryList(entries);
+  final List<CanonicalMemoryError> entries;
+  @override
+  MemoryRole get role => MemoryRole.error;
+
+  @override
+  bool operator ==(Object other) => other is MemoryErrorDocument && memoryListsEqual(entries, other.entries);
+
+  @override
+  int get hashCode => Object.hashAll(entries);
+}
+
 /// Canonical deletion records whose host fields do not copy entry content.
 final class MemoryAuditDocument extends CanonicalMemoryDocument {
   new({Iterable<MemoryDeletionAudit> records = const []})

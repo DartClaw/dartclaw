@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.24
+**Current through**: 0.25 workflow worker leasing
 
 ---
 
@@ -55,7 +55,7 @@ The implementation is split across:
 - `packages/dartclaw_workflow/lib/src/workflow/workflow_definition.dart` — definition model, step model, loop model
 - `packages/dartclaw_workflow/lib/src/workflow/workflow_run.dart` — run state model
 - `packages/dartclaw_workflow/lib/src/workflow/` — parser, validator, executor, context extractor, template engine, runtime skill preflight, schema validation, filesystem-backed workflow definitions and skills
-- `packages/dartclaw_server/lib/src/api/workflow_routes.dart` — HTTP API endpoints
+- `packages/dartclaw_runtime/lib/src/api/workflow_routes.dart` — HTTP API endpoints
 - `apps/dartclaw_cli/lib/src/commands/workflow/` — CLI commands
 
 The public-facing companion guide is [workflows.md](../../docs/guide/workflows.md).
@@ -80,10 +80,10 @@ The workflow engine is intentionally adjacent to task orchestration but not embe
 For project-backed workflows, git state is orchestrated at the workflow runtime level (not only at task accept time):
 
 - `gitStrategy.integrationBranch` can create a workflow-owned integration branch before step execution.
-- `gitStrategy.worktree: shared` lets serial coding steps reuse one workflow-owned worktree/branch.
-- `gitStrategy.worktree: per-map-item` keeps mapped coding iterations isolated while still promoting results into the integration branch.
+- `gitStrategy.worktree: shared` lets serial workflow steps reuse one workflow-owned worktree/branch.
+- `gitStrategy.worktree: per-map-item` keeps mapped iterations isolated while still promoting results into the integration branch.
 - Promotion-aware map execution validates dependency IDs up-front and blocks dependent stories until prerequisite promotion succeeds.
-- Promotion merge conflicts pause the run with `promotion-conflict` semantics and preserve worktrees for operator recovery + resume retry.
+- Promotion merge conflicts pause the run with `promotion-conflict` semantics and preserve worktrees for operator recovery + resume retry. The decision is the failure's type (`WorkflowPromotionConflictFailure`), carried on the iteration result slot as a persisted `kind` discriminator and on `MapStepResult.failure`; the `promotion-conflict: …` text rides along as the operator message and never feeds a branch. A resumed run whose failed slots predate that discriminator fails with a re-run instruction rather than restoring a conflict as an ordinary failure.
 - `gitStrategy.publish.enabled` triggers deterministic publish at workflow completion and writes machine-readable `publish.*` outputs.
 
 Host-side git operations are injected through `WorkflowTurnAdapter` callbacks, so the workflow package stays independent of server-only git implementations while still reusing `MergeExecutor`, `RemotePushService`, and `PrCreator` in service wiring.
@@ -183,20 +183,17 @@ The definition model encodes 0.16-era capabilities directly on the step object:
 | `type` | structural execution mode: omitted/`agent`, `bash`, `approval`, `foreach`, or `loop` |
 | `skill` | provider-native skill reference |
 | `parallel` | marks a step as part of a linear parallel group |
-| `gate` | pre-step boolean condition against workflow context |
-| `entryGate` | step-level skip-when-false gate |
+| `entryGate` | step-level skip-when-false gate; the only gate a step can declare |
 | `inputs` | named context keys supplied to the step prompt |
-| `outputs` | canonical per-key output configuration (`format`/`schema`/`source`/`outputMode`/`description`/`setValue`) — the map's keys are the step's context-write set |
+| `outputs` | canonical per-key output configuration (`format`/`schema`/`source`/`description`, plus `pathPattern`/`preferPatterns` on `format: path`) — the map's keys are the step's context-write set |
 | `mapOver` | collection key for fan-out execution |
 | `maxParallel` | per-map concurrency cap |
-| `maxItems` | map item ceiling (opt-in; omitted means uncapped) |
 | `continueSession` | session continuity target |
 | `onFailure` | `fail` (default), `continue`, `retry`, or `pause` — modern step failure policy (drives workflow-owned retry budget handling for any step type) |
-| `onError` | legacy `pause` / `continue` / `fail` — still honored by the executor and loop runner for any step type when set; primarily used by bash steps. `onFailure` is the preferred field for new authoring |
+| `onError` | `pause` (default) / `continue`; legacy `fail` parses as `pause`. The only path past an engine-level step error (non-zero bash exit, harness/task error) — those carry no modeled outcome, so `onFailure` never sees them |
 | `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
 | `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
 | `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
-| `maxTokens` | step-level token budget |
 | `allowedTools` | tool allowlist override |
 | `workdir` | step working directory override |
 
@@ -208,21 +205,18 @@ Loops remain a separate object in the serialized model for backward compatibilit
 | `steps` | ordered list of step IDs that belong to the loop |
 | `exitGate` | boolean expression checked after each iteration |
 | `maxIterations` | hard ceiling to prevent infinite repetition |
-| `finally` | optional step ID that runs after termination |
 
 This design keeps the executor predictable:
 
 - authored order is the primary execution order
 - loop-owned steps are executed when their loop node is reached
-- finalizers remain loop-owned and run within loop execution semantics
 - legacy `loops:` declarations are normalized to the same runtime behavior
 
 The consequence: a workflow definition is declarative enough to be validated statically, but concrete enough that the runtime never has to infer author intent from prompt text.
 
-### Schema (S66/S67): `outputs:` and `setValue`
+### Schema (S66/S67): `outputs:`
 
 - **`outputs:` is the only declaration of context-write keys.** The parser treats `outputs:` map keys as the source of truth for the context-write set. `WorkflowStep.outputKeys` derives directly from `outputs?.keys`. Foreach / `mapOver` controllers parse `outputs:` through the same path as every other step and emit one aggregate value, so the controller's `outputs:` map must declare exactly one key. The parser throws a `FormatException` with a one-line migration message if the legacy `contextOutputs:` field appears anywhere in the YAML — `contextOutputs: is removed; declare keys under outputs: instead, e.g. outputs: { key_name: text }` — so authors get an immediate cue rather than a silent warning.
-- **`OutputConfig.setValue` writes a static literal.** When an output entry declares `setValue:` (any JSON-encodable literal, including `null`), the executor short-circuits extraction for that key and writes the literal verbatim on step success. The slot is sentinel-backed (`_workflowDefinitionFieldUnset`) so absence and explicit `null` round-trip distinctly through `toJson` / `fromJson`. It fires only on success — failure and `entryGate` skip leave context untouched. Snake_case alias `set_value` is accepted alongside the camelCase form.
 - **Validator alias-awareness for `continueSession` and multi-prompt.** Role-aliased providers (`@executor`, `@reviewer`, `@planner`, `@workflow`, …) are skipped by the continuity-provider check in both `_validateMultiPromptProviders` and the `continueSession` block. The runtime fallback in `WorkflowExecutor._resolveContinueSessionProvider` continues to detect family mismatches at execution time (warning + re-route to the root provider). Concrete provider names with no continuity support still produce `unsupportedProviderCapability` errors. Resolving role aliases during validation remains deferred until the validator receives the workflow's roles config.
 
 ## 4. Step Types
@@ -231,7 +225,7 @@ The engine supports both agent-driven and deterministic step types.
 
 | Type | Meaning | Runs a task? |
 |---|---|---|
-| `agent` | Agent step that creates a coding task | Yes |
+| `agent` | Agent step that creates a background task | Yes |
 | `bash` | Host-side command execution | No |
 | `approval` | Human approval checkpoint | No |
 | `foreach` | Per-item sub-pipeline controller — executes ordered child steps for each `mapOver` element | Per child step |
@@ -279,7 +273,7 @@ All built-in `dartclaw-review` steps pass `--output-dir "{{workflow.runtime_arti
 
 Review report path outputs remain durable even when the review is clean. If a zero-finding review omits the report path or claims a missing path under the runtime-artifacts directory, the context extractor materializes a diagnostic clean-review markdown file there and records that path in context.
 
-**Review output-key naming convention.** A parallel review step that feeds an `aggregate-reviews` step prefixes **all** its output keys with its own step id: `<stepId>.review_report_path` (the report path), `<stepId>.findings_count`, and `<stepId>.gating_findings_count`. Prefixing avoids context-key collisions between concurrent review branches and is always safe because the host accepts the review skill's bare-suffix emission (`review_report_path`) for the prefixed output via the filesystem-claim alias (`context_extractor.dart _fileSystemClaimKey`) — mirroring the dual-key acceptance already used for counts. The aggregator derives each source's report key from the step's `outputs:` declaration (format `path` + `review_report_path` preset, via `reviewReportPathOutputKey`), so it consumes the prefixed keys without re-deriving names. The `aggregate-reviews` step's **own** outputs stay bare (`review_report_path`/`findings_count`/`gating_findings_count`) — the canonical post-aggregate keys the validator requires and the remediation loop + `re-review` read and overwrite. A single-review workflow with no aggregator (`code-review.yaml`) keeps the bare canonical keys directly, since there is no sibling step to collide with. The convention is enforced by `validation/workflow_review_source_prefix_rules.dart` (a bare/mis-prefixed review key on an aggregate source is a validation error) and contract-locked in `built_in_workflow_contracts_test.dart`. The prior key name `review_findings` is retired — the parser rejects it, naming `review_report_path`.
+**Review output-key naming convention.** A parallel review step that feeds an `aggregate-reviews` step prefixes **all** its output keys with its own step id: `<stepId>.review_report_path` (the report path), `<stepId>.findings_count`, and `<stepId>.gating_findings_count`. Prefixing avoids context-key collisions between concurrent review branches and is always safe because the host accepts the review skill's bare-suffix emission (`review_report_path`) for the prefixed output via the filesystem-claim alias (`context_extractor.dart _fileSystemClaimKey`). The count keys carry no such alias — a step declaring `<stepId>.findings_count` must emit exactly that key, which the finalizer envelope schema declares. The aggregator derives each source's report key from the step's `outputs:` declaration (format `path` + `review_report_path` preset, via `reviewReportPathOutputKey`), so it consumes the prefixed keys without re-deriving names. The `aggregate-reviews` step's **own** outputs stay bare (`review_report_path`/`findings_count`/`gating_findings_count`) — the canonical post-aggregate keys the validator requires and the remediation loop + `re-review` read and overwrite. A single-review workflow with no aggregator (`code-review.yaml`) keeps the bare canonical keys directly, since there is no sibling step to collide with. The convention is enforced by `validation/workflow_review_source_prefix_rules.dart` (a bare/mis-prefixed review key on an aggregate source is a validation error) and contract-locked in `built_in_workflow_contracts_test.dart`. The prior key name `review_findings` is retired — the parser rejects it, naming `review_report_path`.
 
 ### 4.2 Approval Steps
 
@@ -321,28 +315,28 @@ Only `completed`, `failed`, and `cancelled` are terminal lifecycle states. This 
 
 ### 4.2.2 Step Outcome Protocol
 
-Workflow-owned agent steps whose declared outputs need model-derived values resolve their outcome from the `step_outcome` object of the structured execution envelope (Section 4.4a) — the engine-owned `outcome`/`reason` pair rides alongside the step's declared `outputs` in that same no-tools finalizer turn. `step_outcome` is omitted from the envelope when the step opts out with `emitsOwnOutcome: true`.
+Workflow-owned agent steps whose declared outputs need model-derived values resolve their outcome from the `step_outcome` object of the structured execution envelope (Section 4.4a). The engine-owned `outcome`/`reason` pair rides alongside the step's declared `outputs` in that same no-tools finalizer turn. A missing or malformed required envelope is a workflow validation failure eligible for the existing retry path.
 
-Outcome-only steps (no model-derived declared outputs) skip the finalizer turn entirely and keep the cheap inline tag as their designed channel — the agent ends its final assistant message with:
+Only a step with `emitsOwnOutcome: true` resolves an outcome from the inline tag. Such a step owns the protocol and ends its final assistant message with:
 
 ```text
 <step-outcome>{"outcome":"succeeded|failed|needsInput","reason":"..."}</step-outcome>
 ```
 
-The executor appends this contract automatically unless the step or referenced skill opts out with `emitsOwnOutcome: true`. The same inline tag also remains a compatibility **fallback** for finalizer-eligible steps — old transcripts, custom workflows, `outputMode: prompt` opt-out steps, and failed-finalization cases — but is no longer the standard extraction path for them.
+For these steps any execution envelope omits `step_outcome`; for every other step the executor ignores an inline tag. A step that does not require a finalizer derives its outcome from task lifecycle status.
 
-Runtime handling (envelope `step_outcome` first, inline tag as fallback):
+Runtime handling:
 
 - `succeeded` records `step.<id>.outcome = "succeeded"` and continues normally.
 - `failed` records the semantic outcome and applies `onFailure` (`fail`, `continue`, `retry`, `pause`).
 - `needsInput` transitions the run to `awaitingApproval` by default, reusing the same `_approval.*` metadata shape as an explicit approval step. `onFailure: continue` is the explicit best-effort policy for advisory/cleanup steps that should record the `needsInput` reason and advance.
-- Missing envelope/tags fall back to lifecycle status (`accepted -> succeeded`, `failed/cancelled -> failed`), emit a warning log, and increment the `workflow.outcome.fallback` counter — except a missing/malformed envelope on a finalizer-required step, which is a workflow validation failure eligible for the existing retry path rather than a silent lifecycle fallback.
+- Lifecycle status supplies the outcome when an `emitsOwnOutcome` step has no valid inline outcome, or when a step does not require a finalizer. Terminal `failed`/`rejected` status forces `failed`, and `cancelled` forces `cancelled`; these overrides return without fallback telemetry. An accepted task with no supplied outcome resolves to `succeeded`, emits a warning, and increments `workflow.outcome.fallback`. A finalizer-required step instead fails validation when its envelope is missing or malformed.
 
 The older `<stepId>.status` keys remain as lifecycle metadata. Outcome is additive rather than a replacement, so existing gates keep working while authors can now write semantic gates such as `step.review.outcome != failed`.
 
-Workflow `onFailure: retry` is the single retry authority for workflow-spawned tasks. `maxRetries: N` means at most `N + 1` workflow task attempts across single steps, map items, and foreach child steps. The workflow-owned retry budget covers failed tasks, failed `<step-outcome>` envelopes, post-task validation failures, and missing declared artifacts. Retry attempts receive the previous workflow-validation failure in the next prompt so the agent can repair missing files or malformed outputs instead of repeating the same response. The helper stops early when consecutive failures normalize to the same error class, preserving the deterministic-failure guard without reintroducing task-runtime retry.
+Workflow `onFailure: retry` is the single retry authority for workflow-spawned tasks. `maxRetries: N` means at most `N + 1` workflow task attempts across single steps, map items, and foreach child steps. The workflow-owned retry budget covers failed tasks, failed model-declared outcomes, post-task validation failures, and missing declared artifacts. Retry attempts receive the previous failure in the next prompt so the agent can repair missing files or malformed outputs instead of repeating the same response. The helper stops early when two consecutive attempts carry equal `WorkflowStepRetryFailure` values. Host-classified failures compare by kind alone, so different messages for the same output-validation or terminal-status kind are one repeated failure. Model-declared failures compare by kind plus the model's verbatim reason, so distinct reasons spend the authored budget. The host never derives either identity from producer or message text.
 
-The task-runtime retry path remains in `dartclaw_server` for non-workflow tasks. Workflow task creation persists `Task.maxRetries == 0`, so workflow retry cannot multiply with task-runtime retry and server retry code stays uncoupled from workflow outcome semantics.
+The task-runtime retry path remains in `dartclaw_runtime` for non-workflow tasks. Workflow task creation persists `Task.maxRetries == 0`, so workflow retry cannot multiply with task-runtime retry and server retry code stays uncoupled from workflow outcome semantics.
 
 ### 4.3 Hybrid Step Concept
 
@@ -359,29 +353,30 @@ This means workflow authors can mix agent reasoning, host-side shell commands, a
 
 A step with `prompt:` as a list of strings (rather than a single string) is a multi-prompt step. The engine executes each prompt sequentially under provider-native session continuity (Claude Code `--resume`, Codex `resume`):
 
-1. The first prompt is launched as a one-shot CLI invocation; its session ID is captured.
-2. Each subsequent prompt is launched as another one-shot CLI invocation, resuming the captured session so the agent retains accumulated context.
+1. The first prompt runs as a harness turn on the step's leased worker; its provider session ID is captured when supported.
+2. Each subsequent prompt runs on the same worker, resuming the captured provider session when requested so the agent retains accumulated context.
 3. Schema-driven output format instructions are appended only to the final prompt.
 4. The skill prefix (`"Use the '<skill>' skill."`) is applied only to the first prompt.
 
-Per-step budget enforcement applies across all prompts: `maxTokens` is checked before each follow-up prompt. Exhausting the budget marks the step as failed; the run's terminal status then follows the step's `onFailure` policy (`fail` by default — see Section 17).
+Per-step budget enforcement applies across all prompts: `maxTokens` — host-set only, not an authoring key — is checked before each follow-up prompt. Exhausting the budget marks the step as failed; the run's terminal status then follows the step's `onFailure` policy (`fail` by default — see Section 17).
 
 Multi-prompt steps require a continuity-capable provider; the validator rejects multi-prompt steps targeting providers without session continuity (with role-alias awareness — see Section 19).
 
 ### 4.4a One-Shot Workflow Execution
 
-Workflow agent steps use a single one-shot CLI execution path. The task lifecycle still exists, but the task executor runs the workflow prompt chain as direct provider CLI invocations instead of routing follow-up prompts through a long-lived streaming harness.
+Workflow agent steps use one guarded harness execution path. The task lifecycle still exists, and the task executor runs the complete workflow prompt chain on one leased worker.
 
 Practical consequences:
 
 - Workflow prompt chains can reuse provider-native session continuity (`--resume` / `resume`) across prompts.
-- Each running one-shot holds a provider `capacityOnly` execution lease. This enforces the same hard
-  `providers.<id>.pool_size` limit without constructing an unused streaming worker harness.
+- Each running step holds a provider worker lease. The coordinator constructs that worker with the step's artifacts
+  mount and spawn variables, and the one-shot runner executes every prompt through that worker's guarded `TurnRunner`.
+  The lease enforces the hard `providers.<id>.pool_size` limit and owns worker teardown with the capacity slot.
 - The task/session transcript is still recorded in DartClaw's own session store.
-- Workflow tasks set `task.type = TaskType.coding` uniformly; workflow step type no longer flows through task-system bookkeeping.
+- Workflow step type does not flow through task-system bookkeeping.
 - Workflow step read-only behavior is derived from effective `allowedTools` via `step_config_policy.stepIsReadOnly`, and the mutation check runs against the provisioned worktree path when present.
-- `format: json` with `schema` defaults to provider-enforced structured output. Explicit `outputMode: prompt` is the opt-out; heuristic extraction remains only as a fallback when the structured payload is missing.
-- For finalizer-eligible steps (workflow-owned agent steps whose declared outputs need model claims), the standard completion path is a dedicated no-tools structured finalization turn after the main work turn: the provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when `emitsOwnOutcome: true`). This finalizer turn runs even when the main turn's last assistant message also contains a legacy inline `<workflow-context>` block — the envelope is authoritative, not the inline text. Legacy inline `<workflow-context>` / `<step-outcome>` parsing remains a compatibility **fallback** (old transcripts, custom workflows, `outputMode: prompt` opt-out steps, finalizer failures), not the happy path.
+- `format: json` with `schema` selects provider-enforced structured output; the mode is inferred, not authored. A missing or malformed envelope charges the bounded re-ask and then fails the step.
+- Agent steps finalize through a dedicated no-tools structured turn after the main work turn. The provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when `emitsOwnOutcome: true`). The envelope is the only model-derived declared-output source. Inline `<step-outcome>` parsing exists only for `emitsOwnOutcome` steps; a pre-0.25 persisted turn without an envelope marker fails with a re-run instruction.
 
 The parser normalizes `prompt: "single string"` to `prompts: ["single string"]` so the executor always works with a list. `step.isMultiPrompt` is true when `prompts.length > 1`.
 
@@ -420,7 +415,7 @@ The executor follows authored-order traversal over normalized control nodes:
 2. Walk authored steps in order.
 3. When adjacent steps are marked `parallel: true`, collect them into a group and run concurrently via `Future.wait()`.
 4. When a step has `mapOver`, resolve the collection from context and fan out (Section 8).
-5. When the traversal reaches the first step owned by a loop, execute the loop in-place (including optional finalizer).
+5. When the traversal reaches the first step owned by a loop, execute the loop in-place.
 6. For each dispatched unit: evaluate gates, check budget, dispatch (agent task / bash / approval / multi-prompt), extract context outputs.
 7. Persist the updated `WorkflowContext` after each completed step or iteration boundary.
 8. When traversal reaches the end of authored nodes, transition run to `completed`.
@@ -473,7 +468,6 @@ Loops are defined as a named set of step IDs plus a hard cap and an exit conditi
 | `maxIterations` | Circuit breaker |
 | `entryGate` | Optional Boolean expression evaluated before the first iteration |
 | `exitGate` | Boolean expression evaluated after each iteration |
-| `finally` | Optional finalizer step outside the loop body |
 
 The gate evaluator supports the operators `==`, `!=`, `<`, `>`, `<=`, `>=`, joined with `&&` and `||` (two-level OR-of-AND grammar — see Section 22).
 
@@ -485,60 +479,49 @@ Loop execution now has two authored gates:
 The loop keeps iterating until:
 
 - the exit gate passes, or
-- `maxIterations` is reached
+- `maxIterations` is reached, at which point `onMaxIterations` decides whether the run fails, advances, or escalates for review.
 
-The `finally` step runs after the loop ends regardless of whether the exit gate passed or the iteration cap stopped the run.
+## 8. Fan-Out and Per-Item Sub-Pipelines
 
-## 8. Map / Fan-Out and Per-Item Sub-Pipelines
+`ForeachNode` (type `foreach`) is the engine's only collection-iteration primitive.
 
-The engine supports two collection-iteration primitives: `MapNode` for single-step fan-out, and `ForeachNode` for per-item ordered sub-pipelines.
+### ForeachNode (Per-Item Sub-Pipelines)
 
-### MapNode (Single-Step Fan-Out)
-
-Map steps iterate over a JSON array in context and run one iteration per element. They are the engine's dynamic fan-out mechanism for single-step work.
+A foreach controller iterates over a JSON array in context and runs an ordered sequence of authored substeps per item – a "per-item sub-pipeline". It is the mechanism for expressing work that must run in sequence for every item before the results are aggregated back into the plan-level context.
 
 Key fields:
 
-- `mapOver`: context key holding the array
+- `mapOver`: context key holding the array. Required – a step declaring `mapOver` without per-item steps is a validation error naming `foreach_steps`.
 - `maxParallel`: cap on concurrent iterations
-- `maxItems`: optional collection-size ceiling
+- `steps`: ordered list of substep definitions, each a full `WorkflowStep`
+- `outputs`: a single-entry map declaring the key under which the aggregated per-item result list is written after all iterations. `mapOver` and `foreach` controllers parse this through the same code path as every other step and must declare exactly one key – the validator rejects multi-key declarations as a `contextInconsistency` error.
 
-Template references for map steps include:
+Template references inside an iteration include:
 
 - `{{map.item}}`
 - `{{map.index}}`
 - `{{map.length}}`
 - `{{context.key[map.index]}}`
 
-That lets a later step bind output to the Nth mapped item without hand-written indexing logic in the workflow authoring surface.
-
-### ForeachNode (Per-Item Sub-Pipelines)
-
-`ForeachNode` (type `foreach`) extends the map primitive to support an ordered sequence of authored substeps per item — a "per-item sub-pipeline". It is the mechanism for expressing multi-step work that must run in sequence for every item before the results are aggregated back into the plan-level context.
-
-Key additional fields over `MapNode`:
-
-- `steps`: ordered list of substep definitions, each a full `WorkflowStep`
-- `outputs`: a single-entry map declaring the key under which the aggregated per-item result list is written after all iterations. `mapOver` and `foreach` controllers parse this through the same code path as every other step and must declare exactly one key — the validator rejects multi-key declarations as a `contextInconsistency` error.
+That lets a later step bind output to the Nth item without hand-written indexing logic in the authoring surface.
 
 Each iteration runs its substeps in declared order. Substeps share a per-iteration context overlay: each substep's outputs are written into the overlay under the keys declared in its `outputs:` block (bare keys), so later sibling substeps read them directly — e.g. `quick-review` reads `{{context.story_result}}` produced by `implement`. There is no automatic step-id prefixing in the overlay; if a substep needs to expose its output under a `<stepId>.<key>` form (for disambiguation when two substeps emit the same generic key), it must declare that prefixed key explicitly in its own `outputs:` block. The per-iteration overlay is isolated from the plan-level context during execution; results are aggregated back after all items complete, keyed by child step id. See the user guide's [Step-Prefixed References](../../docs/guide/workflows.md#step-prefixed-references-contextstepidkey) section for the full reference-form grammar.
 
-`ForeachNode` reuses the same `MapStepContext` concurrency and dependency-graph machinery as `MapNode`, so `maxParallel`, `maxItems`, coordinator availability, and story-level `dependencies` fields all work identically.
+`ForeachNode` drives the shared `MapStepContext` concurrency and dependency-graph machinery (`iteration_dispatch_engine.dart`), which owns restore, in-flight tracking, wake, concurrency, dependency-ready scan, and deadlock cancellation.
 
 `plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → quick-review` per story before any plan-level review or remediation. `dartclaw-exec-spec` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
 
 ### Concurrency and Dependency Graph
 
-Both `MapNode` and `ForeachNode` execution respects three concurrency controls:
+`ForeachNode` execution respects three concurrency controls:
 
 | Control | Source | Effect |
 |---|---|---|
 | `maxParallel` | Step definition | Caps simultaneous iterations |
-| `maxItems` | Step definition, when set | Optional ceiling on collection size; omitted means uncapped |
 | Coordinator availability | `WorkflowTurnAdapter.availableRunnerCount()` | Bounds initial iteration dispatch to available provider worker leases |
 
 Effective concurrency is `min(maxParallel, coordinatorAvailable, collection.length)`. Every one-shot still acquires a
-capacity-only lease, which is the authoritative limit if the snapshot changes after dispatch.
+worker lease, which is the authoritative limit if the snapshot changes after dispatch.
 
 When collection items declare `id` and `dependencies` fields, the `DependencyGraph` enforces ordering:
 
@@ -548,7 +531,7 @@ When collection items declare `id` and `dependencies` fields, the `DependencyGra
 
 This enables the `plan-and-implement` workflow's `story-pipeline` foreach step to respect inter-story dependencies declared in the `story_specs` records produced by the `plan` step.
 
-Map and foreach step results are index-ordered regardless of completion order. Failed iterations store error objects (`{error: true, message: ..., task_id: ...}`) in the result array, and partial results are persisted to context before pausing. The `MapStepContext` tracks in-flight count, completed indices, failed indices, and budget exhaustion state.
+Map and foreach step results are index-ordered regardless of completion order. Failed iterations store error objects (`{error: true, kind: ..., message: ..., task_id: ...}`) in the result array, and partial results are persisted to context before pausing. `kind` is the persisted discriminator of the iteration's typed failure (`workflow_failure.dart`) and is what resume reads to decide recovery – renaming a variant's `kind` breaks resume for runs started on an earlier release. `message` is operator-facing payload only; a blocked slot carries the bare step-reported reason, unprefixed. The `MapStepContext` tracks in-flight count, completed indices, failed indices, and budget exhaustion state.
 
 The map and foreach iteration dispatch loops wake on iteration completion via a single `Completer<void>` pumped from each in-flight future's `whenComplete`, rather than re-registering listeners every tick via `Future.any(inFlight.values)` and timer-driven 1 ms polling (S78 — that pattern caused listener-allocation pressure scaling with `iterations × outer_loop_ticks` and is the failure mode recorded in `MEMORY.md → feedback_dart_async_test_loops`). Each in-flight future is wrapped with `.catchError((_) {})` so an unhandled async error inside one iteration cannot escape the dispatch loop and leak `inFlightCount`.
 
@@ -558,13 +541,12 @@ Context is the bridge between steps. The extractor and template engine are the t
 
 ### Extraction Priority
 
-The server-side extractor uses a deterministic fallback chain (full priority list and rationale in [Section 21](#21-output-and-context-extraction)):
+The server-side extractor uses these host-owned sources (full priority list and rationale in [Section 21](#21-output-and-context-extraction)):
 
-1. `OutputConfig.setValue` — literal write, short-circuits all extraction
-2. `OutputConfig.source` — direct task metadata read (`worktree.branch`, `worktree.path`)
-3. Canonical context defaults — `*_source` keys default to `synthesized` for any step that emits them blank (see `context_output_defaults.dart`)
-4. Per-key resolver — `FileSystemOutput` (path glob), `InlineOutput` (envelope-first, then legacy `<workflow-context>` JSON / structured-output payload; `resolver: narrative` is a parser-known alias)
-5. Empty string with warning
+1. `OutputConfig.source` — direct task metadata read (`worktree.branch`, `worktree.path`)
+2. Per-key resolver — `FileSystemOutput` (envelope path claim or step-artifact capture), `InlineOutput` (the execution envelope's `outputs` object)
+3. `diff.json` for the canonical `diff_summary` key
+4. Empty string with warning when no source supplies the declared value
 
 ### Template Engine
 
@@ -572,10 +554,8 @@ The `WorkflowTemplateEngine` resolves `{{...}}` placeholders in four namespaces:
 
 - `{{VARIABLE}}` — workflow variables (fail-fast `ArgumentError` if undefined; the resolver swallows unknowns at resolve-time so resolved YAML stays valid)
 - `{{context.KEY}}` — accumulated context data (empty string with warning if missing)
-- `{{map.*}}` / `{{<alias>.*}}` — map/foreach iteration references (only available inside map/foreach controllers; aliases declared via `as: <alias>`)
+- `{{map.*}}` — map/foreach iteration references (only available inside map/foreach controllers; `map` is the sole iteration prefix)
 - `{{workflow.*}}` — render-only system variables injected by the engine (currently `{{workflow.runtime_artifacts_dir}}`; undefined throws `ArgumentError`)
-
-`map`, `context`, and `workflow` are reserved alias names — they cannot be used as `as:` identifiers.
 
 Map-aware resolution (`resolveWithMap`) supports:
 
@@ -585,8 +565,6 @@ Map-aware resolution (`resolveWithMap`) supports:
 - `{{map.length}}` — total collection size
 - `{{context.key[map.index]}}` — indexed lookup into a List-typed context value
 - `{{context.key[map.index].field}}` — dot-access on indexed result
-
-When a map/foreach controller declares `as: <alias>` (e.g. `as: story`), templates may also use the named form `{{story.item}}`, `{{story.item.field}}`, `{{story.index}}`, `{{story.display_index}}`, `{{story.length}}`, and `{{context.key[story.index]}}`. The legacy `{{map.*}}` prefix continues to bind to the same iteration, so aliasing is additive.
 
 List-typed fields on map items (e.g., `{{map.item.acceptance_criteria}}`) are automatically rendered as bullet lists. Indexed context values with a `.text` field are auto-extracted for convenience.
 
@@ -601,16 +579,15 @@ Context is persisted atomically after each step, so a crash can resume from the 
 Budgeting exists at two levels:
 
 - workflow-level `maxTokens`
-- step-level `maxTokens`
+- agent-step `turn_timeout`, including inherited `stepDefaults`
 
 `stepDefaults` applies glob-matched defaults before per-step overrides. The first match wins.
 
 ```yaml
 stepDefaults:
   - match: "review*"
-    maxTokens: 20000
-  - match: "*"
-    maxTokens: 40000
+    model: sonnet
+    turn_timeout: 900
 ```
 
 This keeps expensive reviewer steps bounded without repeating the same configuration on every step.
@@ -672,7 +649,7 @@ See [`025-andthen-as-runtime-prerequisite.md`](../adrs/025-andthen-as-runtime-pr
 - Workflow-level `{{VAR}}` bindings substituted in step prompts when bindings are supplied; unbound references and `{{context.*}}` references stay intact.
 - `stepDefaults` is removed from the emitted definition (already baked into steps) and `nodes` is recomputed via `normalizeNodes`.
 
-The resolver emits YAML via a minimal hand-rolled block-style emitter that the parser accepts unchanged — every built-in workflow round-trips through `resolve → emitYaml → parse` with step-id equivalence (asserted in `workflow_definition_resolver_test.dart`). Foreach `as: <alias>` (`WorkflowStep.mapAlias`) is preserved through `_resolveStep` so resolved-view output matches authored YAML (S78); this affects only `workflow show --resolved` fidelity, not runtime execution (the executor reads the parsed step directly).
+The resolver emits YAML via a minimal hand-rolled block-style emitter that the parser accepts unchanged — every built-in workflow round-trips through `resolve → emitYaml → parse` with step-id equivalence (asserted in `workflow_definition_resolver_test.dart`). Output entries are emitted in their authoring shape (`format`/`schema`/`source`/`description` plus `pathPattern`/`preferPatterns`); the persisted-run `resolver`/`outputMode` keys are re-inferred on reparse, so the resolved view stays parseable. This affects only `workflow show --resolved` fidelity, not runtime execution (the executor reads the parsed step directly).
 
 The resolver is surfaced through two gates:
 
@@ -687,7 +664,7 @@ The resolver is surfaced through two gates:
 1. **Declared output schema** — types, required fields, enums, object shape — via `schema:` presets or inline JSON Schema (see presets table below). Applied as a soft schema check; the agent's payload is kept in context even on mismatch.
 2. **Generic `format: path` trust-boundary validation** — workspace-relative containment, existence, argument-safe characters, symlink-aware escape rejection — applied uniformly to every path output from any skill, never gated on the skill name. When no active workspace root resolves, the validator performs containment-only and skips the existence check (ADR-041 §Open edge case: no active workspace root).
 
-Everything framework-specific is the skill's responsibility: status normalization, resume-filter logic, dependency pruning, cross-field consistency, empty-plan handling. The engine does not re-validate AndThen artifact schemas (`plan.json` structure, FIS markers, `spec_source` semantics, status vocabulary). Skills emit a final, clean structured payload; the engine trusts it. Skip/resume decisions are expressed as workflow-YAML `entryGate` / `gate` expressions reading the skill's structured output — not re-derived in Dart.
+Everything framework-specific is the skill's responsibility: status normalization, resume-filter logic, dependency pruning, cross-field consistency, empty-plan handling. The engine does not re-validate AndThen artifact schemas (`plan.json` structure, FIS markers, `spec_source` semantics, status vocabulary). Skills emit a final, clean structured payload; the engine trusts it. Skip/resume decisions are expressed as workflow-YAML `entryGate` expressions reading the skill's structured output — not re-derived in Dart.
 
 A CI fitness gate (`dev/tools/fitness/check_no_framework_coupling.sh`) enforces this invariant by asserting zero `andthen` / `dartclaw-discover-andthen` literals (case-insensitive) in `packages/dartclaw_workflow/lib/src/`, excluding only `definitions/*.yaml`. Package-root `skills/` payloads are outside the scan scope, but `lib/src/skills` engine code is scanned. This is governance level 2, sibling to `dev/tools/arch_check.dart` (ADR-033, ADR-041).
 
@@ -713,7 +690,7 @@ outputs:
     schema: verdict
 ```
 
-The `PromptAugmenter` resolves the preset and appends its `promptFragment` to the step prompt under a `## Required Output Format` heading. This gives the agent structured instructions without workflow authors needing to repeat format guidance. When `outputMode: structured` is used, prompt augmentation is skipped for that JSON output and the engine instead performs a dedicated native structured extraction turn.
+The `PromptAugmenter` resolves the preset and appends its `promptFragment` to the step prompt under a `## Required Output Format` heading. This gives the agent structured instructions without workflow authors needing to repeat format guidance. For a structured JSON output (`format: json` + `schema`), prompt augmentation is skipped and the engine performs a dedicated native structured extraction turn instead.
 
 For inline schemas (arbitrary JSON Schema objects), `PromptAugmenter` walks the schema properties and generates a prompt fragment automatically.
 
@@ -762,9 +739,9 @@ Three ADRs collectively define the boundary:
 
 - [ADR-021](../adrs/021-agent-execution-primitive.md) — the `AgentExecution` / `WorkflowStepExecution` data-layer decomposition that makes the boundary tractable
 - [ADR-022](../adrs/022-workflow-run-status-and-step-outcome-protocol.md) — the portable `<step-outcome>` protocol that lets gate evaluation reason semantically without inferring from task lifecycle
-- [ADR-023](../adrs/023-workflow-task-boundary.md) — the behavioural contract (workflows compile to tasks; `TaskExecutor` routes workflow-orchestrated tasks via `WorkflowCliRunner`; `dartclaw_workflow` may write `TaskRepository` directly for the atomic three-row insert)
+- [ADR-023](../adrs/023-workflow-task-boundary.md) – the behavioural contract (workflows compile to tasks; `TaskExecutor` routes workflow-orchestrated tasks through a leased harness worker; `dartclaw_workflow` may write `TaskRepository` directly for the atomic three-row insert)
 
-The workflow↔task import boundary is mechanically enforced by a fitness test at [`packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart`](../../packages/dartclaw_testing/test/fitness/workflow_task_boundary_test.dart).
+The workflow↔task import boundary is mechanically enforced by a fitness test at [`dev/fitness/test/workflow_task_boundary_test.dart`](../fitness/test/workflow_task_boundary_test.dart).
 
 ## 14. Workflow Workspace and Built-In Assets
 
@@ -798,6 +775,9 @@ there is no DartClaw skill-discovery registry in the execution path.
 
 The built-in workflow definitions are embedded and materialized into
 `<dataDir>/workflows/built-in/` on startup (`WorkflowMaterializer.builtInDir(dataDir)`).
+`WorkflowMaterializer` is a `dartclaw_workflow` capability
+(`lib/src/workflow/workflow_materializer.dart`, barrel-exported), so every composition
+root — CLI, server wiring, or an SDK host — materializes through the same code path.
 Source-checkout YAML wins before the embedded fallback so maintainer edits remain live. `WorkflowMaterializer` writes
 each shipped definition with a sibling `.dartclaw-managed.json` fingerprint
 file — a 16-hex-char FNV-1a 64-bit hash of the source content (cheap drift
@@ -827,27 +807,28 @@ Workflow runtime state lives under `<dataDir>/workflows/runs/<runId>/` (see
 data directory. The runtime-artifacts root and its `reviews/` subdirectory are
 created at run start before the first prompt renders.
 
-**Subdirectory ownership.** The engine owns and pre-creates only two
-runtime-artifacts subdirectories: `reviews/` (via `_initializeRuntimeArtifactsDir`)
-and `merge-resolve/` (via `workflowMergeResolveAttemptsDir`). Any other consumer
-— a custom workflow step writing to
+**Subdirectory ownership.** The engine owns and pre-creates `reviews/` (via
+`_initializeRuntimeArtifactsDir`), `merge-resolve/` (via
+`workflowMergeResolveAttemptsDir`) and each task's `steps/<stepId>[-<i>]/` (via
+the one-shot runner). Any other consumer — a custom workflow step writing to
 `{{workflow.runtime_artifacts_dir}}/screenshots`, `/architecture`, etc. — must
 create its own subdirectory; the engine never pre-creates it. If a custom
 `format: path` claim names a file under a non-engine subdir that does not exist,
-resolution surfaces a `MissingArtifactFailure` rather than silently substituting
-an unrelated dirty worktree file (the clean-review fallback is review-only).
+and the step's artifacts dir holds nothing matching the output's pattern,
+resolution surfaces a `MissingArtifactFailure` rather than substituting an
+unrelated file.
 
-**Tie-break between worktree and runtime-artifacts roots.** When the same
-relative name resolves under both the worktree and the runtime-artifacts roots,
-the worktree copy wins by default. The runtime-artifacts root is tried *first*
-only for review-artifact path outputs (those for which
-`review_artifact_policy.isReviewArtifactPathOutput` is true, i.e.
-`preserveRuntimeArtifactsRoot`). This review-only precedence is load-bearing in
-the maintainer profile, where `.dartclaw/` is nested inside the checkout so a
-review claim is also within the worktree root; without it the claim would
-resolve worktree-relative, be gitignored, and drop to the worktree diff. The
-worktree-first default for non-review keys is intentional and must not be
-globalized.
+**Root order.** Claims are probed against the step artifacts dir first, then the
+worktree, then runtime-artifacts, then project data
+(`filesystem_output_resolver.fileSystemOutputRoots`). Step-dir-first is what
+makes the same rule correct for every `format: path` output, with no
+review-artifact recognition: when the same relative name resolves under both the
+step dir and the worktree — the maintainer profile nests `.dartclaw/` inside the
+checkout, so a review claim is also within the worktree root — the host-owned
+copy wins. A value resolved under an engine-owned root (step artifacts dir,
+runtime-artifacts) reaches context **absolute**; worktree and project-data values
+stay root-relative, because downstream steps interpolate a relative path value as
+a workspace-relative skill argument.
 
 ## 15. Wire Formats and API Surfaces
 
@@ -875,14 +856,18 @@ Workflows can currently be triggered from six surfaces:
 |---|---|---|
 | HTTP API | `POST /api/workflows/run` | Accepts `{definition, variables, project}`. Returns the created `WorkflowRun` |
 | Web UI launch form | `POST /api/workflows/run-form` from `/workflows` | HTMX form launch. Validates required variables inline and redirects with `HX-Location: /workflows/<runId>` |
-| Web chat command | `POST /api/sessions/<id>/send` with `/workflow list` or `/workflow run <name> KEY=value` | `ChatCommandHandler` intercepts the message before a normal turn is created, returns an HTML card, and deduplicates repeated commands for 30 seconds. `/workflow list` is broadly available; `/workflow run` is advertised and accepted only when the request carries admin permission |
+| Agent tool | `workflow_list` and `workflow_run` through the registered MCP surface | The tools list definitions and start runs through `WorkflowService`, returning the run ID and location |
 | GitHub webhook | `POST /webhook/github` | `GitHubWebhookHandler` verifies HMAC-SHA256 signatures, maps PR metadata into workflow variables, and deduplicates active runs for the same workflow + PR + repo |
 | CLI connected mode | `dartclaw workflow run <name> -v KEY=VALUE` | Default mode in 0.16.4. Calls `POST /api/workflows/run`, then streams `/api/workflows/runs/<id>/events` over SSE. Exit codes: 0=completed, 1=failed, 2=paused/awaitingApproval/cancelled |
-| CLI standalone mode | `dartclaw workflow run <name> --standalone [--force]` | Explicit local fallback via `CliWorkflowWiring`. Probes `/health` first and aborts unless `--force` is set when a server is already running. Passes `headless: true` so review steps auto-accept |
+| CLI standalone mode | `dartclaw workflow run <name> --standalone [--force]` | Explicit local fallback on the shared composition root, staged through `DartclawRuntime.stageHeadless`. Probes `/health` first and aborts unless `--force` is set when a server is already running. Starts the run with `WorkflowService.start(..., headless: true)` so review steps auto-accept |
 
-All server-managed trigger surfaces converge on `WorkflowService.start()`: the HTTP API, HTMX launch form, chat command interceptor, and GitHub webhook handler all resolve a `WorkflowDefinition` and hand it to the same service. The connected CLI path is therefore an API client over the same server-owned lifecycle rather than a separate executor path.
+All server-managed trigger surfaces converge on `WorkflowService.start()`: the HTTP API, HTMX launch form, GitHub
+webhook handler, and the `workflow_run` MCP tool all resolve a `WorkflowDefinition` and hand it to the same service. The
+HTTP run route is therefore one start path among several rather than the only one; required-variable validation,
+declared defaults and the `PROJECT` fallback live below all of them, in the service. The connected CLI path is therefore
+an API client over the same server-owned lifecycle rather than a separate executor path.
 
-The standalone CLI path still exists for serverless or CI use. `WorkflowRunCommand` wires a minimal local service stack via `CliWorkflowWiring` — database, event bus, provider capacity coordinator, and workflow executor — without starting the HTTP server or a primary lane, then calls `WorkflowService.start(..., headless: true)` directly. One-shot work consumes capacity-only leases and spawns only the provider CLI process that does the work.
+The standalone CLI path still exists for serverless or CI use, and runs on the same composition root as `serve`. `WorkflowRunCommand` calls `DartclawRuntime.stageHeadless(...)`, which assembles storage, projects and the workflow registry and stops; the command resolves the definition, gates the providers that definition references, then `completeForExecution(providers)` provisions capacity for those providers alone — no HTTP server, no primary lane, and no primary harness. `cancel` and `pause` take `completeForLifecycle()` instead, which composes nothing that could dispatch a step. One-shot work takes worker leases whose construction inputs carry the step's artifacts directory and spawn variables; the leased harness is not driven yet, and the provider CLI process still performs the step. Standalone-only behaviour — the invocation cwd as the repository, a run that resolves no project, the local publish arm, and the teardown sweep that returns that repository to a clean state — is carried by parameters of that one root rather than by a second graph.
 
 The web UI now exposes both workflow management and launch at `/workflows`, and run detail at `/workflows/<runId>` with real-time SSE updates.
 
@@ -913,7 +898,7 @@ The command family is intentionally split across two execution models:
 - `workflow run` and `workflow status` are connected by default in 0.16.4, with `--standalone` as an explicit local fallback.
 - `workflow runs`, `workflow pause`, `workflow resume`, `workflow retry`, and `workflow cancel` are server-backed lifecycle controls and fail fast if the server is unreachable.
 
-`workflow validate` uses the same parser and validator as the runtime (Sections 18-19), surfacing the same error/warning categories. This enables authors to pre-flight definitions before committing them. The standalone `workflow run` path reuses the same execution package, but the connected path is the preferred operational surface because it preserves guard chain enforcement, observability, and web/UI visibility.
+`workflow validate` uses the same parser and validator as the runtime (Sections 18-19), surfacing the same error/warning categories. This enables authors to pre-flight definitions before committing them. The standalone `workflow run` path composes the same runtime root headlessly, so it carries the same guard chain: a step's provider turns are guard-evaluated on either lane. The connected path remains the preferred operational surface for its observability and web/UI visibility, not for enforcement.
 
 ### 15.3 SSE Event Stream
 
@@ -1049,10 +1034,9 @@ The validator currently checks these categories:
 | loop references | yes | loop-owned step IDs must exist |
 | loop max iterations | yes | must be `> 0` |
 | loop overlap | yes | one step cannot belong to multiple loops |
-| loop finalizers | yes | finalizer must exist and cannot be loop-owned |
 | output config consistency | yes | output declarations must align with context outputs |
 | map-over references | yes | `mapOver` must come from a prior step |
-| map constraints | yes | map step cannot also be `parallel` |
+| foreach controller shape | yes | a step declaring `mapOver` must declare per-item steps, and cannot also be `parallel` |
 | multi-prompt provider support | yes | continuity providers are enforced |
 | skill references | yes | invalid or incompatible skill refs block loading |
 | hybrid-step rules | mixed | some cases warn, some cases error |
@@ -1109,9 +1093,9 @@ stepDefaults:
   - match: "review-*"
     provider: claude
     model: sonnet
-    maxTokens: 12000
+    turn_timeout: 900
   - match: "review-security"
-    maxTokens: 20000
+    turn_timeout: 1800
 ```
 
 With first-match-wins semantics:
@@ -1129,9 +1113,11 @@ The resolved fields today are:
 |---|---|
 | `provider` | yes |
 | `model` | yes |
-| `maxTokens` | yes |
+| `effort` | yes |
 | `maxRetries` | yes |
 | `allowedTools` | yes |
+| `timeout` | yes |
+| `turn_timeout` | yes |
 
 Other step properties remain explicitly step-local:
 
@@ -1140,7 +1126,7 @@ Other step properties remain explicitly step-local:
 - `mapOver`
 - `inputs`
 - `outputs`
-- `gate`
+- `entryGate`
 - `continueSession`
 
 That boundary is important because defaults are for execution policy, not for
@@ -1170,21 +1156,37 @@ The runtime writes automatic metadata itself:
 
 User-declared outputs are then extracted by `ContextExtractor`. The pipeline drives off `step.outputKeys` (derived directly from the `outputs:` map). For each declared output key, extraction priority is:
 
-1. `OutputConfig.setValue` — literal write (any JSON-encodable value, including `null`); short-circuits all other extraction.
-2. `OutputConfig.source` — direct read from task metadata (`worktree.branch`, `worktree.path`).
-3. Canonical context defaults (`context_output_defaults.dart`) — `*_source` keys default to `synthesized` for any step that declares them and emits no value.
-4. Per-key resolver from `outputResolverFor` — `FileSystemOutput` (glob over changed files; `format: path`) or `InlineOutput` (envelope-first: reads the finalizer envelope's `outputs` object first, falling back to the legacy `<workflow-context>` JSON or structured-output payload only when no envelope value is present). The legacy `resolver: narrative` keyword remains a parser-known alias for inline extraction.
-5. Empty string with warning (legacy/opt-out steps only).
+1. `OutputConfig.source` — direct read from task metadata (`worktree.branch`, `worktree.path`).
+2. Per-key resolver from `outputResolverFor` — `FileSystemOutput` (`format: path`: the envelope claim, else capture from the step artifacts dir) or `InlineOutput` (the finalizer envelope's `outputs` object).
+3. `diff.json` for the canonical `diff_summary` key.
+4. Empty string with warning when no source supplies the declared value.
 
-When `format: json` and `schema` are both present, the parser default is `outputMode: structured` — provider-enforced schema extraction. For finalizer-eligible steps the standard path reads `structuredOutput.outputs` from the no-tools execution-envelope turn (Section 4.4a); the legacy inline `<workflow-context>` payload is retained only as a compatibility fallback when the envelope is missing or malformed. File and path values extracted this way are still claims: `FileSystemOutput` validation (existence, containment, argument safety, review-artifact runtime-root precedence) runs after finalization, so a claimed `succeeded` `step_outcome` cannot bypass a missing required artifact — the step becomes a workflow validation failure eligible for the existing retry path instead.
+When `format: json` and `schema` are both present, the parser infers structured mode — provider-enforced schema extraction. Agent steps read `structuredOutput.outputs` from the no-tools execution-envelope turn (Section 4.4a); no assistant-prose fallback exists. File and path values extracted this way are still claims: `FileSystemOutput` validation (existence, containment, argument safety) runs after finalization, so a claimed `succeeded` `step_outcome` cannot bypass a missing required artifact — the step becomes a workflow validation failure eligible for the existing retry path instead.
 
-Path-output glob resolution is name-agnostic: a `format: path` output that declares no `pathPattern:`/preset falls back to the uniform `**/*` glob (list mode for a path-list). Declare `pathPattern:` inline to infer filesystem resolution and narrow the match. For ordinary path outputs, a missing claimed file is a hard failure (`MissingArtifactFailure`).
+**One resolution rule for every `format: path` output.** An existing,
+symlink-contained claim wins, whatever its filename and wherever it sits in the
+worktree — no `git diff` is consulted and no prefix-stripped rewrite of the claim
+is tried, so the path a step names is the path downstream steps get. A claim that
+escapes the workspace fails the symlink-resolved containment check and is never
+used; no worktree file is substituted for it, and with nothing in the step
+artifacts dir to capture, the step fails naming that claim. With no usable claim the value is captured
+from the host-owned step artifacts dir
+(`review_artifact_policy.captureStepArtifact`), and *which* file satisfies the
+output is decided only by what the output declared: the `pathPattern` glob
+filters the dir's top-level files by basename, `preferPatterns` breaks a tie by
+basename, and most-recently-modified is the last tie-break. Nothing recognizes an
+output as a review to pick a different regime. Glob resolution stays
+name-agnostic: an output declaring no `pathPattern:`/preset falls back to the
+uniform `**/*` glob (list mode for a path-list). When neither a claim nor the
+step dir yields a value, a step that reported a clean review gets the durable
+diagnostic stub, a step that named a path or reported findings fails with
+`MissingArtifactFailure`, and anything else resolves empty.
 
 The four-strategy design matters because workflows run across very different
 step styles:
 
 - agent-only narrative steps
-- coding steps that emit markdown artifacts
+- agent steps that emit markdown artifacts
 - review steps that produce JSON verdicts
 - deterministic bash steps that may emit line-oriented output
 
@@ -1224,9 +1226,13 @@ behavior on useful-but-imperfect model output.
 expression ::= andGroup ( '||' andGroup )*
 andGroup   ::= condition ( '&&' condition )*
 condition  ::= "<key> <operator> <value>"
+             | "<key> isEmpty"
+             | "<key> isNotEmpty"
 ```
 
 `&&` binds tighter than `||`. Parentheses, NOT, and deeper nesting are not supported.
+
+Both productions are declared once, on `GateEvaluator` (`binaryConditionPattern` / `unaryConditionPattern`, plus `conditionGroups` for the `||`/`&&` split). `validation/workflow_gate_rules.dart` reads the same declarations, so the validator cannot accept an expression the evaluator rejects, or vice versa.
 
 Supported operators:
 
@@ -1246,7 +1252,9 @@ implement.status == accepted
 review.verdict == pass
 analysis.tokenCount < 50000
 plan.status == accepted && plan.tokenCount < 12000
-plan-review.gating_findings_count > 0 || architecture-review.gating_findings_count > 0
+plan-review.gating_findings_count > 0 || plan-review-council.gating_findings_count > 0
+review_report_path isNotEmpty && findings_count < 5
+story_specs.items isEmpty || story_specs == null
 ```
 
 Null-literal handling: `x == null` matches when the value is empty/missing or the literal string `"null"`. Numeric comparisons against an empty actual value default the actual to `'0'`. Keys may be dotted (`plan_review.gating_findings_count`); a stray `context.` prefix is forgiven with a warning.
@@ -1283,7 +1291,6 @@ Per loop, the executor owns:
 - current loop ID
 - current loop step ID
 - exit-gate evaluation point
-- optional finalizer dispatch
 
 The lifecycle is:
 
@@ -1294,8 +1301,7 @@ The lifecycle is:
 5. emit `LoopIterationCompletedEvent`
 6. evaluate `exitGate`
 7. either terminate or continue
-8. if terminated and `finally` exists, run finalizer
-9. clear `_loop.current.*` metadata
+8. clear `_loop.current.*` metadata
 
 The persisted state fields matter for recovery:
 
@@ -1309,7 +1315,6 @@ This enables crash recovery with enough precision to distinguish:
 - before first loop step
 - mid-iteration
 - after iteration completion but before exit-gate decision
-- inside finalizer
 
 The loop model also explains why `continueSession` cannot cross loop
 boundaries. Session continuity is linear by design. Loop iteration is not.
@@ -1341,14 +1346,14 @@ The built-in workflows no longer ship separate review-prd / review-spec steps. `
 
 ## Generalized `entryGate`
 
-`WorkflowStep.entryGate` is an optional `String?` field that mirrors the semantic established on `WorkflowLoop`: a step whose `entryGate` evaluates false is **skipped** — the executor fires a `StepSkippedEvent`, advances the cursor, and continues. Unlike `step.gate`, a false `entryGate` does **not** pause the run awaiting operator review. The check runs in every step-kind dispatch branch (MapNode, ActionNode, ParallelGroup, loop body, foreach child). Skipping a member of a parallel group filters that member out; the remaining members still run.
+`WorkflowStep.entryGate` is an optional `String?` field that mirrors the semantic established on `WorkflowLoop`: a step whose `entryGate` evaluates false is **skipped** – the executor fires a `StepSkippedEvent`, advances the cursor, and continues. It is the only gate a step can declare; a run that should *pause* on a condition uses an `entryGate`-guarded `type: approval` step instead. The check runs in the ActionNode, ParallelGroup, loop-body, and foreach-child dispatch branches. `entryGate` is not evaluated on a `foreach` controller step itself, although the parser accepts it there; put it on the controller's per-item child steps. Skipping a member of a parallel group filters that member out; the remaining members still run.
 
 `GateEvaluator` recognizes `== null` / `!= null` as literal comparisons: missing keys and empty-string values are considered null; the literal string `"null"` also matches null. Numeric-empty-→-0 fallback remains in effect for relational operators.
 
 Validator acceptance is permissive: bare-key (`prd_source == synthesized`), dotted (`plan-review.findings_count > 0`), and chained-with-`&&` forms are all accepted, matching the runtime evaluator.
 The resolver preserves authored `entryGate` fields when emitting resolved YAML, so `workflow show --resolved` round-trips without silently dropping skip semantics.
 
-## Artifact Auto-Commit + External Mount
+## Artifact Auto-Commit
 
 `gitStrategy.artifacts` adds a commit hook that runs automatically after any step that produced path-shaped outputs:
 
@@ -1386,24 +1391,5 @@ Important distinctions:
 
 - `Task.projectId` is the persisted task-system field used to resolve the target project checkout.
 - `workflow project` is the authoring concept declared on `WorkflowDefinition.project`.
-- Workflow-created tasks always persist as `TaskType.coding`; workflow step type no longer flows through task-system bookkeeping.
+- Workflow-created tasks carry no category; workflow step type remains on workflow execution metadata only.
 - Workflow-owned review is structural, not task-level. Workflow tasks auto-accept on turn completion; approval/review steps are the way to model human checkpoints in authored workflow structure.
-
-**Cross-clone mount.** Split-repo workflows declare `gitStrategy.worktree.externalArtifactMount` to carry artifact files from the planning-repo workflow branch into each per-map-item worktree of the code repo:
-
-```yaml
-gitStrategy:
-  artifacts:
-    project: "{{DOC_PROJECT}}"
-  worktree:
-    mode: per-map-item
-    externalArtifactMount:
-      mode: per-story-copy                        # default: least-privilege
-      fromProject: "{{DOC_PROJECT}}"
-      source: "{{map.item.spec_path}}"            # resolved per iteration
-```
-
-- `mode: per-story-copy` (shipped default): at per-map-item worktree creation the engine resolves `source` against the current `map.item.*` to a workspace-relative path, then copies **only that one file** from `fromProject` into the worktree at the same relative path — `file_read({{map.item.spec_path}})` resolves correctly in both workspaces without any context rewriting.
-- `mode: bind-mount` (opt-in, requires README justification): bind-mounts the whole directory read-only into each worktree; every worktree can read every sibling's FIS. Intended for debugging / cross-story references.
-
-The copy runs in the task executor after worktree creation but before the agent turn starts, so the skill inside the task sees the file on its first read.

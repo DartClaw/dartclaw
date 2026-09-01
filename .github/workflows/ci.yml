@@ -50,3 +50,43 @@ jobs:
 
       - name: Fitness functions
         run: bash dev/tools/fitness/run_all.sh
+
+  container:
+    name: Container boundary
+    # Deliberately without the `check` job's fork-PR condition: this needs no
+    # secret and issues no model turn, so it must run in both contexts. Its own
+    # job so a container-runtime problem fails by name rather than inside the
+    # test suite.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: 3.13.0
+
+      - name: Install dependencies
+        run: dart pub get --enforce-lockfile
+
+      # Generated asset libraries are not committed and lib/ imports them, so
+      # this must run before anything that loads the runtime from source.
+      - name: Generate embedded assets
+        run: dart run dev/tools/embed_assets.dart
+
+      # The in-container bridge is a build artifact too; without it the posture
+      # downgrades to advisory mode and the profile fails for a reason that is
+      # not the boundary.
+      - name: Build container bridge
+        run: bash dev/tools/build_bridge.sh
+
+      # Boots an undeclared posture and asserts it resolved to container
+      # isolation. An absent runtime fails the job rather than skipping: the
+      # server's advisory downgrade exits zero and would otherwise read as a pass.
+      # Root, not the runner user: native Linux bind mounts pass ownership
+      # through verbatim, so the per-authority state dir is chowned to the
+      # image uid, and the runner user (uid 1001) has no CAP_CHOWN — the chown
+      # fails silently and the container's user cannot enter the mount.
+      - name: Container posture
+        run: sudo -E env "PATH=$PATH" bash dev/testing/profiles/container/run.sh --ci

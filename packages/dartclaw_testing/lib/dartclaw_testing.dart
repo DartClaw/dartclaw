@@ -2,47 +2,35 @@
 ///
 /// The public surface stays intentionally narrow: only the canonical shared
 /// doubles that are reused across package test suites are exported here.
+///
+/// A double for a port owned above `dartclaw_core` lives in the package that
+/// owns the port, behind that package's `testing.dart` entry point.
 library;
 
 export 'package:dartclaw_core/dartclaw_core.dart'
     show
-        AgentExecution,
-        AgentExecutionRepository,
         AgentHarness,
         BridgeEvent,
         BusyTurnException,
         Channel,
         ChannelMessage,
         ChannelResponse,
-        ChannelType,
         DartclawEvent,
         EventBus,
-        ExecutionRepositoryTransactor,
-        GoogleJwtVerifier,
         PromptStrategy,
         ProjectService,
-        SessionKey,
         SessionService,
         Task,
         TaskArtifact,
         TaskRepository,
         TaskStatus,
-        TaskType,
         TurnManager,
         TurnOutcome,
         TurnRunner,
         TurnStatus,
-        WorkflowStepExecution,
-        WorkflowStepExecutionRepository,
         WorkerState;
-export 'package:dartclaw_config/dartclaw_config.dart' show CloneStrategy, PrConfig, Project, ProjectStatus;
-export 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
-    show GoogleChatAudienceConfig, GoogleChatAudienceMode, GoogleChatRestClient;
-export 'package:dartclaw_security/dartclaw_security.dart' show Guard, GuardContext, GuardVerdict;
-export 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskBindingCoordinator;
 
-export 'src/channel_test_helpers.dart'
-    show RecordingReviewHandler, TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
+export 'src/channel_test_helpers.dart' show TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
 export 'src/codex_harness_test_helpers.dart'
     show
         defaultCommandProbe,
@@ -56,27 +44,21 @@ export 'src/codex_harness_test_helpers.dart'
         startHarnessV118,
         waitForSentMessage;
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
+export 'src/canonical_memory_fixture.dart' show seedCanonicalMemory;
 export 'src/fake_channel.dart' show FakeChannel;
 export 'src/fake_channel_manager.dart' show FakeChannelManager;
 export 'src/fake_codex_process.dart' show FakeCodexProcess;
 export 'src/fake_content_classifier.dart' show FakeContentClassifier;
-export 'src/fake_google_chat_rest_client.dart' show FakeGoogleChatRestClient;
-export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier;
 export 'src/fake_guard.dart' show FakeGuard;
-export 'src/fake_git_gateway.dart' show FakeGitGateway;
+export 'src/fake_google_jwt_verifier.dart' show FakeGoogleJwtVerifier, GoogleJwtVerifyCallback;
 export 'src/fake_project_service.dart' show FakeProjectService;
-export 'src/fake_process.dart' show CapturingFakeProcess, FakeProcess, makeVersionProbeProcess;
-export 'src/fake_provider_auth_preflight.dart' show FakeProviderAuthPreflight;
-export 'src/fake_skill_introspector.dart' show FakeSkillIntrospector;
+export 'src/fake_process.dart'
+    show CapturingFakeProcess, FakeProcess, GitInvocation, RecordingGitRunner, makeVersionProbeProcess;
 export 'src/fake_turn_manager.dart' show FakeTurnManager;
 export 'src/flush_async.dart' show flushAsync;
-export 'src/in_memory_agent_execution_repository.dart' show InMemoryAgentExecutionRepository;
-export 'src/in_memory_execution_repository_transactor.dart' show InMemoryExecutionRepositoryTransactor;
 export 'src/in_memory_session_service.dart' show InMemorySessionService;
 export 'src/in_memory_task_repository.dart' show InMemoryTaskRepository;
 export 'src/in_memory_workflow_step_execution_repository.dart' show InMemoryWorkflowStepExecutionRepository;
-export 'src/log_test_helpers.dart' show captureRootLogs;
 export 'src/null_io_sink.dart' show NullIoSink;
 export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;
-export 'src/workflow_git_fixture.dart' show WorkflowGitFixture;

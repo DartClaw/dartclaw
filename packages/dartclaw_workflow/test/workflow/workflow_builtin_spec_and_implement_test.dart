@@ -1,7 +1,9 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowGitIntegrationBranchResult, WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowRunStatus;
+    show WorkflowGitIntegrationBranchResult, WorkflowGitPublishResult, WorkflowPublishStatus;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -65,7 +67,7 @@ void main() {
     // Downstream pipeline must still execute after the revise-spec detour.
     expect(trace.tasksForStep('implement'), hasLength(1));
     expect(trace.tasksForStep('integrated-review'), hasLength(1));
-    expect(trace.tasksForStep('architecture-review'), hasLength(1));
+    expect(trace.tasksForStep('integrated-review-council'), hasLength(1));
     // Step order: revise-spec runs after spec and before implement.
     final order = trace.queuedStepOrder;
     expect(order.indexOf('spec'), lessThan(order.indexOf('revise-spec')));
@@ -86,7 +88,7 @@ void main() {
     expect(trace.tasksForStep('implement').single.projectId, 'demo-project');
     expect(trace.tasksForStep('integrated-review').single.projectId, 'demo-project');
     expect(trace.tasksForStep('remediate'), isEmpty);
-    expect(trace.tasksForStep('integrated-review').single.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(trace.tasksForStep('integrated-review').single.configJson['needsWorktree'], isTrue);
     // File-backed reviews must stay writable: no readOnly flag on spec/implement/integrated-review.
     expect(trace.tasksForStep('integrated-review').single.configJson.containsKey('readOnly'), isFalse);
     expect(trace.tasksForStep('spec').single.configJson.containsKey('readOnly'), isFalse);
@@ -117,38 +119,26 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'spec' => StubResponse(
-            assistantContent: contextOutput({
-              'spec_path': 'docs/specs/test/spec-loop.md',
-              'spec_source': 'synthesized',
-              'spec_confidence': 9,
-            }),
+            outputs: {'spec_path': 'docs/specs/test/spec-loop.md', 'spec_source': 'synthesized', 'spec_confidence': 9},
           ),
-          'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'LOOP_DIFF_MARKER'})),
+          'implement' => StubResponse(outputs: {'diff_summary': 'LOOP_DIFF_MARKER'}),
           'integrated-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 1,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 1,
             ),
           ),
           'remediate' => StubResponse(
-            assistantContent: contextOutput({
-              'remediation_summary': 'Fixed the lint findings',
-              'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX',
-            }),
+            outputs: {'remediation_summary': 'Fixed the lint findings', 'diff_summary': 'LOOP_DIFF_MARKER_AFTER_FIX'},
           ),
           're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 0,
             ),
           ),
-          'architecture-review' => architectureReviewStub(),
           'integrated-review-council' => integratedReviewCouncilStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
@@ -166,7 +156,7 @@ void main() {
   });
 
   test(
-    'spec-and-implement narrows to the re-review report after the first remediation pass clears architecture inputs',
+    'spec-and-implement narrows to the re-review report after the first remediation pass clears council inputs',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
@@ -174,42 +164,40 @@ void main() {
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
             'spec' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 'spec_path': 'docs/specs/test/spec-loop.md',
                 'spec_source': 'synthesized',
                 'spec_confidence': 9,
-              }),
+              },
             ),
-            'implement' => StubResponse(assistantContent: contextOutput({'diff_summary': 'ARCH_ONLY_DIFF'})),
+            'implement' => StubResponse(outputs: {'diff_summary': 'COUNCIL_ONLY_DIFF'}),
             'integrated-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: 0,
-                ),
+              outputs: reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 0,
               ),
             ),
-            'architecture-review' => architectureReviewStub(
-              findingsCount: 1,
-              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+            'integrated-review-council' => StubResponse(
+              outputs: reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+              ),
             ),
-            'integrated-review-council' => integratedReviewCouncilStub(),
             'remediate' => StubResponse(
-              assistantContent: contextOutput({
+              outputs: {
                 'remediation_summary': 'Fixed the findings',
                 'diff_summary': queued.occurrence == 0
-                    ? 'ARCH_ONLY_DIFF_AFTER_FIRST_FIX'
-                    : 'ARCH_ONLY_DIFF_AFTER_REREVIEW_FIX',
-              }),
+                    ? 'COUNCIL_ONLY_DIFF_AFTER_FIRST_FIX'
+                    : 'COUNCIL_ONLY_DIFF_AFTER_REREVIEW_FIX',
+              },
             ),
             're-review' => StubResponse(
-              assistantContent: contextOutput(
-                reviewReportContext(
-                  queued.stepKey,
-                  stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                  findingsCount: queued.occurrence == 0 ? 1 : 0,
-                ),
+              outputs: reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: queued.occurrence == 0 ? 1 : 0,
               ),
             ),
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -220,7 +208,7 @@ void main() {
       expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
       expect(trace.count('remediate'), 2);
       expect(trace.count('re-review'), 2);
-      // Iteration 1: the aggregator collapses integrated + architecture reports
+      // Iteration 1: the aggregator collapses integrated + council reports
       // into a single file path for remediation.
       final firstRemediate = trace.descriptionsByStep['remediate']![0];
       expect(firstRemediate, contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'));
@@ -228,7 +216,7 @@ void main() {
       // from the re-review step's host-owned artifacts dir.
       final secondRemediate = trace.descriptionsByStep['remediate']![1];
       expect(secondRemediate, contains('/runtime-artifacts/steps/re-review/re-review-codex-2026-04-29.md'));
-      expect(secondRemediate, isNot(contains('architecture-review-codex')));
+      expect(secondRemediate, isNot(contains('integrated-review-council-codex')));
     },
   );
 
@@ -253,10 +241,10 @@ void main() {
       runGit(['config', 'user.name', 'Workflow Test']);
       runGit(['config', 'user.email', 'workflow-test@example.com']);
       File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
-      File(p.join(repoDir.path, 'docs', 'specs', 'test', 'architecture-review-codex-2026-04-29.md'))
+      File(p.join(repoDir.path, 'docs', 'specs', 'test', 'baseline-note.md'))
         ..createSync(recursive: true)
-        ..writeAsStringSync('# Architecture Review\n');
-      runGit(['add', 'README.md', 'docs/specs/test/architecture-review-codex-2026-04-29.md']);
+        ..writeAsStringSync('# Baseline\n');
+      runGit(['add', 'README.md', 'docs/specs/test/baseline-note.md']);
       runGit(['commit', '-m', 'initial']);
       runGit(['remote', 'add', 'origin', originDir.path]);
       runGit(['push', '-u', 'origin', 'main']);
@@ -292,11 +280,7 @@ void main() {
               specFile.parent.createSync(recursive: true);
               specFile.writeAsStringSync('Local-path spec artifact\n');
               return StubResponse(
-                assistantContent: contextOutput({
-                  'spec_path': 'docs/specs/test/spec.md',
-                  'spec_source': 'synthesized',
-                  'spec_confidence': 9,
-                }),
+                outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized', 'spec_confidence': 9},
                 worktreeJson: {
                   'path': repoDir.path,
                   'branch': workflowBranch ?? 'workflow/spec-and-implement-run',

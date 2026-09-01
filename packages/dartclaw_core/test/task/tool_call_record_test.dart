@@ -3,36 +3,6 @@ import 'package:test/test.dart';
 
 void main() {
   group('ToolCallRecord', () {
-    test('constructs with all fields', () {
-      const record = ToolCallRecord(
-        name: 'Bash',
-        success: true,
-        durationMs: 150,
-        errorType: null,
-        context: 'dart test',
-      );
-      expect(record.name, 'Bash');
-      expect(record.success, isTrue);
-      expect(record.durationMs, 150);
-      expect(record.errorType, isNull);
-      expect(record.context, 'dart test');
-    });
-
-    test('constructs with error fields', () {
-      const record = ToolCallRecord(
-        name: 'Write',
-        success: false,
-        durationMs: 42,
-        errorType: 'tool_error',
-        context: 'lib/main.dart',
-      );
-      expect(record.name, 'Write');
-      expect(record.success, isFalse);
-      expect(record.durationMs, 42);
-      expect(record.errorType, 'tool_error');
-      expect(record.context, 'lib/main.dart');
-    });
-
     test('toJson output shape — success, no errorType', () {
       const record = ToolCallRecord(name: 'Read', success: true, durationMs: 10);
       final json = record.toJson();

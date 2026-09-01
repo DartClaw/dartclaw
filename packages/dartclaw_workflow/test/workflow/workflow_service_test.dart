@@ -1,11 +1,11 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -15,13 +15,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         OutputConfig,
         SessionService,
-        SessionType,
+        SqliteWorkflowRunRepository,
         Task,
         TaskArtifact,
         TaskStatus,
         TaskStatusChangedEvent,
-        TaskType,
-        WorkflowApprovalPolicy,
         WorkflowApprovalResolvedEvent,
         WorkflowDefinition,
         WorkflowExecutionCursor,
@@ -31,28 +29,28 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowLoop,
         MergeResolveConfig,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowWorktreeBinding,
         WorkflowStep,
         WorkflowTaskService,
+        WorkflowTaskType,
         WorkflowVariable,
         WorkflowGitContext,
         WorkflowPersistencePorts,
         WorkflowStartResolution,
         WorkflowServiceOptions,
         WorkflowTurnAdapter;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskCancellationSubscriber, TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskCancellationSubscriber, TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
         SqliteExecutionRepositoryTransactor,
         SqliteTaskRepository,
-        SqliteWorkflowRunRepository,
         SqliteWorkflowStepExecutionRepository,
         openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show BashProcessOwner, WorkflowService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGitGateway, FakeProcess, FakeTurnManager, flushAsync;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, FakeTurnManager, flushAsync;
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -588,7 +586,7 @@ void main() {
       id: 'run-a-queued',
       title: 'run A queued',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: run.id,
     );
@@ -596,7 +594,7 @@ void main() {
       id: 'run-a-running',
       title: 'run A running',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: run.id,
     );
@@ -605,7 +603,7 @@ void main() {
       id: 'run-a-accepted',
       title: 'run A accepted',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: run.id,
     );
@@ -616,7 +614,7 @@ void main() {
       id: 'run-b-running',
       title: 'run B running',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: 'run-B',
     );
@@ -663,7 +661,7 @@ void main() {
       id: 'cancel-order-task',
       title: 'cancel order task',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: run.id,
     );
@@ -727,7 +725,6 @@ void main() {
       id: 'cancel-turn-task',
       title: 'cancel turn task',
       description: 'x',
-      type: TaskType.research,
       autoStart: true,
       provider: 'codex',
       workflowRunId: run.id,
@@ -754,7 +751,7 @@ void main() {
       id: 'inactive-run-task',
       title: 'inactive run task',
       description: 'x',
-      type: TaskType.coding,
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       workflowRunId: 'run-C',
     );
@@ -1253,19 +1250,21 @@ void main() {
     expect(recovered?.status, equals(WorkflowRunStatus.completed));
   });
 
-  test('recoverIncompleteRuns() resumes unfinished map iterations without replaying settled items', () async {
+  test('recoverIncompleteRuns() resumes unfinished foreach iterations without replaying settled items', () async {
     final definition = WorkflowDefinition(
-      name: 'map-recovery',
-      description: 'Map recovery',
+      name: 'foreach-recovery',
+      description: 'Foreach recovery',
       steps: const [
         WorkflowStep(
           id: 'map',
           name: 'Map',
-          prompts: ['Process {{map.item}}'],
+          taskType: WorkflowTaskType.foreach,
           mapOver: 'items',
           maxParallel: 1,
+          foreachSteps: ['child'],
           outputs: {'mapped': OutputConfig()},
         ),
+        WorkflowStep(id: 'child', name: 'Child', prompts: ['Process {{map.item}}']),
       ],
     );
 
@@ -1274,7 +1273,7 @@ void main() {
       status: WorkflowRunStatus.running,
       currentStepIndex: 0,
       definition: definition,
-      executionCursor: WorkflowExecutionCursor.map(
+      executionCursor: WorkflowExecutionCursor.foreach(
         stepId: 'map',
         stepIndex: 0,
         totalItems: 3,
@@ -1297,12 +1296,11 @@ void main() {
     await workflowService.recoverIncompleteRuns();
     await Future<void>.delayed(const Duration(milliseconds: 250));
 
-    expect(createdTaskTitles, hasLength(1));
-    expect(createdTaskTitles.single, contains('(3/3)'));
-
+    expect(createdTaskTitles, hasLength(1), reason: 'settled items 0 and 1 must not be replayed');
     final recovered = await workflowService.get('recover-map-step');
     expect(recovered?.status, equals(WorkflowRunStatus.completed));
-    expect(((recovered?.contextJson['data'] as Map?)?['mapped'] as List?)?.length, equals(3));
+    // Slots 0 and 1 still carry the seeded results – those items were not recomputed.
+    expect((recovered?.contextJson['data'] as Map?)?['mapped'], ['done-a', 'done-b', anything]);
   });
 
   test('recoverIncompleteRuns() skips paused runs', () async {
@@ -1419,13 +1417,7 @@ void main() {
         if (task == null) return;
         final session = await sessionService.createSession(type: SessionType.task);
         await taskService.updateFields(task.id, sessionId: session.id);
-        await harness.messageService.insertMessage(
-          sessionId: session.id,
-          role: 'assistant',
-          content:
-              'Blocked pending human decision.\n'
-              '<step-outcome>{"outcome":"needsInput","reason":"later stall"}</step-outcome>',
-        );
+        await harness.seedStepOutcome(e.taskId, outcome: 'needsInput', reason: 'later stall');
         await taskService.transition(e.taskId, TaskStatus.running, trigger: 'test');
         await taskService.transition(e.taskId, TaskStatus.review, trigger: 'test');
         await taskService.transition(e.taskId, TaskStatus.accepted, trigger: 'test');
@@ -1834,21 +1826,23 @@ void main() {
   group('restart/retry idempotency after side effects', () {
     test('retry() starts from persisted execution cursor — not from step 0', () async {
       final definition = WorkflowDefinition(
-        name: 'map-retry',
-        description: 'map retry idempotency',
+        name: 'foreach-retry',
+        description: 'foreach retry idempotency',
         steps: const [
           WorkflowStep(
             id: 'implement',
             name: 'Implement',
-            prompts: ['impl {{map.item}}'],
+            taskType: WorkflowTaskType.foreach,
             mapOver: 'items',
             maxParallel: 1,
+            foreachSteps: ['do-implement'],
             outputs: {'results': OutputConfig()},
           ),
+          WorkflowStep(id: 'do-implement', name: 'Implement', prompts: ['impl {{map.item}}']),
           WorkflowStep(id: 'update-state', name: 'Update State', prompts: ['update']),
         ],
       );
-      final cursor = WorkflowExecutionCursor.map(
+      final cursor = WorkflowExecutionCursor.foreach(
         stepId: 'implement',
         stepIndex: 0,
         totalItems: 3,
@@ -1887,14 +1881,11 @@ void main() {
       await statusSub.cancel();
 
       final mapDispatched = allDispatchedTitles.where((t) => t.contains('Implement')).toList();
-      expect(
-        mapDispatched.any((t) => t.contains('(1/3)') || t.contains('(2/3)')),
-        isFalse,
-        reason: 'Completed map items (0,1) must not be replayed on retry',
-      );
-      expect(mapDispatched, hasLength(1), reason: 'only the pending cursor item should dispatch');
-      expect(mapDispatched.single, contains('(3/3)'));
+      expect(mapDispatched, hasLength(1), reason: 'only the pending cursor item dispatches; 0 and 1 are settled');
       expect(terminalStatus, equals(WorkflowRunStatus.completed));
+      final retried = await workflowService.get('run-map-retry');
+      // Slots 0 and 1 keep the seeded results, pinning *which* item was retried.
+      expect((retried?.contextJson['data'] as Map?)?['results'], ['done-a', 'done-b', anything]);
     });
   });
 
@@ -2126,7 +2117,6 @@ final class _RecordingWorkflowTaskService implements WorkflowTaskService {
     required String id,
     required String title,
     required String description,
-    required TaskType type,
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
@@ -2147,7 +2137,6 @@ final class _RecordingWorkflowTaskService implements WorkflowTaskService {
     id: id,
     title: title,
     description: description,
-    type: type,
     autoStart: autoStart,
     goalId: goalId,
     acceptanceCriteria: acceptanceCriteria,
@@ -2179,9 +2168,9 @@ final class _RecordingWorkflowTaskService implements WorkflowTaskService {
   }
 
   @override
-  Future<List<Task>> list({TaskStatus? status, TaskType? type}) {
+  Future<List<Task>> list({TaskStatus? status}) {
     listCallCount += 1;
-    return _delegate.list(status: status, type: type);
+    return _delegate.list(status: status);
   }
 
   @override

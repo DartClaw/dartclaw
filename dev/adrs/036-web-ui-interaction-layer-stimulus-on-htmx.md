@@ -50,6 +50,12 @@ Adopt **Stimulus 3.2.1** as the browser interaction layer:
 - `dev/guidelines/HTMX-GUIDELINES.md` gained a "Use Stimulus for browser behavior owned by DOM islands" section; `dev/architecture/system-architecture.md` and `dev/design-system/DESIGN.md` were updated; stale `dartclaw.pages.*` / `loadScript()` references removed.
 - The `dc-*` controller conventions are currently enforced by review, not by a fitness function — a candidate future check under [ADR-033](033-architectural-governance-via-fitness-functions.md).
 
+## Amendment (2026-08-24) — Bound controller ownership to client behaviour
+
+HTMX owns server mutations and the rendering of server state. A `dc-*` controller owns imperative browser behaviour tied to its `connect()` / `disconnect()` lifecycle: dialogs, tab widgets and keyboard navigation, persisted client preferences, and SSE or timer-driven patching. It does not assemble request bodies, re-render server state from response payloads, or place server-produced messages into the DOM.
+
+The server-rendered fragment conventions introduced by S11 (1–6) and extended by S31 (7) are the implementation mechanism. The settings, projects, scheduling and memory retirements in 0.25 provide the first complete evidence: each mutation now returns the authoritative Trellis fragment, while controllers retain only browser-local interaction.
+
 ## References
 
 - 0.16.6 PRD, plan, technical research, and FIS files.

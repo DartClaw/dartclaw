@@ -1,0 +1,51 @@
+# Package tier order — the single authority for workspace dependency direction.
+#
+# Format: one `T<n>: <member> [<member>...]` line per tier, highest tier first.
+# Every member of the root pubspec's `workspace:` list must appear exactly once,
+# and every name here must be a workspace member.
+#
+# The rule the gate derives from this file (dev/fitness/test/dependency_direction_test.dart):
+#
+#   an import or re-export may only point at a STRICTLY LOWER tier.
+#
+# Same-tier edges are forbidden. That is what keeps the channel packages
+# self-contained rather than quietly depending on each other, and what keeps the
+# dependency-free client off core. ADR-034's ports-with-the-domain-contract rule
+# and ADR-056's two named forbidden edges are consequences of the order below,
+# not separate exceptions.
+#
+# There is no exception mechanism, deliberately: a per-edge table has to be
+# edited for every legitimate dependency and degrades into a rubber stamp. An
+# edge that cannot be expressed here is resolved by splitting a tier, never by
+# an entry that excuses it.
+#
+# T5  what never ships: the gates, which read source as text and import
+#     nothing, and the shared test doubles. Placing them above everything that
+#     ships is what forbids a production dependency on either — a `dependencies:`
+#     entry or a `lib/` import from any shipping package is an upward edge. A
+#     `dev_dependencies:` entry is not an edge at all and stays legal, which is
+#     how every package already reaches `dartclaw_testing`.
+# T4  the application: the only thing that composes a runnable binary, and the
+#     only shipping member above the runtime tier.
+# T3  the runtime tier and the adapters that plug into it. `dartclaw_acp`
+#     implements the `HarnessRegistrar` contract core owns and is handed to the
+#     runtime by the app. Putting the adapter *beside* the runtime rather than
+#     above or below it is what makes all three of ADR-056's forbidden edges
+#     consequences of this file: nothing but the app reaches the runtime, and
+#     the runtime cannot reach the adapter either, because same-tier edges are
+#     forbidden in both directions.
+# T2  feature and channel packages and the client-tier umbrella — siblings that
+#     must not reach across to each other.
+# T1  core runtime primitives (including the harness contracts an adapter above
+#     implements), the dependency-free client, and the hook-free container
+#     bridge. The client sits here rather than lower so that a client → core
+#     edge is a forbidden same-tier edge, leaving the kernel the only workspace
+#     package it can reach.
+# T0  the kernel: shared data, typed configuration, guards. Depends on nothing.
+
+T5: dartclaw_fitness dartclaw_testing
+T4: dartclaw_cli
+T3: dartclaw_acp dartclaw_runtime
+T2: dartclaw dartclaw_google_chat dartclaw_signal dartclaw_whatsapp dartclaw_workflow
+T1: dartclaw_bridge dartclaw_client dartclaw_core
+T0: dartclaw_kernel

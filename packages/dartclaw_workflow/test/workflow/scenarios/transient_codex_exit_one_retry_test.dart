@@ -1,8 +1,4 @@
-import 'dart:async';
-
-import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus, TaskType;
-import 'package:dartclaw_server/dartclaw_server.dart' show WorkflowCliProviderConfig, WorkflowCliRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeCodexProcess;
+import 'package:dartclaw_core/dartclaw_core.dart' show TaskStatus, TurnResult;
 import 'package:test/test.dart';
 
 import '../scenario_test_support.dart';
@@ -10,42 +6,22 @@ import '../scenario_test_support.dart';
 // scenario-types: continueSession, plain
 
 void main() {
-  test('transient codex exit 1 retries once and then succeeds', () async {
+  test('a transient typed harness failure retries once and then succeeds', () async {
     final harness = await ScenarioTaskHarness.create();
     addTearDown(harness.dispose);
 
-    var invocations = 0;
-    final runner = WorkflowCliRunner(
-      providers: const {'codex': WorkflowCliProviderConfig(executable: 'codex')},
-      processStarter: (exe, args, {workingDirectory, environment}) async {
-        final attempt = invocations++;
-        final exitCode = Completer<int>();
-        final process = FakeCodexProcess(exitCodeFuture: exitCode.future);
-        scheduleMicrotask(() {
-          process.emitLine({'type': 'thread.started', 'thread_id': 'codex-thread-${attempt + 1}'});
-          if (attempt != 0) {
-            process.emitLine({
-              'type': 'item.completed',
-              'item': {'type': 'agent_message', 'text': 'Recovered on retry.'},
-            });
-            process.emitLine({
-              'type': 'turn.completed',
-              'usage': {'input_tokens': 12, 'output_tokens': 4},
-            });
-          }
-          exitCode.complete(attempt == 0 ? 1 : 0);
-        });
-        return process;
-      },
+    harness.worker.enqueueCrashThenSuccess(
+      successContent: 'Recovered on retry.',
+      successUsage: const TurnResult(inputTokens: 12, outputTokens: 4),
     );
-    final executor = harness.buildExecutor(workflowCliRunner: runner);
+    final executor = harness.buildExecutor();
     addTearDown(executor.stop);
 
     await harness.tasks.create(
       id: 'task-transient-codex',
-      title: 'Retry transient codex exit',
-      description: 'Retry once on exit 1.',
-      type: TaskType.coding,
+      title: 'Retry transient harness failure',
+      description: 'Retry once after a typed turn failure.',
+      configJson: const {'needsWorktree': false},
       autoStart: true,
       maxRetries: 1,
       agentExecutionId: 'ae-task-transient-codex',
@@ -69,7 +45,15 @@ void main() {
       TaskStatus.review,
       TaskStatus.accepted,
     });
-    expect(invocations, 2);
+    expect(harness.worker.turnCount, 2);
     expect(afterSecond.task.status, anyOf(TaskStatus.review, TaskStatus.accepted));
+    // The scripted second reply differs from the first, so this fails if the
+    // retry path stops delivering or persisting the recovered response, and the
+    // order pins it to the retry rather than the first attempt.
+    final transcript = await harness.messages.getMessages(afterSecond.task.sessionId!);
+    expect(transcript.where((m) => m.role == 'assistant').map((m) => m.content), [
+      '[Turn failed]',
+      'Recovered on retry.',
+    ]);
   });
 }

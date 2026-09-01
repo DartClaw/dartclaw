@@ -340,7 +340,7 @@ const wide = "..................................................................
         </div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);justify-items:center;align-items:center;white-space:nowrap">
           <span class="status-pill status-pill--live">Running</span>
-          <span class="status-pill status-pill--info">Research</span>
+          <span class="status-pill status-pill--info">Indexed</span>
           <span class="status-pill status-pill--warning">85% Budget</span>
           <span class="status-pill status-pill--error">1 Block</span>
           <span class="status-pill status-pill--live">2 Channels</span>
@@ -371,7 +371,7 @@ const wide = "..................................................................
       </div>
       <div class="card panel-error">
         <div class="card-header">Guard Block</div>
-        <div class="card-body">Blocked: <code>rm -rf /</code>. InputSanitizer.</div>
+        <div class="card-body">Blocked: <code>rm -rf /</code>. CommandGuard.</div>
         <div class="card-footer"><code>card panel-error</code></div>
       </div>
       <div class="card panel-warning">
@@ -399,7 +399,7 @@ const wide = "..................................................................
     <div class="grid-2">
       <div class="card card-tint-accent">
         <div class="card-header"><span class="status-dot status-dot--live"></span> Refactor auth</div>
-        <div class="card-body">Coding task. Turn 4/10.</div>
+        <div class="card-body">Background task. Turn 4/10.</div>
         <div class="card-footer"><code>card-tint-accent</code> <span style="margin-left:auto" class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Running</span></div>
       </div>
       <div class="card card-tint-error">
@@ -605,7 +605,7 @@ done.<span class="streaming"></span></code></pre>
       <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Pills (gradient-filled):</div>
       <div class="btn-row">
         <span class="status-pill status-pill--live"><span class="status-dot status-dot--live" style="width:6px;height:6px"></span> Running</span>
-        <span class="status-pill status-pill--info">Research</span>
+        <span class="status-pill status-pill--info">Indexed</span>
         <span class="status-pill status-pill--warning">85% Budget</span>
         <span class="status-pill status-pill--error">Blocked</span>
       </div>
@@ -1225,15 +1225,11 @@ done.<span class="streaming"></span></code></pre>
             <label class="form-label t-caption tracking-caps" for="demo-dialog-title">Title</label>
             <input type="text" class="form-input" id="demo-dialog-title" placeholder="Brief task title">
           </div>
-          <div class="form-field">
-            <label class="form-label t-caption tracking-caps" for="demo-dialog-type">Type</label>
-            <select class="form-select" id="demo-dialog-type">
-              <option selected>Coding</option>
-              <option>Research</option>
-              <option>Review</option>
-            </select>
-            <span class="form-hint t-caption">Coding tasks run in isolated git worktrees and produce diffs for review.</span>
-          </div>
+          <label class="form-field form-field--checkbox">
+            <input type="checkbox" class="form-checkbox" id="demo-dialog-worktree">
+            <span class="form-label t-caption tracking-caps">Needs worktree</span>
+            <span class="form-hint t-caption">Enable when this task needs an isolated checkout and diff review.</span>
+          </label>
           <div class="form-field">
             <label class="form-label t-caption tracking-caps" for="demo-dialog-brief">Implementation brief</label>
             <textarea class="form-textarea" id="demo-dialog-brief" placeholder="What should change in the codebase?"></textarea>

@@ -1,0 +1,5 @@
+# Allowlist for config_load_seam_test.dart
+# Format: <relative-path-from-repo-root>  # <rationale>
+# Rationale is mandatory — explain why this file may call DartclawConfig.load directly.
+
+packages/dartclaw_runtime/lib/src/config/config_load.dart  # canonical loadDartclawConfig seam; the one production caller of DartclawConfig.load

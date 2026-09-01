@@ -141,7 +141,7 @@ A step's `inputs:` declaration plays four roles at once:
 - **Skill-only body** – for steps with `skill:` and no `prompt:`, the resolved input values are formatted into a compact markdown summary (`## Pretty Name` per key) that becomes the prompt body. Auto-framing then skips those same keys to avoid double-rendering.
 - **Template substitution** – `{{context.key}}` in authored prompts resolves from the same input values, and the post-step extraction turn receives them alongside outputs so structured-output schemas can reference upstream context.
 
-`outputs:` is the symmetric counterpart: the map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes, and each entry's value carries the per-output `format`/`schema`/`source`/`outputMode`/`description`/`setValue` configuration.
+`outputs:` is the symmetric counterpart: the map's keys are the canonical declaration of which keys the current step writes back into workflow context after it finishes, and each entry's value carries the per-output `format`/`schema`/`source`/`description` configuration.
 
 The common pattern is:
 
@@ -176,7 +176,7 @@ Important details:
 
 - Repeating a key in a later step's `outputs:` is valid when that step intentionally replaces the canonical value. For example, a remediation loop can output `validation_summary` again so downstream review steps see the refreshed result.
 - Workflows may emit step-scoped aliases such as `review-code.findings_count`. Those aliases make gates and downstream references exact when multiple sources need distinct counts. Declare them as keys under `outputs:` with the dotted form (`review-code.findings_count: { format: json, schema: non_negative_integer }`).
-- For `format: path`, describe the intended locality in the output description. Artifact-producing steps normally emit workspace-relative paths. `review_report_path` is a special case: the host captures it deterministically from the per-step artifacts directory (see [Review Output-Key Convention](#review-output-key-convention)), so its value is always an absolute host-derived path and the skill's own claim is advisory.
+- For `format: path`, describe the intended locality in the output description. Artifact-producing steps normally emit workspace-relative paths, and a path a step emits is the path downstream steps get. When a step emits no usable path, the host captures one from that step's artifacts directory instead, selected by the output's own `pathPattern`/`preferPatterns` — the captured value is absolute. This applies uniformly to every `format: path` output, `review_report_path` included; see [Review Output-Key Convention](#review-output-key-convention).
 
 The runtime also writes metadata keys automatically:
 
@@ -184,15 +184,15 @@ The runtime also writes metadata keys automatically:
 - `<stepId>.tokenCount`
 - step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
 
-Agent steps with declared `outputs:` keys that need model-derived values receive a workflow output contract automatically. The standard path is a dedicated no-tools structured finalization turn after the main work turn: the provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` containing exactly the declared output keys under `outputs` (`step_outcome` omitted when the step sets `emitsOwnOutcome: true`). This finalizer turn runs even if the main turn's final assistant message also contains a legacy inline `<workflow-context>` block — the envelope is authoritative, not the inline text. Legacy inline `<workflow-context>` parsing remains only as a compatibility fallback (old transcripts, custom workflows, `outputMode: prompt` opt-out steps, finalizer failures).
+Agent steps receive a workflow output contract automatically. A dedicated no-tools structured finalization turn after the main work turn emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }`. Declared model-derived keys appear under `outputs`; `step_outcome` is omitted when the step sets `emitsOwnOutcome: true`. The envelope is the only source for declared outputs: assistant prose, JSON fences and inline `<workflow-context>` blocks are inert text. A run persisted before the 0.25 envelope format must be re-run under 0.25.
 
-Outcome-only steps (no model-derived declared outputs) skip the finalizer turn and keep the cheap inline step-outcome tag as their designed channel, unless the step or referenced skill opts out with `emitsOwnOutcome: true`. End the final assistant message with:
+Only steps that set `emitsOwnOutcome: true` use the inline step-outcome tag as their designed channel. End the final assistant message with:
 
 ```text
 <step-outcome>{"outcome":"succeeded|failed|needsInput","reason":"..."}</step-outcome>
 ```
 
-This is separate from declared domain outputs: `step_outcome` (or, for outcome-only steps, the inline `<step-outcome>` tag) tells the engine what the step *meant*, while `outputs`/`<workflow-context>` carries domain data. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`). `needsInput` normally moves the run into an approval-style hold; `onFailure: continue` is the explicit opt-in for best-effort advisory steps that should record the hold reason and advance.
+This is separate from declared domain outputs: `step_outcome` (or the inline tag for an `emitsOwnOutcome` step) tells the engine what the step *meant*, while the envelope's `outputs` object carries domain data. `failed` can trigger `onFailure` handling (`fail`, `continue`, `retry`, `pause`). `needsInput` normally moves the run into an approval-style hold; `onFailure: continue` is the explicit opt-in for best-effort advisory steps that should record the hold reason and advance.
 
 Workflow runs also have an approval-resolution policy. `workflow.approvals: manual` is the default and preserves the hold behavior. `auto-on-stall` auto-resolves `needsInput` stalls but still pauses at explicit `type: approval` steps. `auto` auto-resolves both. Auto-resolved gates are recorded in private context under `_approval.auto_resolved.<stepId>` with the policy and reason. This policy is separate from `headless`: standalone runs set task review to auto-accept, but they do not skip approval gates unless `workflow.approvals` or `--approvals` says so.
 
@@ -204,16 +204,16 @@ Templates in `prompt:`, `project:`, and similar fields resolve through four dist
 |------|--------|-----------|
 | `{{VARIABLE}}` | Top-level `variables:` declared on the workflow | Throws `ArgumentError` at start time |
 | `{{context.key}}` | Workflow context – values written by prior steps' `outputs:` keys, plus auto-written metadata | Empty string with a warning log |
-| `{{map.*}}` / `{{<alias>.*}}` | Current iteration inside a `mapOver` / `foreach` controller (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) | Raises on shape errors; metadata refs always resolve |
+| `{{map.*}}` | Current iteration inside a `mapOver` / `foreach` controller (see [Iterating Over Items with `mapOver`](#iterating-over-items-with-mapover)) | Raises on shape errors; metadata refs always resolve |
 | `{{workflow.*}}` | Render-only workflow system variables injected by the engine for per-run state | Throws `ArgumentError` at render time |
 
 Common trap: `{{review_report_path}}` is **not** the same as `{{context.review_report_path}}`. Without the `context.` prefix the engine treats it as a variable lookup and throws if `review_report_path` isn't a declared variable. **Always use `context.` to read another step's output.**
 
-The current workflow system namespace exposes `{{workflow.runtime_artifacts_dir}}`, an absolute path to the run's engine-managed runtime-artifacts directory. The engine creates that root and its `reviews/` subdirectory before the first step renders. `workflow` is reserved alongside `map` and `context`, so it cannot be used as a `mapOver` / `foreach` alias.
+The current workflow system namespace exposes `{{workflow.runtime_artifacts_dir}}`, an absolute path to the run's engine-managed runtime-artifacts directory. The engine creates that root and its `reviews/` subdirectory before the first step renders. `workflow` is reserved alongside `map` and `context`.
 
 Separately, every workflow task also receives a per-step artifacts directory via the spawn environment variable **`DARTCLAW_STEP_ARTIFACTS_DIR`** (= `<runtime-artifacts>/steps/<stepId>`, host-created before the first turn). This is the mechanism review steps use: built-in review steps pass `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"` so the skill writes its report into a host-owned directory the engine then captures deterministically — no path round-trips through the model. Custom workflows can reference the same shell variable in a `prompt:` to write review reports (or any per-step artifact) into a directory the host both owns and cleans up. Because the value is exported into the process environment rather than interpolated into prompt text, an operator-supplied variable that happens to contain a `--output-dir` flag can never influence where reports land.
 
-The full reference grammar – indexed lookups, field access on map items, alias forms – lives in [Template References](workflows-reference.md#template-references).
+The full reference grammar – indexed lookups, field access on map items – lives in [Template References](workflows-reference.md#template-references).
 
 #### Step-Prefixed References (`{{context.<stepId>.<key>}}`)
 
@@ -233,12 +233,14 @@ Review steps emit several distinct datum types, and the canonical key name encod
 
 | Concept | Canonical key | Datum type / preset | Produced by |
 |---------|---------------|---------------------|-------------|
-| Review report location | `review_report_path` | Review-report path (`review_report_path` preset) | `andthen:review` / `andthen:architecture --mode review` steps, and the `aggregate-reviews` step (bare, post-aggregate) |
+| Review report location | `review_report_path` | Review-report path (`review_report_path` preset) | `andthen:review` steps, and the `aggregate-reviews` step (bare, post-aggregate) |
 | Total findings | `findings_count` | Non-negative integer (`findings_count` preset) | The same review / aggregate steps |
 | Auto-remediable gate value | `gating_findings_count` | Non-negative integer (`gating_findings_count` preset) | The same review / aggregate steps; read by the remediation loop's `entryGate`/`exitGate` |
 | Structured pass/findings object | `verdict` (or `review_verdict`) | `{pass, findings_count, findings[], summary}` (`verdict` preset) | Custom review steps that want the inline object instead of a report path |
 
-`review_report_path` is **host-derived, not model-consumed.** The review step writes its report into `$DARTCLAW_STEP_ARTIFACTS_DIR` (via `--output-dir`), and the engine captures the newest `.md` in that per-step directory as the report path — an absolute value it writes to context itself. The skill may still print a path, but the host does not consume that claim; a mistyped path can no longer misdirect the run. A clean review that leaves no report (zero findings) gets a durable diagnostic stub materialized in the same directory, so downstream steps always have a report path; a review that reports findings but leaves no report fails loudly.
+`review_report_path` resolves like every other `format: path` output. The review step writes its report into `$DARTCLAW_STEP_ARTIFACTS_DIR` (via `--output-dir`); when it emits no usable path, the engine captures the newest matching file from that per-step directory and writes an absolute value to context. When the step *does* emit a path that exists and is inside the workspace, that path is what downstream steps read — a path a step names is honoured, not second-guessed. A path that escapes the workspace is never used, and with nothing in the step's artifacts directory to capture, the step fails naming that path — no unrelated workspace file is substituted for it. A clean review that leaves no report (zero findings) gets a durable diagnostic stub materialized in the same directory, so downstream steps always have a report path; a review that reports findings but leaves no report fails loudly.
+
+The counts a review reports (`findings_count`, `gating_findings_count`) are the integers it emitted under their schema. The host never recomputes one by counting a `verdict`'s findings; a declared count key that carries no integer fails schema validation.
 
 Parallel source review steps prefix every key with their step id (`<source-step-id>.review_report_path`, etc.); the `aggregate-reviews` step's own outputs and single-review workflows keep the bare canonical names. Prefixing is **enforced**, not just conventional: a source step feeding an `aggregate-reviews` step that declares a bare (or mis-prefixed) review key fails validation, with a message naming the step and the required `<stepId>.`-prefixed form. The built-in remediation loop gates exclusively on `gating_findings_count` — it never branches on a `verdict` field. This convention is contract-locked in `built_in_workflow_contracts_test.dart`.
 
@@ -264,19 +266,20 @@ steps:
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
-  - id: architecture-review
-    name: Architecture Review
-    skill: andthen:architecture
+  - id: plan-review-council
+    name: Review Full Implementation with Council
+    skill: andthen:review
     parallel: true
+    prompt: '--mode code,security --council --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
     outputs:
-      architecture-review.review_report_path: review_report_path
-      architecture-review.findings_count: findings_count
-      architecture-review.gating_findings_count: gating_findings_count
+      plan-review-council.review_report_path: review_report_path
+      plan-review-council.findings_count: findings_count
+      plan-review-council.gating_findings_count: gating_findings_count
 
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [plan-review, architecture-review]
+    aggregateReviews: [plan-review, plan-review-council]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count
@@ -323,6 +326,7 @@ Only `Failed` shows the **Retry** action in the workflow detail UI and via `dart
 Two resume semantics to know before reaching for `resume`:
 
 - **The definition is frozen at run start.** `resume` and `retry` re-execute the definition snapshot stored with the run – editing the workflow YAML (or a skill prompt referenced by it) has no effect on an in-flight run. To pick up a definition fix, cancel and start a fresh run.
+- **A run started before 0.25 that already has failed `foreach` items does not resume on 0.25.** A `foreach` run persists a typed failure kind per settled item, and 0.25 decides resume behaviour from that kind rather than from the failure text. A *failed* item stored before that change cannot be classified — a promotion conflict restored as an ordinary failure would leave its dependent stories permanently undispatchable — so `resume` fails with a message naming the change and asking for a fresh run. Items that are blocked or cancelled restore as they always did, so a pre-0.25 run with no failed items resumes normally. Let an affected run finish on the older release, or start it again on 0.25.
 - **Blocked vs failed stories resume differently.** In a story fan-out (`foreach`), a *blocked* story (e.g. an escalated remediation loop) re-runs its full pipeline from scratch on `resume` – land manual fixes on the integration branch or in the spec, not on the abandoned story branch. A *failed* story is **not** re-run by `resume`; if the run paused because an open story depends on a failed one, resume will immediately re-pause on the same hold – cancel and start a fresh run after resolving the failure.
 
 ### Step 5: Narrow to Determinism
@@ -363,19 +367,18 @@ Add cost and token limits once you understand consumption patterns.
 stepDefaults:
   - match: "implement*"
     provider: claude
-    timeout_seconds: 1800
-    maxTokens: 100000
+    turn_timeout: 1800
   - match: "review*"
     model: claude-opus-4
 
 steps:
   - id: plan
     name: Plan
-    maxTokens: 50000     # per-step override
+    turn_timeout: 900     # per-agent-turn override
     ...
 ```
 
-`stepDefaults` entries use glob patterns (`*` matches any sequence). The first matching entry wins. Per-step fields override defaults. For one-shot agent steps, timeout precedence is per-step `timeout_seconds` → matching `stepDefaults.timeout_seconds` → `governance.turn_progress.max_duration`.
+`stepDefaults` entries use glob patterns (`*` matches any sequence). The first matching entry wins. Per-step fields override defaults. For one-shot agent steps, timeout precedence is per-step `turn_timeout` → matching `stepDefaults.turn_timeout` → `governance.turn_limits.turn_timeout`. All three feed the same turn-level wall-clock timer. Bash and approval steps use their separate `timeout` field.
 
 For workflow execution, use a dedicated workflow workspace instead of relying on the main interactive workspace behavior files. Built-in workflows automatically use a workflow-scoped `AGENTS.md`, and operators can override that behavior with `workflow.workspace_dir`:
 
@@ -404,14 +407,14 @@ Use multi-prompt steps to refine output format within a single step boundary –
 
 Each prompt in the list is a separate turn in the same agent session. Use this when you need the agent to produce a specific format but don't want a dedicated formatting step.
 
-### Native Structured Output and One-Shot Execution
+### Native Structured Output and Bounded Step Execution
 
-Workflow agent steps default to a one-shot execution path for bounded workflow work. Instead of replaying every workflow follow-up through the interactive streaming harness, DartClaw can invoke the provider CLI directly for each workflow prompt while still preserving the task/session lifecycle and workflow observability.
+Workflow agent steps execute as bounded prompt chains on one leased harness worker. The main prompt, follow-ups, and finalizer stay on that worker while DartClaw preserves the task/session lifecycle and workflow observability.
 
-There is no longer a workflow-level or per-step `executionMode` switch. Workflow agent steps always use the one-shot path; interactive chat/tasks still use the long-lived streaming harnesses.
+There is no workflow-level or per-step `executionMode` switch. Workflow agent steps use the guarded harness path.
 
-Each running one-shot acquires a capacity-only lease against its provider's `pool_size`. This gives workflows the same
-hard background limit as other execution without starting an unused long-lived worker harness. The lease is the
+Each running one-shot acquires a single-use worker lease against its provider's `pool_size`. This gives workflows the same
+hard background limit as other execution. The lease is the
 authority; an availability snapshot may guide parallel dispatch but cannot expand capacity.
 
 Workflow agent steps default to `type: agent` when `type:` is omitted. Read-only behavior is now derived from `allowedTools`: if a step declares an allowlist and omits `file_write`, DartClaw marks the task read-only and blocks file mutations. File-backed review steps that must write report artifacts include `file_write`; ordinary inspection-only review steps leave it out.
@@ -427,18 +430,16 @@ steps:
       verdict:
         format: json
         schema: verdict
-        outputMode: structured
 ```
 
 Rules:
 
-- When `format: json` and `schema` are both present, `outputMode: structured` is the default – provider-enforced schema extraction. `outputMode: prompt` is the explicit opt-out (prompt augmentation + heuristic JSON extraction fallback).
+- `format: json` plus `schema` selects provider-enforced structured extraction. The mode is inferred – there is no authoring key for it.
 - When `format: json` has no `schema`, the parser rejects the configuration – `schema` is required for JSON outputs.
-- For non-JSON outputs (`text` / `lines` / `path`), `outputMode` does not apply.
 - Structured extraction applies to `outputs:` map entries. When a step's declared outputs need model-derived values, the standard path is a dedicated no-tools structured finalization turn: after the main work turn finishes, the runner asks the provider for a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when the step sets `emitsOwnOutcome: true`). `outputs` holds the declared domain values; `step_outcome` carries the engine-owned semantic outcome. This finalizer turn runs even if the main turn also emitted a legacy inline block.
-- Legacy inline `<workflow-context>` (and `<step-outcome>`) parsing remains a compatibility fallback — used for old transcripts, custom workflows, `outputMode: prompt` opt-out steps, and finalizer failures — but is no longer the standard extraction path.
-- Non-review file and path outputs stay claims until the host validates them after finalization: existence, containment, and argument safety all run in Dart. Review-report path outputs skip the claim entirely — the host captures them from the per-step artifacts directory (see [Review Output-Key Convention](#review-output-key-convention)). A claimed `succeeded` outcome cannot bypass a missing required file artifact.
-- Inline schemas used with `outputMode: structured` should set `additionalProperties: false` on every object node for Codex compatibility.
+- Declared outputs come only from the validated execution envelope. Inline `<step-outcome>` parsing is limited to `emitsOwnOutcome` steps.
+- File and path outputs stay claims until the host validates them after finalization: existence, containment, and argument safety all run in Dart. A claim that passes is used as written; a claim that names nothing that exists inside the workspace falls through to the step's artifacts directory (see [Review Output-Key Convention](#review-output-key-convention)) and, failing that, fails the step. A claimed `succeeded` outcome cannot bypass a missing required file artifact.
+- Inline schemas on structured JSON outputs should set `additionalProperties: false` on every object node for Codex compatibility.
 
 ### Parallel Steps
 
@@ -453,19 +454,16 @@ This is only for sibling steps with no ordering edges between them. If work item
 
 This pattern is ideal for review fan-out, independent research, and summary generation.
 
-### Map / Fan-Out
+### Fan-Out
 
-Use `mapOver` (`map_over`) when a workflow should iterate over a JSON array in context. The engine supports two shapes:
+Use a `foreach` controller (`type: foreach` + `map_over` + per-item `steps:`) when a workflow should iterate over a JSON array in context: an ordered sub-pipeline executed in sequence per array item.
 
-- **Plain `mapOver`** – one authored step, executed once per array item.
-- **`foreach`** – an ordered sub-pipeline (multiple authored steps) executed in sequence per array item.
-
-Both are map shorthand, not loop syntax. The decision is about how much work each item needs, not about parallelism or collection size.
+This is map shorthand, not loop syntax.
 
 Dependency-aware fan-out is a separate contract from `parallel: true`:
 
 - `parallel: true` means authored sibling steps are fully independent.
-- Dependency-aware `mapOver` / `foreach` means the iterated items form a DAG and only dependency-ready items may run concurrently.
+- Dependency-aware `foreach` means the iterated items form a DAG and only dependency-ready items may run concurrently.
 
 When you need dependency-aware scheduling, the iterated value must be an object array where every item carries:
 
@@ -474,54 +472,17 @@ When you need dependency-aware scheduling, the iterated value must be an object 
 
 The runtime validates dependency-aware collections before creating any tasks. Duplicate ids, missing `id`, missing `dependencies`, non-list `dependencies`, and unknown dependency ids all fail fast. Scalar arrays and opaque object arrays with no `dependencies` field remain dependency-free and do not need the graph-shaped payload.
 
-Key fields (shared by both shapes):
+Key fields:
 
 - `mapOver` (`map_over`): context key with the source array
 - `maxParallel` (`max_parallel`): upper bound on concurrent iterations
-- `maxItems` (`max_items`): safety cap for large arrays
-- `as` (optional): loop variable name – see [Naming the loop with `as:`](#naming-the-loop-with-as) below
 
-Map-aware templates can reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`.
+Map-aware templates reference `{{map.item}}`, `{{map.index}}`, `{{map.display_index}}`, `{{map.length}}`, and indexed context values such as `{{context.items[map.index]}}`. `map` is the only iteration prefix.
 
-#### Choosing between `mapOver` and `foreach`
-
-> Use plain `mapOver` for one-step-per-item work. Use `foreach` when each item needs multiple ordered steps (e.g. implement → review → remediate).
-
-| | Plain `mapOver` | `foreach` |
-|---|---|---|
-| YAML shape | `mapOver:` on a regular step | `type: foreach` + `map_over:` + nested `steps:` list |
-| Body per iteration | **One** step – the controller itself runs once per item | **Many** steps – the authored sub-pipeline runs in order per item |
-| Aggregate output shape | Flat list `[r, r, r]` (one entry per item) | List of per-item objects keyed by child step id: `[{impl: {…}, review: {…}}, …]` |
-| Typical use | "Apply skill X to each item" | "Implement → validate → review each item" |
-| Per-iteration overlay | n/a (single step) | Child outputs readable in sibling steps as bare key or `<stepId>.<key>` |
-
-Both honor the same `max_parallel`, `max_items`, `as:` alias, `{{map.*}}` / `{{<alias>.*}}` template grammar, and git-strategy (`per-map-item` worktree isolation, externalArtifactMount, etc.). For dependency-aware collections, plain `mapOver` and `foreach` use the same `id` / `dependencies` contract and the same ready-set scheduler. In promotion-aware `per-map-item` runs, dependents wait for prerequisite item ids to reach the promoted set, not merely the completed set. The sections below drill into each shape.
-
-#### Plain `mapOver` Steps
-
-A plain mapped step is still one authored step. The runtime executes it once per array item, then aggregates the per-item results into a list.
-
-The controller step's `outputs:` map names the exported aggregate key – controllers emit exactly one aggregate value, so the map must declare exactly one key:
-
-```yaml
-- id: review-story
-  name: Review Story
-  map_over: stories
-  outputs:
-    review_results:
-      format: json
-      schema: verdict
-```
-
-After the step completes, `context.review_results` contains one entry per item in `stories`.
-
-For each iteration:
-
-- if the step is non-coding and extracts exactly one output key, the aggregate entry is that single value
-- if the step is non-coding and extracts multiple output keys, the aggregate entry is an object containing those outputs
-- if the step is a coding step, the aggregate entry is the coding result object built by the runtime
-
-So `outputs:` on a plain map step controls the name of the top-level aggregate key, not the internal shape of each entry.
+`foreach` is the only collection-iteration shape. A step that declares `map_over` without per-item steps is a
+validation error naming `foreach_steps`; express one-step-per-item work as a `foreach` with a single child step.
+In promotion-aware `per-map-item` runs, dependents wait for prerequisite item ids to reach the promoted set, not
+merely the completed set.
 
 #### `foreach` Per-Item Sub-Pipelines
 
@@ -532,13 +493,12 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
   name: Per-Story Pipeline
   type: foreach
   map_over: stories
-  as: story                             # optional; names the loop variable
   outputs:
     story_results:
       format: json                      # the controller's single aggregate key
   steps:
     - id: implement
-      prompt: Implement {{story.item.spec_path}}
+      prompt: Implement {{map.item.spec_path}}
       outputs:
         story_result: story_result        # preset shorthand
     - id: verify
@@ -550,7 +510,7 @@ Use `type: foreach` when each item needs multiple authored substeps that run in 
 
 `foreach` has two scopes:
 
-- The controller step's `outputs:` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` / `mapOver` controller emits exactly one aggregate value, so its `outputs:` map must declare exactly one key – the validator rejects multiple keys as a `contextInconsistency` error. Because the `foreach` aggregate is built by the runtime rather than extracted from an agent response, `format: json` on the controller does not require a schema; schemas still apply to child-step JSON outputs.
+- The controller step's `outputs:` exports the final aggregate to the main workflow context. In this example, later top-level steps read `{{context.story_results}}`. A `foreach` controller emits exactly one aggregate value, so its `outputs:` map must declare exactly one key – the validator rejects multiple keys as a `contextInconsistency` error. Because the `foreach` aggregate is built by the runtime rather than extracted from an agent response, `format: json` on the controller does not require a schema; schemas still apply to child-step JSON outputs.
 - The child steps' `outputs:` keys are written into a per-iteration overlay so sibling child steps can reference earlier work during that same item.
 
 Within one iteration, child step outputs are readable via their declared keys (e.g. `{{context.story_result}}`). There is no automatic step-id prefixing in the overlay – if you want a disambiguated `<stepId>.<key>` form, declare it explicitly under the writing step's `outputs:` block (see [Step-Prefixed References](workflows-reference.md#step-prefixed-references)).
@@ -576,51 +536,23 @@ In other words:
 
 **Nested `foreach` is not supported.** The parser rejects a `foreach` controller inside another `foreach`'s `steps:` list. If you need per-item work that itself fans out over a sub-collection, flatten it: have the outer step emit a denormalized list whose items already combine the two axes, or run the second fan-out as a subsequent top-level step that consumes the aggregated result. Only one iteration context is active at a time, so no outer-vs-inner scoping rules apply.
 
-#### Naming the loop with `as:`
-
-For readability, give the iteration a name with the controller's `as:` field:
-
-```yaml
-- id: story-pipeline
-  type: foreach
-  map_over: story_specs
-  as: story                        # optional; names the loop variable
-  steps:
-    - id: implement
-      prompt: |
-        Implement story {{story.display_index}}/{{story.length}}
-        per {{story.item.spec_path}}.
-```
-
-The same iteration is now reachable as `{{story.*}}` – `{{story.item}}`, `{{story.item.spec_path}}`, `{{story.index}}`, `{{story.display_index}}`, `{{story.length}}`, and `{{context.key[story.index]}}` all work. The legacy `{{map.*}}` prefix continues to resolve against the same iteration, so existing templates keep running unchanged.
-
-Rules:
-
-- The name must be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`).
-- Reserved names `map` and `context` are rejected at parse time – they already have fixed meanings in the template grammar.
-- `as:` is only valid on map/`foreach` controllers (steps that declare `map_over`).
-- The alias must not collide with a declared workflow variable – pick a different identifier if it does.
-- On a `foreach`, the alias is in scope for the controller and for every child prompt under that controller. On a plain `mapOver`, the alias is in scope for the controller's own prompt (plain mapped steps have no children).
-
-**When to use it.** A named alias is self-documenting (`{{story.item.spec_path}}` says what it is) and makes the intent of a prompt clearer at a glance. The legacy `{{map.*}}` is still fine for single-loop workflows where the context is obvious.
-
 #### Prefer field access over the whole-item blob
 
-`{{map.item}}` (or `{{<alias>.item}}`) renders the current iteration item – a JSON blob when it's a Map, `toString()` otherwise. That's a reasonable catch-all, but it duplicates information when the iteration item already points at a file on disk (a spec path, an artifact path) and can clutter the prompt. Reach for field access instead when you only need one attribute:
+`{{map.item}}` renders the current iteration item – a JSON blob when it's a Map, `toString()` otherwise. That's a reasonable catch-all, but it duplicates information when the iteration item already points at a file on disk (a spec path, an artifact path) and can clutter the prompt. Reach for field access instead when you only need one attribute:
 
 ```yaml
 # Noisier – full story record dumped into the prompt
 prompt: |
-  Story {{story.display_index}}/{{story.length}}:
-  <story>{{story.item}}</story>
+  Story {{map.display_index}}/{{map.length}}:
+  <story>{{map.item}}</story>
 
 # Leaner – skill reads the spec body from the mounted spec file itself
 prompt: |
-  Implement story {{story.display_index}}/{{story.length}} per
-  {{story.item.spec_path}}.
+  Implement story {{map.display_index}}/{{map.length}} per
+  {{map.item.spec_path}}.
 ```
 
-Field access supports up to 10 dot segments after `item.` (`{{story.item.a.b.c.d.e.f.g.h.i}}`). Going deeper throws a template error at resolve time – the cap is a guardrail against typo-driven infinite paths, not a shape constraint, and in practice story/spec records stay at 1-2 levels. Array-typed fields render as a markdown bullet list (`{{story.item.acceptance_criteria}}` → `- item one\n- item two\n…`), so a list is automatically the "end of the line" for a path.
+Field access supports up to 10 dot segments after `item.` (`{{map.item.a.b.c.d.e.f.g.h.i}}`). Going deeper throws a template error at resolve time – the cap is a guardrail against typo-driven infinite paths, not a shape constraint, and in practice story/spec records stay at 1-2 levels. Array-typed fields render as a markdown bullet list (`{{map.item.acceptance_criteria}}` → `- item one\n- item two\n…`), so a list is automatically the "end of the line" for a path.
 
 ### Workflow-Owned Git Lifecycle
 
@@ -631,11 +563,6 @@ gitStrategy:
   integrationBranch: true
   worktree:
     mode: auto             # or shared / per-task / per-map-item
-    # optional – two-repo profiles only
-    externalArtifactMount:
-      mode: per-story-copy
-      fromProject: "{{DOC_PROJECT}}"
-      source: "{{map.item.spec_path}}"
   publish:
     enabled: true
   cleanup:
@@ -652,7 +579,7 @@ Key runtime behavior:
 - Workflow-owned steps use task `reviewMode: auto-accept`; model human checkpoints with dedicated review or `approval` steps.
 - `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for workflow-level steps when `integrationBranch: true`, and otherwise to `inline`.
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
-- `worktree: shared` reuses one workflow-owned coding worktree across serial coding phases.
+- `worktree: shared` reuses one workflow-owned worktree across serial phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
 - Dependency-aware `mapOver` / `foreach` collections validate ids and dependency metadata before dispatch; unknown IDs fail fast.
 - In promotion-aware `per-map-item` runs, dependents wait on the promoted set, not just the completed set. Promotion conflicts keep downstream items undispatched until retry / resume.
@@ -679,13 +606,6 @@ Defaulting truth table:
 | ≥1 artifact-producing step | `shared` | `true` | Warning only |
 | ≥1 artifact-producing step | `inline` / absent | `true` | Yes |
 | No artifact-producing step | any | `false` | Yes (no-op) |
-
-#### Cross-Clone Story-Spec Visibility
-
-Split-repo profiles declare `gitStrategy.worktree.externalArtifactMount` to propagate artifacts from a planning repo (e.g. a private docs repo) into per-map-item worktrees of a code repo:
-
-- `mode: per-story-copy` (default, least-privilege): each worktree receives only the single story-spec file its story owns, copied at the same relative path used in `fromProject`. `file_read({{map.item.spec_path}})` resolves identically in both workspaces.
-- `mode: bind-mount` (opt-in, requires README justification): bind-mounts the whole story-spec directory read-only – every worktree can read every sibling's story spec. Useful for cross-story references but broadens the sandbox.
 
 #### Agent-Resolved Merge Conflicts (`merge_resolve`)
 
@@ -778,7 +698,7 @@ Execution follows authored order: `analyze -> remediation-loop`.
 - `continue`: top-level loops only. The workflow advances to the next step, commonly a deterministic verification gate.
 - `escalate`: `foreach`/`map`-nested loops only. The item records `needsInput`/blocked and the foreach controller **always** pauses the run for review – both when a still-open dependent needs the blocked item and, topology-independently, when the blocked story is a leaf or the plan has a single story (no dependent anywhere). An escalated exhaustion is an explicit "a human must look" signal, so it never advances-and-digests. The pause reason names the blocked story and reports the residual gating-finding count and the review report path when the loop context carries them.
 
-A task that ends `cancelled` (run teardown) is treated as interrupted, not failed, at every scope while the run is still running: a plain step or top-level loop body pauses the run at its checkpoint, a `foreach`-nested loop or direct foreach child leaves its iteration unsettled and pauses after in-flight siblings drain, a `map` item settles in no index set, and a parallel-group member pauses the run even when sibling branches genuinely failed (their restart state is kept). The run does not transition to `failed` and worktrees are not cleaned up for a teardown – with one exception: a loop `finally` finalizer cancelled mid-teardown fails the loop (finalizers have no resume anchor). `dartclaw workflow resume` re-runs the interrupted step from its persisted checkpoint (loop cursor, completed-sub-step set, or unsettled item). `onFailure: retry|continue` and `onError: continue` never act on a teardown-cancelled task – retrying or continuing would dispatch new work mid-teardown.
+A task that ends `cancelled` (run teardown) is treated as interrupted, not failed, at every scope while the run is still running: a plain step or top-level loop body pauses the run at its checkpoint, a `foreach`-nested loop or direct foreach child leaves its iteration unsettled and pauses after in-flight siblings drain, a `map` item settles in no index set, and a parallel-group member pauses the run even when sibling branches genuinely failed (their restart state is kept). The run does not transition to `failed` and worktrees are not cleaned up for a teardown. `dartclaw workflow resume` re-runs the interrupted step from its persisted checkpoint (loop cursor, completed-sub-step set, or unsettled item). `onFailure: retry|continue` and `onError: continue` never act on a teardown-cancelled task – retrying or continuing would dispatch new work mid-teardown.
 
 ### Skill-Aware Steps
 
@@ -794,7 +714,7 @@ Add `skill:` when a step should lean on a provider-visible native skill.
 ```yaml
 - id: quick-review
   name: Quick Review
-  skill: andthen:quick-review
+  skill: andthen:review
   inputs: [spec_path, story_result]
   outputs:
     quick_review_summary:
@@ -857,17 +777,17 @@ To opt a single step out:
 | `skill: foo` + no `prompt:` + inputs declared | Markdown `## Pretty Name` summary of each `inputs` entry follows the skill activation line; auto-framing skips those keys to avoid duplication (workflow `variables:` are still auto-framed) |
 | `skill: foo` + no `prompt:` + no inputs | The skill activation line is the prompt body; workflow `variables:` are still auto-framed |
 
-### Exit Gates and Finalizers
+### Exit Gates
 
-Loops use `exitGate` to decide when to stop and `finally` to run a closing step after the loop ends.
+Loops use `exitGate` to decide when to stop.
 
 - `exitGate` uses the same simple comparison syntax as other gate expressions.
 - `maxIterations` is always a hard circuit breaker.
-- `finally` is useful for cleanup, summary, or handoff steps that must run once regardless of loop outcome.
+- A closing cleanup, summary, or handoff step goes after the loop, as an ordinary step.
 
 ### Step-Level `entryGate` (Skip When False)
 
-Any step – not just loop bodies – can declare an `entryGate`. When the expression evaluates false the executor **skips** the step (fires a `StepSkippedEvent`, advances the cursor) and continues.
+Any step – not just loop bodies – can declare an `entryGate`. When the expression evaluates false the executor **skips** the step (fires a `StepSkippedEvent`, advances the cursor) and continues. One exception: a `foreach` controller's own `entryGate` is not evaluated – put it on the controller's first per-item step instead. `entryGate` skips; it never pauses. To pause the run on a condition, put an `entryGate`-guarded `type: approval` step ahead of the step you want to hold.
 
 ```yaml
 - id: plan-review
@@ -926,7 +846,10 @@ Use this whenever a step behaves differently than the authored YAML suggests: th
 
 ## Workflow Triggers
 
-A workflow run is just an authored definition plus a set of variable values. DartClaw exposes three server-backed ways to start one: the web UI chat `/workflow` command, the web UI launch forms, and the GitHub pull-request webhook. All three converge on the same `WorkflowService.start(...)` entry point, so a definition that runs from chat behaves identically when triggered by a webhook. A fourth, server-free path – the [standalone CLI](#standalone-cli-zero-server) – runs the engine in-process for local and CI use.
+A workflow run is an authored definition plus a set of variable values. DartClaw exposes three server-backed ways to
+start one: the agent-facing `workflow_run` tool, the web UI launch forms, and the GitHub pull-request webhook. All three
+converge on the same workflow service. A fourth, server-free path – the [standalone CLI](#standalone-cli-zero-server) –
+runs the engine in-process for local and CI use.
 
 ### Standalone CLI (zero-server)
 
@@ -939,28 +862,18 @@ dartclaw workflow run --standalone spec-and-implement --var FEATURE="Add search"
 
 `dartclaw init --workflow` runs a short wizard (provider, auth method, model, config folder) and writes a minimal config tuned for workflow use – no HTTP port, channels, or container setup. Add `--non-interactive` with `--provider`, `--auth-claude`/`--auth-codex`, and `--model-claude`/`--model-codex` to script it. On completion it prints the exact `workflow run --standalone` command for your config location.
 
-`--standalone` builds the workflow engine in the current process via the local `CliWorkflowWiring` and bypasses any running server, without starting the HTTP server. It still uses the same `WorkflowService.start(...)` lifecycle as connected runs, so the resolved approval policy is persisted on the run and honored after resume. Without `--config`, standalone workflow commands first look for `.dartclaw/dartclaw.yaml` in the current directory, which is the path written by `dartclaw init --workflow`; pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` only for custom locations. Put instance custom definitions in `<data_dir>/workflows/custom/` and run them by name. Files directly under the legacy `<data_dir>/workflows/` drop path still load for one release with a deprecation warning that names `workflows/custom/`. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
+`--standalone` builds the workflow engine in the current process — on the same composition root `dartclaw serve` uses, assembled headlessly — and bypasses any running server, without starting the HTTP server. Execution capacity is provisioned only for the providers the definition actually references, so an unreferenced logged-out provider does not block the run. It still uses the same `WorkflowService.start(...)` lifecycle as connected runs, so the resolved approval policy is persisted on the run and honored after resume. Without `--config`, standalone workflow commands first look for `.dartclaw/dartclaw.yaml` in the current directory, which is the path written by `dartclaw init --workflow`; pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` only for custom locations. Put instance custom definitions in `<data_dir>/workflows/custom/` and run them by name. Files directly under the legacy `<data_dir>/workflows/` drop path still load for one release with a deprecation warning that names `workflows/custom/`. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
 
-`resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same `CliWorkflowWiring` seam and the same `WorkflowService` the server uses. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
+`resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same headless composition and the same `WorkflowService` the server uses. `cancel` and `pause` only transition persisted run state, so they provision no skills, configure no provider capacity, and start no provider process. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
 
 `--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `plan-and-implement --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
 
-### Web chat `/workflow` command
+### Agent workflow tools
 
-The web UI chat input recognises a small `/workflow` command surface backed by `ChatCommandHandler`:
-
-```text
-/workflow list
-/workflow run <definition-name> KEY=value KEY=value ...
-```
-
-`/workflow list` returns the names of every loaded definition and is available to all users. `/workflow run` launches the named definition with the given variable bindings and renders a card linking to `/workflows/<run-id>` for live progress – it is only advertised and usable when the request carries admin permission.
-
-Notes:
-
-- Variables are passed as repeated `KEY=value` tokens after the definition name. Unknown variables are rejected by the definition's own `variables:` block; missing required variables surface the same error you would see from the API.
-- The handler is idempotent over short windows – repeating an identical command immediately produces a "already handled recently" card rather than a duplicate run.
-- This surface is web-only. Channel slash commands (`/new`, `/stop`, `/pause`, `/resume`) do not launch workflows – they create tasks or invoke the emergency controls described under [Governance § Emergency Control Commands](governance.md#emergency-control-commands).
+In chat, ask the agent to list available workflows or start a named definition with its required variables. The agent
+calls `workflow_list` and `workflow_run`; required-variable validation and the returned run location come from the same
+workflow service used by the API and web forms. See [Web UI and API](web-ui-and-api.md#orchestration-and-content-mcp-tools)
+for the schemas.
 
 ### Web launch forms
 
@@ -1024,33 +937,32 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ### `spec-and-implement` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`, reuses an existing FIS path when detected, otherwise writes a spec with `andthen:spec`, optionally revises low-confidence specs, implements via `andthen:exec-spec`, runs an integrated `andthen:review` plus a parallel architecture-review, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`, reuses an existing FIS path when detected, otherwise writes a spec with `andthen:spec`, optionally revises low-confidence specs, implements via `andthen:exec-spec`, runs an integrated `andthen:review` plus a parallel council review, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
 
 Notable patterns:
 - **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:spec` inference.
 - **Inline prompts and schemas**: shipped built-ins carry per-step `prompts:` and `outputs:` explicitly in the workflow YAML – no reliance on skill frontmatter defaults for load-bearing behavior.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
-- **Runtime review reports**: `andthen:review` invocations use `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`. The engine exports that host-owned per-step directory into each task's environment and captures the report from it deterministically, so report paths never round-trip through the model and transient reports stay out of the project worktree.
-- **Review artifact convention**: review reports are captured from the per-step artifacts directory, so a mistyped path can't misdirect the run. A clean review still produces a durable report path; if a zero-finding review leaves no report, DartClaw materializes a diagnostic clean-review stub in that step's directory, while a review that reports findings without a report fails loudly.
+- **Runtime review reports**: `andthen:review` invocations use `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`. The engine exports that host-owned per-step directory into each task's environment and captures the report from it when the step emits no usable path, so transient reports stay out of the project worktree.
+- **Review artifact convention**: a review report path a step emits is used as written when it exists inside the workspace; otherwise DartClaw captures the report from that step's artifacts directory. A clean review still produces a durable report path; if a zero-finding review leaves no report, DartClaw materializes a diagnostic clean-review stub in that step's directory, while a review that reports findings without a report fails loudly.
 
 Role usage:
 - `@planner`: `spec`
-- `@reviewer`: `revise-spec`, `integrated-review`, `architecture-review`, `re-review`
+- `@reviewer`: `revise-spec`, `integrated-review`, `integrated-review-council`, `re-review`
 - `@executor`: `implement`, `remediate`
 
 ### `plan-and-implement` – Story Fan-Out
 
-Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `revise-story-spec -> implement -> quick-review -> simplify-code` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review + architecture-review -> remediation-loop`.
+Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `revise-story-spec -> implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review + plan-review-council -> remediation-loop`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD and does not re-emit `done` or `skipped` stories; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
 - **Single-step artifact producers**: `plan` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
 - **Merged plan + specs**: `plan` emits `stories` and `story_specs` together in a single pass; downstream steps consume both directly.
 - **File-backed story specs**: every `story_specs.items[].spec_path` emitted by `plan` must exist on disk. Post-extraction validation checks the producing task worktree when one exists, falls back to the active workflow root otherwise, rejects missing FIS files, and sends that validation failure into the retry prompt.
-- **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, mounted by `gitStrategy.worktree.externalArtifactMount`), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
+- **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, carried there by the artifact auto-commit on the workflow branch), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares under `outputs:`.
 - **Dependency-aware story slices**: `story_specs` is the executable fan-out contract. Every item should carry `id`, `spec_path`, and `dependencies` (`[]` for roots). The foreach pipeline may run multiple ready stories concurrently, but stories with prerequisites remain undispatched until their dependencies are promoted successfully.
-- **Best-effort cleanup**: `simplify-code` runs after required implementation/review work and uses `onFailure: continue`; a red baseline or advisory blockage is recorded without preventing plan-level review.
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
@@ -1058,8 +970,8 @@ Notable patterns:
 Role usage:
 - `@workflow`: `discover-plan-state`
 - `@planner`: `plan`
-- `@executor`: `implement`, `quick-review`, `simplify-code`, `remediate`
-- `@reviewer`: `revise-story-spec`, `plan-review`, `architecture-review`, `re-review`
+- `@executor`: `implement`, `remediate-story`, `remediate`
+- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `plan-review-council`, `re-review`
 
 ### `code-review` – Review And Remediate Loop
 
@@ -1089,9 +1001,9 @@ The three shipped built-ins all use the same four workflow roles:
 
 Recommended presets:
 
-- Claude-first: `workflow=claude/sonnet`, `planner=claude/opusplan`, `executor=claude/sonnet`, `reviewer=claude/opus`
-- Codex-first: `workflow=codex/gpt-5.4`, `planner=codex/gpt-5.4`, `executor=codex/gpt-5.4-mini`, `reviewer=codex/gpt-5-codex`
-- Mixed: `workflow=claude/sonnet`, `planner=claude/opusplan`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
+- Claude-first: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=claude/sonnet`, `reviewer=claude/opus`
+- Codex-first: `workflow=codex/gpt-5.4`, `planner=codex/gpt-5.6-sol`, `executor=codex/gpt-5.6-luna`, `reviewer=codex/gpt-5.6-luna`
+- Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
 
 Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field.
 
@@ -1107,12 +1019,13 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 
 **AndThen provider skills**:
 
-- `andthen:prd`, `andthen:spec`, `andthen:plan` – PRD, specification, and planning
+- `andthen:spec`, `andthen:plan` – specification and planning
 - `andthen:exec-spec` – spec execution / implementation driver
-- `andthen:review`, `andthen:quick-review` – code and doc review
+- `andthen:review` – code and doc review
 - `andthen:remediate-findings` – remediation loop driver
+- `andthen:triage` – failure investigation
 
-Install AndThen for the provider you run. DartClaw resolves `andthen:<name>` to `andthen-<name>` for Codex and leaves `andthen:<name>` unchanged for Claude Code. See [AndThen Skills](andthen-skills.md).
+Install AndThen for the provider you run — the built-in workflows reference only core `andthen` plugin skills. DartClaw resolves `<plugin>:<name>` to `<plugin>-<name>` for Codex and leaves it unchanged for Claude Code. See [AndThen Skills](andthen-skills.md).
 
 ## Reference
 

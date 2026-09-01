@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// In-memory [WorkflowStepExecutionRepository] used by tests.
 class InMemoryWorkflowStepExecutionRepository implements WorkflowStepExecutionRepository {

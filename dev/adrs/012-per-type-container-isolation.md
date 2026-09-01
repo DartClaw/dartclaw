@@ -1,6 +1,6 @@
 # ADR-012: Per-Type Container Isolation
 
-**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals)
+**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals; amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeclared posture resolves to isolated wherever a container runtime is detected)
 
 ## Context
 
@@ -33,6 +33,15 @@ Container count is bounded by `providers.<id>.pool_size`; retained logical-agent
 
 **2026-08-13 owner-lifetime clarification.** The 2026-08-11 amendment correctly prohibited sharing across principals but equated an authority with one turn. That destroyed provider-native continuation for standing logical agents and multi-turn workflow steps. An authority now tracks the trust owner: primary process lifetime, logical-agent session, task turn, or workflow step. The provider-CLI one-shot path holds one authority and one auth-clean provider home for the complete step, then releases both in `finally`.
 
+**2026-08-23 task-profile declaration amendment.** The task lane defaults to the neutral `workspace` profile, while
+an authenticated operator may declare `workspace` or `restricted` as a top-level task API field. Channel and
+model-facing creation seams cannot express that declaration. Because the former `research` input selected
+`restricted`, every input carrying it and every matching pre-upgrade stored row is refused with the
+explicit-declaration remediation rather than silently widened to `workspace`. The profile table and
+dispatch diagram below record the original decision; for current task placement, “Used By” is default tasks for
+`workspace` and explicitly declared tasks for `restricted`, and dispatch is declared profile → effective policy →
+owner container.
+
 **Provider compatibility.** A container authority can only be granted to a provider whose container execution DartClaw actually mediates. The host gateway's provider adapters are verified for the Claude and Codex clients only, so an ACP registration has no mediated container execution: an ACP registration that requires a container is rejected at startup, and an ACP provider whose resolved policy is container execution is refused before admission rather than downgraded to host. Placement remains the resolved execution mode's decision; this only bounds which providers a container mode can carry.
 
 ### Security Profiles (0.8)
@@ -41,6 +50,9 @@ Container count is bounded by `providers.<id>.pool_size`; retained logical-agent
 |---|---|---|---|---|
 | `workspace` | `dartclaw-<id>-workspace…` | `/workspace:rw`, `/project:ro` | `none` | Main chat, coding tasks, cron, user sessions |
 | `restricted` | `dartclaw-<id>-restricted…` | No workspace | `none` | Search agent, research tasks |
+
+> **2026-08-23 amendment:** the “Used By” cells above are the original 0.8 assignment. Current task use is default
+> tasks for `workspace` and explicitly declared tasks for `restricted`; category contributes neither profile.
 
 Container naming: `dartclaw-<sha256(dataDir)[0:8]>-<profileId>`, with a per-authority suffix for each dedicated container. Deterministic prefix, collision-free, multi-instance safe across OS users.
 
@@ -54,6 +66,9 @@ ExecutionCoordinator (5 worker leases)
   ├── logical agent    → resolved policy       → its own owner container across turns
   └── cron job         → deployment default    → host process, or its own container
 ```
+
+> **2026-08-23 amendment:** the task rows above are historical. Current task dispatch is declared profile (or neutral
+> `workspace`) → effective execution policy → owner container. The `research` input is refused.
 
 The Dart host mediates all routing: `execution request → effective execution policy → owner container`. Containers never communicate directly or cross principals. Active execution capacity is lease-owned; owner containers may remain idle only within the provider's bounded retained-worker set.
 
@@ -86,17 +101,19 @@ The `macos-vm` profile is a separate tier using Apple's Virtualization.framework
 - Each container runs its own bridge process pair — slightly more moving parts
 
 ### Neutral
+- Since the 2026-08-23 amendment, security profile is the neutral default or an authenticated operator declaration;
+  the retired profile-bearing input fails closed.
 - Host mediation is per owner authority: one gateway registration and pipe pair, revoked when that owner ends
 - Docker image stays shared — security differentiation via launch flags, not image contents
 - `container.enabled: false` path unchanged — all tasks share host process, no containers
-- Coding tasks use git worktrees (directories within workspace mount) — worktree isolation is git-level, not container-level
+- Tasks declaring `configJson.needsWorktree: true` use git worktrees (directories within the workspace mount) — worktree isolation is git-level, not container-level
 
 ## Alternatives Considered
 
 ### Status Quo (single shared container)
 - **Pros**: Zero effort, simplest operations, lowest resources
-- **Cons**: Cross-agent isolation gap remains open, hardcoded name blocks multi-instance, all task types get identical OS permissions, contradicts ADR-001 vision
-- **Rejected because**: The search agent — the highest-risk agent (network-facing via MCP web tools) — has no OS-level filesystem restriction. This gap widens with the task orchestrator adding more task types with varying security needs.
+- **Cons**: Cross-agent isolation gap remains open, hardcoded name blocks multi-instance, all tasks get identical OS permissions, contradicts ADR-001 vision
+- **Rejected because**: The search agent — the highest-risk agent (network-facing via MCP web tools) — has no OS-level filesystem restriction. This gap widens as the task orchestrator adds work with varying security needs.
 
 ### Single Container + Mount Scoping
 - **Pros**: Near-zero resource overhead

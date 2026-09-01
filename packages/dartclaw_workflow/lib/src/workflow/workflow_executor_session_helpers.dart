@@ -146,7 +146,6 @@ extension WorkflowExecutorSessionHelpers on WorkflowExecutor {
     WorkflowContext context,
     Map<String, OutputConfig>? effectiveOutputs, {
     required List<String> outputKeys,
-    String? gatingSeverity,
     bool finalizerHandlesOutputs = false,
     MapContext? mapCtx,
   }) => workflow_task_factory.buildOneShotFollowUpPrompts(
@@ -154,7 +153,6 @@ extension WorkflowExecutorSessionHelpers on WorkflowExecutor {
     context,
     effectiveOutputs,
     outputKeys: outputKeys,
-    gatingSeverity: gatingSeverity,
     finalizerHandlesOutputs: finalizerHandlesOutputs,
     mapCtx: mapCtx,
     templateEngine: _templateEngine,

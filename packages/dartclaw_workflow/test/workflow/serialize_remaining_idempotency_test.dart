@@ -1,6 +1,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -16,6 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MergeResolveEscalation,
         MessageService,
         OutputConfig,
+        SqliteWorkflowRunRepository,
         StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -27,20 +30,16 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
-        WorkflowStepOutputTransformer,
         WorkflowTurnAdapter;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
+import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
         SqliteExecutionRepositoryTransactor,
         SqliteTaskRepository,
-        SqliteWorkflowRunRepository,
         SqliteWorkflowStepExecutionRepository;
-import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -86,7 +85,8 @@ void main() {
       final firstEventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(firstEvents.add);
       final releaseThirdTask = Completer<void>();
       final completeFirstRunTasks = eventBus.on<TaskStatusChangedEvent>().where(_isQueued).listen((event) async {
-        await _attachWorktree(event.taskId, taskService, tempDir);
+        await h.attachWorktree(event.taskId);
+        await h.seedMergeResolveFailure(event.taskId);
         if (await _isThirdStoryTask(event.taskId, taskService)) {
           // Park the third story's task in `review` so the mid-settle crash
           // window (eventEmitted persisted, phase still 'enacting') stays open
@@ -111,7 +111,6 @@ void main() {
         kvService: kvService,
         dir: tempDir,
         turnAdapter: _adapter(conflictingStoryIds: {'S02'}),
-        outputTransformer: _codingWithMergeResolveFailTransformer(),
       );
 
       final firstRunFuture = firstExecutor.execute(run, definition, context);
@@ -164,7 +163,8 @@ void main() {
       final secondEvents = <WorkflowSerializationEnactedEvent>[];
       final secondEventSub = eventBus.on<WorkflowSerializationEnactedEvent>().listen(secondEvents.add);
       final completeSecondRunTasks = eventBus.on<TaskStatusChangedEvent>().where(_isQueued).listen((event) async {
-        await _attachWorktree(event.taskId, taskService, tempDir);
+        await h.attachWorktree(event.taskId);
+        await h.seedMergeResolveFailure(event.taskId);
         await Future<void>.delayed(Duration.zero);
         await _completeIfActive(event.taskId, taskService);
       });
@@ -181,7 +181,6 @@ void main() {
         kvService: kvService,
         dir: tempDir,
         turnAdapter: _adapter(conflictingStoryIds: {'S02'}),
-        outputTransformer: _codingWithMergeResolveFailTransformer(),
       );
 
       await secondExecutor.execute(resumedRun, definition, WorkflowContext.fromJson(crashSnapshot.contextJson));
@@ -257,7 +256,6 @@ WorkflowExecutor _makeExecutor({
   required KvService kvService,
   required Directory dir,
   required WorkflowTurnAdapter turnAdapter,
-  required WorkflowStepOutputTransformer outputTransformer,
 }) {
   return WorkflowExecutor(
     executionContext: StepExecutionContext(
@@ -273,7 +271,6 @@ WorkflowExecutor _makeExecutor({
         workflowStepExecutionRepository: workflowStepExecutionRepository,
       ),
       turnAdapter: turnAdapter,
-      outputTransformer: outputTransformer,
       taskRepository: taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       workflowStepExecutionRepository: workflowStepExecutionRepository,
@@ -301,37 +298,6 @@ WorkflowTurnAdapter _adapter({required Set<String> conflictingStoryIds}) {
         },
     cleanupWorktreeForRetry: ({required projectId, required branch, required preAttemptSha}) async => null,
     captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-pre',
-  );
-}
-
-WorkflowStepOutputTransformer _codingWithMergeResolveFailTransformer() {
-  return (run, definition, step, task, outputs) {
-    if (step.id.startsWith('_merge_resolve_')) {
-      return {
-        'merge_resolve.outcome': 'failed',
-        'merge_resolve.error_message': 'simulated failure',
-        'merge_resolve.conflicted_files': <String>['lib/story.dart'],
-        'merge_resolve.resolution_summary': '',
-      };
-    }
-    final result = Map<String, dynamic>.from(outputs);
-    if (step.taskType == WorkflowTaskType.agent) {
-      result['${step.id}.branch'] = 'story-branch-${task.id}';
-    }
-    return result;
-  };
-}
-
-Future<void> _attachWorktree(String taskId, TaskService taskService, Directory dir) async {
-  final task = await taskService.get(taskId);
-  if (task == null || task.status.terminal) return;
-  await taskService.updateFields(
-    taskId,
-    worktreeJson: {
-      'path': p.join(dir.path, 'worktrees', taskId),
-      'branch': 'story-branch-$taskId',
-      'createdAt': DateTime.now().toIso8601String(),
-    },
   );
 }
 

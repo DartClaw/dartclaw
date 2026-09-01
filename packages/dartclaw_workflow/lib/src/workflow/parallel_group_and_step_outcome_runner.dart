@@ -80,6 +80,24 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     if (stepSessionId != null) {
       context['$stepId.sessionId'] = stepSessionId;
     }
+    _recordUnproducedKeys(context, result);
+  }
+
+  /// Records which declared outputs a terminally failed step never produced.
+  ///
+  /// The distinction that carries the safety is step *status*: a step skipped
+  /// by design legitimately contributes nothing, and a gate reading its absent
+  /// counter as 0 is right. A step that ran and failed is different — reading
+  /// its absence as clean is how a stalled review let a remediation gate pass.
+  /// This rides the context's system side so a workflow author's own keys can
+  /// never collide with it or read it as data.
+  void _recordUnproducedKeys(WorkflowContext context, StepOutcome result) {
+    if (result.outcome != 'failed') return;
+    final declared = result.step.outputs?.keys;
+    if (declared == null || declared.isEmpty) return;
+    final unproduced = declared.where((key) => !context.data.containsKey(key)).toList();
+    if (unproduced.isEmpty) return;
+    context.mergeSystemVariables({'$unproducedKeysSystemPrefix${result.step.id}': unproduced.join(',')});
   }
 
   String? _fallbackOutcomeFromTaskStatus(TaskStatus? status) => switch (status) {
@@ -95,7 +113,7 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
   };
 
   Future<(String?, String?)> _resolveStepOutcome(WorkflowStep step, Task task, {required String runId}) async {
-    final parsed = await _contextExtractor.extractStepOutcome(task);
+    final parsed = await _contextExtractor.extractStepOutcome(task, emitsOwnOutcome: step.emitsOwnOutcome);
     final forcedOutcome = _fallbackOutcomeFromTaskStatus(task.status);
     if (forcedOutcome == 'failed' || forcedOutcome == 'cancelled') {
       if (parsed != null && parsed.outcome != forcedOutcome) {
@@ -118,7 +136,8 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     }
 
     await _incrementOutcomeFallbackCounter();
-    // ADR-022: warn when a non-emitsOwnOutcome step has no <step-outcome> marker.
+    // ADR-022 (amended 0.20): the envelope is the standard path and this
+    // marker the fallback, so reaching here means both were absent.
     WorkflowExecutor._log.warning(
       'Step outcome marker missing: run=$runId step=${step.id} '
       '(task ${task.id}, task status ${task.status.name})',

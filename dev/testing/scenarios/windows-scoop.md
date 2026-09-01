@@ -21,13 +21,18 @@ Qualify the rendered-manifest path used by the release workflow on Windows x64.
    dartclaw --version
    ```
 
-4. Resolve the versioned app directory rather than Scoop's `current` junction, then verify bundled SQLite identity:
+4. Resolve the versioned app directory rather than Scoop's `current` junction, then drive FTS5 through the installed
+   binary. `rebuild-index` creates and queries the FTS5 virtual table, which the Windows system `winsqlite3.dll`
+   cannot do — so a rebuilt index proves the bundled `lib\sqlite3.dll` was loaded:
 
    ```powershell
    $current = (scoop prefix dartclaw).Trim()
    $appRoot = Join-Path (Split-Path $current -Parent) '<version>'
-   & (Join-Path $appRoot 'bin\dartclaw.exe') release-sqlite-check `
-     --expected-module (Join-Path $appRoot 'lib\sqlite3.dll')
+   $probe = Join-Path $env:TEMP "dartclaw-scoop-probe-$([guid]::NewGuid())"
+   New-Item -ItemType Directory -Path (Join-Path $probe 'workspace') -Force | Out-Null
+   Set-Content -LiteralPath (Join-Path $probe 'dartclaw.yaml') -Value "data_dir: '$probe'"
+   Set-Content -LiteralPath (Join-Path $probe 'workspace\MEMORY.md') -Value "## probe`n- [2026-01-01 00:00] scoopfts5probe`n"
+   & (Join-Path $appRoot 'bin\dartclaw.exe') --config (Join-Path $probe 'dartclaw.yaml') rebuild-index
    ```
 
 5. Run `scoop update dartclaw`, then `scoop uninstall dartclaw` and remove the temporary bucket. Confirm the shim is

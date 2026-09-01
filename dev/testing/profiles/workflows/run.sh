@@ -65,13 +65,25 @@ else
       "${TEMPLATE_CONFIG}" > "${RUNTIME_CONFIG}"
 fi
 
-# Export GITHUB_TOKEN from the fixture-local askpass file if not already set.
+# Resolve GITHUB_TOKEN: environment, then the fixture-local askpass file, then
+# the operator's gh login. The server reaches GitHub over the REST API with a
+# bearer token from `credentials.github-main` (pr_creator.dart), so it cannot
+# use a gh keyring session the way the CLI does; the gh tier bridges that gap
+# and mirrors _githubTokenFromEnvOrGh in workflow_e2e_integration_test.dart, so
+# the profile and the automated e2e resolve the same credential the same way.
 if [ -z "${GITHUB_TOKEN:-}" ] && [ -f "${DATA_DIR_ABS}/projects/.git-askpass-github-main.token" ]; then
   GITHUB_TOKEN_VALUE="$(tr -d '\r\n' < "${DATA_DIR_ABS}/projects/.git-askpass-github-main.token")"
   if [ -n "${GITHUB_TOKEN_VALUE}" ]; then
     export GITHUB_TOKEN="${GITHUB_TOKEN_VALUE}"
   fi
 fi
+if [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+  GITHUB_TOKEN_VALUE="$(gh auth token 2>/dev/null | tr -d '\r\n')"
+  if [ -n "${GITHUB_TOKEN_VALUE}" ]; then
+    export GITHUB_TOKEN="${GITHUB_TOKEN_VALUE}"
+  fi
+fi
+unset GITHUB_TOKEN_VALUE
 
 chmod 600 "${DATA_DIR_ABS}/gateway_token" 2>/dev/null || true
 

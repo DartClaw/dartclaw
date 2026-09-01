@@ -98,8 +98,13 @@ class SetupState {
   // Full-track: Container isolation
   // -------------------------------------------------------------------------
 
-  /// Whether Docker-based container isolation is enabled (Full track only).
-  final bool containerEnabled;
+  /// The operator's answer about container isolation, or `null` when they were
+  /// never asked.
+  ///
+  /// The distinction is load-bearing: an absent `container:` section means
+  /// "isolate if this host can", so writing `false` for someone who was never
+  /// asked pins them to the host lane. Only the Full track asks.
+  final bool? containerEnabled;
 
   /// Docker image for isolated agent execution (Full track only).
   final String? containerImage;
@@ -110,9 +115,6 @@ class SetupState {
 
   /// Whether the content guard is enabled (Full track only; default: true).
   final bool? contentGuardEnabled;
-
-  /// Whether the input sanitizer is enabled (Full track only; default: true).
-  final bool? inputSanitizerEnabled;
 
   new({
     required this.instanceName,
@@ -138,10 +140,9 @@ class SetupState {
     this.googleChatServiceAccount,
     this.googleChatAudienceType,
     this.googleChatAudience,
-    this.containerEnabled = false,
+    this.containerEnabled,
     this.containerImage,
     this.contentGuardEnabled,
-    this.inputSanitizerEnabled,
   }) : configPath = configPath ?? p.join(instanceDir, 'dartclaw.yaml'),
        providers = List.unmodifiable(_normalizeProviders(provider, providers)),
        providerAuthMethods = Map.unmodifiable(_normalizeAuthMethods(provider, authMethod, providerAuthMethods)),

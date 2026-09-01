@@ -308,8 +308,8 @@ void main() {
             'usage': {'input_tokens': 10, 'output_tokens': 20, 'cache_read_input_tokens': 3},
           },
           expectMessage: (message) {
-            expect(message, isA<TurnResult>());
-            final result = message as TurnResult;
+            expect(message, isA<TerminalResult>());
+            final result = message as TerminalResult;
             expect(result.stopReason, 'end_turn');
             expect(result.costUsd, closeTo(0.0042, 1e-6));
             expect(result.durationMs, 1500);
@@ -322,8 +322,8 @@ void main() {
           name: 'minimal result',
           json: {'type': 'result'},
           expectMessage: (message) {
-            expect(message, isA<TurnResult>());
-            final result = message as TurnResult;
+            expect(message, isA<TerminalResult>());
+            final result = message as TerminalResult;
             expect(result.stopReason, isNull);
             expect(result.costUsd, isNull);
             expect(result.durationMs, isNull);
@@ -333,8 +333,8 @@ void main() {
           name: 'integer cost',
           json: {'type': 'result', 'total_cost_usd': 1},
           expectMessage: (message) {
-            expect(message, isA<TurnResult>());
-            expect((message as TurnResult).costUsd, 1.0);
+            expect(message, isA<TerminalResult>());
+            expect((message as TerminalResult).costUsd, 1.0);
           },
         ),
       ];

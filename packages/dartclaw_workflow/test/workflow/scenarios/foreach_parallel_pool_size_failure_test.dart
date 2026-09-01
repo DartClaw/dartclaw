@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, HarnessFactoryConfig;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntimeExecutionStack;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:test/test.dart';
 
@@ -17,13 +18,13 @@ void main() {
     addTearDown(fixture.dispose);
 
     final harnessFactory = HarnessFactory()..register('claude', (HarnessFactoryConfig _) => FakeAgentHarness());
-    final wiring = await fixture.wire(harnessFactory: harnessFactory);
-    addTearDown(wiring.dispose);
+    final runtime = await fixture.wire(harnessFactory: harnessFactory);
+    addTearDown(runtime.shutdown);
 
-    final capacity = wiring.executions.snapshot.providers['claude']!;
+    final capacity = runtime.requireExecutions.snapshot.providers['claude']!;
     expect(capacity.configured, 1);
     expect(capacity.active, 0);
     expect(capacity.cached, 0);
-    expect(wiring.executions.runners, isEmpty);
+    expect(runtime.requireExecutions.runners, isEmpty);
   });
 }

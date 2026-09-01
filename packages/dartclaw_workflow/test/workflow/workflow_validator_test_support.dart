@@ -42,14 +42,12 @@ WorkflowStep step({
   String prompt = 'Do it',
   List<String> inputs = const [],
   Map<String, OutputConfig>? outputs,
-  String? gate,
 }) => WorkflowStep(
   id: id,
   name: name,
   prompts: [prompt],
   inputs: inputs,
   outputs: outputs == null || outputs.isEmpty ? null : outputs,
-  gate: gate,
 );
 
 /// A review-source step emitting the fixed review-report + count keys an
@@ -89,8 +87,8 @@ WorkflowStep aggregateReviewsStep({
 /// Returns `true` when [errors] contains an entry matching all supplied
 /// constraints. Any unspecified constraint is treated as a wildcard.
 bool hasError(
-  List<ValidationError> errors, {
-  ValidationErrorType? type,
+  List<WorkflowValidationError> errors, {
+  WorkflowValidationErrorType? type,
   String? stepId,
   String? loopId,
   String? messageContains,

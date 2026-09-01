@@ -1,6 +1,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -11,7 +13,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowContext,
         WorkflowDefinition,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowRunStatusChangedEvent,
         WorkflowStep,
         WorkflowStepCompletedEvent;
@@ -216,23 +217,21 @@ void main() {
       if (stepName == 'P2') {
         await h.completeTaskWithOutcome(
           e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"failed","reason":"p2 broke"}</step-outcome>',
+          outcome: 'failed',
+          reason: 'p2 broke',
           finalStatus: TaskStatus.failed,
           tokenCount: 40,
         );
       } else if (stepName == 'P3') {
         await h.completeTaskWithOutcome(
           e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"finished before teardown"}</step-outcome>',
+          outcome: 'succeeded',
+          reason: 'finished before teardown',
           finalStatus: TaskStatus.cancelled,
           tokenCount: 70,
         );
       } else {
-        await h.completeTaskWithOutcome(
-          e.taskId,
-          outcomeContent: '<step-outcome>{"outcome":"succeeded","reason":"done"}</step-outcome>',
-          tokenCount: 11,
-        );
+        await h.completeTaskWithOutcome(e.taskId, outcome: 'succeeded', reason: 'done', tokenCount: 11);
       }
     });
 
@@ -396,20 +395,19 @@ void main() {
     expect(finalRun?.errorMessage, contains('Parallel step(s) failed'));
   });
 
-  test('gate blocks entire parallel group when one step gate fails', () async {
+  test('entryGate false skips only its own member of the parallel group', () async {
     final definition = WorkflowDefinition(
       name: 'test',
       description: 'Test',
       steps: [
         const WorkflowStep(id: 'p1', name: 'P1', prompts: ['Do p1'], parallel: true),
-        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true, gate: 'approved == true'),
+        const WorkflowStep(id: 'p2', name: 'P2', prompts: ['Do p2'], parallel: true, entryGate: 'approved == true'),
         const WorkflowStep(id: 'p3', name: 'P3', prompts: ['Do p3'], parallel: true),
       ],
     );
 
     final run = h.makeRun(definition);
     await h.repository.insert(run);
-    // Gate references 'approved' which is 'false' in context.
     final context = WorkflowContext(data: {'approved': 'false'});
 
     var taskCount = 0;
@@ -424,11 +422,9 @@ void main() {
     await h.executor.execute(run, definition, context);
     await sub.cancel();
 
-    // No tasks created — gate blocked the group.
-    expect(taskCount, equals(0));
+    expect(taskCount, equals(2), reason: 'p1 and p3 still run; only the gated member is skipped');
     final finalRun = await h.repository.getById('run-1');
-    expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-    expect(finalRun?.errorMessage, contains('Gate failed for parallel step'));
+    expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
   test('budget exceeded before parallel group pauses workflow', () async {

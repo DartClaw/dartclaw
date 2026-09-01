@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 
 import 'workflow_definition.dart' show WorkflowDefinition;

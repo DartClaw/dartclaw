@@ -1,4 +1,4 @@
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../auth/secret_input.dart';
 import '../credential_subcommand.dart';

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -58,6 +59,7 @@ final class MemoryCorpusStatusSnapshot {
     required this.archiveEntryCount,
     required this.observationEntryCount,
     required this.learningEntryCount,
+    required this.errorEntryCount,
     required this.observationUsageBytes,
     required this.observationOldest,
     required this.observationNewest,
@@ -69,7 +71,7 @@ final class MemoryCorpusStatusSnapshot {
   final int collectionRevision;
   final String collectionFingerprint;
   final int? curatedEntryCount, topicCount, archiveEntryCount;
-  final int? observationEntryCount, learningEntryCount, observationUsageBytes;
+  final int? observationEntryCount, learningEntryCount, errorEntryCount, observationUsageBytes;
   final DateTime? observationOldest, observationNewest;
   final List<String> opaqueLegacyLocators;
   final String migrationState;
@@ -82,6 +84,7 @@ final class MemoryCorpusStatusSnapshot {
     'archiveEntryCount': archiveEntryCount,
     'observationEntryCount': observationEntryCount,
     'learningEntryCount': learningEntryCount,
+    'errorEntryCount': errorEntryCount,
     'observationUsageBytes': observationUsageBytes,
     'observationOldest': observationOldest?.toUtc().toIso8601String(),
     'observationNewest': observationNewest?.toUtc().toIso8601String(),
@@ -207,7 +210,13 @@ enum MemoryCorpusTransition {
 
 typedef MemoryCorpusTransitionHook = FutureOr<void> Function(MemoryCorpusTransition transition, String path);
 
+/// Injected by a test to abort a corpus write at a named [MemoryCorpusTransition].
+///
+/// Exported because the recovery paths catch it in production — a corpus that
+/// cannot name the exception it survived cannot prove it recovered — but it has
+/// no production producer, which is why construction is test-only.
 final class MemoryCorpusSimulatedCrash implements Exception {
+  @visibleForTesting
   const new(this.transition);
   final MemoryCorpusTransition transition;
 }
@@ -324,6 +333,14 @@ final class MemoryCorpusService {
   });
 
   Future<MemoryCorpusStatusSnapshot> statusSnapshot() async => (await manifest()).status;
+
+  /// Whether [workspaceDir] already carries canonical corpus state.
+  ///
+  /// True only for a workspace the canonical authority has written, so a reader
+  /// that must tell a canonical corpus from pre-canonical content can decide it
+  /// without reproducing the authority's own state discriminator.
+  static bool hasCanonicalState({required String workspaceDir}) =>
+      FileSystemEntity.typeSync(p.join(workspaceDir, _stateName), followLinks: false) == FileSystemEntityType.file;
 
   static MemoryCorpusStatusSnapshot? readPersistedStatus({required String workspaceDir}) {
     final file = File(p.join(workspaceDir, _stateName));
@@ -605,7 +622,6 @@ final class MemoryCorpusService {
     Iterable<String> Function()? discoverPaths,
     required FutureOr<MemoryCorpusFileMutation<T>> Function(Map<String, Uint8List?> files) prepare,
     FutureOr<MemoryCorpusMutation<T>> Function(CanonicalMemoryCorpus corpus)? prepareCanonical,
-    FutureOr<MemoryCorpusMutation<T>> Function(Map<String, Uint8List?> files)? prepareLegacyCanonical,
     bool bootstrapCanonical = false,
     FutureOr<void> Function(T value)? afterCommit,
     bool rollbackOnAfterCommitFailure = false,
@@ -669,22 +685,6 @@ final class MemoryCorpusService {
           }
           for (final entry in files.entries) {
             current[entry.key] = Uint8List.fromList(entry.value.readAsBytesSync());
-          }
-          if (prepareLegacyCanonical != null) {
-            final mutation = await prepareLegacyCanonical(Map.unmodifiable(current));
-            final target = _withRevision(mutation.corpus, 1);
-            _validator.validate(target);
-            _requireInventoryBounds(target.byteInventory(_codec));
-            await _commitInitialCorpusLocked(
-              root,
-              target,
-              baseSelection: {
-                for (final entry in current.entries)
-                  if (entry.value != null) entry.key: entry.value!,
-              },
-            );
-            if (afterCommit != null) await afterCommit(mutation.value);
-            return mutation.value;
           }
           final mutation = await prepare(Map.unmodifiable(current));
           final writes = <String, Uint8List?>{};

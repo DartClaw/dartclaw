@@ -1,8 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-
-import 'serve_command.dart' show ExitFn;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn;
 
 /// Sink for one line of a credential command's operator-facing output.
 typedef CredentialWriteLine = void Function(String line);

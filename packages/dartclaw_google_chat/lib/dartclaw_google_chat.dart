@@ -1,22 +1,8 @@
 /// Google Chat channel integration for DartClaw.
 library;
 
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelType;
-
-import 'src/google_chat_config.dart';
-
 export 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        Channel,
-        ChannelManager,
-        ChannelResponse,
-        ChannelType,
-        DmAccessController,
-        DmAccessMode,
-        GroupAccessMode,
-        MentionGating,
-        TaskTriggerConfig;
+    show Channel, ChannelManager, ChannelResponse, DmAccessController, DmAccessMode, MentionGating;
 
 export 'src/gcp_auth_service.dart' show GcpAuthService;
 export 'src/chat_card_builder.dart' show ChatCardBuilder, cardDescriptionMaxLength;
@@ -42,23 +28,14 @@ export 'src/pubsub_client.dart' show PubSubClient, PubSubHealthStatus, ReceivedM
 export 'src/pubsub_health_reporter.dart' show PubSubHealthReporter, SubscriptionCountGetter;
 export 'src/workspace_events_manager.dart' show SpaceDiscoveryCallback, SubscriptionRecord, WorkspaceEventsManager;
 export 'src/slash_command_parser.dart' show SlashCommand, SlashCommandParser;
-export 'src/google_chat_utils.dart' show asMap, isBotMessage, resolveGroupJid, resolveMessageText;
+export 'src/google_chat_utils.dart' show asMap, isBotMessage, resolveGroupJid, resolveSpaceType, resolveMessageText;
 export 'src/user_oauth_auth_service.dart' show UserOAuthAuthService;
 export 'src/user_oauth_credential_store.dart' show StoredUserCredentials, UserOAuthCredentialStore;
-
-bool _registerGoogleChatConfigParser() {
-  DartclawConfig.registerChannelConfigParser(
-    ChannelType.googlechat,
-    (yaml, warns) => GoogleChatConfig.fromYaml(yaml, warns),
-  );
-  return true;
-}
-
-final bool _googleChatConfigParserRegistered = _registerGoogleChatConfigParser();
-
-/// Forces the library to stay initialized for parser registration.
-void ensureDartclawGoogleChatRegistered() {
-  if (!_googleChatConfigParserRegistered) {
-    throw StateError('dartclaw_google_chat failed to register its channel config parser.');
-  }
-}
+export 'src/slash_command_executor.dart' show SlashCommandExecutor;
+export 'src/google_chat_webhook.dart' show GoogleChatMessageDispatcher, GoogleChatWebhookHandler;
+export 'src/google_chat_jwt_verifier.dart' show GoogleChatJwtVerifier;
+export 'src/google_chat_space_events_wiring.dart' show GoogleChatSpaceEventsWiring;
+export 'src/google_chat_subscription_routes.dart' show googleChatSubscriptionRoutes;
+export 'src/space_events_auth.dart' show resolveSpaceEventsUserOAuthClient;
+export 'src/google_oauth_setup.dart'
+    show GoogleOAuthSetupException, parseGoogleOAuthClientCredentials, resolveGoogleOAuthScopes;

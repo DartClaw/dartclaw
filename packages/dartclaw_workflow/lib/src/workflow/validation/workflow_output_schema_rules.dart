@@ -3,8 +3,8 @@ part of '../workflow_definition_validator.dart';
 extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
   void _validateOutputConfigs(
     WorkflowDefinition definition,
-    List<ValidationError> errors,
-    List<ValidationError> warnings,
+    List<WorkflowValidationError> errors,
+    List<WorkflowValidationError> warnings,
   ) {
     final descriptionsByOutput = <String, List<(String, String)>>{};
 
@@ -21,7 +21,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         if (reservedEnvelopeOutputKeys.contains(key)) {
           errors.add(
             _err(
-              ValidationErrorType.invalidReference,
+              WorkflowValidationErrorType.invalidReference,
               'Step "${step.id}" output "$key" uses a reserved execution-envelope key name. '
               '"$executionEnvelopeOutputsKey" and "$executionEnvelopeStepOutcomeKey" are reserved by the host.',
               stepId: step.id,
@@ -40,7 +40,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         if (config.description != null && config.description!.trim().isEmpty) {
           errors.add(
             _err(
-              ValidationErrorType.missingField,
+              WorkflowValidationErrorType.missingField,
               'Step "${step.id}" output "$key" has a blank "description" — '
               'provide content or remove the key.',
               stepId: step.id,
@@ -54,7 +54,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           if (preset == null) {
             errors.add(
               _err(
-                ValidationErrorType.invalidReference,
+                WorkflowValidationErrorType.invalidReference,
                 'Step "${step.id}" output "$key" references unknown schema preset "${config.presetName}".',
                 stepId: step.id,
               ),
@@ -83,7 +83,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           if (!config.inlineSchema!.containsKey('type')) {
             errors.add(
               _err(
-                ValidationErrorType.missingField,
+                WorkflowValidationErrorType.missingField,
                 'Step "${step.id}" output "$key" inline schema missing "type" field.',
                 stepId: step.id,
               ),
@@ -105,7 +105,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
             if (pattern.trim().isEmpty || pattern.contains('/') || pattern.contains(r'\')) {
               errors.add(
                 _err(
-                  ValidationErrorType.invalidReference,
+                  WorkflowValidationErrorType.invalidReference,
                   'Step "${step.id}" output "$key": preferPatterns entries must be non-empty bare basenames '
                   '(no path separators): "$pattern".',
                   stepId: step.id,
@@ -121,7 +121,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         if (config.format == OutputFormat.json && !config.hasSchema && !step.isForeachController) {
           errors.add(
             _err(
-              ValidationErrorType.missingField,
+              WorkflowValidationErrorType.missingField,
               'Step "${step.id}" output "$key": format: json requires a schema '
               '(preset name or inline schema).',
               stepId: step.id,
@@ -142,7 +142,7 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
           if (!config.hasSchema) {
             errors.add(
               _err(
-                ValidationErrorType.missingField,
+                WorkflowValidationErrorType.missingField,
                 'Step "${step.id}" output "$key" uses outputMode: structured but has no schema. '
                 'Structured output requires a schema preset or inline schema.',
                 stepId: step.id,

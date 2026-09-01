@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -127,16 +129,16 @@ Map<String, dynamic> _signalEnvelope({
 SignalChannel _makeChannel({
   required FakeSignalCliManager sidecar,
   required FakeChannelManager channelManager,
-  SignalConfig config = const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
+  SignalConfig config = const SignalConfig(enabled: true, groupAccess: GroupAccessMode.open),
   DmAccessController? dmAccess,
-  SignalMentionGating? mentionGating,
+  MentionGating? mentionGating,
   String? dataDir,
 }) {
   return SignalChannel(
     sidecar: sidecar,
     config: config,
     dmAccess: dmAccess ?? DmAccessController(mode: DmAccessMode.open),
-    mentionGating: mentionGating ?? SignalMentionGating(requireMention: false, mentionPatterns: [], ownNumber: ''),
+    mentionGating: mentionGating ?? MentionGating(requireMention: false, mentionPatterns: [], ownJid: ''),
     channelManager: channelManager,
     dataDir: dataDir,
   );
@@ -455,8 +457,8 @@ void main() {
       final gatedChannel = _makeChannel(
         sidecar: sidecar,
         channelManager: channelManager,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.open),
-        mentionGating: SignalMentionGating(requireMention: true, mentionPatterns: [r'@bot'], ownNumber: '+0000'),
+        config: const SignalConfig(enabled: true, groupAccess: GroupAccessMode.open),
+        mentionGating: MentionGating(requireMention: true, mentionPatterns: [r'@bot'], ownJid: '+0000'),
       );
 
       await gatedChannel.connect();
@@ -627,7 +629,7 @@ final value = 1;
       final disabledGroupChannel = _makeChannel(
         sidecar: sidecar,
         channelManager: channelManager,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
+        config: const SignalConfig(enabled: true, groupAccess: GroupAccessMode.disabled),
       );
 
       await disabledGroupChannel.connect();
@@ -649,7 +651,7 @@ final value = 1;
         channelManager: channelManager,
         config: const SignalConfig(
           enabled: true,
-          groupAccess: SignalGroupAccessMode.allowlist,
+          groupAccess: GroupAccessMode.allowlist,
           groupAllowlist: [GroupEntry(id: 'grp-allowed')],
         ),
       );
@@ -667,7 +669,7 @@ final value = 1;
       final disabledGroupChannel = _makeChannel(
         sidecar: sidecar,
         channelManager: channelManager,
-        config: const SignalConfig(enabled: true, groupAccess: SignalGroupAccessMode.disabled),
+        config: const SignalConfig(enabled: true, groupAccess: GroupAccessMode.disabled),
       );
 
       await disabledGroupChannel.connect();
@@ -692,7 +694,7 @@ final value = 1;
       }, warns);
       expect(warns, isEmpty);
       expect(config.dmAccess, DmAccessMode.open);
-      expect(config.groupAccess, SignalGroupAccessMode.allowlist);
+      expect(config.groupAccess, GroupAccessMode.allowlist);
       expect(config.dmAllowlist, ['+9999999999']);
       expect(config.groupIds, ['grp-abc']);
       expect(config.requireMention, isFalse);
@@ -704,7 +706,7 @@ final value = 1;
       final config = SignalConfig.fromYaml({'enabled': true}, warns);
       expect(warns, isEmpty);
       expect(config.dmAccess, DmAccessMode.allowlist);
-      expect(config.groupAccess, SignalGroupAccessMode.disabled);
+      expect(config.groupAccess, GroupAccessMode.disabled);
       expect(config.dmAllowlist, isEmpty);
       expect(config.groupIds, isEmpty);
       expect(config.requireMention, isTrue);
@@ -733,7 +735,7 @@ final value = 1;
       final config = SignalConfig.fromYaml({'group_access': 'invite'}, warns);
       expect(warns, hasLength(1));
       expect(warns.first, contains('group_access'));
-      expect(config.groupAccess, SignalGroupAccessMode.disabled); // default
+      expect(config.groupAccess, GroupAccessMode.disabled); // default
     });
 
     test('mixed string/map group_allowlist parses to correct entries', () {
@@ -805,6 +807,42 @@ final value = 1;
     });
 
     // ---- Sealed-sender dual-form allowlist ----
+
+    // signal-cli's UUID casing is not part of the identity. The sealed-sender
+    // fallback compares `metadata['sourceUuid']` against allowlist entries by
+    // exact string, and an accepted entry is stored lowercase — so an inbound
+    // UUID has to arrive canonical or the fallback misses the sender the entry
+    // was written for.
+    test('sealed-sender: a mixed-case inbound UUID still matches its lowercase allowlist entry', () async {
+      const upper = '12BFCD5A-3363-45F4-94B6-3FE247F11AB8';
+      const lower = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      const phone = '+46701234567';
+      final dmAccess = DmAccessController(mode: DmAccessMode.allowlist, allowlist: {lower});
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
+
+      await ch.connect();
+      await _emitAndPump(
+        pairingSidecar,
+        _signalEnvelope(source: upper, sourceNumber: phone, sourceUuid: upper, message: 'Hello'),
+      );
+
+      expect(pairingManager.received, hasLength(1));
+      expect(pairingManager.received.first.metadata['sourceUuid'], lower);
+      expect(dmAccess.allowlist, containsAll([lower, phone]));
+    });
+
+    test('sealed-sender: a uuid-only mixed-case sender resolves to the canonical spelling', () async {
+      const upper = '12BFCD5A-3363-45F4-94B6-3FE247F11AB8';
+      const lower = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      final dmAccess = DmAccessController(mode: DmAccessMode.allowlist, allowlist: {lower});
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
+
+      await ch.connect();
+      await _emitAndPump(pairingSidecar, _signalEnvelope(source: upper, sourceUuid: upper, message: 'Hello'));
+
+      expect(pairingManager.received, hasLength(1));
+      expect(pairingManager.received.first.senderJid, lower);
+    });
 
     test('sealed-sender: phone message allowed when allowlist holds UUID, allowlist normalized', () async {
       const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';

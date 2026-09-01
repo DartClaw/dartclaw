@@ -1,7 +1,9 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGoogleChatRestClient;
+import 'package:dartclaw_google_chat/testing.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';

@@ -28,14 +28,12 @@ steps:
     prompt: Research {{PROJECT}} for {{ENV}}
     provider: claude
     model: claude-opus
-    timeout: 30m
+    turn_timeout: 30m
     parallel: false
-    gate: null
     inputs: []
     outputs:
       research_result:
         format: text
-    maxTokens: 10000
     maxRetries: 2
     allowedTools:
       - Bash
@@ -83,47 +81,6 @@ steps:
     prompt: Record the final workflow status
 ''';
 
-const legacyLoopsNormalizationWorkflowYaml = '''
-name: legacy-loops-normalization
-description: Legacy loops are normalized by authored step position
-steps:
-  - id: setup
-    name: Setup
-    prompt: Setup context
-  - id: rem-a
-    name: Remediate A
-    prompt: Fix issue A
-  - id: mid
-    name: Mid Step
-    prompt: Mid step
-  - id: rem-b
-    name: Remediate B
-    prompt: Verify A
-  - id: fin-a
-    name: Finalize A
-    prompt: Finalize A
-  - id: rem-c
-    name: Remediate C
-    prompt: Fix issue C
-  - id: rem-d
-    name: Remediate D
-    prompt: Verify C
-  - id: fin-b
-    name: Finalize B
-    prompt: Finalize B
-loops:
-  - id: loop-b
-    steps: [rem-c, rem-d]
-    maxIterations: 2
-    exitGate: rem-d.status == accepted
-    finally: fin-b
-  - id: loop-a
-    steps: [rem-a, rem-b]
-    maxIterations: 2
-    exitGate: rem-b.status == accepted
-    finally: fin-a
-''';
-
 const gitStrategyWorkflowYaml = '''
 name: git-strategy-workflow
 description: Workflow with reusable git strategy
@@ -158,73 +115,6 @@ steps:
     max_parallel: 2
 ''';
 
-const inlineForeachAsWorkflowYaml = '''
-name: n
-description: d
-steps:
-  - id: story-pipeline
-    name: Per-Story Pipeline
-    type: foreach
-    map_over: stories
-    as: story
-    steps:
-      - id: implement
-        name: Implement
-        prompt: 'Implement {{story.item.spec_path}}'
-''';
-
-const inlineForeachMapAliasWorkflowYaml = '''
-name: n
-description: d
-steps:
-  - id: fe
-    name: FE
-    type: foreach
-    map_over: items
-    mapAlias: thing
-    steps:
-      - id: step
-        name: Step
-        prompt: p
-''';
-
-const inlineForeachReservedContextWorkflowYaml = '''
-name: n
-description: d
-steps:
-  - id: fe
-    name: FE
-    type: foreach
-    map_over: items
-    as: context
-    steps:
-      - id: step
-        name: Step
-        prompt: p
-''';
-
-const mapAliasSingleLetterWorkflowYaml = '''
-name: n
-description: d
-steps:
-  - id: s
-    name: S
-    prompt: 'hi {{m.item.x}}'
-    map_over: items
-    as: m
-''';
-
-const mapAliasPrefixedWorkflowYaml = '''
-name: n
-description: d
-steps:
-  - id: s
-    name: S
-    prompt: 'hi {{map_foo.item.x}}'
-    map_over: items
-    as: map_foo
-''';
-
 const entryGateWorkflowYaml = '''
 name: gated
 description: step-level entryGate
@@ -239,17 +129,13 @@ steps:
     inputs: [prd]
 ''';
 
-const gitArtifactsExternalMountWorkflowYaml = '''
+const gitArtifactsWorkflowYaml = '''
 name: with-artifacts
 description: artifact block
 gitStrategy:
   integrationBranch: true
   worktree:
     mode: per-map-item
-    externalArtifactMount:
-      mode: per-story-copy
-      fromProject: "{{DOC_PROJECT}}"
-      source: "{{map.item.spec_path}}"
   artifacts:
     commit: true
     commitMessage: "chore(workflow): artifacts for run {{runId}}"
@@ -257,36 +143,6 @@ gitStrategy:
 steps:
   - id: s1
     name: S1
-    prompt: hi
-''';
-
-const bindMountExternalArtifactWorkflowYaml = '''
-name: with-bind-mount
-description: artifact block
-gitStrategy:
-  worktree:
-    externalArtifactMount:
-      mode: bind-mount
-      fromProject: "{{DOC_PROJECT}}"
-      source: /tmp/artifacts
-      toPath: .andthen/artifacts
-steps:
-  - id: s1
-    name: S1
-    prompt: hi
-''';
-
-const badExternalArtifactMountWorkflowYaml = '''
-name: bad-mount
-description: invalid mode
-gitStrategy:
-  worktree:
-    externalArtifactMount:
-      mode: symlink
-      fromProject: OTHER
-steps:
-  - id: s
-    name: S
     prompt: hi
 ''';
 
@@ -329,10 +185,9 @@ void expectFullWorkflowDefinition(WorkflowDefinition def) {
   expect(research.taskType, WorkflowTaskType.agent);
   expect(research.provider, 'claude');
   expect(research.model, 'claude-opus');
-  expect(research.timeoutSeconds, 1800);
+  expect(research.turnTimeoutSeconds, 1800);
   expect(research.parallel, false);
   expect(research.outputKeys, ['research_result']);
-  expect(research.maxTokens, 10000);
   expect(research.maxRetries, 2);
   expect(research.allowedTools, ['Bash', 'Read']);
 

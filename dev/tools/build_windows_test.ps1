@@ -60,9 +60,19 @@ try {
   Assert-FailsWith -Message 'dartclaw.exe --help smoke failed' -Action {
     Invoke-WindowsExecutableSmoke -Executable $badSmoke
   }
-  Assert-FailsWith -Message 'bundled SQLite module/FTS5 check failed' -Action {
-    Invoke-WindowsSqliteCheck -Executable $badSmoke -SqliteModule (Join-Path $tempRoot 'lib/sqlite3.dll')
+  Assert-FailsWith -Message 'bundled SQLite FTS5 check failed with exit code 7' -Action {
+    Invoke-WindowsBundledSqliteCheck -Executable $badSmoke
   }
+
+  $silentPass = Join-Path $tempRoot 'silent-pass.cmd'
+  Set-Content -LiteralPath $silentPass -Value '@exit /b 0'
+  Assert-FailsWith -Message 'did not rebuild the index' -Action {
+    Invoke-WindowsBundledSqliteCheck -Executable $silentPass
+  }
+
+  $rebuilt = Join-Path $tempRoot 'rebuilt.cmd'
+  Set-Content -LiteralPath $rebuilt -Value @('@echo Rebuilt index: 1 entries at collection revision 1; health=healthy', '@exit /b 0')
+  Invoke-WindowsBundledSqliteCheck -Executable $rebuilt
 
   $checksumArtifact = Join-Path $tempRoot 'checksum-test.zip'
   [IO.File]::WriteAllBytes($checksumArtifact, [byte[]](0, 1, 2, 3))

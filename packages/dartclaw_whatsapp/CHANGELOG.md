@@ -5,6 +5,9 @@ All DartClaw packages use lock-step versioning. This changelog tracks changes re
 ### Added
 - Native typing indication for direct and group turns through GOWA chat presence
 
+### Changed
+- **Breaking:** removed `MediaExtraction`, `extractMediaDirectives`, `TaskTriggerConfig`, the `workspaceDir` argument from `formatResponse`, and the `workspaceDir` constructor argument from `WhatsAppChannel`. See the root 0.25 changelog for migration paths.
+
 ## 0.9.0
 
 ### Added

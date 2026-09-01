@@ -14,9 +14,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-TEMPLATES_DIR="packages/dartclaw_server/lib/src/templates"
-STATIC_DIR="packages/dartclaw_server/lib/src/static"
-CSP_FILE="packages/dartclaw_server/lib/src/auth/security_headers.dart"
+TEMPLATES_DIR="packages/dartclaw_runtime/lib/src/templates"
+STATIC_DIR="packages/dartclaw_runtime/lib/src/static"
+CSP_FILE="packages/dartclaw_runtime/lib/src/auth/security_headers.dart"
 
 # [\x22\x27] is ["'] written to avoid shell quoting ambiguity.
 # (https?:)? makes the scheme optional so protocol-relative //cdn… is caught.

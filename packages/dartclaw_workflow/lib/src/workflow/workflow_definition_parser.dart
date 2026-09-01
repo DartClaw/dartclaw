@@ -4,11 +4,9 @@ import 'package:yaml/yaml.dart';
 
 import 'duration_parser.dart';
 import 'output_resolver.dart';
-import 'review_scoring_fragment.dart';
 import 'schema_presets.dart';
 import 'workflow_definition.dart';
 import 'workflow_git_strategy_fields.dart';
-import 'workflow_template_engine.dart' show WorkflowTemplateEngine;
 
 /// Parses workflow definition YAML files into [WorkflowDefinition] objects.
 ///
@@ -41,17 +39,14 @@ class WorkflowDefinitionParser {
     'provider',
     'model',
     'effort',
-    'gatingSeverity',
     'timeout',
     'timeoutSeconds',
     'timeout_seconds',
+    'turn_timeout',
     'parallel',
-    'gate',
     'entryGate',
     'inputs',
     'outputs',
-    'outputExamples',
-    'maxTokens',
     'maxRetries',
     'allowedTools',
     'aggregateReviews',
@@ -59,13 +54,8 @@ class WorkflowDefinitionParser {
     'mapOver',
     'max_parallel',
     'maxParallel',
-    'max_items',
-    'maxItems',
     'foreach_steps',
     'foreachSteps',
-    'as',
-    'mapAlias',
-    'map_alias',
     'continueSession',
     'continue_session',
     'onError',
@@ -89,16 +79,9 @@ class WorkflowDefinitionParser {
     'mapOver',
     'max_parallel',
     'maxParallel',
-    'max_items',
-    'maxItems',
-    'as',
-    'mapAlias',
-    'map_alias',
-    'gate',
     'entryGate',
     'inputs',
     'outputs',
-    'outputExamples',
     'steps',
     'onFailure',
     'on_failure',
@@ -114,7 +97,6 @@ class WorkflowDefinitionParser {
     'entryGate',
     'exitGate',
     'steps',
-    'finally',
     'onMaxIterations',
   };
 
@@ -122,32 +104,23 @@ class WorkflowDefinitionParser {
     'format',
     'schema',
     'source',
-    'resolver',
-    'outputMode',
-    'output_mode',
     'description',
-    'setValue',
-    'set_value',
     'pathPattern',
     'path_pattern',
-    'listMode',
-    'list_mode',
     'preferPatterns',
     'prefer_patterns',
   };
-
-  static const _outputResolverKeys = {'kind', 'pathPattern', 'listMode', 'preferPatterns'};
 
   static const _stepDefaultKeys = {
     'match',
     'provider',
     'model',
     'effort',
-    'gatingSeverity',
-    'maxTokens',
     'maxRetries',
+    'timeout',
     'timeout_seconds',
     'timeoutSeconds',
+    'turn_timeout',
     'allowedTools',
   };
 
@@ -167,19 +140,7 @@ class WorkflowDefinitionParser {
   static const _gitPublishKeys = {'enabled'};
   static const _gitCleanupKeys = {'enabled'};
   static const _gitArtifactsKeys = {'commit', 'commitMessage', 'commit_message', 'project'};
-  static const _gitWorktreeKeys = {'mode', 'externalArtifactMount', 'external_artifact_mount'};
-
-  static const _externalArtifactMountKeys = {
-    'mode',
-    'fromProject',
-    'from_project',
-    'source',
-    'fromPath',
-    'from_path',
-    'toPath',
-    'to_path',
-    'readonly',
-  };
+  static const _gitWorktreeKeys = {'mode'};
 
   /// Parses the YAML string [source] into a [WorkflowDefinition].
   ///
@@ -295,9 +256,6 @@ class WorkflowDefinitionParser {
         final parsedLoop = _parseInlineLoopStep(entry, sourcePath);
         inlineLoops.add(parsedLoop.loop);
         steps.addAll(parsedLoop.steps);
-        if (parsedLoop.finalizerStep != null) {
-          steps.add(parsedLoop.finalizerStep!);
-        }
       } else if (_isInlineForeachStep(entry)) {
         final parsedForeach = _parseInlineForeachStep(entry, sourcePath);
         steps.add(parsedForeach.controller);
@@ -355,34 +313,24 @@ class WorkflowDefinitionParser {
         childSteps.add(WorkflowStep(id: parsedLoop.loop.id, name: loopName, taskType: WorkflowTaskType.loop));
         nestedLoops.add(parsedLoop.loop);
         nestedLoopSteps.addAll(parsedLoop.steps);
-        if (parsedLoop.finalizerStep != null) {
-          nestedLoopSteps.add(parsedLoop.finalizerStep!);
-        }
         continue;
       }
       childSteps.add(_parseStep(childRaw, sourcePath));
     }
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
-    final maxItems = _parseMaxItems(raw, id, sourcePath);
-    final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
 
     final outputs = _parseOutputs(raw['outputs'], id, sourcePath);
-    final outputExamples = _parseOptionalStringList(raw['outputExamples'], 'Step "$id": "outputExamples"', sourcePath);
     final controller = WorkflowStep(
       id: id,
       name: name,
       taskType: WorkflowTaskType.foreach,
       mapOver: mapOver,
       maxParallel: maxParallel,
-      maxItems: maxItems,
-      gate: _optionalStringValue(raw['gate'], 'Foreach "$id": "gate"', sourcePath),
       entryGate: _optionalStringValue(raw['entryGate'], 'Foreach "$id": "entryGate"', sourcePath),
       inputs: _parseStringList(raw['inputs'], 'Step "$id": "inputs"', sourcePath),
       outputs: outputs,
-      outputExamples: outputExamples,
       onFailure: _parseOnFailure(raw['onFailure'] ?? raw['on_failure'], id, sourcePath),
       foreachSteps: childSteps.map((s) => s.id).toList(growable: false),
-      mapAlias: mapAlias,
       workflowVariables: _parseStringList(
         raw['workflow_variables'] ?? raw['workflowVariables'],
         'Step "$id": "workflow_variables"',
@@ -437,23 +385,6 @@ class WorkflowDefinitionParser {
       loopSteps.add(_parseStep(loopStepRaw, sourcePath));
     }
 
-    String? finallyStepId;
-    WorkflowStep? finalizerStep;
-    final finallyRaw = raw['finally'];
-    if (finallyRaw is String && finallyRaw.isNotEmpty) {
-      finallyStepId = finallyRaw;
-    } else if (finallyRaw is YamlMap) {
-      if (_isInlineLoopStep(finallyRaw)) {
-        throw FormatException('Inline loop "$id" finalizer cannot be a loop${_at(sourcePath)}.');
-      }
-      finalizerStep = _parseStep(finallyRaw, sourcePath);
-      finallyStepId = finalizerStep.id;
-    } else if (finallyRaw != null) {
-      throw FormatException(
-        'Inline loop "$id": "finally" must be a step ID string or a step mapping${_at(sourcePath)}.',
-      );
-    }
-
     return _ParsedInlineLoopStep(
       loop: WorkflowLoop(
         id: id,
@@ -461,13 +392,11 @@ class WorkflowDefinitionParser {
         maxIterations: maxIterations,
         entryGate: _optionalStringValue(raw['entryGate'], 'Loop "$id": "entryGate"', sourcePath),
         exitGate: exitGate,
-        finally_: finallyStepId,
         onMaxIterations:
             _optionalStringValue(raw['onMaxIterations'], 'Loop "$id": "onMaxIterations"', sourcePath) ??
             WorkflowLoop.onMaxIterationsFail,
       ),
       steps: loopSteps,
-      finalizerStep: finalizerStep,
     );
   }
 
@@ -538,30 +467,34 @@ class WorkflowDefinitionParser {
     }
 
     final timeoutRaw = raw['timeout'] ?? raw['timeoutSeconds'] ?? raw['timeout_seconds'];
-    int? timeoutSeconds;
-    if (timeoutRaw != null) {
-      if (timeoutRaw is String) {
-        timeoutSeconds = parseDuration(timeoutRaw).inSeconds;
-      } else if (timeoutRaw is int) {
-        timeoutSeconds = timeoutRaw;
-      }
+    if (stepType == WorkflowTaskType.agent && timeoutRaw != null) {
+      throw FormatException(
+        'Step "$id": "timeout" is not valid for an agent step; use "turn_timeout"${_at(sourcePath)}.',
+      );
     }
+    final timeoutSeconds = switch (timeoutRaw) {
+      final String value => parseDuration(value).inSeconds,
+      final int value => value,
+      _ => null,
+    };
+    final turnTimeoutSeconds = switch (raw['turn_timeout']) {
+      null => null,
+      _ when stepType != WorkflowTaskType.agent => throw FormatException(
+        'Step "$id": "turn_timeout" is only valid for agent steps${_at(sourcePath)}.',
+      ),
+      final value => _optionalTurnTimeoutSeconds(value, 'Step "$id": "turn_timeout"', sourcePath),
+    };
 
     final outputs = _parseOutputs(raw['outputs'], id, sourcePath);
-    final outputExamples = _parseOptionalStringList(raw['outputExamples'], 'Step "$id": "outputExamples"', sourcePath);
     final aggregateReviews = _parseAggregateReviews(raw['aggregateReviews'], id, sourcePath);
 
     // Parse map step fields. Accept both snake_case (primary) and camelCase (alias).
     final mapOver = _optionalStringValue(raw['map_over'] ?? raw['mapOver'], 'Step "$id": "map_over"', sourcePath);
     final maxParallel = _parseMaxParallel(raw['max_parallel'] ?? raw['maxParallel'], id, sourcePath);
-    final maxItems = _parseMaxItems(raw, id, sourcePath);
     final foreachStepsRaw = raw['foreach_steps'] ?? raw['foreachSteps'];
     final foreachSteps = foreachStepsRaw is YamlList
         ? _parseRequiredStringList(foreachStepsRaw, 'Step "$id": foreach_steps', sourcePath)
         : null;
-    // `as:` is the primary spelling; `mapAlias:` / `map_alias:` also accepted for
-    // round-trip compatibility with the JSON model.
-    final mapAlias = _parseMapAlias(raw['as'] ?? raw['mapAlias'] ?? raw['map_alias'], id, sourcePath);
 
     return WorkflowStep(
       id: id,
@@ -572,23 +505,18 @@ class WorkflowDefinitionParser {
       provider: _optionalProviderValue(raw['provider'], 'Step "$id": "provider"', sourcePath),
       model: _optionalStringValue(raw['model'], 'Step "$id": "model"', sourcePath),
       effort: _optionalStringValue(raw['effort'], 'Step "$id": "effort"', sourcePath),
-      gatingSeverity: _parseGatingSeverity(raw['gatingSeverity'], 'Step "$id": "gatingSeverity"', sourcePath),
       timeoutSeconds: timeoutSeconds,
+      turnTimeoutSeconds: turnTimeoutSeconds,
       parallel: (_optionalBool(raw['parallel'], 'Step "$id": "parallel"', sourcePath)) ?? false,
-      gate: _optionalStringValue(raw['gate'], 'Step "$id": "gate"', sourcePath),
       entryGate: _optionalStringValue(raw['entryGate'], 'Step "$id": "entryGate"', sourcePath),
       inputs: _parseStringList(raw['inputs'], 'Step "$id": "inputs"', sourcePath),
       outputs: outputs,
-      outputExamples: outputExamples,
-      maxTokens: _optionalInt(raw['maxTokens'], 'Step "$id": "maxTokens"', sourcePath),
       maxRetries: _optionalInt(raw['maxRetries'], 'Step "$id": "maxRetries"', sourcePath),
       allowedTools: _parseOptionalStringList(raw['allowedTools'], 'Step "$id": "allowedTools"', sourcePath),
       aggregateReviews: aggregateReviews,
       mapOver: mapOver,
       maxParallel: maxParallel,
-      maxItems: maxItems,
       foreachSteps: foreachSteps,
-      mapAlias: mapAlias,
       continueSession: _parseContinueSession(raw['continueSession'] ?? raw['continue_session'], id, sourcePath),
       onError: _parseOnError(raw['onError'] ?? raw['on_error'], id, sourcePath),
       workdir: _optionalStringValue(raw['workdir'], 'Step "$id": "workdir"', sourcePath),
@@ -696,36 +624,6 @@ class WorkflowDefinitionParser {
     );
   }
 
-  /// Parses the `as:` loop variable name for a map/foreach controller.
-  ///
-  /// Enforces identifier format and rejects reserved template prefixes. Cross-
-  /// field rules (e.g. "as: only allowed on map/foreach controllers") live in
-  /// the validator so the parser stays focused on shape.
-  static final _mapAliasPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
-
-  String? _parseMapAlias(Object? raw, String stepId, String? sourcePath) {
-    if (raw == null) return null;
-    if (raw is! String) {
-      throw FormatException('Step "$stepId": "as" must be a string identifier${_at(sourcePath)}.');
-    }
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) {
-      throw FormatException('Step "$stepId": "as" must not be empty${_at(sourcePath)}.');
-    }
-    if (!_mapAliasPattern.hasMatch(trimmed)) {
-      throw FormatException(
-        'Step "$stepId": "as" must match [A-Za-z_][A-Za-z0-9_]* '
-        '(got "$trimmed")${_at(sourcePath)}.',
-      );
-    }
-    if (WorkflowTemplateEngine.reservedMapAliases.contains(trimmed)) {
-      throw FormatException(
-        'Step "$stepId": "as: $trimmed" is reserved – pick a different identifier${_at(sourcePath)}.',
-      );
-    }
-    return trimmed;
-  }
-
   /// Rejects the retired review output key `review_findings` (bare or
   /// `<stepId>.review_findings`), which was renamed to `review_report_path` so
   /// the key matches its own schema preset. Early-experimental stance: a loud
@@ -766,44 +664,19 @@ class WorkflowDefinitionParser {
           sourcePath,
         );
         final resolverOverride = _parseOutputResolver(value, format, stepId, key, sourcePath);
-        final outputModeRaw = _optionalStringValue(
-          value['outputMode'] ?? value['output_mode'],
-          'Step "$stepId" output "$key": "outputMode"',
-          sourcePath,
-        );
-        final outputMode = outputModeRaw != null
-            ? (OutputMode.fromYaml(outputModeRaw) ??
-                  (throw FormatException(
-                    'Step "$stepId" output "$key": unknown outputMode "$outputModeRaw"${_at(sourcePath)}.',
-                  )))
-            : (format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt);
         final description = _optionalStringValue(
           value['description'],
           'Step "$stepId" output "$key": "description"',
           sourcePath,
         );
-        // `setValue` accepts any JSON-encodable literal (null, string, number,
-        // bool, list, map). Presence of the key – even with a null value –
-        // means "explicitly set"; absence means "extract normally".
-        final hasSetValue = value.containsKey('setValue') || value.containsKey('set_value');
-        outputs[key] = hasSetValue
-            ? OutputConfig(
-                format: format,
-                schema: schema,
-                source: outputSource,
-                resolverOverride: resolverOverride,
-                outputMode: outputMode,
-                description: description,
-                setValue: _yamlToValue(value['setValue'] ?? value['set_value']),
-              )
-            : OutputConfig(
-                format: format,
-                schema: schema,
-                source: outputSource,
-                resolverOverride: resolverOverride,
-                outputMode: outputMode,
-                description: description,
-              );
+        outputs[key] = OutputConfig(
+          format: format,
+          schema: schema,
+          source: outputSource,
+          resolverOverride: resolverOverride,
+          outputMode: format == OutputFormat.json && schema != null ? OutputMode.structured : OutputMode.prompt,
+          description: description,
+        );
       } else {
         // Shorthand: `key: json`, `key: lines`, or `key: preset_name`.
         final shorthand = value.toString();
@@ -828,6 +701,11 @@ class WorkflowDefinitionParser {
     return outputs;
   }
 
+  /// Builds the declarative path selector for a `format: path` output.
+  ///
+  /// `pathPattern`/`preferPatterns` are the only way an author selects among
+  /// candidate artifacts; every other resolver property is engine-inferred
+  /// (presets, `defaultOutputResolverFor`), never authored.
   OutputResolver? _parseOutputResolver(
     YamlMap value,
     OutputFormat format,
@@ -835,54 +713,15 @@ class WorkflowDefinitionParser {
     String key,
     String? sourcePath,
   ) {
-    final resolverValue = value['resolver'];
     final hasPathPattern = value.containsKey('pathPattern') || value.containsKey('path_pattern');
-    final hasListMode = value.containsKey('listMode') || value.containsKey('list_mode');
     final hasPreferPatterns = value.containsKey('preferPatterns') || value.containsKey('prefer_patterns');
-    if (resolverValue == null) {
-      if (hasPathPattern || hasListMode || hasPreferPatterns) {
-        if (format == OutputFormat.path) {
-          return _parseFileSystemOutput(value, stepId, key, sourcePath);
-        }
-        throw FormatException(
-          'Step "$stepId" output "$key": pathPattern/listMode/preferPatterns require format: path or resolver: filesystem'
-          '${_at(sourcePath)}.',
-        );
-      }
-      return null;
-    }
-
-    if (resolverValue is YamlMap || resolverValue is Map<Object?, Object?>) {
-      if (hasPathPattern || hasListMode || hasPreferPatterns) {
-        throw FormatException(
-          'Step "$stepId" output "$key": pathPattern/listMode/preferPatterns must be declared inside the resolver map when resolver is an object${_at(sourcePath)}.',
-        );
-      }
-      if (resolverValue is YamlMap) {
-        _rejectUnknownFields(resolverValue, _outputResolverKeys, 'Step "$stepId" output "$key" resolver', sourcePath);
-      }
-      final resolverJson = Map<String, Object?>.from(
-        (resolverValue as Map).map((key, value) => MapEntry(key.toString(), _yamlToValue(value))),
-      );
-      return OutputResolver.fromJson(resolverJson);
-    }
-
-    final resolverRaw = _optionalStringValue(resolverValue, 'Step "$stepId" output "$key": "resolver"', sourcePath);
-    final resolver = resolverRaw!.trim().toLowerCase();
-    if ((resolver == 'inline' || resolver == 'narrative') && (hasPathPattern || hasListMode || hasPreferPatterns)) {
+    if (!hasPathPattern && !hasPreferPatterns) return null;
+    if (format != OutputFormat.path) {
       throw FormatException(
-        'Step "$stepId" output "$key": pathPattern/listMode/preferPatterns are only valid with resolver: filesystem${_at(sourcePath)}.',
+        'Step "$stepId" output "$key": pathPattern/preferPatterns require format: path${_at(sourcePath)}.',
       );
     }
-
-    return switch (resolver) {
-      'inline' => InlineOutput(schemaKey: key),
-      'narrative' => InlineOutput(schemaKey: key),
-      'filesystem' => _parseFileSystemOutput(value, stepId, key, sourcePath),
-      _ => throw FormatException(
-        'Step "$stepId" output "$key": resolver must be one of inline, narrative, filesystem${_at(sourcePath)}.',
-      ),
-    };
+    return _parseFileSystemOutput(value, stepId, key, sourcePath);
   }
 
   FileSystemOutput _parseFileSystemOutput(YamlMap value, String stepId, String key, String? sourcePath) =>
@@ -894,13 +733,7 @@ class WorkflowDefinitionParser {
               sourcePath,
             ) ??
             '**/*',
-        listMode:
-            _optionalBool(
-              value['listMode'] ?? value['list_mode'],
-              'Step "$stepId" output "$key": "listMode"',
-              sourcePath,
-            ) ??
-            false,
+        listMode: false,
         preferPatterns: _parseStringList(
           value['preferPatterns'] ?? value['prefer_patterns'],
           'Step "$stepId" output "$key": "preferPatterns"',
@@ -928,19 +761,6 @@ class WorkflowDefinitionParser {
       'Step "$stepId": "max_parallel" must be an integer or string '
       '(e.g., 3, "unlimited", or a template like "{{MAX_PARALLEL}}")${_at(sourcePath)}.',
     );
-  }
-
-  int? _parseMaxItems(YamlMap raw, String stepId, String? sourcePath) {
-    final key = raw.containsKey('max_items')
-        ? 'max_items'
-        : raw.containsKey('maxItems')
-        ? 'maxItems'
-        : null;
-    if (key == null) return null;
-
-    final value = raw[key];
-    if (value is int && value > 0) return value;
-    throw FormatException('Step "$stepId": "$key" must be a positive integer${_at(sourcePath)}.');
   }
 
   /// Parses a schema value: String (preset name), Map (inline schema), or null.
@@ -1012,7 +832,6 @@ class WorkflowDefinitionParser {
 
     final worktreeRaw = raw['worktree'];
     WorkflowGitWorktreeStrategy? worktree;
-    WorkflowGitExternalArtifactMount? nestedMount;
     if (worktreeRaw != null) {
       if (worktreeRaw is String) {
         worktree = WorkflowGitWorktreeStrategy(
@@ -1020,17 +839,11 @@ class WorkflowDefinitionParser {
         );
       } else if (worktreeRaw is YamlMap) {
         _rejectUnknownFields(worktreeRaw, _gitWorktreeKeys, 'gitStrategy.worktree', sourcePath);
-        nestedMount = _parseExternalArtifactMount(
-          worktreeRaw['externalArtifactMount'] ?? worktreeRaw['external_artifact_mount'],
-          sourcePath,
-          'gitStrategy.worktree.externalArtifactMount',
-        );
         worktree = WorkflowGitWorktreeStrategy(
           mode: switch (_optionalStringValue(worktreeRaw['mode'], 'gitStrategy.worktree.mode', sourcePath)) {
             final mode? => _parseWorktreeMode(mode, 'gitStrategy.worktree.mode', sourcePath),
             null => null,
           },
-          externalArtifactMount: nestedMount,
         );
       } else {
         throw FormatException('Field "gitStrategy.worktree" must be a string or mapping${_at(sourcePath)}.');
@@ -1061,46 +874,9 @@ class WorkflowDefinitionParser {
     );
   }
 
-  WorkflowGitExternalArtifactMount? _parseExternalArtifactMount(Object? raw, String? sourcePath, String fieldPath) {
-    if (raw == null) return null;
-    if (raw is! YamlMap) {
-      throw FormatException('Field "$fieldPath" must be a mapping${_at(sourcePath)}.');
-    }
-    _rejectUnknownFields(raw, _externalArtifactMountKeys, fieldPath, sourcePath);
-    final fromProject = raw['fromProject'] ?? raw['from_project'];
-    if (fromProject is! String || fromProject.trim().isEmpty) {
-      throw FormatException('Field "$fieldPath.fromProject" is required${_at(sourcePath)}.');
-    }
-    final mode = _parseExternalArtifactMountMode(
-      _optionalStringValue(raw['mode'], '$fieldPath.mode', sourcePath) ?? 'per-story-copy',
-      '$fieldPath.mode',
-      sourcePath,
-    );
-    return WorkflowGitExternalArtifactMount(
-      mode: mode,
-      fromProject: fromProject,
-      source: _optionalStringValue(raw['source'], '$fieldPath.source', sourcePath),
-      fromPath: _optionalStringValue(raw['fromPath'] ?? raw['from_path'], '$fieldPath.fromPath', sourcePath),
-      toPath: _optionalStringValue(raw['toPath'] ?? raw['to_path'], '$fieldPath.toPath', sourcePath),
-      readonly: _optionalBool(raw['readonly'], '$fieldPath.readonly', sourcePath),
-    );
-  }
-
   WorkflowGitWorktreeMode _parseWorktreeMode(String value, String fieldPath, String? sourcePath) {
     try {
       return WorkflowGitWorktreeMode.fromJsonString(value);
-    } on FormatException catch (e) {
-      throw FormatException('Field "$fieldPath": ${e.message}${_at(sourcePath)}.');
-    }
-  }
-
-  WorkflowExternalArtifactMountMode _parseExternalArtifactMountMode(
-    String value,
-    String fieldPath,
-    String? sourcePath,
-  ) {
-    try {
-      return WorkflowExternalArtifactMountMode.fromJsonString(value);
     } on FormatException catch (e) {
       throw FormatException('Field "$fieldPath": ${e.message}${_at(sourcePath)}.');
     }
@@ -1127,28 +903,21 @@ class WorkflowDefinitionParser {
             provider: _optionalProviderValue(entry['provider'], 'stepDefaults.provider', sourcePath),
             model: _optionalStringValue(entry['model'], 'stepDefaults.model', sourcePath),
             effort: _optionalStringValue(entry['effort'], 'stepDefaults.effort', sourcePath),
-            gatingSeverity: _parseGatingSeverity(entry['gatingSeverity'], 'stepDefaults.gatingSeverity', sourcePath),
-            maxTokens: _optionalInt(entry['maxTokens'], 'stepDefaults.maxTokens', sourcePath),
             maxRetries: _optionalInt(entry['maxRetries'], 'stepDefaults.maxRetries', sourcePath),
             timeoutSeconds: _optionalInt(
-              entry['timeout_seconds'] ?? entry['timeoutSeconds'],
-              'stepDefaults.timeout_seconds',
+              entry['timeout'] ?? entry['timeout_seconds'] ?? entry['timeoutSeconds'],
+              'stepDefaults.timeout',
+              sourcePath,
+            ),
+            turnTimeoutSeconds: _optionalTurnTimeoutSeconds(
+              entry['turn_timeout'],
+              'stepDefaults.turn_timeout',
               sourcePath,
             ),
             allowedTools: _parseOptionalStringList(entry['allowedTools'], 'stepDefaults.allowedTools', sourcePath),
           );
         })
         .toList(growable: false);
-  }
-
-  String? _parseGatingSeverity(Object? raw, String fieldPath, String? sourcePath) {
-    final value = _optionalStringValue(raw, fieldPath, sourcePath);
-    if (value == null) return null;
-    final normalized = value.trim().toLowerCase();
-    if (!isValidReviewFindingSeverity(normalized)) {
-      throw FormatException('$fieldPath must be one of ${reviewFindingSeverityTiers.join(', ')}${_at(sourcePath)}.');
-    }
-    return normalized;
   }
 
   List<String> _parseStringList(Object? raw, String fieldPath, String? sourcePath) {
@@ -1209,6 +978,17 @@ class WorkflowDefinitionParser {
     throw FormatException('$fieldPath must be an integer${_at(sourcePath)}.');
   }
 
+  int? _optionalTurnTimeoutSeconds(Object? raw, String fieldPath, String? sourcePath) {
+    if (raw == null) return null;
+    final seconds = switch (raw) {
+      final String value => parseDuration(value).inSeconds,
+      final int value => value,
+      _ => throw FormatException('$fieldPath must be an integer or duration string${_at(sourcePath)}.'),
+    };
+    if (seconds >= 0) return seconds;
+    throw FormatException('$fieldPath must be zero or greater${_at(sourcePath)}.');
+  }
+
   String _at(String? sourcePath) => sourcePath != null ? ' in "$sourcePath"' : '';
 }
 
@@ -1222,9 +1002,8 @@ class _ParsedSteps {
 class _ParsedInlineLoopStep {
   final WorkflowLoop loop;
   final List<WorkflowStep> steps;
-  final WorkflowStep? finalizerStep;
 
-  const new({required this.loop, required this.steps, this.finalizerStep});
+  const new({required this.loop, required this.steps});
 }
 
 class _ParsedInlineForeachStep {
@@ -1238,8 +1017,8 @@ class _ParsedInlineForeachStep {
   /// step ids appear in [childSteps]; their body steps are in [nestedLoopSteps].
   final List<WorkflowLoop> nestedLoops;
 
-  /// Body (and finalizer) steps of the foreach-nested loops. Flattened into the
-  /// definition's `steps` list but owned by the loop, not the foreach node.
+  /// Body steps of the foreach-nested loops. Flattened into the definition's
+  /// `steps` list but owned by the loop, not the foreach node.
   final List<WorkflowStep> nestedLoopSteps;
 
   const new({

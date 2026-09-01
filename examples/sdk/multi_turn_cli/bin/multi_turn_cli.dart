@@ -1,7 +1,9 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw/dartclaw.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 
 const _sessionKey = 'sdk-example:multi-turn-cli';

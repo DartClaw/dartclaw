@@ -467,7 +467,7 @@ function Write-EvidenceReport {
   $lines.Add("**Source fingerprint**: $(if ($script:SourceFingerprint) { $script:SourceFingerprint } else { 'not applicable' })")
   $lines.Add("**Claude**: $($script:ProviderVersions.claude)")
   $lines.Add("**Codex**: $($script:ProviderVersions.codex)")
-  $lines.Add("**Loaded SQLite module**: $script:SqliteModule")
+  $lines.Add("**Expected bundled SQLite module**: $script:SqliteModule")
   $lines.Add('')
   $lines.Add('## Layer Results')
   $lines.Add('')
@@ -552,7 +552,7 @@ try {
     $script:SourceIdentity = (& git -c "safe.directory=$script:SourceDir" -C $script:SourceDir rev-parse HEAD | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'unable to resolve source revision' }
     $script:SourceFingerprint = Get-SourceFingerprint
-    $versionLine = Select-String -LiteralPath (Join-Path $script:SourceDir 'packages/dartclaw_server/lib/src/version.dart') `
+    $versionLine = Select-String -LiteralPath (Join-Path $script:SourceDir 'packages/dartclaw_runtime/lib/src/version.dart') `
       -Pattern "dartclawVersion = '([^']+)'" | Select-Object -First 1
     $script:Version = $versionLine.Matches[0].Groups[1].Value
   }
@@ -578,18 +578,33 @@ try {
       "$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) host cannot qualify x64 artifact, SQLite, installer, or core runtime"
   }
 
-  $seedTimestamp = Get-Date -Format 'yyyy-MM-dd HH:mm'
-  $seed = "## smoke`r`n- [$seedTimestamp] windowsfts5smokeseed layered runtime proof`r`n"
-  [IO.File]::WriteAllText((Join-Path $script:DataDir 'workspace/MEMORY.md'), $seed, [Text.UTF8Encoding]::new($false))
+  # Seeded through the corpus authority, never as hand-written Markdown: the
+  # canonical dialect belongs to dartclaw_core, and a copy here rots into the
+  # startup refusal MemoryPreflight raises for the retained preview dialect.
+  $script:CurrentStage = 'memory-seed'
+  Push-Location $script:RepoRoot
+  $priorSeedErrorAction = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $seedArguments = @(
+      'run',
+      'packages/dartclaw_testing/bin/seed_canonical_memory.dart',
+      (Join-Path $script:DataDir 'workspace'),
+      'smoke',
+      'windowsfts5smokeseed layered runtime proof'
+    )
+    $seedOutput = @(& dart @seedArguments 2>&1)
+    $seedExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $priorSeedErrorAction
+    Pop-Location
+  }
+  if ($seedExitCode -ne 0) {
+    throw "canonical memory seed failed ($seedExitCode): $($seedOutput -join [Environment]::NewLine)"
+  }
   Write-SmokeConfig -Provider claude
   $script:CurrentStage = 'fts5-index'
   Invoke-DartClaw -Arguments @('--config', $script:ConfigPath, 'rebuild-index') | Out-Null
-
-  $script:CurrentStage = 'sqlite-module'
-  $sqliteOutput = Invoke-DartClaw -Arguments @('release-sqlite-check', '--expected-module', $script:SqliteModule)
-  $reportedModule = @($sqliteOutput | Where-Object { $_ -match '^SQLite module:\s*(.+)$' } | Select-Object -First 1)
-  if ($reportedModule.Count -eq 0) { throw 'SQLite identity check did not report the loaded module path' }
-  $script:SqliteModule = ([regex]::Match($reportedModule[0], '^SQLite module:\s*(.+)$')).Groups[1].Value.Trim()
 
   $script:CurrentStage = 'server-startup'
   Start-SmokeServer -Provider claude
@@ -621,7 +636,7 @@ try {
       if ($search.StatusCode -ne 200 -or $search.Content -notmatch 'layered runtime proof') {
         throw 'live FTS5 query did not return the seeded record'
       }
-      Set-LayerResult 'fts5-search' 'pass' "MATCH returned windowsfts5smokeseed; loaded module $script:SqliteModule"
+      Set-LayerResult 'fts5-search' 'pass' "MATCH returned windowsfts5smokeseed via the bundled SQLite build"
     } catch {
       Set-LayerResult 'fts5-search' 'fail' $_.Exception.Message
     }

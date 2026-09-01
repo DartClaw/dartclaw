@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/src/harness/canonical_tool.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';

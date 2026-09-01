@@ -16,7 +16,6 @@ Top-level command families:
 - `auth`
 - `runners`
 - `config`
-- `deploy`
 - `google-auth`
 - `init`
 - `jobs`
@@ -27,6 +26,7 @@ Top-level command families:
 - `serve`
 - `setup`
 - `status`
+- `stop`
 - `tasks`
 - `token`
 - `traces`
@@ -50,6 +50,16 @@ dartclaw status
 Reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
 canonical role counts, exact observation usage and warning, and derived-index state. Missing or unreadable evidence is
 shown as `unknown`, never as zero or healthy.
+
+### `stop`
+
+```bash
+dartclaw stop
+```
+
+Emergency stop against a running server: cancels every active turn and every running or queued task, and emits one
+`EmergencyStopEvent` recording the caller. Requires operator/admin access — the same gate the `POST /api/emergency-stop`
+endpoint applies. Tasks already in review or a terminal state are left for manual resolution.
 
 ## Auth
 
@@ -224,7 +234,7 @@ dartclaw jobs list --json
 
 ```bash
 dartclaw jobs create --name daily-summary --schedule "0 8 * * *" --prompt "Summarize yesterday"
-dartclaw jobs create --name nightly-review --schedule "0 22 * * *" --type task --title "Review backlog" --description "Inspect stale tasks" --task-type analysis
+dartclaw jobs create --name nightly-review --schedule "0 22 * * *" --type task --title "Review backlog" --description "Inspect stale tasks"
 dartclaw jobs create --name daily-summary --schedule "0 8 * * *" --prompt "Summarize yesterday" --json
 ```
 
@@ -342,7 +352,7 @@ dartclaw sessions cleanup
 
 ```bash
 dartclaw tasks list
-dartclaw tasks list --status running --type coding --limit 10
+dartclaw tasks list --status running --limit 10
 dartclaw tasks list --status running --json
 ```
 
@@ -356,9 +366,9 @@ dartclaw tasks show <task-id> --json
 ### `tasks create`
 
 ```bash
-dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing" --type analysis
-dartclaw tasks create --title "Review PR" --description "Inspect project state" --type coding --project <project-id> --provider codex --auto-start
-dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing" --type analysis --json
+dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing"
+dartclaw tasks create --title "Review PR" --description "Inspect project state" --project <project-id> --provider codex --auto-start
+dartclaw tasks create --title "Fix alerts" --description "Review 0.16.4 alert routing" --json
 ```
 
 ### `tasks start`
@@ -534,21 +544,9 @@ dartclaw workflow cleanup-skills --include-cwd      # also clean the current wor
 
 ## Deployment and Services
 
-### `deploy setup` (removed)
-
-The `deploy setup` prerequisite check has been **removed**. Its preflight checks are now part of `dartclaw init` – run [`dartclaw init`](#init) instead.
-
-### `deploy config`
-
-```bash
-dartclaw deploy config
-```
-
-### `deploy secrets`
-
-```bash
-dartclaw deploy secrets
-```
+The `deploy` family has been **removed**. `dartclaw init` carries its prerequisite checks and
+[`dartclaw service`](#service) is the only install path — for both the user-scoped service and the boot-started
+system daemon `deploy` used to generate.
 
 ### `init`
 
@@ -580,14 +578,36 @@ dartclaw service install
 dartclaw service start
 dartclaw service stop
 dartclaw service uninstall
+
+# Boot-started system daemon (requires root and an explicit instance)
+sudo dartclaw service install --system --instance-dir /opt/dartclaw --service-user alice
+sudo dartclaw service start --system --instance-dir /opt/dartclaw
 ```
 
-`service` manages LaunchAgents on macOS and `systemd --user` units on Linux. It is unsupported on native Windows; run
+`service` is the only install path, in one of two scopes. It is unsupported on native Windows in both; run
 `dartclaw serve` directly or use operator-managed process supervision.
 
-On macOS, `service install` records the absolute entries from the current `PATH` in the LaunchAgent so configured
-provider and channel executables remain resolvable under launchd. Run `service install` again to refresh the loaded
-definition after changing that PATH.
+| Option | Applies to | Description |
+|--------|-----------|-------------|
+| `--system` | all subcommands | Act on the system-scoped, boot-started service instead of the user-scoped one. Requires root: `install`, `uninstall`, `start` and `stop` refuse without it, naming the missing privilege, and write nothing; `status` reports `unknown` with the same `sudo` hint. Also requires an explicit `--instance-dir` or `--config`, because `sudo` replaces `HOME` with root's. |
+| `--service-user <name>` | `install` | OS user a `--system` service runs as. Defaults to `SUDO_USER`; install refuses rather than running the daemon as root when neither resolves. |
+| `--instance-dir <path>` | all subcommands | Instance directory selecting the unit; units are instance-scoped in both scopes. |
+| `--config <path>` | all subcommands | Config selecting the instance. This is `service`'s own option — the global `-c/--config` is not consulted here. |
+| `--bin-path <path>` | `install` | Path to the `dartclaw` binary (default: searches `PATH`). |
+| `--source-dir <path>` | `install` | Source tree root carried into the unit for clone-based deployments. |
+
+| Scope | macOS | Linux |
+|-------|-------|-------|
+| user (default) | LaunchAgent in `~/Library/LaunchAgents`, `gui/<uid>` domain | `systemd --user` unit in `~/.config/systemd/user`, `WantedBy=default.target` |
+| `--system` | LaunchDaemon in `/Library/LaunchDaemons`, `system` domain, `RunAtLoad`, `UserName` | unit in `/etc/systemd/system`, `WantedBy=multi-user.target`, `User=`, `Restart=always`, filesystem hardening |
+
+The two scopes are independent: acting on one leaves the other's unit for the same instance directory untouched.
+No secret is written into a generated unit file in either scope — credentials come from config and the `dartclaw auth`
+stores. See [Deployment](deployment.md#system-scoped-service-boot-started) for the full system-scope walkthrough.
+
+On macOS, `service install` records the absolute entries from the current `PATH` in the generated definition so
+configured provider and channel executables remain resolvable under launchd. Run `service install` again to refresh the
+loaded definition after changing that PATH.
 
 ### `google-auth`
 

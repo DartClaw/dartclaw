@@ -1,21 +1,9 @@
-import 'dart:async' show FutureOr;
-
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        AgentExecutionRepository,
-        EventBus,
-        ExecutionRepositoryTransactor,
-        HarnessFactory,
-        KvService,
-        ProjectService,
-        Task,
-        TaskRepository,
-        WorkflowStepExecutionRepository,
-        WorkflowTaskService;
+    show EventBus, HarnessFactory, KvService, ProjectService, Task, TaskRepository, WorkflowTaskService;
 
 import 'workflow_definition.dart'
-    show ActionNode, ForeachNode, LoopNode, MapNode, ParallelGroupNode, WorkflowDefinition, WorkflowNode, WorkflowStep;
+    show ActionNode, ForeachNode, LoopNode, ParallelGroupNode, WorkflowDefinition, WorkflowNode, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 import 'workflow_run_repository.dart' show WorkflowRunRepository;
 
@@ -30,17 +18,10 @@ import 'skill_introspector.dart';
 import 'skill_prompt_builder.dart';
 import 'step_config_resolver.dart';
 import 'workflow_context.dart';
+import 'workflow_failure.dart';
 import 'workflow_git_port.dart';
 import 'workflow_template_engine.dart';
 import 'workflow_turn_adapter.dart';
-
-typedef WorkflowStepOutputTransformer = FutureOr<Map<String, dynamic>> Function(
-  WorkflowRun run,
-  WorkflowDefinition definition,
-  WorkflowStep step,
-  Task task,
-  Map<String, dynamic> outputs,
-);
 
 /// Effect-free result returned by an executable lookup executor.
 typedef ExecutableLookupResult = ({int exitCode, String stdout});
@@ -49,8 +30,12 @@ typedef ExecutableLookupResult = ({int exitCode, String stdout});
 typedef ExecutableLookupExecutor = Future<ExecutableLookupResult> Function(String executable, List<String> arguments);
 
 /// Returns true for the normalized AST node types this runner package handles.
+///
+/// Every current subtype is handled, so this always returns true today. The
+/// switch is exhaustive over the sealed hierarchy on purpose: adding a node type
+/// without a runner arm breaks compilation here rather than at runtime.
 bool isSupportedWorkflowRunnerNode(WorkflowNode node) => switch (node) {
-  ActionNode() || MapNode() || ParallelGroupNode() || LoopNode() || ForeachNode() => true,
+  ActionNode() || ParallelGroupNode() || LoopNode() || ForeachNode() => true,
 };
 
 /// Typed validation failure produced while normalizing step outputs.
@@ -88,6 +73,10 @@ class StepOutcome {
   final bool requiresDependencyHold;
   final StepValidationFailure? validationFailure;
 
+  /// Typed failure the dispatching host chose for a `failed` outcome, and the
+  /// sole input to the step-retry early stop. Null for every other outcome.
+  final WorkflowStepRetryFailure? retryFailure;
+
   const new({
     required this.step,
     this.task,
@@ -100,6 +89,7 @@ class StepOutcome {
     this.awaitingApproval = false,
     this.requiresDependencyHold = false,
     this.validationFailure,
+    this.retryFailure,
   });
 }
 
@@ -107,10 +97,18 @@ class StepOutcome {
 final class MapStepResult {
   final List<dynamic> results;
   final int totalTokens;
-  final bool success;
-  final String? error;
 
-  const new({required this.results, required this.totalTokens, required this.success, this.error});
+  /// Typed reason the aggregate failed; null exactly when it succeeded.
+  final WorkflowFailure? failure;
+
+  const new({required this.results, required this.totalTokens, this.failure});
+
+  /// Derived, not stored: a failed aggregate is exactly one that named a
+  /// [failure], so no aggregate can fail without a vocabulary value.
+  bool get success => failure == null;
+
+  /// Operator-facing failure message, carried by [failure].
+  String? get error => failure?.message;
 }
 
 final class StepExecutionContext {
@@ -121,7 +119,6 @@ final class StepExecutionContext {
   final GateEvaluator gateEvaluator;
   final ContextExtractor contextExtractor;
   final WorkflowTurnAdapter? turnAdapter;
-  final WorkflowStepOutputTransformer? outputTransformer;
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
   final WorkflowSkillPreflightConfig skillPreflightConfig;
@@ -161,7 +158,6 @@ final class StepExecutionContext {
     required this.gateEvaluator,
     required this.contextExtractor,
     this.turnAdapter,
-    this.outputTransformer,
     this.skillIntrospector,
     this.providerAuthPreflight,
     this.skillPreflightConfig = const WorkflowSkillPreflightConfig(),
@@ -205,7 +201,6 @@ final class StepExecutionContext {
       gateEvaluator: gateEvaluator,
       contextExtractor: contextExtractor,
       turnAdapter: turnAdapter,
-      outputTransformer: outputTransformer,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
       skillPreflightConfig: skillPreflightConfig,
@@ -246,7 +241,6 @@ final class StepExecutionContext {
       gateEvaluator: gateEvaluator,
       contextExtractor: contextExtractor,
       turnAdapter: turnAdapter,
-      outputTransformer: outputTransformer,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
       skillPreflightConfig: skillPreflightConfig,

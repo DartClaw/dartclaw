@@ -1,3 +1,5 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show globToRegex;
+
 /// Declares where a workflow output should be resolved from.
 sealed class OutputResolver {
   const new();
@@ -51,7 +53,7 @@ final class FileSystemOutput extends OutputResolver {
   };
 }
 
-/// Resolves non-path outputs directly from the inline workflow-context payload.
+/// Resolves non-path outputs directly from the execution envelope's `outputs`.
 final class InlineOutput extends OutputResolver {
   /// Output field name this resolver belongs to.
   final String schemaKey;
@@ -65,48 +67,5 @@ final class InlineOutput extends OutputResolver {
 bool _globMatches(String pattern, String path) {
   final normalizedPattern = pattern.replaceAll(r'\', '/');
   final normalizedPath = path.replaceAll(r'\', '/');
-  return RegExp(_globToRegex(normalizedPattern)).hasMatch(normalizedPath);
-}
-
-String _globToRegex(String pattern) {
-  final buffer = StringBuffer('^');
-  for (var i = 0; i < pattern.length; i++) {
-    final char = pattern[i];
-    if (char == '*') {
-      if (i + 1 < pattern.length && pattern[i + 1] == '*') {
-        if (i + 2 < pattern.length && pattern[i + 2] == '/') {
-          buffer.write('(?:.*/)?');
-          i += 2;
-        } else {
-          buffer.write('.*');
-          i++;
-        }
-      } else {
-        buffer.write('[^/]*');
-      }
-      continue;
-    }
-    if (char == '?') {
-      buffer.write('[^/]');
-      continue;
-    }
-    if (char == '{') {
-      final closeIndex = pattern.indexOf('}', i + 1);
-      if (closeIndex != -1) {
-        final body = pattern.substring(i + 1, closeIndex);
-        if (body.contains(',')) {
-          final alternatives = body.split(',').map(RegExp.escape).join('|');
-          buffer.write('(?:$alternatives)');
-          i = closeIndex;
-          continue;
-        }
-      }
-    }
-    if (r'.+^$(){}|[]\'.contains(char)) {
-      buffer.write(r'\');
-    }
-    buffer.write(char);
-  }
-  buffer.write(r'$');
-  return buffer.toString();
+  return RegExp(globToRegex(normalizedPattern)).hasMatch(normalizedPath);
 }

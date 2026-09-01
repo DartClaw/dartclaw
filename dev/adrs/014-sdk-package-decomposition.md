@@ -168,3 +168,12 @@ R2 remains deferred: revisit composed config before 1.0, or when a private deplo
 - Ford, N. & Richards, M. — *Software Architecture: The Hard Parts* (O'Reilly, 2021)
 - Farley, D. — *Modern Software Engineering* (Addison-Wesley, 2022)
 - Research sources are summarized in the linked research appendix.
+
+## Amendment (2026-08-21) – replace the deferred split strategy
+
+[ADR-056](056-package-topology-consolidation.md) supersedes this document's current package inventory and decomposition
+triggers. The client tier is the lightweight SDK surface, while models, configuration and security form one
+`dartclaw_kernel` boundary. Storage is no longer an independent package: its SQLite repositories, search backends,
+memory services and knowledge graph belong to `dartclaw_core`. The target retains a standalone bridge package and an
+ACP adapter composed by the CLI. Since core now carries sqlite3's native-asset build hook, core cannot host a
+`dart compile exe` target; S89 owns the bridge contract amendment and executable proof.

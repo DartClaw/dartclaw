@@ -1,4 +1,4 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunStatus;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
 import 'workflow_builtin_test_support.dart';
@@ -22,24 +22,18 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'review-code' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 0,
             ),
           ),
-          'remediate' => StubResponse(
-            assistantContent: contextOutput({'remediation_summary': 'No remediation needed'}),
-          ),
+          'remediate' => StubResponse(outputs: {'remediation_summary': 'No remediation needed'}),
           're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 0,
             ),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
@@ -51,7 +45,7 @@ void main() {
     expect(trace.tasksForStep('review-code').single.projectId, 'demo-project');
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueSessionId'), isFalse);
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('_continueProviderSessionId'), isFalse);
-    expect(trace.tasksForStep('review-code').single.configJson['_workflowNeedsWorktree'], isTrue);
+    expect(trace.tasksForStep('review-code').single.configJson['needsWorktree'], isTrue);
     // File-backed review must stay writable: no readOnly flag applied to review-code.
     expect(trace.tasksForStep('review-code').single.configJson.containsKey('readOnly'), isFalse);
     expectReviewOutputDir(trace.tasksForStep('review-code').single);
@@ -72,26 +66,20 @@ void main() {
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
           'review-code' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 1,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 1,
             ),
           ),
           'remediate' => StubResponse(
-            assistantContent: contextOutput({
-              'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}',
-            }),
+            outputs: {'remediation_summary': 'Applied remediation pass ${queued.occurrence + 1}'},
           ),
           're-review' => StubResponse(
-            assistantContent: contextOutput(
-              reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: queued.occurrence == 0 ? 1 : 0,
-              ),
+            outputs: reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: queued.occurrence == 0 ? 1 : 0,
             ),
           ),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),

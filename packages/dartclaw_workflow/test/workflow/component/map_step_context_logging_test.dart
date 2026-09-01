@@ -6,6 +6,7 @@
 library;
 
 import 'package:dartclaw_workflow/src/workflow/map_step_context.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_failure.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -23,22 +24,28 @@ void main() {
     tearDown(() => observer.dispose());
 
     test('emits WARNING record including iteration index, task id, and message', () {
-      final ctx = MapStepContext(collection: [1, 2, 3], maxParallel: 2, maxItems: 10);
+      final ctx = MapStepContext(collection: [1, 2, 3], maxParallel: 2);
 
-      ctx.recordFailure(1, 'promotion failed: WorkflowGitPromotionConflict', 'task-abc123');
+      ctx.recordFailure(
+        1,
+        const WorkflowPromotionFailure('promotion failed: WorkflowGitPromotionConflict'),
+        'task-abc123',
+      );
 
       observer.expectRecord(
         level: Level.WARNING,
         loggerName: 'MapStepContext',
         pattern: RegExp(r'Map iteration \[1\] failed \(task=task-abc123\): promotion failed: .*Conflict'),
       );
+      expect(ctx.failures[1], isA<WorkflowPromotionFailure>());
+      expect((ctx.results[1] as Map)[MapStepContext.kindKey], equals(WorkflowPromotionFailure.kindValue));
     });
 
     test('logs once per recordFailure call — every failed iteration is observable', () {
-      final ctx = MapStepContext(collection: [1, 2], maxParallel: 2, maxItems: 10);
+      final ctx = MapStepContext(collection: [1, 2], maxParallel: 2);
 
-      ctx.recordFailure(0, 'first fail', 'task-0');
-      ctx.recordFailure(1, 'second fail', 'task-1');
+      ctx.recordFailure(0, const WorkflowIterationFailure('first fail'), 'task-0');
+      ctx.recordFailure(1, const WorkflowIterationFailure('second fail'), 'task-1');
 
       expect(
         observer.records.where((r) => r.loggerName == 'MapStepContext'),
@@ -50,15 +57,15 @@ void main() {
     });
 
     test('includes "null" in message when task id is missing (still observable)', () {
-      final ctx = MapStepContext(collection: [1], maxParallel: 1, maxItems: 10);
+      final ctx = MapStepContext(collection: [1], maxParallel: 1);
 
-      ctx.recordFailure(0, 'no task id', null);
+      ctx.recordFailure(0, const WorkflowIterationFailure('no task id'), null);
 
       observer.expectRecord(level: Level.WARNING, pattern: RegExp(r'Map iteration \[0\] failed \(task=null\)'));
     });
 
     test('recordResult does NOT emit a warning — only failures should log', () {
-      final ctx = MapStepContext(collection: [1], maxParallel: 1, maxItems: 10);
+      final ctx = MapStepContext(collection: [1], maxParallel: 1);
 
       ctx.recordResult(0, {'ok': true});
 

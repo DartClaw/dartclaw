@@ -1,16 +1,15 @@
 part of '../workflow_definition_validator.dart';
 
 extension _WorkflowGateRules on WorkflowDefinitionValidator {
-  void _validateStepEntryGates(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateStepEntryGates(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     for (final step in definition.steps) {
       final expression = step.entryGate;
       if (expression == null || expression.trim().isEmpty) continue;
-      final conditions = _gateLeafConditions(expression);
-      for (final condition in conditions) {
-        if (!_isEntryGateConditionValid(condition)) {
+      for (final condition in GateEvaluator.leafConditions(expression)) {
+        if (!GateEvaluator.isConditionValid(condition)) {
           errors.add(
             _err(
-              ValidationErrorType.invalidGate,
+              WorkflowValidationErrorType.invalidGate,
               'Step "${step.id}" has invalid entryGate expression: "$condition". '
               'Expected: "<key> <operator> <value>" or "<key> isEmpty".',
               stepId: step.id,
@@ -21,37 +20,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateGateExpressions(WorkflowDefinition definition, List<ValidationError> errors) {
-    final stepIds = definition.steps.map((s) => s.id).toSet();
-
-    for (final step in definition.steps) {
-      if (step.gate == null) continue;
-      final conditions = _gateLeafConditions(step.gate!);
-      for (final condition in conditions) {
-        final referencedKey = _gateReferencedKey(condition);
-        if (referencedKey == null) {
-          errors.add(
-            _err(
-              ValidationErrorType.invalidGate,
-              'Step "${step.id}" has invalid gate expression: "$condition". '
-              'Expected: "<key> <operator> <value>" or "<key> isEmpty".',
-              stepId: step.id,
-            ),
-          );
-          continue;
-        }
-        if (!referencedKey.contains('.')) {
-          continue;
-        }
-        final referencedStepId = _gateReferencedStepId(referencedKey);
-        if (!stepIds.contains(referencedStepId)) {
-          errors.add(_refErr(step.id, 'Step "${step.id}" gate references non-existent step "$referencedStepId".'));
-        }
-      }
-    }
-  }
-
-  void _validateLoopGateExpressions(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateLoopGateExpressions(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final stepIds = definition.steps.map((s) => s.id).toSet();
     final stepsById = {for (final step in definition.steps) step.id: step};
 
@@ -67,13 +36,12 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
         final (expression, validBareKeys) = gateEntry.value;
         if (expression == null || expression.trim().isEmpty) continue;
 
-        final conditions = _gateLeafConditions(expression);
-        for (final condition in conditions) {
-          final referencedKey = _loopGateReferencedKey(condition);
+        for (final condition in GateEvaluator.leafConditions(expression)) {
+          final referencedKey = GateEvaluator.referencedKey(condition);
           if (referencedKey == null) {
             errors.add(
               _err(
-                ValidationErrorType.invalidGate,
+                WorkflowValidationErrorType.invalidGate,
                 'Loop "${loop.id}" has invalid ${gateEntry.key} expression: "$condition". '
                 'Expected: "<key> <operator> <value>" or "<key> isEmpty".',
                 loopId: loop.id,
@@ -88,7 +56,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
                   : '';
               errors.add(
                 _err(
-                  ValidationErrorType.invalidReference,
+                  WorkflowValidationErrorType.invalidReference,
                   'Loop "${loop.id}" ${gateEntry.key} references unknown context key "$referencedKey"$hint.',
                   loopId: loop.id,
                 ),
@@ -101,7 +69,7 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
           if (!stepIds.contains(referencedStepId)) {
             errors.add(
               _err(
-                ValidationErrorType.invalidReference,
+                WorkflowValidationErrorType.invalidReference,
                 'Loop "${loop.id}" ${gateEntry.key} references non-existent step "$referencedStepId".',
                 loopId: loop.id,
               ),
@@ -148,23 +116,4 @@ extension _WorkflowGateRules on WorkflowDefinitionValidator {
     }
     return rawKey.split('.').first;
   }
-
-  bool _isEntryGateConditionValid(String condition) =>
-      WorkflowDefinitionValidator._entryGateConditionPattern.hasMatch(condition) ||
-      WorkflowDefinitionValidator._entryGateUnaryConditionPattern.hasMatch(condition);
-
-  String? _gateReferencedKey(String condition) {
-    final binary = WorkflowDefinitionValidator._gateConditionPattern.firstMatch(condition);
-    if (binary != null) return binary.group(1)!;
-    return WorkflowDefinitionValidator._gateUnaryConditionPattern.firstMatch(condition)?.group(1);
-  }
-
-  String? _loopGateReferencedKey(String condition) {
-    final binary = WorkflowDefinitionValidator._entryGateConditionPattern.firstMatch(condition);
-    if (binary != null) return binary.group(1)!;
-    return WorkflowDefinitionValidator._entryGateUnaryConditionPattern.firstMatch(condition)?.group(1);
-  }
-
-  Iterable<String> _gateLeafConditions(String expression) =>
-      expression.split('||').expand((group) => group.split('&&')).map((condition) => condition.trim());
 }

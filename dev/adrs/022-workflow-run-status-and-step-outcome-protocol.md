@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-04-20; amended 2026-07-04 (see [Amendment (0.20)](#amendment-020-provider-native-finalization-becomes-the-standard-path))
+Accepted — 2026-04-20; amended 2026-07-04 and 2026-08-21
 
 ## Context
 
@@ -83,11 +83,19 @@ Rejected _(superseded 2026-07-04 — see [Amendment (0.20)](#amendment-020-provi
 
 `outputs` carries domain outputs; `step_outcome` carries the engine-owned semantic outcome (omitted when the step sets `emitsOwnOutcome: true`). This keeps ADR-022's core separation — outcome is executor metadata, not domain output — while moving it into a host-owned envelope rather than a user-authored schema, so the "Put outcome metadata inside `<workflow-context>`" rejection is also honored. The host still validates all claims (file existence/containment/argument-safety, review-artifact precedence, task-lifecycle override, retry policy) after finalization.
 
-The legacy inline `<workflow-context>` / `<step-outcome>` tags remain the **compatibility fallback** — for old transcripts, custom workflows, `outputMode: prompt` opt-out steps, outcome-only steps (which keep the inline `<step-outcome>` tag as their designed channel), and failed-finalization edge cases. A missing or malformed required envelope is a workflow validation failure eligible for the existing retry path; the `workflow.outcome.fallback` counter still records true lifecycle-status fallbacks only.
+This compatibility fallback was retired by the 0.25 amendment below.
 
 **Consequences**: The canonical record now matches shipped behavior. Portability is preserved (the plain-text protocol remains the fallback). Per-step cost is bounded: the mandatory finalizer turn runs only for steps with model-derived declared outputs.
 
 **Provenance**: 0.20 story — agent-step execution envelope and structured finalization.
+
+## Amendment (0.25): one structured-output channel
+
+**Status**: Accepted — 2026-08-21. Supersedes the compatibility-fallback paragraph in the 0.20 amendment.
+
+**Decision**: Declared outputs and the ordinary step outcome come only from the validated execution envelope. Inline `<workflow-context>` parsing is removed without a compatibility window. The inline `<step-outcome>` tag remains only as the designed channel for steps that explicitly set `emitsOwnOutcome: true`; it is never a fallback for another step. A persisted pre-envelope turn fails with an instruction to re-run under 0.25.
+
+**Consequences**: A missing or malformed envelope charges the existing bounded re-ask and then fails with its typed reason. Custom workflows use the same envelope contract as built-ins, and old in-flight runs cannot silently recover data from assistant prose.
 
 ## References
 

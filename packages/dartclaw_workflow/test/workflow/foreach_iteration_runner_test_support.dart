@@ -50,14 +50,9 @@ const aliasStoryCollection = [
   {'id': 'S02', 'spec_path': 'docs/s02.md'},
 ];
 
-const mapAliasCollection = [
-  {'id': 's01', 'title': 'first'},
-  {'id': 's02', 'title': 'second'},
-];
-
-const inlineForeachAsYaml = r'''
-name: e2e-foreach-as
-description: end-to-end foreach with as
+const inlineForeachMapRefsYaml = r'''
+name: e2e-foreach-map-refs
+description: end-to-end foreach resolving map refs
 steps:
   - id: produce
     name: Produce
@@ -66,12 +61,11 @@ steps:
     name: Per-Story Pipeline
     type: foreach
     map_over: stories
-    as: story
     steps:
       - id: implement
         name: Implement
         type: agent
-        prompt: 'Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'
+        prompt: 'Story {{map.display_index}}/{{map.length}}: implement {{map.item.spec_path}}'
 ''';
 
 extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
@@ -98,10 +92,19 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
 
   WorkflowContext itemsContext(List<Object?> items) => WorkflowContext()..['items'] = items;
 
-  WorkflowDefinition mapStepDefinition({String prompt = 'Process {{map.item}}', String mapOver = 'items'}) {
+  /// The minimal single-child foreach controller – the shape the fan-out basics
+  /// table drives.
+  WorkflowDefinition foreachStepDefinition({String prompt = 'Process {{map.item}}', String mapOver = 'items'}) {
     return makeDefinition(
       steps: [
-        WorkflowStep(id: 'map-step', name: 'Map Step', prompts: [prompt], mapOver: mapOver),
+        WorkflowStep(
+          id: 'map-step',
+          name: 'Map Step',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: mapOver,
+          foreachSteps: const ['process'],
+        ),
+        WorkflowStep(id: 'process', name: 'Process', prompts: [prompt]),
       ],
     );
   }
@@ -147,10 +150,10 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
     );
   }
 
-  WorkflowDefinition aliasedForeachDefinition() {
+  WorkflowDefinition mapRefForeachDefinition() {
     return WorkflowDefinition(
       name: 'foreach-as-test',
-      description: 'foreach with as: alias',
+      description: 'foreach resolving map refs',
       steps: const [
         WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'stories': OutputConfig()}),
         WorkflowStep(
@@ -158,34 +161,14 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
           name: 'Story Pipeline',
           taskType: WorkflowTaskType.foreach,
           mapOver: 'stories',
-          mapAlias: 'story',
           foreachSteps: ['implement'],
           outputs: {'story_results': OutputConfig()},
         ),
         WorkflowStep(
           id: 'implement',
           name: 'Implement',
-          prompts: ['Story {{story.display_index}}/{{story.length}}: implement {{story.item.spec_path}}'],
+          prompts: ['Story {{map.display_index}}/{{map.length}}: implement {{map.item.spec_path}}'],
           taskType: WorkflowTaskType.agent,
-        ),
-      ],
-    );
-  }
-
-  WorkflowDefinition aliasedMapDefinition() {
-    return WorkflowDefinition(
-      name: 'map-as-test',
-      description: 'plain map with as: alias',
-      steps: const [
-        WorkflowStep(id: 'produce', name: 'Produce', prompts: ['p'], outputs: {'items': OutputConfig()}),
-        WorkflowStep(
-          id: 'process',
-          name: 'Process',
-          prompts: ['Process item {{thing.index}}: {{thing.item.title}}'],
-          mapOver: 'items',
-          mapAlias: 'thing',
-          maxParallel: 1,
-          outputs: {'results': OutputConfig()},
         ),
       ],
     );
@@ -199,7 +182,6 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
     List<String> foreachSteps = const ['child'],
     String outputKey = 'results',
     String childPrompt = 'p',
-    int? maxItems,
     int? maxParallel,
   }) {
     return WorkflowDefinition(
@@ -217,7 +199,6 @@ extension ForeachIterationRunnerHarness on WorkflowExecutorHarness {
           name: controllerId == 'fe' ? 'FE' : 'Story Pipeline',
           taskType: WorkflowTaskType.foreach,
           mapOver: collectionKey,
-          maxItems: maxItems,
           maxParallel: maxParallel,
           foreachSteps: foreachSteps,
           outputs: {outputKey: const OutputConfig()},

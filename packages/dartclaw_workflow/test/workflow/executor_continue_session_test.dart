@@ -4,6 +4,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -18,7 +20,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
-        WorkflowRunStatus,
         WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';

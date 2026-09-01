@@ -9,8 +9,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart' show PlatformCapabilities;
-import 'package:dartclaw_models/dartclaw_models.dart' show SessionType;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         BashStepPolicy,
@@ -22,9 +21,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         OutputConfig,
         SessionService,
+        SqliteWorkflowRunRepository,
         ProviderAuthPreflight,
         SkillIntrospector,
         StepExecutionContext,
+        executionEnvelopeStepOutcomeKey,
         Task,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -40,20 +41,20 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowLoop,
         WorkflowRoleDefaults,
         WorkflowRun,
-        WorkflowRunStatus,
         WorkflowSkillPreflightConfig,
         WorkflowStep,
-        WorkflowStepOutputTransformer,
         WorkflowTurnAdapter,
-        WorkflowTurnOutcome;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
+        WorkflowTurnOutcome,
+        executionEnvelopeMarkerKey,
+        executionEnvelopeOutputsKey,
+        executionEnvelopeVersion;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService, WorkflowGitPortProcess;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
+import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
         SqliteExecutionRepositoryTransactor,
         SqliteTaskRepository,
-        SqliteWorkflowRunRepository,
         SqliteWorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
@@ -73,6 +74,31 @@ final class ThrowingContextExtractor extends ContextExtractor {
   @override
   Future<Map<String, dynamic>> extract(WorkflowStep step, Task task, {Map<String, OutputConfig>? effectiveOutputs}) =>
       throw const FormatException('simulated unexpected extraction failure');
+}
+
+/// A [ContextExtractor] whose first [failures] extractions throw [error] before
+/// it delegates to the real one. Injects a post-extraction validation failure
+/// with a chosen exception type, which is what the step-retry comparison keys
+/// on for that arm.
+final class FailFirstContextExtractor extends ContextExtractor {
+  new({
+    required this.error,
+    this.failures = 1,
+    required super.taskService,
+    required super.messageService,
+    required super.dataDir,
+    super.workflowStepExecutionRepository,
+  });
+
+  final Object error;
+  final int failures;
+  int _calls = 0;
+
+  @override
+  Future<Map<String, dynamic>> extract(WorkflowStep step, Task task, {Map<String, OutputConfig>? effectiveOutputs}) {
+    if (_calls++ < failures) throw error;
+    return super.extract(step, task, effectiveOutputs: effectiveOutputs);
+  }
 }
 
 /// Shared harness for WorkflowExecutor component tests.
@@ -132,7 +158,6 @@ final class WorkflowExecutorHarness {
 
   WorkflowExecutor makeExecutor({
     WorkflowTurnAdapter? turnAdapter,
-    WorkflowStepOutputTransformer? outputTransformer,
     ProjectService? projectService,
     ContextExtractor? contextExtractor,
     String? dataDir,
@@ -167,7 +192,6 @@ final class WorkflowExecutorHarness {
               workflowStepExecutionRepository: wirePersistence ? workflowStepExecutionRepository : null,
             ),
         turnAdapter: turnAdapter,
-        outputTransformer: outputTransformer,
         skillIntrospector: skillIntrospector,
         providerAuthPreflight: providerAuthPreflight,
         skillPreflightConfig: skillPreflightConfig,
@@ -221,14 +245,22 @@ final class WorkflowExecutorHarness {
     );
   }
 
-  /// Completes [taskId] after attaching a fresh task session carrying
-  /// [outcomeContent] as an assistant message (so the executor's context
-  /// extractor can read a `<step-outcome>` envelope). When [tokenCount] is
-  /// provided, a matching `session_cost:<id>` KV entry is written so the
-  /// run's token accounting observes it.
+  /// Completes [taskId] after attaching a fresh task session and seeding the
+  /// execution envelope its finalizer turn would have persisted: [outputs] as
+  /// the declared outputs, and [outcome]/[reason] as the step outcome.
+  ///
+  /// [outcomeContent] is an assistant message for the one step kind that still
+  /// speaks the inline `<step-outcome>` tag — an `emitsOwnOutcome` step, whose
+  /// envelope carries no `step_outcome`. Every other step resolves its outcome
+  /// from the seeded envelope. When [tokenCount] is provided, a matching
+  /// `session_cost:<id>` KV entry is written so the run's token accounting
+  /// observes it.
   Future<void> completeTaskWithOutcome(
     String taskId, {
-    required String outcomeContent,
+    String? outcome,
+    String reason = '',
+    Map<String, dynamic> outputs = const {},
+    String? outcomeContent,
     TaskStatus finalStatus = TaskStatus.accepted,
     int? tokenCount,
   }) async {
@@ -237,8 +269,71 @@ final class WorkflowExecutorHarness {
     if (tokenCount != null) {
       await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
     }
-    await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+    if (outcomeContent != null) {
+      await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
+    }
+    if (outcome != null || outputs.isNotEmpty) {
+      await seedExecutionEnvelope(taskId, {
+        executionEnvelopeOutputsKey: outputs,
+        if (outcome != null) executionEnvelopeStepOutcomeKey: {'outcome': outcome, 'reason': reason},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      });
+    }
     await completeTask(taskId, status: finalStatus);
+  }
+
+  /// Seeds the step outcome a step's finalizer envelope would carry.
+  Future<void> seedStepOutcome(String taskId, {required String outcome, String reason = ''}) =>
+      seedExecutionEnvelope(taskId, {
+        executionEnvelopeOutputsKey: const <String, dynamic>{},
+        executionEnvelopeStepOutcomeKey: {'outcome': outcome, 'reason': reason},
+        executionEnvelopeMarkerKey: executionEnvelopeVersion,
+      });
+
+  /// Seeds the declared-output envelope a step's finalizer turn would persist,
+  /// so [outputs] reach workflow context through the normal extraction path.
+  Future<void> seedDeclaredOutputs(String taskId, Map<String, dynamic> outputs) => seedExecutionEnvelope(taskId, {
+    executionEnvelopeOutputsKey: outputs,
+    executionEnvelopeMarkerKey: executionEnvelopeVersion,
+  });
+
+  /// The step id the executor recorded for [taskId], or null when unpersisted.
+  Future<String?> stepIdForTask(String taskId) async =>
+      (await workflowStepExecutionRepository.getByTaskId(taskId))?.stepId;
+
+  /// Attaches a worktree to [taskId] so the dispatcher derives `<stepId>.branch`
+  /// and `<stepId>.worktree_path` the way it does in production.
+  Future<void> attachWorktree(String taskId) async {
+    // A task that already settled cannot take field updates; skipping keeps the
+    // helper usable from a listener that also sees terminal transitions.
+    final task = await taskService.get(taskId);
+    if (task == null || task.status.terminal) return;
+    await taskService.updateFields(
+      taskId,
+      worktreeJson: {
+        'path': p.join(tempDir.path, 'worktrees', taskId),
+        'branch': 'story-branch-$taskId',
+        'createdAt': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  /// Seeds a failed merge-resolve result when [taskId] belongs to a synthetic
+  /// merge-resolve step, so the coordinator reads `merge_resolve.*` through the
+  /// step's declared outputs. Any other task is left alone – a coding step's
+  /// `<id>.branch` is produced by the dispatcher from the task's worktree.
+  Future<void> seedMergeResolveFailure(String taskId) async {
+    final stepId = await stepIdForTask(taskId);
+    // An unresolvable step id means the executor's persistence ordering moved and
+    // this helper would stop injecting anything — fail rather than pass vacuously.
+    if (stepId == null) throw StateError('no persisted step execution for task $taskId');
+    if (!stepId.startsWith('_merge_resolve_')) return;
+    await seedDeclaredOutputs(taskId, const {
+      'merge_resolve.outcome': 'failed',
+      'merge_resolve.error_message': 'simulated failure',
+      'merge_resolve.conflicted_files': <String>['lib/story.dart'],
+      'merge_resolve.resolution_summary': '',
+    });
   }
 
   /// Overwrites the executor-created `WorkflowStepExecution.structuredOutput`
@@ -354,7 +449,7 @@ WorkflowTurnAdapter standardTurnAdapter({
 }) {
   return WorkflowTurnAdapter(
     reserveTurn: (_) => Future.value(turnId),
-    executeTurn: (sessionId, turnId, messages, {required source, required resume}) {},
+    executeTurn: (sessionId, turnId, messages, {required source}) {},
     waitForOutcome: (sessionId, turnId) async => const WorkflowTurnOutcome(status: 'completed'),
     workflowWorkspaceDir: workflowWorkspaceDir,
     resolveStartContext: resolveStartContext,

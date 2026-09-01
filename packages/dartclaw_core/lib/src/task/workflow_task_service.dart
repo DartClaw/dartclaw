@@ -1,5 +1,3 @@
-import 'package:dartclaw_models/dartclaw_models.dart' show TaskType;
-
 import 'task.dart';
 import 'task_artifact.dart';
 import 'task_status.dart';
@@ -14,7 +12,6 @@ abstract interface class WorkflowTaskService {
     required String id,
     required String title,
     required String description,
-    required TaskType type,
     bool autoStart = false,
     String? goalId,
     String? acceptanceCriteria,
@@ -42,8 +39,8 @@ abstract interface class WorkflowTaskService {
     String trigger = 'system',
   });
 
-  /// Lists tasks with optional status/type filters.
-  Future<List<Task>> list({TaskStatus? status, TaskType? type});
+  /// Lists tasks with an optional status filter.
+  Future<List<Task>> list({TaskStatus? status});
 
   /// Lists tasks whose `workflowRunId` is in [runIds], newest first.
   ///

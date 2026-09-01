@@ -8,6 +8,11 @@
 # time.
 
 port: 3333
+
+# Declared, not inferred: these profiles exercise the host lane, and an
+# undeclared posture would isolate wherever a container runtime happens to exist.
+container:
+  enabled: false
 data_dir: "__DATA_DIR__"
 
 agent:
@@ -37,15 +42,23 @@ credentials:
 
 workflow:
   workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  # Role models mirror the Codex preset in
+  # packages/dartclaw_workflow/test/fixtures/e2e_fixture.dart — one mapping, so a
+  # scenario run and the e2e suite exercise the same models. `gpt-5-codex` sat
+  # here until 2026-08-31 and a ChatGPT subscription cannot serve it at all.
+  # The planner is luna, not the sol the product docs recommend: on sol the plan
+  # step fans story specs out to Codex sub-agents and the parent turn ended at
+  # the first child's answer (2026-09-01, twice); luna writes them inline.
   defaults:
     workflow:
       model: codex/gpt-5.4
     planner:
-      model: codex/gpt-5.4
+      model: codex/gpt-5.6-luna
+      effort: medium
     executor:
-      model: codex/gpt-5.4-mini
+      model: codex/gpt-5.6-luna
     reviewer:
-      model: codex/gpt-5-codex
+      model: codex/gpt-5.6-luna
 
 projects:
   workflow-test-todo-app:

@@ -37,9 +37,9 @@ channels:
     require_mention: true
 ```
 
-Importing the package registers its config parser. Call
-`ensureDartclawGoogleChatRegistered()` during startup if you want to force that
-registration explicitly.
+`GoogleChatConfig.fromYaml` parses this section. A DartClaw deployment reaches it
+through `resolveChannelConfig` in `dartclaw_runtime`; there is nothing to
+register.
 
 ## Key Types
 
@@ -52,19 +52,22 @@ registration explicitly.
 ## When to Use This Package
 
 Use `dartclaw_google_chat` when you are integrating an agent with Google Chat
-inside Google Workspace. Most applications pull it in through
-[`dartclaw`](https://pub.dev/packages/dartclaw); depend on it directly when you
-need a more selective dependency graph.
+inside Google Workspace, in a runtime you compose yourself alongside
+`dartclaw_core`.
+
+This is the **fork-the-runtime** tier: it is not published to pub.dev and
+carries no compatibility promise. The `dartclaw` umbrella no longer re-exports
+it — depend on it from a checkout and own the fork
+([ADR-008](https://github.com/DartClaw/dartclaw/blob/main/dev/adrs/008-sdk-publishing-strategy.md)).
 
 ## Related Packages
 
-- [`dartclaw`](https://pub.dev/packages/dartclaw) for the umbrella SDK.
-- [`dartclaw_whatsapp`](https://pub.dev/packages/dartclaw_whatsapp) for WhatsApp integration.
-- [`dartclaw_signal`](https://pub.dev/packages/dartclaw_signal) for Signal integration.
+- [`dartclaw_core`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_core) for the runtime this channel plugs into.
+- [`dartclaw_whatsapp`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_whatsapp) for WhatsApp integration.
+- [`dartclaw_signal`](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_signal) for Signal integration.
 
 ## Documentation
 
-- [API Reference](https://pub.dev/documentation/dartclaw_google_chat/latest/)
 - [User Guide](https://github.com/DartClaw/dartclaw/tree/main/docs/guide)
 - [Repository](https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_google_chat)
 

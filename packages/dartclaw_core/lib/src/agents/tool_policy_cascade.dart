@@ -1,5 +1,5 @@
 import 'package:logging/logging.dart';
-import 'package:dartclaw_security/dartclaw_security.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// 3-layer tool policy evaluator.
 ///

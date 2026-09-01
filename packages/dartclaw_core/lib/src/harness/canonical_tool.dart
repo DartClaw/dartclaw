@@ -42,6 +42,42 @@ enum CanonicalTool {
   /// Continue an existing logical-agent session.
   sessionsSend('sessions_send'),
 
+  /// Task creation.
+  taskCreate('task_create'),
+
+  /// Accept, reject or push back a task awaiting review.
+  taskReview('task_review'),
+
+  /// Task listing.
+  taskList('task_list'),
+
+  /// Listing of the tasks awaiting review.
+  reviewList('review_list'),
+
+  /// Bind a channel thread to a task's session.
+  taskBind('task_bind'),
+
+  /// Remove a task's channel thread bindings.
+  taskUnbind('task_unbind'),
+
+  /// Start a workflow run.
+  workflowRun('workflow_run'),
+
+  /// Listing of the available workflow definitions.
+  workflowList('workflow_list'),
+
+  /// Create or update a scheduled job.
+  scheduleUpsert('schedule_upsert'),
+
+  /// Listing of the scheduled jobs.
+  scheduleList('schedule_list'),
+
+  /// Deliver a workspace file to a channel.
+  attachMedia('attach_media'),
+
+  /// Write or merge a wiki page.
+  wikiWrite('wiki_write'),
+
   /// MCP tool calls routed through an MCP server.
   mcpCall('mcp_call');
 

@@ -3,9 +3,11 @@
 Shared test doubles for DartClaw packages.
 
 `dartclaw_testing` centralizes the canonical fakes that were previously copied
-across `dartclaw_core`, `dartclaw_security`, and `dartclaw_server` tests. The
-package depends only on `dartclaw_core` and `dartclaw_security`; it does not
-depend on `dartclaw_server`.
+across `dartclaw_core`, `dartclaw_kernel`, and `dartclaw_runtime` tests. The
+package production-depends only on `dartclaw_kernel`, `dartclaw_core` and
+`dartclaw_kernel`. A double for a port owned above `dartclaw_core` lives in
+the package that owns the port, behind that package's `testing.dart` entry
+point.
 
 ## Included doubles
 

@@ -1,0 +1,526 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/src/task/task_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:test/test.dart';
+
+import '../helpers/in_memory_agent_execution_repository.dart';
+
+void main() {
+  late InMemoryTaskRepository repo;
+  late InMemoryAgentExecutionRepository agentExecutions;
+  late TaskService service;
+
+  setUp(() {
+    repo = InMemoryTaskRepository();
+    agentExecutions = InMemoryAgentExecutionRepository();
+    service = TaskService(repo, agentExecutionRepository: agentExecutions);
+  });
+
+  group('create', () {
+    test('creates task in draft status', () async {
+      final task = await service.create(
+        id: 'task-1',
+        title: 'Draft task',
+        description: 'Describe the work',
+        now: DateTime.parse('2026-03-10T10:00:00Z'),
+      );
+
+      expect(task.status, TaskStatus.draft);
+      expect((await repo.getById(task.id))?.status, TaskStatus.draft);
+    });
+
+    test('creates task with autoStart as queued', () async {
+      final task = await service.create(
+        id: 'task-1',
+        title: 'Queued task',
+        description: 'Describe the work',
+        autoStart: true,
+        configJson: const {'needsWorktree': true},
+        now: DateTime.parse('2026-03-10T10:00:00Z'),
+      );
+
+      expect(task.status, TaskStatus.queued);
+      expect(task.createdAt, DateTime.parse('2026-03-10T10:00:00Z'));
+      expect(task.configJson['needsWorktree'], isTrue);
+    });
+
+    test('creates with all fields', () async {
+      final task = await service.create(
+        id: 'task-1',
+        title: 'Task',
+        description: 'Describe the work',
+        goalId: 'goal-1',
+        acceptanceCriteria: 'Done',
+        configJson: const {'model': 'sonnet'},
+        now: DateTime.parse('2026-03-10T10:00:00Z'),
+      );
+
+      expect(task.goalId, 'goal-1');
+      expect(task.acceptanceCriteria, 'Done');
+      expect(task.configJson, isEmpty);
+      expect(task.model, 'sonnet');
+    });
+
+    test('creates with empty configJson by default', () async {
+      final task = await service.create(id: 'task-1', title: 'Task', description: 'Describe the work');
+
+      expect(task.configJson, isEmpty);
+    });
+
+    test('normalizes provider overrides to the canonical ID', () async {
+      final task = await service.create(
+        id: 'task-provider',
+        title: 'Task',
+        description: 'Describe the work',
+        provider: ' CoDeX ',
+      );
+
+      expect(task.agentExecution?.provider, 'codex');
+    });
+
+    test('rejects blank provider overrides instead of inheriting the default', () async {
+      await expectLater(
+        () => service.create(id: 'task-provider', title: 'Task', description: 'Describe the work', provider: ' '),
+        throwsArgumentError,
+      );
+    });
+
+    test('reuses an existing agent execution without overwriting its richer fields', () async {
+      await agentExecutions.create(
+        AgentExecution(
+          id: 'ae-existing',
+          sessionId: 'sess-1',
+          provider: 'codex',
+          model: 'gpt-5.4',
+          workspaceDir: '/tmp/workspace',
+          budgetTokens: 50000,
+        ),
+      );
+
+      final task = await service.create(
+        id: 'task-1',
+        title: 'Task',
+        description: 'Describe the work',
+        agentExecutionId: 'ae-existing',
+        provider: 'claude',
+        configJson: const {'model': 'should-not-win'},
+        maxTokens: 1000,
+      );
+
+      expect(task.agentExecutionId, 'ae-existing');
+      expect(task.agentExecution?.sessionId, 'sess-1');
+      expect(task.agentExecution?.provider, 'codex');
+      expect(task.agentExecution?.model, 'gpt-5.4');
+      expect(task.agentExecution?.workspaceDir, '/tmp/workspace');
+      expect(task.agentExecution?.budgetTokens, 50000);
+    });
+
+    test('persists an explicit security profile outside caller configJson', () async {
+      final task = await service.create(
+        id: 'task-profile',
+        title: 'Task',
+        description: 'Describe the work',
+        securityProfile: 'restricted',
+      );
+
+      expect(task.configJson, {'securityProfile': 'restricted'});
+    });
+
+    test('creates a task without a category', () async {
+      final task = await service.create(id: 'task', title: 'Task', description: 'Describe the work');
+
+      expect(await repo.getById(task.id), isNotNull);
+    });
+
+    test('accepts an explicit false worktree declaration', () async {
+      final task = await service.create(
+        id: 'declared-task',
+        title: 'Task',
+        description: 'Describe the work',
+        configJson: const {'needsWorktree': false},
+      );
+
+      expect(task.configJson['needsWorktree'], isFalse);
+    });
+
+    test('refuses securityProfile through configJson', () async {
+      await expectLater(
+        () => service.create(
+          id: 'task-profile',
+          title: 'Task',
+          description: 'Describe the work',
+          configJson: const {'securityProfile': 'restricted'},
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('refuses an unknown explicit security profile', () async {
+      await expectLater(
+        () => service.create(
+          id: 'task-profile',
+          title: 'Task',
+          description: 'Describe the work',
+          securityProfile: 'privileged',
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('transition', () {
+    test('transitions draft to queued', () async {
+      await repo.insert(_task());
+
+      final updated = await service.transition('task-1', TaskStatus.queued);
+
+      expect(updated.status, TaskStatus.queued);
+    });
+
+    test('transitions queued to running sets startedAt', () async {
+      await repo.insert(_task(status: TaskStatus.queued));
+      final now = DateTime.parse('2026-03-10T10:05:00Z');
+
+      final updated = await service.transition('task-1', TaskStatus.running, now: now);
+
+      expect(updated.startedAt, now);
+      expect(updated.completedAt, isNull);
+    });
+
+    test('transitions running to review without setting completedAt', () async {
+      await repo.insert(_task(status: TaskStatus.running, startedAt: DateTime.parse('2026-03-10T10:05:00Z')));
+
+      final updated = await service.transition(
+        'task-1',
+        TaskStatus.review,
+        now: DateTime.parse('2026-03-10T10:10:00Z'),
+      );
+
+      expect(updated.status, TaskStatus.review);
+      expect(updated.completedAt, isNull);
+    });
+
+    test('transitions review to accepted sets completedAt', () async {
+      final now = DateTime.parse('2026-03-10T10:10:00Z');
+      await repo.insert(_task(status: TaskStatus.review, startedAt: DateTime.parse('2026-03-10T10:05:00Z')));
+
+      final updated = await service.transition('task-1', TaskStatus.accepted, now: now);
+
+      expect(updated.completedAt, now);
+    });
+
+    test('transitions review to queued and persists transition-managed config fields', () async {
+      await repo.insert(
+        _task(
+          status: TaskStatus.review,
+          sessionId: 'session-1',
+          configJson: const {'pushBackCount': 1, 'budget': 1000},
+          startedAt: DateTime.parse('2026-03-10T10:05:00Z'),
+          completedAt: DateTime.parse('2026-03-10T10:09:00Z'),
+        ),
+      );
+
+      final updated = await service.transition('task-1', TaskStatus.queued);
+      final persisted = await repo.getById('task-1');
+
+      expect(updated.configJson, {'pushBackCount': 2, 'budget': 1000});
+      expect(updated.sessionId, 'session-1');
+      expect(updated.completedAt, isNull);
+      expect(persisted?.configJson, {'pushBackCount': 2, 'budget': 1000});
+      expect(persisted?.sessionId, 'session-1');
+      expect(persisted?.completedAt, isNull);
+    });
+
+    test('transitions can persist config overrides atomically with the status update', () async {
+      await repo.insert(
+        _task(
+          status: TaskStatus.running,
+          configJson: const {'origin': 'channel'},
+          startedAt: DateTime.parse('2026-03-10T10:05:00Z'),
+        ),
+      );
+
+      final updated = await service.transition(
+        'task-1',
+        TaskStatus.failed,
+        configJson: const {'origin': 'channel', 'errorSummary': 'Turn execution failed'},
+      );
+
+      expect(updated.status, TaskStatus.failed);
+      expect(updated.configJson, {'origin': 'channel', 'errorSummary': 'Turn execution failed'});
+      expect((await repo.getById('task-1'))!.configJson, {
+        'origin': 'channel',
+        'errorSummary': 'Turn execution failed',
+      });
+    });
+
+    test('invalid transition throws StateError', () async {
+      await repo.insert(_task());
+
+      expect(() => service.transition('task-1', TaskStatus.running), throwsA(isA<StateError>()));
+    });
+
+    test('transition on missing task throws ArgumentError', () {
+      expect(() => service.transition('missing', TaskStatus.queued), throwsA(isA<ArgumentError>()));
+    });
+
+    test('uses provided timestamp', () async {
+      final now = DateTime.parse('2026-03-10T10:05:00Z');
+      await repo.insert(_task(status: TaskStatus.queued));
+
+      final updated = await service.transition('task-1', TaskStatus.running, now: now);
+
+      expect(updated.startedAt, now);
+    });
+
+    test('returns the committed transition snapshot without rereading', () async {
+      final now = DateTime.parse('2026-03-10T10:05:00Z');
+      await repo.insert(_task(status: TaskStatus.queued));
+      repo.taskReturnedOnNextReadAfterSuccessfulTransition = _task(
+        status: TaskStatus.review,
+        startedAt: DateTime.parse('2026-03-10T10:04:00Z'),
+      );
+
+      final updated = await service.transition('task-1', TaskStatus.running, now: now);
+
+      expect(updated.status, TaskStatus.running);
+      expect(updated.startedAt, now);
+    });
+
+    test('throws when task status changed before atomic write', () async {
+      await repo.insert(_task(status: TaskStatus.queued));
+      repo.concurrentStatusOnNextTransition = TaskStatus.review;
+
+      expect(() => service.transition('task-1', TaskStatus.running), throwsA(isA<StateError>()));
+    });
+  });
+
+  group('updateFields', () {
+    test('updates title', () async {
+      await repo.insert(_task());
+
+      final updated = await service.updateFields('task-1', title: 'Updated');
+
+      expect(updated.title, 'Updated');
+      expect(updated.description, 'Describe the work');
+    });
+
+    test('updates multiple fields', () async {
+      await repo.insert(_task());
+
+      final updated = await service.updateFields(
+        'task-1',
+        title: 'Updated',
+        description: 'New description',
+        acceptanceCriteria: 'Tests pass',
+        configJson: const {'model': 'opus'},
+      );
+
+      expect(updated.title, 'Updated');
+      expect(updated.description, 'New description');
+      expect(updated.acceptanceCriteria, 'Tests pass');
+      expect(updated.configJson, {'model': 'opus'});
+    });
+
+    test('throws on terminal task', () async {
+      await repo.insert(_task(status: TaskStatus.accepted));
+
+      expect(() => service.updateFields('task-1', title: 'Updated'), throwsA(isA<StateError>()));
+    });
+
+    test('throws on missing task', () {
+      expect(() => service.updateFields('missing', title: 'Updated'), throwsA(isA<ArgumentError>()));
+    });
+
+    test('updates sessionId', () async {
+      await repo.insert(_task(configJson: const {'model': 'sonnet'}));
+
+      final updated = await service.updateFields('task-1', sessionId: 'session-9');
+
+      expect(updated.sessionId, 'session-9');
+      expect(updated.configJson, {'model': 'sonnet'});
+    });
+
+    test('updates worktreeJson', () async {
+      await repo.insert(_task());
+
+      final updated = await service.updateFields('task-1', worktreeJson: const {'branch': 'task-1'});
+
+      expect(updated.worktreeJson, {'branch': 'task-1'});
+    });
+
+    test('throws when status changes before mutable update is written', () async {
+      await repo.insert(_task());
+      repo.concurrentStatusOnNextMutableUpdate = TaskStatus.running;
+
+      await expectLater(
+        service.updateFields('task-1', title: 'Updated'),
+        throwsA(
+          isA<StateError>().having((error) => error.message, 'message', contains('expected draft, found running')),
+        ),
+      );
+
+      final current = await repo.getById('task-1');
+      expect(current?.title, 'Task title');
+      expect(current?.status, TaskStatus.running);
+    });
+  });
+
+  group('delete', () {
+    test('deletes terminal task', () async {
+      await repo.insert(_task(status: TaskStatus.accepted));
+
+      await service.delete('task-1');
+
+      expect(await repo.getById('task-1'), isNull);
+    });
+
+    test('throws on non-terminal task', () async {
+      await repo.insert(_task());
+
+      expect(() => service.delete('task-1'), throwsA(isA<StateError>()));
+    });
+
+    test('throws on missing task', () {
+      expect(() => service.delete('missing'), throwsA(isA<ArgumentError>()));
+    });
+  });
+
+  group('artifacts', () {
+    test('adds artifact', () async {
+      final now = DateTime.parse('2026-03-10T10:00:00Z');
+      await repo.insert(_task());
+
+      final artifact = await service.addArtifact(
+        id: 'artifact-1',
+        taskId: 'task-1',
+        name: 'Patch',
+        kind: ArtifactKind.diff,
+        path: '/tmp/patch.diff',
+        now: now,
+      );
+
+      expect(artifact.createdAt, now);
+      expect(await service.getArtifact('artifact-1'), isNotNull);
+    });
+
+    test('lists artifacts by task', () async {
+      await repo.insert(_task());
+      await service.addArtifact(
+        id: 'artifact-1',
+        taskId: 'task-1',
+        name: 'Patch',
+        kind: ArtifactKind.diff,
+        path: '/tmp/patch.diff',
+      );
+      await service.addArtifact(
+        id: 'artifact-2',
+        taskId: 'task-1',
+        name: 'Doc',
+        kind: ArtifactKind.document,
+        path: '/tmp/doc.md',
+      );
+
+      final artifacts = await service.listArtifacts('task-1');
+
+      expect(artifacts, hasLength(2));
+    });
+
+    test('gets artifact by id', () async {
+      await repo.insert(_task());
+      await service.addArtifact(
+        id: 'artifact-1',
+        taskId: 'task-1',
+        name: 'Patch',
+        kind: ArtifactKind.diff,
+        path: '/tmp/patch.diff',
+      );
+
+      final artifact = await service.getArtifact('artifact-1');
+
+      expect(artifact?.name, 'Patch');
+    });
+
+    test('deletes artifact', () async {
+      await repo.insert(_task());
+      await service.addArtifact(
+        id: 'artifact-1',
+        taskId: 'task-1',
+        name: 'Patch',
+        kind: ArtifactKind.diff,
+        path: '/tmp/patch.diff',
+      );
+
+      await service.deleteArtifact('artifact-1');
+
+      expect(await service.getArtifact('artifact-1'), isNull);
+    });
+
+    test('throws when parent task is missing', () {
+      expect(
+        () => service.addArtifact(
+          id: 'artifact-1',
+          taskId: 'missing',
+          name: 'Patch',
+          kind: ArtifactKind.diff,
+          path: '/tmp/patch.diff',
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('mergeConfigJson', () {
+    test('returns the task unchanged when status is terminal (no throw)', () async {
+      final created = await service.create(
+        id: 'task-merge-terminal',
+        title: 'Will be cancelled',
+        description: 'desc',
+        autoStart: true,
+      );
+      await service.transition(created.id, TaskStatus.cancelled);
+
+      final result = await service.mergeConfigJson(created.id, const {'token_breakdown': 1});
+
+      expect(result.status.terminal, isTrue);
+      final stored = await repo.getById(created.id);
+      expect(stored?.configJson.containsKey('token_breakdown'), isFalse);
+    });
+  });
+
+  group('dispose', () {
+    test('disposes repository', () async {
+      await service.dispose();
+
+      expect(repo.disposed, isTrue);
+    });
+  });
+}
+
+Task _task({
+  String id = 'task-1',
+  TaskStatus status = TaskStatus.draft,
+  String? goalId,
+  String? acceptanceCriteria,
+  String? sessionId,
+  Map<String, dynamic> configJson = const {},
+  Map<String, dynamic>? worktreeJson,
+  DateTime? startedAt,
+  DateTime? completedAt,
+}) {
+  return Task(
+    id: id,
+    title: 'Task title',
+    description: 'Describe the work',
+    status: status,
+    goalId: goalId,
+    acceptanceCriteria: acceptanceCriteria,
+    sessionId: sessionId,
+    configJson: configJson,
+    worktreeJson: worktreeJson,
+    createdAt: DateTime.parse('2026-03-10T10:00:00Z'),
+    startedAt: startedAt,
+    completedAt: completedAt,
+  );
+}

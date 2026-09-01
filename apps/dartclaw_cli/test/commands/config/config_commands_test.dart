@@ -3,7 +3,7 @@ import 'package:dartclaw_cli/src/commands/config/config_command.dart';
 import 'package:dartclaw_cli/src/commands/config/config_get_command.dart';
 import 'package:dartclaw_cli/src/commands/config/config_set_command.dart';
 import 'package:dartclaw_cli/src/commands/config/config_show_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
@@ -78,6 +78,29 @@ void main() {
       await runner.run(['set', 'alerts.enabled', 'false']);
 
       expect(transport.requests.single.body, contains('"alerts.enabled":false'));
+      expect(output.single, contains('Applied (reload required)'));
+    });
+
+    test('set sends alerts.targets as a decoded object list, not a string', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          jsonResponse(200, {
+            'applied': ['alerts.targets'],
+            'pendingRestart': <String>[],
+            'errors': <Map<String, String>>[],
+          }),
+        ],
+      );
+      final output = <String>[];
+      final command = ConfigSetCommand(
+        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        writeLine: output.add,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['set', 'alerts.targets', '[{"channel":"signal","recipient":"+1000"}]']);
+
+      expect(transport.requests.single.body, contains('"alerts.targets":[{"channel":"signal","recipient":"+1000"}]'));
       expect(output.single, contains('Applied (reload required)'));
     });
   });

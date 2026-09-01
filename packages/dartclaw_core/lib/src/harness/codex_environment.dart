@@ -1,6 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -127,6 +128,9 @@ class CodexEnvironment {
   /// Whether this home is the DartClaw-owned dedicated subscription store.
   bool get isDedicated => _dedicatedHome != null;
 
+  /// Whether this resolved home preserves rollout state beyond the worker lifetime.
+  bool get supportsProviderSessionResume => isSetup && !isContainerAuthClean && (useSystemCodexHome || isDedicated);
+
   bool get isSetup =>
       isContainerAuthClean ? _containerDirectory != null : isDedicated || useSystemCodexHome || _tempDirectory != null;
 
@@ -188,6 +192,10 @@ class CodexEnvironment {
 
   /// Writes generated configuration into the dedicated store, leaving whatever
   /// the vendor CLI persisted there — above all `auth.json` — untouched.
+  ///
+  /// The content itself is written by [completeDedicatedCodexHome], the single
+  /// writer both this lane and the probe lane go through; this one only supplies
+  /// the generated half a probe has no way to produce.
   Future<String> _setupDedicatedHome() async {
     final home = _dedicatedHome!;
     final directory = Directory(home);
@@ -195,12 +203,12 @@ class CodexEnvironment {
       await directory.create(recursive: true);
       await _chmod700(home);
     }
-    // The dedicated store is shared by every host worker, so a plain write
-    // would let one Codex process read a half-written config; temp+rename makes
-    // each write whole. Content is still last-writer-wins.
-    secureWriteFileSync(File(p.join(home, 'config.toml')), _generateHostConfig());
-    final agentsContent = agentsMdContent;
-    if (agentsContent != null) secureWriteFileSync(File(p.join(home, 'AGENTS.md')), agentsContent);
+    completeDedicatedCodexHome(
+      home,
+      generatedConfig: _generateHostConfig(),
+      agentsMd: agentsMdContent,
+      platformCapabilities: platformCapabilities,
+    );
     return home;
   }
 
@@ -360,6 +368,342 @@ class CodexEnvironment {
       await source.copy(p.join(targetDir, 'auth.json'));
     }
   }
+}
+
+/// Brings the dedicated Codex home at [homePath] in line with the operator's
+/// current Codex state, and writes [generatedConfig] / [agentsMd] when a caller
+/// supplies them.
+///
+/// **This is the only writer of the dedicated home's `config.toml`.** Both lanes
+/// that reach the home go through it: the worker lane supplies the generated
+/// half ([generatedConfig], [agentsMd]), the probe lanes — skill introspection
+/// and the CLI auth preflight — supply neither, because they read the home
+/// before any worker has built one. Whichever runs first, the resulting file is
+/// the same generated half plus the same plugin tables, so the two lanes cannot
+/// race into two different configurations.
+///
+/// Every call re-derives the mirror from current operator state rather than
+/// filling gaps: a plugin the operator uninstalled loses both its `[plugins.*]`
+/// table and its mirrored payload. What DartClaw mirrored is recorded in
+/// `.dartclaw-mirror.json`, and only names recorded there are ever pruned — an
+/// operator can also install into the dedicated home directly
+/// (`CODEX_HOME=<home> codex …`), and those tables and directories are the
+/// home's own, never the mirror's to remove.
+///
+/// Nothing outside `[plugins.*]`, `plugins/cache/` and `skills/` is read from
+/// the operator's home; `auth.json` in particular is never a mirror source, so
+/// the operator's own login cannot reach this store.
+void completeDedicatedCodexHome(
+  String homePath, {
+  String? generatedConfig,
+  String? agentsMd,
+  PlatformCapabilities? platformCapabilities,
+}) {
+  if (!Directory(homePath).existsSync()) return;
+
+  final operatorState = _readOperatorCodexState(platformCapabilities);
+  final manifest = _MirrorManifest.read(homePath);
+
+  if (operatorState != null) {
+    final session = _MirrorSession(homePath);
+    try {
+      for (final payload in _mirroredPayloads) {
+        final key = payload.join('/');
+        manifest.directories[key] = session.syncEntries(
+          Directory(p.joinAll([operatorState.home.path, ...payload])),
+          Directory(p.joinAll([homePath, ...payload])),
+          manifest.directories[key] ?? const <String>[],
+        );
+      }
+    } finally {
+      session.close();
+    }
+  }
+
+  final wrote = _writeDedicatedConfig(homePath, generatedConfig, operatorState?.pluginTables, manifest);
+  if (operatorState != null && wrote) manifest.write(homePath);
+
+  if (agentsMd != null) {
+    try {
+      secureWriteFileSync(File(p.join(homePath, 'AGENTS.md')), agentsMd);
+    } on FileSystemException catch (error) {
+      _log.warning('Could not write AGENTS.md into the dedicated Codex home at $homePath: $error');
+    }
+  }
+}
+
+/// Files and directories the mirror copies out of the operator's `~/.codex`.
+///
+/// Capabilities only. A credential is deliberately not reachable from here.
+const _mirroredPayloads = <List<String>>[
+  ['plugins', 'cache'],
+  ['skills'],
+];
+
+const _mirrorManifestFileName = '.dartclaw-mirror.json';
+const _mirrorStagingDirectoryName = '.dartclaw-mirror-staging';
+
+/// Rewrites the dedicated home's `config.toml`, returning whether the plugin
+/// tables it now carries are the ones [operatorTables] describes.
+///
+/// [operatorTables] `null` means the operator's state could not be read, so the
+/// home's existing tables are carried over untouched — an unreadable source is
+/// no reason to disable the operator's plugins.
+bool _writeDedicatedConfig(
+  String homePath,
+  String? generatedConfig,
+  List<CodexPluginTable>? operatorTables,
+  _MirrorManifest manifest,
+) {
+  final config = File(p.join(homePath, 'config.toml'));
+  final String? existing;
+  try {
+    existing = config.existsSync() ? config.readAsStringSync() : null;
+  } on FileSystemException catch (error) {
+    _log.warning('Could not read the dedicated Codex config at ${config.path}: $error');
+    return false;
+  }
+
+  var existingTables = const <CodexPluginTable>[];
+  var base = generatedConfig ?? '';
+  if (existing != null) {
+    final split = CodexConfigGenerator.splitPluginTables(existing);
+    if (split == null) {
+      _log.warning(
+        'Refusing to rewrite ${config.path}: it uses TOML constructs outside the supported subset, so its '
+        '[plugins.*] tables cannot be told apart from the rest.',
+      );
+      return false;
+    }
+    existingTables = split.pluginTables;
+    base = generatedConfig ?? split.remainder;
+  }
+
+  final List<CodexPluginTable> tables;
+  if (operatorTables == null) {
+    tables = existingTables;
+  } else {
+    final mirrored = operatorTables.map((table) => table.header).toSet();
+    // A table this mirror never wrote belongs to the home — an operator can log
+    // in and install plugins into the dedicated CODEX_HOME directly, and those
+    // names never appear in the operator's own home to be re-derived from.
+    final native = existingTables.where(
+      (table) => !mirrored.contains(table.header) && !manifest.pluginTables.contains(table.header),
+    );
+    tables = [...operatorTables, ...native];
+    manifest.pluginTables = mirrored.toList(growable: false);
+  }
+
+  final content = CodexConfigGenerator.withPluginTables(base, tables.map((table) => table.text));
+  if (existing == null && content.isEmpty) return true;
+  if (existing == content) return true;
+  try {
+    secureWriteFileSync(config, content);
+  } on FileSystemException catch (error) {
+    _log.warning('Could not write the dedicated Codex config at ${config.path}: $error');
+    return false;
+  }
+  return true;
+}
+
+/// What the mirror wrote into a dedicated home last time, so it can prune its
+/// own stale entries without touching the home's native ones.
+class _MirrorManifest {
+  new({required this.directories, required this.pluginTables});
+
+  /// Mirrored top-level entry names per payload path (`plugins/cache`, `skills`).
+  final Map<String, List<String>> directories;
+
+  /// Headers of the `[plugins.*]` tables the mirror authored.
+  List<String> pluginTables;
+
+  static _MirrorManifest read(String homePath) {
+    final file = File(p.join(homePath, _mirrorManifestFileName));
+    try {
+      if (!file.existsSync()) return _MirrorManifest(directories: {}, pluginTables: const []);
+      final decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is! Map<String, dynamic>) throw const FormatException('manifest is not an object');
+      final directories = <String, List<String>>{};
+      final rawDirectories = decoded['directories'];
+      if (rawDirectories is Map<String, dynamic>) {
+        for (final entry in rawDirectories.entries) {
+          final names = entry.value;
+          if (names is List) directories[entry.key] = names.whereType<String>().toList();
+        }
+      }
+      final rawTables = decoded['pluginTables'];
+      return _MirrorManifest(
+        directories: directories,
+        pluginTables: rawTables is List ? rawTables.whereType<String>().toList() : const [],
+      );
+    } on Object catch (error) {
+      // An unreadable manifest costs pruning, not correctness: nothing is
+      // recorded as mirror-owned, so nothing already in the home is removed.
+      _log.warning('Could not read the Codex mirror manifest at ${file.path}: $error');
+      return _MirrorManifest(directories: {}, pluginTables: const []);
+    }
+  }
+
+  void write(String homePath) {
+    final file = File(p.join(homePath, _mirrorManifestFileName));
+    try {
+      secureWriteFileSync(file, jsonEncode({'directories': directories, 'pluginTables': pluginTables}));
+    } on FileSystemException catch (error) {
+      _log.warning('Could not write the Codex mirror manifest at ${file.path}: $error');
+    }
+  }
+}
+
+/// One mirror pass, owning the staging directory its swaps rename out of.
+///
+/// The dedicated home is read by every host worker while this runs, so an entry
+/// is never deleted and rebuilt in place: the replacement is copied into a
+/// sibling staging directory on the same filesystem and renamed over the target,
+/// which is the only step a concurrent reader can observe. Retired entries are
+/// renamed into staging too and deleted together at [close], after every swap.
+class _MirrorSession {
+  new(this.homePath);
+
+  final String homePath;
+  Directory? _staging;
+  var _sequence = 0;
+
+  /// Mirrors the top-level entries of [source] into [target] and prunes the
+  /// [previouslyMirrored] names the operator has since removed, returning the
+  /// names now mirrored.
+  List<String> syncEntries(Directory source, Directory target, List<String> previouslyMirrored) {
+    final entries = source.existsSync() ? source.listSync() : const <FileSystemEntity>[];
+    final sourceNames = entries.map((entity) => p.basename(entity.path)).toSet();
+
+    for (final name in previouslyMirrored) {
+      if (sourceNames.contains(name)) continue;
+      _retire(p.join(target.path, name));
+    }
+    if (entries.isEmpty) return const [];
+
+    final mirrored = <String>[];
+    try {
+      target.createSync(recursive: true);
+    } on FileSystemException catch (error) {
+      _log.warning('Could not create ${target.path} for the operator Codex mirror: $error');
+      return const [];
+    }
+    for (final entity in entries) {
+      final name = p.basename(entity.path);
+      if (_swapIntoPlace(entity, p.join(target.path, name))) mirrored.add(name);
+    }
+    return mirrored;
+  }
+
+  bool _swapIntoPlace(FileSystemEntity source, String targetPath) {
+    try {
+      final staged = _nextStagingPath();
+      if (source is Directory) {
+        _copyTree(source, staged);
+      } else if (source is File) {
+        source.copySync(staged);
+      } else {
+        return false;
+      }
+      _retire(targetPath);
+      if (FileSystemEntity.isDirectorySync(staged)) {
+        Directory(staged).renameSync(targetPath);
+      } else {
+        File(staged).renameSync(targetPath);
+      }
+      return true;
+    } on FileSystemException catch (error) {
+      // A mirror failure costs provider-side capabilities, not the worker: the
+      // home is still usable and the skill preflight reports what is missing.
+      _log.warning('Could not mirror ${source.path} into $targetPath: $error');
+      return false;
+    }
+  }
+
+  /// Renames [path] out of the way, so its removal is one atomic step rather
+  /// than a recursive delete a reader can catch halfway.
+  void _retire(String path) {
+    final type = FileSystemEntity.typeSync(path);
+    if (type == FileSystemEntityType.notFound) return;
+    try {
+      final retired = _nextStagingPath();
+      if (type == FileSystemEntityType.directory) {
+        Directory(path).renameSync(retired);
+      } else {
+        File(path).renameSync(retired);
+      }
+    } on FileSystemException catch (error) {
+      _log.warning('Could not retire $path from the dedicated Codex home: $error');
+    }
+  }
+
+  String _nextStagingPath() {
+    final staging = _staging ??= Directory(p.join(homePath, _mirrorStagingDirectoryName))..createSync(recursive: true);
+    return p.join(staging.path, '$pid-${_sequence++}');
+  }
+
+  void close() {
+    final staging = _staging;
+    _staging = null;
+    if (staging == null) return;
+    try {
+      if (staging.existsSync()) staging.deleteSync(recursive: true);
+    } catch (_) {} // Best-effort: the next pass reuses and re-clears the directory.
+  }
+
+  static void _copyTree(Directory source, String targetPath) {
+    Directory(targetPath).createSync(recursive: true);
+    for (final entity in source.listSync()) {
+      final destination = p.join(targetPath, p.basename(entity.path));
+      if (entity is Directory) {
+        _copyTree(entity, destination);
+      } else if (entity is File) {
+        entity.copySync(destination);
+      }
+    }
+  }
+}
+
+/// The operator's own Codex home and the `[plugins.*]` tables it enables.
+class _OperatorCodexState {
+  const new(this.home, this.pluginTables);
+
+  final Directory home;
+  final List<CodexPluginTable> pluginTables;
+}
+
+/// Reads the operator's current Codex state, or `null` when there is none to
+/// read or it cannot be read with certainty.
+///
+/// A config the splitter refuses fails the *whole* mirror rather than half of
+/// it: mirroring payloads whose enabling tables were mis-split would leave the
+/// dedicated home advertising capabilities it cannot resolve.
+_OperatorCodexState? _readOperatorCodexState(PlatformCapabilities? platformCapabilities) {
+  final home = (platformCapabilities ?? PlatformCapabilities()).homeDirectory;
+  if (home == null) return null;
+  final directory = Directory(_defaultCodexHome(home));
+  if (!directory.existsSync()) return null;
+
+  final config = File(p.join(directory.path, 'config.toml'));
+  if (!config.existsSync()) return _OperatorCodexState(directory, const []);
+
+  final String contents;
+  try {
+    contents = config.readAsStringSync();
+  } on FileSystemException catch (error) {
+    _log.fine('Could not read operator Codex config at ${config.path}: $error');
+    return null;
+  }
+
+  final split = CodexConfigGenerator.splitPluginTables(contents);
+  if (split == null) {
+    _log.warning(
+      'Refusing to mirror operator Codex state: ${config.path} uses TOML constructs outside the supported '
+      'subset, so its [plugins.*] tables cannot be told apart from the rest.',
+    );
+    return null;
+  }
+  return _OperatorCodexState(directory, split.pluginTables);
 }
 
 String _defaultCodexHome(String home) {

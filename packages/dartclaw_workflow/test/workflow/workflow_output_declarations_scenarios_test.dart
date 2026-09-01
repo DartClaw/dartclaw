@@ -54,13 +54,9 @@ steps:
       expect(_envelopeOutputs(envelope)['remediation_summary'], containsPair('type', 'string'));
     });
 
-    test('augmented prompt renders the inline description', () {
-      final augmented = const PromptAugmenter().augment(
-        '--auto',
-        outputs: def.steps.single.outputs,
-        outputKeys: def.steps.single.outputKeys,
-      );
-      expect(augmented, contains('Summary of what was changed during this remediation pass.'));
+    test('the finalizer prompt renders the inline description', () {
+      final envelope = buildExecutionEnvelopeSchema(def.steps.single, def.steps.single.outputs)!;
+      expect(buildFinalizerPrompt(envelope), contains('Summary of what was changed during this remediation pass.'));
       expect(PromptAugmenter.effectiveDescription(config), 'Summary of what was changed during this remediation pass.');
     });
 
@@ -89,13 +85,9 @@ steps:
       expect(field, containsPair('minimum', 0));
     });
 
-    test('workflow-context contract line renders the inline description', () {
-      final augmented = const PromptAugmenter().augment(
-        '--auto',
-        outputs: detect.outputs,
-        outputKeys: detect.outputKeys,
-      );
-      expect(augmented, contains('Self-rated 1-10 readiness'));
+    test('the finalizer prompt renders the inline description', () {
+      final envelope = buildExecutionEnvelopeSchema(detect, detect.outputs)!;
+      expect(buildFinalizerPrompt(envelope), contains('Self-rated 1-10 readiness'));
     });
 
     test('resolves InlineOutput via the preset defaultResolver', () {
@@ -136,18 +128,6 @@ steps:
         templatePrompt: '--auto {{map.item.spec_path}}',
       );
       expect(framed, isNot(contains('<story_specs>')));
-    });
-
-    test('simplify-code declares no story_result input (continued session), so no <story_result> block', () {
-      final simplify = def.steps.singleWhere((s) => s.id == 'simplify-code');
-      expect(simplify.inputs, isNot(contains('story_result')));
-      final framed = SkillPromptBuilder.appendAutoFramedContext(
-        '--auto simplify',
-        inputs: simplify.inputs,
-        resolvedValues: const {'story_result': 'RESULT'},
-        templatePrompt: '--auto simplify',
-      );
-      expect(framed, isNot(contains('<story_result>')));
     });
 
     test('review-story still frames <story_result>', () {

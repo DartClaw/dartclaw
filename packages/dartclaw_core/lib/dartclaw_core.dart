@@ -5,10 +5,7 @@
 /// - [Guard] / [GuardChain] -- security policy evaluation pipeline
 /// - [Channel] -- multi-channel messaging interface foundations
 /// - [BridgeEvent] -- sealed event hierarchy from the JSONL control protocol
-/// - [HarnessConfig] / [McpTool] -- SDK configuration and MCP tool interface
-///
-/// This package has no sqlite3 dependency. For FTS5 search and memory
-/// pruning, see `dartclaw_storage`.
+/// - [HarnessLaunchOptions] / [McpTool] -- SDK configuration and MCP tool interface
 ///
 /// ## Directory conventions
 ///
@@ -19,10 +16,22 @@
 /// - `projectDir`: the per-project clone under `$dataDir/projects/<id>/`.
 library;
 
-// Models & data types (re-exported from dartclaw_models)
-export 'package:dartclaw_models/dartclaw_models.dart';
-
-// Storage services (file-based — sqlite3-free)
+// Storage services
+export 'src/storage/memory_service.dart' show MemoryIndexRow, MemoryService;
+export 'src/storage/index_reconciler.dart'
+    show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
+export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSearchDbInMemory;
+export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
+export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
+export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
+export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
+export 'src/storage/sqlite_workflow_step_execution_repository.dart' show SqliteWorkflowStepExecutionRepository;
+export 'src/storage/task_db.dart' show TaskDbFactory, openTaskDb, openTaskDbInMemory;
+export 'src/storage/turn_state_store.dart' show TurnStateStore;
+export 'src/storage/webhook_delivery_store.dart'
+    show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore, openWebhookDeliveryStoreInMemory;
+export 'src/storage/task_event_service.dart' show TaskEventService;
+export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
 export 'src/storage/session_service.dart' show SessionService;
 export 'src/storage/message_service.dart' show MessageService;
 export 'src/storage/kv_service.dart' show KvService;
@@ -37,6 +46,24 @@ export 'src/storage/atomic_write.dart'
 export 'src/storage/login_store_guard.dart' show LoginStoreCollisionError;
 export 'src/storage/named_credential_store.dart' show NamedCredentialStore;
 export 'src/storage/subscription_credential_store.dart' show SubscriptionCredentialStore;
+
+// Search backends
+export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
+export 'src/search/search_backend_factory.dart' show createSearchBackend;
+export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
+export 'src/search/qmd_manager.dart' show QmdManager;
+export 'src/search/wiki_search_source.dart' show WikiSearchSource, WikiSearchScan, knownWikiProvenance;
+export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, SearchIndexHealthProbe;
+
+// Knowledge persistence
+export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;
+export 'src/knowledge/temporal_knowledge_graph_service.dart'
+    show TemporalKnowledgeGraphService, KnowledgeFact, KnowledgeContradiction;
+
+// Memory persistence
+export 'src/memory/memory_pruner.dart' show MemoryPruner, PruneResult;
+export 'src/memory/memory_preflight.dart'
+    show MemoryPreflightStatus, MemoryPreflightResult, MemoryPreflightException, MemoryPreflight;
 
 // Bridge events (sealed — subtypes accessible via pattern matching)
 export 'src/bridge/bridge_events.dart'
@@ -57,25 +84,21 @@ export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse,
 export 'src/channel/channel_feedback.dart'
     show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
 export 'src/channel/channel_manager.dart' show ChannelManager;
-export 'src/channel/channel_task_bridge.dart' show ChannelTaskBridge, ReservedCommandHandler;
+export 'src/channel/channel_task_bridge.dart' show ChannelTaskBridge, ReservedCommandDispatch;
 export 'src/channel/recipient_resolver.dart' show resolveRecipientId;
-export 'src/channel/mention_gating.dart' show MentionGating;
+export 'src/channel/inbound_gate.dart' show ChannelInboundDecision, ChannelInboundGate, MentionGating;
 export 'src/channel/message_queue.dart' show BudgetExhaustedError, MessageQueue, TurnDispatcher, TurnObserver;
-export 'src/channel/review_command_parser.dart'
+export 'src/channel/channel_review.dart'
     show
-        ReviewCommand,
         ChannelReviewResult,
         ChannelReviewSuccess,
         ChannelReviewMergeConflict,
         ChannelReviewError,
-        ChannelReviewHandler,
-        ReviewCommandParser;
+        ChannelReviewHandler;
 export 'src/channel/task_origin.dart' show TaskOrigin;
-export 'src/channel/task_creator.dart' show TaskCreator, TaskLister;
-export 'src/channel/task_trigger_config.dart' show TaskTriggerConfig;
-export 'src/channel/task_trigger_parser.dart' show TaskTriggerParser, TaskTriggerResult;
 export 'src/channel/text_chunking.dart' show TextChunkSlice, chunkNativeChatMarkup, chunkText, chunkTextSlices;
 export 'src/channel/standard_markdown_converter.dart' show convertStandardMarkdownToNativeChatMarkup;
+export 'src/channel/typing_lease_tracker.dart' show TypingLeaseTracker, TypingTransport;
 export 'src/channel/turn_progress_event.dart'
     show
         TurnProgressEvent,
@@ -88,90 +111,86 @@ export 'src/channel/turn_progress_event.dart'
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
 export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
+export 'src/channel/sidecar_process_manager.dart' show SidecarProcessManager;
 
 // Shared channel DM access
 export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, PairingCode;
 
 // Harness interfaces
 export 'src/harness/agent_harness.dart'
-    show AgentHarness, ContextualMemoryToolHandler, HarnessTurnContext, HarnessTurnContextSink, PromptStrategy;
-export 'src/harness/acp_client.dart' show AcpClient, AcpPromptResult;
-export 'src/harness/acp_errors.dart' show AcpHarnessErrorCode, AcpHarnessException;
-export 'src/harness/acp_harness.dart' show AcpHarness;
-export 'src/harness/acp_protocol_adapter.dart' show AcpProtocolAdapter;
-export 'src/harness/acp_reverse_call_handlers.dart'
     show
-        AcpPermissionDecision,
-        AcpPermissionRequest,
-        AcpPermissionResult,
-        AcpReverseCallAuditEvent,
-        AcpReverseCallAuditSink;
-export 'src/harness/acp_target_validation.dart'
-    show
-        AcpTargetEvidenceStatus,
-        AcpTargetOperation,
-        AcpTargetOperationEvidence,
-        AcpTargetValidationResult,
-        AcpTargetValidationStatus,
-        AcpTargetProbe,
-        AcpTargetValidator,
-        acpSecurityClassificationId;
+        AgentHarness,
+        ContextualMemoryToolHandler,
+        HarnessTurnContext,
+        HarnessTurnContextSink,
+        PromptStrategy,
+        TurnResult,
+        UnsupportedHarnessCapabilityException;
 export 'src/harness/provider_execution_compatibility.dart'
     show
         ProviderCredentialGate,
         ProviderExecutionInventory,
         ProviderExecutionSupport,
         ProviderExecutionVerdict,
-        ProviderLaunchSurface,
-        ProviderUnavailability,
-        acpContainerRequirementError;
+        ProviderUnavailability;
 export 'src/harness/base_protocol_adapter.dart' show intValue, stringValue;
 export 'src/harness/claude_settings_builder.dart' show ClaudeSettingsBuilder;
+export 'src/harness/conversation_history.dart' show buildReplaySafeHistory;
 export 'src/harness/canonical_tool.dart' show CanonicalTool, dartclawMcpServerName;
 export 'src/harness/claude_code_harness.dart' show ClaudeCodeHarness;
 export 'src/harness/claude_protocol_adapter.dart' show ClaudeProtocolAdapter;
 export 'src/harness/codex_config_generator.dart' show CodexConfigGenerator;
-export 'src/harness/codex_environment.dart' show CodexEnvironment;
+export 'src/harness/codex_environment.dart' show CodexEnvironment, completeDedicatedCodexHome;
 export 'src/harness/codex_harness.dart' show CodexHarness;
 export 'src/harness/codex_protocol_adapter.dart' show CodexProtocolAdapter;
 export 'src/harness/codex_settings.dart' show CodexSettings;
-export 'src/harness/harness_config.dart' show HarnessConfig;
+export 'src/harness/harness_launch_options.dart' show HarnessLaunchOptions;
 export 'src/harness/harness_factory.dart' show HarnessFactory, HarnessFactoryConfig;
+export 'src/harness/harness_registrar.dart' show HarnessRegistrar, HarnessRegistration;
 export 'src/harness/merge_resolve_env_vars.dart'
     show
         mergeResolveIntegrationBranchEnvVar,
         mergeResolveStoryBranchEnvVar,
         mergeResolveTokenCeilingEnvVar,
         mergeResolveEnvVarNames;
-export 'src/harness/mcp_tool.dart' show McpTool;
+export 'src/harness/mcp_tool.dart' show McpTool, McpToolAccess;
 export 'src/harness/claude_protocol.dart'
     show
         claudeContainerHardeningEnvVars,
         claudeHardeningEnvVars,
         claudeOauthTokenEnvVar,
         containerClaudePlaceholderApiKey;
-export 'src/harness/process_lifecycle.dart' show ProcessTerminationResult, SequentialLock, killWithEscalation;
+export 'src/harness/process_lifecycle.dart'
+    show
+        ProcessOutputLimitException,
+        ProcessLifecycleOwner,
+        ProcessStreamException,
+        ProcessTerminationResult,
+        SequentialLock,
+        defaultProcessOutputLimitBytes,
+        killWithEscalation;
 export 'src/harness/process_types.dart' show ProcessFactory, CommandProbe, DelayFactory, HealthProbe;
 export 'src/harness/protocol_adapter.dart' show ProtocolAdapter;
-// Protocol message boundary. `ToolResult` remains owned by `tool_result.dart`
-// in this barrel because it is already part of the MCP public API.
+// Protocol message boundary. The MCP tool-return `ToolResult` is a different
+// type, owned by `tool_result.dart`; the protocol-stream one is
+// `ToolResultMessage`.
 export 'src/harness/protocol_message.dart'
     show
         ProtocolMessage,
         TextDelta,
         ToolUse,
+        ToolResultMessage,
         ControlRequest,
         TurnComplete,
         ProgressMessage,
         SessionMetadataUpdate,
         ProtocolDiagnostic,
         SystemInit,
-        CompactBoundary;
+        CompactBoundary,
+        CompactionStarted,
+        CompactionCompleted;
 export 'src/harness/tool_policy.dart' show ToolApprovalPolicy;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
-
-// Security — interfaces and user-constructable guards
-export 'package:dartclaw_security/dartclaw_security.dart';
 
 export 'src/memory/memory_file_service.dart' show MemoryFileService;
 export 'src/memory/memory_resource_limits.dart' show MemoryResourceLimits, MemoryResourceLimitException;
@@ -187,6 +206,7 @@ export 'src/memory/canonical_memory.dart'
         MemoryCollectionMetadata,
         CanonicalMemoryEntry,
         CanonicalMemoryLearning,
+        CanonicalMemoryError,
         MemoryIndexEntry,
         MemoryObservation,
         MemoryDeletionAudit;
@@ -198,6 +218,7 @@ export 'src/memory/memory_documents.dart'
         MemoryArchiveDocument,
         MemoryObservationDocument,
         MemoryLearningDocument,
+        MemoryErrorDocument,
         MemoryAuditDocument;
 export 'src/memory/memory_markdown_codec.dart' show MemoryMarkdownCodec, canonicalMemoryHeader;
 export 'src/memory/memory_corpus.dart'
@@ -207,6 +228,7 @@ export 'src/memory/memory_corpus_service.dart'
     show
         MemorySnapshotOmissionReason,
         MemoryCorpusSnapshot,
+        MemoryCurationSnapshot,
         MemoryCorpusSelection,
         MemoryCorpusManifest,
         MemoryCorpusStatusSnapshot,
@@ -229,26 +251,6 @@ export 'src/scoping/group_config_resolver.dart' show GroupConfigResolver;
 export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
 
-// Types moved to dartclaw_config (re-exported here for backward compat)
-export 'package:dartclaw_config/dartclaw_config.dart'
-    show
-        AgentExecution,
-        AgentExecutionRepository,
-        ExecutionRepositoryTransactor,
-        WorkflowStepExecution,
-        WorkflowStepExecutionRepository,
-        LoopDetection,
-        LoopDetectedException,
-        LoopDetector,
-        LoopMechanism,
-        SlidingWindowRateLimiter,
-        PromptScope,
-        canonicalizePathWithExistingAncestors,
-        truncate,
-        normalizeDynamicMap,
-        SearchBackend,
-        SearchResultLayer;
-
 // Agents
 export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
@@ -256,7 +258,7 @@ export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyG
 // Tasks
 export 'src/task/goal.dart' show Goal;
 export 'src/task/goal_repository.dart' show GoalRepository;
-export 'src/task/task.dart' show Task;
+export 'src/task/task.dart' show Task, TaskLegacyRefusal;
 export 'src/task/task_artifact.dart' show ArtifactKind, TaskArtifact;
 export 'src/task/task_event.dart' show TaskEvent, TaskEventKind;
 export 'src/task/task_repository.dart' show TaskRepository;
@@ -274,7 +276,15 @@ export 'src/project/project_service.dart' show ProjectService;
 
 // Utilities (single sub-barrel — keeps the top-level export surface compact)
 export 'src/util/util.dart'
-    show formatLocalDateTime, humanizeDuration, humanizeDurationMs, humanizeSpan, HttpClientFactory, httpRequest;
+    show
+        formatLocalDateTime,
+        tryParseIsoInstant,
+        splitFrontmatter,
+        humanizeDuration,
+        humanizeDurationMs,
+        humanizeSpan,
+        HttpClientFactory,
+        httpRequest;
 
 // Events
 export 'src/events/event_bus.dart' show EventBus;
@@ -303,8 +313,6 @@ export 'src/events/dartclaw_event.dart'
         CredentialHealthState,
         RunnerLifecycleEvent,
         RunnerStateChangedEvent,
-        AdvisorInsightEvent,
-        AdvisorMentionEvent,
         LoopDetectedEvent,
         EmergencyStopEvent,
         OutboundMcpGovernanceEvent,
@@ -340,7 +348,7 @@ export 'src/worker/worker_state.dart' show WorkerState;
 // Turn abstractions (interfaces + value types)
 export 'src/turn/busy_turn_exception.dart' show BusyTurnException;
 export 'src/turn/turn_manager.dart' show TurnManager;
-export 'src/turn/turn_outcome.dart' show TurnOutcome;
+export 'src/turn/turn_outcome.dart' show TurnLimitBreach, TurnOutcome;
 export 'src/turn/turn_runner.dart' show TurnRunner;
 export 'src/turn/turn_status.dart' show TurnStatus;
 

@@ -57,9 +57,7 @@ final found = registry.getByName('my-workflow');
 ## Related Packages
 
 - [`dartclaw_core`](https://pub.dev/packages/dartclaw_core) — runtime primitives; host seam for turn execution.
-- [`dartclaw_models`](https://pub.dev/packages/dartclaw_models) — shared workflow domain models (`WorkflowDefinition`, `WorkflowRun`, `OutputConfig`).
-- [`dartclaw_config`](https://pub.dev/packages/dartclaw_config) — config loading used by workflow executor.
-- [`dartclaw_security`](https://pub.dev/packages/dartclaw_security) — guard framework used during step execution.
+- [`dartclaw_kernel`](https://pub.dev/packages/dartclaw_kernel) — shared workflow models, configuration, and guard contracts.
 
 ## Documentation
 

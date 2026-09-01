@@ -55,15 +55,15 @@ stepDefaults:
     model: "@workflow"
 
 steps:
-  # gap-review, review-council, and architecture-review form a parallel group:
-  # consecutive `parallel: true` steps run concurrently and merge outputs back
+  # gap-review and review-council form a parallel group: consecutive
+  # `parallel: true` steps run concurrently and merge outputs back
   # into context before the workflow continues serially. Each writes distinct
   # context keys so the merge is conflict-free. TARGET is operator-supplied and
   # is meant to direct the review, so it is interpolated inline (same contract
   # as the built-in code-review's review target). Lenses are split to mirror
   # plan/spec: a cheap @reviewer gap pass + a deep Claude code/security council
-  # pass + an architecture pass – disjoint lenses, so each adds coverage the
-  # others don't. When BRANCH is empty the `({{BRANCH}})` clause renders as empty
+  # pass – disjoint lenses, so each adds coverage the
+  # other doesn't. When BRANCH is empty the `({{BRANCH}})` clause renders as empty
   # parens `()`; the review skill tolerates the empty value, so the rendering is
   # left as-is (no template/engine conditional surface).
   - id: gap-review
@@ -92,8 +92,8 @@ steps:
     name: Code & Security Council Review
     skill: andthen:review
     parallel: true
-    # Advisory extra-perspective pass: the gap-review + architecture-review carry
-    # the gating signal, and the council writes its report to the reviews
+    # Advisory extra-perspective pass: the gap-review carries the gating
+    # signal, and the council writes its report to the reviews
     # output-dir regardless. A council flake (provider stall, output-capture edge
     # case) must not abort the whole run, so continue past its failure rather
     # than failing the parallel barrier; its real findings still gate via the
@@ -117,28 +117,10 @@ steps:
       review-council.findings_count: findings_count
       review-council.gating_findings_count: gating_findings_count
 
-  - id: architecture-review
-    name: Architecture Review
-    skill: andthen:architecture
-    parallel: true
-    onFailure: retry
-    maxRetries: 1
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode review --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      Review the architecture of: {{TARGET}}. Scope the
-      review to changes on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}}
-      – skip packages untouched by these changes.
-    outputs:
-      architecture-review.review_report_path: review_report_path
-      architecture-review.findings_count: findings_count
-      architecture-review.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [gap-review, review-council, architecture-review]
+    aggregateReviews: [gap-review, review-council]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

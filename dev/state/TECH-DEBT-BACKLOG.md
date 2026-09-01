@@ -33,14 +33,14 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 ## TD-119 – Logical-agent session cancellation lacks caller-to-child causality
 
-**Status**: Scheduled for 0.27 Phase A alongside TD-110's MCP dispatch seam
+**Status**: Scheduled for 0.27 Phase A. TD-110's dispatch seam landed in 0.25 (story S19), so the co-design partner now exists: build the typed caller-aware context on it rather than alongside it.
 **Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker)
 **Found**: 2026-08-09, 0.24 logical-agent session retrospective
 **Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
 
 **Context**: A session tool creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying child future. A global “cancel active child” shortcut is unsafe with concurrent callers.
 
-**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Design the shared context once with TD-110's dispatch-level guard/audit seam.
+**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Build the typed context on the shipped MCP dispatch seam (`McpProtocolHandler`, 0.25), which already resolves the caller's authority, session and agent ids per dispatch.
 
 **Target**: 0.27 Phase A.
 
@@ -71,55 +71,36 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Context**: One-shot review/implement agents spawn with no MCP config of their own, so they inherit the operator's full `~/.codex` / `~/.claude` global MCP server set (context7, fetch, etc.). No DartClaw config surface exists to curate or trim MCP servers per project for these spawns.
 
-**Candidate**: 0.27 Phase A (flagged 2026-08-07) — same guarded-MCP theme as TD-110's dispatch-level `GuardChain` seam; decide at 0.27 PRD re-scoping whether the per-project MCP curation surface rides that milestone.
+**Candidate**: 0.27 Phase A (flagged 2026-08-07). The guarded-MCP theme it shared with TD-110 is now half-shipped: 0.25's dispatch seam guards the *inbound* host surface, and this item is the untouched *outbound* half — a one-shot agent's inherited provider-global MCP servers never reach that seam. Decide at 0.27 PRD re-scoping whether the per-project MCP curation surface rides that milestone.
 
 ## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
 
 **Status**: Scheduled 2026-08-07 (owner) – folded into 0.25 story S14 "Instance-local storage hygiene" (`dartclaw-private/docs/specs/0.25/s14-instance-local-storage-hygiene.md`, PRD FR13); close when S14 ships
 **Severity**: Low (conceptual cleanliness; zero operational impact today)
 **Found**: 2026-08-07, owner design discussion during 0.25 rider planning
-**Affects**: `packages/dartclaw_storage/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_storage/lib/src/storage/webhook_delivery_store.dart`, their open sites in `apps/dartclaw_cli/.../storage_wiring.dart` and `packages/dartclaw_server/lib/src/server.dart`
+**Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `apps/dartclaw_cli/.../storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
 
 **Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
 
 **Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the existing 0.25 rider story S14 (keeping the plan at 14 stories) rather than a new story: filesystem stores with fault-injection parity against the current suites, Windows rename coverage, tightened sqlite3-import fitness check, and an ADR-045 #3/Q4 mechanism amendment (locality rationale unchanged).
 
-## TD-110 – KG MCP write tools sit outside the guard pipeline with no audit trail; `kg_invalidate` id is unscoped
+## TD-110 (resolved) – MCP guard/audit was wired per tool, not at dispatch
 
-**Severity**: Medium (security / auditability – decision made, implementation pending)
-**Found**: 2026-05-30 0.17 S03 knowledge-systems remediation (claude review S-1)
-**Affects**: `packages/dartclaw_server/lib/src/mcp/kg_tools.dart`; `service_wiring_mcp_tools.dart`
-**Target**: 0.27 (Knowledge Interop & Steward, Phase A – shifted 2026-08-07 from 0.25)
+**Status**: Resolved 2026-08-20 – 0.25 story S19 "Guarded MCP dispatch seam". Kept here only until the next backlog cleanup.
 
-**Context**: `kg_add`/`kg_invalidate` are registered with no `contentGuard` and no audit logging, and MCP `tools/call` dispatch does not traverse `GuardChain`; `kg_invalidate` accepts an arbitrary integer id with no session/ownership check. The PRD claims KG writes are logged via existing audit infrastructure, which is not wired.
+**Resolution**: The dispatch-level enforcement the 2026-07-29 decision called for shipped in 0.25, not 0.27:
+`McpProtocolHandler` guard-evaluates and audits every inbound `tools/call` at one seam, for every registered tool, and
+`McpTool` carries a required read/write classification. See [ADR-009](../adrs/009-internal-mcp-server.md) § Amendment
+(0.25) and `dev/architecture/security-architecture.md`.
 
-**Decision**: made (operator, 2026-07-29): dispatch-level enforcement – bring MCP `tools/call` dispatch under `GuardChain` at one seam (all write-capable tools, not just KG), wire KG writes/invalidations into the existing audit sink, add an ownership/scope check on `kg_invalidate` ids. ADR to be authored in the 0.27 milestone. Note: the affected wiring files may move under the 0.25 storage refactor – re-verify paths at 0.27 planning.
-
-**Fix**: Implement the dispatch-level guard traversal + audit wiring + `kg_invalidate` ownership check per the decision above.
-
-**Trigger**: scheduled – 0.27 Phase A (this is the enforcement point for the 0.27 steward workflow's human-acceptance invariant).
+**Correction to this entry's original text**: two of its three claims were already stale when re-read. `kg_add` and
+`kg_invalidate` had guard evaluation and audit wired per-tool, and `kg_invalidate` already scoped by fact ownership
+(`kg.ownerForFact`). The real residue — and what S19 closed — was that enforcement was *per-tool*, covering 2 of 13
+registered tools, so any tool added without that plumbing was silently unguarded.
 
 **References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
 
-Last reviewed: 2026-07-29
-
----
-
-## TD-108 – Slash-command discovery is session-type aware, not permission/capability aware
-
-**Severity**: Medium (decision needed – no differentiated command-permission model exists in 0.17)
-**Found**: 2026-05-30 0.17 mixed review (codex F-009)
-**Affects**: `packages/dartclaw_server/lib/src/api/session_routes.dart` (`_availableCommands`); `Session` model; S08 chat composer FIS
-
-**Context**: `GET /api/sessions/<id>/commands` (`_availableCommands`) returns a constant workflow command list gated only on session type (empty for archive/task) and handler presence. The `Session` model has no permission field; command gating is enforced at execution time via guards, not at discovery time. The S08 FIS (`dev/bundle/docs/specs/0.17/fis/s08-chat-composer.md` lines 25, 220) requires command availability to "vary by permissions", which the current discovery path cannot satisfy.
-
-**Decision required**: either build a session/user command-permission model that `_availableCommands` consults, or narrow the S08 FIS to drop the per-permission availability requirement. Cannot be resolved without that product/requirements decision.
-
-**Trigger**: S08 chat composer implementation needs permission-varying command lists, or a differentiated command-permission model is introduced.
-
-**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-codex-2026-05-30-5.md` finding F-009.
-
-Last reviewed: 2026-05-30
+Last reviewed: 2026-08-20
 
 ---
 
@@ -278,7 +259,7 @@ Last reviewed: 2026-05-18
 
 **Severity**: Low (architectural smell – accounting state mixed with declarative config)
 **Found**: Workflow E2E test + runtime code review (2026-04-28; finding M11)
-**Affects**: `packages/dartclaw_core/lib/src/task/task.dart` (configJson surface), `packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart` and `packages/dartclaw_server/lib/src/task/task_executor.dart` (writers), `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` `_tokenMetric` helper (reader), preserved-artifact JSON schema downstream of S25.
+**Affects**: `packages/dartclaw_core/lib/src/task/task.dart` (configJson surface), `packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart` and `packages/dartclaw_runtime/lib/src/task/task_executor.dart` (writers), `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` `_tokenMetric` helper (reader), preserved-artifact JSON schema downstream of S25.
 
 **Context**: Per-step workflow token accounting (`_workflowInputTokensNew`, `_workflowCacheReadTokens`, `_workflowOutputTokens`) is stored on `Task.configJson` with underscore-prefixed keys to keep them out of the canonical config surface. Mixing accounting state with declarative config is a real smell – convention-by-prefix instead of type system, no compile-time enforcement that readers go through the right helper, and refactoring is hand-wavy because every consumer has to know the prefix dance.
 
@@ -294,17 +275,17 @@ Last reviewed: 2026-05-18
 
 ## TD-029 – Global template loader remains process-global
 
-**0.16.5 disposition**: **Carry forward (S23 triage decision).** `TemplateLoaderService` already exists as a real class in `packages/dartclaw_server/lib/src/templates/loader.dart`; the seam (class-vs-singleton) is the load-bearing piece and that already shipped. Adding the `@Deprecated('use injected TemplateLoaderService')` annotation to the global `templateLoader` getter would emit `deprecated_member_use_from_same_package` at every consumer site, cascading under `dart analyze --fatal-infos` – out of scope for housekeeping. Defer the deprecation push to a natural caller-migration window.
+**0.16.5 disposition**: **Carry forward (S23 triage decision).** `TemplateLoaderService` already exists as a real class in `packages/dartclaw_runtime/lib/src/templates/loader.dart`; the seam (class-vs-singleton) is the load-bearing piece and that already shipped. Adding the `@Deprecated('use injected TemplateLoaderService')` annotation to the global `templateLoader` getter would emit `deprecated_member_use_from_same_package` at every consumer site, cascading under `dart analyze --fatal-infos` – out of scope for housekeeping. Defer the deprecation push to a natural caller-migration window.
 
 **Severity**: Low (testability and coupling)
 **Found**: 0.4 review (AS-6)
-**Affects**: `packages/dartclaw_server/lib/src/templates/loader.dart`, template rendering call sites
+**Affects**: `packages/dartclaw_runtime/lib/src/templates/loader.dart`, template rendering call sites
 
 **Context**: The old `late` initialization footgun has been reduced: the loader now uses a nullable backing field, throws a clearer `StateError`, and tests can call `resetTemplates()`. The `TemplateLoaderService` class shape exists; what remains is migrating render call sites away from the `templateLoader` global getter.
 
-**Fix**: Add `@Deprecated('use injected TemplateLoaderService')` to the global getter and migrate `ServerBuilder` / page-render call sites to receive an injected instance. The cascading caller migration is the bulk of the work.
+**Fix**: Add `@Deprecated('use injected TemplateLoaderService')` to the global getter and migrate `composeServer` / page-render call sites to receive an injected instance. The cascading caller migration is the bulk of the work.
 
-**Trigger**: Next time template loading or server boot wiring (`ServerBuilder`, `lib/src/web/pages/`) is materially refactored – the deprecation push then rides along with the natural caller-touching work instead of becoming its own cascade.
+**Trigger**: Next time template loading or server boot wiring (`server_composition.dart`, `lib/src/web/pages/`) is materially refactored – the deprecation push then rides along with the natural caller-touching work instead of becoming its own cascade.
 
 Last reviewed: 2026-05-18
 
@@ -314,7 +295,7 @@ Last reviewed: 2026-05-18
 
 **Severity**: Medium (feature friction and lifecycle rigidity)
 **Found**: 0.14.1 workshop polish plan review (2026-03-24)
-**Affects**: `packages/dartclaw_server/lib/src/task/task_executor.dart`, `packages/dartclaw_server/lib/src/task/task_review_service.dart`, `packages/dartclaw_models/lib/src/task_status.dart`
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_kernel/lib/src/task_status.dart`
 
 **Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine also does not permit `running -> accepted`, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
 
@@ -328,15 +309,17 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-065 – Polymorphic `TaskExecutionStrategy` (workflow-vs-interactive branch remains imperative after S16)
+## TD-065 – CLOSED 2026-08-23 – Polymorphic `TaskExecutionStrategy`
 
 **Severity**: Low (maintainability, testability)
 **Found**: 2026-04-21 workflow↔task boundary review (pre-ADR-023 drafting)
-**Affects**: `packages/dartclaw_server/lib/src/task/task_executor.dart`, `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/workflow_cli_runner.dart`
 
 **Context**: `TaskExecutor._executeCore` branches on `_isWorkflowOrchestrated(task)` to route workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` (via `WorkflowCliRunner`) under a capacity-only lease instead of the normal reusable-worker turn path. After 0.16.5 S16 decomposes `task_executor.dart`, the branch becomes two methods on `_TaskTurnRunner` (`runWorkflowOneShot` / `runNormal`) – a structural improvement, but the `if (_isWorkflowOrchestrated(task))` dispatch still lives in `_executeCore` as an imperative statement, and the two execution strategies sit on the same concrete class rather than behind a polymorphic interface.
 
 **Current state**: Acceptable. One branch with two clear destinations is not a maintenance burden today. ADR-023 names the branch as intentional; S28's fitness test guards the package boundary below it.
+
+**Resolution**: Workflow steps now acquire the same coordinator-managed worker shape as other background tasks and run their bounded prompt chain through its guarded `TurnRunner`. The provider-specific strategy split and `WorkflowCliRunner` named by this proposal no longer exist, so the proposed abstraction has no remaining subject.
 
 **Fix**: Introduce an abstract `TaskExecutionStrategy` interface with `WorkflowOneShotStrategy` and `InteractiveStrategy` implementations. `TaskExecutor._selectStrategy(task)` picks once at the start of `_executeCore`, and the hot path becomes `await strategy.execute(...)` with no conditional. Estimated ~80 LOC, low risk (pure delegation, no behaviour change), covered by existing task-execution tests.
 
@@ -348,17 +331,17 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-070 – `WorkflowCliRunner` lives in `dartclaw_server` despite being workflow/task boundary infrastructure
+## TD-070 – CLOSED 2026-08-23 – `WorkflowCliRunner` placement
 
 **Severity**: Medium (maintainability)
 **Found**: 0.16.4 final baseline review remediation (2026-04-30 05:20 CEST); narrowed 2026-05-16 (LOC/race/resume closed in S15) and 2026-05-28 (S34-tracked typed-config surface closed; only the S31-tracked runner location remains)
-**Affects**: `packages/dartclaw_server/lib/src/task/workflow_cli_runner.dart`
+**Affects**: `packages/dartclaw_runtime/lib/src/task/workflow_cli_runner.dart`
 
-**Context**: Of the original carry-overs, three closed in S15 (executor LOC decomposition, `_waitForTaskCompletion` race, map/foreach resume cursor) and the typed `_workflow*` task-config surface closed in S34 (`WorkflowTaskConfig` constants + `readMergeResolveEnv`, with the two server-side reads now routing through it). The remaining residual is structural: `WorkflowCliRunner` still lives in `dartclaw_server` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
+**Context**: Of the original carry-overs, three closed in S15 (executor LOC decomposition, `_waitForTaskCompletion` race, map/foreach resume cursor) and the typed `_workflow*` task-config surface closed in S34 (`WorkflowTaskConfig` constants + `readMergeResolveEnv`, with the two server-side reads now routing through it). The remaining residual is structural: `WorkflowCliRunner` still lives in `dartclaw_runtime` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
 
 **Decision (2026-06-27, [ADR-043](../adrs/043-cli-task-execution-provider-placement.md))**: **defer — keep status quo.** The unit is a self-contained cluster (`workflow_cli_runner` + `cli_provider` + `claude_cli_provider` + `codex_cli_provider` + `cli_process_supervisor`) importing only core/config/security, so relocation is dependency-feasible but unjustified at the current low severity: the cleanest home (a dedicated `dartclaw_task` package) trips the `arch_check` package-count ceiling (14→15), and moving into `dartclaw_workflow` conflates the control plane with CLI execution. No code change. This entry stays open, pinned to the ADR.
 
-**Fix**: Deferred per ADR-043. Revisit on the trigger below; prefer the dedicated-package option and accept the ceiling bump when it fires.
+**Resolution**: The ADR-043 reopen trigger fired during the guarded-harness workflow refactor. The one-shot provider cluster was deleted rather than relocated, so no dedicated package or ceiling change was required. See ADR-043's 2026-08-23 amendment.
 
 **Trigger**: a second production consumer of the cluster; a dependency-cycle pressure that forces the seam; or a broader task-execution/harness-layer refactor that makes the relocation incidental rather than standalone churn.
 
@@ -380,32 +363,84 @@ Last reviewed: 2026-06-27
 
 **Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).
 
-## TD-122 – Workflow one-shot steps bypass the guard chain entirely
-
-**Severity**: High (on a default install, a workflow step's only tool gating is its own `allowedTools` allow-list)
-**Found**: 2026-08-18, verified from the Lean Runtime handoff's 0.24.2 candidate list
-**Affects**: `packages/dartclaw_server/lib/src/task/task_executor.dart` (`_isWorkflowOrchestrated` routing), `task/workflow_one_shot_runner.dart`, `task/cli_provider.dart`, `task/claude_cli_provider.dart`, `task/codex_cli_provider.dart`
-
-**Context**: `task_executor` routes a workflow-orchestrated task to `_workflowOneShotRunner`, which spawns the provider CLI directly. A repo-wide sweep for `GuardChain` / `TurnGuardEvaluator` / `evaluateGuards` across that whole path returns exactly one hit — a comment in `claude_cli_provider.dart` conceding the gap. So `CommandGuard`, `FileGuard`, `NetworkGuard`, `ContentGuard`, `InputSanitizer`, and the guard audit log never evaluate a workflow step. What does constrain it: the step's `allowedTools` allow-list rendered into `--settings permissions.allow`, the read-only deny patterns, the denied native web tools, and container isolation when enabled. A step declaring no `allowedTools` and running outside a container builds no policy at all (`_ClaudeTaskPolicy.hasPolicy == false`) and is bounded only by the provider's defaults.
-
-**Why not fixed in 0.24.2**: the guard chain reaches the long-lived harness through the bidirectional control protocol (`--input-format stream-json` plus `hook_pre_tool` callbacks). The one-shot spawn is `--output-format stream-json` **output-only**, so there is no channel for a guard verdict to travel on, and `TurnGuardEvaluator` is additionally session-shaped (it needs `MessageService`/`SessionService` and inserts blocked-turn messages). Attaching it is not a wiring change.
-
-**Needs decision**: merge the one-shot and harness execution stacks (tracked as B2 in the private Lean Runtime brief), or give the one-shot path its own guard evaluation channel. Either is an architecture decision, not an incremental fix.
-
-**Mitigated in 0.24.2**: the container-disabled startup warning now says guards are not the boundary for workflow one-shot steps and names what is, and `docs/guide/security.md` § Guard System documents the exclusion and the safe configuration (container isolation + explicit `allowedTools` per step).
-
-Last reviewed: 2026-08-18
-
 ## TD-123 – Google Chat Space Events (Pub/Sub) inbound path applies no access control
 
 **Severity**: Medium (opt-in path only – no shipped config enables it; when enabled, inbound Pub/Sub messages reach the agent with no DM, group, or mention gating)
 **Found**: 2026-08-19, during 0.25 Lean Runtime planning (FR13 shared-channel-base analysis)
-**Affects**: `packages/dartclaw_google_chat/lib/src/google_chat_space_events_wiring.dart:112`, `cloud_event_adapter.dart`, contrast with `google_chat_webhook.dart`
+**Affects**: `packages/dartclaw_google_chat/lib/src/google_chat_space_events_wiring.dart:116`, `cloud_event_adapter.dart`, contrast with `google_chat_webhook.dart`
 
 **Context**: the Space Events wiring reaches `handleInboundMessage` directly, with no group-access check, no DM-access check, and no mention gating; `cloud_event_adapter.dart` applies no access control either. The HTTP webhook path (`google_chat_webhook.dart`) does gate. The 0.25 package review recorded Google Chat as "running the same pipeline twice more", which overstates it by one copy and obscures that one of the paths runs no pipeline at all. Reachable only with `space_events.enabled: true`; no example or testing-profile config sets it.
 
 **Needs decision**: whether the Pub/Sub path is *intended* to bypass gating (e.g. because Workspace Events subscriptions are themselves scoped per space) or whether it should adopt the same inbound gate as the webhook path. Adopting the gate is a behaviour change for anyone running the opt-in path, so it cannot ride the 0.25 FR13 extraction, which is behaviour-preserving.
 
-**Not fixed in 0.25**: FR13's shared inbound gating pipeline (plan story S46) explicitly preserves this path as-is under a named criterion, so the extraction cannot silently alter access control. The Google Chat package re-cut (story S35) records it as a NOTICED item.
+**Not fixed in 0.25**: FR13's shared inbound gating pipeline (plan story S46) explicitly preserves this path as-is under a named criterion, so the extraction cannot silently alter access control. The Google Chat package re-cut (story S35) and Space Events absorption (story S84) preserve it.
 
 Last reviewed: 2026-08-19
+
+## TD-124 – Webhook HTTP helpers have two package owners
+
+**Severity**: Low (the copies are behaviorally identical, but changes can drift)
+**Found**: 2026-08-21, during Google Chat ingress package absorption
+**Affects**: `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`, `packages/dartclaw_google_chat/lib/src/webhook_http_support.dart`
+
+**Context**: Google Chat's package-owned webhook consumes the bounded request read and failed-auth event helper, while
+other server webhooks still consume the existing server copies. Moving them below both packages would give a lower tier
+a `shelf` dependency; adding a dedicated HTTP-support package would add a new package and dependency edge for four small
+symbols.
+
+**Needs decision**: decide whether a lower tier may depend on `shelf`, or whether a dedicated HTTP-support seam is
+justified. Until then, keep both implementations behaviorally identical.
+
+Last reviewed: 2026-08-21
+
+## TD-134 – Two write-path halves remain: the load sweep is blind below an entry key, and a section PATCH still replaces wholesale
+
+**Severity**: Medium (a typo inside an operator-named entry is accepted silently at load; a partial section write deletes the entries it omits)
+**Found**: 2026-08-20, during the 0.25 config constraint-evaluator work. **Narrowed 2026-08-28** once the entry-shape half was closed.
+**Affects**: `DartclawConfig.load`'s unknown-key sweep (`packages/dartclaw_kernel/lib/src/config_accept_set.dart`, `config_parser.dart`), `ConfigWriter`, `PATCH /api/config`
+
+**Closed on 2026-08-28**: the declared entry shape now has a production consumer. `ConfigValidator` descends into every `objectMap` / `objectList` field and judges each entry's *declared* keys through the one `FieldConstraints` evaluator, on the same single validation pass, so a per-entry key that decides placement or posture (`agent.agents.<id>.execution`, `providers.<id>.approval`) is refused at write time instead of at the next boot. The bespoke per-trigger checks in `_validateGitHubRequirements` were deleted as a second answer to the same question — they also refused a config the loader accepts, since `event` and `workflow` default when omitted.
+
+**What remains, and why each is its own decision:**
+
+1. **The load sweep stops at a registered path rather than descending into it**, because `ProviderEntry.options` absorbs unnamed `providers.<id>` keys by design and `dartclaw init` writes `auth_method` / `model` there — descending would refuse a config DartClaw writes itself. So `providers.claude.pool_sizee` and `agent.agents.x.toolz` are still accepted silently at load. `ConfigValidator` is a write-path authority (the config API, the settings form, `ConfigWriter`) and is not consulted by `DartclawConfig.load`, so the entry-shape pass does not reach this.
+2. **Undeclared keys inside an entry are accepted, deliberately.** No `ConfigEntryShape` declares whether an entry is closed, and several are open on purpose. Refusing them needs a per-entry openness axis on the shape — the same declaration (1) needs.
+3. **A section `PATCH` still replaces the whole YAML node**, so a write of `providers` deletes every entry it does not carry. Validating an entry's contents cannot see an entry that is absent; refusing this needs either merge semantics for object-valued sections or a comparison against current state, neither of which the validator has.
+
+**Needs decision**: whether `ConfigEntryShape` gains a per-entry openness declaration — which would close (1) and (2) together by letting the load sweep descend exactly as far as a shape says it may — and separately whether a partial `PATCH` of an object-valued section merges rather than replaces.
+
+Last reviewed: 2026-08-28
+
+## TD-135 – The unit suite cannot execute on Windows, while Windows-semantics tests live inside it
+
+**Severity**: Medium (no current breakage — CI is `ubuntu-latest` — but the platform-specific tests the suite carries
+for Windows are unrunnable there, so their evidence is asserted rather than observed)
+**Found**: 2026-08-28, during the 0.25 live verification, running the two `posixSignalsAvailable`-gated tests on a
+real Windows 11 VM (arm64, Dart 3.13.2, `dart pub get` + `embed_assets` both clean)
+**Affects**: `packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart`,
+`packages/dartclaw_workflow/test/workflow/workflow_executor_test_support.dart`,
+`dev/testing/profiles/windows-runtime/run.ps1` (source mode), any suite opening SQLite
+
+**Observed**: `dart test packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart` on Windows gives
+**23 pass / 2 skip / 32 fail**, in two distinct kinds:
+
+1. **SQLite is unavailable.** `WorkflowExecutorHarness.setUp` dies at `sqlite3_initialize` →
+   `LateInitializationError: Field 'taskService' has not been initialized`. Windows resolves the module from
+   `.dart_tool/lib/sqlite3.dll`, and **no repo tooling provisions that file** — not `dart pub get`, not any build
+   script. The release bundle carries `lib/sqlite3.dll`, which is why artifact mode works and source mode does not.
+   This blocks the two Windows-only tests the gate wanted (`bash step timeout pauses workflow`) as collateral: they
+   are correctly not skipped, they start, and they die in setup.
+2. **Ungated POSIX assumptions.** Tests such as "POSIX bash step executes through `/bin/sh` and captures stdout"
+   carry no platform gate and cannot pass on Windows by construction.
+
+By contrast `packages/dartclaw_core/test/harness/process_lifecycle_test.dart` — which opens no database — passes
+natively 11/11, including "native Windows shutdown fails closed without an ownership-safe tree terminator". So the
+Windows-only evidence *is* obtainable where SQLite is not in the way.
+
+**Needs decision**: whether the unit suite is meant to run on Windows at all. If yes, it needs a provisioning step for
+the Windows SQLite module (and the ungated `/bin/sh` tests need gates or POSIX-neutral equivalents). If no, the
+`posixSignalsAvailable`-gated tests are unreachable evidence and should either move to a suite that can run there or
+be retired in favour of the `windows-runtime` profile. Either way the choice is a product/CI-scope decision, not a
+local fix.
+
+Last reviewed: 2026-08-28

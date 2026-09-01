@@ -1,0 +1,2227 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
+import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart'
+    show SessionLockManager, SessionLockTimerFactory;
+import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunnerExecution;
+import 'package:dartclaw_runtime/src/turn_wait_status.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
+import 'package:fake_async/fake_async.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
+import 'package:test/test.dart';
+
+import 'turn_runner_test_support.dart';
+
+TurnRunner _buildRunner({
+  required AgentHarness harness,
+  required MessageService messages,
+  required String workspaceDir,
+  SessionService? sessions,
+  required TurnStateStore turnState,
+  required KvService kvService,
+  SessionResetService? resetService,
+  String providerId = 'claude',
+  Duration stallTimeout = Duration.zero,
+  TurnProgressAction stallAction = TurnProgressAction.warn,
+  Duration turnTimeout = const Duration(minutes: 30),
+  EventBus? eventBus,
+  SelfImprovementService? selfImprovement,
+  GuardChain? guardChain,
+  TaskToolFilterGuard? taskToolFilterGuard,
+  SessionLockTimerFactory? turnMonitorTimerFactory,
+  DateTime Function()? turnMonitorNow,
+  MemoryFileService? memoryFile,
+  MessageRedactor? redactor,
+  SessionLockManager? lockManager,
+}) {
+  return TurnRunner(
+    turnLimits: TurnLimitsConfig(stallTimeout: stallTimeout, stallAction: stallAction, turnTimeout: turnTimeout),
+    harness: harness,
+    messages: messages,
+    behavior: BehaviorFileService(workspaceDir: workspaceDir),
+    sessions: sessions,
+    turnState: turnState,
+    kv: kvService,
+    resetService: resetService,
+    providerId: providerId,
+    eventBus: eventBus,
+    selfImprovement: selfImprovement,
+    guardChain: guardChain,
+    taskToolFilterGuard: taskToolFilterGuard,
+    turnMonitorTimerFactory: turnMonitorTimerFactory,
+    turnMonitorNow: turnMonitorNow,
+    memoryFile: memoryFile,
+    redactor: redactor,
+    lockManager: lockManager,
+  );
+}
+
+class _ObservingSessionLockManager extends SessionLockManager {
+  void Function()? beforeRelease;
+
+  @override
+  void release(String sessionId) {
+    beforeRelease?.call();
+    super.release(sessionId);
+  }
+}
+
+class _TurnMonitorFakeTime {
+  static final _initialTime = DateTime(2026);
+  final _async = FakeAsync(initialTime: _initialTime);
+
+  DateTime now() => _async.getClock(_initialTime).now();
+
+  Timer create(Duration duration, void Function() callback) => _async.run((_) => Timer(duration, callback));
+
+  Future<void> elapseAsync(Duration duration) async {
+    await pumpEventQueue();
+    _async.elapse(duration);
+    await pumpEventQueue();
+  }
+}
+
+void main() {
+  late Directory tempDir;
+  late String sessionsDir;
+  late String workspaceDir;
+  late SessionService sessions;
+  late MessageService messages;
+  late FakeAgentHarness worker;
+  late TurnRunner runner;
+  late Database turnStateDb;
+  late TurnStateStore turnState;
+  late KvService kvService;
+  late _TurnMonitorFakeTime turnMonitorTime;
+
+  setUp(() async {
+    tempDir = Directory.systemTemp.createTempSync('dartclaw_turn_runner_test_');
+    sessionsDir = p.join(tempDir.path, 'sessions');
+    workspaceDir = p.join(tempDir.path, 'workspace');
+    Directory(sessionsDir).createSync(recursive: true);
+    Directory(workspaceDir).createSync(recursive: true);
+
+    sessions = SessionService(baseDir: sessionsDir);
+    messages = MessageService(baseDir: sessionsDir);
+    worker = FakeAgentHarness();
+    turnStateDb = sqlite3.openInMemory();
+    turnState = TurnStateStore(turnStateDb);
+    kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
+    turnMonitorTime = _TurnMonitorFakeTime();
+    runner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+  });
+
+  tearDown(() async {
+    await messages.dispose();
+    await worker.dispose();
+    await turnState.dispose();
+    await kvService.dispose();
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
+  TurnRunner monitoredRunner(
+    AgentHarness harness, {
+    EventBus? eventBus,
+    SelfImprovementService? selfImprovement,
+    TaskToolFilterGuard? taskToolFilterGuard,
+  }) {
+    return _buildRunner(
+      harness: harness,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      turnMonitorTimerFactory: turnMonitorTime.create,
+      turnMonitorNow: turnMonitorTime.now,
+      eventBus: eventBus,
+      selfImprovement: selfImprovement,
+      taskToolFilterGuard: taskToolFilterGuard,
+    );
+  }
+
+  TurnRunner dailyLogRunner(MemoryFileService memoryFile) => _buildRunner(
+    harness: worker,
+    messages: messages,
+    workspaceDir: workspaceDir,
+    sessions: sessions,
+    turnState: turnState,
+    kvService: kvService,
+    memoryFile: memoryFile,
+  );
+
+  test('reserves turn and returns turnId', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.reserveTurn(session.id);
+
+    expect(turnId, isNotEmpty);
+    expect(runner.isActive(session.id), isTrue);
+    expect(runner.activeTurnId(session.id), turnId);
+    expect(runner.activeSessionIds, contains(session.id));
+
+    // Execute the turn to complete it properly (releaseTurn fires an error on
+    // the outcome completer which propagates as an unhandled async error).
+    scheduleTurnCompletion(worker, responseText: 'ok');
+    runner.executeTurn(session.id, turnId, [
+      {'role': 'user', 'content': 'test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('executes turn and produces TurnOutcome.completed', () async {
+    scheduleTurnCompletion(worker, responseText: 'Hello from runner!');
+    final session = await sessions.getOrCreateMainSession();
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Hi');
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Hi'},
+    ]);
+
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.responseText, 'Hello from runner!');
+    expect(runner.isActive(session.id), isFalse);
+  });
+
+  test('redacts a secret-shaped assignment value and the prose that follows it', () async {
+    final redactingRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      redactor: MessageRedactor(),
+    );
+    scheduleTurnCompletion(
+      worker,
+      responseText:
+          'password=secret and then restart the service.\n'
+          'Password: "correct horse battery".\n'
+          'wrapper: {encryption_key: opaque-encryption-key, JWTSigningKey: opaque-jwt-key, '
+          'RSAEncryptionKey: opaque-rsa-key}\n'
+          '{"access_tokens":["alpha","beta"]}',
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await redactingRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Show the safe instructions'},
+    ]);
+    final outcome = await redactingRunner.waitForOutcome(session.id, turnId);
+
+    const expected =
+        'password=***.\n'
+        'Password: ***.\n'
+        'wrapper: {encryption_key: ***, JWTSigningKey: ***, RSAEncryptionKey: ***}\n'
+        '{"access_tokens":"***"}';
+    expect(outcome.responseText, expected);
+    expect((await messages.getMessages(session.id)).single.content, expected);
+  });
+
+  test('post-provider persistence has one non-cancellable settlement owner', () async {
+    final guardStarted = Completer<void>();
+    final releaseGuard = Completer<void>();
+    final guard = FakeGuard(
+      evaluator: (context) async {
+        if (context.hookPoint == 'beforeAgentSend') {
+          guardStarted.complete();
+          await releaseGuard.future;
+        }
+        return GuardVerdict.pass();
+      },
+    );
+    final settlingRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      guardChain: GuardChain(guards: [guard]),
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('settled response'));
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await settlingRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'settle safely'},
+    ]);
+    await guardStarted.future;
+
+    expect(settlingRunner.turnStatus(session.id).canCancel, isFalse);
+    await expectLater(
+      settlingRunner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false),
+      throwsA(isA<TurnCancelException>()),
+    );
+    var lifecycleCancelCompleted = false;
+    final lifecycleCancel = settlingRunner.cancelTurn(session.id).then((_) => lifecycleCancelCompleted = true);
+    await pumpEventQueue();
+    expect(lifecycleCancelCompleted, isFalse);
+
+    releaseGuard.complete();
+    await lifecycleCancel;
+    final outcome = await settlingRunner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect((await messages.getMessages(session.id)).single.content, 'settled response');
+  });
+
+  test('daily logs retain complete human turns and exclude every system session type', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+      redactor: MessageRedactor(extraPatterns: [r'custom_credential=[^,\s)]+']),
+    );
+
+    Future<void> runToolTurn(
+      SessionType type,
+      String response, {
+      List<ToolUseEvent>? toolEvents,
+      String? userMessage,
+      String? sessionTitle,
+    }) async {
+      final session = await sessions.createSession(type: type);
+      if (sessionTitle != null) await sessions.updateTitle(session.id, sessionTitle);
+      unawaited(() async {
+        await worker.turnInvoked;
+        for (final event
+            in toolEvents ??
+                [
+                  ToolUseEvent(toolName: 'shell', toolId: 'tool-${type.name}', input: {'command': 'inspect workspace'}),
+                ]) {
+          worker.emit(event);
+        }
+        worker.emit(DeltaEvent(response));
+        await pumpEventQueue();
+        worker.completeSuccess(turnResult());
+      }());
+      final turnId = await logRunner.startTurn(session.id, [
+        {'role': 'user', 'content': userMessage ?? 'Run ${type.name} turn'},
+      ], source: type.name);
+      await logRunner.waitForOutcome(session.id, turnId);
+    }
+
+    await runToolTurn(SessionType.main, 'Main conversation result');
+    await runToolTurn(SessionType.channel, 'Channel conversation result');
+    final completeSummary = 'Human-facing summary ${'with complete detail ' * 10}'.trim();
+    final structuredSecretCases = [
+      (key: 'api_keys', value: 'opaque-api-keys'),
+      (key: 'secret_key', value: 'opaque-secret-key'),
+      (key: 'secrets', value: 'opaque-secrets'),
+      (key: 'access_tokens', value: 'opaque-access-tokens'),
+      (key: 'passwords', value: 'opaque-passwords'),
+      (key: 'authorizations', value: 'opaque-authorizations'),
+      (key: 'cookies', value: 'opaque-cookies'),
+      (key: 'credentials', value: 'opaque-credentials'),
+      (key: 'private_keys', value: 'opaque-private-keys'),
+      (key: 'POSTGRES_PASSWORD', value: 'opaque-postgres-password'),
+      (key: 'GITHUB_TOKEN', value: 'opaque-github-token'),
+      (key: 'SERVICE_CREDENTIALS', value: 'opaque-service-credentials'),
+      (key: 'refreshTokens', value: 'opaque-refresh-token'),
+      (key: 'AWS_SECRET_ACCESS_KEY', value: 'opaque-aws-secret-key'),
+      (key: 'encryption_key', value: 'opaque-encryption-key'),
+      (key: 'signingKey', value: 'opaque-signing-key'),
+      (key: 'JWTSigningKey', value: 'opaque-jwt-signing-key'),
+      (key: 'RSAEncryptionKey', value: 'opaque-rsa-encryption-key'),
+    ];
+    final safeStructuredCases = [
+      (key: 'credential_mode', value: 'safe-credential-mode'),
+      (key: 'secret_keeper', value: 'safe-secret-keeper'),
+      (key: 'token_count', value: 'safe-token-count'),
+      (key: 'max_tokens', value: 'safe-max-tokens'),
+      (key: 'completion_tokens', value: 'safe-completion-tokens'),
+      (key: 'password_policy', value: 'safe-password-policy'),
+      (key: 'hasPrivateKey', value: false),
+      (key: 'requiresDatabasePassword', value: false),
+      (key: 'supportsClientSecret', value: true),
+      (key: 'isSetCookie', value: false),
+    ];
+    await runToolTurn(
+      SessionType.user,
+      '$completeSummary Bearer result-secret-token Reset your password: use Settings, then sign in again.\n'
+      'POSTGRES_PASSWORD=result secret suffix max_tokens=8192\n'
+      'password=result-secret and then restart the service.\n'
+      'Password: "correct horse battery".\nToken: result-token',
+      userMessage:
+          'Use sk-ant-daily-log-secret and access_tokens=correct horse battery max_tokens=4096\n'
+          'Authorization: Basic dXNlci11c2VyLXNlY3JldA==\n'
+          'Inline api_key: user-inline-secret\n'
+          'My password: "inline password passphrase"\n'
+          'Credentials are Token: inline-token-secret\n## forged user',
+      sessionTitle: 'password=title secret suffix\n## forged title',
+      toolEvents: [
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-first',
+          input: {'path': 'notes.md', 'content': 'first\n paragraph'},
+        ),
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-second',
+          input: {'path': 'notes.md', 'content': 'second\n paragraph'},
+        ),
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'tool-write-secret',
+          input: {
+            'first': 'sk_test_first-field-secret',
+            'nested': {'password': 'nested-field-secret'},
+            'last': 'api_key=last-field-secret',
+            'credentialJson':
+                '{"password":"json-password-secret","Token":"json-token-secret",'
+                '"api_key":"json-api-secret","max_tokens":4096}',
+            'OPENAI_API_KEY': 'opaque-openai-secret',
+            'client_secret': 'opaque-client-secret',
+            'access_token': 'opaque-access-secret',
+            'custom_credential': 'contextual-secret',
+            'headers': {
+              'Authorization': 'Basic opaque-basic-credential',
+              'COOKIE': 'session=opaque-cookie-value',
+              'Set-Cookie': ['session=opaque-set-cookie', 'csrf=opaque-csrf-cookie'],
+            },
+            'nestedCredentials': [
+              {'proxyAuthorization': 'Basic opaque-proxy-credential'},
+              {'privateKey': 'opaque-private-key'},
+            ],
+            for (final secret in structuredSecretCases) secret.key: secret.value,
+            'structured': [
+              for (final secret in structuredSecretCases)
+                {
+                  'wrapper': {secret.key: '${secret.value}-nested'},
+                },
+            ],
+            for (final safe in safeStructuredCases) safe.key: safe.value,
+            'safeNested': {
+              'max_tokens': 'safe-nested-max-tokens',
+              'password_policy': 'safe-nested-password-policy',
+              'hasPrivateKey': false,
+              'supportsClientSecret': true,
+            },
+          },
+        ),
+        ToolUseEvent(toolName: 'shell', toolId: 'tool-collision-scalar', input: {'a': 'x, b=y'}),
+        // Same call, different tool id: the entry dedups on the encoded input.
+        ToolUseEvent(toolName: 'shell', toolId: 'tool-collision-scalar-repeat', input: {'a': 'x, b=y'}),
+        ToolUseEvent(toolName: 'shell', toolId: 'tool-collision-map', input: {'a': 'x', 'b': 'y'}),
+        ToolUseEvent(
+          toolName: 'shell\n## forged tool',
+          toolId: 'tool-multi-word-secret',
+          input: {'password': 'tool secret suffix', 'path': 'trailing-safe.md', 'ratio': double.infinity},
+        ),
+        ToolUseEvent(
+          toolName: 'shell',
+          toolId: 'tool-middle-secret',
+          input: {'path': 'leading-safe.md', 'token': 'middle secret suffix', 'mode': 'trailing-safe-mode'},
+        ),
+      ],
+    );
+    for (final type in [SessionType.cron, SessionType.task, SessionType.logicalAgent, SessionType.archive]) {
+      await runToolTurn(type, 'Excluded ${type.name} result');
+    }
+
+    final dailyLogs = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().toList();
+    expect(dailyLogs, hasLength(1));
+    final content = dailyLogs.single.readAsStringSync();
+    expect(content, contains('Main conversation result'));
+    expect(content, contains('Channel conversation result'));
+    expect(content, contains(completeSummary));
+    final toolSummaries = dailyLogToolSummaries(content);
+    expect(toolSummaries, contains(r'file_write({"path":"notes.md","content":"first\n paragraph"})'));
+    expect(toolSummaries, contains(r'file_write({"path":"notes.md","content":"second\n paragraph"})'));
+    expect(content, allOf(contains('Reset your password: ***.'), isNot(contains('Settings, then sign in again.'))));
+    expect(toolSummaries, anyElement(contains('"path":"trailing-safe.md"')));
+    expect(toolSummaries, anyElement(contains('"path":"leading-safe.md"')));
+    expect(toolSummaries, anyElement(contains('"mode":"trailing-safe-mode"')));
+    expect(content, contains('access_tokens=*** max_tokens=4096'));
+    expect(content, contains('Inline api_key: ***'));
+    expect(content, contains(r'My password: ***\nCredentials are Token: ***\n## forged user'));
+    expect(content, contains('POSTGRES_PASSWORD=*** max_tokens=8192'));
+    expect(content, contains('password=***.'));
+    expect(content, contains('Password: ***'));
+    expect(toolSummaries, anyElement(contains('"api_keys":"***"')));
+    expect(toolSummaries, anyElement(contains('"nested":{"password":"***"}')));
+    for (final key in ['encryption_key', 'signingKey', 'JWTSigningKey', 'RSAEncryptionKey']) {
+      expect(toolSummaries, anyElement(contains('"wrapper":{"$key":"***"}')), reason: key);
+    }
+    // Encoder edge cases: a non-finite number must not cost the entry, and a JSON-string's inner key survives.
+    expect(toolSummaries, anyElement(contains('"ratio":"Infinity"')));
+    expect(toolSummaries, anyElement(contains(r'\"max_tokens\":4096')));
+    // Two different inputs that once rendered identically stay two entries: the
+    // dedup key hashes the encoded input, not the rendered summary.
+    expect(toolSummaries.where((summary) => summary == 'shell({"a":"x, b=y"})'), hasLength(1));
+    expect(toolSummaries, contains('shell({"a":"x","b":"y"})'));
+    expect(content, contains('***'));
+    for (final secret in [
+      'title-secret',
+      'daily-log-secret',
+      'result-secret-token',
+      'first-field-secret',
+      'nested-field-secret',
+      'last-field-secret',
+      'opaque-openai-secret',
+      'opaque-client-secret',
+      'opaque-access-secret',
+      'contextual-secret',
+      'opaque-basic-credential',
+      'opaque-cookie-value',
+      'opaque-set-cookie',
+      'opaque-csrf-cookie',
+      'opaque-proxy-credential',
+      'opaque-private-key',
+      'correct horse battery',
+      'title secret suffix',
+      'tool secret suffix',
+      'middle secret suffix',
+      'result secret suffix',
+      'result title case passphrase',
+      'result-token',
+      'user-inline-secret',
+      'inline password passphrase',
+      'inline-token-secret',
+      'dXNlci11c2VyLXNlY3JldA==',
+      'json-password-secret',
+      'json-token-secret',
+      'json-api-secret',
+      for (final secret in structuredSecretCases) secret.value,
+    ]) {
+      expect(content, isNot(contains(secret)), reason: secret);
+    }
+    for (final safe in safeStructuredCases) {
+      expect(toolSummaries, anyElement(contains('"${safe.key}":${jsonEncode(safe.value)}')), reason: safe.key);
+    }
+    expect(toolSummaries, anyElement(contains('"max_tokens":"safe-nested-max-tokens"')));
+    expect(toolSummaries, anyElement(contains('"password_policy":"safe-nested-password-policy"')));
+    expect(toolSummaries, anyElement(contains('"hasPrivateKey":false')));
+    expect(toolSummaries, anyElement(contains('"supportsClientSecret":true')));
+    expect(RegExp(r'^## ', multiLine: true).allMatches(content), hasLength(3));
+    expect(content, contains(r'\n## forged user'));
+    expect(content, contains(r'\n## forged title'));
+    expect(content, contains(r'\n## forged tool'));
+    for (final type in [SessionType.cron, SessionType.task, SessionType.logicalAgent, SessionType.archive]) {
+      expect(content, isNot(contains('Excluded ${type.name} result')));
+    }
+  });
+
+  test('daily log tool serialization truncates adversarial depth, breadth, event count, and bytes', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = dailyLogRunner(memoryFile);
+
+    Future<void> runToolTurn(List<ToolUseEvent> toolEvents) async {
+      final session = await sessions.createSession(type: SessionType.user);
+      unawaited(() async {
+        await worker.turnInvoked;
+        for (final event in toolEvents) {
+          worker.emit(event);
+        }
+        worker.emit(DeltaEvent('Bounded result'));
+        await pumpEventQueue();
+        worker.completeSuccess(turnResult());
+      }());
+      final turnId = await logRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'Exercise log bounds'},
+      ]);
+      await logRunner.waitForOutcome(session.id, turnId);
+    }
+
+    final recursive = <String, dynamic>{};
+    recursive['self'] = recursive;
+    await runToolTurn([
+      ToolUseEvent(
+        toolName: 'bounded_structure',
+        toolId: 'bounded-structure',
+        input: {'deep': recursive, 'wide': List.generate(1000, (index) => 'item-$index')},
+      ),
+    ]);
+    await runToolTurn([
+      for (var index = 0; index < 100; index++)
+        ToolUseEvent(toolName: 'event_$index', toolId: 'event-$index', input: {'index': index}),
+    ]);
+    await runToolTurn([
+      ToolUseEvent(
+        toolName: 'bounded_bytes',
+        toolId: 'bounded-bytes',
+        input: {'content': '${'x' * (200 * 1024)}TAIL_SENTINEL'},
+      ),
+    ]);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single;
+    final content = dailyLog.readAsStringSync();
+    expect(content, contains('[truncated: recursion depth]'));
+    expect(content, contains('[truncated: collection items]'));
+    expect(content, contains('[truncated: tool events]'));
+    expect(content, contains('[truncated: serialized bytes]'));
+    expect(content, isNot(contains('event_64')));
+    expect(content, isNot(contains('TAIL_SENTINEL')));
+    expect(dailyLog.lengthSync(), lessThan(80 * 1024));
+  });
+
+  test('a long assistant reply is persisted verbatim, not summarized or trimmed', () async {
+    // No host component may reshape `accumulated`: it is the assistant's own
+    // reply, and the byte cap belongs to tool results.
+    final runner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.createSession(type: SessionType.user);
+    final longJsonReply = '[${List.generate(4000, (i) => '{"id":$i,"name":"row-$i"}').join(',')}]';
+    // Past the byte cap's own default, so reattaching any default-configured
+    // reshaper to the reply path fails this test rather than slipping under it.
+    expect(longJsonReply.length, greaterThan(const ContextConfig.defaults().maxResultBytes));
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent(longJsonReply));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'give me the rows'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.responseText, longJsonReply);
+    final persisted = await messages.getMessages(session.id);
+    expect(persisted.last.content, longJsonReply);
+  });
+
+  test('daily log entry construction bounds title, user, and result before JSON encoding', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = dailyLogRunner(memoryFile);
+    final session = await sessions.createSession(type: SessionType.user);
+    await sessions.updateTitle(session.id, '${'\u0000' * (2 * 1024)}TITLE_TAIL_SENTINEL');
+    final oversizedUser = '${'\u0000' * (64 * 1024)}USER_TAIL_SENTINEL';
+    final oversizedResult = '${'\u0000' * (32 * 1024)}RESULT_TAIL_SENTINEL';
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'bounded-entry', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent(oversizedResult));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': oversizedUser},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single;
+    final content = dailyLog.readAsStringSync();
+    expect(RegExp(RegExp.escape('[truncated: serialized bytes]')).allMatches(content), hasLength(3));
+    expect(content, isNot(contains('TITLE_TAIL_SENTINEL')));
+    expect(content, isNot(contains('USER_TAIL_SENTINEL')));
+    expect(content, isNot(contains('RESULT_TAIL_SENTINEL')));
+    expect(dailyLog.lengthSync(), lessThan(MemoryFileService.maxDailyLogEntryBytes));
+
+    String oversizedPem(int payloadBytes, String sentinel) =>
+        '-----BEGIN PRIVATE KEY-----\n${'A' * payloadBytes}\n-----END PRIVATE KEY-----$sentinel';
+    final pemSession = await sessions.createSession(type: SessionType.user);
+    await sessions.updateTitle(pemSession.id, oversizedPem(2 * 1024, 'PEM_TITLE_TAIL'));
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(
+        ToolUseEvent(
+          toolName: 'file_write',
+          toolId: 'bounded-pem',
+          input: {'content': oversizedPem(70 * 1024, 'PEM_TOOL_TAIL')},
+        ),
+      );
+      worker.emit(DeltaEvent(oversizedPem(32 * 1024, 'PEM_RESULT_TAIL')));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final pemTurnId = await logRunner.startTurn(pemSession.id, [
+      {'role': 'user', 'content': oversizedPem(64 * 1024, 'PEM_USER_TAIL')},
+    ]);
+    await logRunner.waitForOutcome(pemSession.id, pemTurnId);
+
+    final pemContent = dailyLog.readAsStringSync();
+    expect(RegExp(RegExp.escape('[REDACTED]')).allMatches(pemContent).length, greaterThanOrEqualTo(4));
+    // Redaction collapses the over-cap PEM to `[REDACTED]`; the entry must still
+    // record that bytes were dropped rather than read as a complete value.
+    expect(dailyLogToolSummaries(pemContent), anyElement(contains('[truncated: serialized bytes]')));
+    expect(pemContent, isNot(contains('-----BEGIN PRIVATE KEY-----')));
+    for (final sentinel in ['PEM_TITLE_TAIL', 'PEM_USER_TAIL', 'PEM_RESULT_TAIL', 'PEM_TOOL_TAIL']) {
+      expect(pemContent, isNot(contains(sentinel)), reason: sentinel);
+    }
+  });
+
+  test('daily logs skip Web turns whose persisted user message is unavailable', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = dailyLogRunner(memoryFile);
+    final session = await sessions.createSession(type: SessionType.user);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'file_read', toolId: 'tool-web-missing-message', input: {'path': 'notes.md'}));
+      worker.emit(DeltaEvent('Notes reviewed'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Expanded attachment content'},
+    ], source: 'web');
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(workspaceDir, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logging fails closed without session metadata', () async {
+    final isolatedWorkspace = p.join(tempDir.path, 'workspace-without-sessions');
+    final memoryFile = MemoryFileService(baseDir: isolatedWorkspace);
+    addTearDown(memoryFile.dispose);
+    final logRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      turnState: turnState,
+      kvService: kvService,
+      memoryFile: memoryFile,
+    );
+    final session = await sessions.createSession(type: SessionType.main);
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'tool-no-session', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent('Must not be logged'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Run without session metadata'},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(isolatedWorkspace, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logging fails closed for an unknown persisted session type', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = dailyLogRunner(memoryFile);
+    final session = await sessions.createSession(type: SessionType.user);
+    final metadata = File(p.join(sessionsDir, session.id, 'meta.json'));
+    metadata.writeAsStringSync(metadata.readAsStringSync().replaceFirst('"type":"user"', '"type":"future-system"'));
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'shell', toolId: 'tool-unknown-session', input: {'command': 'inspect'}));
+      worker.emit(DeltaEvent('Must not be logged'));
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Run with unknown session metadata'},
+    ]);
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    expect(Directory(p.join(workspaceDir, 'memory')).existsSync(), isFalse);
+  });
+
+  test('daily logs use the persisted Web message instead of expanded attachment content', () async {
+    final memoryFile = MemoryFileService(baseDir: workspaceDir);
+    addTearDown(memoryFile.dispose);
+    final logRunner = dailyLogRunner(memoryFile);
+    final session = await sessions.createSession(type: SessionType.user);
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Inspect the attached notes');
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'file_read', toolId: 'tool-web-attachment', input: {'path': 'attachment'}));
+      worker.emit(DeltaEvent('Attachment reviewed'));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult());
+    }());
+
+    final turnId = await logRunner.startTurn(session.id, [
+      {
+        'role': 'user',
+        'content':
+            'Inspect the attached notes\n\n'
+            '[rich_input_context]\nattachment body: confidential-attachment-payload',
+      },
+    ], source: 'web');
+    await logRunner.waitForOutcome(session.id, turnId);
+
+    final dailyLog = Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single.readAsStringSync();
+    expect(dailyLog, contains('Inspect the attached notes'));
+    expect(dailyLog, isNot(contains('confidential-attachment-payload')));
+    expect(dailyLog, isNot(contains('rich_input_context')));
+  });
+
+  test('logical-agent persona override reaches the harness verbatim', () async {
+    scheduleTurnCompletion(worker, responseText: 'logical agent');
+    final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+    final turnId = await runner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'search'},
+      ],
+      agentName: 'search',
+      systemPromptOverride: 'SEARCH PERSONA',
+    );
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(worker.lastSystemPrompt, 'SEARCH PERSONA');
+  });
+
+  test('logical-agent and main turns supply the expected harness agent identity', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(worker, responseText: 'logical agent');
+    final logicalAgentTurn = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'search'},
+    ], agentName: 'search');
+    await runner.waitForOutcome(session.id, logicalAgentTurn);
+    expect(worker.lastAgentId, 'search');
+
+    scheduleTurnCompletion(worker, responseText: 'main');
+    final mainTurn = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'main'},
+    ]);
+    await runner.waitForOutcome(session.id, mainTurn);
+    expect(worker.lastAgentId, isNull);
+  });
+
+  test('per-turn toolless policy is applied session-scoped during the turn and cleared after', () async {
+    // The untrusted knowledge-inbox extraction turn dispatches with a closed
+    // tool allowlist and read-only policy.
+    // TurnRunner must apply that per-turn policy to the session BEFORE the harness
+    // runs and clear it after, so a prompt-injected source cannot induce tool use
+    // — without the enforcement leaking onto concurrent turns on other sessions.
+    final guard = TaskToolFilterGuard();
+    final guardedRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      taskToolFilterGuard: guard,
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    Future<GuardVerdict> probeFetch(String sessionId) => guard.evaluate(
+      GuardContext(hookPoint: 'beforeToolCall', toolName: 'web_fetch', sessionId: sessionId, timestamp: DateTime.now()),
+    );
+
+    GuardVerdict? midTurnScoped;
+    GuardVerdict? midTurnConcurrent;
+    unawaited(() async {
+      await worker.turnInvoked;
+      // Harness dispatched → the per-turn policy is now applied to this session.
+      midTurnScoped = await probeFetch(session.id);
+      midTurnConcurrent = await probeFetch('other-interactive-session');
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await guardedRunner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'untrusted inbox source'},
+      ],
+      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      readOnly: true,
+    );
+    await guardedRunner.waitForOutcome(session.id, turnId);
+
+    // web_fetch is read-only-safe, so a mid-turn block proves the toolless
+    // allowlist (not read-only) was applied to the extraction session.
+    expect(midTurnScoped?.isBlock, isTrue);
+    // The restriction is session-scoped: a concurrent turn on another session is
+    // unaffected.
+    expect(midTurnConcurrent?.isPass, isTrue);
+    // Policy cleared after the turn — the extraction session is unrestricted again.
+    expect((await probeFetch(session.id)).isPass, isTrue);
+  });
+
+  test('handles agent failure and produces TurnOutcome.failed', () async {
+    scheduleTurnCompletion(worker, error: StateError('simulated crash'));
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Will fail'},
+    ]);
+
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.failed);
+    expect(runner.isActive(session.id), isFalse);
+  });
+
+  for (final providerResult in [
+    (
+      name: 'Claude',
+      result: const TurnResult(
+        stopReason: 'error',
+        error: 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+      ),
+    ),
+    (
+      name: 'Codex',
+      result: const TurnResult(stopReason: 'error', error: 'usageLimitExceeded', inputTokens: 3, outputTokens: 1),
+    ),
+  ]) {
+    test('${providerResult.name} terminal provider error fails the turn without persisting partial output', () async {
+      scheduleTurnCompletion(worker, responseText: 'partial provider output', result: providerResult.result);
+      final session = await sessions.getOrCreateMainSession();
+
+      final turnId = await runner.startTurn(session.id, [
+        {'role': 'user', 'content': 'Will fail at the provider'},
+      ]);
+      final outcome = await runner.waitForOutcome(session.id, turnId);
+      final storedAssistant = (await messages.getMessages(session.id)).where((message) => message.role == 'assistant');
+
+      expect(outcome.status, TurnStatus.failed);
+      expect(outcome.errorMessage, providerResult.result.error);
+      expect(storedAssistant.single.content, providerResult.result.error);
+      expect(storedAssistant.single.content, isNot(contains('partial provider output')));
+    });
+  }
+
+  test('terminal provider error is guard-evaluated before persistence', () async {
+    const providerError = 'provider leaked sensitive diagnostic';
+    final guardedRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      guardChain: GuardChain(
+        guards: [
+          FakeGuard(
+            evaluator: (context) => context.hookPoint == 'beforeAgentSend' && context.messageContent == providerError
+                ? GuardVerdict.block('sensitive provider diagnostic')
+                : GuardVerdict.pass(),
+          ),
+        ],
+      ),
+    );
+    scheduleTurnCompletion(
+      worker,
+      responseText: 'partial provider output',
+      result: const TurnResult(stopReason: 'error', error: providerError),
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await guardedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Will fail at the provider'},
+    ]);
+    final outcome = await guardedRunner.waitForOutcome(session.id, turnId);
+    final storedAssistant = (await messages.getMessages(session.id)).where((message) => message.role == 'assistant');
+
+    expect(outcome.status, TurnStatus.failed);
+    expect(outcome.errorMessage, contains('Response blocked by guard'));
+    expect(storedAssistant.single.content, '[Response blocked by guard: sensitive provider diagnostic]');
+    expect(storedAssistant.single.content, isNot(contains(providerError)));
+  });
+
+  test('emits turn wait-state events for running and natural completion', () async {
+    final bus = EventBus();
+    final events = <TurnWaitStateChangedEvent>[];
+    final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
+    addTearDown(() async {
+      await sub.cancel();
+      await bus.dispose();
+    });
+    runner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      eventBus: bus,
+    );
+    scheduleTurnCompletion(worker, responseText: 'done');
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'complete naturally'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    await pumpEventQueue();
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.running, TurnWaitState.completed]));
+    expect(events.last.turnId, turnId);
+    expect(events.last.waitReason, TurnWaitReason.unknown);
+  });
+
+  test('emits turn wait-state failed event for natural failure', () async {
+    final bus = EventBus();
+    final events = <TurnWaitStateChangedEvent>[];
+    final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
+    addTearDown(() async {
+      await sub.cancel();
+      await bus.dispose();
+    });
+    runner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      eventBus: bus,
+    );
+    scheduleTurnCompletion(worker, error: StateError('simulated crash'));
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'fail naturally'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    await pumpEventQueue();
+
+    expect(outcome.status, TurnStatus.failed);
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.running, TurnWaitState.failed]));
+    expect(events.last.turnId, turnId);
+    expect(events.last.canCancel, isFalse);
+  });
+
+  test('cancels active turn', () async {
+    runner = monitoredRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cancel me'},
+    ]);
+
+    await worker.turnInvoked;
+    await runner.cancelTurn(session.id);
+
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.cancelled);
+  });
+
+  test('waitForOutcome returns completed outcome', () async {
+    scheduleTurnCompletion(worker, responseText: 'Done');
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Test'},
+    ]);
+
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.sessionId, session.id);
+    expect(outcome.turnId, turnId);
+  });
+
+  test('harness getter returns the underlying harness', () {
+    expect(runner.harness, same(worker));
+  });
+
+  test('releaseTurn removes persisted turn state and fails the pending outcome', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.reserveTurn(session.id);
+
+    expect((await turnState.getAll())[session.id]?.turnId, equals(turnId));
+
+    final outcomeExpectation = runner
+        .waitForOutcome(session.id, turnId)
+        .then<void>(
+          (_) => fail('Expected released turn to fail the pending outcome'),
+          onError: (Object error, StackTrace _) {
+            expect(
+              error,
+              isA<StateError>().having(
+                (stateError) => stateError.message,
+                'message',
+                contains('released without execution'),
+              ),
+            );
+          },
+        );
+    runner.releaseTurn(session.id, turnId);
+    await pumpEventQueue();
+
+    expect(runner.isActive(session.id), isFalse);
+    expect(await turnState.getAll(), isNot(contains(session.id)));
+    await outcomeExpectation;
+  });
+
+  test('turnStatus reports waiting and stuck for queued same-session lock wait', () async {
+    final bus = EventBus();
+    final events = <TurnWaitStateChangedEvent>[];
+    final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
+    addTearDown(() async {
+      await sub.cancel();
+      await bus.dispose();
+    });
+    runner = monitoredRunner(worker, eventBus: bus);
+    final session = await sessions.getOrCreateMainSession();
+    final firstTurnId = await runner.reserveTurn(session.id, taskId: 'task-wait');
+    final firstOutcome = runner.waitForOutcome(session.id, firstTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: firstTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    final queuedReserve = runner.reserveTurn(session.id);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    expect(runner.turnStatus(session.id).state, TurnWaitState.waiting);
+    expect(runner.turnStatus(session.id).waitReason, TurnWaitReason.sessionLock);
+    expect(runner.turnStatus(session.id).taskId, 'task-wait');
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 90));
+    final stuck = runner.turnStatus(session.id);
+    expect(stuck.state, TurnWaitState.stuck);
+    expect(stuck.taskId, 'task-wait');
+    expect(stuck.canCancel, isTrue);
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.waiting, TurnWaitState.stuck]));
+    expect(events.map((event) => event.taskId), contains('task-wait'));
+
+    runner.releaseTurn(session.id, firstTurnId);
+    await firstOutcome;
+    final secondTurnId = await queuedReserve.timeout(const Duration(seconds: 1));
+    final secondOutcome = runner.waitForOutcome(session.id, secondTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: secondTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, secondTurnId);
+    await secondOutcome;
+  });
+
+  test('reports provider_turn from provider progress before global timeout', () async {
+    final bus = EventBus();
+    final events = <TurnWaitStateChangedEvent>[];
+    final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
+    addTearDown(() async {
+      await sub.cancel();
+      await bus.dispose();
+    });
+    runner = monitoredRunner(worker, eventBus: bus);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Provider wait'},
+    ]);
+    await worker.turnInvoked;
+    worker.emit(ProviderProgressBridgeEvent(kind: 'provider_turn', text: 'model is still processing'));
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    final waiting = runner.turnStatus(session.id);
+    expect(waiting.state, TurnWaitState.waiting);
+    expect(waiting.waitReason, TurnWaitReason.providerTurn);
+    expect(waiting.canCancel, isTrue);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 90));
+    final stuck = runner.turnStatus(session.id);
+    expect(stuck.state, TurnWaitState.stuck);
+    expect(stuck.waitReason, TurnWaitReason.providerTurn);
+    expect(stuck.canCancel, isTrue);
+    expect(
+      events.where((event) => event.waitReason == TurnWaitReason.providerTurn).map((event) => event.state),
+      containsAllInOrder([TurnWaitState.waiting, TurnWaitState.stuck]),
+    );
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('reports tool_approval as cancellable only after stale threshold', () async {
+    runner = monitoredRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Approval wait'},
+    ]);
+    await worker.turnInvoked;
+    worker.emit(ToolApprovalWaitEvent(requestId: 'approval-1', toolName: 'shell'));
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    final waiting = runner.turnStatus(session.id);
+    expect(waiting.state, TurnWaitState.waiting);
+    expect(waiting.waitReason, TurnWaitReason.toolApproval);
+    expect(waiting.canCancel, isFalse);
+    await expectLater(
+      runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel),
+      throwsA(isA<TurnCancelException>().having((error) => error.code, 'code', 'TURN_NOT_CANCELLABLE')),
+    );
+    expect(runner.activeTurnId(session.id), turnId);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 90));
+    final stuck = runner.turnStatus(session.id);
+    expect(stuck.state, TurnWaitState.stuck);
+    expect(stuck.waitReason, TurnWaitReason.toolApproval);
+    expect(stuck.canCancel, isTrue);
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('keeps non-stale tool_approval non-cancellable while session lock wait is visible', () async {
+    runner = monitoredRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Approval plus queued wait'},
+    ]);
+    await worker.turnInvoked;
+    worker.emit(ToolApprovalWaitEvent(requestId: 'approval-lock-wait', toolName: 'shell'));
+
+    final queuedReserve = runner.reserveTurn(session.id);
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    final waiting = runner.turnStatus(session.id);
+    expect(waiting.state, TurnWaitState.waiting);
+    expect(waiting.waitReason, TurnWaitReason.sessionLock);
+    expect(waiting.canCancel, isFalse);
+    await expectLater(
+      runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel),
+      throwsA(isA<TurnCancelException>().having((error) => error.code, 'code', 'TURN_NOT_CANCELLABLE')),
+    );
+    expect(runner.activeTurnId(session.id), turnId);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 90));
+    final stuck = runner.turnStatus(session.id);
+    expect(stuck.state, TurnWaitState.stuck);
+    expect(stuck.waitReason, TurnWaitReason.sessionLock);
+    expect(stuck.canCancel, isTrue);
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await runner.waitForOutcome(session.id, turnId);
+    final queuedTurnId = await queuedReserve.timeout(const Duration(seconds: 1));
+    final queuedOutcome = runner.waitForOutcome(session.id, queuedTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: queuedTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, queuedTurnId);
+    await queuedOutcome;
+  });
+
+  test('clears tool_approval when approval is answered', () async {
+    runner = monitoredRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Approval resolves'},
+    ]);
+    await worker.turnInvoked;
+    worker.emit(ToolApprovalWaitEvent(requestId: 'approval-2', toolName: 'shell'));
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    expect(runner.turnStatus(session.id).waitReason, TurnWaitReason.toolApproval);
+    expect(runner.turnStatus(session.id).canCancel, isFalse);
+
+    worker.emit(ToolApprovalResolvedEvent(requestId: 'approval-2'));
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    final waiting = runner.turnStatus(session.id);
+    expect(waiting.state, TurnWaitState.waiting);
+    expect(waiting.waitReason, TurnWaitReason.unknown);
+    expect(waiting.canCancel, isTrue);
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('reports unknown for unclassified active-turn stall', () async {
+    runner = monitoredRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Unknown wait'},
+    ]);
+    await worker.turnInvoked;
+    await expectLater(
+      runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel),
+      throwsA(isA<TurnCancelException>().having((error) => error.code, 'code', 'TURN_NOT_CANCELLABLE')),
+    );
+    expect(runner.activeTurnId(session.id), turnId);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    final waiting = runner.turnStatus(session.id);
+    expect(waiting.state, TurnWaitState.waiting);
+    expect(waiting.waitReason, TurnWaitReason.unknown);
+    expect(waiting.canCancel, isTrue);
+
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 90));
+    final stuck = runner.turnStatus(session.id);
+    expect(stuck.state, TurnWaitState.stuck);
+    expect(stuck.waitReason, TurnWaitReason.unknown);
+    expect(stuck.canCancel, isTrue);
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('accepted cancel wins over provider completion race and emits terminal cancelled state', () async {
+    final bus = EventBus();
+    final events = <TurnWaitStateChangedEvent>[];
+    final sub = bus.on<TurnWaitStateChangedEvent>().listen(events.add);
+    final raceWorker = DelayedCancelHarness();
+    addTearDown(() async {
+      await sub.cancel();
+      await bus.dispose();
+      await raceWorker.dispose();
+    });
+    runner = monitoredRunner(raceWorker, eventBus: bus);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Race cancel'},
+    ]);
+    final outcomeFuture = runner.waitForOutcome(session.id, turnId);
+    await raceWorker.turnInvoked;
+    for (var index = 0; index < 70; index++) {
+      final toolId = 'cancel-tool-$index';
+      raceWorker.emit(ToolUseEvent(toolName: 'tool-$index', toolId: toolId, input: const {}));
+      raceWorker.emit(ToolResultEvent(toolId: toolId, output: 'done', isError: index == 64));
+    }
+    await pumpEventQueue();
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+    expect(runner.turnStatus(session.id).state, TurnWaitState.waiting);
+
+    final cancelFuture = runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await raceWorker.cancelStarted.future;
+    final settlementFuture = runner.waitForExecutionSettled(session.id, turnId);
+    var settlementCompleted = false;
+    unawaited(settlementFuture.then((_) => settlementCompleted = true));
+    var nextReserveCompleted = false;
+    final nextReserve = runner.reserveTurn(session.id);
+    unawaited(nextReserve.then((_) => nextReserveCompleted = true));
+    await pumpEventQueue();
+    expect(nextReserveCompleted, isTrue);
+    expect(settlementCompleted, isFalse);
+
+    raceWorker.emit(DeltaEvent('late completion'));
+    raceWorker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    raceWorker.allowCancelReturn.complete();
+
+    final cancelResult = await cancelFuture.timeout(const Duration(seconds: 1));
+    final nextTurnId = await nextReserve.timeout(const Duration(seconds: 1));
+    final nextOutcome = runner.waitForOutcome(session.id, nextTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: nextTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    final outcome = await outcomeFuture;
+    await settlementFuture;
+    final storedMessages = await messages.getMessages(session.id);
+    var thirdReserveCompleted = false;
+    final thirdReserve = runner.reserveTurn(session.id);
+    unawaited(thirdReserve.then((_) => thirdReserveCompleted = true));
+    await pumpEventQueue();
+
+    expect(cancelResult.status, TurnWaitState.cancelled);
+    expect(cancelResult.releasedSessionLock, isTrue);
+    expect(raceWorker.stopCalled, isTrue);
+    expect(raceWorker.startCalled, isTrue);
+    expect(outcome.status, TurnStatus.cancelled);
+    expect(outcome.toolCallCount, 70);
+    expect(outcome.failedToolCallCount, 1);
+    expect(outcome.toolCalls, hasLength(64));
+    expect(outcome.toolCalls.first.name, 'tool-0');
+    expect(outcome.toolCalls[62].name, 'tool-62');
+    expect(outcome.toolCalls.last.name, 'tool-69');
+    expect(outcome.toolCallsTruncated, isTrue);
+    expect(settlementCompleted, isTrue);
+    expect(runner.activeTurnId(session.id), nextTurnId);
+    expect(thirdReserveCompleted, isFalse);
+    expect(storedMessages.where((message) => message.role == 'assistant'), isEmpty);
+    expect(events.map((event) => event.state), containsAllInOrder([TurnWaitState.cancelling, TurnWaitState.cancelled]));
+
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcome;
+    final thirdTurnId = await thirdReserve.timeout(const Duration(seconds: 1));
+    final thirdOutcome = runner.waitForOutcome(session.id, thirdTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: thirdTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, thirdTurnId);
+    await thirdOutcome;
+  });
+
+  test('late cancelled-turn teardown cannot clear the successor turn policy', () async {
+    final guard = TaskToolFilterGuard();
+    final raceWorker = DelayedCancelHarness();
+    addTearDown(raceWorker.dispose);
+    runner = monitoredRunner(raceWorker, taskToolFilterGuard: guard);
+    final session = await sessions.getOrCreateMainSession();
+    Future<GuardVerdict> probeFetch() => guard.evaluate(
+      GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'web_fetch',
+        sessionId: session.id,
+        timestamp: DateTime.now(),
+      ),
+    );
+    final firstTurnId = await runner.startTurn(
+      session.id,
+      const [
+        {'role': 'user', 'content': 'First'},
+      ],
+      allowedTools: const ['first_tool'],
+    );
+    await raceWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    await runner.cancelTurnById(session.id, firstTurnId, TurnCancelReason.operatorCancel);
+    await raceWorker.cancelStarted.future;
+    final secondTurnId = await runner.startTurn(
+      session.id,
+      const [
+        {'role': 'user', 'content': 'Second'},
+      ],
+      allowedTools: const ['second_tool'],
+      readOnly: true,
+    );
+    await pumpEventQueue();
+    expect((await probeFetch()).isBlock, isTrue, reason: 'successor policy must apply during provider recovery');
+
+    raceWorker.completeSuccess(turnResult());
+    await pumpEventQueue();
+    expect((await probeFetch()).isBlock, isTrue, reason: 'stale first-turn finally must not clear successor policy');
+
+    raceWorker.allowCancelReturn.complete();
+    await raceWorker.turnInvoked;
+    expect((await probeFetch()).isBlock, isTrue);
+    raceWorker.completeSuccess(turnResult());
+    expect((await runner.waitForOutcome(session.id, secondTurnId)).status, TurnStatus.completed);
+    await runner.waitForExecutionSettled(session.id, secondTurnId);
+    expect((await probeFetch()).isPass, isTrue);
+  });
+
+  test('accepted cancel cleanup failure force-completes and releases the session', () async {
+    final failingWorker = FailingCancelCleanupHarness();
+    final selfImprovement = SelfImprovementService(workspaceDir: workspaceDir);
+    addTearDown(failingWorker.dispose);
+    addTearDown(selfImprovement.dispose);
+    runner = monitoredRunner(failingWorker, selfImprovement: selfImprovement);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cleanup fails'},
+    ]);
+    await failingWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await pumpEventQueue();
+
+    expect(result.status, TurnWaitState.cancelled);
+    expect(result.releasedSessionLock, isTrue);
+    expect(failingWorker.cancelCalled, isTrue);
+    expect(failingWorker.stopCalled, isTrue);
+    expect(failingWorker.stopCalls, 1);
+    expect(runner.activeTurnId(session.id), isNull);
+    expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.cancelled);
+    expect(await messages.getMessages(session.id), isEmpty);
+    expect(await selfImprovement.readErrors(), isEmpty);
+
+    final nextReserve = runner.reserveTurn(session.id);
+    final nextTurnId = await nextReserve.timeout(const Duration(seconds: 1));
+    final nextOutcome = runner.waitForOutcome(session.id, nextTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: nextTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcome;
+  });
+
+  test('accepted cancel via worker throw does not leak the externally-completed turn id', () async {
+    // Default FakeAgentHarness.cancel() force-fails the in-flight turn() — the
+    // dominant SIGTERM-killed case — so executeTurn exits through catch + finally
+    // rather than the normal-return remove. Asserts the finally cleanup runs.
+    final leakWorker = FakeAgentHarness();
+    addTearDown(leakWorker.dispose);
+    runner = monitoredRunner(leakWorker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Leak check'},
+    ]);
+    await leakWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await pumpEventQueue();
+
+    expect(result.status, TurnWaitState.cancelled);
+    expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.cancelled);
+    expect(
+      runner.tracksExternalCompletion(turnId),
+      isFalse,
+      reason: '_externallyCompletedTurns must be cleaned on the accepted-cancel-via-throw path',
+    );
+  });
+
+  test('accepted cancel releases the session before worker cleanup finishes', () async {
+    final hangingWorker = HangingCancelHarness();
+    addTearDown(hangingWorker.dispose);
+    runner = monitoredRunner(hangingWorker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cleanup hangs'},
+    ]);
+    await hangingWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    final result = await runner
+        .cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel)
+        .timeout(const Duration(seconds: 1));
+    await hangingWorker.cancelStarted.future.timeout(const Duration(seconds: 1));
+
+    expect(result.status, TurnWaitState.cancelled);
+    expect(result.releasedSessionLock, isTrue);
+    expect(runner.activeTurnId(session.id), isNull);
+    expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.cancelled);
+
+    final nextTurnId = await runner.reserveTurn(session.id).timeout(const Duration(seconds: 1));
+    final nextOutcome = runner.waitForOutcome(session.id, nextTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: nextTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcome;
+  });
+
+  test('next execution waits for accepted cancel recovery before calling worker', () async {
+    final hangingWorker = HangingCancelHarness();
+    addTearDown(hangingWorker.dispose);
+    runner = monitoredRunner(hangingWorker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cleanup hangs'},
+    ]);
+    await hangingWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await hangingWorker.cancelStarted.future.timeout(const Duration(seconds: 1));
+
+    final nextTurnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Next turn'},
+    ]);
+    await pumpEventQueue(times: 5);
+
+    expect(hangingWorker.turnCallCount, 1);
+
+    hangingWorker.cancelCompleter.complete();
+    await pumpEventQueue();
+    expect(hangingWorker.turnCallCount, 2);
+
+    hangingWorker.completeSuccess(turnResult());
+    expect((await runner.waitForOutcome(session.id, nextTurnId)).status, TurnStatus.completed);
+  });
+
+  test('accepted cancel installs recovery before releasing the session lock', () async {
+    final hangingWorker = HangingCancelHarness();
+    addTearDown(hangingWorker.dispose);
+    final lockManager = _ObservingSessionLockManager();
+    runner = _buildRunner(
+      harness: hangingWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      lockManager: lockManager,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Cleanup hangs'},
+    ]);
+    await hangingWorker.turnInvoked;
+
+    var barrierPresentAtRelease = false;
+    lockManager.beforeRelease = () {
+      barrierPresentAtRelease = runner.hasAcceptedCancelRecovery(session.id);
+    };
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel, enforceCanCancel: false);
+    await hangingWorker.cancelStarted.future.timeout(const Duration(seconds: 1));
+    expect(barrierPresentAtRelease, isTrue);
+
+    hangingWorker.cancelCompleter.complete();
+  });
+
+  test('accepted cancel releases the session when restart fails after a pending provider cancel', () async {
+    final failingWorker = FailingStartAfterCancelHarness();
+    addTearDown(failingWorker.dispose);
+    runner = monitoredRunner(failingWorker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Restart fails'},
+    ]);
+    await failingWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    final result = await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    await pumpEventQueue();
+
+    expect(result.status, TurnWaitState.cancelled);
+    expect(result.releasedSessionLock, isTrue);
+    expect(failingWorker.cancelCalled, isTrue);
+    expect(failingWorker.stopCalled, isTrue);
+    expect(failingWorker.startCalled, isTrue);
+    expect(runner.activeTurnId(session.id), isNull);
+    expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.cancelled);
+
+    final nextTurnId = await runner.reserveTurn(session.id).timeout(const Duration(seconds: 1));
+    final nextOutcome = runner.waitForOutcome(session.id, nextTurnId).catchError((_) {
+      return TurnOutcome(
+        turnId: nextTurnId,
+        sessionId: session.id,
+        status: TurnStatus.cancelled,
+        completedAt: DateTime.now(),
+      );
+    });
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcome;
+  });
+
+  test('restart failure after accepted cancel fails the next execution explicitly', () async {
+    final failingWorker = FailingStartAfterCancelHarness();
+    addTearDown(failingWorker.dispose);
+    runner = monitoredRunner(failingWorker);
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Restart fails'},
+    ]);
+    await failingWorker.turnInvoked;
+    await turnMonitorTime.elapseAsync(const Duration(seconds: 30));
+
+    await runner.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
+    final nextTurnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Next turn'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, nextTurnId);
+
+    expect(outcome.status, TurnStatus.failed);
+    expect(failingWorker.turnCallCount, 1);
+  });
+
+  test('persists and cleans turn state via store', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final releaseCompletion = Completer<void>();
+    scheduleTurnCompletion(worker, responseText: 'Tracked', waitUntil: releaseCompletion.future);
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Track turn state'},
+    ]);
+
+    final activeState = (await turnState.getAll())[session.id];
+    expect(activeState, isNotNull);
+    expect(activeState?.turnId, equals(turnId));
+    expect(activeState?.startedAt, isA<DateTime>());
+
+    releaseCompletion.complete();
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(await turnState.getAll(), isNot(contains(session.id)));
+  });
+
+  test('persists usage even when the harness does not report USD cost', () async {
+    final costWorker = FakeAgentHarness(supportsCostReporting: false);
+    addTearDown(() async => costWorker.dispose());
+    final costRunner = _buildRunner(
+      harness: costWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(
+      costWorker,
+      responseText: 'No cost',
+      result: turnResult(inputTokens: 2, outputTokens: 3, totalCostUsd: 9.99),
+    );
+
+    final turnId = await costRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Skip cost'},
+    ]);
+
+    final outcome = await costRunner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    final usageData = await readSessionCost(kvService, session.id);
+    expect(usageData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(usageData.containsKey('new_input_tokens'), isFalse);
+    expect(usageData['provider'], 'claude');
+    expect(usageData['input_tokens'], 2);
+    expect(usageData['output_tokens'], 3);
+    expect(usageData['total_tokens'], 5);
+    expect(usageData['cache_read_tokens'], 0);
+    expect(usageData['effective_tokens'], 5);
+    expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(usageData['turn_count'], 1);
+  });
+
+  test('turn outcome carries cacheReadTokens when available', () async {
+    final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
+    addTearDown(() async => cachedWorker.dispose());
+    final cachedRunner = _buildRunner(
+      harness: cachedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(
+      cachedWorker,
+      responseText: 'Cached',
+      result: turnResult(inputTokens: 1, outputTokens: 1, cachedInputTokens: 7),
+    );
+
+    final turnId = await cachedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Return cached tokens'},
+    ]);
+
+    final outcome = await cachedRunner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.cacheReadTokens, 7);
+    // 1 + 1 + (0 * 125 ~/ 100 = 0) + (7 * 10 ~/ 100 = 0) = 2.
+    expect(outcome.effectiveTokens, 2);
+  });
+
+  test('startTurn forwards maxTurns to the harness', () async {
+    final boundedWorker = FakeAgentHarness();
+    addTearDown(() async => boundedWorker.dispose());
+    final boundedRunner = _buildRunner(
+      harness: boundedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(boundedWorker, responseText: 'bounded');
+
+    final turnId = await boundedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Bound this turn'},
+    ], maxTurns: 1);
+
+    final outcome = await boundedRunner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(boundedWorker.lastMaxTurns, 1);
+  });
+
+  test('persists provider and accumulates cached input tokens across turns', () async {
+    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    addTearDown(() async => codexWorker.dispose());
+    final codexRunner = _buildRunner(
+      harness: codexWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'codex',
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(codexWorker, result: turnResult(inputTokens: 2, outputTokens: 1, cachedInputTokens: 5));
+    final firstTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'first'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, firstTurnId);
+
+    scheduleTurnCompletion(codexWorker, result: turnResult(inputTokens: 3, outputTokens: 4, cachedInputTokens: 7));
+    final secondTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'second'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, secondTurnId);
+
+    final costData = await readSessionCost(kvService, session.id);
+    expect(costData.keys.toSet(), {
+      'input_tokens',
+      'output_tokens',
+      'cache_read_tokens',
+      'cache_write_tokens',
+      'total_tokens',
+      'effective_tokens',
+      'estimated_cost_usd',
+      'turn_count',
+      'provider',
+    });
+    expect(costData.containsKey('new_input_tokens'), isFalse);
+    expect(costData['provider'], 'codex');
+    expect(costData['input_tokens'], 5);
+    expect(costData['output_tokens'], 5);
+    expect(costData['total_tokens'], 10);
+    expect(costData['cache_read_tokens'], 12);
+    // Turn 1: 2+1+(5*0.1~/1=0) = 3. Turn 2: 3+4+(7*0.1~/1=0) = 7. Accumulated = 10.
+    expect(costData['effective_tokens'], 10);
+    expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(costData['turn_count'], 2);
+  });
+
+  test('effective_tokens accumulates weighted cache-write and cache-read through _trackSessionUsage', () async {
+    final cachedWorker = FakeAgentHarness(supportsCachedTokens: true);
+    addTearDown(() async => cachedWorker.dispose());
+    final cachedRunner = _buildRunner(
+      harness: cachedWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+    );
+    final session = await sessions.getOrCreateMainSession();
+    // Values chosen so both weights produce non-zero integer contributions.
+    scheduleTurnCompletion(
+      cachedWorker,
+      result: turnResult(inputTokens: 100, outputTokens: 50, cachedInputTokens: 1000, cacheWriteTokens: 200),
+    );
+    final turnId = await cachedRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'Exercise both cache weights'},
+    ]);
+    await cachedRunner.waitForOutcome(session.id, turnId);
+
+    final costData = await readSessionCost(kvService, session.id);
+    // 100 + 50 + (200 * 125 ~/ 100 = 250) + (1000 * 10 ~/ 100 = 100) = 500
+    expect(costData['effective_tokens'], 500);
+    expect(costData['cache_read_tokens'], 1000);
+    expect(costData['cache_write_tokens'], 200);
+  });
+
+  test('preserves the first provider written for a session cost record', () async {
+    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    final claudeWorker = FakeAgentHarness();
+    addTearDown(() async => codexWorker.dispose());
+    addTearDown(() async => claudeWorker.dispose());
+    final codexRunner = _buildRunner(
+      harness: codexWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'codex',
+    );
+    final claudeRunner = _buildRunner(
+      harness: claudeWorker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      providerId: 'claude',
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(
+      codexWorker,
+      result: turnResult(inputTokens: 1, outputTokens: 1, totalCostUsd: 0.10, cachedInputTokens: 3),
+    );
+    final codexTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'codex'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, codexTurnId);
+
+    scheduleTurnCompletion(claudeWorker, result: turnResult(inputTokens: 2, outputTokens: 2, totalCostUsd: 0.20));
+    final claudeTurnId = await claudeRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'claude'},
+    ]);
+    await claudeRunner.waitForOutcome(session.id, claudeTurnId);
+
+    final costData = await readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'codex');
+    expect(costData['cache_read_tokens'], 3);
+    expect(costData['turn_count'], 2);
+  });
+
+  test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(worker, result: turnResult(inputTokens: 4, outputTokens: 6, totalCostUsd: 0.50));
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'default provider'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    final costData = await readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'claude');
+    expect(costData['cache_read_tokens'], 0);
+  });
+
+  test('tool call correlation produces ToolCallRecord with correct fields', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_1', input: {'command': 'ls'}));
+      await pumpEventQueue();
+      worker.emit(ToolResultEvent(toolId: 'tu_1', output: 'file.txt', isError: false));
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'run tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    expect(outcome.toolCalls[0].name, 'bash');
+    expect(outcome.toolCalls[0].success, isTrue);
+    expect(outcome.toolCalls[0].errorType, isNull);
+    expect(outcome.toolCalls[0].durationMs, greaterThanOrEqualTo(0));
+  });
+
+  test('incomplete tool call produces ToolCallRecord with success: false and errorType: incomplete', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_orphan', input: {'command': 'sleep 999'}));
+      // No ToolResultEvent — turn completes before tool returns.
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'incomplete tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    final record = outcome.toolCalls[0];
+    expect(record.name, 'bash');
+    expect(record.success, isFalse);
+    expect(record.errorType, 'incomplete');
+  });
+
+  test('turnDuration is set on TurnOutcome', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(worker, responseText: 'done');
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'duration test'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.turnDuration.inMilliseconds, greaterThanOrEqualTo(0));
+  });
+
+  test('progress events reset session activity throughout a running turn', () async {
+    final resetService = RecordingSessionResetService(sessions: sessions, messages: messages);
+    final resetAwareRunner = _buildRunner(
+      harness: worker,
+      messages: messages,
+      workspaceDir: workspaceDir,
+      sessions: sessions,
+      turnState: turnState,
+      kvService: kvService,
+      resetService: resetService,
+    );
+    final session = await sessions.getOrCreateMainSession();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('thinking'));
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tool-1', input: {'command': 'ls'}));
+      worker.emit(ToolResultEvent(toolId: 'tool-1', output: 'ok', isError: false));
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await resetAwareRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'keep the idle timer alive'},
+    ]);
+    final outcome = await resetAwareRunner.waitForOutcome(session.id, turnId);
+    expect(outcome.status, TurnStatus.completed);
+    expect(resetService.touchedSessions, [
+      session.id,
+      session.id,
+      session.id,
+      session.id,
+    ], reason: 'reserveTurn should touch once and every progress event should refresh activity');
+  });
+
+  test('failed tool call produces ToolCallRecord with success: false and errorType: tool_error', () async {
+    final session = await sessions.getOrCreateMainSession();
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_err', input: {'command': 'bad'}));
+      await pumpEventQueue();
+      worker.emit(ToolResultEvent(toolId: 'tu_err', output: 'permission denied', isError: true));
+      await pumpEventQueue();
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'error tool'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(outcome.toolCalls, hasLength(1));
+    final record = outcome.toolCalls[0];
+    expect(record.name, 'bash');
+    expect(record.success, isFalse);
+    expect(record.errorType, 'tool_error');
+  });
+
+  test('progressEvents emits TextDelta, ToolStarted, ToolCompleted in correct order', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('hello'));
+      worker.emit(ToolUseEvent(toolName: 'bash', toolId: 'tu_p1', input: {'command': 'ls'}));
+      await pumpEventQueue();
+      worker.emit(ToolResultEvent(toolId: 'tu_p1', output: 'ok', isError: false));
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'progress test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(events, hasLength(3));
+    expect(events[0], isA<TextDeltaProgressEvent>());
+    expect((events[0] as TextDeltaProgressEvent).text, 'hello');
+    expect(events[1], isA<ToolStartedProgressEvent>());
+    expect((events[1] as ToolStartedProgressEvent).toolName, 'bash');
+    expect((events[1] as ToolStartedProgressEvent).toolCallCount, 1);
+    expect(events[2], isA<ToolCompletedProgressEvent>());
+    expect((events[2] as ToolCompletedProgressEvent).toolName, 'bash');
+    expect((events[2] as ToolCompletedProgressEvent).isError, isFalse);
+  });
+
+  test('progressEvents snapshot has correct textLength and toolCallCount', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('abc')); // 3 chars
+      worker.emit(DeltaEvent('de')); // +2 = 5 chars
+      worker.emit(ToolUseEvent(toolName: 'read', toolId: 'tu_s1', input: {}));
+      await pumpEventQueue();
+      worker.emit(ToolResultEvent(toolId: 'tu_s1', output: 'ok', isError: false));
+      worker.emit(ToolUseEvent(toolName: 'write', toolId: 'tu_s2', input: {}));
+      await pumpEventQueue();
+      worker.emit(ToolResultEvent(toolId: 'tu_s2', output: 'ok', isError: false));
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'snapshot test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    // 2 deltas + 2 tool starts + 2 tool completes = 6 events
+    expect(events, hasLength(6));
+
+    // First delta: textLength=3, toolCallCount=0
+    expect(events[0].snapshot.textLength, 3);
+    expect(events[0].snapshot.toolCallCount, 0);
+
+    // Second delta: textLength=5, toolCallCount=0
+    expect(events[1].snapshot.textLength, 5);
+    expect(events[1].snapshot.toolCallCount, 0);
+
+    // First tool started: toolCallCount=1
+    expect(events[2].snapshot.toolCallCount, 1);
+    expect(events[2].snapshot.textLength, 5);
+
+    // First tool completed: toolCallCount=1
+    expect(events[3].snapshot.toolCallCount, 1);
+
+    // Second tool started: toolCallCount=2
+    expect(events[4].snapshot.toolCallCount, 2);
+
+    // Second tool completed: toolCallCount=2
+    expect(events[5].snapshot.toolCallCount, 2);
+    expect(events[5].snapshot.textLength, 5);
+  });
+
+  test('progressEvents not emitted for unrelated events (SystemInitEvent)', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final events = <TurnProgressEvent>[];
+    final sub = runner.progressEvents.listen(events.add);
+    addTearDown(sub.cancel);
+
+    unawaited(() async {
+      await worker.turnInvoked;
+      worker.emit(SystemInitEvent(contextWindow: 200000));
+      worker.emit(DeltaEvent('only'));
+      worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+    }());
+
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'init event test'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(events, hasLength(1));
+    expect(events[0], isA<TextDeltaProgressEvent>());
+    expect((events[0] as TextDeltaProgressEvent).text, 'only');
+  });
+
+  group('stall timeout', () {
+    test('stallAction=cancel produces TurnStatus.cancelled when turn emits no progress', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 200),
+        stallAction: TurnProgressAction.cancel,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
+      );
+
+      final session = await sessions.getOrCreateMainSession();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall'},
+      ]);
+      await worker.turnInvoked;
+      await turnMonitorTime.elapseAsync(const Duration(milliseconds: 200));
+
+      final outcome = await stallRunner
+          .waitForOutcome(session.id, turnId)
+          .timeout(const Duration(seconds: 5), onTimeout: () => fail('Stall action=cancel did not cancel the turn'));
+
+      expect(outcome.status, TurnStatus.cancelled);
+      expect(outcome.limitBreach, TurnLimitBreach.stall);
+      expect(outcome.errorMessage, contains('without provider progress'));
+      expect(stallRunner.isActive(session.id), isFalse);
+    });
+
+    test('stallAction=warn lets the turn complete normally once progress resumes', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 150),
+        stallAction: TurnProgressAction.warn,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
+      );
+
+      unawaited(() async {
+        await worker.turnInvoked;
+        await turnMonitorTime.elapseAsync(const Duration(milliseconds: 250));
+        worker.emit(DeltaEvent('finally some progress'));
+        worker.completeSuccess(turnResult(inputTokens: 1, outputTokens: 1));
+      }());
+
+      final session = await sessions.getOrCreateMainSession();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'warn only'},
+      ]);
+
+      final outcome = await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(outcome.status, TurnStatus.completed);
+      expect(outcome.responseText, 'finally some progress');
+    });
+
+    test('stallAction=cancel emits TurnStallProgressEvent before cancelling', () async {
+      final stallRunner = _buildRunner(
+        harness: worker,
+        messages: messages,
+        workspaceDir: workspaceDir,
+        sessions: sessions,
+        turnState: turnState,
+        kvService: kvService,
+        stallTimeout: const Duration(milliseconds: 120),
+        stallAction: TurnProgressAction.cancel,
+        turnMonitorTimerFactory: turnMonitorTime.create,
+        turnMonitorNow: turnMonitorTime.now,
+      );
+
+      final stallEvents = <TurnStallProgressEvent>[];
+      final sub = stallRunner.progressEvents.listen((event) {
+        if (event is TurnStallProgressEvent) stallEvents.add(event);
+      });
+      addTearDown(sub.cancel);
+
+      final session = await sessions.getOrCreateMainSession();
+      final turnId = await stallRunner.startTurn(session.id, [
+        {'role': 'user', 'content': 'stall with event'},
+      ]);
+      await worker.turnInvoked;
+      await turnMonitorTime.elapseAsync(const Duration(milliseconds: 120));
+
+      await stallRunner.waitForOutcome(session.id, turnId).timeout(const Duration(seconds: 5));
+
+      expect(stallEvents, isNotEmpty, reason: 'stall monitor must emit TurnStallProgressEvent before cancelling');
+      expect(stallEvents.first.action, 'cancel');
+      expect(stallEvents.first.stallTimeout.inMilliseconds, greaterThanOrEqualTo(120));
+    });
+  });
+}

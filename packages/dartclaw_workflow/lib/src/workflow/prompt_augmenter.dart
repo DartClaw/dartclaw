@@ -2,24 +2,24 @@ import 'workflow_definition.dart' show OutputConfig, OutputFormat, OutputMode;
 
 import 'review_scoring_fragment.dart';
 import 'schema_presets.dart';
-import 'workflow_output_contract.dart';
+import 'schema_prompt_fragment.dart';
+import 'workflow_output_contract.dart' show stepOutcomeClose, stepOutcomeOpen;
 
 /// Augments a step prompt with output format instructions from schema declarations.
 class PromptAugmenter {
   const new();
 
-  /// Returns [prompt] with appended output format and workflow-context instructions.
+  /// Returns [prompt] with appended output-format instructions.
   ///
   /// [finalizerCoveredKeys] names the declared output keys the structured
   /// finalization envelope (see `buildExecutionEnvelopeSchema`) claims: those
   /// keys are excluded from every main-prompt output-contract section (their
   /// instruction moves to the finalizer turn, `buildFinalizerPrompt`). The
-  /// remaining declared keys — `outputMode: prompt` opt-outs, canonical
-  /// `*_source` keys, and host-owned `setValue`/`source` keys — still render
-  /// their contract here. A non-finalizer step passes an empty set, so all
-  /// declared keys render (the historical behavior). Callers must supply the
-  /// step-gated set (empty unless `stepNeedsFinalizer` is true); the augmenter
-  /// does not re-derive finalizer eligibility.
+  /// remaining declared keys — host-owned `source` keys — still render their
+  /// contract here. A non-finalizer step passes an empty set, so all declared
+  /// keys render. Callers must supply the step-gated set (empty unless
+  /// `stepNeedsFinalizer` is true); the augmenter does not re-derive finalizer
+  /// eligibility.
   ///
   /// The `## Step Outcome Protocol` section stays gated by
   /// [emitStepOutcomeProtocol] alone — re-rendering an envelope-excluded output
@@ -28,10 +28,8 @@ class PromptAugmenter {
     String prompt, {
     Map<String, OutputConfig>? outputs,
     List<String> outputKeys = const [],
-    List<String>? outputExamples,
     bool emitStepOutcomeProtocol = false,
     List<String> finalizerCoveredKeys = const [],
-    String gatingSeverity = defaultGatingSeverity,
   }) {
     final covered = finalizerCoveredKeys.toSet();
     final renderedOutputs = covered.isEmpty || outputs == null
@@ -49,24 +47,17 @@ class PromptAugmenter {
 
     final sections = <String>[];
 
-    final workflowContextSection = _buildWorkflowContextSection(renderedOutputs, renderedKeys);
-    if (workflowContextSection != null) sections.add(workflowContextSection);
+    // Built from the *unfiltered* outputs: a key the finalizer emits is still a
+    // key this turn has to decide, and the description is the step's contract
+    // with the model. Only the emission protocol belongs to the finalizer.
+    final declaredSection = _buildDeclaredOutputsSection(outputs);
+    if (declaredSection != null) sections.add(declaredSection);
 
     final schemaSection = _buildSchemaSection(renderedOutputs, renderedKeys);
     if (schemaSection != null) sections.add(schemaSection);
 
-    final reviewScoringSection = _buildReviewScoringSection(renderedOutputs, gatingSeverity);
+    final reviewScoringSection = _buildReviewScoringSection(renderedOutputs);
     if (reviewScoringSection != null) sections.add(reviewScoringSection);
-
-    // `outputExamples` is unkeyed and can't be filtered per key. On a finalizer
-    // step (non-empty covered set) render it only when some declared key still
-    // renders; when every declared output is finalizer-covered it stays
-    // suppressed. A non-finalizer step renders it whenever examples exist.
-    final complementRenders = renderedKeys.isNotEmpty || (renderedOutputs?.isNotEmpty ?? false);
-    if (covered.isEmpty || complementRenders) {
-      final outputExamplesSection = _buildOutputExamplesSection(outputExamples);
-      if (outputExamplesSection != null) sections.add(outputExamplesSection);
-    }
 
     if (emitStepOutcomeProtocol) {
       sections.add(_buildStepOutcomeSection());
@@ -96,6 +87,25 @@ class PromptAugmenter {
     return buf.toString().trimRight();
   }
 
+  /// Names every output key the step declares, with the description authored
+  /// beside it in the workflow YAML.
+  ///
+  /// Carries no emission instruction and no envelope example: how the values
+  /// leave the turn is the finalizer's contract, what they mean is this one's.
+  /// Rendering a key here is what tells the model which question it is
+  /// answering — without it a classifier step answers from its input alone.
+  String? _buildDeclaredOutputsSection(Map<String, OutputConfig>? outputs) {
+    if (outputs == null || outputs.isEmpty) return null;
+
+    final lines = <String>[
+      for (final entry in outputs.entries)
+        if (effectiveDescription(entry.value) case final desc?) '- "${entry.key}" – $desc',
+    ];
+    if (lines.isEmpty) return null;
+
+    return '## Declared Outputs\n\nThis step must determine:\n${lines.join('\n')}';
+  }
+
   String? _buildSchemaSection(Map<String, OutputConfig>? outputs, List<String> outputKeys) {
     if (outputs == null || outputs.isEmpty) return null;
 
@@ -115,20 +125,16 @@ class PromptAugmenter {
         // via per-property `description` fields).
         final preset = schemaPresets[config.presetName];
         if (preset != null) {
-          fragment = preset.promptFragment ?? _generateInlineFragment(preset.schema, entry.key);
+          fragment = preset.promptFragment ?? describeSchemaForPrompt(preset.schema, entry.key);
         }
       } else if (config.inlineSchema != null) {
         // Inline JSON Schema – generate prompt from schema properties.
-        fragment = _generateInlineFragment(config.inlineSchema!, entry.key);
+        fragment = describeSchemaForPrompt(config.inlineSchema!, entry.key);
       }
 
-      if (fragment != null) {
-        final desc = effectiveDescription(config);
-        if (desc != null) {
-          fragment = '"${entry.key}" – $desc\n\n$fragment';
-        }
-        fragments.add(fragment);
-      }
+      // The description is rendered once, by the declared-outputs section; this
+      // one carries the format only.
+      if (fragment != null) fragments.add('"${entry.key}"\n\n$fragment');
     }
 
     if (fragments.isEmpty) return null;
@@ -137,148 +143,13 @@ class PromptAugmenter {
     return '## Required Output Format\n\n$section';
   }
 
-  String? _buildWorkflowContextSection(Map<String, OutputConfig>? outputs, List<String> outputKeys) {
-    if (outputKeys.isEmpty) return null;
-
-    final buf = StringBuffer();
-    buf.writeln('## Workflow Output Contract');
-    buf.writeln();
-    buf.writeln('End your final response with `$workflowContextOpen` containing a single JSON object.');
-    buf.writeln('Do not use markdown code fences inside `$workflowContextOpen`.');
-    buf.writeln('Include exactly these keys:');
-
-    for (final key in outputKeys) {
-      final config = outputs?[key];
-      _writeWorkflowContextField(buf, key, config);
-    }
-
-    buf.writeln();
-    buf.writeln('Example:');
-    buf.writeln(workflowContextOpen);
-    buf.writeln('{"key":"value"}');
-    buf.writeln(workflowContextClose);
-    return buf.toString().trimRight();
-  }
-
-  String? _buildOutputExamplesSection(List<String>? outputExamples) {
-    if (outputExamples == null || outputExamples.isEmpty) return null;
-    return '## Output Examples\n\n${outputExamples.join('\n\n')}';
-  }
-
-  String? _buildReviewScoringSection(Map<String, OutputConfig>? outputs, String gatingSeverity) {
+  String? _buildReviewScoringSection(Map<String, OutputConfig>? outputs) {
     if (outputs == null || outputs.isEmpty) return null;
     final declaresReviewScoringOutput = outputs.values.any(
       (config) => config.presetName == 'gating_findings_count' || config.presetName == 'verdict',
     );
     if (!declaresReviewScoringOutput) return null;
-    return reviewScoringFragmentFor(gatingSeverity);
-  }
-
-  void _writeWorkflowContextField(StringBuffer buf, String key, OutputConfig? config) {
-    final effectiveDesc = config == null ? null : effectiveDescription(config);
-    final descSuffix = effectiveDesc != null ? ' – $effectiveDesc' : '';
-
-    if (config == null || config.format == OutputFormat.text) {
-      buf.writeln('- "$key": JSON string$descSuffix');
-      return;
-    }
-
-    if (config.format == OutputFormat.path) {
-      buf.writeln('- "$key": file path string$descSuffix');
-      return;
-    }
-
-    if (config.format == OutputFormat.lines) {
-      buf.writeln('- "$key": JSON array of strings$descSuffix');
-      return;
-    }
-
-    final schema = config.presetName != null ? schemaPresets[config.presetName]?.schema : config.inlineSchema;
-
-    if (schema == null) {
-      buf.writeln('- "$key": JSON value$descSuffix');
-      return;
-    }
-
-    final type = _schemaTypes(schema);
-    if (type.contains('array')) {
-      buf.writeln('- "$key": JSON array$descSuffix');
-      final items = schema['items'] as Map<String, dynamic>?;
-      if (items != null) {
-        buf.writeln('  Each item has:');
-        _writeProperties(buf, items, indent: '    ');
-      }
-      return;
-    }
-
-    if (type.contains('object')) {
-      buf.writeln('- "$key": JSON object$descSuffix${descSuffix.isEmpty ? " with:" : ", with:"}');
-      _writeProperties(buf, schema, indent: '  ');
-      return;
-    }
-
-    buf.writeln('- "$key": JSON ${_typeLabel(type)}$descSuffix');
-  }
-
-  /// Generates a prompt fragment from an inline JSON Schema by walking properties.
-  String _generateInlineFragment(Map<String, dynamic> schema, String outputKey) {
-    final buf = StringBuffer();
-    buf.writeln('Produce your output for "$outputKey" as JSON with this structure:');
-
-    final type = _schemaTypes(schema);
-    if (type.contains('array')) {
-      buf.writeln('A JSON array where each item has:');
-      final items = schema['items'] as Map<String, dynamic>?;
-      if (items != null) {
-        _writeProperties(buf, items, indent: '  ');
-      }
-    } else if (type.contains('object')) {
-      _writeProperties(buf, schema, indent: '');
-    }
-
-    buf.writeln();
-    buf.write('Output the JSON directly – do not wrap in markdown code fences.');
-    return buf.toString();
-  }
-
-  /// Writes property descriptions from a JSON Schema object definition.
-  void _writeProperties(StringBuffer buf, Map<String, dynamic> schema, {String indent = ''}) {
-    final properties = schema['properties'] as Map<String, dynamic>?;
-    if (properties == null) return;
-    final required = (schema['required'] as List?)?.cast<String>().toSet() ?? <String>{};
-
-    for (final entry in properties.entries) {
-      final name = entry.key;
-      final prop = entry.value as Map<String, dynamic>;
-      final propType = _schemaTypes(prop);
-      final isRequired = required.contains(name);
-      final enumValues = prop['enum'] as List?;
-      final propDesc = (prop['description'] as String?)?.trim();
-
-      var line = '$indent- $name (${_typeLabel(propType)}';
-      if (!isRequired) line += ', optional';
-      line += ')';
-      if (enumValues != null) {
-        line += ': ${enumValues.map((e) => '"$e"').join(', ')}';
-      }
-      if (propDesc != null && propDesc.isNotEmpty) {
-        line += ': $propDesc';
-      }
-      buf.writeln(line);
-
-      // Recurse into nested objects and arrays of objects. Depth is bounded
-      // by schema nesting in current presets.
-      if (propType.contains('array')) {
-        final items = prop['items'] as Map<String, dynamic>?;
-        if (items != null && items['properties'] != null) {
-          buf.writeln('$indent  Each item has:');
-          _writeProperties(buf, items, indent: '$indent    ');
-        }
-      } else if (propType.contains('object') && prop['properties'] != null) {
-        buf.writeln('$indent  With fields:');
-        _writeProperties(buf, prop, indent: '$indent    ');
-      }
-    }
+    return reviewScoringFragmentFor(defaultGatingSeverity);
   }
 
   /// Returns the description to render for [config], falling back to the
@@ -298,20 +169,5 @@ class PromptAugmenter {
     final presetDesc = schemaPresets[presetName]?.description?.trim();
     if (presetDesc == null || presetDesc.isEmpty) return null;
     return presetDesc;
-  }
-
-  List<String> _schemaTypes(Map<String, dynamic> schema) {
-    final rawType = schema['type'];
-    return switch (rawType) {
-      final String type => <String>[type],
-      final List<dynamic> values => values.whereType<String>().toList(growable: false),
-      _ => const <String>[],
-    };
-  }
-
-  String _typeLabel(List<String> types) {
-    if (types.isEmpty) return 'any';
-    if (types.length == 1) return types.single;
-    return types.join(' or ');
   }
 }

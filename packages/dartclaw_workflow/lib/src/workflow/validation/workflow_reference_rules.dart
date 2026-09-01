@@ -1,7 +1,7 @@
 part of '../workflow_definition_validator.dart';
 
 extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
-  void _validateVariableReferences(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateVariableReferences(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     final declaredVars = definition.variables.keys.toSet();
     if (definition.project != null) {
       final workflowProjectRefs = _engine.extractVariableReferences(definition.project!);
@@ -13,26 +13,10 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
       _validateWorkflowSystemReferences(definition.project!, errors, location: 'Workflow project field');
     }
 
-    // Build a step-id → enclosing-map-aliases lookup so that substep prompts
-    // inside a foreach/map can reference the controller's `as:` alias without
-    // the extractor flagging it as an undeclared variable.
-    final aliasesByStepId = <String, Set<String>>{};
     for (final step in definition.steps) {
-      if (step.mapAlias != null) {
-        aliasesByStepId.putIfAbsent(step.id, () => <String>{}).add(step.mapAlias!);
-      }
-      if (step.isForeachController && step.mapAlias != null) {
-        for (final childId in step.foreachSteps!) {
-          aliasesByStepId.putIfAbsent(childId, () => <String>{}).add(step.mapAlias!);
-        }
-      }
-    }
-
-    for (final step in definition.steps) {
-      final aliases = aliasesByStepId[step.id];
       // Extract variable references from all prompts combined (prompts optional for skill steps).
       final allPromptRefs = <String>{
-        for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p, mapAliases: aliases),
+        for (final p in step.prompts ?? const <String>[]) ..._engine.extractVariableReferences(p),
       };
       for (final prompt in step.prompts ?? const <String>[]) {
         _validateWorkflowSystemReferences(prompt, errors, stepId: step.id, location: 'Step "${step.id}" prompt');
@@ -61,7 +45,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateStepWorkflowSystemReferences(WorkflowStep step, List<ValidationError> errors) {
+  void _validateStepWorkflowSystemReferences(WorkflowStep step, List<WorkflowValidationError> errors) {
     final workdir = step.workdir;
     if (workdir != null) {
       _validateWorkflowSystemReferences(workdir, errors, stepId: step.id, location: 'Step "${step.id}" workdir');
@@ -77,7 +61,10 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateGitStrategyWorkflowSystemReferences(WorkflowGitStrategy strategy, List<ValidationError> errors) {
+  void _validateGitStrategyWorkflowSystemReferences(
+    WorkflowGitStrategy strategy,
+    List<WorkflowValidationError> errors,
+  ) {
     final artifacts = strategy.artifacts;
     if (artifacts != null) {
       final project = artifacts.project;
@@ -89,28 +76,11 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
         _validateWorkflowSystemReferences(commitMessage, errors, location: 'gitStrategy.artifacts.commitMessage');
       }
     }
-
-    final mount = strategy.worktree?.externalArtifactMount;
-    if (mount != null) {
-      _validateWorkflowSystemReferences(
-        mount.fromProject,
-        errors,
-        location: 'gitStrategy.worktree.externalArtifactMount.fromProject',
-      );
-      final source = mount.source;
-      if (source != null) {
-        _validateWorkflowSystemReferences(
-          source,
-          errors,
-          location: 'gitStrategy.worktree.externalArtifactMount.source',
-        );
-      }
-    }
   }
 
   void _validateWorkflowSystemReferences(
     String template,
-    List<ValidationError> errors, {
+    List<WorkflowValidationError> errors, {
     String? stepId,
     required String location,
   }) {
@@ -126,33 +96,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateMapAliases(WorkflowDefinition definition, List<ValidationError> errors) {
-    final declaredVars = definition.variables.keys.toSet();
-    for (final step in definition.steps) {
-      final alias = step.mapAlias;
-      if (alias == null) continue;
-      if (!step.isMapStep) {
-        errors.add(
-          _refErr(
-            step.id,
-            'Step "${step.id}": "as: $alias" is only valid on map/foreach controllers '
-            '(steps that declare map_over).',
-          ),
-        );
-      }
-      if (declaredVars.contains(alias)) {
-        errors.add(
-          _refErr(
-            step.id,
-            'Step "${step.id}": "as: $alias" collides with a declared workflow variable '
-            '(pick a different identifier).',
-          ),
-        );
-      }
-    }
-  }
-
-  void _validateContextKeyConsistency(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateContextKeyConsistency(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     // Build set of step IDs that belong to each loop
     final stepToLoops = <String, Set<String>>{};
     for (final loop in definition.loops) {
@@ -200,7 +144,7 @@ extension _WorkflowReferenceRules on WorkflowDefinitionValidator {
     }
   }
 
-  void _validateMapOverReferences(WorkflowDefinition definition, List<ValidationError> errors) {
+  void _validateMapOverReferences(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     // Build the set of context keys produced by steps in order.
     // For each step with mapOver, verify the referenced key was produced by a prior step.
     final producedSoFar = <String>{};

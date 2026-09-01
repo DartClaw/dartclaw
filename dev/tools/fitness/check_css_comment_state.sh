@@ -59,7 +59,7 @@ else
   while IFS= read -r -d '' file; do
     check_file "$file"
   done < <(
-    find dev/design-system packages/dartclaw_server/lib/src/static \
+    find dev/design-system packages/dartclaw_runtime/lib/src/static \
       -type f -name '*.css' -print0
   )
 fi

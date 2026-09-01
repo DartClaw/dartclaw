@@ -4,14 +4,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig, ServerConfig;
-import 'package:dartclaw_config/dartclaw_config.dart' show WorkflowRunStatus;
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskType;
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
-import 'package:dartclaw_storage/dartclaw_storage.dart'
-    show SqliteTaskRepository, SqliteWorkflowRunRepository, openTaskDbInMemory;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -322,7 +320,6 @@ agent:
             id: 't1',
             title: 'evil\x1b[2J\r\ntitle\x07',
             description: '',
-            type: TaskType.coding,
             status: TaskStatus.accepted,
             createdAt: now,
             workflowRunId: 'run-title',

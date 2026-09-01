@@ -1,134 +1,119 @@
-import 'dart:convert';
 import 'dart:io';
 
-// Ratchet: this bound is a hard CI limit. The intent is to keep
-// `dartclaw_core/lib` focused on runtime primitives; non-primitive growth should
-// land in `dartclaw_models` / `dartclaw_config` instead. Bump only with a
-// CHANGELOG note explaining what justified the growth.
+// Per-package `lib/` LOC ceilings. One recorded number per workspace member
+// with a `lib/`. They ratchet down routinely; a raise is a recorded rebaseline
+// (milestone close-out or reviewed necessity) with a CHANGELOG note.
 //
-// Bumped 12500 -> 12800 to absorb the cross-package shared-util consolidation
-// (formatLocalDateTime, humanizeDuration, httpRequest landed in
-// `lib/src/util/`): these are genuine runtime primitives pulled up from
-// duplicated per-package copies, so net monorepo LOC dropped while core grew.
+// The check fails two ways. Growth past the ceiling fails. So does slack: a
+// package whose ceiling sits further above its actual size than its band allows
+// fails until the ceiling is lowered, so a package that shrinks cannot bank the
+// space it freed as future allowance. That is the ratchet ADR-033 asks for,
+// checkable from one snapshot rather than from history.
 //
-// Bumped 12800 -> 13500 for the first-party ACP harness lifecycle. ACP needs
-// core-owned subprocess/JSON-RPC primitives so routing, pool release, and
-// harness errors share the same runtime boundary as Claude/Codex.
+// The band is `min(_locHeadroom, ceiling ~/ 4)`, not a flat `_locHeadroom`. A
+// flat constant is inert in the shrink direction for anything smaller than
+// itself: the client-tier umbrella is 45 lines, so under a flat 400 it could
+// shrink to zero and still pass. Proportional below the constant, capped by it
+// above, so the ratchet holds at every package size.
 //
-// Bumped 13500 -> 14900 to match the as-shipped 0.18 ACP surface: the +700 the
-// previous bump budgeted under-counted the lifecycle (acp_* totals ~1827 lines:
-// client, harness, protocol adapter, reverse-call handlers, target validation,
-// errors), all ADR-037 core-owned runtime. 0.18 tagged over the prior ceiling.
+// Raising a ceiling is a deliberate, reviewable act with a CHANGELOG note.
+// Lowering one is routine and belongs in the change that shrank the package.
+const _locHeadroom = 1500;
+
+/// How far above [ceiling]'s own package the ceiling may sit before the slack
+/// itself fails. Proportional under [_locHeadroom], capped by it above.
+int _locBand(int ceiling) {
+  final proportional = ceiling ~/ 4;
+  return proportional < _locHeadroom ? proportional : _locHeadroom;
+}
+
+/// The highest ceiling [loc] may carry — what a slack failure must be lowered to.
+int _maxCeilingFor(int loc) {
+  var ceiling = loc + _locHeadroom;
+  while (ceiling > loc && ceiling - loc > _locBand(ceiling)) {
+    ceiling -= 1;
+  }
+  return ceiling;
+}
+
+// Re-baselined 2026-08-22 against the finished 0.25 tree, measured with the
+// command block in dev/state/LOC-BASELINE-0.25.md — the milestone's single LOC
+// authority — and with no other filter. Each entry is `min(previous ceiling,
+// _maxCeilingFor(measured))`: a ceiling never rises, and one that the new band
+// no longer permits comes down to what it does.
 //
-// 2026-06-29: re-baselined from a tripwire (the hard cap sat ~20 lines over
-// actual usage, so every legitimate core change failed CI) to a headroom model.
-// The hard cap carries roughly a milestone of growth above current usage; the
-// warn threshold fires ~700 lines before the cap as an early "plan to re-tighten
-// or justify" signal, not a failure. This stays a ratchet: when core LOC drops
-// (code moved to dartclaw_models/dartclaw_config, dead code removed), lower both
-// numbers back toward actual usage in the same change — do not let the headroom
-// become a permanent allowance. Current usage at re-baseline: ~14880.
+// Eleven of the thirteen are unchanged, because the milestone's `lib/`
+// deletions had already landed when these were first recorded and the suite
+// reduction that followed touched no `lib/` file. The two that move are the
+// two the flat band had left unratcheted:
+//   dartclaw         245 -> 60   (measured 45; 245 permitted a shrink to zero)
+//   dartclaw_client  669 -> 625  (measured 469)
 //
-// 2026-08-11: bumped 16500 -> 17200, warn 15800 -> 16600. The 0.24 execution
-// isolation work put execution-mode policy into the session/turn runtime
-// (core-owned per the two-axis policy in ADR-012); the prior cap had ~26 lines
-// of headroom left. Usage at bump: 16509. See CHANGELOG [Unreleased].
-// 2026-08-11: raised for the canonical memory value, Markdown codec, and corpus
-// validation primitives. These are core-owned, SQLite-free contracts consumed
-// across the memory implementation; moving them would invert package ownership.
-// 2026-08-11: raised for the atomic canonical-corpus authority. Snapshot,
-// compare-and-swap, journal recovery, and stopped-edit reconciliation must share
-// the core-owned codec/validator and stay SQLite-free.
-// 2026-08-12: raised for the provider-neutral memory tool taxonomy, direct-SDK
-// schemas, and search-result identity contract. These are shared core seams;
-// provider/server-local copies would create semantic drift.
-// 2026-08-12: raised for bounded canonical-corpus inventory and snapshot reads,
-// including resource admission before body allocation. These remain core-owned
-// because every storage and server consumer must share one corpus authority.
-// 2026-08-13: lowered after retiring unused memory adapters and simplifying the
-// canonical authority. The reduced ceiling preserves the recovered headroom.
-// 2026-08-13: integrated execution isolation with canonical memory at 21003
-// lines. Both are provider-neutral core contracts; the tight combined ratchet
-// preserves the memory simplification rather than inheriting either branch's
-// standalone allowance.
-// 2026-08-14: bumped 21050 -> 21500, warn 20700 -> 21300, for the dedicated
-// subscription credential stores. Filesystem-owning credential storage cannot
-// live in dartclaw_config (which must stay importable by core), so the store,
-// its login-collision guard and its expiry extraction are core-owned. Usage at
-// bump: 21166. The warn threshold moves with the ceiling because it had sat
-// below actual usage since the 21003-line baseline, firing on every run and so
-// unable to signal an approach; it is now ~140 lines ahead of usage and ~340
-// ahead of the ceiling, restoring the early-warning band.
-// 2026-08-25: bumped 21500 -> 21900, warn 21300 -> 21700, for the named
-// credential store and the login-collision guard extracted beside it. Same
-// ownership argument as the 2026-08-14 bump: filesystem-owning credential
-// storage cannot live in dartclaw_config, which must stay importable by core.
-// The extraction is a net reduction against the alternative — one shared guard
-// instead of a second copy in the new store. Usage at bump: 21668. The prior
-// ceiling had 8 lines of headroom left, so it was a tripwire again rather than
-// the headroom model this ratchet documents; the warn threshold moves with it
-// to restore the early-warning band.
-const _coreLocCeiling = 21900;
-const _coreLocWarnThreshold = 21700;
-// Headroom model (see core LOC note above): current dartclaw_workflow/lib usage
-// at baseline is ~23311. The ceiling carries room for ~2 milestones of workflow
-// engine growth; the warn threshold fires before the cap so growth is planned or
-// justified. This stays a ratchet: when workflow LOC drops after cleanup, lower
-// both numbers back toward actual usage in the same change.
-// Bumped 25000 -> 30000, warn 24600 -> 27000 (raised 2026-07-05, owner decision:
-// ceilings had no story headroom).
-const _workflowLocCeiling = 30000;
-const _workflowLocWarnThreshold = 27000;
-// Headroom model (see core LOC note above): max barrel is 90 (dartclaw_core) at
-// 2026-06-29; ceiling carries room for ~2 milestones of public-API growth. Keeps
-// the barrel from becoming a dumping ground without failing CI on every export.
-const _barrelExportCeiling = 110;
-const _workspacePackageCeiling = 14;
-const _workspaceAppNames = {'dartclaw_cli'};
-const _expectedWorkspaceDependencies = <String, Set<String>>{
-  'dartclaw': {'dartclaw_core', 'dartclaw_google_chat', 'dartclaw_signal', 'dartclaw_storage', 'dartclaw_whatsapp'},
-  'dartclaw_cli': {
-    'dartclaw_config',
-    'dartclaw_core',
-    'dartclaw_google_chat',
-    'dartclaw_security',
-    'dartclaw_server',
-    'dartclaw_signal',
-    'dartclaw_storage',
-    'dartclaw_whatsapp',
-    'dartclaw_workflow',
-  },
-  'dartclaw_bridge': {},
-  'dartclaw_config': {'dartclaw_models', 'dartclaw_security'},
-  'dartclaw_core': {'dartclaw_config', 'dartclaw_models', 'dartclaw_security'},
-  'dartclaw_google_chat': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_models': {},
-  'dartclaw_security': {'dartclaw_models'},
-  'dartclaw_server': {
-    'dartclaw_bridge',
-    'dartclaw_config',
-    'dartclaw_core',
-    'dartclaw_google_chat',
-    'dartclaw_models',
-    'dartclaw_security',
-    'dartclaw_signal',
-    'dartclaw_storage',
-    'dartclaw_whatsapp',
-    'dartclaw_workflow',
-  },
-  'dartclaw_signal': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_storage': {'dartclaw_core', 'dartclaw_workflow'},
-  'dartclaw_testing': {
-    'dartclaw_config',
-    'dartclaw_core',
-    'dartclaw_google_chat',
-    'dartclaw_models',
-    'dartclaw_security',
-    'dartclaw_workflow',
-  },
-  'dartclaw_whatsapp': {'dartclaw_config', 'dartclaw_core'},
-  'dartclaw_workflow': {'dartclaw_config', 'dartclaw_core', 'dartclaw_models', 'dartclaw_security'},
+// Subsequent ratchets on 2026-08-23:
+//   dartclaw          60 -> 58     (measured 44)
+//   dartclaw_runtime  66040 -> 63167 (measured 62767)
+//
+// Reviewed exception on 2026-08-25:
+//   dartclaw_runtime  63167 -> 64225 (measured 63825 after C2 removed 381
+//   behavior-preserving lines; the remaining server-rendered web growth was
+//   accepted rather than hidden in templates or compressed for the counter)
+//
+// Subsequent ratchet on 2026-08-25:
+//   dartclaw_runtime  64225 -> 64014 (measured 63614)
+//   dartclaw_core     25619 -> 25389 (measured 24989) -> 25378 (measured 24978)
+//   dartclaw_runtime  64014 -> 63956 (measured 63556)
+//
+// Reviewed topology rebaseline on 2026-08-26:
+//   dartclaw_google_chat 5746 -> 6409 (measured 6009 after absorbing its
+//   Space Events and OAuth implementation from dartclaw_runtime)
+//   dartclaw_runtime     63956 -> 63614 (measured 63214 after the move)
+//   dartclaw_runtime     63614 -> 63603 (measured 63203 after relocating the
+//   WhatsApp JID helper to its channel owner)
+//
+// Subsequent ratchet on 2026-08-27:
+//   dartclaw_cli      10852 -> 10847 (measured 10447 after CredentialPreflight
+//   moved to dartclaw_runtime, which the runtime's own band already absorbs)
+//
+// Reviewed necessity, 2026-08-27 (ADR-033; maintainer-accepted):
+//   dartclaw_runtime  63603 -> 64058 (measured 63658). The T1 tail's two boot
+//   defects and the posture fixes that followed add a net 58 lines to this
+//   package. Safe reduction was exhausted first — both new doc blocks trimmed
+//   three times, and the `require*` accessors moved out of service_wiring.dart
+//   into its result part, which the 1500-line file ceiling forced anyway.
+//   Nothing further came out without deleting a fix. Recorded in
+//   dev/state/LOC-BASELINE-0.25.md § Reviewed T1 runtime rebaseline.
+//
+// Reviewed margin rebaseline, 2026-09-01 (owner decision, DECISIONS.md § Still
+// Current): _locHeadroom 400 -> 1500 and every ceiling re-cut to
+// _maxCeilingFor(measured) on the tree that merged 0.24.3. Four packages were
+// over their ceiling (core 26240 > 25378, kernel 18420 > 17962, workflow
+// 24132 > 24130, cli 11219 > 10847) and the 400 band had a ceiling raise
+// every few days; the ratchet keeps its shape, the slack it tolerates is wider.
+// Measured: dartclaw 44, acp 2735, bridge 696, cli 11219, client 469,
+// core 26240, google_chat 6009, kernel 18420, runtime 63856, signal 1347,
+// testing 2988, whatsapp 888, workflow 24132. Recorded in
+// dev/state/LOC-BASELINE-0.25.md § Reviewed margin rebaseline.
+const _libLocCeilings = <String, int>{
+  'dartclaw': 58,
+  'dartclaw_acp': 3646,
+  'dartclaw_bridge': 928,
+  'dartclaw_cli': 12719,
+  'dartclaw_client': 625,
+  'dartclaw_core': 27740,
+  'dartclaw_google_chat': 7509,
+  'dartclaw_kernel': 19920,
+  'dartclaw_runtime': 65356,
+  'dartclaw_signal': 1796,
+  'dartclaw_testing': 3984,
+  'dartclaw_whatsapp': 1184,
+  'dartclaw_workflow': 25632,
 };
+// 2026-08-22: ratcheted 13 -> 12 when storage was absorbed into core, and the
+// package count is recorded again here at the tier order's close. The ceiling
+// equals the shipped package count, with no spare slot for an unreviewed
+// boundary. `dartclaw_bridge` counts as its own package: the combined
+// core+bridge target is not decided, so this records the actual state.
+const _workspacePackageCeiling = 12;
 
 final class _CheckResult {
   final String name;
@@ -142,13 +127,9 @@ Future<void> main() async {
   final scriptPath = File.fromUri(Platform.script).resolveSymbolicLinksSync();
   final repoRoot = File(scriptPath).parent.parent.parent.path;
   final results = <_CheckResult>[
-    await _checkDependencyGraph(repoRoot),
-    _checkCoreSqliteDependency(repoRoot),
-    _checkCrossPackageSrcImports(repoRoot),
+    _checkCoreBarrelDoesNotLaunderKernel(repoRoot),
     _checkClaudeProviderOptionOwnership(repoRoot),
-    _checkCoreLoc(repoRoot),
-    _checkWorkflowLoc(repoRoot),
-    _checkBarrelExports(repoRoot),
+    ..._checkLibLocCeilings(repoRoot),
     _checkWorkspacePackageCount(repoRoot),
   ];
 
@@ -172,96 +153,34 @@ Future<void> main() async {
   exitCode = 1;
 }
 
-Future<_CheckResult> _checkDependencyGraph(String repoRoot) async {
-  final result = await Process.run('dart', const ['pub', 'deps', '--json'], workingDirectory: repoRoot);
+// Dependency direction itself is governed by the declared tier order in
+// dev/package_tiers.txt (dev/fitness/test/dependency_direction_test.dart). This
+// keeps only the rule that is about a barrel's shape rather than an edge.
+_CheckResult _checkCoreBarrelDoesNotLaunderKernel(String repoRoot) {
+  // Targeted show-clause re-exports (migration bridges) are fine; an unbounded
+  // full-barrel re-export would make every kernel symbol look core-owned.
+  final coreBarrel = File('$repoRoot/packages/dartclaw_core/lib/dartclaw_core.dart');
+  final launders =
+      coreBarrel.existsSync() &&
+      RegExp(
+        r'''^\s*export\s+['"]package:dartclaw_kernel/dartclaw_kernel\.dart['"]''',
+        multiLine: true,
+      ).hasMatch(coreBarrel.readAsStringSync());
 
-  if (result.exitCode != 0) {
-    final stderr = (result.stderr as String).trim();
-    return _CheckResult(
-      name: 'L1 dependency graph & layering',
-      passed: false,
-      detail: 'dart pub deps --json failed: ${stderr.isEmpty ? 'unknown error' : stderr}',
-    );
-  }
-
-  try {
-    final decoded = jsonDecode(result.stdout as String);
-    if (decoded is! Map<String, dynamic>) {
-      return const _CheckResult(
-        name: 'L1 dependency graph & layering',
-        passed: false,
-        detail: 'dart pub deps --json returned a non-object payload.',
-      );
-    }
-
-    final packages = decoded['packages'];
-    final packageCount = packages is List ? packages.length : 0;
-    final workspaceMembers = _workspaceMembers(repoRoot);
-    final layerViolations = <String>[];
-    for (final member in workspaceMembers) {
-      final expectedDeps = _expectedWorkspaceDependencies[member.name];
-      if (expectedDeps == null) {
-        layerViolations.add('${member.name}: no expected dependency contract defined');
-        continue;
-      }
-
-      final actualDeps = _workspaceDependencyNames(member);
-      final missingDeps = expectedDeps.difference(actualDeps).toList()..sort();
-      final unexpectedDeps = actualDeps.difference(expectedDeps).toList()..sort();
-
-      if (missingDeps.isNotEmpty || unexpectedDeps.isNotEmpty) {
-        final parts = <String>[];
-        if (missingDeps.isNotEmpty) {
-          parts.add('missing ${missingDeps.join(', ')}');
-        }
-        if (unexpectedDeps.isNotEmpty) {
-          parts.add('unexpected ${unexpectedDeps.join(', ')}');
-        }
-        layerViolations.add('${member.name}: ${parts.join('; ')}');
-      }
-    }
-
-    // Allow targeted show-clause re-exports (migration bridges); only flag unbounded full-barrel re-exports.
-    final coreBarrel = File('$repoRoot/packages/dartclaw_core/lib/dartclaw_core.dart');
-    if (coreBarrel.existsSync() &&
-        RegExp(
-          r'''^\s*export\s+['"]package:dartclaw_config/dartclaw_config\.dart['"]\s*;''',
-          multiLine: true,
-        ).hasMatch(coreBarrel.readAsStringSync())) {
-      layerViolations.add('dartclaw_core: barrel must not re-export package:dartclaw_config/dartclaw_config.dart');
-    }
-
-    if (layerViolations.isNotEmpty) {
-      return _CheckResult(
-        name: 'L1 dependency graph & layering',
-        passed: false,
-        detail:
-            'dart pub deps --json succeeded but found ${layerViolations.length} layering violation(s): '
-            '${layerViolations.take(4).join(', ')}${layerViolations.length > 4 ? ' ...' : ''}',
-      );
-    }
-
-    return _CheckResult(
-      name: 'L1 dependency graph & layering',
-      passed: true,
-      detail:
-          'dart pub deps --json succeeded; workspace graph resolved with $packageCount package entries and all '
-          '${workspaceMembers.length} workspace members match the documented internal dependency DAG.',
-    );
-  } catch (error) {
-    return _CheckResult(
-      name: 'L1 dependency graph & layering',
-      passed: false,
-      detail: 'Could not parse dart pub deps --json output: $error',
-    );
-  }
+  return _CheckResult(
+    name: 'L1 core barrel does not launder the kernel',
+    passed: !launders,
+    detail: launders
+        ? 'packages/dartclaw_core/lib/dartclaw_core.dart re-exports the whole kernel barrel.'
+        : 'dartclaw_core advertises its own surface; kernel symbols are imported from the kernel.',
+  );
 }
 
 _CheckResult _checkClaudeProviderOptionOwnership(String repoRoot) {
   final violations = <String>[];
   final allowed = {
-    'packages/dartclaw_config/lib/src/claude_provider_options.dart',
-    'packages/dartclaw_config/lib/src/config_parser.dart',
+    'packages/dartclaw_kernel/lib/src/claude_provider_options.dart',
+    'packages/dartclaw_kernel/lib/src/config_parser.dart',
   };
 
   for (final root in ['apps', 'packages']) {
@@ -291,79 +210,71 @@ _CheckResult _checkClaudeProviderOptionOwnership(String repoRoot) {
     name: 'L1 Claude provider option ownership',
     passed: violations.isEmpty,
     detail: violations.isEmpty
-        ? 'Production inherit_user_settings lookups are centralized in dartclaw_config.'
-        : 'Found raw inherit_user_settings lookup(s) outside dartclaw_config policy helper: ${violations.join(', ')}',
+        ? 'Production inherit_user_settings lookups are centralized in dartclaw_kernel.'
+        : 'Found raw inherit_user_settings lookup(s) outside dartclaw_kernel policy helper: ${violations.join(', ')}',
   );
 }
 
-_CheckResult _checkCoreSqliteDependency(String repoRoot) {
-  final pubspec = File('$repoRoot/packages/dartclaw_core/pubspec.yaml').readAsStringSync();
-  final dependenciesSection = _topLevelSection(pubspec, 'dependencies');
-  final hasSqlite = RegExp(r'^\s{2}sqlite3\s*:', multiLine: true).hasMatch(dependenciesSection);
-  return _CheckResult(
-    name: 'L1 core sqlite3 boundary',
-    passed: !hasSqlite,
-    detail: hasSqlite
-        ? 'packages/dartclaw_core/pubspec.yaml declares sqlite3 in production dependencies.'
-        : 'packages/dartclaw_core/pubspec.yaml has no sqlite3 production dependency.',
-  );
-}
-
-_CheckResult _checkCrossPackageSrcImports(String repoRoot) {
-  final violations = <String>[];
+List<_CheckResult> _checkLibLocCeilings(String repoRoot) {
+  final results = <_CheckResult>[];
+  final measured = <String>{};
   for (final member in _workspaceMembers(repoRoot)) {
     final libDir = Directory('${member.path}${Platform.pathSeparator}lib');
-    if (!libDir.existsSync()) {
+    if (!libDir.existsSync()) continue;
+    measured.add(member.name);
+    final ceiling = _libLocCeilings[member.name];
+    if (ceiling == null) {
+      results.add(
+        _CheckResult(
+          name: 'L2 ${member.name} LOC ceiling',
+          passed: false,
+          detail: 'No ceiling recorded for ${member.name}; add one to _libLocCeilings in dev/tools/arch_check.dart.',
+        ),
+      );
       continue;
     }
-
-    for (final file in libDir.listSync(recursive: true)) {
-      if (file is! File || !file.path.endsWith('.dart')) {
-        continue;
-      }
-
-      final relativePath = _relativePath(file.path, repoRoot);
-      final content = file.readAsStringSync();
-      for (final match in RegExp(r'''import\s+['"]package:([^/'"]+)/src/[^'"]+['"]''').allMatches(content)) {
-        final importedPackage = match.group(1);
-        if (importedPackage == null || importedPackage == member.name) {
-          continue;
-        }
-        violations.add('$relativePath -> package:$importedPackage/src/');
-      }
+    final loc = _countDartLoc(libDir);
+    final path = '${_relativePath(member.path, repoRoot)}/lib';
+    if (loc > ceiling) {
+      results.add(
+        _CheckResult(
+          name: 'L2 ${member.name} LOC ceiling',
+          passed: false,
+          detail: '$loc lines in $path exceeds the ceiling of $ceiling.',
+        ),
+      );
+    } else if (ceiling - loc > _locBand(ceiling)) {
+      results.add(
+        _CheckResult(
+          name: 'L2 ${member.name} LOC ceiling',
+          passed: false,
+          detail:
+              '$loc lines in $path leaves ${ceiling - loc} lines of slack under the ceiling of $ceiling '
+              '(band ${_locBand(ceiling)}); lower the ceiling to ${_maxCeilingFor(loc)}.',
+        ),
+      );
+    } else {
+      results.add(
+        _CheckResult(
+          name: 'L2 ${member.name} LOC ceiling',
+          passed: true,
+          detail: '$loc lines in $path (ceiling <= $ceiling, band ${_locBand(ceiling)}).',
+        ),
+      );
     }
   }
 
-  return _CheckResult(
-    name: 'L1 no cross-package src imports',
-    passed: violations.isEmpty,
-    detail: violations.isEmpty
-        ? 'No production library imports cross into another package\'s src/.'
-        : 'Found ${violations.length} violating import(s): ${violations.take(5).join(', ')}'
-              '${violations.length > 5 ? ' ...' : ''}',
-  );
-}
-
-_CheckResult _checkCoreLoc(String repoRoot) {
-  final loc = _countDartLoc(Directory('$repoRoot/packages/dartclaw_core/lib'));
-  return _locCeilingResult(
-    name: 'L2 core LOC ceiling',
-    loc: loc,
-    path: 'packages/dartclaw_core/lib',
-    warnThreshold: _coreLocWarnThreshold,
-    ceiling: _coreLocCeiling,
-  );
-}
-
-_CheckResult _checkWorkflowLoc(String repoRoot) {
-  final loc = _countDartLoc(Directory('$repoRoot/packages/dartclaw_workflow/lib'));
-  return _locCeilingResult(
-    name: 'L2 workflow LOC ceiling',
-    loc: loc,
-    path: 'packages/dartclaw_workflow/lib',
-    warnThreshold: _workflowLocWarnThreshold,
-    ceiling: _workflowLocCeiling,
-  );
+  final orphaned = _libLocCeilings.keys.where((name) => !measured.contains(name)).toList()..sort();
+  if (orphaned.isNotEmpty) {
+    results.add(
+      _CheckResult(
+        name: 'L2 LOC ceiling coverage',
+        passed: false,
+        detail: 'Recorded ceilings for packages with no lib/: ${orphaned.join(', ')}.',
+      ),
+    );
+  }
+  return results;
 }
 
 int _countDartLoc(Directory directory) {
@@ -376,52 +287,6 @@ int _countDartLoc(Directory directory) {
     loc += file.readAsLinesSync().length;
   }
   return loc;
-}
-
-_CheckResult _locCeilingResult({
-  required String name,
-  required int loc,
-  required String path,
-  required int warnThreshold,
-  required int ceiling,
-}) {
-  return _CheckResult(
-    name: name,
-    passed: loc <= ceiling,
-    detail:
-        '${loc >= warnThreshold ? 'WARN: ' : ''}$loc lines in $path '
-        '(warn >= $warnThreshold, threshold <= $ceiling).',
-  );
-}
-
-_CheckResult _checkBarrelExports(String repoRoot) {
-  var maxExports = 0;
-  var maxPackage = '';
-  final offenders = <String>[];
-
-  for (final member in _packageMembers(repoRoot)) {
-    final barrel = File('${member.path}${Platform.pathSeparator}lib${Platform.pathSeparator}${member.name}.dart');
-    if (!barrel.existsSync()) {
-      continue;
-    }
-
-    final exportCount = RegExp(r'^\s*export\s+', multiLine: true).allMatches(barrel.readAsStringSync()).length;
-    if (exportCount > maxExports) {
-      maxExports = exportCount;
-      maxPackage = member.name;
-    }
-    if (exportCount > _barrelExportCeiling) {
-      offenders.add('${member.name}=$exportCount');
-    }
-  }
-
-  return _CheckResult(
-    name: 'L2 barrel export ceiling',
-    passed: offenders.isEmpty,
-    detail: offenders.isEmpty
-        ? 'Max barrel export count is $maxExports in $maxPackage (threshold <= $_barrelExportCeiling).'
-        : 'Barrels above threshold: ${offenders.join(', ')}.',
-  );
 }
 
 _CheckResult _checkWorkspacePackageCount(String repoRoot) {
@@ -451,65 +316,6 @@ List<_WorkspaceMember> _packageMembers(String repoRoot) {
       .toList()
     ..sort((a, b) => a.name.compareTo(b.name));
 }
-
-String _topLevelSection(String yaml, String sectionName) {
-  final lines = const LineSplitter().convert(yaml);
-  final buffer = StringBuffer();
-  var inSection = false;
-  for (final line in lines) {
-    final isTopLevel = !line.startsWith(' ') && line.contains(':');
-    if (isTopLevel) {
-      if (line.startsWith('$sectionName:')) {
-        inSection = true;
-        buffer.writeln(line);
-        continue;
-      }
-      if (inSection) {
-        break;
-      }
-    }
-    if (inSection) {
-      buffer.writeln(line);
-    }
-  }
-  return buffer.toString();
-}
-
-Set<String> _workspaceDependencyNames(_WorkspaceMember member) {
-  final pubspec = File('${member.path}${Platform.pathSeparator}pubspec.yaml');
-  if (!pubspec.existsSync()) {
-    return const <String>{};
-  }
-
-  final dependenciesSection = _topLevelSection(pubspec.readAsStringSync(), 'dependencies');
-  final dependencyNames = _topLevelKeys(dependenciesSection);
-  return dependencyNames.where(_isWorkspaceDependencyName).toSet();
-}
-
-List<String> _topLevelKeys(String yamlSection) {
-  final keys = <String>[];
-  for (final line in const LineSplitter().convert(yamlSection)) {
-    if (_indentWidth(line) != 2) {
-      continue;
-    }
-
-    final colonIndex = line.indexOf(':');
-    if (colonIndex <= 0) {
-      continue;
-    }
-
-    final key = line.substring(2, colonIndex).trim();
-    if (key.isNotEmpty) {
-      keys.add(key);
-    }
-  }
-  return keys;
-}
-
-bool _isWorkspaceDependencyName(String name) =>
-    name.startsWith('dartclaw_') || name == 'dartclaw' || _workspaceAppNames.contains(name);
-
-int _indentWidth(String line) => line.length - line.trimLeft().length;
 
 String _basename(String path) {
   final normalized = path.replaceAll('\\', '/');

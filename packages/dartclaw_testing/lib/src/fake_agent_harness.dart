@@ -11,8 +11,10 @@ class FakeAgentHarness extends AgentHarness {
   final bool _supportsToolApproval;
   final bool _supportsStreaming;
   final bool _supportsCachedTokens;
+  final bool _supportsStructuredOutput;
+  final bool _supportsProviderSessionResume;
   WorkerState _state;
-  Completer<Map<String, dynamic>>? _turnCompleter;
+  Completer<TurnResult>? _turnCompleter;
   Completer<void> _turnInvokedCompleter = Completer<void>();
 
   @override
@@ -27,6 +29,8 @@ class FakeAgentHarness extends AgentHarness {
     bool supportsToolApproval = true,
     bool supportsStreaming = true,
     bool supportsCachedTokens = false,
+    bool supportsStructuredOutput = false,
+    bool supportsProviderSessionResume = false,
     StreamController<BridgeEvent>? eventsController,
   }) : _promptStrategy = promptStrategy,
        _state = initialState,
@@ -35,6 +39,8 @@ class FakeAgentHarness extends AgentHarness {
        _supportsToolApproval = supportsToolApproval,
        _supportsStreaming = supportsStreaming,
        _supportsCachedTokens = supportsCachedTokens,
+       _supportsStructuredOutput = supportsStructuredOutput,
+       _supportsProviderSessionResume = supportsProviderSessionResume,
        _eventsController = eventsController ?? StreamController<BridgeEvent>.broadcast();
 
   /// Whether [start] has been called.
@@ -67,8 +73,11 @@ class FakeAgentHarness extends AgentHarness {
   /// Most recent MCP server config.
   Map<String, dynamic>? lastMcpServers;
 
-  /// Most recent resume flag.
-  bool lastResume = false;
+  /// Most recent provider-native session identity.
+  String? lastProviderSessionId;
+
+  /// Whether the last turn requested a durably resumable provider session.
+  bool lastRequestProviderSessionResume = false;
 
   /// Most recent directory override.
   String? lastDirectory;
@@ -81,6 +90,13 @@ class FakeAgentHarness extends AgentHarness {
 
   /// Most recent max-turns override.
   int? lastMaxTurns;
+
+  /// Most recent output schema, recorded exactly as the caller passed it.
+  Map<String, dynamic>? lastOutputSchema;
+
+  /// Payload [completeSuccess] returns on [TurnResult.structuredOutput] when the
+  /// caller supplies no explicit result.
+  Map<String, dynamic>? structuredOutputResponse;
 
   @override
   PromptStrategy get promptStrategy => _promptStrategy;
@@ -96,6 +112,12 @@ class FakeAgentHarness extends AgentHarness {
 
   @override
   bool get supportsCachedTokens => _supportsCachedTokens;
+
+  @override
+  bool get supportsStructuredOutput => _supportsStructuredOutput;
+
+  @override
+  bool get supportsProviderSessionResume => _supportsProviderSessionResume;
 
   @override
   WorkerState get state => _state;
@@ -129,18 +151,39 @@ class FakeAgentHarness extends AgentHarness {
   }
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     String? agentId,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
-  }) {
+    Map<String, dynamic>? outputSchema,
+  }) async {
+    AgentHarness.requireProviderSessionResumeSupport(this, providerSessionId, requestProviderSessionResume);
+    AgentHarness.requireStructuredOutputSupport(this, outputSchema);
+    // One turn per harness at a time, asserted rather than assumed. A real
+    // provider process drives one turn — and a `DeltaEvent` carries no turn
+    // identity, so a second concurrent turn interleaves both outputs into both
+    // buffers. Every suite that drives this fake is a guard for that invariant
+    // because of this line.
+    //
+    // Cancelled turns are exempt: the runner deliberately starts the next turn
+    // after cancel recovery, and a harness whose `cancel()` never settles the
+    // completer (`HangingCancelHarness`) would otherwise read as in-flight
+    // forever. `cancelCalled` is the one signal every override sets.
+    final inFlight = _turnCompleter;
+    if (inFlight != null && !inFlight.isCompleted && !cancelCalled) {
+      throw StateError(
+        'FakeAgentHarness.turn() re-entered while a turn is in flight '
+        '(session $sessionId; in-flight session $lastSessionId)',
+      );
+    }
     turnCallCount += 1;
     lastSessionId = sessionId;
     lastAgentId = agentId;
@@ -151,17 +194,19 @@ class FakeAgentHarness extends AgentHarness {
     lastMcpServers = mcpServers == null
         ? null
         : Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(mcpServers));
-    lastResume = resume;
+    lastProviderSessionId = providerSessionId;
+    lastRequestProviderSessionResume = requestProviderSessionResume;
     lastDirectory = directory;
     lastModel = model;
     lastEffort = effort;
     lastMaxTurns = maxTurns;
+    lastOutputSchema = outputSchema;
 
     if (_autoTransitionState) {
       _state = WorkerState.busy;
     }
 
-    _turnCompleter = Completer<Map<String, dynamic>>();
+    _turnCompleter = Completer<TurnResult>();
     if (!_turnInvokedCompleter.isCompleted) {
       _turnInvokedCompleter.complete();
     }
@@ -200,13 +245,14 @@ class FakeAgentHarness extends AgentHarness {
     }
   }
 
-  /// Completes the current turn successfully.
-  void completeSuccess([Map<String, dynamic> result = const {'ok': true}]) {
+  /// Completes the current turn successfully, defaulting to a bare success
+  /// carrying [structuredOutputResponse].
+  void completeSuccess([TurnResult? result]) {
     final completer = _turnCompleter;
     if (completer == null || completer.isCompleted) {
       return;
     }
-    completer.complete(Map<String, dynamic>.from(result));
+    completer.complete(result ?? TurnResult(structuredOutput: structuredOutputResponse));
     _afterTurnCompletion();
   }
 

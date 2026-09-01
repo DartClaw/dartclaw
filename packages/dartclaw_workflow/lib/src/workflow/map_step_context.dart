@@ -2,6 +2,8 @@ import 'dart:math' show min;
 
 import 'package:logging/logging.dart';
 
+import 'workflow_failure.dart';
+
 /// Runtime state accumulator for a map/fan-out step execution.
 ///
 /// Tracks the collection, concurrency config, in-flight count, result slots
@@ -15,9 +17,6 @@ class MapStepContext {
 
   /// Maximum concurrent iterations. Null = unlimited.
   final int? maxParallel;
-
-  /// Maximum allowed collection size, when configured.
-  final int? maxItems;
 
   /// Index-ordered result slots. Pre-sized to [collection.length], initially all null.
   final List<dynamic> results;
@@ -54,12 +53,21 @@ class MapStepContext {
   /// deferred run pause after in-flight siblings have drained.
   String? abortReason;
 
+  /// Typed failure per settled failed, blocked or cancelled index.
+  ///
+  /// Every in-memory decision that used to re-read a slot message (the
+  /// aggregate ladder, the dependency hold) reads this instead; the slot's
+  /// [kindKey] exists so a resumed run can rebuild the same values.
+  final Map<int, WorkflowFailure> failures = {};
+
   /// Result-slot key marking a blocked item that must force a dependency hold
   /// even under `onFailure: continue` (nested-loop escalation).
   static const String requiresDependencyHoldKey = 'requires_dependency_hold';
 
-  new({required this.collection, required this.maxParallel, required this.maxItems})
-    : results = List<dynamic>.filled(collection.length, null);
+  /// Result-slot key carrying the recorded failure's persisted discriminator.
+  static const String kindKey = 'kind';
+
+  new({required this.collection, required this.maxParallel}) : results = List<dynamic>.filled(collection.length, null);
 
   /// Records a successful result at [index].
   void recordResult(int index, dynamic value) {
@@ -68,16 +76,18 @@ class MapStepContext {
   }
 
   /// Records a failure at [index] with an error object.
-  void recordFailure(int index, String message, String? taskId) {
-    results[index] = {'error': true, 'message': message, 'task_id': taskId};
+  void recordFailure(int index, WorkflowFailure failure, String? taskId) {
+    results[index] = {'error': true, kindKey: failure.kind, 'message': failure.message, 'task_id': taskId};
+    failures[index] = failure;
     failedIndices.add(index);
     completedIndices.add(index);
-    _log.warning('Map iteration [$index] failed (task=$taskId): $message');
+    _log.warning('Map iteration [$index] failed (task=$taskId): ${failure.message}');
   }
 
   /// Records a cancelled iteration at [index].
-  void recordCancelled(int index, String message) {
-    results[index] = {'error': true, 'message': message};
+  void recordCancelled(int index, WorkflowIterationCancelled failure) {
+    results[index] = {'error': true, kindKey: failure.kind, 'message': failure.message};
+    failures[index] = failure;
     cancelledIndices.add(index);
     completedIndices.add(index);
   }
@@ -92,14 +102,21 @@ class MapStepContext {
   /// controller must hold open dependents for human review even under
   /// `onFailure: continue`, whereas an ordinary `needsInput` block is
   /// recorded-and-advanced under that policy.
-  void recordBlocked(int index, String message, String? taskId, {bool requiresDependencyHold = false}) {
+  void recordBlocked(
+    int index,
+    WorkflowIterationBlockedHold failure,
+    String? taskId, {
+    bool requiresDependencyHold = false,
+  }) {
     results[index] = {
       'error': true,
       'blocked': true,
-      'message': message,
+      kindKey: failure.kind,
+      'message': failure.message,
       'task_id': taskId,
       if (requiresDependencyHold) requiresDependencyHoldKey: true,
     };
+    failures[index] = failure;
     blockedIndices.add(index);
   }
 

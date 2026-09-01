@@ -1,3 +1,10 @@
+/// System-variable key prefix under which the executor records the declared
+/// outputs a terminally failed step never produced.
+///
+/// System side, not user data: a workflow author's keys can neither collide
+/// with it nor read it as a value.
+const unproducedKeysSystemPrefix = 'unproduced.';
+
 /// Persistent key-value map shared between workflow steps.
 ///
 /// Stores variable bindings, step outputs, and loop iteration state.
@@ -47,12 +54,17 @@ class WorkflowContext {
   Map<String, dynamic> toJson() => {
     'data': Map<String, dynamic>.from(_data),
     'variables': Map<String, String>.from(_variables),
+    'systemVariables': Map<String, String>.from(_systemVariables),
   };
 
   /// Deserializes from persisted JSON.
+  ///
+  /// An absent `systemVariables` key reads as empty: runs persisted before the
+  /// key existed must still load.
   factory fromJson(Map<String, dynamic> json) => WorkflowContext(
     data: (json['data'] as Map?)?.cast<String, dynamic>(),
     variables: (json['variables'] as Map?)?.cast<String, String>(),
+    systemVariables: (json['systemVariables'] as Map?)?.cast<String, String>(),
   );
 }
 
@@ -60,8 +72,8 @@ class WorkflowContext {
 ///
 /// Used when persisting context snapshots — private keys track executor
 /// state and must survive step boundaries intact. Pass [exclude] to drop
-/// a specific prefix from the result (e.g. `_map.current` during map
-/// step in-progress persistence).
+/// a specific prefix from the result (e.g. `_foreach.current` during
+/// foreach in-progress persistence).
 Map<String, dynamic> privateContextEntries(Map<String, dynamic> contextJson, {String? exclude}) => {
   for (final e in contextJson.entries)
     if (e.key.startsWith('_') && (exclude == null || !e.key.startsWith(exclude))) e.key: e.value,

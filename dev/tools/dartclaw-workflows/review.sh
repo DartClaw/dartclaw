@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run review-and-remediate-inline in standalone mode — reviews all changes on
 # the current branch (diffed against BASE_BRANCH, default main) with mixed +
-# Claude council + architecture review, remediates findings, and runs the
+# Claude council review, remediates findings, and runs the
 # deterministic verification gate, all in the live checkout (no integration
 # branch, no worktree, no merge-back). For a single-methodology PR/branch
 # review with worktree isolation, use `run.sh workflow run code-review`.

@@ -7,6 +7,8 @@
 @Tags(['component'])
 library;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -27,10 +29,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionConflict,
         WorkflowGitPromotionSuccess,
         WorkflowRun,
-        WorkflowRunStatus,
-        WorkflowStep,
-        workflowContextClose,
-        workflowContextOpen;
+        WorkflowStep;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -80,20 +79,17 @@ WorkflowDefinition _mergeResolveDef({
 }
 
 /// Builds a workflow-context assistant message payload with merge-resolve outputs.
-String _mergeResolveMessage({
+Map<String, dynamic> _mergeResolveOutputs({
   String outcome = 'resolved',
   List<String> conflictedFiles = const ['lib/foo.dart'],
   String summary = 'resolved conflicts',
   String errorMessage = '',
-}) {
-  final payload = <String, dynamic>{
-    'merge_resolve.outcome': outcome,
-    'merge_resolve.conflicted_files': conflictedFiles,
-    'merge_resolve.resolution_summary': summary,
-    if (errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
-  };
-  return '$workflowContextOpen${jsonEncode(payload)}$workflowContextClose';
-}
+}) => <String, dynamic>{
+  'merge_resolve.outcome': outcome,
+  'merge_resolve.conflicted_files': conflictedFiles,
+  'merge_resolve.resolution_summary': summary,
+  if (errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
+};
 
 /// Sets worktreeJson on [taskId] to simulate a per-map-item worktree binding.
 Future<void> _bindWorktree(WorkflowExecutorHarness h, String taskId, String tempDirPath) async {
@@ -232,7 +228,7 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         // Merge-resolve skill task — inject resolved outcome.
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       // Story task — bind worktree.
@@ -328,7 +324,7 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         mergeResolveTaskId = e.taskId;
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       await _bindWorktree(h, e.taskId, h.tempDir.path);
@@ -400,7 +396,7 @@ void main() {
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         mergeResolveTaskId = e.taskId;
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       await _bindWorktree(h, e.taskId, h.tempDir.path);
@@ -478,7 +474,7 @@ void main() {
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
         await h.completeTaskWithOutcome(
           e.taskId,
-          outcomeContent: _mergeResolveMessage(outcome: 'failed', errorMessage: 'agent gave up'),
+          outputs: _mergeResolveOutputs(outcome: 'failed', errorMessage: 'agent gave up'),
         );
         return;
       }
@@ -568,7 +564,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       storyTaskId = e.taskId;
@@ -829,7 +825,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final task = await h.taskService.get(e.taskId);
       if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       allStoryTaskIds.add(e.taskId);
@@ -926,7 +922,7 @@ void main() {
         mergeResolveTaskId = e.taskId;
         mergeResolveMapIterationIndex = task.workflowStepExecution?.mapIterationIndex;
         mergeResolveMapIterationTotal = task.workflowStepExecution?.mapIterationTotal;
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       storyTaskId = e.taskId;
@@ -1025,7 +1021,7 @@ void main() {
         if (lockEnterCount > lockExitCount) {
           skillTaskDispatchedWhileLockHeld = true;
         }
-        await h.completeTaskWithOutcome(e.taskId, outcomeContent: _mergeResolveMessage(outcome: 'resolved'));
+        await h.completeTaskWithOutcome(e.taskId, outputs: _mergeResolveOutputs(outcome: 'resolved'));
         return;
       }
       await _bindWorktree(h, e.taskId, h.tempDir.path);

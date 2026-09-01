@@ -788,7 +788,7 @@ Before the first bridge-using or sqlite-using run in a **fresh** checkout, mater
 # 'sqlite3_initialize' ... No available native assets`. One `dart run` of any
 # script that imports sqlite3 populates .dart_tool/native_assets.yaml for the
 # whole checkout; `bash dev/tools/test_workspace.sh` does it as a side effect.
-dart run packages/dartclaw_server/bin/<any script importing sqlite3>.dart   # or:
+dart run packages/dartclaw_runtime/bin/<any script importing sqlite3>.dart   # or:
 bash dev/tools/test_workspace.sh
 ls .dart_tool/native_assets.yaml   # must exist before the integration run
 ```

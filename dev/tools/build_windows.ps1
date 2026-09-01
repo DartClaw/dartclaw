@@ -84,15 +84,42 @@ function Invoke-WindowsExecutableSmoke {
   }
 }
 
-function Invoke-WindowsSqliteCheck {
-  param(
-    [Parameter(Mandatory)][string]$Executable,
-    [Parameter(Mandatory)][string]$SqliteModule
-  )
+function Invoke-WindowsBundledSqliteCheck {
+  param([Parameter(Mandatory)][string]$Executable)
 
-  & $Executable release-sqlite-check --expected-module $SqliteModule
-  if ($LASTEXITCODE -ne 0) {
-    throw "Windows artifact validation failed: bundled SQLite module/FTS5 check failed with exit code $LASTEXITCODE."
+  # Drives FTS5 through the artifact's own binary: rebuild-index issues
+  # CREATE VIRTUAL TABLE ... USING fts5 on every run, and Windows' system
+  # winsqlite3.dll ships no fts5 module (ADR-048), so reaching a rebuilt index
+  # proves the bundled lib/sqlite3.dll was loaded. The workspace stays empty on
+  # purpose: the canonical corpus dialect belongs to dartclaw_core, and a copy
+  # of it here rots into a preflight refusal the moment that dialect moves.
+  # The probe writes only into a temp instance, never the artifact.
+  $probeRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-sqlite-probe-$([guid]::NewGuid())"
+  New-Item -ItemType Directory -Path (Join-Path $probeRoot 'workspace') -Force | Out-Null
+  try {
+    $quotedDataDir = "'" + ($probeRoot -replace "'", "''") + "'"
+    $configPath = Join-Path $probeRoot 'dartclaw.yaml'
+    Set-Content -LiteralPath $configPath -Value "data_dir: $quotedDataDir"
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      $output = @(& $Executable --config $configPath rebuild-index 2>&1)
+      $exitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -ne 0) {
+      throw "Windows artifact validation failed: bundled SQLite FTS5 check failed with exit code ${exitCode}:`n$($output -join "`n")"
+    }
+    if (-not ($output -match 'Rebuilt index:')) {
+      throw "Windows artifact validation failed: bundled SQLite FTS5 check did not rebuild the index:`n$($output -join "`n")"
+    }
+  } finally {
+    if (Test-Path -LiteralPath $probeRoot) {
+      Remove-Item -LiteralPath $probeRoot -Recurse -Force
+    }
   }
 }
 
@@ -115,7 +142,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 
   Assert-NoSystemSqliteOverride
 
-  $versionFile = Join-Path $script:RootDir 'packages/dartclaw_server/lib/src/version.dart'
+  $versionFile = Join-Path $script:RootDir 'packages/dartclaw_runtime/lib/src/version.dart'
   $versionMatch = Select-String -LiteralPath $versionFile -Pattern "dartclawVersion = '([^']+)'" | Select-Object -First 1
   if ($null -eq $versionMatch) {
     throw "Unable to determine dartclawVersion from $versionFile."
@@ -136,7 +163,7 @@ if ($MyInvocation.InvocationName -ne '.') {
   $bundle = Join-Path $cliDir 'build/cli/windows_x64/bundle'
   Assert-WindowsBuildBundle -Root $bundle
   Invoke-WindowsExecutableSmoke -Executable (Join-Path $bundle 'bin/dartclaw.exe')
-  Invoke-WindowsSqliteCheck -Executable (Join-Path $bundle 'bin/dartclaw.exe') -SqliteModule (Join-Path $bundle 'lib/sqlite3.dll')
+  Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $bundle 'bin/dartclaw.exe')
 
   $buildDir = Join-Path $script:RootDir 'build'
   if (Test-Path -LiteralPath $buildDir) {
@@ -162,7 +189,7 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     Assert-WindowsReleaseLayout -Root $extracted
     Invoke-WindowsExecutableSmoke -Executable (Join-Path $extracted 'bin/dartclaw.exe')
-    Invoke-WindowsSqliteCheck -Executable (Join-Path $extracted 'bin/dartclaw.exe') -SqliteModule (Join-Path $extracted 'lib/sqlite3.dll')
+    Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $extracted 'bin/dartclaw.exe')
 
     Write-ChecksumSidecar -Artifact $archive
   } finally {

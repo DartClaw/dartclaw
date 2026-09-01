@@ -4,7 +4,6 @@ class TasksListCommand extends ConnectedCommand {
   new({super.config, super.apiClient, super.writeLine, super.exitFn}) {
     argParser
       ..addOption('status', help: 'Filter by task status')
-      ..addOption('type', help: 'Filter by task type')
       ..addOption('limit', help: 'Maximum number of tasks to show')
       ..addFlag('json', negatable: false, help: 'Output as JSON');
   }
@@ -17,10 +16,7 @@ class TasksListCommand extends ConnectedCommand {
 
   @override
   Future<void> run() => runConnected((apiClient) async {
-    final tasks = await apiClient.getList(
-      '/api/tasks',
-      queryParameters: {'status': argResults!['status'] as String?, 'type': argResults!['type'] as String?},
-    );
+    final tasks = await apiClient.getList('/api/tasks', queryParameters: {'status': argResults!['status'] as String?});
     final limit = int.tryParse((argResults!['limit'] as String?) ?? '');
     final visible = limit == null || limit >= tasks.length ? tasks : tasks.take(limit).toList(growable: false);
     if (argResults!['json'] as bool) {

@@ -1,7 +1,8 @@
-import 'package:dartclaw_server/dartclaw_server.dart' show LogService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show captureRootLogs;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show LogService;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
+
+import 'log_test_helpers.dart';
 
 Future<List<LogRecord>> captureLogServiceRecords(
   Future<void> Function() body, {

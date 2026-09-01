@@ -6,13 +6,14 @@ Accepted — 2026-04-21
 
 ## Context
 
-The workflow YAML surface today requires authors to write two fields whose names do not describe what they actually control:
+This section records the behavior that existed when the ADR was adopted. The 2026-08-23 amendment below supersedes its
+task-category routing statements.
 
-- **`step.type`** is advertised as a semantic label ("coding", "analysis", "research", "writing", plus the structural kinds `agent`, `bash`, `approval`, `loop`, `foreach`, `map`, `parallel`). In practice, the value `coding` silently activates engine mechanisms — worktree creation, review gating, artifact-collection routing — that have nothing to do with "this step writes code" and everything to do with how the task system (which predates workflows) treats standalone coding tasks.
+- **`step.type`** was advertised as a semantic label ("coding", "analysis", "research", "writing", plus the structural kinds `agent`, `bash`, `approval`, `loop`, `foreach`, `map`, `parallel`). In practice, the value `coding` silently activated engine mechanisms — worktree creation, review gating, artifact-collection routing — inherited from the task system that predated workflows.
 
-- **`step.project`** is declared as "Project ID for worktree isolation (coding steps)". Authors are instructed by convention to write `project: "{{PROJECT}}"` on every coding step. The repeated literal has no authoring signal beyond tribal knowledge: omit it on a coding step and the worktree silently targets the default `_local` workspace; add it to an analysis step and the task needlessly blocks on project-clone readiness.
+- **`step.project`** was declared as "Project ID for worktree isolation (coding steps)". Authors were instructed by convention to write `project: "{{PROJECT}}"` on every coding step. The repeated literal had no authoring signal beyond tribal knowledge: omitting it on a coding step silently targeted the default `_local` workspace; adding it to an analysis step needlessly blocked on project-clone readiness.
 
-These conventions are the external API of workflow authoring — every built-in workflow, testing profile, and user YAML repeats them. The conflation traces back to a design-time decision to build the workflow engine on top of the existing task system. Task-system concepts (coding vs analysis tasks, task-level review mode, task-level project binding) bled into the workflow-authoring surface instead of being hidden behind it.
+These conventions were the external API of workflow authoring — every built-in workflow, testing profile, and user YAML repeated them. The conflation traced back to a design-time decision to build the workflow engine on top of the existing task system. Task-system concepts (coding vs analysis tasks, task-level review mode, task-level project binding) bled into the workflow-authoring surface instead of being hidden behind it.
 
 ### Concrete authoring traps observed
 
@@ -29,7 +30,9 @@ Left in place, the conflation:
 - Ties workflow-YAML evolution to task-system internals — renames and enum conversions (0.16.5 S35/S38) stay cosmetic because they cannot touch the coupling.
 - Obscures the actual workflow concepts (git bootstrap, worktree lifecycle, step kinds, gates) under task-shaped bookkeeping.
 
-The workflow model should describe workflow concerns. The task system underneath it should remain unchanged for standalone tasks — which continue to use `type: coding` as their "create a worktree and route through review" trigger, exactly as they do today.
+The original decision kept the task system underneath unchanged for standalone tasks, which at adoption still used
+`type: coding` as their worktree and review trigger. The 2026-08-23 amendment supersedes that retained behavior with
+the explicit task-level worktree declaration.
 
 ## Decision
 
@@ -50,13 +53,16 @@ Treat workflow authoring and task-system bookkeeping as two different concerns. 
 When the workflow executor creates a `Task` for a step:
 
 - **`Task.projectId`** ← workflow-level `project:` (or `null` if absent). Per-step override still honored during the deprecation window.
-- **`Task.type`** ← `TaskType.coding` for every workflow-created task. The distinction between "coding" and "analysis" tasks in the UI label becomes uniform for workflow tasks; artifact collection continues to route via `_collectCodingArtifacts` (over-collection for read-only steps produces an empty diff — harmless). If the cosmetic regression matters later, skill frontmatter can declare `taskKind:` as a follow-up — no schema change.
-- **Worktree decision** ← `gitStrategy` + container context, via the existing `_workflowNeedsWorktree` signal the workflow executor already computes. The task-system's `_taskNeedsWorktree` continues to check `task.type == TaskType.coding || task.configJson['_workflowNeedsWorktree'] == true` — so workflow tasks get worktrees from the workflow-derived signal, and standalone tasks keep the type-driven behavior.
-- **Review gating** ← workflow-created tasks auto-accept on completion. Task-system's `_isCodingTask` check is a standalone-task concern; workflow tasks bypass review-mode resolution entirely.
+- **Worktree decision** ← `gitStrategy` + project-access context. The engine persists its computed answer as
+  `configJson.needsWorktree` for every workflow task, and the task runtime reads that declaration alone.
+- **Review gating** ← workflow-created tasks normally auto-accept on completion. When review routing is requested,
+  `reviewMode: worktree-only` reads the same worktree declaration.
 
-### Standalone tasks — unchanged
+### Standalone tasks
 
-Tasks created directly through the task UI (not by a workflow) continue to use `task.type == TaskType.coding` as the trigger for worktree creation and review routing. This ADR does not touch the standalone-task surface. The task-system's `TaskType` enum remains; its semantics remain; only its authoring role in workflow YAML changes.
+Tasks created directly through the task UI or API use the same `configJson.needsWorktree` declaration. The web form
+always sends the operator's choice. A caller that still supplies the retired `coding` field is refused so the former
+implication cannot disappear silently.
 
 ### Target authoring shape
 
@@ -104,8 +110,11 @@ No per-step `project:`. No `type: coding` required. No `review:` attribute. Read
 
 **Negative**
 
-- The workflow YAML no longer carries an explicit "this step does coding vs analysis" hint. UI labels and logs show all workflow tasks as type `coding`. Cosmetic only; can be recovered via skill frontmatter in a follow-up if it matters.
-- Two mental models for `TaskType`: standalone tasks still use it as a dispatch key; workflow tasks uniformly set it to `coding`. Documented in the architecture doc so future contributors aren't surprised.
+- The workflow YAML no longer carries an explicit "this step does coding vs analysis" hint. Before task-category
+  retirement, UI labels and logs showed every workflow task as `coding`; the 2026-08-23 category-retirement amendment
+  below supersedes that presentation.
+- Workflow task execution and presentation now use their explicit declarations and workflow metadata, not a stored
+  category label.
 
 **Neutral (migration)**
 
@@ -148,11 +157,28 @@ ADR-024 left two follow-up items: (1) the structural step-value list in §Decisi
 - The four semantic values (`coding`, `analysis`, `research`, `writing`) plus the never-deprecated `automation` and the renamed `custom` are removed entirely. Workflow YAMLs that use them fail validation with a clear error pointing at the new canonical shape.
 - Per-step `project:` and per-step `review:` are removed (parser rejects them as unknown keys).
 - The deprecation-window plumbing — `WorkflowStep.typeAuthored`, `WorkflowStep.review`, `StepReviewMode`, `_semanticStepTypes`, the `_workflowStepType` task-config key, and the `task_config_view.dart` `stepType == 'coding'` fallback — is deleted.
-- `TaskType` enum is untouched; standalone tasks continue to use the full enum as their dispatch key.
+- At this 2026-04-28 update, the standalone task label still acted as a dispatch key. The 2026-08-23 amendments
+  supersede that behavior and retire the label surface.
 
 The structural-type list in §Decision should be read as: `agent, bash, approval, foreach, loop`. The original list named `map` and `parallel`, but those are step-shape attributes (set via `mapOver:` / `parallel: true`), not `step.type` values; they are not part of `_knownTypes`.
 
 Rename and cleanup provenance: 0.16.4 PRD, story S74.
+
+## Amendment — 2026-08-23: engine worktree signal becomes the task declaration
+
+The engine-computed worktree decision is now persisted as the public task-config key `needsWorktree` for every workflow
+task, including `false`. The task runtime reads only that declaration. Standalone operators declare the same field
+through the task creation surface, and a pre-upgrade stored
+`coding` row without it is refused rather than run without isolation.
+
+This completes the original engine-authority decision without adopting Alt 3. Alt 3 proposed an author-facing
+`needsWorktree` boolean on each workflow YAML step. No such YAML key exists: `step_config_policy.stepNeedsWorktree`
+still computes the value from workflow structure and project access, and the workflow task merely carries the result.
+
+Project-less workflows no longer receive `_local` worktrees from a legacy implicit coding rule. A step for which the engine computes `false` runs in the workflow workspace on the same footing as
+any other non-worktree task. Review routing uses `reviewMode: worktree-only`, artifact collection follows the actual
+worktree or modified files, and branch promotion requires a worktree branch plus a non-`none` strategy; none of these
+paths consults a category label.
 
 ## References
 
@@ -162,8 +188,8 @@ Rename and cleanup provenance: 0.16.4 PRD, story S74.
 - TD-065 — Polymorphic `TaskExecutionStrategy` (related follow-up below the boundary)
 - 2026-04-21 design conversation (revert of the paper-cut attempt)
 - `docs/architecture/workflow-architecture.md` §"Step Types", §"Artifact Auto-Commit"
-- `packages/dartclaw_workflow/lib/src/workflow/workflow_executor.dart` (`_resolveProjectId`, `_workflowNeedsWorktree`)
-- `packages/dartclaw_server/lib/src/task/task_executor.dart` (`_taskNeedsWorktree`, `_isCodingTask`)
+- `packages/dartclaw_workflow/lib/src/workflow/workflow_task_factory.dart` (`needsWorktree` write)
+- `packages/dartclaw_runtime/lib/src/task/task_config_view.dart` (`needsWorktree` read)
 
 ## Amendment (0.16.4–0.16.5) — step I/O contract evolution
 

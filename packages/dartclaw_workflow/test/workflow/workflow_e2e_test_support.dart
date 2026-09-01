@@ -2,21 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show DartclawConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show KvService, MessageService, Task, TaskEventCreatedEvent, WorkflowStepCompletedEvent;
-import 'package:dartclaw_server/dartclaw_server.dart' show TaskService, WorkflowGitPortProcess;
-import 'package:dartclaw_storage/dartclaw_storage.dart' show SqliteWorkflowStepExecutionRepository;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, TaskService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        EventBus,
-        TaskStatus,
-        TaskStatusChangedEvent,
-        WorkflowDefinition,
-        WorkflowRunStatus,
-        WorkflowService,
-        WorkflowStep;
+    show EventBus, TaskStatus, TaskStatusChangedEvent, WorkflowDefinition, WorkflowService, WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/context_extractor.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_context.dart';
 import 'package:logging/logging.dart';
@@ -337,11 +328,11 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
       scopedCount: 'plan-review.findings_count',
       scopedGatingCount: 'plan-review.gating_findings_count',
     ),
-    'architecture-review' when targetReviews.contains('architecture-review') => (
-      findings: 'architecture-review.review_report_path',
+    'plan-review-council' when targetReviews.contains('plan-review-council') => (
+      findings: 'plan-review-council.review_report_path',
       count: 'findings_count',
-      scopedCount: 'architecture-review.findings_count',
-      scopedGatingCount: 'architecture-review.gating_findings_count',
+      scopedCount: 'plan-review-council.findings_count',
+      scopedGatingCount: 'plan-review-council.gating_findings_count',
     ),
     _ => null,
   };
@@ -774,13 +765,12 @@ class WorkflowExecutionRecorder {
   }
 }
 
-ContextExtractor productionLikeContextExtractor(CliWorkflowWiring wiring, DartclawConfig config) {
+ContextExtractor productionLikeContextExtractor(DartclawRuntime runtime, DartclawConfig config) {
   return ContextExtractor(
-    taskService: wiring.taskService,
-    messageService: wiring.messageService,
+    taskService: runtime.taskService,
+    messageService: runtime.messageService,
     dataDir: config.server.dataDir,
-    workflowStepExecutionRepository: SqliteWorkflowStepExecutionRepository(wiring.taskDb),
-    workflowGitPort: WorkflowGitPortProcess(worktreeManager: wiring.worktreeManager),
+    workflowStepExecutionRepository: runtime.workflowStepExecutionRepository,
   );
 }
 

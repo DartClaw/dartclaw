@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -64,7 +64,7 @@ void main() {
 
   test('a macOS reinstall regenerates a plist carrying no secret, and the credential still resolves', () async {
     seedStore();
-    final backend = MacOSLaunchAgentBackend(run: ok, home: home, environment: {'HOME': home, 'PATH': '/usr/bin'});
+    final backend = MacOSLaunchdBackend(run: ok, home: home, environment: {'HOME': home, 'PATH': '/usr/bin'});
 
     for (var install = 0; install < 2; install++) {
       final result = await backend.install(
@@ -72,6 +72,7 @@ void main() {
         configPath: configFile.path,
         port: 3000,
         instanceDir: instanceDir,
+        scope: ServiceScope.user,
       );
       expect(result.success, isTrue, reason: 'install $install succeeded');
     }
@@ -83,7 +84,7 @@ void main() {
 
   test('a Linux reinstall regenerates a unit carrying no secret, and the credential still resolves', () async {
     seedStore();
-    final backend = LinuxSystemdUserBackend(run: ok, home: home);
+    final backend = LinuxSystemdBackend(run: ok, home: home);
 
     for (var install = 0; install < 2; install++) {
       final result = await backend.install(
@@ -91,6 +92,7 @@ void main() {
         configPath: configFile.path,
         port: 3000,
         instanceDir: instanceDir,
+        scope: ServiceScope.user,
       );
       expect(result.success, isTrue, reason: 'install $install succeeded');
     }

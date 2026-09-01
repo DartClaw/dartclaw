@@ -5,17 +5,17 @@ environment:
   sdk: ^3.13.0
 
 workspace:
+  - dev/fitness
   - packages/dartclaw
-  - packages/dartclaw_models
+  - packages/dartclaw_client
+  - packages/dartclaw_kernel
   - packages/dartclaw_bridge
   - packages/dartclaw_core
-  - packages/dartclaw_config
+  - packages/dartclaw_acp
   - packages/dartclaw_workflow
-  - packages/dartclaw_security
   - packages/dartclaw_google_chat
   - packages/dartclaw_whatsapp
   - packages/dartclaw_signal
-  - packages/dartclaw_storage
   - packages/dartclaw_testing
-  - packages/dartclaw_server
+  - packages/dartclaw_runtime
   - apps/dartclaw_cli

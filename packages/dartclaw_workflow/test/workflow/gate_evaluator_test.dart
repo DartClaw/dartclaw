@@ -1,4 +1,5 @@
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show GateEvaluator, WorkflowContext;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show GateEvaluator, GateUnproducedOutputFailure, WorkflowContext, unproducedKeysSystemPrefix;
 import 'package:test/test.dart';
 
 void main() {
@@ -205,6 +206,84 @@ void main() {
       for (final (:expression, :context, :expected) in cases) {
         expect(evaluator.evaluate(expression, context), expected, reason: expression);
       }
+    });
+  });
+
+  group('a failed step\'s missing output is not a clean value', () {
+    // A stalled review reported nothing, its counter read as 0, and the
+    // remediation gate passed on a review that never ran (live, 2026-08-28).
+    // Step *status* is what separates this from a step skipped by design.
+    test('a gate reading a key a failed step never produced fails loudly', () {
+      final failed = WorkflowContext(
+        systemVariables: {
+          '${unproducedKeysSystemPrefix}plan-review-council': 'plan-review-council.gating_findings_count',
+        },
+      );
+
+      expect(
+        () => evaluator.evaluate('plan-review-council.gating_findings_count > 0', failed),
+        throwsA(
+          isA<GateUnproducedOutputFailure>()
+              .having((e) => e.stepId, 'names the step', 'plan-review-council')
+              .having((e) => e.key, 'names the key', 'plan-review-council.gating_findings_count'),
+        ),
+      );
+    });
+
+    test('an absent key with no failed producer keeps coercing to 0', () {
+      // A step skipped by design contributes nothing legitimately.
+      expect(evaluator.evaluate('never_set_count == 0', WorkflowContext()), isTrue);
+      expect(evaluator.evaluate('never_set_count > 0', WorkflowContext()), isFalse);
+    });
+
+    test('the guard still fires after the run is persisted and resumed', () {
+      // Failed-step-then-retry is the guard's primary scenario: the gate that
+      // reads the unproduced key runs on the resumed run, not the failed one.
+      final failed = WorkflowContext(
+        systemVariables: {
+          '${unproducedKeysSystemPrefix}plan-review-council': 'plan-review-council.gating_findings_count',
+        },
+      );
+
+      final resumed = WorkflowContext.fromJson(failed.toJson());
+
+      expect(
+        () => evaluator.evaluate('plan-review-council.gating_findings_count > 0', resumed),
+        throwsA(isA<GateUnproducedOutputFailure>().having((e) => e.stepId, 'names the step', 'plan-review-council')),
+      );
+    });
+
+    test('an isEmpty gate on an unproduced key refuses instead of passing', () {
+      // The unary branch read absence as emptiness, so `isEmpty` passed on a
+      // key its producing step had failed to write.
+      final failed = WorkflowContext(
+        systemVariables: {'${unproducedKeysSystemPrefix}review': 'review.review_report_path'},
+      );
+
+      expect(
+        () => evaluator.evaluate('review.review_report_path isEmpty', failed),
+        throwsA(isA<GateUnproducedOutputFailure>().having((e) => e.stepId, 'names the step', 'review')),
+      );
+    });
+
+    test('an == null gate on an unproduced key refuses instead of passing', () {
+      // The null-literal branch returned before the refusal, so this read as
+      // true for a value that was never written.
+      final failed = WorkflowContext(systemVariables: {'${unproducedKeysSystemPrefix}review': 'review.verdict'});
+
+      expect(
+        () => evaluator.evaluate('review.verdict == null', failed),
+        throwsA(isA<GateUnproducedOutputFailure>().having((e) => e.key, 'names the key', 'review.verdict')),
+      );
+    });
+
+    test('a produced value is read normally even when a sibling step failed', () {
+      final mixed = WorkflowContext(
+        data: {'plan-review.gating_findings_count': 2},
+        systemVariables: {'${unproducedKeysSystemPrefix}plan-review-council': 'plan-review-council.findings_count'},
+      );
+
+      expect(evaluator.evaluate('plan-review.gating_findings_count > 0', mixed), isTrue);
     });
   });
 }

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_server/dartclaw_server.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 
 import 'config_loader.dart';
 

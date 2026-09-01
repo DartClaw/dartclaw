@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_config/dartclaw_config.dart' show ConfigMeta;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../connected_command_support.dart';
 

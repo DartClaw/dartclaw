@@ -1,0 +1,589 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_acp/dartclaw_acp.dart';
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+
+import 'acp_test_support.dart';
+
+void main() {
+  group('ACP S02 minimal prompt lifecycle', () {
+    late FakeAcpProcess process;
+    late AcpHarness harness;
+
+    setUp(() {
+      process = FakeAcpProcess();
+      harness = AcpHarness(
+        cwd: '/',
+        executable: 'goose',
+        arguments: const ['acp'],
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
+      );
+    });
+
+    tearDown(() async {
+      await harness.dispose();
+    });
+
+    test('start initializes over stdio JSON-RPC and turn closes the session', () async {
+      final startFuture = harness.start();
+      final initialize = await process.waitForRequest('initialize');
+      final initializeParams = initialize['params'] as Map;
+      expect(initializeParams, containsPair('protocolVersion', 1));
+      expect(initializeParams['clientCapabilities'], {
+        'fs': {'readTextFile': true, 'writeTextFile': true},
+        'terminal': false,
+      });
+      expect(initializeParams, isNot(contains('capabilities')));
+      await process.respondTo('initialize', {
+        'protocolVersion': 1,
+        'auth': {'status': 'authenticated'},
+      });
+      await startFuture;
+
+      final events = <BridgeEvent>[];
+      final sub = harness.events.listen(events.add);
+      final turnFuture = harness.turn(
+        sessionId: 'session-1',
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        systemPrompt: '',
+      );
+      await process.respondTo('session/new', {'sessionId': 'acp-session-1'});
+      await process.respondTo('session/prompt', {'text': 'hi there', 'input_tokens': 1, 'output_tokens': 2});
+      await process.respondTo('session/close', {});
+
+      final result = await turnFuture;
+
+      expect(result.outputTokens, 2);
+      // Assistant text reaches the caller as a bridge event, not as a result field.
+      expect(events, contains(isA<DeltaEvent>().having((event) => event.text, 'text', 'hi there')));
+      expect(
+        process.capturedStdinJson.map((message) => message['method']),
+        containsAllInOrder(['initialize', 'session/new', 'session/prompt', 'session/close']),
+      );
+      await sub.cancel();
+    });
+
+    test('zero trusted turn timeout overrides the static provider deadline', () {
+      fakeAsync((async) {
+        final process = FakeAcpProcess();
+        final harness = AcpHarness(
+          cwd: '/',
+          executable: 'goose',
+          arguments: const ['acp'],
+          processFactory: (
+            executable,
+            arguments, {
+            workingDirectory,
+            environment,
+            includeParentEnvironment = true,
+          }) async => process,
+          turnTimeout: const Duration(seconds: 1),
+          terminationGracePeriod: Duration.zero,
+        );
+
+        void respond(String method, Object? result) {
+          final request = process.capturedStdinJson.lastWhere((message) => message['method'] == method);
+          process.emitLine({'jsonrpc': '2.0', 'id': request['id'], 'result': result});
+          async.flushMicrotasks();
+        }
+
+        var started = false;
+        harness.start().then((_) => started = true);
+        async.flushMicrotasks();
+        respond('initialize', {'protocolVersion': 1});
+        expect(started, isTrue);
+
+        harness.setTurnContext(
+          const HarnessTurnContext(
+            sessionId: 'unbounded',
+            turnId: 'turn-1',
+            source: 'workflow',
+            agentName: 'main',
+            turnTimeout: Duration.zero,
+          ),
+        );
+        TurnResult? turnResult;
+        Object? turnError;
+        harness
+            .turn(
+              sessionId: 'unbounded',
+              messages: const [
+                {'role': 'user', 'content': 'finish after the static deadline'},
+              ],
+              systemPrompt: '',
+            )
+            .then(
+              (value) => turnResult = value,
+              onError: (Object value) {
+                turnError = value;
+              },
+            );
+        async.flushMicrotasks();
+        respond('session/new', {'sessionId': 'acp-session-unbounded'});
+
+        async.elapse(const Duration(seconds: 2));
+        expect(turnError, isNull);
+        expect(process.killCalled, isFalse);
+
+        respond('session/prompt', {'text': 'done'});
+        respond('session/close', {});
+        expect(turnResult?.stopReason, 'completed');
+
+        unawaited(harness.dispose());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('reverse calls inherit and release the active host turn binding', () async {
+      final serviceRoot = await Directory.systemTemp.createTemp('dartclaw_acp_service_');
+      final worktree = await Directory.systemTemp.createTemp('dartclaw_acp_worktree_');
+      final boundProcess = FakeAcpProcess();
+      final guard = FakeGuard();
+      final boundHarness = AcpHarness(
+        cwd: serviceRoot.path,
+        guardChain: GuardChain(guards: [guard]),
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => boundProcess,
+      );
+      addTearDown(() async {
+        await boundHarness.dispose();
+        for (final directory in [serviceRoot, worktree]) {
+          if (directory.existsSync()) await directory.delete(recursive: true);
+        }
+      });
+      final start = boundHarness.start();
+      await boundProcess.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      final turn = boundHarness.turn(
+        sessionId: 'host-session',
+        agentId: 'search',
+        directory: worktree.path,
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        systemPrompt: '',
+      );
+      await boundProcess.respondTo('session/new', {'sessionId': 'acp-session'});
+      await boundProcess.waitForRequest('session/prompt');
+      boundProcess.sendHostRequest(700, 'fs/write_text_file', {'path': 'created.txt', 'content': 'bound'});
+      final write = await boundProcess.waitForResponse(700);
+      expect(write['result'], containsPair('ok', true));
+      expect(File(p.join(worktree.path, 'created.txt')).readAsStringSync(), 'bound');
+      expect(File(p.join(serviceRoot.path, 'created.txt')).existsSync(), isFalse);
+      expect(guard.lastContext?.sessionId, 'host-session');
+      expect(guard.lastContext?.agentId, 'search');
+
+      await boundProcess.respondTo('session/prompt', {'text': 'done'});
+      await boundProcess.respondTo('session/close', {});
+      await turn;
+
+      boundProcess.sendHostRequest(701, 'fs/write_text_file', {'path': 'late.txt', 'content': 'late'});
+      expect((await boundProcess.waitForResponse(701))['error'], isNotNull);
+      expect(File(p.join(worktree.path, 'late.txt')).existsSync(), isFalse);
+    });
+
+    test('stop terminates the fake process and leaves no running session', () async {
+      final startFuture = harness.start();
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      await harness.stop();
+
+      expect(process.killCalled, isTrue);
+      expect(harness.state, WorkerState.stopped);
+    });
+
+    test('stop during an active turn cancels and closes the ACP session before killing the process', () async {
+      final startFuture = harness.start();
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      final turnFuture = harness.turn(
+        sessionId: 'session-1',
+        messages: const [
+          {'role': 'user', 'content': 'slow'},
+        ],
+        systemPrompt: '',
+      );
+      await process.respondTo('session/new', {'sessionId': 'acp-session-1'});
+      await process.waitForRequest('session/prompt');
+
+      final stopFuture = harness.stop();
+      await process.respondTo('session/cancel', {});
+      await process.respondTo('session/close', {});
+      await stopFuture;
+      final result = await turnFuture;
+
+      expect(result.isCancelled, isTrue);
+      expect(
+        process.capturedStdinJson.map((message) => message['method']),
+        containsAllInOrder(['session/cancel', 'session/close']),
+      );
+      expect(process.killCalled, isTrue);
+      expect(harness.state, WorkerState.stopped);
+    });
+
+    test('concurrent stop waits for startup mutation before killing the process', () async {
+      final startFuture = harness.start();
+      await process.waitForRequest('initialize');
+      final stopFuture = harness.stop();
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(process.killCalled, isFalse);
+
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+      await stopFuture;
+
+      expect(process.killCalled, isTrue);
+      expect(harness.state, WorkerState.stopped);
+    });
+
+    test('initialize timeout releases a confirmed Windows root for retry', () async {
+      final timedOutProcess = FakeAcpProcess();
+      final retryProcess = FakeAcpProcess();
+      var spawnCount = 0;
+      final timedOutHarness = AcpHarness(
+        cwd: '/',
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => spawnCount++ == 0 ? timedOutProcess : retryProcess,
+        initializeTimeout: Duration.zero,
+        terminationGracePeriod: Duration.zero,
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+      );
+      addTearDown(timedOutHarness.dispose);
+
+      await expectLater(timedOutHarness.start(), throwsA(isA<AcpHarnessException>()));
+
+      expect(timedOutProcess.killSignals, [ProcessSignal.sigterm]);
+      await expectLater(timedOutHarness.start(), throwsA(isA<AcpHarnessException>()));
+      expect(spawnCount, 2);
+    });
+
+    test('turn timeout bounds an unanswered session creation', () async {
+      final timedOutProcess = FakeAcpProcess();
+      final timedOutHarness = AcpHarness(
+        cwd: '/',
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
+        turnTimeout: const Duration(milliseconds: 20),
+        terminationGracePeriod: Duration.zero,
+      );
+      addTearDown(timedOutHarness.dispose);
+      final start = timedOutHarness.start();
+      await timedOutProcess.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      final turn = timedOutHarness.turn(
+        sessionId: 'unanswered-session',
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        systemPrompt: '',
+      );
+      await timedOutProcess.waitForRequest('session/new');
+
+      await expectLater(turn, throwsA(isA<AcpHarnessException>()));
+      expect(timedOutProcess.killCalled, isTrue);
+      expect(timedOutHarness.state, WorkerState.stopped);
+    });
+
+    test('turn timeout finishes teardown before an immediate restart', () async {
+      final timedOutProcess = FakeAcpProcess();
+      final recoveredProcess = FakeAcpProcess();
+      final processes = [timedOutProcess, recoveredProcess];
+      var spawnIndex = 0;
+      final timedOutHarness = AcpHarness(
+        cwd: '/',
+        processFactory:
+            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+              return processes[spawnIndex++];
+            },
+        turnTimeout: const Duration(milliseconds: 20),
+        terminationGracePeriod: Duration.zero,
+      );
+      addTearDown(timedOutHarness.dispose);
+      final start = timedOutHarness.start();
+      await timedOutProcess.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      final timedOutTurn = timedOutHarness.turn(
+        sessionId: 'timed-out-session',
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        systemPrompt: '',
+      );
+      await timedOutProcess.waitForRequest('session/new');
+      await expectLater(timedOutTurn, throwsA(isA<AcpHarnessException>()));
+
+      final restart = timedOutHarness.start();
+      await recoveredProcess.respondTo('initialize', {'protocolVersion': 1});
+      await restart;
+
+      expect(timedOutProcess.killCalled, isTrue);
+      expect(timedOutHarness.state, WorkerState.idle);
+      expect(spawnIndex, 2);
+    });
+
+    test('turn timeout bounds an unanswered session close', () async {
+      final timedOutProcess = FakeAcpProcess();
+      final timedOutHarness = AcpHarness(
+        cwd: '/',
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => timedOutProcess,
+        turnTimeout: const Duration(milliseconds: 50),
+        terminationGracePeriod: Duration.zero,
+      );
+      addTearDown(timedOutHarness.dispose);
+      final start = timedOutHarness.start();
+      await timedOutProcess.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      final turn = timedOutHarness.turn(
+        sessionId: 'unanswered-close',
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        systemPrompt: '',
+      );
+      await timedOutProcess.respondTo('session/new', {'sessionId': 'acp-session-close'});
+      await timedOutProcess.respondTo('session/prompt', {'text': 'done'});
+      await timedOutProcess.waitForRequest('session/close');
+
+      await expectLater(turn, completes);
+      await expectLater(timedOutHarness.stop(), completes);
+      expect(timedOutProcess.killCalled, isTrue);
+    });
+
+    test('container-isolated ACP spawn uses the supplied container executor', () async {
+      final containerProcess = FakeAcpProcess();
+      final container = _RecordingContainerExecutor(containerProcess);
+      final harness = AcpHarness(
+        cwd: '/host/repo',
+        executable: 'goose',
+        arguments: const ['acp'],
+        containerManager: container,
+        processFactory: (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) =>
+            fail('host process factory must not run for container-isolated ACP'),
+      );
+      addTearDown(harness.dispose);
+
+      final startFuture = harness.start();
+      await containerProcess.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      expect(container.commands, [
+        ['goose', 'acp'],
+      ]);
+      expect(container.workingDirectories, ['/container/work']);
+    });
+
+    test('container-isolated ACP does not advertise or execute host reverse-calls', () async {
+      final containerProcess = FakeAcpProcess();
+      final container = _RecordingContainerExecutor(containerProcess);
+      final harness = AcpHarness(
+        cwd: '/host/repo',
+        executable: 'goose',
+        arguments: const ['acp'],
+        containerManager: container,
+        processFactory: (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) =>
+            fail('host process factory must not run for container-isolated ACP'),
+      );
+      addTearDown(harness.dispose);
+
+      final startFuture = harness.start();
+      final initialize = await containerProcess.waitForRequest('initialize');
+      await containerProcess.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      final clientCapabilities = initialize['params']['clientCapabilities'] as Map;
+      expect(clientCapabilities['fs'], {'readTextFile': false, 'writeTextFile': false});
+      expect(clientCapabilities['terminal'], isFalse);
+      expect(initialize['params'], isNot(contains('capabilities')));
+
+      containerProcess.sendHostRequest(900, 'terminal/create', {'command': 'pwd'});
+      final response = await containerProcess.waitForResponse(900);
+      expect(response['error'], isNotNull);
+    });
+
+    test('client capabilities advertise only implemented reverse-call handlers', () async {
+      final startFuture = harness.start();
+      final initialize = await process.waitForRequest('initialize');
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await startFuture;
+
+      final clientCapabilities = initialize['params']['clientCapabilities'] as Map;
+      expect(clientCapabilities['fs'], {'readTextFile': true, 'writeTextFile': true});
+      expect(clientCapabilities['terminal'], isFalse);
+      expect(initialize['params'], isNot(contains('capabilities')));
+      expect(jsonEncode(clientCapabilities), isNot(contains('session/fork')));
+      expect(jsonEncode(clientCapabilities), isNot(contains('elicitation')));
+      expect(jsonEncode(clientCapabilities), isNot(contains('nes')));
+      expect(jsonEncode(clientCapabilities), isNot(contains('websocket')));
+    });
+
+    test('native hosts do not advertise or execute terminal reverse calls', () async {
+      final windowsProcess = FakeAcpProcess();
+      final windowsHarness = AcpHarness(
+        cwd: '/',
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => windowsProcess,
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+      );
+      addTearDown(windowsHarness.dispose);
+
+      final start = windowsHarness.start();
+      final initialize = await windowsProcess.waitForRequest('initialize');
+      await windowsProcess.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      expect(initialize['params']['clientCapabilities']['terminal'], isFalse);
+      expect(initialize['params'], isNot(contains('capabilities')));
+      windowsProcess.sendHostRequest(902, 'terminal/create', {'command': 'pwd'});
+      final response = await windowsProcess.waitForResponse(902);
+      expect(response['error'], isNotNull);
+    });
+  });
+
+  group('ACP process ownership', () {
+    test('confirmed Windows stop releases the root and permits restart', () async {
+      final process = FakeAcpProcess(completeExitOnKill: true);
+      final retryProcess = FakeAcpProcess();
+      var spawnCount = 0;
+      final harness = AcpHarness(
+        cwd: '/',
+        processFactory:
+            (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+              spawnCount++;
+              return spawnCount == 1 ? process : retryProcess;
+            },
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        terminationGracePeriod: Duration.zero,
+      );
+      addTearDown(harness.dispose);
+
+      final start = harness.start();
+      await process.respondTo('initialize', {'protocolVersion': 1});
+      await start;
+
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
+      await harness.stop();
+      expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
+      final restart = harness.start();
+      await retryProcess.respondTo('initialize', {'protocolVersion': 1});
+      await restart;
+      expect(spawnCount, 2);
+    });
+
+    test('startup failure retains an unconfirmed Windows child', () async {
+      final process = FakeAcpProcess(completeExitOnKill: false);
+      final harness = AcpHarness(
+        cwd: '/',
+        processFactory: (
+          executable,
+          arguments, {
+          workingDirectory,
+          environment,
+          includeParentEnvironment = true,
+        }) async => process,
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
+        terminationGracePeriod: Duration.zero,
+      );
+      addTearDown(harness.dispose);
+
+      final start = harness.start();
+      await process.failRequest('initialize', 'bad initialization');
+      await expectLater(start, throwsA(isA<AcpHarnessException>()));
+
+      expect(process.killSignals, [ProcessSignal.sigterm]);
+      expect(harness.isRootProcessTerminationConfirmed, isFalse);
+      await expectLater(harness.start(), throwsStateError);
+
+      process.exit(1);
+      await pumpEventQueue();
+      expect(harness.isRootProcessTerminationConfirmed, isTrue);
+    });
+  });
+}
+
+final class _RecordingContainerExecutor implements ContainerExecutor {
+  new(this.process);
+
+  final FakeAcpProcess process;
+  final List<List<String>> commands = [];
+  final List<String?> workingDirectories = [];
+
+  @override
+  String get profileId => 'restricted';
+
+  @override
+  String get workingDir => '/container/work';
+
+  @override
+  bool get hasProjectMount => false;
+
+  @override
+  String get generatedStateDir => '/host/state';
+
+  @override
+  String get providerBridgeUrl => 'http://127.0.0.1:8080';
+
+  @override
+  String? get mcpBridgeUrl => null;
+
+  @override
+  String? containerPathForHostPath(String hostPath) => null;
+
+  @override
+  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) async {
+    commands.add(command);
+    workingDirectories.add(workingDirectory);
+    return process;
+  }
+
+  @override
+  Future<void> start() async {}
+}

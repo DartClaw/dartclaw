@@ -2,15 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_cli/src/commands/workflow/cli_workflow_wiring.dart';
 import 'package:dartclaw_cli/src/commands/workflow/standalone_lifecycle_support.dart' show requiredWorkflowProviders;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
-import 'package:dartclaw_cli/src/dartclaw_api_client.dart';
-import 'package:dartclaw_config/dartclaw_config.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, DartclawRuntimeExecutionStack;
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show MergeResolveConfig, WorkflowDefinition, WorkflowGitStrategy, WorkflowStep, WorkflowTaskType;
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -41,33 +42,37 @@ class _AutoCompletingHarness extends FakeAgentHarness {
   bool get supportsSessionContinuity => true;
 
   @override
-  Future<Map<String, dynamic>> turn({
+  Future<TurnResult> turn({
     required String sessionId,
     required List<Map<String, dynamic>> messages,
     required String systemPrompt,
     Map<String, dynamic>? mcpServers,
-    bool resume = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
     String? directory,
     String? model,
     String? effort,
     int? maxTurns,
     String? agentId,
+    Map<String, dynamic>? outputSchema,
   }) {
     final result = super.turn(
       sessionId: sessionId,
       messages: messages,
       systemPrompt: systemPrompt,
       mcpServers: mcpServers,
-      resume: resume,
+      providerSessionId: providerSessionId,
+      requestProviderSessionResume: requestProviderSessionResume,
       directory: directory,
       model: model,
       effort: effort,
       maxTurns: maxTurns,
       agentId: agentId,
+      outputSchema: outputSchema,
     );
     Future<void>.microtask(() {
       emit(DeltaEvent('<step-outcome>{"outcome":"succeeded","reason":"test completed"}</step-outcome>'));
-      completeSuccess({'stop_reason': 'completed'});
+      completeSuccess(const TurnResult(stopReason: 'completed'));
     });
     return result;
   }
@@ -105,6 +110,10 @@ WorkflowRunCommand _standaloneCommand({
   providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
   skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
 );
+
+Never _unexpectedRuntimeExit(int code) {
+  throw StateError('Unexpected exit($code) during standalone runtime composition');
+}
 
 void main() {
   group('WorkflowRunCommand standalone mode', () {
@@ -159,6 +168,106 @@ steps:
       // The settle-time digest is emitted as a single structured object (S04).
       expect(output.last, contains('"type":"workflow_run_digest"'));
       expect(output.last, contains('"nextActions"'));
+      expect(errors, isEmpty);
+    });
+
+    // TI01 parity pin: the standalone lane's --json stream, enumerated in order
+    // with each frame's full key set. `contains`-per-type assertions cannot
+    // detect a dropped frame, a reordering or a lost key; this can.
+    test('TI01 standalone --json emits the full ordered frame sequence', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'mixed.yaml')).writeAsStringSync('''
+name: mixed
+description: One passing then one failing bash step
+steps:
+  - id: ok-step
+    name: Ok Step
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+  - id: bad-step
+    name: Bad Step
+    type: bash
+    prompt: |
+      echo "boom" >&2
+      exit 3
+''');
+
+      final output = <String>[];
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'mixed', '--standalone', '--json']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      final frames = output.map((line) => jsonDecode(line) as Map<String, dynamic>).toList();
+      expect(frames.map((frame) => '${frame['type']} ${frame.keys.join(',')}').toList(), [
+        'run_started type,run',
+        'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
+        'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,tokenCount,durationMs',
+        'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,reason,tokenCount,durationMs',
+        'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
+        'workflow_run_digest type,runId,status,steps,nextActions',
+      ], reason: 'renderer-authored payloads are lane-owned and must not converge on the connected lane\'s echo');
+      // The renderer-authored keys the connected lane never carries.
+      expect(frames[1]['definitionName'], 'mixed');
+      expect(frames[2]['durationMs'], isA<int>());
+      expect(frames[2]['stepId'], 'ok-step');
+      expect(frames[2]['success'], isTrue);
+      expect(frames[3]['stepId'], 'bad-step');
+      expect(frames[3]['success'], isFalse);
+      expect(frames[3]['reason'], 'exited with code 3');
+      expect(frames[4]['newStatus'], 'failed');
+      // The settle digest is the final line.
+      expect(frames.last['type'], 'workflow_run_digest');
+      expect(errors, isEmpty);
+    });
+
+    // TI01 parity pin: the standalone lane's text output, enumerated in order.
+    test('TI01 standalone text mode emits the full ordered stdout', () async {
+      final workflowsDir = Directory(p.join(config.server.dataDir, 'workflows', 'custom'));
+      File(p.join(workflowsDir.path, 'mixed.yaml')).writeAsStringSync('''
+name: mixed
+description: One passing then one failing bash step
+steps:
+  - id: ok-step
+    name: Ok Step
+    type: bash
+    prompt: |
+      printf 'ok\\n'
+  - id: bad-step
+    name: Bad Step
+    type: bash
+    prompt: |
+      echo "boom" >&2
+      exit 3
+''');
+
+      final output = <String>[];
+      final errors = <String>[];
+      final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'mixed', '--standalone']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+
+      final runIdPattern = RegExp(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+      expect(output.map((line) => line.replaceAll(runIdPattern, '<run-id>')).toList(), [
+        '[workflow] Starting: mixed (2 steps)',
+        '[step 1/2] ok-step: completed (0 tokens)',
+        '[step 2/2] bad-step: failed – exited with code 3',
+        "[workflow] Failed at step 2/2: Step 'bad-step' (Bad Step) failed: exited with code 3",
+        '[digest] Run <run-id> – failed',
+        '  1. ok-step: completed (0 tokens)',
+        '  2. bad-step: failed (0 tokens)',
+        '[digest] Next:',
+        '  dartclaw workflow retry <run-id> --standalone',
+      ]);
       expect(errors, isEmpty);
     });
 
@@ -590,23 +699,23 @@ steps:
           createdHarnesses.putIfAbsent('codex', () => <FakeAgentHarness>[]).add(harness);
           return harness;
         });
-      final wiring = CliWorkflowWiring(
-        config: config,
+      final staging = await DartclawRuntime.stageHeadless(
+        config,
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: (_) {},
+        exitFn: _unexpectedRuntimeExit,
       );
-      await wiring.wireBaseServices();
-      await wiring.wireExecutionServices({'claude'});
-      addTearDown(wiring.dispose);
+      final wiring = await staging.completeForExecution({'claude'});
+      addTearDown(wiring.shutdown);
 
       expect(createdHarnesses.values.expand((harnesses) => harnesses).every((harness) => !harness.startCalled), isTrue);
-      expect(wiring.executions.primary, isNull);
-      expect(wiring.executions.snapshot.providers.keys, {'claude'});
-      expect(wiring.executions.snapshot.providers['claude']!.configured, 1);
-      expect(wiring.workflowCliRunner.providers.containsKey('claude'), isTrue);
+      expect(wiring.requireExecutions.primary, isNull);
+      expect(wiring.requireExecutions.snapshot.providers.keys, {'claude'});
+      expect(wiring.requireExecutions.snapshot.providers['claude']!.configured, 1);
     });
 
     test('standalone capacity wiring canonicalizes referenced provider IDs once', () async {
@@ -626,25 +735,24 @@ steps:
           createdHarnesses.add(harness);
           return harness;
         });
-      final wiring = CliWorkflowWiring(
-        config: config,
+      final staging = await DartclawRuntime.stageHeadless(
+        config,
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => sqlite3.openInMemory(),
+        stderrLine: (_) {},
+        exitFn: _unexpectedRuntimeExit,
       );
-      await wiring.wireBaseServices();
-      addTearDown(wiring.dispose);
 
-      await wiring.wireExecutionServices({configuredProviderId});
+      final wiring = await staging.completeForExecution({configuredProviderId});
+      addTearDown(wiring.shutdown);
 
       expect(createdHarnesses.every((harness) => !harness.startCalled), isTrue);
-      expect(wiring.executions.primary, isNull);
-      expect(wiring.executions.snapshot.providers.keys, {providerId});
-      expect(wiring.executions.snapshot.providers[providerId]!.configured, 1);
-      expect(wiring.workflowCliRunner.providers.keys, contains(providerId));
-      expect(wiring.workflowCliRunner.providers.keys, isNot(contains(configuredProviderId)));
+      expect(wiring.requireExecutions.primary, isNull);
+      expect(wiring.requireExecutions.snapshot.providers.keys, {providerId});
+      expect(wiring.requireExecutions.snapshot.providers[providerId]!.configured, 1);
     });
 
     test('S01 logged-out referenced provider aborts before workflow execution', () async {

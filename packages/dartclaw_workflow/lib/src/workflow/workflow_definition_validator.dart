@@ -2,6 +2,7 @@ import 'workflow_definition.dart';
 
 import 'package:logging/logging.dart';
 
+import 'gate_evaluator.dart' show GateEvaluator;
 import 'workflow_artifact_committer.dart' show workflowHasArtifactProducer;
 import 'output_resolver.dart' show FileSystemOutput;
 import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
@@ -24,7 +25,7 @@ part 'validation/workflow_loop_policy_rules.dart';
 part 'validation/workflow_review_source_prefix_rules.dart';
 
 /// Classification of validation errors.
-enum ValidationErrorType {
+enum WorkflowValidationErrorType {
   missingField,
   duplicateId,
   invalidReference,
@@ -38,9 +39,9 @@ enum ValidationErrorType {
 }
 
 /// A structured validation error with category and location.
-class ValidationError {
+class WorkflowValidationError {
   final String message;
-  final ValidationErrorType type;
+  final WorkflowValidationErrorType type;
   final String? stepId;
   final String? loopId;
 
@@ -63,10 +64,10 @@ class ValidationError {
 /// regardless of whether [warnings] is empty.
 class ValidationReport {
   /// Hard validation failures that prevent loading.
-  final List<ValidationError> errors;
+  final List<WorkflowValidationError> errors;
 
   /// Soft notices that do not prevent loading.
-  final List<ValidationError> warnings;
+  final List<WorkflowValidationError> warnings;
 
   const new({required this.errors, required this.warnings});
 
@@ -84,12 +85,6 @@ class ValidationReport {
 /// accumulates errors and warnings in a single [ValidationReport].
 class WorkflowDefinitionValidator {
   static final _log = Logger('WorkflowDefinitionValidator');
-  // Gates support bare keys and dotted context paths, mirroring how
-  // `GateEvaluator` resolves exact flat keys before nested map paths.
-  static final _gateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
-  static final _gateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
-  static final _entryGateConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s*(==|!=|<=|>=|<|>)\s*([^<>=!]+)$');
-  static final _entryGateUnaryConditionPattern = RegExp(r'^([\w-]+(?:\.[\w-]+)*)\s+(isEmpty|isNotEmpty)$');
 
   final WorkflowTemplateEngine _engine;
   final WorkflowRoleDefaults roleDefaults;
@@ -104,23 +99,21 @@ class WorkflowDefinitionValidator {
   /// [WorkflowStep.continueSession] targeting other providers produce an error.
   /// When null, this check is skipped.
   ValidationReport validate(WorkflowDefinition definition, {Set<String>? continuityProviders}) {
-    final errors = <ValidationError>[];
-    final warnings = <ValidationError>[];
+    final errors = <WorkflowValidationError>[];
+    final warnings = <WorkflowValidationError>[];
     _validateRequiredFields(definition, errors);
     _validateUniqueStepIds(definition, errors);
     _validateUniqueLoopIds(definition, errors);
     _validateNormalizedNodes(definition, errors);
-    _validateMapAliases(definition, errors);
     _validateProviderAliases(definition, errors);
     _validateVariableReferences(definition, errors);
     _validateContextKeyConsistency(definition, errors);
-    _validateGateExpressions(definition, errors);
     _validateLoopGateExpressions(definition, errors);
     _validateLoopReferences(definition, errors);
     _validateLoopMaxIterations(definition, errors);
     _validateLoopStepOverlap(definition, errors);
-    _validateLoopFinalizers(definition, errors);
     _validateLoopMaxIterationsPolicy(definition, errors);
+    _validateStepTimeoutFields(definition, errors);
     _validateStepDefaults(definition, errors);
     _validateGitStrategy(definition, errors, warnings);
     _validateStepDefaultsOrdering(definition, warnings);

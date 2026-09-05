@@ -4,9 +4,15 @@
 
 ## Active Milestone
 
+### 0.26 — Pluggable Database Backend & Multi-Language Search
+
+**Status: opened on `feat/0.26` from the 0.25.1 squash (`ccfd9fcf`), 2026-09-05; no story started; pins stay at 0.25.1 until the first work commit bumps them.** `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap + compatibility gate, `FullTextIndex` with language-aware search on PostgreSQL, credential-reference `DATABASE_URL`, TLS fail-closed, dual-backend contract suite; then Phase B native hybrid search (`dartclaw_search`, ADR-050). Plan bundle regenerated against 0.25 on 2026-09-03 (15 stories) plus the two workflow-schema stories deferred from 0.25 (S16/S17, formerly S63/S64).
+
+## Released
+
 ### 0.25.1 — Release-process hardening
 
-**Status: release-ready on `feat/0.25.1`, awaiting tag.** Release-process hardening plus bug fixes from the
+**Status: released 2026-09-05 as `v0.25.1`.** Release-process hardening plus bug fixes from the
 2026-09-02 deployment-feedback review, and (owner, 2026-09-03) five operator quick wins: `dartclaw doctor`, the
 TD-121 leaked-container sweep, the lean workflow-only binary `dartclaw-workflow` (flat command tree,
 standalone-only), config JSON-schema distribution (`$schema` modeline, `dartclaw config schema --out`), and CLI
@@ -14,9 +20,9 @@ quick wins (truthful `status`, stderr + exit codes, `--yes` on deletes). Closes 
 `release_check.sh` runs only on the developer's host, which never exercises the Linux container job or the Windows
 release matrix, so a green local check preceded three red tag builds. The release now publishes ten archives across
 five targets — `dartclaw` and `dartclaw-workflow` each on macOS arm64/x64, Linux x64/arm64 and Windows x64. Record:
-`dartclaw-private/docs/specs/0.25.1/prd.md`.
-
-## Released
+`dartclaw-private/docs/specs/0.25.1/prd.md`. The same patch carried the second SecondBrain feedback batch (primary-agent hardening recipe and
+startup warning, channel identity in the composed prompt, announce continuity, `sessions.reset_hour: -1`) and the
+boy-scout cleanups from the 0.25 ledgers.
 
 ### 0.25 — Lean Runtime
 
@@ -40,10 +46,6 @@ work is parked on `parked/s64-workflow-schema`.
 ## Planned
 
 > **Numbering policy (owner, 2026-09-03):** a version number is assigned only when work on a milestone starts. Planned milestones are referred to by name and slug (their private spec directory) until then. Canonical sequencing and detail: `dartclaw-private/docs/ROADMAP.md`.
-
-### 0.26 — Pluggable Database Backend & Multi-Language Search
-
-Next. `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap + compatibility gate, `FullTextIndex` with language-aware search on PostgreSQL, credential-reference `DATABASE_URL`, TLS fail-closed, dual-backend contract suite; then Phase B native hybrid search (`dartclaw_search`, ADR-050). Plan bundle regenerated against 0.25 on 2026-09-03 (15 stories) plus the two workflow-schema stories deferred from 0.25 (S16/S17, formerly S63/S64).
 
 ### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 

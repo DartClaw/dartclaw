@@ -1,6 +1,9 @@
 # CLI Operations
 
-The CLI has two execution modes for workflow operations:
+The full `dartclaw` CLI has two execution modes for workflow operations. The separate `dartclaw-workflow` binary
+always runs standalone, with workflow verbs at the root. It omits `serve`, the nested `workflow` group, `runs`,
+and the server-status command; its `status` command inspects workflow runs. It has no API client, `--server`, or
+`--token` option. Existing `--standalone` flags are accepted and ignored.
 
 Examples in this page use `dartclaw` as the command name. If you are running from a source checkout, use `build/bin/dartclaw` after `bash dev/tools/build.sh`, or replace `dartclaw` with `dart run dartclaw_cli:dartclaw`.
 
@@ -92,6 +95,26 @@ dartclaw workflow run code-review \
   --var PR_NUMBER=42 \
   --var PROJECT=my-project-id
 ```
+
+### Workflow-only binary
+
+The same one-shot run uses flat commands with the workflow-only installation:
+
+```bash
+dartclaw-workflow run code-review \
+  --json \
+  --var TARGET="Review pull request #42 for regressions and missing tests" \
+  --var PR_NUMBER=42 \
+  --var PROJECT=my-project-id
+
+dartclaw-workflow resume <run-id>
+dartclaw-workflow cancel <run-id> --feedback "wrong approach"
+dartclaw-workflow status <run-id>
+```
+
+`--force` keeps the live-server safety override, and `--no-skill-bootstrap` keeps its existing meaning without
+requiring `--standalone`. The safety probe still aborts against a reachable server, including an authenticated
+health endpoint. `init` always takes the workflow setup track and never offers to launch a server.
 
 ### Connected mode in automation
 

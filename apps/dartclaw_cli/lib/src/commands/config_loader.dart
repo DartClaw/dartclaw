@@ -18,7 +18,7 @@ void ensureStoredCredentialProviderRegistered({Map<String, String>? env}) {
   final environment = env ?? Platform.environment;
   DartclawConfig.registerStoredCredentialProvider((credentialsDir) {
     try {
-      return NamedCredentialStore.open(credentialsDir: credentialsDir, environment: environment).readAll();
+      return NamedCredentialStore.readOnly(credentialsDir: credentialsDir, environment: environment).readAll();
     } on LoginStoreCollisionError {
       return const {};
     } on FileSystemException {
@@ -114,9 +114,8 @@ const cliHarnessSectionPrimers = <String, void Function(DartclawConfig config)>{
 ///
 /// [resolveStoredCredentials] registers the named credential store first, so
 /// the load — and every later one in this process — merges stored entries into
-/// `credentials:`. `dartclaw secrets` passes `false`: it reports on the
-/// difference between the store and the config file, so it needs the file's
-/// own view, and the registration is process-global and sticky.
+/// `credentials:`. Passing `false` skips the registered provider for this load,
+/// so audit callers see the file's own view even after another load registered it.
 DartclawConfig loadCliConfig({
   String? configPath,
   Map<String, String>? cliOverrides,
@@ -128,7 +127,13 @@ DartclawConfig loadCliConfig({
   ensureGitHubWebhookConfigRegistered();
   if (resolveStoredCredentials) ensureStoredCredentialProviderRegistered(env: env);
   return primeHarnessSections(
-    loadDartclawConfig(configPath: configPath, cliOverrides: cliOverrides, env: env, fileReader: fileReader),
+    loadDartclawConfig(
+      configPath: configPath,
+      cliOverrides: cliOverrides,
+      env: env,
+      fileReader: fileReader,
+      resolveStoredCredentials: resolveStoredCredentials,
+    ),
     sectionPrimers: harnessSectionPrimers,
   );
 }

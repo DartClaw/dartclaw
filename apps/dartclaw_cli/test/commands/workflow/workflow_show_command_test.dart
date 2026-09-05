@@ -1,3 +1,5 @@
+import 'package:dartclaw_cli/src/commands/workflow/api_workflow_connection.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -47,7 +49,7 @@ void main() {
         ..addCommand(
           WorkflowShowCommand(
             config: config,
-            apiClient: apiClient,
+            connection: ApiWorkflowConnection(apiClient: apiClient),
             write: stdoutBuffer.write,
             writeLine: (_) {},
             exitFn: fakeExit,

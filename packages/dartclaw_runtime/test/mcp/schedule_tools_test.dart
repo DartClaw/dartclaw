@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -43,7 +44,9 @@ void main() {
   late String dataDir;
   late ConfigWriter writer;
   late ScheduleMutationService mutations;
+  late ScheduleService service;
   late RecordingGuardAuditLogger audit;
+  late DateTime clock;
 
   /// Writes `scheduling.jobs` as the given prompt-job rows.
   void writeJobsToYaml(List<({String name, String schedule})> jobs) {
@@ -73,11 +76,41 @@ scheduling:
     Directory(dataDir).createSync();
     writeJobsToYaml(const []);
     writer = ConfigWriter(configPath: configPath);
-    mutations = ScheduleMutationService(writer: writer, dataDir: dataDir);
+    clock = DateTime(2026, 9, 2, 12);
+    // The seam wired the way the composition root wires it: a running scheduler
+    // holding one built-in, and the real applier between the write and it. The
+    // tool's `loaded` answer is only worth asserting against a real load.
+    service = ScheduleService(
+      turns: FakeTurnManager(),
+      sessions: InMemorySessionService(),
+      jobs: [
+        ScheduledJob(
+          id: 'heartbeat',
+          scheduleType: ScheduleType.interval,
+          intervalMinutes: 30,
+          onExecute: () async => 'beat',
+        ),
+      ],
+      now: () => clock,
+    )..start();
+    final applier = SchedulingJobsApplier(
+      configPath: configPath,
+      jobs: ScheduleMutationService(writer: writer),
+      scheduleService: () => service,
+      taskService: TaskService(InMemoryTaskRepository()),
+      now: () => clock,
+    );
+    mutations = ScheduleMutationService(
+      writer: writer,
+      applyJobs: applier.apply,
+      reservedJobIds: () => service.builtInJobIds,
+      now: () => clock,
+    );
     audit = RecordingGuardAuditLogger();
   });
 
   tearDown(() async {
+    service.stop();
     await writer.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
@@ -88,7 +121,7 @@ scheduling:
   /// tools participates, which is what the negative controls prove.
   McpProtocolHandler handlerWith({GuardChain? chain, GuardAuditLogger? sink, ScheduleService? schedules}) =>
       McpProtocolHandler(guardChain: chain, auditLogger: sink)
-        ..registerTool(ScheduleUpsertTool(mutations: mutations))
+        ..registerTool(ScheduleUpsertTool(mutations: mutations, schedules: schedules ?? service))
         ..registerTool(ScheduleListTool(mutations: mutations, schedules: schedules));
 
   McpProtocolHandler passingHandler({ScheduleService? schedules}) => handlerWith(
@@ -101,8 +134,8 @@ scheduling:
 
   List<(String, String)> auditRows() => [for (final entry in audit.entries) (entry.tool ?? '', entry.decision ?? '')];
 
-  group('S05 schedule_upsert writes through the shared seam and reports the restart requirement', () {
-    test('a valid upsert writes the job and its result states that it is not running yet', () async {
+  group('S01, S05 schedule_upsert writes through the shared seam and the job is running when it answers', () {
+    test('a valid upsert writes the job, loads it, and claims no restart', () async {
       writeJobsToYaml(const [(name: 'digest', schedule: '0 6 * * *')]);
       final handler = passingHandler();
 
@@ -120,9 +153,13 @@ scheduling:
 
       expect(payload['id'], 'weekly');
       expect(payload['created'], isTrue);
-      expect(payload['pending_restart'], isTrue);
-      // The owner acts on this sentence; a result reading as "scheduled" is a lie.
-      expect(payload['note'], contains('does not run until the server restarts'));
+      // The owner acts on this answer, so it has to be the running scheduler's
+      // and not a promise about the next boot.
+      expect(payload['loaded'], isTrue);
+      expect(payload.containsKey('pending_restart'), isFalse);
+      expect(payload.containsKey('note'), isFalse);
+      expect(service.hasJob('weekly'), isTrue);
+      expect(service.entries.singleWhere((entry) => entry.id == 'weekly').cronExpression, '0 9 * * 1');
 
       // The sibling it was written beside survives, and the new job is on disk.
       final stored = await mutations.readJobs();
@@ -133,8 +170,8 @@ scheduling:
       // The sibling it was written beside is untouched, keys and all.
       expect(stored.first['webhook_url'], 'https://example.test/digest');
 
-      // The restart marker the config API records is recorded here too.
-      expect(readRestartPending(dataDir)?['fields'], contains('scheduling.jobs'));
+      // No restart marker: `scheduling.jobs` no longer waits for one.
+      expect(readRestartPending(dataDir), isNull);
       expect(auditRows(), [('schedule_upsert', 'allow')]);
     });
 
@@ -294,7 +331,10 @@ scheduling:
 
       expect(result['isError'], isTrue);
       final payload = _payload(result);
-      expect(payload['reason'], 'invalid_cron');
+      // One reason code for every schedule refusal — cron, at, and the
+      // exclusivity between them all come from the seam's one resolver.
+      expect(payload['reason'], 'invalid_schedule');
+      expect(payload['field'], 'schedule');
       // The same message the HTTP surface answers with — one cron authority.
       expect(payload['message'], 'Invalid cron expression: "not a cron"');
       expect(configText(), before, reason: 'a refused upsert must leave the config byte-identical');
@@ -328,6 +368,109 @@ scheduling:
       expect(result['isError'], isTrue);
       expect(_payload(result)['message'], '"task" object is required for type: task');
       expect(configText(), before);
+    });
+  });
+
+  group('S04, S06, S07 schedule_upsert honours only what it can honour', () {
+    test('an at instant writes a one-time job and loads it', () async {
+      final at = clock.add(const Duration(minutes: 10)).toIso8601String();
+
+      final payload = _payload(
+        _result(
+          await _call(passingHandler(), 'schedule_upsert', {
+            'id': 'remind-dentist',
+            'at': at,
+            'type': 'prompt',
+            'prompt': 'Remind me about the dentist',
+            'delivery': 'announce',
+          }),
+        ),
+      );
+
+      expect(payload['loaded'], isTrue);
+      expect(payload['schedule'], {'type': 'once', 'at': at});
+      expect((await mutations.readJobs()).single['schedule'], {'type': 'once', 'at': at});
+      expect(service.hasJob('remind-dentist'), isTrue);
+    });
+
+    test('a task upsert reports loaded against the runner job id, not the entry id', () async {
+      final payload = _payload(
+        _result(
+          await _call(passingHandler(), 'schedule_upsert', {
+            'id': 'weekly-report',
+            'schedule': '0 9 * * 1',
+            'type': 'task',
+            'task': {'title': 'Weekly report', 'description': 'Summarise the week'},
+          }),
+        ),
+      );
+
+      // The entry is addressed as `weekly-report` but loads as
+      // `auto-task-weekly-report`; asking about the entry id would report every
+      // task upsert as not loaded — the restart lie in a new spelling.
+      expect(payload['loaded'], isTrue);
+      expect(service.hasJob(ScheduledTaskRunner.jobIdForDefinition('weekly-report')), isTrue);
+    });
+
+    test('each unhonourable schedule is refused with the config byte-identical', () async {
+      final past = clock.subtract(const Duration(minutes: 1)).toIso8601String();
+      final future = clock.add(const Duration(minutes: 10)).toIso8601String();
+      final cases = <({Map<String, dynamic> extra, String field, String message})>[
+        (extra: {'at': past}, field: 'at', message: '"at" must be later than now: "$past"'),
+        (extra: {'at': 'tomorrow morning'}, field: 'at', message: 'Invalid "at" instant: "tomorrow morning"'),
+        (
+          extra: {'schedule': '0 9 * * 1', 'at': future},
+          field: 'at',
+          message: 'Pass exactly one of "schedule" and "at", not both',
+        ),
+        (
+          extra: <String, dynamic>{},
+          field: 'schedule',
+          message: 'One of "schedule" (cron expression) and "at" (one-time instant) is required',
+        ),
+      ];
+      final before = configText();
+
+      for (final testCase in cases) {
+        final result = _result(
+          await _call(passingHandler(), 'schedule_upsert', {
+            'id': 'remind-dentist',
+            'type': 'prompt',
+            'prompt': 'Remind me',
+            ...testCase.extra,
+          }),
+        );
+
+        expect(result['isError'], isTrue, reason: testCase.message);
+        expect(_payload(result)['reason'], 'invalid_schedule');
+        expect(_payload(result)['field'], testCase.field);
+        // Byte-identical to the jobs API's own refusal: one schedule authority.
+        expect(_payload(result)['message'], testCase.message);
+      }
+      expect(configText(), before);
+      expect(service.entries.map((entry) => entry.id), ['heartbeat']);
+      expect(readRestartPending(dataDir), isNull);
+    });
+
+    test('an id a loaded built-in owns is refused as a conflict with nothing written', () async {
+      final before = configText();
+
+      final result = _result(
+        await _call(passingHandler(), 'schedule_upsert', {
+          'id': 'heartbeat',
+          'schedule': '0 9 * * 1',
+          'type': 'prompt',
+          'prompt': 'Impostor',
+        }),
+      );
+
+      expect(result['isError'], isTrue);
+      expect(_payload(result)['reason'], 'conflict');
+      expect(_payload(result)['message'], contains('built-in'));
+      expect(configText(), before);
+      // The built-in is untouched: still the interval job the runtime built.
+      expect(service.builtInJobIds, {'heartbeat'});
+      expect(service.entries.singleWhere((entry) => entry.id == 'heartbeat').cronExpression, isNull);
     });
   });
 
@@ -370,7 +513,7 @@ scheduling:
       expect(rows['weekly']!['schedule'], '0 9 * * 1');
       expect(rows['weekly']!['loaded'], isFalse);
       expect(rows['weekly']!['editable'], isTrue);
-      expect(rows['weekly']!['note'], contains('after the next server restart'));
+      expect(rows['weekly']!['note'], contains('check the server log'));
 
       // A loaded job with no config entry carries its cron expression from the
       // running service and cannot be edited through schedule_upsert.
@@ -405,11 +548,23 @@ scheduling:
     test('with no running scheduler every configured job reports as not loaded', () async {
       writeJobsToYaml(const [(name: 'digest', schedule: '0 6 * * *')]);
 
-      final payload = _payload(_result(await _call(passingHandler(), 'schedule_list')));
+      final payload = _payload(
+        _result(
+          await _call(
+            handlerWith(
+              chain: GuardChain(guards: [FakeGuard.pass()]),
+              sink: audit,
+            ),
+            'schedule_list',
+          ),
+        ),
+      );
       expect(payload['scheduler_running'], isFalse);
       final row = (payload['jobs'] as List).cast<Map<String, dynamic>>().single;
       expect(row['loaded'], isFalse);
-      expect(row['note'], contains('after the next server restart'));
+      // With no scheduler there is nothing to explain: the tool says so once,
+      // through scheduler_running, rather than per row.
+      expect(row.containsKey('note'), isFalse);
     });
   });
 
@@ -442,7 +597,6 @@ scheduling:
   group('the declared argument contract is enforced for both tools', () {
     const cases = <({String tool, Map<String, dynamic> arguments, String message})>[
       (tool: 'schedule_upsert', arguments: {'schedule': '0 9 * * 1', 'type': 'prompt'}, message: 'id is required'),
-      (tool: 'schedule_upsert', arguments: {'id': 'weekly', 'type': 'prompt'}, message: 'schedule is required'),
       (tool: 'schedule_upsert', arguments: {'id': 'weekly', 'schedule': '0 9 * * 1'}, message: 'type is required'),
       (
         tool: 'schedule_upsert',

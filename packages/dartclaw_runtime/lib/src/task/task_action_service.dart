@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'task_budget_policy.dart' show lastFailureKindKey;
 import 'task_file_guard.dart';
 import 'task_project_ref.dart';
 import 'task_review_service.dart';
@@ -44,8 +45,34 @@ final class TaskActionService {
   final TaskFileGuard? taskFileGuard;
   final ProjectService? projectService;
 
-  Future<TaskActionResult> start(String taskId) =>
-      _transition(taskId, TaskStatus.queued, 'INVALID_TRANSITION', 'user', 'start task');
+  /// Queues a task, and restarts a failed one as a fresh attempt.
+  ///
+  /// Restarting out of `failed` resets the retry budget and drops the previous
+  /// run's failure markers — `configJson`'s `lastError`, `errorSummary` and
+  /// [lastFailureKindKey]: `TaskFailureHandler` deduplicates a retry against
+  /// `configJson[lastFailureKindKey]`, so an inherited key would compare the
+  /// restart's first failure against the previous run and stop retrying there,
+  /// and an inherited `errorSummary` narrates that run's terminal failure on
+  /// the task detail surface while the restart is still running.
+  Future<TaskActionResult> start(String taskId) async {
+    final previous = await tasks.get(taskId);
+    final restart = previous != null && previous.status == TaskStatus.failed;
+    final result = await _transition(
+      taskId,
+      TaskStatus.queued,
+      'INVALID_TRANSITION',
+      'user',
+      'start task',
+      configJson: restart ? _withoutFailureMarkers(previous.configJson) : null,
+    );
+    if (!restart || result is! TaskActionSuccess) return result;
+    try {
+      return TaskActionSuccess(await tasks.updateFields(taskId, retryCount: 0));
+    } on StateError {
+      // An executor claimed the queued task before the counter reset landed.
+      return result;
+    }
+  }
 
   Future<TaskActionResult> checkout(String taskId) =>
       _transition(taskId, TaskStatus.running, 'CHECKOUT_CONFLICT', 'system', 'checkout task');
@@ -117,15 +144,18 @@ final class TaskActionService {
     TaskStatus targetStatus,
     String errorCode,
     String trigger,
-    String actionLabel,
-  ) async {
+    String actionLabel, {
+    Map<String, dynamic>? configJson,
+  }) async {
     try {
       final task = await tasks.get(taskId);
       if (task == null) return _notFound;
 
       final oldStatus = task.status;
       try {
-        return TaskActionSuccess(await tasks.transition(taskId, targetStatus, trigger: trigger));
+        return TaskActionSuccess(
+          await tasks.transition(taskId, targetStatus, trigger: trigger, configJson: configJson),
+        );
       } on ArgumentError {
         return _notFound;
       } on VersionConflictException catch (error) {
@@ -158,6 +188,11 @@ final class TaskActionService {
 }
 
 const _notFound = TaskActionRefused(statusCode: 404, code: 'TASK_NOT_FOUND', message: 'Task not found');
+
+Map<String, dynamic> _withoutFailureMarkers(Map<String, dynamic> configJson) => Map<String, dynamic>.from(configJson)
+  ..remove('lastError')
+  ..remove('errorSummary')
+  ..remove(lastFailureKindKey);
 
 TaskActionRefused? _validateStringFieldType(Map<String, dynamic> body, String field) {
   if (!body.containsKey(field)) return null;

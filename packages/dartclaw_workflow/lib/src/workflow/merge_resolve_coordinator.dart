@@ -19,6 +19,10 @@ final class _ResolverContinue extends _ResolverAttemptDecision {
   const new();
 }
 
+/// The declared outcome enum rendered for prompt text and diagnostics, so both
+/// read from [mergeResolveOutcomeValues] rather than restating it.
+String get _outcomeVocabulary => mergeResolveOutcomeValues.map((v) => "'$v'").join(', ');
+
 extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
   // ── Merge-resolve retry loop ────────────────────────────────────────────────
 
@@ -126,7 +130,10 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
       return lockWrapper<_ResolverAttemptDecision>(projectId: projectId, body: body);
     }
 
-    MergeResolveAttemptArtifact? lastAttempt;
+    // The conflicted set is git's answer, not the skill's: it starts at the
+    // promotion conflict that opened this loop and is refreshed by each
+    // re-conflict below.
+    var conflictingFiles = initialConflictingFiles;
     while (attemptCounter < config.maxAttempts) {
       final decision = await runAttempt(() async {
         String preAttemptSha = context['$statePrefix.pre_attempt_sha'] as String? ?? '';
@@ -158,7 +165,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
                   storyId: storyId ?? '',
                   attemptNumber: attemptNumber,
                   outcome: 'failed',
-                  conflictedFiles: initialConflictingFiles,
+                  conflictedFiles: conflictingFiles,
                   resolutionSummary: '',
                   errorMessage: ccResult.cleanupError,
                   agentSessionId: '',
@@ -227,23 +234,30 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           ],
           allowedTools: const ['shell', 'file_read', 'file_write', 'file_edit'],
           emitsOwnOutcome: true,
-          outputs: const {
-            'merge_resolve.outcome': OutputConfig(
-              format: OutputFormat.text,
-              description: "Outcome of the merge resolution attempt. Enum-typed string: must be one of 'resolved', 'failed', or 'cancelled'.",
-            ),
-            'merge_resolve.conflicted_files': OutputConfig(
+          outputs: {
+            mergeResolveOutcomeKey: OutputConfig(
               format: OutputFormat.json,
-              description: 'JSON array of relative file paths that had conflict markers, sorted lexicographically.',
+              outputMode: OutputMode.structured,
+              schema: const <String, dynamic>{'type': 'string', 'enum': mergeResolveOutcomeValues},
+              // Rendered from the same constant as the enum, so a provider that
+              // cannot enforce the schema still receives the vocabulary and the
+              // two can never drift.
+              description: 'Outcome of the merge resolution attempt. Exactly one of $_outcomeVocabulary.',
             ),
             'merge_resolve.resolution_summary': OutputConfig(
               format: OutputFormat.text,
               description:
                   'Prose summary of the resolution rationale and steps taken. Non-empty for all terminal outcomes.',
             ),
-            'merge_resolve.error_message': OutputConfig(
-              format: OutputFormat.text,
-              description: "Error or cancellation message. Null (emit the literal string 'null') when outcome is 'resolved'; a non-empty string for 'failed' or 'cancelled'.",
+            mergeResolveErrorMessageKey: OutputConfig(
+              format: OutputFormat.json,
+              outputMode: OutputMode.structured,
+              schema: const <String, dynamic>{
+                'type': ['string', 'null'],
+              },
+              description:
+                  "Error or cancellation message: a non-empty string when the outcome is 'failed' or "
+                  "'cancelled', null when it is 'resolved'.",
             ),
           },
           maxTokens: config.tokenCeiling,
@@ -269,24 +283,38 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
         attemptCounter++;
         context['$statePrefix.attempt_counter'] = attemptCounter;
 
-        // Cancellation gets the canonical 'cancelled' outcome.
+        // Cancellation is host-observed, not skill-declared: a cancelled task
+        // never reached a terminal turn, so no declared outcome is expected.
         final taskWasCancelled = resolveResult?.task?.status == TaskStatus.cancelled;
-        final extractedOutcome = (resolveResult?.outputs['merge_resolve.outcome'] as String?)?.trim();
-        final outcome = taskWasCancelled ? 'cancelled' : (extractedOutcome ?? 'failed');
-        final rawConflictedFiles = resolveResult?.outputs['merge_resolve.conflicted_files'];
-        final conflictedFiles = switch (rawConflictedFiles) {
-          List<dynamic> list => list.cast<String>(),
-          _ => initialConflictingFiles,
-        };
+        final rawOutcome = resolveResult?.outputs[mergeResolveOutcomeKey];
+        final declaredOutcome = taskWasCancelled ? 'cancelled' : _declaredMergeResolveOutcome(rawOutcome);
+        // A task that never produced a result has no output contract to fail —
+        // its own start failure is the diagnostic.
+        final outcomeContractError = (resolveResult == null || declaredOutcome != null)
+            ? null
+            : _mergeResolveContractError(mergeResolveOutcomeKey, rawOutcome, 'expected one of $_outcomeVocabulary');
+        // A contract failure is a failed attempt — the reason travels in
+        // `errorMessage`, so the audit record never presents it as the skill's
+        // own verdict (ADR-054).
+        final outcome = declaredOutcome ?? 'failed';
         final resolutionSummary = (resolveResult?.outputs['merge_resolve.resolution_summary'] as String?) ?? '';
+        // The declared schema is string-or-null: a stated message, or none.
+        // Anything else violates the contract and is reported, never coerced.
+        final rawErrorMessage = resolveResult?.outputs[mergeResolveErrorMessageKey];
+        final errorMessageContractError = (rawErrorMessage == null || rawErrorMessage is String)
+            ? null
+            : _mergeResolveContractError(mergeResolveErrorMessageKey, rawErrorMessage, 'expected a string or null');
+        final contractError = outcomeContractError ?? errorMessageContractError;
+        if (contractError != null) {
+          WorkflowExecutor._log.warning(
+            "Workflow '${run.id}': merge-resolve attempt $attemptNumber failed its output contract: $contractError",
+          );
+        }
         final skillErrorMessage = resolveResult == null
             ? 'skill task failed to start'
-            : switch (resolveResult.task?.status) {
-                TaskStatus.cancelled => 'cancelled',
-                TaskStatus.failed =>
-                  (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim() ?? 'failed',
-                _ => (resolveResult.outputs['merge_resolve.error_message'] as String?)?.trim(),
-              };
+            : taskWasCancelled
+            ? 'cancelled'
+            : (rawErrorMessage is String ? rawErrorMessage.trim() : null);
         final agentSessionId = resolveResult?.task?.sessionId ?? '';
         final tokensUsed = resolveResult?.tokenCount ?? 0;
 
@@ -295,15 +323,14 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           storyId: storyId ?? '',
           attemptNumber: attemptNumber,
           outcome: outcome,
-          conflictedFiles: conflictedFiles,
+          conflictedFiles: conflictingFiles,
           resolutionSummary: resolutionSummary,
-          errorMessage: outcome == 'resolved' ? null : (skillErrorMessage ?? 'failed'),
+          errorMessage: contractError ?? (outcome == 'resolved' ? null : skillErrorMessage),
           agentSessionId: agentSessionId,
           tokensUsed: tokensUsed,
           startedAt: attemptStartedAt,
           elapsedMs: attemptElapsedMs,
         );
-        lastAttempt = artifact;
 
         // Persist artifact (idempotent on resume).
         if (firstTaskId != null) {
@@ -376,6 +403,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
             }
             if (retryResult is WorkflowGitPromotionConflict) {
               // Re-conflict: advance to next attempt.
+              conflictingFiles = retryResult.conflictingFiles;
               context.remove('$statePrefix.pre_attempt_sha');
               await _persistForeachProgress(
                 run,
@@ -440,9 +468,8 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
     // Attempts exhausted — escalate.
     return _handleMergeResolveEscalation(
       mode: config.escalation ?? MergeResolveEscalation.serializeRemaining,
-      conflictingFiles: initialConflictingFiles,
+      conflictingFiles: conflictingFiles,
       conflictDetails: initialConflictDetails,
-      lastAttempt: lastAttempt,
       run: run,
       controllerStep: controllerStep,
       context: context,
@@ -455,6 +482,22 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
   }
 
   // ── Support helpers ─────────────────────────────────────────────────────────
+
+  /// The single validation pass over the skill's declared outcome.
+  ///
+  /// Returns the value when it satisfies the declared
+  /// [mergeResolveOutcomeValues] enum, else null — never a substitute.
+  String? _declaredMergeResolveOutcome(Object? raw) {
+    if (raw is! String) return null;
+    final value = raw.trim();
+    return mergeResolveOutcomeValues.contains(value) ? value : null;
+  }
+
+  /// Diagnostic for a declared output that failed its contract, naming the key
+  /// and, when present, the offending value.
+  String _mergeResolveContractError(String key, Object? raw, String expected) => raw == null
+      ? "output contract violated: '$key' absent ($expected)"
+      : "output contract violated: '$key' was '$raw' ($expected)";
 
   Future<String?> _capturePreAttemptSha({required String projectId, required String branch}) =>
       _turnAdapter?.captureWorkflowBranchSha?.call(projectId: projectId, branch: branch) ?? Future.value(null);
@@ -552,7 +595,6 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
     required MergeResolveEscalation mode,
     required List<String> conflictingFiles,
     required String conflictDetails,
-    required MergeResolveAttemptArtifact? lastAttempt,
     required WorkflowRun run,
     required WorkflowStep controllerStep,
     required WorkflowContext context,
@@ -564,10 +606,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
   }) async {
     switch (mode) {
       case MergeResolveEscalation.fail:
-        return WorkflowGitPromotionConflict(
-          conflictingFiles: _escalationConflictFiles(lastAttempt, conflictingFiles),
-          details: conflictDetails,
-        );
+        return WorkflowGitPromotionConflict(conflictingFiles: conflictingFiles, details: conflictDetails);
       case MergeResolveEscalation.serializeRemaining:
         // Idempotent only while the first serialize-remaining transition is still
         // being enacted. Once terminal, a serial retry that still conflicts has
@@ -577,10 +616,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
           if (existingState.phase == _SerializeRemainingPhase.enacting) {
             return const WorkflowGitPromotionSerializeRemaining();
           }
-          return WorkflowGitPromotionConflict(
-            conflictingFiles: _escalationConflictFiles(lastAttempt, conflictingFiles),
-            details: conflictDetails,
-          );
+          return WorkflowGitPromotionConflict(conflictingFiles: conflictingFiles, details: conflictDetails);
         }
         // Mark 'enacting' before the foreach controller stops dispatching so
         // crash recovery resumes into the serial-settle path.
@@ -605,9 +641,6 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
         return const WorkflowGitPromotionSerializeRemaining();
     }
   }
-
-  List<String> _escalationConflictFiles(MergeResolveAttemptArtifact? lastAttempt, List<String> fallback) =>
-      lastAttempt?.conflictedFiles.isNotEmpty == true ? lastAttempt!.conflictedFiles : fallback;
 
   /// Stops new dispatch, lets in-flight siblings settle, then enters serial mode.
   ///

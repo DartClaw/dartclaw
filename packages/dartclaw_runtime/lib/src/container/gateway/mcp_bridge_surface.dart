@@ -13,11 +13,8 @@ import 'gateway_models.dart';
 /// respected the filtered `tools/list`. Client-side suppression is not part of
 /// the decision.
 final class McpBridgeSurface implements GatewaySurfaceHandler {
-  /// [handler] is resolved on first use, not here: the endpoint it scopes exists
-  /// only once the server is composed, while the *primary* lane's authority is
-  /// acquired during harness wiring, before that. Resolving eagerly made a
-  /// containerized primary unbootable. Nothing observes the scoped view at
-  /// attach, and a container's first `tools/call` comes after serving starts.
+  /// The authority is acquired before server composition. The primary harness
+  /// starts after MCP registration, so its first discovery sees the full surface.
   new({
     required McpProtocolHandler Function() handler,
     required this.principal,

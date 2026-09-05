@@ -2,8 +2,10 @@ import 'workflow_run_id_command.dart';
 
 class WorkflowResumeCommand extends WorkflowRunIdCommand {
   new({
+    super.standaloneOnly,
+    super.reachabilityProbe,
     super.config,
-    super.apiClient,
+    super.connection,
     super.writeLine,
     super.exitFn,
     super.searchDbFactory,

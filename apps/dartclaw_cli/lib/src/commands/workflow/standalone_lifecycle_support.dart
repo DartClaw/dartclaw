@@ -1,3 +1,6 @@
+import 'workflow_connected_command.dart';
+import '../server_reachability.dart';
+
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -25,10 +28,10 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         DartclawRuntime,
         LogRedactor,
         LogService,
-        WriteLine,
         workflowRoleDefaultsFromConfig;
 
 import '../config_loader.dart';
+import '../cli_global_options.dart';
 import '../connected_command_support.dart';
 
 /// Installs the root-logger sink for a standalone run from the config's
@@ -70,42 +73,50 @@ class StandaloneLifecycleSession {
 /// run-not-found handling, and a `StateError`→printed-message + non-zero-exit
 /// mapping so engine guard violations (and stale-`running` resumes) never
 /// surface a stack trace.
-abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
+abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedCommand {
   final SearchDbFactory? searchDbFactory;
   final TaskDbFactory? taskDbFactory;
   final HarnessFactory? harnessFactory;
   final Map<String, String>? environment;
-  @protected
-  final WriteLine stderrLine;
   final Stream<void> Function() interrupts;
   final bool runWorkflowSkillsBootstrap;
   final SkillIntrospector? skillIntrospector;
   final ProviderAuthPreflight? providerAuthPreflight;
 
+  final bool standaloneOnly;
+  final Future<bool> Function(Uri) reachabilityProbe;
+
   new({
+    this.standaloneOnly = false,
+    this.reachabilityProbe = serverReachable,
     super.config,
-    super.apiClient,
+    super.connection,
     super.writeLine,
     super.exitFn,
     this.searchDbFactory,
     this.taskDbFactory,
     this.harnessFactory,
     this.environment,
-    WriteLine? stderrLine,
+    super.stderrLine,
     Stream<void> Function()? interrupts,
     this.runWorkflowSkillsBootstrap = true,
     this.skillIntrospector,
     this.providerAuthPreflight,
-  }) : stderrLine = stderrLine ?? stderr.writeln,
-       interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})) {
+  }) : interrupts = interrupts ?? (() => ProcessSignal.sigint.watch().map((_) {})) {
     argParser
-      ..addFlag('standalone', negatable: false, help: 'Drive the workflow run in-process without using the server API')
+      ..addFlag(
+        'standalone',
+        negatable: false,
+        help: standaloneOnly
+            ? 'Always on; accepted for script compatibility.'
+            : 'Drive the workflow run in-process without using the server API',
+      )
       ..addFlag('force', negatable: false, help: 'Bypass the standalone live-server safety check');
   }
 
   /// True when `--standalone` was passed.
   @protected
-  bool get isStandalone => argResults!['standalone'] as bool;
+  bool get isStandalone => standaloneOnly || argResults!['standalone'] as bool;
 
   /// Rejects `--force` unless `--standalone` is also present, matching
   /// `workflow run`'s flag contract.
@@ -145,12 +156,10 @@ abstract class StandaloneWorkflowLifecycleCommand extends ConnectedCommand {
     );
     final config = injectedConfig ?? loadCliConfig(configPath: configPath, env: environment);
 
-    final apiClient = resolveCliApiClient(globalResults: globalResults, apiClient: injectedApiClient, config: config);
-    final serverReachable = await apiClient.probeHealth();
+    final serverUri = resolveServerUri(config: config, serverOverride: serverOverride(globalResults));
+    final serverReachable = await reachabilityProbe(serverUri);
     if (serverReachable && !force) {
-      stderrLine(
-        'A DartClaw server is running at ${apiClient.baseUri.origin}. Use connected mode or add --force to override.',
-      );
+      stderrLine('A DartClaw server is running at ${serverUri.origin}. Use connected mode or add --force to override.');
       exitFn(1);
     }
 

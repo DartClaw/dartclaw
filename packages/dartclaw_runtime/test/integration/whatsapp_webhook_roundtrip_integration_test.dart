@@ -152,14 +152,22 @@ void main() {
     queue = MessageQueue(
       debounceWindow: const Duration(milliseconds: 10),
       maxConcurrentTurns: 1,
-      dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-        final turnId = await turns.startTurn(session.id, [
-          {'role': 'user', 'content': message},
-        ], source: 'channel');
-        final outcome = await turns.waitForOutcome(session.id, turnId);
-        return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
-      },
+      dispatcher:
+          (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) async {
+            final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+            final turnId = await turns.startTurn(session.id, [
+              {'role': 'user', 'content': message},
+            ], source: 'channel');
+            final outcome = await turns.waitForOutcome(session.id, turnId);
+            return outcome.status == TurnStatus.completed ? 'OK' : 'Failed: ${outcome.errorMessage}';
+          },
     );
 
     channelManager = ChannelManager(

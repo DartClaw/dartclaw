@@ -148,15 +148,18 @@ void main() {
       service.stop();
     });
 
-    test('returns NOT_FOUND with restart guidance for an unknown job', () async {
+    // A written job is loaded by the write itself, so an id the scheduler does
+    // not hold is a job that failed to compose — the log, not a restart.
+    test('returns NOT_FOUND pointing at the server log for an unknown job', () async {
       final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: [])..start();
       final client = ApiRouteTestClient(configRoutes(runtimeConfig: runtimeConfig, scheduleService: service).call);
 
       final body = await client.expectJsonObject('POST', '/api/scheduling/jobs/nightly-review/run', status: 404);
       final error = body['error'] as Map;
       expect(error['code'], 'NOT_FOUND');
-      expect(error['message'], contains('require a restart'));
       expect(error['message'], contains('running scheduler'));
+      expect(error['message'], contains('server logs'));
+      expect(error['message'], isNot(contains('restart')));
       service.stop();
     });
 

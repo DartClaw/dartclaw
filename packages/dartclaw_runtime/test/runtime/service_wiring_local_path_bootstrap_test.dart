@@ -110,6 +110,18 @@ const _orchestrationAndContentTools = {
   'wiki_write',
 };
 
+class _StartupMcpHarness extends FakeAgentHarness {
+  new(this.discover);
+
+  final Future<void> Function() discover;
+
+  @override
+  Future<void> start() async {
+    await discover();
+    await super.start();
+  }
+}
+
 void main() {
   late Directory tempDir;
   late File configFile;
@@ -117,21 +129,27 @@ void main() {
   late MessageRedactor messageRedactor;
   late LogService logService;
 
-  Future<DartclawRuntime> buildRuntime(DartclawConfig config, {void Function(HarnessFactoryConfig)? onHarnessCreate}) =>
-      DartclawRuntime.build(
-        config,
-        dataDir: tempDir.path,
-        port: 3000,
-        harnessFactory: _harnessFactoryFor(worker, onCreate: onHarnessCreate),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
-        stderrLine: (_) {},
-        exitFn: _unexpectedExit,
-        resolvedConfigPath: configFile.path,
-        messageRedactor: messageRedactor,
-        resolvedAssets: _resolvedAssetsForConfig(config),
-        runWorkflowSkillsBootstrap: false,
-      );
+  Future<DartclawRuntime> buildRuntime(
+    DartclawConfig config, {
+    void Function(HarnessFactoryConfig)? onHarnessCreate,
+    DartclawServer Function(DartclawServer)? serverFactory,
+    HarnessFactory? harnessFactory,
+    TaskDbFactory? taskDbFactory,
+  }) => DartclawRuntime.build(
+    config,
+    dataDir: tempDir.path,
+    port: 3000,
+    harnessFactory: harnessFactory ?? _harnessFactoryFor(worker, onCreate: onHarnessCreate),
+    searchDbFactory: (_) => sqlite3.openInMemory(),
+    taskDbFactory: taskDbFactory ?? (_) => sqlite3.openInMemory(),
+    stderrLine: (_) {},
+    exitFn: _unexpectedExit,
+    resolvedConfigPath: configFile.path,
+    messageRedactor: messageRedactor,
+    resolvedAssets: _resolvedAssetsForConfig(config),
+    runWorkflowSkillsBootstrap: false,
+    serverFactory: serverFactory,
+  );
 
   setUpAll(() async {
     _staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -155,6 +173,97 @@ void main() {
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
+  });
+
+  test('queued workers wait for startup and discover the complete MCP registry', () async {
+    final database = sqlite3.openInMemory();
+    final repository = SqliteTaskRepository(database);
+    await repository.insert(
+      Task(
+        id: 'recovered-task',
+        title: 'Recovered work',
+        description: 'Reply ok.',
+        status: TaskStatus.queued,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+    final primaryStarting = Completer<void>();
+    final releasePrimary = Completer<void>();
+    final workerStarting = Completer<void>();
+    var workerStarts = 0;
+    late FakeAgentHarness queuedWorker;
+    DartclawServer? server;
+    var creations = 0;
+    final factory = HarnessFactory();
+    factory.register('claude', (config) {
+      if (config.cwd == '/') return FakeAgentHarness();
+      if (creations++ == 0) {
+        return _StartupMcpHarness(() async {
+          primaryStarting.complete();
+          await releasePrimary.future;
+        });
+      }
+      return queuedWorker = _StartupMcpHarness(() async {
+        workerStarts++;
+        expect(server, isNotNull);
+        final response = await server!.mcpHandler.handleRequest(
+          jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}),
+        );
+        final body = jsonDecode(response!) as Map<String, dynamic>;
+        final tools = (body['result'] as Map<String, dynamic>)['tools'] as List<dynamic>;
+        expect(tools.map((tool) => (tool as Map<String, dynamic>)['name']), contains('task_list'));
+        workerStarting.complete();
+      });
+    });
+    final config = _schedulingConfig(tempDir).copyWith(
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
+      ),
+    );
+    final building = buildRuntime(
+      config,
+      harnessFactory: factory,
+      taskDbFactory: (_) => database,
+      serverFactory: (composed) => server = composed,
+    );
+    await Future.any([primaryStarting.future, building.then<void>((_) {})]).timeout(const Duration(seconds: 10));
+    final startsBeforeReady = workerStarts;
+    releasePrimary.complete();
+    final runtime = await building;
+    addTearDown(() => _disposeRuntime(runtime, logService));
+    expect(startsBeforeReady, 0, reason: 'Recovered work must wait for runtime startup');
+    await workerStarting.future.timeout(const Duration(seconds: 5));
+    expect(workerStarts, 1);
+    await queuedWorker.turnInvoked;
+    queuedWorker.completeSuccess();
+    await runtime.taskExecutor!.pollOnce();
+    await runtime.taskExecutor!.drain();
+  });
+
+  test('S09: failed primary startup shuts down the assembled harness', () async {
+    worker = _StartupMcpHarness(() async => throw StateError('primary startup failed'));
+    await expectLater(
+      buildRuntime(_schedulingConfig(tempDir)),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', 'primary startup failed')),
+    );
+    expect(worker.stopCalled, isTrue);
+    await logService.dispose();
+  });
+
+  test('S09: primary startup discovers the registered DartClaw MCP tools', () async {
+    DartclawServer? server;
+    worker = _StartupMcpHarness(() async {
+      expect(server, isNotNull, reason: 'MCP must exist before primary harness discovery');
+      final response = await server!.mcpHandler.handleRequest(
+        jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}),
+      );
+      final body = jsonDecode(response!) as Map<String, dynamic>;
+      final tools = (body['result'] as Map<String, dynamic>)['tools'] as List<dynamic>;
+      expect(tools.map((tool) => (tool as Map<String, dynamic>)['name']), contains('task_list'));
+    });
+    final runtime = await buildRuntime(_schedulingConfig(tempDir), serverFactory: (composed) => server = composed);
+    addTearDown(() => _disposeRuntime(runtime, logService));
+    expect(worker.startCalled, isTrue);
   });
 
   test('workflow API bootstraps local-path projects from the current HEAD without origin/', () async {

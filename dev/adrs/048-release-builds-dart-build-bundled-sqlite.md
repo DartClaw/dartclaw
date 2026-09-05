@@ -1,6 +1,6 @@
 # ADR-048: Release Builds Use `dart build cli` with Bundled SQLite
 
-**Status:** Accepted — 2026-07-10. Implemented on branch; ships in the next release (post-0.20.1). Prepares the 0.21 Windows release target (bundled SQLite is mandatory there — `winsqlite3.dll` lacks FTS5).
+**Status:** Accepted — 2026-07-10. Shipped in 0.20.1: `dev/tools/build.sh` at release commit `d64f66db` already invokes `dart build cli`. The earlier "ships in the next release (post-0.20.1)" wording described the branch state at authoring time and was never corrected; it is corrected here (2026-09-04). Prepares the 0.21 Windows release target (bundled SQLite is mandatory there — `winsqlite3.dll` lacks FTS5).
 **Deciders:** DartClaw team
 
 **Related:** [ADR-002](002-file-based-storage.md) (file-based storage + SQLite FTS5 search index), [ADR-038](038-homebrew-formula-publication.md) (Homebrew formula — consumes the platform archive this ADR changes), [ADR-047](047-embedded-binary-assets.md) (embedded text assets — its "single-file binary" framing is amended here)

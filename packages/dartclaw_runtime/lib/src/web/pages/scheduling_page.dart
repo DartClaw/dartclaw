@@ -8,7 +8,6 @@ import '../../runtime_config.dart';
 import '../../scheduling/schedule_mutation.dart';
 import '../../scheduling/schedule_service.dart';
 import '../../scheduling/scheduled_job.dart';
-import '../../templates/restart_banner.dart';
 import '../../templates/scheduling.dart';
 import '../dashboard_page.dart';
 import '../web_utils.dart';
@@ -16,11 +15,17 @@ import '../web_utils.dart';
 const _maxSchedulingFormBytes = 32 * 1024;
 
 class SchedulingPage extends DashboardPage {
-  new({this.runtimeConfigGetter, this.configWriter, this.scheduleServiceGetter});
+  new({this.runtimeConfigGetter, this.configWriter, this.scheduleServiceGetter, this.applyJobs});
 
   final RuntimeConfig? Function()? runtimeConfigGetter;
   final ConfigWriter? configWriter;
   final ScheduleService? Function()? scheduleServiceGetter;
+
+  /// Loads a written `scheduling.jobs` list into the running scheduler.
+  ///
+  /// Resolved lazily by the composition root, exactly as [scheduleServiceGetter]
+  /// is: the page is registered before the scheduler it feeds exists.
+  final Future<void> Function()? applyJobs;
 
   @override
   String get route => '/scheduling';
@@ -89,7 +94,6 @@ class SchedulingPage extends DashboardPage {
         jobs: data.jobs,
         systemJobNames: context.systemJobNames,
         scheduledTasks: data.tasks,
-        loadedJobIds: _loadedIds(),
         restartBannerHtml: context.restartBannerHtml(),
         appName: context.appName,
       ),
@@ -136,6 +140,7 @@ class SchedulingPage extends DashboardPage {
           values: (
             name: job.id,
             schedule: job.cronExpression?.expression ?? '',
+            at: job.onceAt?.toIso8601String() ?? '',
             prompt: job.prompt,
             delivery: job.deliveryMode.name,
           ),
@@ -189,9 +194,12 @@ class SchedulingPage extends DashboardPage {
         );
       }
     } else {
+      // One of the two, never both: an instant in the "Run once at" field is
+      // what makes this a one-time job, and the seam refuses a pair.
+      final at = values['at']?.trim() ?? '';
       final payload = <String, dynamic>{
         'name': editId ?? values['name']?.trim() ?? '',
-        'schedule': values['schedule']?.trim() ?? '',
+        if (at.isNotEmpty) 'at': at else 'schedule': values['schedule']?.trim() ?? '',
         'delivery': values['delivery'] ?? 'none',
         if (editId == null || (values['prompt']?.trim().isNotEmpty ?? false)) 'prompt': values['prompt']?.trim() ?? '',
       };
@@ -201,7 +209,8 @@ class SchedulingPage extends DashboardPage {
           schedulingJobFormFragment(
             values: (
               name: payload['name'] as String,
-              schedule: payload['schedule'] as String,
+              schedule: values['schedule']?.trim() ?? '',
+              at: at,
               prompt: values['prompt']?.trim() ?? '',
               delivery: payload['delivery'] as String,
             ),
@@ -258,11 +267,11 @@ class SchedulingPage extends DashboardPage {
       RunScheduledJobResult.started => "Job '$name' started",
       RunScheduledJobResult.alreadyRunning => 'Job "$name" is already running',
       RunScheduledJobResult.notFound =>
-        'Job "$name" is not present in the running scheduler or is not runnable on demand. Newly created or edited jobs require a restart; otherwise check server logs for configuration errors.',
+        'Job "$name" is not present in the running scheduler or is not runnable on demand. Check the server logs for the configuration error that kept it from loading.',
     };
     final data = await _liveData(context);
     return Response.ok(
-      schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, loadedJobIds: _loadedIds()),
+      schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames),
       headers: {
         ...htmlHeaders,
         ...toastTriggerHeader(result == RunScheduledJobResult.started ? 'success' : 'error', message),
@@ -273,18 +282,11 @@ class SchedulingPage extends DashboardPage {
   Future<Response> _saved(PageContext context, {required bool task, required String message}) async {
     final data = await _liveData(context);
     final table = task
-        ? schedulingTasksFragment(tasks: data.tasks, loadedJobIds: _loadedIds(), outOfBand: true)
-        : schedulingJobsFragment(
-            jobs: data.jobs,
-            systemJobNames: context.systemJobNames,
-            loadedJobIds: _loadedIds(),
-            outOfBand: true,
-          );
+        ? schedulingTasksFragment(tasks: data.tasks, outOfBand: true)
+        : schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, outOfBand: true);
     final closed = task ? schedulingTaskFormFragment() : schedulingJobFormFragment();
-    return Response.ok(
-      '$closed$table${restartBannerTemplate(pendingFields: const ['scheduling.jobs'], outOfBand: true)}',
-      headers: {...htmlHeaders, ...toastTriggerHeader('success', '$message - restart required')},
-    );
+    // No restart banner: the seam loaded the write before this handler resumed.
+    return Response.ok('$closed$table', headers: {...htmlHeaders, ...toastTriggerHeader('success', message)});
   }
 
   Future<Response> _tableResult(
@@ -295,22 +297,25 @@ class SchedulingPage extends DashboardPage {
   }) async {
     final data = await _liveData(context);
     final table = task
-        ? schedulingTasksFragment(tasks: data.tasks, loadedJobIds: _loadedIds())
-        : schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, loadedJobIds: _loadedIds());
+        ? schedulingTasksFragment(tasks: data.tasks)
+        : schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames);
     final (type, message) = switch (result) {
-      ScheduleMutationApplied() => ('success', '$success - restart required'),
+      ScheduleMutationApplied() => ('success', success),
       ScheduleMutationRefused(:final refusal) => ('error', refusal.message),
     };
-    final banner = result is ScheduleMutationApplied
-        ? restartBannerTemplate(pendingFields: const ['scheduling.jobs'], outOfBand: true)
-        : '';
-    return Response.ok('$table$banner', headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
+    return Response.ok(table, headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
   }
 
   ScheduleMutationService? _mutations(PageContext context) {
     final writer = configWriter;
     final dataDir = context.dataDir;
-    return writer == null || dataDir == null ? null : ScheduleMutationService(writer: writer, dataDir: dataDir);
+    return writer == null || dataDir == null
+        ? null
+        : ScheduleMutationService(
+            writer: writer,
+            applyJobs: applyJobs,
+            reservedJobIds: () => scheduleServiceGetter?.call()?.builtInJobIds ?? const {},
+          );
   }
 
   Future<({Map<String, String>? value, Response? error})> _readForm(Request request) async {
@@ -345,7 +350,9 @@ class SchedulingPage extends DashboardPage {
           jobs.add({
             ...entry,
             'name': job.id,
-            'schedule': job.cronExpression?.expression ?? entry['schedule'],
+            // A one-time entry's stored schedule is a map; the row shows the
+            // instant it fires at, never the map or a cron preview of it.
+            'schedule': job.cronExpression?.expression ?? job.onceAt?.toIso8601String() ?? entry['schedule'],
             'delivery': job.deliveryMode.name,
           });
         }
@@ -354,6 +361,4 @@ class SchedulingPage extends DashboardPage {
     jobs.addAll(context.schedulingJobs.where((job) => context.systemJobNames.contains(job['id'] ?? job['name'])));
     return (jobs: jobs, tasks: tasks);
   }
-
-  Set<String> _loadedIds() => scheduleServiceGetter?.call()?.entries.map((entry) => entry.id).toSet() ?? const {};
 }

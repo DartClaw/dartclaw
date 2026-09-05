@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show httpRequest;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show httpRequest;
 import 'package:test/test.dart';
 
 void main() {
@@ -43,6 +43,26 @@ void main() {
       final result = await httpRequest(path('/post'), method: 'POST', body: 'payload-123');
       expect(result.statusCode, 201);
       expect(result.body, 'echo:payload-123');
+    });
+
+    test('sends a non-ASCII body as utf8 under a charset-less content type', () async {
+      // A latin1-encoded body would throw here rather than reach the server,
+      // which is what `HttpClientRequest.write` does for this content type.
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      baseUri = Uri.parse('http://${server.address.host}:${server.port}');
+      server.listen((req) async {
+        final received = await utf8.decoder.bind(req).join();
+        req.response.write(received);
+        await req.response.close();
+      });
+
+      final result = await httpRequest(
+        path('/utf8'),
+        method: 'POST',
+        headers: const {'content-type': 'application/json'},
+        body: '{"q":"häst 日本語"}',
+      );
+      expect(result.body, '{"q":"häst 日本語"}');
     });
 
     test('forwards request headers verbatim', () async {

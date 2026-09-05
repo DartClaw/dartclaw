@@ -14,7 +14,7 @@ class FakeChannel extends Channel {
   @override
   final String name = 'fake';
   @override
-  final ChannelType type = ChannelType.whatsapp;
+  ChannelType type = ChannelType.whatsapp;
   final List<(String, ChannelResponse)> sent = [];
   final List<String> typingEvents = [];
   bool failSend = false;
@@ -102,6 +102,7 @@ void main() {
     late FakeChannel channel;
     late List<(String, String)> dispatched;
     late List<String?> dispatchedSenders;
+    late List<({ChannelType channelType, String? groupJid})> dispatchedOrigins;
     late Completer<void>? dispatchGate;
     late Completer<void>? dispatchStarted;
 
@@ -109,6 +110,7 @@ void main() {
       channel = FakeChannel();
       dispatched = [];
       dispatchedSenders = [];
+      dispatchedOrigins = [];
       dispatchGate = null;
       dispatchStarted = null;
     });
@@ -138,18 +140,44 @@ void main() {
         isAdmin: isAdmin,
         turnObserver: turnObserver,
         redactor: redactor,
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
-            dispatchStarted!.complete();
-          }
-          if (dispatchGate != null) await dispatchGate!.future;
-          if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
-          dispatched.add((sessionKey, message));
-          dispatchedSenders.add(senderJid);
-          return response;
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
+                dispatchStarted!.complete();
+              }
+              if (dispatchGate != null) await dispatchGate!.future;
+              if (shouldFail != null && shouldFail()) throw Exception('dispatch failed');
+              dispatched.add((sessionKey, message));
+              dispatchedSenders.add(senderJid);
+              dispatchedOrigins.add((channelType: channelType, groupJid: groupJid));
+              return response;
+            },
       );
     }
+
+    test('dispatcher receives the source channel type and group JID', () async {
+      // The channel a turn arrives on is what the prompt names, so the queue
+      // must report the source channel rather than the message's own claim.
+      channel.type = ChannelType.signal;
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'direct'), channel, 'session-dm');
+      queue.enqueue(_msg(text: 'grouped', groupJid: 'group-1'), channel, 'session-group');
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatchedOrigins, hasLength(2));
+      expect(dispatchedOrigins.every((origin) => origin.channelType == ChannelType.signal), isTrue);
+      expect(dispatchedOrigins.map((origin) => origin.groupJid), containsAll([null, 'group-1']));
+    });
 
     test('debounce coalesces messages within window', () async {
       final queue = makeQueue();
@@ -225,15 +253,23 @@ void main() {
         maxConcurrentTurns: 2,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          activeCount++;
-          if (activeCount > maxActive) maxActive = activeCount;
-          final gate = Completer<void>();
-          gates.add(gate);
-          await gate.future;
-          activeCount--;
-          return 'ok';
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              activeCount++;
+              if (activeCount > maxActive) maxActive = activeCount;
+              final gate = Completer<void>();
+              gates.add(gate);
+              await gate.future;
+              activeCount--;
+              return 'ok';
+            },
       );
       addTearDown(queue.dispose);
 
@@ -261,14 +297,22 @@ void main() {
         maxConcurrentTurns: 3,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 3, baseDelay: Duration(milliseconds: 10)),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          if (failCount > 0) {
-            failCount--;
-            throw Exception('transient');
-          }
-          dispatched.add((sessionKey, message));
-          return 'ok';
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              if (failCount > 0) {
+                failCount--;
+                throw Exception('transient');
+              }
+              dispatched.add((sessionKey, message));
+              return 'ok';
+            },
       );
       addTearDown(queue.dispose);
 
@@ -285,9 +329,17 @@ void main() {
         maxConcurrentTurns: 3,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 2, baseDelay: Duration(milliseconds: 10)),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          throw Exception('permanent');
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              throw Exception('permanent');
+            },
       );
       addTearDown(queue.dispose);
 
@@ -308,11 +360,19 @@ void main() {
         maxQueueDepth: 1,
         defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
         random: Random(42),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          await dispatchGate!.future; // block processing
-          dispatched.add((sessionKey, message));
-          return 'ok';
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              await dispatchGate!.future; // block processing
+              dispatched.add((sessionKey, message));
+              return 'ok';
+            },
       );
       addTearDown(() {
         if (!dispatchGate!.isCompleted) dispatchGate!.complete();

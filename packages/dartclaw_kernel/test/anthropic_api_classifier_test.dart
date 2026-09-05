@@ -16,9 +16,9 @@ class FakeHttpClient implements HttpClient {
   Map<String, String> lastHeaders = {};
 
   @override
-  Future<HttpClientRequest> postUrl(Uri url) async {
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
     lastUri = url;
-    lastMethod = 'POST';
+    lastMethod = method;
     return _FakeRequest(this);
   }
 
@@ -41,8 +41,8 @@ class _FakeRequest implements HttpClientRequest {
   HttpHeaders get headers => _headers;
 
   @override
-  void write(Object? object) {
-    _body.write(object);
+  void add(List<int> data) {
+    _body.write(utf8.decode(data));
   }
 
   @override

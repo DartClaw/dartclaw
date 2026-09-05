@@ -17,12 +17,17 @@ extension TurnRunnerExecution on TurnRunner {
     final scope = turnContext?.promptScope ?? PromptScope.restricted;
 
     if (_worker.promptStrategy == PromptStrategy.append) {
-      return effectiveBehavior.composeStaticPrompt(scope: scope, includeOnboarding: turnContext?.isHumanInput ?? false);
+      return effectiveBehavior.composeStaticPrompt(
+        scope: scope,
+        includeOnboarding: turnContext?.isHumanInput ?? false,
+        origin: turnContext?.origin,
+      );
     }
 
     final behaviorPrompt = await effectiveBehavior.composeSystemPrompt(
       scope: scope,
       includeOnboarding: turnContext?.isHumanInput ?? false,
+      origin: turnContext?.origin,
     );
 
     final agentsContent = await effectiveBehavior.composeAppendPrompt(scope: scope);

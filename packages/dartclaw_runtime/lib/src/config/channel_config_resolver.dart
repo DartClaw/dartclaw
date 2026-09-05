@@ -46,3 +46,16 @@ Object _parseChannelConfig(DartclawConfig config, ChannelType channelType) {
     },
   );
 }
+
+/// Whether any channel section resolves to `enabled: true`.
+///
+/// The `switch` is exhaustive over [ChannelType] so a new channel cannot be
+/// silently folded in as "not enabled".
+bool anyChannelEnabled(DartclawConfig config) => channelConfigTypes.any(
+  (channelType) => switch (channelType) {
+    ChannelType.googlechat => resolveChannelConfig<GoogleChatConfig>(config, channelType).enabled,
+    ChannelType.signal => resolveChannelConfig<SignalConfig>(config, channelType).enabled,
+    ChannelType.whatsapp => resolveChannelConfig<WhatsAppConfig>(config, channelType).enabled,
+    ChannelType.web => false,
+  },
+);

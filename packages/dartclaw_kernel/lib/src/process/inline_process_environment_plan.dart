@@ -2,7 +2,7 @@ import '../safe_process.dart';
 import 'git_runner.dart';
 
 /// Value adapter exposing a caller-supplied environment overlay as a
-/// [ProcessEnvironmentPlan] for [runGit] / [SafeProcess.gitStart].
+/// [ProcessEnvironmentPlan] for [runGit].
 ///
 /// Treats `null` as the empty overlay so call sites that lack credential
 /// resolution can still satisfy the required `plan` parameter without

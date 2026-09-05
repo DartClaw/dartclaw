@@ -313,7 +313,7 @@ List<String> scanCurrentMemoryDocs(Iterable<SourceFile> files) {
     }
     if (_hasAffirmativeAutomaticConsolidation(file.source)) {
       violations.add(
-        '${file.path}: retired automatic consolidation prose; describe explicit memory curation and its run-now action.',
+        '${file.path}: retired automatic consolidation prose; describe explicit memory curation as the scheduled prompt job it is.',
       );
     }
     if (RegExp(

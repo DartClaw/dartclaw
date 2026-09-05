@@ -1,3 +1,5 @@
+import 'package:dartclaw_cli/src/commands/workflow/api_workflow_connection.dart';
+
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
@@ -91,7 +93,9 @@ agent:
         );
         final output = <String>[];
         final command = WorkflowStatusCommand(
-          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          connection: ApiWorkflowConnection(
+            apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          ),
           writeLine: output.add,
           exitFn: fakeExit,
         );
@@ -124,7 +128,9 @@ agent:
         );
         final output = <String>[];
         final command = WorkflowStatusCommand(
-          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          connection: ApiWorkflowConnection(
+            apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          ),
           writeLine: output.add,
           exitFn: fakeExit,
         );
@@ -134,8 +140,8 @@ agent:
         final joined = output.join('\n');
         expect(joined, contains('plan-approval'));
         expect(joined, contains('Review the plan before build.'));
-        expect(joined, contains('workflow resume run-ap'));
-        expect(joined, contains('workflow cancel run-ap'));
+        expect(joined, contains('dartclaw resume run-ap'));
+        expect(joined, contains('dartclaw cancel run-ap'));
       });
 
       test('needsInput hold on a non-approval step still surfaces its reason (context-key parity)', () async {
@@ -161,7 +167,9 @@ agent:
         );
         final output = <String>[];
         final command = WorkflowStatusCommand(
-          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          connection: ApiWorkflowConnection(
+            apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          ),
           writeLine: output.add,
           exitFn: fakeExit,
         );

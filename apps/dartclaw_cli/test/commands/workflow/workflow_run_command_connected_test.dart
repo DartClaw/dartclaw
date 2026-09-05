@@ -1,3 +1,5 @@
+import 'package:dartclaw_cli/src/commands/workflow/api_workflow_connection.dart';
+
 import 'dart:convert';
 import 'dart:async';
 
@@ -14,6 +16,58 @@ import '../../helpers/fake_exit.dart';
 
 void main() {
   group('WorkflowRunCommand connected mode', () {
+    for (final (status, expectedExit) in [(403, 4), (503, 6)]) {
+      test('stream HTTP $status preserves its exit class after a running refresh', () async {
+        final transport = FakeApiTransport(
+          sendResponses: [_jsonResponse(201, _startedRunJson()), _jsonResponse(200, _startedRunJson())],
+          streamResponses: [
+            _jsonResponse(status, {
+              'error': {'code': 'STREAM_FAILED', 'message': 'Stream unavailable'},
+            }),
+          ],
+        );
+        final errors = <String>[];
+        final runner = CommandRunner<void>('dartclaw', 'test')
+          ..addCommand(
+            WorkflowRunCommand(
+              connection: ApiWorkflowConnection(
+                apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+              ),
+              stdoutLine: (_) {},
+              stderrLine: errors.add,
+              exitFn: fakeExit,
+            ),
+          );
+        await expectLater(
+          runner.run(['run', 'demo-workflow']),
+          throwsA(isA<FakeExit>().having((e) => e.code, 'code', expectedExit)),
+        );
+        expect(errors.single, 'Stream unavailable Use `dartclaw status run-1` to inspect the run.');
+      });
+    }
+
+    test('connection refused exits 3 and retains the standalone hint', () async {
+      final output = <String>[];
+      final errors = <String>[];
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(
+          WorkflowRunCommand(
+            connection: ApiWorkflowConnection(
+              apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: _RefusedTransport()),
+            ),
+            stdoutLine: output.add,
+            stderrLine: errors.add,
+            exitFn: fakeExit,
+          ),
+        );
+      await expectLater(
+        runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 3)),
+      );
+      expect(output, isEmpty);
+      expect(errors.single, allOf(startsWith('Connection refused.'), contains('--standalone')));
+    });
+
     test('connected run exits 0 after terminal SSE event', () async {
       final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],
@@ -34,7 +88,9 @@ void main() {
       final output = <String>[];
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
@@ -76,7 +132,9 @@ void main() {
       final output = <String>[];
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
@@ -108,7 +166,9 @@ void main() {
         ],
       );
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: (_) {},
         exitFn: fakeExit,
       );
@@ -139,7 +199,9 @@ void main() {
         ],
       );
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: (_) {},
         exitFn: fakeExit,
       );
@@ -176,7 +238,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -209,7 +273,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -242,7 +308,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -284,7 +352,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -333,7 +403,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -348,14 +420,9 @@ void main() {
     });
 
     test('standalone mode aborts when a server is reachable without --force', () async {
-      final transport = FakeApiTransport(
-        sendResponses: [
-          _jsonResponse(200, {'ok': true}),
-        ],
-      );
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        reachabilityProbe: (_) async => true,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
       );
@@ -386,7 +453,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -432,7 +501,9 @@ void main() {
       final output = <String>[];
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
@@ -476,7 +547,9 @@ void main() {
       final output = <String>[];
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
@@ -521,7 +594,9 @@ void main() {
       final output = <String>[];
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,
@@ -558,7 +633,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
       );
@@ -593,7 +670,9 @@ void main() {
       );
       final output = <String>[];
       final command = WorkflowRunCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
         stdoutLine: output.add,
         exitFn: fakeExit,
         interrupts: () => interruptController.stream,
@@ -651,4 +730,12 @@ ApiResponse _jsonResponse(int statusCode, Object body) {
     headers: const {'content-type': 'application/json; charset=utf-8'},
     body: Stream.value(utf8.encode(jsonEncode(body))),
   );
+}
+
+class _RefusedTransport implements ApiTransport {
+  @override
+  Future<ApiResponse> send(ApiRequest request) async =>
+      throw DartclawApiException('Connection refused.', code: 'CONNECTION_REFUSED');
+  @override
+  Future<ApiResponse> openStream(ApiRequest request) => throw StateError('No stream expected');
 }

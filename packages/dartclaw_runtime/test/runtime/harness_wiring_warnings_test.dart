@@ -6,14 +6,38 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease, GatewayPrincipal;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
+import 'fake_container_authority.dart';
 import 'harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
+}
+
+/// Stands in for a host that found a container runtime: the real posture needs
+/// Docker, and the warning under test reads `containersEnabled` alone.
+///
+/// Profiles and authority acquisition are faked too so an `execution: container`
+/// primary reaches the end of wiring instead of failing on the missing runtime.
+class _ContainerCapableSecurityWiring extends SecurityWiring {
+  new({required super.config, required super.dataDir, required super.eventBus, required super.exitFn});
+
+  @override
+  bool get containersEnabled => true;
+
+  @override
+  Set<String> get availableContainerProfiles => const {'workspace', 'restricted'};
+
+  @override
+  Future<ContainerAuthorityLease> acquireContainerAuthority(
+    GatewayPrincipal principal, {
+    Set<String> allowedMcpTools = const {},
+    String? artifactsDir,
+  }) async => FakeContainerAuthorityLease();
 }
 
 /// The posture warnings `HarnessWiring.wire()` emits, split out of
@@ -169,6 +193,93 @@ void main() {
     final messages = await wireAndCollectHarnessMessages(['codex']);
 
     expect(messages, contains(contains('approval: not explicitly set')));
+  });
+
+  group('unhardened primary on channel ingress', () {
+    const warningFragment = 'the primary agent runs on the host with every tool while a channel is enabled';
+
+    void configureChannelDeployment({
+      ExecutionMode? execution,
+      List<String> disallowedTools = const [],
+      Map<String, Map<String, dynamic>> channelConfigs = const {
+        'signal': {'enabled': true},
+      },
+    }) {
+      config = config.copyWith(
+        agent: AgentConfig(provider: 'claude', execution: execution, disallowedTools: disallowedTools),
+        channels: ChannelConfig(channelConfigs: channelConfigs),
+      );
+    }
+
+    Future<List<String>> wireWithContainerCapableHost() async {
+      final records = <LogRecord>[];
+      final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
+      try {
+        storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
+        final capable = _ContainerCapableSecurityWiring(
+          config: config,
+          dataDir: tempDir.path,
+          eventBus: eventBus,
+          exitFn: _unexpectedExit,
+        );
+        await capable.wire(agentDefs: [AgentDefinition.searchAgent()]);
+        security = capable;
+        harnessWiring = await wireTestHarness(
+          config: config,
+          dataDir: tempDir.path,
+          harnessFactory: fakeFactory(const ['claude']),
+          exitFn: _unexpectedExit,
+          storage: storage!,
+          security: capable,
+          eventBus: eventBus,
+          serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'),
+        );
+        return records.map((record) => record.message).toList();
+      } finally {
+        await subscription.cancel();
+      }
+    }
+
+    test('warns for a host primary with no deny list while a channel is enabled', () async {
+      configureChannelDeployment();
+
+      final messages = await wireWithContainerCapableHost();
+
+      final warning = messages.singleWhere((message) => message.contains(warningFragment));
+      expect(warning, contains('agent.execution: container'));
+      expect(warning, contains('agent.disallowed_tools'));
+      expect(warning, contains('docs/guide/security.md § Hardening the primary agent for untrusted channels'));
+    });
+
+    test('stays silent when the primary already runs in a container', () async {
+      configureChannelDeployment(execution: ExecutionMode.container);
+
+      expect(await wireWithContainerCapableHost(), isNot(contains(contains(warningFragment))));
+    });
+
+    test('stays silent when a deny list withholds tools from the primary', () async {
+      configureChannelDeployment(disallowedTools: const ['Bash']);
+
+      expect(await wireWithContainerCapableHost(), isNot(contains(contains(warningFragment))));
+    });
+
+    test('stays silent when no channel is enabled', () async {
+      configureChannelDeployment(
+        channelConfigs: const {
+          'signal': {'enabled': false},
+        },
+      );
+
+      expect(await wireWithContainerCapableHost(), isNot(contains(contains(warningFragment))));
+    });
+
+    test('stays silent with container isolation off — the host-access warning owns that posture', () async {
+      configureChannelDeployment();
+
+      final messages = await wireAndCollectHarnessMessages(['claude']);
+
+      expect(messages, isNot(contains(contains(warningFragment))));
+    });
   });
 
   test('warns when agent tool policies are configured while guards are disabled', () async {

@@ -10,10 +10,15 @@ DartClaw's task system is for reviewable background work. A task carries a title
 draft -> queued -> running -> review -> accepted
                  |         |
                  |         -> rejected
+                 |-> failed -> queued
                  -> interrupted -> queued
 ```
 
 Push-back sends a review task back to `queued` with operator feedback attached.
+
+Starting a failed task — from the task page or `POST /api/tasks/<id>/start` — re-queues it as a fresh attempt: the
+retry counter resets to zero and the previous run's recorded error and error summary are cleared, so the restarted run
+gets the task's full `maxRetries` budget again and shows no leftover failure text while it runs.
 
 ## Creating Tasks
 
@@ -183,7 +188,7 @@ argument the schema does not name is rejected before the tool runs.
 | `task_list` | optional `status`, `limit` (max 200, default 50) | matching tasks with full IDs, plus whether the listing was truncated |
 | `review_list` | no arguments | the tasks awaiting review, oldest first, with full IDs |
 | `task_review` | `task_id`, `action` (`accept`, `reject`, `push_back`), `feedback` (required for `push_back` only) | the task's full ID, title and new status |
-| `task_bind` | `task_id`, `channel_type`, `thread_id` | the binding's session key |
+| `task_bind` | `task_id`, `channel_type` (`googlechat`), `thread_id` | the binding's session key |
 | `task_unbind` | `task_id` | how many bindings were removed |
 
 Both listings emit full task IDs, so an ordinal reference in the conversation ("accept the second one") resolves
@@ -198,6 +203,10 @@ What these tools cannot do:
 - **`task_create` cannot choose a creator.** The task's `createdBy` is host-assigned.
 - **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
   named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
+
+- **`task_bind` binds a thread, not a group, and `channel_type` accepts only `googlechat`.** A binding is keyed by the
+  per-message thread identity that inbound routing reads, and Google Chat is the only channel that sends one. Naming
+  any other channel fails the tool's schema, because a binding stored against a group would never route a message.
 
   Naming the thread explicitly is also the reach worth knowing about: an agent may bind **any** thread it can name,
   as long as that thread is not already bound and the task is not terminal. It does not have to be a thread the agent

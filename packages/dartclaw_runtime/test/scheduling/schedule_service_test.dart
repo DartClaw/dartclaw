@@ -10,6 +10,7 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import '../delivery_test_support.dart';
+import 'schedule_service_fixtures.dart';
 
 void main() {
   group('ScheduledJob.fromConfig', () {
@@ -185,13 +186,13 @@ void main() {
   });
 
   group('ScheduleService execution', () {
-    late _ConfigurableTurnManager turns;
-    late _FakeSessionService sessions;
+    late ConfigurableTurnManager turns;
+    late FakeSessionService sessions;
     late ScheduledJob intervalJob;
 
     setUp(() {
-      turns = _ConfigurableTurnManager();
-      sessions = _FakeSessionService();
+      turns = ConfigurableTurnManager();
+      sessions = FakeSessionService();
       intervalJob = ScheduledJob.fromConfig({
         'id': 'exec-job',
         'prompt': 'Run task',
@@ -308,7 +309,7 @@ void main() {
 
       await service.executeJobForTesting(intervalJob);
 
-      final session = sessions._keyedSessions[SessionKey.cronSession(jobId: intervalJob.id)];
+      final session = sessions.keyedSessions[SessionKey.cronSession(jobId: intervalJob.id)];
       expect(session?.type, SessionType.cron);
       expect(session?.provider, 'codex');
       expect(session?.securityProfile, 'restricted');
@@ -357,7 +358,7 @@ void main() {
         result: 'manual summary',
         webhookUrl: null,
       ));
-      final cronSession = sessions._keyedSessions[SessionKey.cronSession(jobId: 'daily-summary')];
+      final cronSession = sessions.keyedSessions[SessionKey.cronSession(jobId: 'daily-summary')];
       expect(cronSession?.type, SessionType.cron);
       expect(cronSession?.provider, isNull);
       expect(cronSession?.securityProfile, isNull);
@@ -399,26 +400,6 @@ void main() {
       });
     });
 
-    test('on-demand run leaves interval and once timers unchanged', () {
-      fakeAsync((async) {
-        final futureOnce = ScheduledJob(
-          id: 'future-once',
-          prompt: 'One-time task',
-          scheduleType: ScheduleType.once,
-          onceAt: DateTime.now().add(const Duration(hours: 1)),
-        );
-        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [intervalJob, futureOnce])..start();
-        final originalTimers = async.pendingTimers.toList();
-
-        expect(service.runJobNow('exec-job'), RunScheduledJobResult.started);
-        expect(service.runJobNow('future-once'), RunScheduledJobResult.started);
-        async.flushMicrotasks();
-
-        expect(async.pendingTimers, originalTimers);
-        service.stop();
-      });
-    });
-
     test('scheduled fire during an on-demand run is skipped and interval cadence continues', () {
       fakeAsync((async) {
         final release = Completer<void>();
@@ -450,7 +431,7 @@ void main() {
 
     test('cron timer callback before its boundary does not execute or schedule the same occurrence twice', () async {
       var now = DateTime(2026, 8, 11, 2, 59, 55);
-      final timers = <_ManualTimer>[];
+      final timers = <ManualTimer>[];
       final cronJob = ScheduledJob(
         id: 'boundary-job',
         prompt: 'Run once at the boundary',
@@ -463,7 +444,7 @@ void main() {
         jobs: [cronJob],
         now: () => now,
         timerFactory: (duration, callback) {
-          final timer = _ManualTimer(duration, callback);
+          final timer = ManualTimer(duration, callback);
           timers.add(timer);
           return timer;
         },
@@ -488,7 +469,7 @@ void main() {
 
     test('one-time timer callback before its boundary is re-armed', () async {
       var now = DateTime(2026, 8, 11, 2, 59, 55);
-      final timers = <_ManualTimer>[];
+      final timers = <ManualTimer>[];
       final once = ScheduledJob(
         id: 'once-boundary-job',
         prompt: 'Run at the boundary',
@@ -501,7 +482,7 @@ void main() {
         jobs: [once],
         now: () => now,
         timerFactory: (duration, callback) {
-          final timer = _ManualTimer(duration, callback);
+          final timer = ManualTimer(duration, callback);
           timers.add(timer);
           return timer;
         },
@@ -527,7 +508,7 @@ void main() {
     test('cron reschedule stays after the completed boundary when the clock moves backward', () async {
       var now = DateTime(2026, 8, 11, 2, 59, 55);
       final release = Completer<void>();
-      final timers = <_ManualTimer>[];
+      final timers = <ManualTimer>[];
       turns.onStartTurn = (_) => release.future;
       final cronJob = ScheduledJob(
         id: 'rollback-job',
@@ -541,7 +522,7 @@ void main() {
         jobs: [cronJob],
         now: () => now,
         timerFactory: (duration, callback) {
-          final timer = _ManualTimer(duration, callback);
+          final timer = ManualTimer(duration, callback);
           timers.add(timer);
           return timer;
         },
@@ -559,39 +540,6 @@ void main() {
       expect(timers, hasLength(2));
       expect(timers.last.duration, const Duration(days: 1, minutes: 1));
       service.stop();
-    });
-
-    test('a once fire skipped during an on-demand run is lost', () {
-      fakeAsync((async) {
-        final start = DateTime(2026, 8, 11, 3);
-        final release = Completer<void>();
-        turns.onStartTurn = (_) => release.future;
-        final job = ScheduledJob(
-          id: 'once-window',
-          prompt: 'Run once',
-          scheduleType: ScheduleType.once,
-          onceAt: start.add(const Duration(minutes: 1)),
-        );
-        final service = ScheduleService(
-          turns: turns,
-          sessions: sessions,
-          jobs: [job],
-          now: () => async.getClock(start).now(),
-        )..start();
-
-        expect(service.runJobNow('once-window'), RunScheduledJobResult.started);
-        async.flushMicrotasks();
-        async.elapse(const Duration(minutes: 1));
-
-        expect(turns.startTurnCallCount, 1);
-        expect(async.pendingTimers, isEmpty);
-
-        release.complete();
-        async.flushMicrotasks();
-        async.elapse(const Duration(hours: 1));
-        expect(turns.startTurnCallCount, 1);
-        service.stop();
-      });
     });
 
     test('callback, unknown, and stopped jobs are not runnable on demand', () {
@@ -667,7 +615,7 @@ void main() {
 
     test('one-time job does not reschedule after execution', () async {
       var now = DateTime(2026, 8, 11, 8);
-      final timers = <_ManualTimer>[];
+      final timers = <ManualTimer>[];
       final once = ScheduledJob(
         id: 'once-job',
         prompt: 'One-time task',
@@ -680,7 +628,7 @@ void main() {
         jobs: [once],
         now: () => now,
         timerFactory: (duration, callback) {
-          final timer = _ManualTimer(duration, callback);
+          final timer = ManualTimer(duration, callback);
           timers.add(timer);
           return timer;
         },
@@ -693,6 +641,215 @@ void main() {
       expect(turns.startTurnCallCount, 1);
       expect(timers, hasLength(1));
       service.stop();
+    });
+
+    // S02, S03: a live application is the only way a running scheduler learns
+    // about a `scheduling.jobs` write, so add/replace/remove must each be
+    // observable here and must never disturb a built-in.
+    test('live jobs: an added job is armed and fires on its own schedule', () {
+      fakeAsync((async) {
+        final start = DateTime(2026, 9, 2, 8);
+        final builtIn = builtInJob('heartbeat');
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [builtIn],
+          now: () => async.getClock(start).now(),
+        )..start();
+        addTearDown(service.stop);
+
+        service.replaceConfigJobs([cronJob('standup', '0 9 * * *')]);
+
+        expect(service.entries.map((entry) => entry.id), containsAll(['heartbeat', 'standup']));
+        expect(service.hasJob('standup'), isTrue);
+
+        async.elapse(const Duration(hours: 1, minutes: 1));
+        async.flushMicrotasks();
+
+        expect(turns.startTurnCallCount, 1);
+      });
+    });
+
+    test('live jobs: replacing a job cancels its old timer, keeps its pause state and adds no duplicate', () {
+      fakeAsync((async) {
+        final start = DateTime(2026, 9, 2, 8);
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [cronJob('standup', '0 9 * * *')],
+          now: () => async.getClock(start).now(),
+        )..start();
+        addTearDown(service.stop);
+        service.pauseJob('standup');
+        expect(async.pendingTimers, isEmpty);
+
+        service.replaceConfigJobs([cronJob('standup', '0 18 * * *')]);
+
+        final standup = service.entries.where((entry) => entry.id == 'standup');
+        expect(standup, hasLength(1));
+        expect(standup.single.cronExpression, '0 18 * * *');
+        expect(standup.single.paused, isTrue);
+        expect(service.isJobPaused('standup'), isTrue);
+        // Paused means no timer at all — neither the old one nor a new one.
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
+    test('live jobs: an unchanged job keeps its armed timer while a sibling is added', () {
+      fakeAsync((async) {
+        final start = DateTime(2026, 9, 2, 8);
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [cronJob('standup', '0 9 * * *')],
+          now: () => async.getClock(start).now(),
+        )..start();
+        addTearDown(service.stop);
+        final armed = async.pendingTimers.single;
+
+        service.replaceConfigJobs([cronJob('standup', '0 9 * * *'), cronJob('digest', '0 6 * * *')]);
+
+        expect(async.pendingTimers, contains(armed));
+        expect(async.pendingTimers, hasLength(2));
+      });
+    });
+
+    test('live jobs: a removed job is unloaded, is not runnable and re-arms nothing', () {
+      fakeAsync((async) {
+        final start = DateTime(2026, 9, 2, 8);
+        final builtIn = builtInJob('heartbeat');
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [builtIn, cronJob('standup', '0 9 * * *')],
+          now: () => async.getClock(start).now(),
+        )..start();
+        addTearDown(service.stop);
+        service.pauseJob('standup');
+
+        service.replaceConfigJobs(const []);
+
+        expect(service.hasJob('standup'), isFalse);
+        expect(service.entries.map((entry) => entry.id), ['heartbeat']);
+        expect(service.isJobPaused('standup'), isFalse);
+        expect(service.runJobNow('standup'), RunScheduledJobResult.notFound);
+
+        async.elapse(const Duration(days: 2));
+        async.flushMicrotasks();
+        expect(turns.startTurnCallCount, 0);
+      });
+    });
+
+    test('live jobs: an in-flight fire of a removed job completes and re-arms no timer', () async {
+      final release = Completer<void>();
+      turns.onStartTurn = (_) => release.future;
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: [cronJob('standup', '0 9 * * *')])
+        ..start();
+      addTearDown(service.stop);
+
+      expect(service.runJobNow('standup'), RunScheduledJobResult.started);
+      await pumpEventQueue();
+      service.replaceConfigJobs(const []);
+      expect(service.hasJob('standup'), isFalse);
+
+      release.complete();
+      await pumpEventQueue(times: 20);
+
+      // The fire that was already running finished — it was not cancelled — and
+      // left nothing armed behind it.
+      expect(turns.startTurnCallCount, 1);
+      expect(service.entries, isEmpty);
+      expect(service.runJobNow('standup'), RunScheduledJobResult.notFound);
+    });
+
+    test('live jobs: built-ins survive every replacement and cannot be shadowed by a config entry', () {
+      fakeAsync((async) {
+        final builtIn = builtInJob('heartbeat');
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: [builtIn])..start();
+        addTearDown(service.stop);
+
+        service.replaceConfigJobs([cronJob('heartbeat', '0 9 * * *'), cronJob('standup', '0 9 * * *')]);
+
+        expect(service.builtInJobIds, {'heartbeat'});
+        expect(service.entries.where((entry) => entry.id == 'heartbeat'), hasLength(1));
+        // The built-in is an interval job; a shadowing cron entry would report
+        // its expression here.
+        expect(service.entries.singleWhere((entry) => entry.id == 'heartbeat').cronExpression, isNull);
+
+        service.replaceConfigJobs(const []);
+        expect(service.entries.map((entry) => entry.id), ['heartbeat']);
+        async.elapse(Duration.zero);
+      });
+    });
+
+    test('live jobs: a config entry shadowing a built-in id is dropped, and the built-in still fires', () {
+      fakeAsync((async) {
+        // The wiring puts config-declared jobs ahead of the built-ins, so a
+        // colliding entry would otherwise be the one an id resolves to and the
+        // built-in would never arm.
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [cronJob('heartbeat', '0 9 * * *'), builtInJob('heartbeat')],
+        )..start();
+        addTearDown(service.stop);
+
+        expect(service.builtInJobIds, {'heartbeat'});
+        expect(service.entries, hasLength(1));
+        expect(service.entries.single.cronExpression, isNull, reason: 'the built-in survived, not the config entry');
+
+        async.elapse(const Duration(minutes: 31));
+        async.flushMicrotasks();
+        expect(async.pendingTimers, hasLength(1), reason: 'the built-in is armed and re-arms');
+      });
+    });
+
+    test('live jobs: a paused one-time job that is edited keeps its instant and is still missed', () {
+      fakeAsync((async) {
+        final start = DateTime(2026, 9, 2, 8);
+        final removed = <String>[];
+        final at = start.add(const Duration(minutes: 10));
+        ScheduledJob once(String prompt) => ScheduledJob.fromConfig({
+          'id': 'remind',
+          'prompt': prompt,
+          'schedule': {'type': 'once', 'at': at.toIso8601String()},
+        });
+        final service = ScheduleService(
+          turns: turns,
+          sessions: sessions,
+          jobs: [once('Remind me')],
+          now: () => async.getClock(start).now(),
+          onOneTimeComplete: (id) async => removed.add(id),
+        )..start();
+        addTearDown(service.stop);
+        service.pauseJob('remind');
+
+        // A live edit re-adds the job; pausing is what makes the arming decision
+        // interesting, and a one-time job must be armed either way.
+        service.replaceConfigJobs([once('Remind me, revised')]);
+        expect(async.pendingTimers, hasLength(1));
+
+        async.elapse(const Duration(minutes: 11));
+        async.flushMicrotasks();
+
+        expect(turns.startTurnCallCount, 0, reason: 'the job was paused, so it must not run');
+        expect(service.hasJob('remind'), isFalse);
+        expect(removed, ['remind']);
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
+    test('live jobs: replacing before start arms nothing until start', () {
+      fakeAsync((async) {
+        final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+        addTearDown(service.stop);
+
+        service.replaceConfigJobs([cronJob('standup', '0 9 * * *')]);
+        expect(async.pendingTimers, isEmpty);
+
+        service.start();
+        expect(async.pendingTimers, hasLength(1));
+      });
     });
 
     test('concurrent skip: second call skips if job is already running', () async {
@@ -789,7 +946,7 @@ void main() {
       // but we can verify start/stop lifecycle doesn't throw
       final service = ScheduleService(
         turns: FakeTurnManager(),
-        sessions: _FakeSessionService(),
+        sessions: FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
             'id': 'test-job',
@@ -803,7 +960,7 @@ void main() {
     });
 
     test('start with empty jobs is no-op', () {
-      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: FakeSessionService(), jobs: []);
       service.start();
       service.stop();
     });
@@ -811,7 +968,7 @@ void main() {
     test('double start is idempotent', () {
       final service = ScheduleService(
         turns: FakeTurnManager(),
-        sessions: _FakeSessionService(),
+        sessions: FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
             'id': 'test-job',
@@ -828,7 +985,7 @@ void main() {
     test('pauseJob marks job as paused', () {
       final service = ScheduleService(
         turns: FakeTurnManager(),
-        sessions: _FakeSessionService(),
+        sessions: FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
             'id': 'my-job',
@@ -847,7 +1004,7 @@ void main() {
     test('resumeJob clears paused state', () {
       final service = ScheduleService(
         turns: FakeTurnManager(),
-        sessions: _FakeSessionService(),
+        sessions: FakeSessionService(),
         jobs: [
           ScheduledJob.fromConfig({
             'id': 'my-job',
@@ -865,7 +1022,7 @@ void main() {
     });
 
     test('pauseJob/resumeJob are idempotent', () {
-      final service = ScheduleService(turns: FakeTurnManager(), sessions: _FakeSessionService(), jobs: []);
+      final service = ScheduleService(turns: FakeTurnManager(), sessions: FakeSessionService(), jobs: []);
       // Operations on unknown job IDs should not throw
       expect(() => service.pauseJob('nonexistent'), returnsNormally);
       expect(() => service.resumeJob('nonexistent'), returnsNormally);
@@ -873,8 +1030,8 @@ void main() {
     });
 
     test('callback job runs onExecute in a cron session without agent turn', () async {
-      final turns = _ConfigurableTurnManager();
-      final sessions = _FakeSessionService();
+      final turns = ConfigurableTurnManager();
+      final sessions = FakeSessionService();
       var callbackInvoked = false;
       final callbackJob = ScheduledJob(
         id: 'callback-job',
@@ -891,12 +1048,12 @@ void main() {
       expect(callbackInvoked, isTrue);
       // No agent turn should have been created
       expect(turns.startTurnCallCount, 0);
-      expect(sessions._keyedSessions, contains(SessionKey.cronSession(jobId: 'callback-job')));
+      expect(sessions.keyedSessions, contains(SessionKey.cronSession(jobId: 'callback-job')));
       service.stop();
     });
 
     test('callback job supports pause/resume lifecycle', () async {
-      final turns = _ConfigurableTurnManager();
+      final turns = ConfigurableTurnManager();
       var invocations = 0;
       final callbackJob = ScheduledJob(
         id: 'pausable-callback',
@@ -907,7 +1064,7 @@ void main() {
           return 'ok';
         },
       );
-      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: [callbackJob]);
+      final service = ScheduleService(turns: turns, sessions: FakeSessionService(), jobs: [callbackJob]);
       service.start();
 
       // Pause and attempt execution — should skip
@@ -924,8 +1081,8 @@ void main() {
     });
 
     test('a resolver returning nothing skips the fire without failing it', () async {
-      final turns = _ConfigurableTurnManager();
-      final sessions = _FakeSessionService();
+      final turns = ConfigurableTurnManager();
+      final sessions = FakeSessionService();
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
       final failures = <ScheduledJobFailedEvent>[];
@@ -957,14 +1114,14 @@ void main() {
 
       expect(resolverCalls, 1, reason: 'a skipped fire consumes no retry attempt');
       expect(turns.startTurnCallCount, 0);
-      expect(sessions._keyedSessions, isEmpty, reason: 'a skipped fire leaves no cron session behind');
+      expect(sessions.keyedSessions, isEmpty, reason: 'a skipped fire leaves no cron session behind');
       expect(delivery.calls, isEmpty);
       expect(failures, isEmpty);
     });
 
     test('two fires of a resolving per-fire job use two distinct session keys', () async {
-      final turns = _ConfigurableTurnManager();
-      final sessions = _FakeSessionService();
+      final turns = ConfigurableTurnManager();
+      final sessions = FakeSessionService();
       final job = ScheduledJob(
         id: 'per-fire-job',
         scheduleType: ScheduleType.interval,
@@ -979,12 +1136,12 @@ void main() {
       await service.executeJobForTesting(job);
 
       expect(turns.startTurnCallCount, 2);
-      expect(sessions._keyedSessions, hasLength(2));
-      expect(sessions._keyedSessions.keys.every((key) => key.startsWith('agent:main:cron:per-fire-job')), isTrue);
+      expect(sessions.keyedSessions, hasLength(2));
+      expect(sessions.keyedSessions.keys.every((key) => key.startsWith('agent:main:cron:per-fire-job')), isTrue);
     });
 
     test('a resolving job sends the resolved prompt, not the static one', () async {
-      final turns = _ConfigurableTurnManager();
+      final turns = ConfigurableTurnManager();
       final job = ScheduledJob(
         id: 'resolved-prompt-job',
         prompt: 'static prompt',
@@ -992,7 +1149,7 @@ void main() {
         intervalMinutes: 60,
         promptResolver: () async => 'resolved prompt',
       );
-      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: [job])..start();
+      final service = ScheduleService(turns: turns, sessions: FakeSessionService(), jobs: [job])..start();
       addTearDown(service.stop);
 
       await service.executeJobForTesting(job);
@@ -1001,8 +1158,8 @@ void main() {
     });
 
     test('paused job is skipped during execution', () async {
-      final turns = _ConfigurableTurnManager();
-      final service = ScheduleService(turns: turns, sessions: _FakeSessionService(), jobs: []);
+      final turns = ConfigurableTurnManager();
+      final service = ScheduleService(turns: turns, sessions: FakeSessionService(), jobs: []);
       service.start();
       final job = ScheduledJob.fromConfig({
         'id': 'skip-job',
@@ -1015,141 +1172,4 @@ void main() {
       service.stop();
     });
   });
-}
-
-/// Configurable fake for execution tests.
-class _ConfigurableTurnManager implements TurnManager {
-  int startTurnCallCount = 0;
-  List<Map<String, dynamic>>? lastMessages;
-  bool shouldFail = false;
-  bool returnFailedOutcome = false;
-  String responseText = 'simulated assistant output';
-
-  /// Captured model/effort from the most recent startTurn call.
-  String? lastModel;
-  String? lastEffort;
-  List<String>? lastAllowedTools;
-  String? lastPrompt;
-
-  /// Optional hook called inside startTurn — use to block execution for concurrency tests.
-  Future<void> Function(String sessionId)? onStartTurn;
-
-  final Map<String, Completer<TurnOutcome>> _pending = {};
-
-  @override
-  Future<String> startTurn(
-    String sessionId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    bool isHumanInput = false,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    PromptScope? promptScope,
-    Duration? turnTimeout,
-  }) async {
-    startTurnCallCount++;
-    lastMessages = messages;
-    lastModel = model;
-    lastEffort = effort;
-    lastAllowedTools = allowedTools;
-    lastPrompt = messages.single['content'] as String?;
-    final turnId = 'fake-turn-$startTurnCallCount';
-
-    if (shouldFail) {
-      throw Exception('Simulated startTurn failure');
-    }
-
-    if (onStartTurn != null) {
-      await onStartTurn!(sessionId);
-    }
-
-    final completer = Completer<TurnOutcome>();
-    _pending[turnId] = completer;
-
-    final status = returnFailedOutcome ? TurnStatus.failed : TurnStatus.completed;
-    final outcome = TurnOutcome(
-      turnId: turnId,
-      sessionId: sessionId,
-      status: status,
-      errorMessage: returnFailedOutcome ? 'simulated failure' : null,
-      responseText: returnFailedOutcome ? null : responseText,
-      completedAt: DateTime.now(),
-    );
-    completer.complete(outcome);
-
-    return turnId;
-  }
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
-    final c = _pending[turnId];
-    if (c == null) throw ArgumentError('Unknown turnId: $turnId');
-    return c.future;
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _FakeSessionService implements SessionService {
-  final Map<String, Session> _keyedSessions = {};
-
-  @override
-  Future<Session> getOrCreateByKey(
-    String key, {
-    SessionType type = SessionType.user,
-    String? provider,
-    String? securityProfile,
-    ExecutionMode? executionMode,
-  }) async {
-    return _keyedSessions.putIfAbsent(
-      key,
-      () => Session(
-        id: 'fake-uuid-for-$key',
-        type: type,
-        provider: provider,
-        securityProfile: securityProfile,
-        executionMode: executionMode,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    );
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _ManualTimer implements Timer {
-  final Duration duration;
-  final void Function() _callback;
-  var _isActive = true;
-
-  new(this.duration, this._callback);
-
-  void fire() {
-    if (!_isActive) return;
-    _isActive = false;
-    _callback();
-  }
-
-  @override
-  bool get isActive => _isActive;
-
-  @override
-  int get tick => _isActive ? 0 : 1;
-
-  @override
-  void cancel() {
-    _isActive = false;
-  }
 }

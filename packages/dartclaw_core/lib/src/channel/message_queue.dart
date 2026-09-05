@@ -27,8 +27,10 @@ abstract interface class BudgetExhaustedError {
 typedef TurnDispatcher = Future<String> Function(
   String sessionKey,
   String message, {
+  required ChannelType channelType,
   String? senderJid,
   String? senderDisplayName,
+  String? groupJid,
 });
 
 /// Observer for a queued turn. Can watch the running response future and
@@ -257,8 +259,10 @@ class MessageQueue {
             final responseFuture = _dispatcher(
               entry.sessionKey,
               entry.message.text,
+              channelType: entry.sourceChannel.type,
               senderJid: entry.message.senderJid,
               senderDisplayName: entry.message.senderDisplayName,
+              groupJid: entry.message.groupJid,
             );
             final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
             final observer = _turnObserver;

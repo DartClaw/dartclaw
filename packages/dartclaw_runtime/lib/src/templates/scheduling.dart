@@ -1,14 +1,13 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../scheduling/cron_parser.dart';
-import '../scheduling/scheduled_task_runner.dart';
 import 'components.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
 import 'topbar.dart';
 
-typedef JobFormValues = ({String name, String schedule, String prompt, String delivery});
+typedef JobFormValues = ({String name, String schedule, String at, String prompt, String delivery});
 typedef TaskFormValues = ({
   String id,
   String schedule,
@@ -18,7 +17,7 @@ typedef TaskFormValues = ({
   bool enabled,
 });
 
-const emptyJobFormValues = (name: '', schedule: '', prompt: '', delivery: 'announce');
+const emptyJobFormValues = (name: '', schedule: '', at: '', prompt: '', delivery: 'announce');
 const emptyTaskFormValues = (id: '', schedule: '', title: '', description: '', acceptanceCriteria: '', enabled: true);
 
 String schedulingTemplate({
@@ -29,7 +28,6 @@ String schedulingTemplate({
   List<Map<String, dynamic>> jobs = const [],
   List<String> systemJobNames = const [],
   List<ScheduledTaskDefinition> scheduledTasks = const [],
-  Set<String> loadedJobIds = const {},
   String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
@@ -45,7 +43,6 @@ String schedulingTemplate({
         jobs: jobs,
         systemJobNames: systemJobNames,
         scheduledTasks: scheduledTasks,
-        loadedJobIds: loadedJobIds,
       ),
     },
   );
@@ -58,7 +55,6 @@ String schedulingContentFragment({
   required List<Map<String, dynamic>> jobs,
   required List<String> systemJobNames,
   required List<ScheduledTaskDefinition> scheduledTasks,
-  required Set<String> loadedJobIds,
 }) => templateLoader.trellis.renderFragment(
   templateLoader.source('scheduling'),
   fragment: 'schedulingContent',
@@ -77,16 +73,15 @@ String schedulingContentFragment({
         : null,
     'heartbeatOn': heartbeatEnabled,
     'jobFormHtml': schedulingJobFormFragment(),
-    'jobsTableHtml': schedulingJobsFragment(jobs: jobs, systemJobNames: systemJobNames, loadedJobIds: loadedJobIds),
+    'jobsTableHtml': schedulingJobsFragment(jobs: jobs, systemJobNames: systemJobNames),
     'taskFormHtml': schedulingTaskFormFragment(),
-    'tasksTableHtml': schedulingTasksFragment(tasks: scheduledTasks, loadedJobIds: loadedJobIds),
+    'tasksTableHtml': schedulingTasksFragment(tasks: scheduledTasks),
   },
 );
 
 String schedulingJobsFragment({
   required List<Map<String, dynamic>> jobs,
   required List<String> systemJobNames,
-  required Set<String> loadedJobIds,
   bool outOfBand = false,
 }) {
   final rows = jobs.where((job) => job['type']?.toString() != 'task').map((job) {
@@ -120,7 +115,6 @@ String schedulingJobsFragment({
       'runDisabled': canRun && running,
       'hasActions': !system || canRun,
       'cronHuman': _describe(schedule),
-      'notRunning': !loadedJobIds.contains(name),
       'editUrl': '/scheduling/jobs/${Uri.encodeComponent(name)}/form',
       'runUrl': '/scheduling/jobs/${Uri.encodeComponent(name)}/run',
       'deleteUrl': '/scheduling/jobs/${Uri.encodeComponent(name)}/delete',
@@ -142,11 +136,7 @@ String schedulingJobsFragment({
   );
 }
 
-String schedulingTasksFragment({
-  required List<ScheduledTaskDefinition> tasks,
-  required Set<String> loadedJobIds,
-  bool outOfBand = false,
-}) {
+String schedulingTasksFragment({required List<ScheduledTaskDefinition> tasks, bool outOfBand = false}) {
   final rows = tasks
       .map(
         (task) => <String, dynamic>{
@@ -157,7 +147,6 @@ String schedulingTasksFragment({
           'statusDotClass': task.enabled ? 'status-dot--live' : 'status-dot--idle',
           'statusText': task.enabled ? 'enabled' : 'disabled',
           'cronHuman': _describe(task.cronExpression),
-          'notRunning': !loadedJobIds.contains(ScheduledTaskRunner.jobIdForDefinition(task.id)),
           'editUrl': '/scheduling/tasks/${Uri.encodeComponent(task.id)}/form',
           'toggleUrl': '/scheduling/tasks/${Uri.encodeComponent(task.id)}/toggle',
           'deleteUrl': '/scheduling/tasks/${Uri.encodeComponent(task.id)}/delete',
@@ -195,6 +184,7 @@ String schedulingJobFormFragment({JobFormValues? values, String? editName, Strin
       'name': form.name,
       'nameDisabled': editName == null ? null : '',
       'schedule': form.schedule,
+      'at': form.at,
       'prompt': form.prompt,
       'promptPlaceholder': editName == null
           ? 'Describe the task for the agent...'
@@ -207,6 +197,8 @@ String schedulingJobFormFragment({JobFormValues? values, String? editName, Strin
       'nameInvalid': errorField == 'name' ? 'true' : null,
       'scheduleError': errorField == 'schedule' ? error ?? '' : '',
       'scheduleInvalid': errorField == 'schedule' ? 'true' : null,
+      'atError': errorField == 'at' ? error ?? '' : '',
+      'atInvalid': errorField == 'at' ? 'true' : null,
       'promptError': errorField == 'prompt' ? error ?? '' : '',
       'promptInvalid': errorField == 'prompt' ? 'true' : null,
       'formError': errorField == null ? error ?? '' : '',

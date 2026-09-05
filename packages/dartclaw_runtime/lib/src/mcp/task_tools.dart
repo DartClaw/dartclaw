@@ -254,9 +254,9 @@ class TaskBindTool implements McpTool {
       'task_id': {'type': 'string', 'description': 'Full task ID.'},
       'channel_type': {
         'type': 'string',
-        'enum': ChannelType.values.map((channel) => channel.name).toList(growable: false),
+        'enum': ChannelType.values.map((channel) => channel.name).where(supportsThreadBinding).toList(growable: false),
       },
-      'thread_id': {'type': 'string', 'description': 'Channel-assigned thread or group identifier.'},
+      'thread_id': {'type': 'string', 'description': 'Channel-assigned thread identifier.'},
     },
     const ['task_id', 'channel_type', 'thread_id'],
   );
@@ -357,7 +357,7 @@ class TaskUnbindTool implements McpTool {
     if (bindings == null) return _bindingStoreAbsent();
 
     final taskId = args['task_id'] as String;
-    final removed = bindings.deleteByTaskId(taskId);
+    final removed = await bindings.deleteByTaskId(taskId);
     return toolJson({'task_id': taskId, 'removed': removed.length});
   }
 }

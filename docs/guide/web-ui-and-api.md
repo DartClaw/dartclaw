@@ -30,7 +30,7 @@ The interface has three main areas:
 - **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
 - **Delete**: Click the × button on a sidebar item
 - **Auto-title**: After the first assistant response, a new non-workspace conversation is titled with the first ~50 characters of your message. The workspace **Agent** is never auto-titled.
-- **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage.
+- **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
 
@@ -340,7 +340,8 @@ Requires admin access. Non-admin or unauthenticated requests receive `403`.
 Starts a live prompt job immediately and returns `202` with `{"name":"daily-summary","status":"started"}`. Returns
 `409 CONFLICT` when the job is already running, `404 NOT_FOUND` when it is absent from the live scheduler or not
 runnable on demand, and `404 NOT_AVAILABLE` when scheduling is not configured. The route uses the same authentication
-as the other scheduling APIs. Job changes require a restart before this endpoint can run them.
+as the other scheduling APIs. A job written through the jobs API, the `schedule_upsert` tool or the Scheduling page is
+loaded before that write returns, so it is runnable immediately.
 
 #### List jobs
 
@@ -366,6 +367,11 @@ Content-Type: application/json
 
 {"name": "daily-summary", "schedule": "0 9 * * *", "prompt": "Summarize yesterday's changes", "delivery": "announce"}
 ```
+
+Pass `at` (an ISO-8601 instant in the future) instead of `schedule` for a one-time job; exactly one of the two is
+accepted, and a job written with `at` removes itself once it has fired. Create, update and delete responses carry no
+`pendingRestart` key: the write loads the job into the running scheduler before it answers. A job id the runtime owns
+itself (`heartbeat` and the other built-ins) is refused `409 CONFLICT`.
 
 #### Update job
 
@@ -761,8 +767,8 @@ These tools let the agent start work and produce content on the owner's behalf, 
 |------|-----------|-------------|
 | `workflow_run` | `definition`, optional `variables` object, optional `project` | Start a registered workflow. Returns the run's ID and its `/workflows/<id>` location. Required-variable validation, declared defaults and the `PROJECT` fallback are the workflow service's, exactly as for the HTTP start route. |
 | `workflow_list` | no arguments | List the workflow catalog with each definition's description, step count and declared variables (required flag and default), so `workflow_run` can be called without a second lookup. An empty catalog is an empty list, not an error. |
-| `schedule_upsert` | `id`, `schedule`, `type` (`prompt` or `task`), `prompt` or `task`, optional `delivery`, `model`, `effort` | Create or replace a `scheduling.jobs` entry. Cron validation and the config write go through the same seam the scheduling API uses. **The job does not run until the server restarts** — the result says so, and the restart-pending marker is recorded. |
-| `schedule_list` | no arguments | List configured jobs with their cron expressions, whether the running server loaded them, and whether they are paused. Jobs the runtime registers itself are listed as built-in and cannot be edited through `schedule_upsert`; a job written since startup is reported as waiting for a restart. |
+| `schedule_upsert` | `id`, `type` (`prompt` or `task`), exactly one of `schedule` (cron) or `at` (ISO-8601 instant), `prompt` or `task`, optional `delivery`, `model`, `effort` | Create or replace a `scheduling.jobs` entry. Schedule validation and the config write go through the same seam the scheduling API uses, and that seam loads the job into the running scheduler before the tool answers — the result reports `loaded`, not a pending restart. An `at` job runs once and then removes its own entry. A built-in job id is refused. |
+| `schedule_list` | no arguments | List configured jobs with their cron expressions, whether the running server loaded them, and whether they are paused. Jobs the runtime registers itself are listed as built-in and cannot be edited through `schedule_upsert`; a configured entry the scheduler does not hold is one it could not compose, and the log says why. |
 | `attach_media` | `path`, optional `caption` | Send a workspace file to the owner as a media attachment. The path must resolve — after symlink resolution — inside the workspace; anything that escapes it is refused and nothing is delivered. The recipient is the owner's active direct-message sessions and cannot be chosen in the call. |
 | `wiki_write` | `slug`, `title`, `body`, `sources`, optional `confidence` | Author a wiki page through the same entry point knowledge-inbox ingestion uses, so slug containment, frontmatter emission, provenance, the sources union and the shrink floor all apply. The slug must already be lowercase words joined by hyphens. Writing over a stored page replaces its body; a replacement materially shorter than what is stored is refused. |
 

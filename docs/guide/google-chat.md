@@ -128,7 +128,7 @@ channels:
 
 See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
 
-When `require_mention: true`, DartClaw only responds when the bot is explicitly mentioned in group spaces.
+When `require_mention: true`, DartClaw only responds when the bot is explicitly mentioned in group spaces. Registered slash commands are exempt from that check — a slash command names the app explicitly — but they are still subject to `dm_access` and `group_access`; see [Slash Commands](#slash-commands).
 
 ## Admin Approval Caveat
 
@@ -180,15 +180,21 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 
 The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
 
+Slash commands run the same inbound access checks as ordinary messages: a sender `dm_access` denies, a sender still awaiting pairing approval, or a space `group_access` blocks gets no command execution and no reply. `require_mention` is the one check they skip. `/stop`, `/pause` and `/resume` additionally require an admin sender (`governance.admins`); `/new`, `/reset` and `/status` act within what the sender's own session already grants, so passing the inbound checks is enough for them.
+
 This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
 
 ## Thread Binding
 
-Sending `/bind <taskId>` inside a thread or space routes that thread's messages to the task's agent session; `/unbind`
+Sending `/bind <taskId>` inside a thread routes that thread's messages to the task's agent session; `/unbind`
 removes the binding. Both read the thread the message arrived in, which is why they stay reserved commands: the
 agent's own `task_bind` tool carries no channel context and has to be told which thread to bind
 (`task_id`, `channel_type`, `thread_id`) — see [Tasks](tasks.md#agent-tool-surface). Use `/bind` for "this thread",
 and `task_bind` when the thread is already known by name.
+
+Binding is thread-scoped and Google Chat only. Google Chat is the one channel that stamps a per-message thread
+identity, which is what a binding is keyed by, so a message with no thread — a WhatsApp or Signal group among them —
+answers `Cannot bind — this message is not in a thread.` rather than binding the group.
 
 ## Message Formatting
 
@@ -211,6 +217,7 @@ Agent responses use Google Chat's native text markup. DartClaw converts standard
 | Bot cannot send replies | Invalid or unreadable service account credentials |
 | DMs are ignored | `dm_access` is `disabled`, `allowlist`, or waiting for pairing approval |
 | Room messages are ignored | `group_access` blocks the space or `require_mention` is filtering messages |
+| A slash command does nothing | `dm_access` or `group_access` refuses the sender or space; `/stop`, `/pause` and `/resume` also need an admin sender |
 | App cannot be added to Chat | Workspace admin approval or app publication is still pending |
 
 ## Space Events (Full Participation)
@@ -220,6 +227,8 @@ By default, DartClaw only sees messages where the bot is explicitly @mentioned i
 ### How It Works
 
 Google Chat's standard webhook model only pushes `MESSAGE` events when the bot is @mentioned in multi-person Spaces. The Workspace Events API is a separate subscription-based event system that delivers all messages via Cloud Pub/Sub. DartClaw runs both paths simultaneously — webhooks for @mentions/slash commands/card clicks, and Pub/Sub for full message visibility — with automatic deduplication for messages that arrive via both.
+
+`group_access` and `group_allowlist` apply to Space Events traffic exactly as they do to webhook traffic: a message from a space the policy refuses is dropped before it reaches the agent, even though the subscription still delivers it. `require_mention` is the one check Space Events skips — receiving un-mentioned traffic is the point of the feature.
 
 ### Authentication
 

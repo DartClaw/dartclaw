@@ -6,11 +6,41 @@ import 'package:dartclaw_cli/src/commands/init/setup_checks.dart';
 import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
 import 'package:dartclaw_cli/src/commands/service/service_backend.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+class _SetupPromptLogger extends Logger {
+  final prompts = <String?>[];
+
+  new() : super(level: Level.quiet);
+
+  @override
+  String prompt(String? message, {Object? defaultValue, bool hidden = false}) {
+    prompts.add(message);
+    return defaultValue?.toString() ?? '';
+  }
+
+  @override
+  bool confirm(String? message, {bool defaultValue = false}) {
+    prompts.add(message);
+    return defaultValue;
+  }
+
+  @override
+  T chooseOne<T extends Object?>(
+    String? message, {
+    required List<T> choices,
+    T? defaultValue,
+    String Function(T choice)? display,
+  }) {
+    prompts.add(message);
+    return defaultValue ?? choices.first;
+  }
+}
+
 SetupChecks _passingChecks() => SetupChecks(
-  probeBinary: (_) async => BinaryProbeOutcome.responded,
+  probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_) async => true,
@@ -18,7 +48,7 @@ SetupChecks _passingChecks() => SetupChecks(
 );
 
 SetupChecks _preflightFailureChecks() => SetupChecks(
-  probeBinary: (_) async => BinaryProbeOutcome.notFound,
+  probeBinary: (_) async => (outcome: BinaryProbeOutcome.notFound, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_) async => true,
@@ -29,7 +59,7 @@ SetupChecks _preflightFailureChecks() => SetupChecks(
 /// touching preflight. An executable-keyed `probeBinary` would isolate the same
 /// way; `portFree` and `writeProbeFile` would fail preflight first.
 SetupChecks _postWriteFailureChecks() => SetupChecks(
-  probeBinary: (_) async => BinaryProbeOutcome.responded,
+  probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => false,
   writeProbeFile: (_) {},
   portFree: (_) async => true,
@@ -37,7 +67,7 @@ SetupChecks _postWriteFailureChecks() => SetupChecks(
 );
 
 SetupChecks _unverifiedChecks() => SetupChecks(
-  probeBinary: (_) async => BinaryProbeOutcome.responded,
+  probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_) async => true,
@@ -45,6 +75,7 @@ SetupChecks _unverifiedChecks() => SetupChecks(
 );
 
 InitCommand _nonInteractiveCmd({
+  bool workflowOnly = false,
   List<SetupState>? captureInto,
   List<String>? outputCapture,
   SetupChecks? setupChecks,
@@ -52,6 +83,7 @@ InitCommand _nonInteractiveCmd({
   DartclawConfig? Function(String? configPath)? loadConfig,
 }) {
   return InitCommand(
+    workflowOnly: workflowOnly,
     hasTerminal: () => false,
     setupChecks: setupChecks ?? _passingChecks(),
     applySetup: (state) async {
@@ -75,7 +107,7 @@ class _RecordingChecks extends SetupChecks {
 
   new({Future<bool> Function(String, String, String)? providerVerified})
     : super(
-        probeBinary: (_) async => BinaryProbeOutcome.responded,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_) async => true,
@@ -184,7 +216,7 @@ void main() {
       final checks = _RecordingChecks();
       final output = <String>[];
       final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--personalize', '--instance-dir', tempDir.path]);
 
@@ -206,7 +238,7 @@ void main() {
       final checks = _RecordingChecks();
       final output = <String>[];
       final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--apply-drafts', '--instance-dir', tempDir.path]);
 
@@ -226,7 +258,7 @@ void main() {
       File('${workspace.path}/SOUL.md.draft').writeAsStringSync('New soul\n');
       final output = <String>[];
       final cmd = _nonInteractiveCmd(outputCapture: output);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--apply-drafts', '--instance-dir', tempDir.path]);
 
@@ -240,7 +272,7 @@ void main() {
       final output = <String>[];
       final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
       final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -272,6 +304,89 @@ void main() {
       expect(output.any((line) => line.contains('Start the server')), isFalse);
     });
 
+    test('S04 S05 lean init forces workflow setup and prints the flat path', () async {
+      final captured = <SetupState>[];
+      final output = <String>[];
+      final cmd = _nonInteractiveCmd(workflowOnly: true, captureInto: captured, outputCapture: output);
+      final runner = CommandRunner<void>('dartclaw-workflow', 'test')..addCommand(cmd);
+      for (final option in ['--launch', '--port', '--gateway-auth']) {
+        expect(cmd.usage, isNot(contains(option)));
+      }
+      await runner.run([
+        'init',
+        '--non-interactive',
+        '--provider',
+        'claude',
+        '--auth-claude',
+        'oauth',
+        '--model-claude',
+        'sonnet',
+      ]);
+      expect(captured.single.workflowTrack, isTrue);
+      expect(output, contains('Run a workflow: dartclaw-workflow run --standalone code-review'));
+      expect(output.any((line) => line.contains('Start the server')), isFalse);
+    });
+
+    for (final workflowOnly in [true, false]) {
+      test('S05 interactive init selects workflowOnly=$workflowOnly without a workflow flag', () async {
+        final logger = _SetupPromptLogger();
+        final states = <SetupState>[];
+        final command = InitCommand(
+          workflowOnly: workflowOnly,
+          hasTerminal: () => true,
+          logger: logger,
+          setupChecks: _passingChecks(),
+          loadConfig: (_) => null,
+          writeLine: (_) {},
+          applySetup: (state) async {
+            states.add(state);
+            return [state.configPath];
+          },
+        );
+        final runner = CommandRunner<void>(workflowOnly ? 'dartclaw-workflow' : 'dartclaw', 'test')
+          ..addCommand(command);
+        await runner.run(['init']);
+        expect(states.single.workflowTrack, workflowOnly);
+        if (workflowOnly) {
+          expect(logger.prompts, [
+            'AI provider',
+            'Claude auth method',
+            'Claude model',
+            'Config folder (where DartClaw stores its data)',
+          ]);
+        } else {
+          expect(logger.prompts, containsAll(['HTTP server port', 'HTTP gateway auth', 'Launch after setup']));
+        }
+      });
+    }
+
+    test('the port prompt advances past a port the setup checks report in use', () async {
+      final logger = _SetupPromptLogger();
+      final states = <SetupState>[];
+      final command = InitCommand(
+        hasTerminal: () => true,
+        logger: logger,
+        setupChecks: SetupChecks(
+          probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+          configParseable: (_) async => true,
+          writeProbeFile: (_) {},
+          portFree: (port) async => port != 3333,
+          providerVerified: (_, _, _) async => true,
+        ),
+        loadConfig: (_) => null,
+        writeLine: (_) {},
+        applySetup: (state) async {
+          states.add(state);
+          return [state.configPath];
+        },
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await runner.run(['init']);
+
+      expect(states.single.port, 3334);
+    });
+
     test('workflow init writes a discoverable .dartclaw config and allowlist gitignore', () async {
       final tempDir = Directory.systemTemp.createTempSync('init_workflow_dotdir_test_');
       final savedCwd = Directory.current;
@@ -287,7 +402,7 @@ void main() {
         writeLine: output.add,
         loadConfig: (_) => null,
       );
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -321,7 +436,7 @@ void main() {
       final output = <String>[];
       final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
       final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -350,7 +465,7 @@ void main() {
     test('non-interactive single-provider flow resolves setup state from flags', () async {
       final captured = <SetupState>[];
       final cmd = _nonInteractiveCmd(captureInto: captured);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -385,7 +500,7 @@ void main() {
     test('non-interactive multi-provider flow requires primary provider and captures per-provider config', () async {
       final captured = <SetupState>[];
       final cmd = _nonInteractiveCmd(captureInto: captured);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -417,7 +532,7 @@ void main() {
 
     test('missing required non-interactive inputs are reported precisely', () async {
       final cmd = _nonInteractiveCmd();
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await expectLater(
         runner.run(['init', '--non-interactive', '--provider', 'claude']),
@@ -428,7 +543,7 @@ void main() {
     test('non-terminal fallback announces that it is running non-interactively', () async {
       final output = <String>[];
       final cmd = _nonInteractiveCmd(outputCapture: output);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run(['init', '--provider', 'claude', '--auth-claude', 'oauth', '--model-claude', 'sonnet']);
 
@@ -454,7 +569,7 @@ void main() {
           return config;
         },
       );
-      final runner = CommandRunner<void>('test', 'test')
+      final runner = CommandRunner<void>('dartclaw', 'test')
         ..argParser.addOption('config')
         ..addCommand(cmd);
 
@@ -483,7 +598,7 @@ void main() {
         ),
       );
       final cmd = _nonInteractiveCmd(captureInto: captured, setupChecks: checks, loadConfig: (_) => config);
-      final runner = CommandRunner<void>('test', 'test')
+      final runner = CommandRunner<void>('dartclaw', 'test')
         ..argParser.addOption('config')
         ..addCommand(cmd);
 
@@ -504,7 +619,7 @@ void main() {
         },
         writeLine: (_) {},
       );
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await expectLater(
         runner.run([
@@ -531,7 +646,7 @@ void main() {
     test('verification failure after apply returns UsageException', () async {
       final applied = <SetupState>[];
       final cmd = _nonInteractiveCmd(captureInto: applied, setupChecks: _postWriteFailureChecks());
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await expectLater(
         runner.run([
@@ -558,7 +673,7 @@ void main() {
     test('configured but unverified state is surfaced when provider verification fails', () async {
       final output = <String>[];
       final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: _unverifiedChecks());
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -578,7 +693,7 @@ void main() {
       final output = <String>[];
       final checks = _RecordingChecks(providerVerified: (providerId, _, _) async => providerId == 'claude');
       final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -607,7 +722,7 @@ void main() {
     test('launch=service installs and starts the selected instance service', () async {
       final backend = _FakeServiceBackend();
       final cmd = _nonInteractiveCmd(serviceBackend: backend);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -631,7 +746,7 @@ void main() {
     test('full-track flags populate supported advanced fields', () async {
       final captured = <SetupState>[];
       final cmd = _nonInteractiveCmd(captureInto: captured);
-      final runner = CommandRunner<void>('test', 'test')..addCommand(cmd);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
       await runner.run([
         'init',
@@ -679,7 +794,7 @@ void main() {
         security: const SecurityConfig(contentGuardEnabled: false),
       );
       final cmd = _nonInteractiveCmd(captureInto: captured, loadConfig: (_) => config);
-      final runner = CommandRunner<void>('test', 'test')
+      final runner = CommandRunner<void>('dartclaw', 'test')
         ..argParser.addOption('config')
         ..addCommand(cmd);
 

@@ -366,6 +366,7 @@ class SecurityWiring implements Reconfigurable {
     }) => ContainerManager(
       config: config.container,
       containerName: containerName,
+      ownerLabel: ContainerManager.ownerLabel(_dataDir),
       profileId: profile.id,
       workspaceMounts: profile.id == 'workspace'
           ? [...profile.workspaceMounts, ...localPathProjectMounts]
@@ -395,6 +396,7 @@ class SecurityWiring implements Reconfigurable {
     if (!await probe.isRuntimeAvailable()) {
       return refuse('$runtime is required for container isolation', 'Install or start $runtime.');
     }
+    await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: runtime);
     try {
       await probe.ensureImage();
     } on StateError catch (error) {
@@ -739,6 +741,9 @@ class SecurityWiring implements Reconfigurable {
   Future<void> dispose() async {
     await _containerHealthMonitor?.stop();
     await _containerAuthorities.dispose();
+    if (_gateway != null) {
+      await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: config.container.runtimeBinary);
+    }
     // Revoking every live authority also kills its bridge processes; the
     // containers themselves are destroyed by their own leases.
     await _gateway?.dispose();

@@ -192,7 +192,7 @@ class SettingsPage extends DashboardPage {
       navItems: context.navItems(activePage: title),
       uptimeSeconds: status['uptime_s'] as int? ?? 0,
       sessionCount: status['session_count'] as int? ?? 0,
-      status: status['status'] as String? ?? 'healthy',
+      status: status['status'] as String,
       version: status['version'] as String? ?? '',
       providers: providerCards,
       providerConfiguredCount: providerSummary.configured,

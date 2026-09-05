@@ -25,13 +25,20 @@ class WorkflowListCommand extends Command<void> {
   final AssetResolver _assetResolver;
   final WriteLine _writeLine;
 
-  new({DartclawConfig? config, AssetResolver? assetResolver, WriteLine? writeLine})
+  final bool standaloneOnly;
+
+  new({this.standaloneOnly = false, DartclawConfig? config, AssetResolver? assetResolver, WriteLine? writeLine})
     : _config = config,
       _assetResolver = assetResolver ?? AssetResolver(),
       _writeLine = writeLine ?? stdout.writeln {
     argParser
       ..addFlag('json', negatable: false, help: 'Output as JSON')
-      ..addFlag('standalone', negatable: false, hide: true);
+      ..addFlag(
+        'standalone',
+        negatable: false,
+        hide: !standaloneOnly,
+        help: 'Always on; accepted for script compatibility.',
+      );
   }
 
   @override
@@ -45,7 +52,7 @@ class WorkflowListCommand extends Command<void> {
     final globalConfigPath = globalResults?.options.contains('config') ?? false
         ? globalResults!['config'] as String?
         : null;
-    final configPath = argResults!['standalone'] as bool
+    final configPath = (standaloneOnly || argResults!['standalone'] as bool)
         ? resolveStandaloneWorkflowConfigPath(configPath: globalConfigPath)
         : resolveCliConfigPath(configPath: globalConfigPath);
     final config = _config ?? loadCliConfig(configPath: configPath);

@@ -7,7 +7,6 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_pause_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_resume_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_retry_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
-import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
@@ -26,7 +25,6 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-import '../../helpers/fake_api_transport.dart';
 import '../../helpers/fake_exit.dart';
 
 void main() {
@@ -90,7 +88,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowCancelCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -120,7 +118,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowRetryCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
@@ -148,7 +146,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowResumeCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
@@ -178,7 +176,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowResumeCommand(
         config: config,
-        apiClient: reachableClient(),
+        reachabilityProbe: (_) async => true,
         harnessFactory: fakeHarness(),
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -203,7 +201,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowResumeCommand(
         config: config,
-        apiClient: reachableClient(),
+        reachabilityProbe: (_) async => true,
         harnessFactory: fakeHarness(),
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -267,7 +265,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowResumeCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: factory,
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
@@ -311,7 +309,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowCancelCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: factory,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
@@ -347,7 +345,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowCancelCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         // Production default — the verb must force it off, not rely on the flag.
         runWorkflowSkillsBootstrap: true,
@@ -378,7 +376,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowPauseCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
@@ -411,7 +409,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowPauseCommand(
         config: config,
-        apiClient: unreachableClient(),
+        reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
         searchDbFactory: (_) => sqlite3.openInMemory(),
         taskDbFactory: (_) => seed.db,
@@ -450,7 +448,7 @@ class _ThrowOnStartHarness extends FakeAgentHarness {
 WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) {
   return WorkflowResumeCommand(
     config: config,
-    apiClient: unreachableClient(),
+    reachabilityProbe: (_) async => false,
     harnessFactory: fakeHarness(),
     runWorkflowSkillsBootstrap: false,
     providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -556,20 +554,6 @@ HarnessFactory fakeHarness() {
   factory.register('claude', (_) => FakeAgentHarness());
   return factory;
 }
-
-DartclawApiClient unreachableClient() => DartclawApiClient(
-  baseUri: Uri.parse('http://localhost:3333'),
-  transport: FakeApiTransport(sendResponses: [jsonResponse(503, const <String, dynamic>{})]),
-);
-
-DartclawApiClient reachableClient() => DartclawApiClient(
-  baseUri: Uri.parse('http://localhost:3333'),
-  transport: FakeApiTransport(
-    sendResponses: [
-      jsonResponse(200, const {'status': 'ok'}),
-    ],
-  ),
-);
 
 WorkflowDefinition approvalThenBash() => WorkflowDefinition(
   name: 'approval-then-bash',

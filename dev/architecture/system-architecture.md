@@ -16,7 +16,7 @@ Five principles shape every architectural decision:
 | **Dart as host** | AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies |
 | **Direct control protocol** | Dart spawns native provider binaries directly (`claude`, `codex`, or ACP agents such as Goose/Vibe), no intermediate runtime. All state/storage/security lives in Dart |
 | **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
-| **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling ([LOC-BASELINE-0.25.md](../state/LOC-BASELINE-0.25.md)) — no longer one context window, which is what the per-package LOC ceilings and the context map exist to keep navigable |
+| **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling — no longer one context window, which is what the per-package LOC ceilings and the context map exist to keep navigable |
 
 See also: [Roadmap — Core Philosophy](../state/ROADMAP.md)
 

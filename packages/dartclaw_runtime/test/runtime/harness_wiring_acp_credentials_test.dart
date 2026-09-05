@@ -26,6 +26,8 @@ const _storedSetupToken = 'sk-ant-oat01-STORED';
 /// boundary.
 void main() {
   late Directory tempDir;
+  late Directory shimDir;
+  late String shimDill;
   late File envFile;
   late DartclawConfig config;
   late EventBus eventBus;
@@ -33,13 +35,13 @@ void main() {
   SecurityWiring? security;
   HarnessWiring? harnessWiring;
 
-  setUp(() async {
-    tempDir = Directory.systemTemp.createTempSync('dartclaw_acp_credentials_');
-    envFile = File(p.join(tempDir.path, 'acp-env.json'));
-    final shimFile = File(p.join(tempDir.path, 'fake_acp.dart'));
-    // Reports its own environment, then speaks just enough ACP to complete the
-    // initialize handshake wiring waits on.
-    shimFile.writeAsStringSync('''
+  setUpAll(() async {
+    // The shim reports its own environment, then speaks just enough ACP to complete the initialize handshake
+    // wiring waits on. Compiled once: spawning it from source recompiles per test and exceeds the harness's
+    // 10-second initialize timeout on a loaded CI runner.
+    shimDir = Directory.systemTemp.createTempSync('dartclaw_acp_shim_');
+    final shimSource = File(p.join(shimDir.path, 'fake_acp.dart'))
+      ..writeAsStringSync('''
 import 'dart:convert';
 import 'dart:io';
 
@@ -60,6 +62,26 @@ void main(List<String> args) async {
   }
 }
 ''');
+    shimDill = p.join(shimDir.path, 'fake_acp.dill');
+    final compile = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'kernel',
+      shimSource.path,
+      '-o',
+      shimDill,
+    ]);
+    if (compile.exitCode != 0) {
+      fail('fake ACP shim failed to compile: ${compile.stderr}');
+    }
+  });
+
+  tearDownAll(() {
+    if (shimDir.existsSync()) shimDir.deleteSync(recursive: true);
+  });
+
+  setUp(() async {
+    tempDir = Directory.systemTemp.createTempSync('dartclaw_acp_credentials_');
+    envFile = File(p.join(tempDir.path, 'acp-env.json'));
     config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       agent: const AgentConfig(provider: 'goose'),
@@ -69,7 +91,7 @@ void main(List<String> args) async {
             'agents': {
               'goose': {
                 'binary': Platform.resolvedExecutable,
-                'args': [shimFile.path, envFile.path],
+                'args': [shimDill, envFile.path],
                 'topology': 'direct',
                 'model_provider': 'anthropic',
                 'verification': 'a0_1_goose_direct',

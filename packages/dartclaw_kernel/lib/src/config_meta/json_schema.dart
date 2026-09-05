@@ -40,9 +40,14 @@ typedef _Declaration = ({
   ConfigEntryShape? entry,
 });
 
-Map<String, Object?> _buildConfigJsonSchema() {
+Map<String, Object?> _buildConfigJsonSchema(String version) {
   final root = _objectSchema({for (final field in ConfigMeta.fields.values) field.yamlPath: _declarationOf(field)});
-  return _sortKeys({...root, r'$schema': _schemaDialect, 'title': _schemaTitle});
+  return _sortKeys({
+    ...root,
+    r'$id': ConfigMeta.jsonSchemaUrl(version),
+    r'$schema': _schemaDialect,
+    'title': _schemaTitle,
+  });
 }
 
 _Declaration _declarationOf(FieldMeta field) => (

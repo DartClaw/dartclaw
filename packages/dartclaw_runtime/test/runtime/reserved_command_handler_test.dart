@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_core/src/channel/thread_binding_router.dart';
 import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
@@ -295,7 +296,49 @@ void main() {
       );
 
       expect(noBindingResult, 'executed');
-      expect(channel.sentMessages.single.$2.text, 'No binding found for this thread/group.');
+      expect(channel.sentMessages.single.$2.text, 'No binding found for this thread.');
+    });
+
+    test('every /bind reported as success writes a binding the router resolves', () async {
+      const threadTaskId = 'thread-bindable-task-full-id';
+      const groupTaskId = 'group-bindable-task-full-id';
+      for (final id in [threadTaskId, groupTaskId]) {
+        await taskService.create(
+          id: id,
+          title: id,
+          description: id,
+          configJson: const {'needsWorktree': false},
+          autoStart: true,
+        );
+      }
+      final store = await createBindingStore();
+      final router = ThreadBindingRouter(threadBindings: store, threadBindingEnabled: true);
+
+      ChannelMessage threadMessage(String text) => ChannelMessage(
+        channelType: ChannelType.googlechat,
+        senderJid: 'admin@s.whatsapp.net',
+        groupJid: 'spaces/AAAA',
+        text: text,
+        metadata: const {'threadName': 'spaces/AAAA/threads/CCCC'},
+      );
+      ChannelMessage groupMessage(String text) => ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'admin@s.whatsapp.net',
+        groupJid: '120363000000000000@g.us',
+        text: text,
+      );
+
+      // A thread carries the identity the router reads, so the binding round-trips.
+      expect(await handle(threadMessage('/bind $threadTaskId'), threadBindingStore: store), 'executed');
+      expect(router.lookupThreadBinding(threadMessage('follow-up'))?.taskId, threadTaskId);
+
+      // A WhatsApp group carries none, so /bind must refuse rather than report a
+      // success the router can never honour.
+      channel.sentMessages.clear();
+      expect(await handle(groupMessage('/bind $groupTaskId'), threadBindingStore: store), 'rejected');
+      expect(channel.sentMessages.single.$2.text, 'Cannot bind — this message is not in a thread.');
+      expect(store.lookupByTask(groupTaskId), isEmpty);
+      expect(router.lookupThreadBinding(groupMessage('follow-up')), isNull);
     });
 
     test('/unbind without thread binding store returns rejected', () async {

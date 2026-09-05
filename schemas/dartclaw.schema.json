@@ -1,4 +1,5 @@
 {
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.1/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -854,7 +855,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Route messages in a bound thread straight to that task session, and post task notifications as new threads. (restart required)",
+              "description": "Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required)",
               "type": "boolean"
             },
             "idle_timeout_minutes": {
@@ -1743,7 +1744,7 @@
           ]
         },
         "max_bytes": {
-          "description": "Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required)",
+          "description": "Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required)",
           "minimum": 1,
           "type": "integer"
         },
@@ -2407,9 +2408,9 @@
           ]
         },
         "reset_hour": {
-          "description": "Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload)",
+          "description": "Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset. (reload)",
           "maximum": 23,
-          "minimum": 0,
+          "minimum": -1,
           "type": "integer"
         }
       },

@@ -223,6 +223,7 @@ void main() {
           'so no shell fallback can have produced this file: an absent file means the rules the spawn '
           'carried do not grant writes to a path outside its cwd. Response: $response',
     );
-    expect(File(reportPath).readAsStringSync(), 'canary');
+    // The Write tool may terminate the file with a newline; the property under test is the grant, not the byte count.
+    expect(File(reportPath).readAsStringSync().trim(), 'canary');
   }, timeout: const Timeout(Duration(minutes: 4)));
 }

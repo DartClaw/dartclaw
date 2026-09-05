@@ -71,6 +71,31 @@ void main() {
       : const {};
 
   group('dedicated store at rest', () {
+    test('DR02 readOnly neither provisions nor changes permissions and still refuses login collisions', () {
+      final store = SubscriptionCredentialStore.readOnly(credentialsDir: credentialsDir, environment: {'HOME': home});
+      expect(store.readAll(), isEmpty);
+      expect(Directory(credentialsDir).existsSync(), isFalse);
+      open().storeClaudeSetupToken('stored-token');
+      final directory = Directory(credentialsDir);
+      if (!Platform.isWindows) Process.runSync('chmod', ['755', credentialsDir]);
+      final before = directory.statSync().mode;
+      expect(
+        SubscriptionCredentialStore.readOnly(
+          credentialsDir: credentialsDir,
+          environment: {'HOME': home},
+        ).readAll()['claude']?.secret,
+        'stored-token',
+      );
+      expect(directory.statSync().mode, before);
+      expect(
+        () => SubscriptionCredentialStore.readOnly(
+          credentialsDir: credentialsDir,
+          environment: {'HOME': home, 'CODEX_HOME': store.codexHome},
+        ),
+        throwsA(isA<LoginStoreCollisionError>()),
+      );
+    });
+
     test('a fresh data dir gets owner-only directories and an owner-only token file', () {
       final store = open();
       store.storeClaudeSetupToken('sk-ant-oat01-stored');

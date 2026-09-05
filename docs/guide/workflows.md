@@ -652,7 +652,7 @@ Every resolution attempt (successful, failed, or cancelled) produces exactly one
 | `story_id` | string | Story id from the collection item (empty if unknown) |
 | `attempt_number` | int | 1-indexed |
 | `outcome` | enum | `resolved`, `failed`, or `cancelled` |
-| `conflicted_files` | list[string] | Sorted relative paths from `git diff --name-only --diff-filter=U` |
+| `conflicted_files` | list[string] | Relative paths the promotion attempt reported as conflicting, refreshed on each re-conflict |
 | `resolution_summary` | string | Prose from the skill explaining resolution decisions; empty string if none |
 | `error_message` | string \| null | Populated when `outcome != resolved`; `null` otherwise |
 | `agent_session_id` | string | Links to the agent execution record for forensic detail |
@@ -1002,10 +1002,14 @@ The three shipped built-ins all use the same four workflow roles:
 Recommended presets:
 
 - Claude-first: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=claude/sonnet`, `reviewer=claude/opus`
-- Codex-first: `workflow=codex/gpt-5.4`, `planner=codex/gpt-5.6-sol`, `executor=codex/gpt-5.6-luna`, `reviewer=codex/gpt-5.6-luna`
+- Codex-first: `workflow=codex/gpt-5.6-sol` (effort `medium`), `planner=codex/gpt-5.6-sol` (effort `high`),
+  `executor=codex/gpt-5.6-sol` (effort `high`), `reviewer=codex/gpt-5.6-sol` (effort `medium`)
 - Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
 
-Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field.
+Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field. Effort sits beside `model` as
+`workflow.defaults.<role>.effort`; planner, executor and reviewer inherit the workflow role's effort when unset. On Codex,
+keep one model across roles and vary effort per role: a smaller model in the executor or reviewer seat trades
+correctness for speed, which is a test-fixture trade rather than a production one.
 
 ### Built-In Skill Library
 

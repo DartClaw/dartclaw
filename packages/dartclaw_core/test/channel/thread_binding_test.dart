@@ -182,22 +182,22 @@ void main() {
     });
 
     test('deleteByTaskId() removes all bindings for the task', () async {
-      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/A', taskId: 'task-xyz'));
-      await store.create(makeBinding(channelType: 'whatsapp', threadId: 'group-a@g.us', taskId: 'task-xyz'));
-      await store.create(makeBinding(channelType: 'signal', threadId: 'signal-group-1', taskId: 'task-xyz'));
-      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/B', taskId: 'task-123'));
+      for (final thread in ['spaces/X/threads/A', 'spaces/X/threads/B', 'spaces/Y/threads/C']) {
+        await store.create(makeBinding(channelType: 'googlechat', threadId: thread, taskId: 'task-xyz'));
+      }
+      await store.create(makeBinding(channelType: 'googlechat', threadId: 'spaces/X/threads/D', taskId: 'task-123'));
 
-      final removed = store.deleteByTaskId('task-xyz');
+      final removed = await store.deleteByTaskId('task-xyz');
 
       expect(removed, hasLength(3));
       expect(store.lookupByThread('googlechat', 'spaces/X/threads/A'), isNull);
-      expect(store.lookupByThread('whatsapp', 'group-a@g.us'), isNull);
-      expect(store.lookupByThread('signal', 'signal-group-1'), isNull);
-      expect(store.lookupByThread('googlechat', 'spaces/X/threads/B'), isNotNull);
+      expect(store.lookupByThread('googlechat', 'spaces/X/threads/B'), isNull);
+      expect(store.lookupByThread('googlechat', 'spaces/Y/threads/C'), isNull);
+      expect(store.lookupByThread('googlechat', 'spaces/X/threads/D'), isNotNull);
     });
 
-    test('deleteByTaskId() returns empty list when no binding exists', () {
-      expect(store.deleteByTaskId('missing-task'), isEmpty);
+    test('deleteByTaskId() returns empty list when no binding exists', () async {
+      expect(await store.deleteByTaskId('missing-task'), isEmpty);
     });
   });
 
@@ -229,6 +229,44 @@ void main() {
 
     tearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('load() drops persisted bindings on channels that carry no thread identity', () async {
+      // Bindings keyed by a WhatsApp/Signal group JID were written by an earlier
+      // /bind that had a group fallback; the router never resolved them.
+      final now = DateTime.utc(2026, 3, 21).toIso8601String();
+      tempFile.writeAsStringSync(
+        jsonEncode([
+          for (final row in [('whatsapp', 'group-a@g.us'), ('signal', 'signal-group-1')])
+            {
+              'channelType': row.$1,
+              'threadId': row.$2,
+              'taskId': 'task-orphan',
+              'sessionKey': 'sk:1',
+              'createdAt': now,
+              'lastActivity': now,
+            },
+          {
+            'channelType': 'googlechat',
+            'threadId': 'spaces/X/threads/Y',
+            'taskId': 'task-abc',
+            'sessionKey': 'sk:1',
+            'createdAt': now,
+            'lastActivity': now,
+          },
+        ]),
+      );
+
+      final store = ThreadBindingStore(tempFile);
+      await store.load();
+
+      expect(store.lookupByTask('task-orphan'), isEmpty);
+      expect(store.lookupByThread('googlechat', 'spaces/X/threads/Y'), isNotNull);
+      expect(
+        tempFile.readAsStringSync(),
+        isNot(contains('task-orphan')),
+        reason: 'the drop is rewritten so the rows do not reappear on the next load',
+      );
     });
 
     test('create() persists to JSON file; new store load() reads it back', () async {

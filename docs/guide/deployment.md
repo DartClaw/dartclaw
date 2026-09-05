@@ -39,7 +39,7 @@ dartclaw service status --instance-dir ~/.dartclaw
 dartclaw service uninstall --instance-dir ~/.dartclaw
 ```
 
-The service resolves its target instance from `--instance-dir`, then `--config`, then the standard discovery order: `DARTCLAW_CONFIG` > `DARTCLAW_HOME` > `~/.dartclaw/dartclaw.yaml`.
+The service resolves its target instance from `--instance-dir`, then `--config`, then the standard discovery order: `DARTCLAW_CONFIG` > `DARTCLAW_HOME` > `~/.dartclaw/dartclaw.yaml`. A symlinked `dartclaw.yaml` is fine at any of these: config writes resolve the link and land in its target.
 
 Or combine setup and service install in one step:
 
@@ -93,6 +93,11 @@ brew install dartclaw
 dartclaw --version
 ```
 
+Workflow-only hosts can instead install `brew install DartClaw/dartclaw/dartclaw-workflow` and use flat commands
+such as `dartclaw-workflow run my-flow`. The formula keeps its executable and SQLite under its own `libexec/`,
+with a `bin/dartclaw-workflow` symlink, so both formulas can be installed together. The lean Windows ZIP is a
+separate release asset for manual extraction; the installer and Scoop package below install the full binary.
+
 On Windows x64, use the checksum-verifying PowerShell installer:
 
 ```powershell
@@ -125,11 +130,13 @@ Use the repo build entrypoint to produce the production binary from source:
 bash dev/tools/build.sh
 ```
 
-`dev/tools/build.sh` runs `dart build cli` to produce `build/bin/dartclaw` alongside a bundled SQLite library in
-`build/lib/` (`libsqlite3.dylib` on macOS, `libsqlite3.so` on Linux), then packs `VERSION`, `bin/dartclaw`, and
-`lib/` into `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` plus its checksum. Windows releases are built natively
-with `dev/tools/build_windows.ps1` and packaged as `dartclaw-v<version>-windows-x64.zip` with
-`bin/dartclaw.exe` and `lib/sqlite3.dll`. The binary resolves the library
+`dev/tools/build.sh` runs `dart build cli` for both entry points, producing `build/bin/dartclaw` and
+`build/bin/dartclaw-workflow` with one bundled SQLite library in `build/lib/` (`libsqlite3.dylib` on macOS,
+`libsqlite3.so` on Linux). It emits `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` and
+`build/dartclaw-workflow-v{VERSION}-{os}-{arch}.tar.gz`, each with its own checksum, `VERSION`, executable in
+`bin/`, and SQLite in `lib/`. Windows builds use `dev/tools/build_windows.ps1` to emit
+`dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with `VERSION`,
+its matching `.exe` in `bin/`, and `lib/sqlite3.dll`. Each binary resolves the library
 relative to itself, so `bin/` and `lib/` must stay siblings. Templates, static assets, skills, and workflows are
 embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
 cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`)
@@ -170,6 +177,8 @@ context. Packaged installs need no source path because their assets are embedded
     <string>--source-dir</string>
     <string>/path/to/dartclaw-public</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/you/.dartclaw</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -181,7 +190,9 @@ context. Packaged installs need no source path because their assets are embedded
 </plist>
 ```
 
-The agent runs as your user — no `sudo` or dedicated OS user needed. Installation snapshots the absolute entries from
+The agent runs as your user — no `sudo` or dedicated OS user needed. `WorkingDirectory` pins the process cwd to the
+instance directory; without it launchd starts the agent at `/`, which DartClaw would treat as its local project root and
+walk on every start, triggering macOS privacy prompts for `~/Downloads` and mounted volumes. Installation snapshots the absolute entries from
 the current shell's `PATH` into the plist, so provider CLIs and channel sidecars resolve the same way during verification
 and service startup. If that PATH changes, run `dartclaw service install` again to refresh the loaded definition. To have
 it start at login, set `RunAtLoad` to `true` in the plist.
@@ -421,7 +432,7 @@ trade-off is acceptable. DartClaw does not roll back a provider update.
 
 There is no graceful rolling restart yet — DartClaw cannot drain active turns and selectively restart idle harnesses. A full server restart is the only way to guarantee all harnesses use the same binary version. In-flight turns are interrupted; NDJSON cursor-based crash recovery will resume them on the new process.
 
-A future milestone ([0.next-always-on](https://github.com/dartclaw)) plans graceful binary updates and staleness detection via `dartclaw doctor`.
+`dartclaw doctor` compares the running server version with the CLI version and warns when they differ. It does not check upstream releases for staleness.
 
 ### Version compatibility
 

@@ -43,6 +43,8 @@ extension on MacOSLaunchdBackend {
   <array>
 $programArguments
   </array>
+  <key>WorkingDirectory</key>
+  <string>${_xmlEscape(instanceDir)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

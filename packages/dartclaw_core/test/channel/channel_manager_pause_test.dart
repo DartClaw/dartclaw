@@ -20,10 +20,18 @@ void main() {
 
     MessageQueue makeQueue() => MessageQueue(
       debounceWindow: const Duration(milliseconds: 50),
-      dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-        dispatched.add((sessionKey, message));
-        return 'ok';
-      },
+      dispatcher:
+          (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) async {
+            dispatched.add((sessionKey, message));
+            return 'ok';
+          },
     );
 
     setUp(() {

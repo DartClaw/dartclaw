@@ -27,7 +27,6 @@ String _repoRoot() {
 
 void main() {
   final repoRoot = _repoRoot();
-  final formula = File(p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb')).readAsStringSync();
 
   // Spawn the tool from a copy outside the workspace: `dart run` inside the repo
   // triggers the sqlite3 build hooks and rewrites the shared
@@ -42,82 +41,101 @@ void main() {
   ProcessResult runTool(List<String> args) =>
       Process.runSync(Platform.resolvedExecutable, [toolPath, ...args], workingDirectory: toolDir.path);
 
-  test('Homebrew formula installs only the binary and verifies runtime version', () {
-    expect(formula, contains('version "$dartclawVersion"'));
-    expect(formula, isNot(contains('REPLACE_WITH')));
-    expect(RegExp(r'sha256 "[0-9a-f]{64}"').allMatches(formula), hasLength(4));
+  for (final artifact in ['dartclaw', 'dartclaw-workflow']) {
+    final formulaPath = p.join(repoRoot, 'package', 'homebrew', '$artifact.rb');
+    final formula = File(formulaPath).readAsStringSync();
+    test('S10 $artifact formula preserves its layout and verifies runtime version', () {
+      expect(formula, contains('version "$dartclawVersion"'));
+      expect(formula, isNot(contains('REPLACE_WITH')));
+      expect(RegExp(r'sha256 "[0-9a-f]{64}"').allMatches(formula), hasLength(4));
 
-    for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
-      expect(formula, contains('dartclaw-v#{version}-$target.tar.gz'));
-    }
+      for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
+        expect(formula, contains('$artifact-v#{version}-$target.tar.gz'));
+      }
 
-    expect(formula, contains('bin.install "bin/dartclaw"'));
-    expect(formula, isNot(contains('pkgshare')));
-    expect(formula, isNot(contains('share/${'dartclaw'}')));
-    expect(formula, contains('test do'));
-    expect(formula, contains('shell_output("#{bin}/dartclaw --version").strip'));
-    expect(formula, contains('version.to_s'));
+      if (artifact == 'dartclaw') {
+        expect(formula, contains('bin.install "bin/dartclaw"'));
+        expect(formula, contains('lib.install Dir["lib/*"]'));
+      } else {
+        expect(formula, contains('class DartclawWorkflow < Formula'));
+        expect(formula, contains('libexec.install Dir["*"]'));
+        expect(formula, contains('bin.install_symlink libexec/"bin/dartclaw-workflow"'));
+        expect(formula, isNot(contains('bin.install ')));
+        expect(formula, isNot(contains('lib.install ')));
+        expect(formula, isNot(contains('conflicts_with')));
+      }
+      expect(formula, isNot(contains('pkgshare')));
+      expect(formula, isNot(contains('share/${'dartclaw'}')));
+      expect(formula, contains('test do'));
+      expect(formula, contains('shell_output("#{bin}/$artifact --version").strip'));
+      expect(formula, contains('version.to_s'));
 
-    for (final provider in ['claude', 'codex', 'goose', 'vibe']) {
-      expect(formula.toLowerCase(), isNot(contains('depends_on "$provider"')));
-      expect(formula.toLowerCase(), isNot(contains("depends_on '$provider'")));
-    }
-  });
+      for (final provider in ['claude', 'codex', 'goose', 'vibe']) {
+        expect(formula.toLowerCase(), isNot(contains('depends_on "$provider"')));
+        expect(formula.toLowerCase(), isNot(contains("depends_on '$provider'")));
+      }
+    });
 
-  test('render_homebrew_formula injects the four real platform digests', () {
-    final digests = {
-      'macos-arm64': '1a' * 32,
-      'macos-x64': '2b' * 32,
-      'linux-x64': '3c' * 32,
-      'linux-arm64': '4d' * 32,
-    };
+    test('S10 $artifact renderer selects its own four platform digests', () {
+      final digests = {
+        'macos-arm64': '1a' * 32,
+        'macos-x64': '2b' * 32,
+        'linux-x64': '3c' * 32,
+        'linux-arm64': '4d' * 32,
+      };
 
-    final tempDir = Directory.systemTemp.createTempSync('dc-formula-render');
-    addTearDown(() => tempDir.deleteSync(recursive: true));
+      final tempDir = Directory.systemTemp.createTempSync('dc-formula-render');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    for (final entry in digests.entries) {
-      final archive = 'dartclaw-v$dartclawVersion-${entry.key}.tar.gz';
-      File(p.join(tempDir.path, '$archive.sha256')).writeAsStringSync('${entry.value}  $archive\n');
-    }
+      for (final entry in digests.entries) {
+        for (final prefix in ['dartclaw', 'dartclaw-workflow']) {
+          final archive = '$prefix-v$dartclawVersion-${entry.key}.tar.gz';
+          final digest = prefix == artifact ? entry.value : 'ee' * 32;
+          File(p.join(tempDir.path, '$archive.sha256')).writeAsStringSync('$digest  $archive\n');
+        }
+      }
 
-    final outPath = p.join(tempDir.path, 'rendered.rb');
-    final result = runTool([
-      '--formula',
-      p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb'),
-      '--checksums-dir',
-      tempDir.path,
-      '--version',
-      dartclawVersion,
-      '--output',
-      outPath,
-    ]);
-    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      final outPath = p.join(tempDir.path, 'rendered.rb');
+      final result = runTool([
+        '--formula',
+        formulaPath,
+        if (artifact != 'dartclaw') ...['--artifact', artifact],
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+        '--output',
+        outPath,
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
-    final rendered = File(outPath).readAsStringSync();
-    expect(rendered, contains('version "$dartclawVersion"'));
-    // No placeholder digests survive, and each target maps to its own digest.
-    for (final placeholder in ['1', '2', '3', '4']) {
-      expect(rendered, isNot(contains('sha256 "${placeholder * 64}"')));
-    }
-    for (final entry in digests.entries) {
-      final block = RegExp('url "[^"]*-${entry.key}\\.tar\\.gz"\\s*\\n\\s*sha256 "${entry.value}"');
-      expect(block.hasMatch(rendered), isTrue, reason: 'digest for ${entry.key} not injected');
-    }
-  });
+      final rendered = File(outPath).readAsStringSync();
+      expect(rendered, contains('version "$dartclawVersion"'));
+      // No placeholder digests survive, and each target maps to its own digest.
+      for (final placeholder in ['1', '2', '3', '4']) {
+        expect(rendered, isNot(contains('sha256 "${placeholder * 64}"')));
+      }
+      for (final entry in digests.entries) {
+        final block = RegExp('url "[^"]*-${entry.key}\\.tar\\.gz"\\s*\\n\\s*sha256 "${entry.value}"');
+        expect(block.hasMatch(rendered), isTrue, reason: 'digest for ${entry.key} not injected');
+      }
+    });
 
-  test('render_homebrew_formula fails on version lockstep drift', () {
-    final tempDir = Directory.systemTemp.createTempSync('dc-formula-drift');
-    addTearDown(() => tempDir.deleteSync(recursive: true));
+    test('S10 $artifact renderer fails on version lockstep drift', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-formula-drift');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    final result = runTool([
-      '--formula',
-      p.join(repoRoot, 'package', 'homebrew', 'dartclaw.rb'),
-      '--checksums-dir',
-      tempDir.path,
-      '--version',
-      '0.0.0-nonmatching',
-    ]);
-    expect(result.exitCode, isNonZero);
-    expect('${result.stderr}', contains('lockstep'));
-  });
+      final result = runTool([
+        '--formula',
+        formulaPath,
+        if (artifact != 'dartclaw') ...['--artifact', artifact],
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        '0.0.0-nonmatching',
+      ]);
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('lockstep'));
+    });
+  }
 }

@@ -93,6 +93,9 @@ void main() {
       expect(content, contains('<string>$instanceDir/a&amp;b/config&lt;prod&gt;.yaml</string>'));
       expect(content, contains('<string>/src/&quot;dartclaw&quot;</string>'));
       expect(content, contains('<string>$instanceDir/a&amp;b/logs/dartclaw.log</string>'));
+      // launchd defaults cwd to `/`; DartClaw treats cwd as a project root, so an unset
+      // WorkingDirectory makes the agent walk the whole filesystem (and trip macOS TCC prompts).
+      expect(content, contains('<key>WorkingDirectory</key>\n  <string>$instanceDir/a&amp;b</string>'));
       expect(content, contains('<string>$instanceDir/a&amp;b/logs/dartclaw.err.log</string>'));
       expect(content, isNot(contains('relative')));
       // User scope stays a login-session agent: no run-as user, no boot start.

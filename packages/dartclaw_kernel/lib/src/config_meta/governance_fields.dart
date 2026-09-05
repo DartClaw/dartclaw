@@ -284,7 +284,8 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.restart,
     description:
-        'Route messages in a bound thread straight to that task session, and post task notifications as new threads.',
+        'Route messages in a bound thread straight to that task session, and post task notifications as new threads. '
+        'Google Chat only — it is the one channel that carries a thread identity to bind.',
   ),
   'features.thread_binding.idle_timeout_minutes': FieldMeta(
     yamlPath: 'features.thread_binding.idle_timeout_minutes',

@@ -34,8 +34,14 @@ typedef _Section = ({ConfigReloadTier tier, Object? Function(DartclawConfig conf
 /// Best-effort model: if a service's [Reconfigurable.reconfigure] throws,
 /// the error is logged and remaining services continue to be notified.
 class ConfigNotifier {
-  /// Field keys that cannot be reloaded at runtime without a server restart.
-  static const Set<String> nonReloadableKeys = {'server.port', 'server.host', 'server.data_dir'};
+  /// Server fields that cannot be reloaded at runtime without a restart, keyed
+  /// by the YAML path the operator sees. Both the warning that names them and
+  /// the carry-forward of their old values read this one map.
+  static final Map<String, Object? Function(ServerConfig server)> _nonReloadableServerFields = {
+    'server.port': (server) => server.port,
+    'server.host': (server) => server.host,
+    'server.data_dir': (server) => server.dataDir,
+  };
 
   /// Declared reload tier per [DartclawConfig] section, keyed by the field name
   /// on [DartclawConfig] — not the YAML top-level key. The two namespaces
@@ -123,13 +129,23 @@ class ConfigNotifier {
   ///
   /// Registering the same instance twice has no effect.
   ///
-  /// Throws [ArgumentError] when a watch key resolves to a section declared
-  /// [ConfigReloadTier.restart]: that delta is never produced, so the watcher
-  /// could never fire.
+  /// Throws [ArgumentError] when a watch key names no declared section, or
+  /// resolves to a section declared [ConfigReloadTier.restart]: neither delta is
+  /// ever produced, so the watcher could never fire.
   void register(Reconfigurable service) {
     for (final key in service.watchKeys) {
       final section = key.split('.').first;
-      if (_sections[section]?.tier != ConfigReloadTier.restart) continue;
+      final spec = _sections[section];
+      if (spec == null) {
+        throw ArgumentError.value(
+          key,
+          'watchKeys',
+          '${service.runtimeType} cannot watch section "$section": no such section is declared on '
+              'DartclawConfig, so no delta ever names it. Watch keys use the field name, not the '
+              'YAML key (`security`, not `guards`)',
+        );
+      }
+      if (spec.tier != ConfigReloadTier.restart) continue;
       throw ArgumentError.value(
         key,
         'watchKeys',
@@ -155,9 +171,10 @@ class ConfigNotifier {
   /// [ConfigDelta.changedKeys]; a changed [ConfigReloadTier.restart] section is
   /// recorded in [restartRequiredSections] and withheld from the delta.
   ///
-  /// Non-reloadable fields ([nonReloadableKeys]) are checked: if changed, a
-  /// warning is logged. If the entire server section only changed non-reloadable
-  /// fields, `server.*` is excluded from [ConfigDelta.changedKeys].
+  /// Non-reloadable server fields (`server.port`, `server.host`,
+  /// `server.data_dir`) are checked: if changed, a warning is logged. If the
+  /// entire server section only changed non-reloadable fields, `server.*` is
+  /// excluded from [ConfigDelta.changedKeys].
   ///
   /// Returns `null` when no reloadable fields changed (no services are notified).
   ConfigDelta? reload(DartclawConfig newConfig) {
@@ -205,10 +222,9 @@ class ConfigNotifier {
     }
     if (changedKeys.isEmpty) return null;
 
-    final restartFieldsChanged =
-        old.server.port != newConfig.server.port ||
-        old.server.host != newConfig.server.host ||
-        old.server.dataDir != newConfig.server.dataDir;
+    final restartFieldsChanged = _nonReloadableServerFields.values.any(
+      (read) => read(old.server) != read(newConfig.server),
+    );
     // The container posture is settled by a startup probe a reload cannot rerun,
     // and `container.*` is restart-tier, so the value in force is carried
     // forward rather than reverting to whatever the file declares — an unset
@@ -253,11 +269,10 @@ class ConfigNotifier {
   /// are logged as warnings and excluded from [changedKeys] unless the
   /// section has other changes too.
   void _detectChangedServer(String section, Set<String> changedKeys, DartclawConfig old, DartclawConfig newConfig) {
-    // Check non-reloadable fields for the server section.
-    final nonReloadableChanged = <String>{};
-    if (old.server.port != newConfig.server.port) nonReloadableChanged.add('server.port');
-    if (old.server.host != newConfig.server.host) nonReloadableChanged.add('server.host');
-    if (old.server.dataDir != newConfig.server.dataDir) nonReloadableChanged.add('server.data_dir');
+    final nonReloadableChanged = _nonReloadableServerFields.entries
+        .where((field) => field.value(old.server) != field.value(newConfig.server))
+        .map((field) => field.key)
+        .toList();
 
     if (nonReloadableChanged.isNotEmpty) {
       _log.warning(

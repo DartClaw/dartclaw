@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
@@ -6,12 +7,177 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/container/bridge_binary.dart' show BridgeBinaryProvisioner;
 import 'package:dartclaw_runtime/src/container/container_manager.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
+import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
   const workspaceContainerName = 'dartclaw-test1234-workspace';
   const restrictedContainerName = 'dartclaw-test1234-restricted';
+
+  group('orphan sweep:', () {
+    late Directory dataDir;
+    late List<LogRecord> logs;
+    late StreamSubscription<LogRecord> subscription;
+
+    setUp(() {
+      dataDir = Directory.systemTemp.createTempSync('orphan-sweep-');
+      logs = [];
+      subscription = Logger('ContainerManager').onRecord.listen(logs.add);
+    });
+    tearDown(() async {
+      await subscription.cancel();
+      await dataDir.delete(recursive: true);
+    });
+
+    test('S02: removes only listed owners and their generated state', () async {
+      final names = [
+        'workspace-k1abc1',
+        'restricted-k1abc2',
+      ].map((profile) => ContainerManager.generateName(dataDir.path, profile)).toList();
+      final states = [
+        for (final name in [...names, 'foreign'])
+          Directory(p.join(dataDir.path, 'containers', name))..createSync(recursive: true),
+      ];
+      final calls = <List<String>>[];
+      final count = await ContainerManager.reclaimOwnedContainers(
+        dataDir.path,
+        runtimeBinary: 'docker',
+        runCommand: (binary, args) async {
+          calls.add([binary, ...args]);
+          return ProcessResult(0, 0, args.first == 'ps' ? '${names.join('\n')}\n' : '', '');
+        },
+      );
+      expect(count, 2);
+      expect(calls, [
+        [
+          'docker',
+          'ps',
+          '-a',
+          '--filter',
+          'label=${ContainerManager.ownerLabel(dataDir.path)}',
+          '--format',
+          '{{.Names}}',
+        ],
+        for (final name in names) ['docker', 'rm', '-f', name],
+      ]);
+      expect(states.map((dir) => dir.existsSync()), [false, false, true]);
+      expect(logs.where((log) => log.level == Level.WARNING).map((log) => log.message), [
+        for (final name in names)
+          'Reclaimed orphaned container $name left by an earlier dartclaw serve for this data dir',
+      ]);
+      expect(
+        logs.last.message,
+        'Container sweep: 2 orphaned container(s) reclaimed for label ${ContainerManager.ownerLabel(dataDir.path)}',
+      );
+    });
+
+    test('S03: empty list logs zero without removal or warning', () async {
+      final calls = <List<String>>[];
+      expect(
+        await ContainerManager.reclaimOwnedContainers(
+          dataDir.path,
+          runtimeBinary: 'docker',
+          runCommand: (binary, args) async {
+            calls.add(args);
+            return ProcessResult(0, 0, '', '');
+          },
+        ),
+        0,
+      );
+      expect(calls.single.first, 'ps');
+      expect(logs.where((log) => log.level == Level.WARNING), isEmpty);
+      expect(
+        logs.single.message,
+        'Container sweep: 0 orphaned container(s) reclaimed for label ${ContainerManager.ownerLabel(dataDir.path)}',
+      );
+    });
+
+    for (final failure in ['exit', 'throw', 'timeout']) {
+      for (final operation in ['ps', 'rm']) {
+        test('S04: $operation $failure warns once and preserves unconfirmed state', () {
+          final name = ContainerManager.generateName(dataDir.path, 'workspace-failed');
+          final state = Directory(p.join(dataDir.path, 'containers', name))..createSync(recursive: true);
+          fakeAsync((clock) {
+            int? count;
+            ContainerManager.reclaimOwnedContainers(
+              dataDir.path,
+              runtimeBinary: 'podman',
+              runCommand: (binary, args) {
+                if (args.first != operation) return Future.value(ProcessResult(0, 0, '$name\n', ''));
+                return switch (failure) {
+                  'exit' => Future.value(ProcessResult(0, 1, '', 'Cannot connect to the Docker daemon')),
+                  'throw' => throw ProcessException(binary, args, 'process failed'),
+                  _ => Completer<ProcessResult>().future,
+                };
+              },
+            ).then((value) => count = value);
+            clock.flushMicrotasks();
+            if (failure == 'timeout') {
+              expect(count, isNull);
+              clock.elapse(ContainerManager.runtimeProbeTimeout);
+            }
+            expect(count, 0);
+            final warning = logs.where((log) => log.level == Level.WARNING).single.message;
+            expect(warning, contains(operation == 'ps' ? 'podman' : name));
+            expect(logs.last.level, Level.INFO);
+          });
+          expect(state.existsSync(), isTrue);
+        });
+      }
+    }
+
+    test('S04: confirmed absence counts as reclaimed and clears generated state', () async {
+      final name = ContainerManager.generateName(dataDir.path, 'workspace-absent');
+      final state = Directory(p.join(dataDir.path, 'containers', name))..createSync(recursive: true);
+      expect(
+        await ContainerManager.reclaimOwnedContainers(
+          dataDir.path,
+          runtimeBinary: 'docker',
+          runCommand: (_, args) async => args.first == 'ps'
+              ? ProcessResult(0, 0, '$name\n', '')
+              : ProcessResult(0, 1, '', 'No such container: $name'),
+        ),
+        1,
+      );
+      expect(state.existsSync(), isFalse);
+      expect(
+        logs.where((log) => log.level == Level.WARNING).single.message,
+        startsWith('Reclaimed orphaned container'),
+      );
+    });
+
+    test('S05: query uses podman and returns running and exited names', () async {
+      final calls = <List<String>>[];
+      final result = await ContainerManager.ownedContainers(
+        dataDir.path,
+        runtimeBinary: 'podman',
+        runCommand: (binary, args) async {
+          calls.add([binary, ...args]);
+          return ProcessResult(0, 0, ' running \n\nexited\n', '');
+        },
+      );
+      expect(result, ['running', 'exited']);
+      expect(calls.single, [
+        'podman',
+        'ps',
+        '-a',
+        '--filter',
+        'label=${ContainerManager.ownerLabel(dataDir.path)}',
+        '--format',
+        '{{.Names}}',
+      ]);
+      await expectLater(
+        ContainerManager.ownedContainers(
+          dataDir.path,
+          runtimeBinary: 'podman',
+          runCommand: (_, _) async => ProcessResult(0, 1, '', 'unavailable'),
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'runtime', contains('podman'))),
+      );
+    });
+  });
 
   group('ContainerManager', () {
     test('isRuntimeAvailable returns true on zero exit code', () async {
@@ -167,6 +333,8 @@ void main() {
           'create',
           '--name',
           workspaceContainerName,
+          '--label',
+          'dartclaw.data-dir=/home/user/.dartclaw',
           '--network',
           'none',
           '--cap-drop',
@@ -652,6 +820,7 @@ void main() {
 
     test('startBridge refuses when no bridge binary was delivered', () async {
       final manager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=/home/user/.dartclaw',
         config: const ContainerConfig(enabled: true),
         containerName: workspaceContainerName,
         profileId: 'workspace',
@@ -782,6 +951,7 @@ ContainerManager _manager({
   bool hasMcpBridge = false,
 }) {
   return ContainerManager(
+    ownerLabel: 'dartclaw.data-dir=/home/user/.dartclaw',
     config: config,
     containerName: containerName,
     profileId: profileId,

@@ -83,10 +83,7 @@ void main() {
     List<McpTool> orchestrationTools() {
       final tempDir = Directory.systemTemp.createTempSync('dartclaw_schema_compliance_');
       addTearDown(() => tempDir.existsSync() ? tempDir.deleteSync(recursive: true) : null);
-      final mutations = ScheduleMutationService(
-        writer: ConfigWriter(configPath: '${tempDir.path}/dartclaw.yaml'),
-        dataDir: tempDir.path,
-      );
+      final mutations = ScheduleMutationService(writer: ConfigWriter(configPath: '${tempDir.path}/dartclaw.yaml'));
       final sessions = InMemorySessionService();
       final definitions = InMemoryDefinitionSource(const []);
       return [
@@ -106,7 +103,9 @@ void main() {
           workspace: WorkspacePathGuard(tempDir.path),
           delivery: DeliveryService(
             channelManager: ChannelManager(
-              queue: MessageQueue(dispatcher: (key, message, {senderJid, senderDisplayName}) async => ''),
+              queue: MessageQueue(
+                dispatcher: (key, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+              ),
               config: const ChannelConfig.defaults(),
             ),
             sseBroadcast: SseBroadcast(),

@@ -2,7 +2,7 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.25
+**Current through**: 0.25.1
 
 ---
 
@@ -68,9 +68,10 @@ The key package boundary is:
 
 ## 3. CLI Runtime Structure
 
-The CLI entry point lives in:
+The CLI entry points are:
 
-- `apps/dartclaw_cli/bin/dartclaw.dart`
+- `apps/dartclaw_cli/bin/dartclaw.dart` – full operational CLI
+- `apps/dartclaw_cli/bin/dartclaw_workflow.dart` – standalone workflow CLI
 
 `DartclawRunner` registers the top-level command families. The operational set is:
 
@@ -88,12 +89,24 @@ Local process/lifecycle command families coexist with them:
 - `serve`
 - `status`
 - `init` / `setup`
+- `doctor`
 - `service`
 - `token`
 - `rebuild-index`
 - `google-auth`
 
-The CLI is intentionally mixed-mode: some commands are local process utilities, others are remote operations over the loopback API.
+The full CLI is mixed-mode: some commands are local process utilities, others are remote operations over the API.
+Both runners mount the same `workflowSubcommands` list. The full tree is `dartclaw workflow <verb>` and includes
+connected-only `runs`; the lean tree is `dartclaw-workflow <verb>` with `run`, `list`, `show`, `validate`, `status`,
+`cancel`, `pause`, `resume`, `retry`, and `cleanup-skills`, plus `init`, `rebuild-index`, and `help`.
+
+The lean builder always selects the existing standalone lane. It accepts and ignores `--standalone`, exposes no
+`--server` or `--token`, and never registers the server or server-status command. Its `status` reports workflow
+runs. Workflow-only `init` uses the existing workflow setup track. The shared commands hold a client-free
+`WorkflowConnection` interface; only the full runner supplies `ApiWorkflowConnection`. A `dart:io` health probe
+preserves the live-server writer guard without retaining the API client. Both binaries share the existing runtime
+composition root; the real build test proves the lean artifact excludes the server, API, web and channel-ingress
+libraries, with the full artifact as positive control.
 
 ## 4. Connected vs Standalone
 
@@ -261,6 +274,7 @@ Not every CLI command is server-backed. Some remain intentionally local:
 | `token *` | Local gateway token management |
 | `rebuild-index` | Local rebuild of the derived search index |
 | `serve` / `service` / `init` | Process and installation lifecycle |
+| `doctor` | Shared setup diagnostics, value-free storage audit, health and container probes; optional directory creation |
 
 This split is important because it keeps low-level maintenance available even when the server is not running.
 
@@ -270,6 +284,7 @@ Primary implementation files:
 
 ```
 apps/dartclaw_cli/bin/dartclaw.dart
+apps/dartclaw_cli/bin/dartclaw_workflow.dart
 apps/dartclaw_cli/lib/src/runner.dart
 apps/dartclaw_cli/lib/src/commands/connected_command_support.dart
 apps/dartclaw_cli/lib/src/commands/

@@ -165,8 +165,10 @@ export 'src/loop_detection.dart' show LoopDetection, LoopDetectedException, Loop
 export 'src/loop_detector.dart' show LoopDetector;
 export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 export 'src/prompt_scope.dart' show PromptScope;
+export 'src/turn_origin.dart' show TurnOrigin;
 export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
 export 'src/string_util.dart' show truncate;
+export 'src/http_request.dart' show HttpClientFactory, httpRequest;
 export 'src/dynamic_reader.dart' show normalizeDynamicMap;
 export 'src/search_backend.dart' show SearchBackend, SearchResultLayer;
 export 'src/config_load_warnings.dart' show addConfigAdvisory;

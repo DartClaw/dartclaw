@@ -2,7 +2,7 @@
 name: dartclaw-discover-andthen-spec
 description: Classify a workflow FEATURE value as an existing FIS path or input that needs spec synthesis.
 argument-hint: "<feature-or-fis-path>"
-user-invocable: false
+disable-model-invocation: true
 ---
 
 # Discover AndThen Spec

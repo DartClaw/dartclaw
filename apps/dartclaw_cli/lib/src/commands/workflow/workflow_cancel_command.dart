@@ -1,11 +1,15 @@
+import '../command_path.dart';
+
 import 'dart:convert';
 
 import 'standalone_lifecycle_support.dart';
 
 class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
   new({
+    super.standaloneOnly,
+    super.reachabilityProbe,
     super.config,
-    super.apiClient,
+    super.connection,
     super.writeLine,
     super.exitFn,
     super.searchDbFactory,
@@ -30,7 +34,7 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
   String get description => 'Cancel a workflow run';
 
   @override
-  String get invocation => '${runner!.executableName} workflow cancel <runId>';
+  String get invocation => '${commandPath(this)} <runId>';
 
   @override
   Future<void> run() async {
@@ -54,9 +58,7 @@ class WorkflowCancelCommand extends StandaloneWorkflowLifecycleCommand {
         },
       );
     } else {
-      await runConnected((apiClient) async {
-        await apiClient.post('/api/workflows/runs/$runId/cancel', body: {'feedback': ?feedback});
-        final updated = await apiClient.getObject('/api/workflows/runs/$runId');
+      await connection!.cancel(connectionContext, runId, feedback, (updated) {
         if (argResults!['json'] as bool) {
           writeLine(const JsonEncoder.withIndent('  ').convert(updated));
         } else {

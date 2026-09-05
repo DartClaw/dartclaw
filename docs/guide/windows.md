@@ -31,6 +31,14 @@ scoop install dartclaw/dartclaw
 scoop update dartclaw
 ```
 
+The same bucket carries `dartclaw-workflow`, the standalone workflow host with no server, channel ingress or Web UI.
+It is co-installable with `dartclaw`:
+
+```powershell
+scoop install dartclaw/dartclaw-workflow
+dartclaw-workflow --version
+```
+
 ## Provider Setup
 
 Install Claude Code or Codex separately and confirm the binary runs before starting DartClaw:
@@ -77,6 +85,8 @@ trust_level = "trusted"
 Trust only projects whose local Codex configuration you have reviewed.
 
 ## Capability Matrix
+
+Run `dartclaw doctor` for the Windows-specific `windows.reload_mode`, `windows.git_bash` and `windows.sqlite_dll` checks.
 
 | Capability | State | Windows behavior | Remediation |
 |---|---|---|---|

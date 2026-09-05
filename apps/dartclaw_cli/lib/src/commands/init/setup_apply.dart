@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -74,7 +75,9 @@ class SetupApply {
       headerForNewFile = '';
     } else {
       configContent = '';
-      headerForNewFile = state.workflowTrack ? _workflowConfigBanner : '# DartClaw configuration\n';
+      headerForNewFile =
+          '# yaml-language-server: \$schema=${ConfigMeta.jsonSchemaUrl(dartclawVersion)}\n'
+          '${state.workflowTrack ? _workflowConfigBanner : '# DartClaw configuration\n'}';
       created.add(configPath);
     }
 
@@ -108,7 +111,7 @@ class SetupApply {
         continue;
       }
 
-      _set(editor, ['providers', providerId, 'executable'], _defaultExecutableFor(providerId));
+      _set(editor, ['providers', providerId, 'executable'], defaultProviderExecutable(providerId));
 
       final authMethod = state.providerAuthMethods[providerId];
       if (authMethod != null && authMethod.isNotEmpty) {
@@ -453,13 +456,6 @@ class SetupApply {
     return switch (providerId) {
       'codex' => 'openai',
       _ => 'anthropic',
-    };
-  }
-
-  static String _defaultExecutableFor(String providerId) {
-    return switch (providerId) {
-      'codex' => 'codex',
-      _ => 'claude',
     };
   }
 

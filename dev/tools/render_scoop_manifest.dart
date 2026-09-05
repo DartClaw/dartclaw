@@ -8,6 +8,7 @@ void main(List<String> args) {
   final manifestPath = _require(options, 'manifest');
   final checksumsDir = _require(options, 'checksums-dir');
   final version = _require(options, 'version');
+  final artifact = options['artifact'] ?? 'dartclaw';
   _validateReleaseVersion(version);
 
   final manifest = jsonDecode(File(manifestPath).readAsStringSync());
@@ -27,7 +28,7 @@ void main(List<String> args) {
     _fail('manifest architecture.64bit must be a JSON object');
   }
   final expectedUrl =
-      'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip';
+      'https://github.com/DartClaw/dartclaw/releases/download/v$version/$artifact-v$version-windows-x64.zip';
   if (x64['url'] != expectedUrl) {
     _fail('manifest architecture.64bit.url must match the concrete Windows release asset for $version');
   }
@@ -38,13 +39,13 @@ void main(List<String> args) {
   final autoupdate = manifest['autoupdate'];
   final autoupdateArchitecture = autoupdate is Map<String, dynamic> ? autoupdate['architecture'] : null;
   final autoupdateX64 = autoupdateArchitecture is Map<String, dynamic> ? autoupdateArchitecture['64bit'] : null;
-  const expectedAutoupdateUrl =
-      r'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip';
+  final expectedAutoupdateUrl =
+      'https://github.com/DartClaw/dartclaw/releases/download/v\$version/$artifact-v\$version-windows-x64.zip';
   if (autoupdateX64 is! Map<String, dynamic> || autoupdateX64['url'] != expectedAutoupdateUrl) {
     _fail('manifest autoupdate.architecture.64bit.url must match the Scoop version template');
   }
 
-  x64['hash'] = _readDigest(checksumsDir, version);
+  x64['hash'] = _readDigest(checksumsDir, version, artifact);
   final rendered = '${const JsonEncoder.withIndent('  ').convert(manifest)}\n';
   final output = options['output'];
   if (output == null) {
@@ -63,8 +64,8 @@ void _validateReleaseVersion(String version) {
   }
 }
 
-String _readDigest(String directory, String version) {
-  final archive = 'dartclaw-v$version-windows-x64.zip';
+String _readDigest(String directory, String version, String artifact) {
+  final archive = '$artifact-v$version-windows-x64.zip';
   final file = File('$directory/$archive.sha256');
   if (!file.existsSync()) {
     _fail('missing checksum file: ${file.path}');

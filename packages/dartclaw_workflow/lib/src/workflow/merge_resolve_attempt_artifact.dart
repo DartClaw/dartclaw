@@ -1,5 +1,19 @@
 import 'dart:convert';
 
+/// Declared output key carrying the merge-resolve skill's terminal outcome.
+const mergeResolveOutcomeKey = 'merge_resolve.outcome';
+
+/// Declared output key carrying the merge-resolve skill's error or
+/// cancellation message.
+const mergeResolveErrorMessageKey = 'merge_resolve.error_message';
+
+/// Closed vocabulary for [mergeResolveOutcomeKey].
+///
+/// The single authority for the outcome contract: the step declares it as the
+/// output's `enum` schema, and the coordinator validates the returned value
+/// against it once. A value outside this set fails the attempt (ADR-054).
+const mergeResolveOutcomeValues = <String>['resolved', 'failed', 'cancelled'];
+
 /// Structured artifact produced for each merge-resolution attempt (Decision 9, 11 fields).
 ///
 /// Persisted as JSON via `TaskRepository.insertArtifact` with

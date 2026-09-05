@@ -13,12 +13,14 @@ DartclawConfig loadDartclawConfig({
   Map<String, String>? cliOverrides,
   Map<String, String>? env,
   String? Function(String path)? fileReader,
+  bool resolveStoredCredentials = true,
 }) {
   final config = DartclawConfig.load(
     configPath: configPath,
     cliOverrides: cliOverrides,
     env: env,
     fileReader: fileReader,
+    resolveStoredCredentials: resolveStoredCredentials,
   );
   for (final channelType in channelConfigTypes) {
     resolveChannelConfig<Object>(config, channelType);

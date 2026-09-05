@@ -82,6 +82,9 @@ class TurnContext {
   /// Whether this active turn should be evaluated as read-only.
   final bool readOnly;
 
+  /// Channel this turn arrived on, composed into a primary-scope prompt.
+  final TurnOrigin? origin;
+
   new({
     required this.turnId,
     required this.sessionId,
@@ -102,6 +105,7 @@ class TurnContext {
     this.isHumanInput = false,
     this.allowedTools,
     this.readOnly = false,
+    this.origin,
   });
 }
 
@@ -256,6 +260,7 @@ class TurnManager implements core.TurnManager {
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    TurnOrigin? origin,
   }) async {
     final lease = await _sessionReservations.run(
       sessionId,
@@ -287,6 +292,7 @@ class TurnManager implements core.TurnManager {
         promptScope: promptScope,
         allowedTools: allowedTools,
         readOnly: readOnly,
+        origin: origin,
       );
       _reservedTurnRunners[turnId] = runner;
       _reservedTurnLeases[turnId] = lease;
@@ -362,6 +368,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -379,6 +386,7 @@ class TurnManager implements core.TurnManager {
       allowedTools: allowedTools,
       readOnly: readOnly,
       promptScope: promptScope,
+      origin: origin,
     );
     try {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);

@@ -216,6 +216,42 @@ Container isolation is unavailable on native Windows even when Docker is install
 owner-only generated state require POSIX facilities, so an explicit `container.enabled: true` fails closed and directs
 the operator to a POSIX host or WSL; auto-detection never runs there at all. See the [Windows capability matrix](windows.md#capability-matrix).
 
+### Hardening the primary agent for untrusted channels
+
+When a channel delivers untrusted content to the primary lane, tighten the default posture: set `agent.execution:
+container` so the primary runs isolated instead of on the host — startup refuses if `container.enabled` inference
+found no runtime, rather than silently falling back to the host; withhold tools the deployment does not need with
+`agent.disallowed_tools`, at minimum `schedule_upsert` so a chat turn cannot write `scheduling.jobs`; and gate senders
+with `channels.<x>.dm_access: allowlist`. On the host the primary runs as the login user, so every CLI and
+keychain-backed credential that user can reach is reachable through the shell tool, and `NetworkGuard` sees URLs in
+the command text, not what a binary connects to.
+
+```yaml
+agent:
+  execution: container
+  disallowed_tools: [schedule_upsert]
+
+channels:
+  signal:
+    dm_access: allowlist
+```
+
+The server logs a startup warning naming this section when a channel is enabled, the primary runs on the host, and
+`agent.disallowed_tools` is empty.
+
+### Recovery After an Abnormal Exit
+
+Every container carries `dartclaw.data-dir=<data dir>`, carrying the data-dir string verbatim. With container
+isolation enabled, startup reclaims containers bearing this data dir's label after the runtime answers and before
+image checks. Graceful shutdown sweeps again after releasing all leases. Each reclaim logs a warning and removes
+that container's generated state. Runtime failures warn without preventing startup or shutdown; a later startup can
+retry cleanup. There is no periodic or prefix-based sweep. **Two servers must not share a data dir.**
+
+Containers from older releases have no label and are never reclaimed automatically. Once, list the old containers
+with `docker ps -a --filter name=dartclaw-<hash>-`, inspect the names, and remove only those you own with
+`docker rm -f <container-name>`. Use `podman` instead when that is your runtime. Containers labelled for another
+data dir are left alone, and a disabled container posture performs no sweep.
+
 ### File Ownership on Native Linux
 
 The container image runs its agent process as uid 1000, and on native Linux Docker, bind-mount file ownership passes

@@ -63,12 +63,14 @@ target_arch_name() {
 compile_binary() {
   local target_os="$1"
   local target_arch="$2"
+  local binary_name="$3"
+  local entry_point="$4"
 
   mkdir -p "$BUILD_DIR/bin"
 
   if [[ -n "$SKIP_COMPILE" ]]; then
-    printf '#!/usr/bin/env sh\nprintf "%%s\\n" "%s"\n' "$version" > "$BUILD_DIR/bin/dartclaw"
-    chmod 755 "$BUILD_DIR/bin/dartclaw"
+    printf '#!/usr/bin/env sh\nprintf "%%s\\n" "%s"\n' "$version" > "$BUILD_DIR/bin/$binary_name"
+    chmod 755 "$BUILD_DIR/bin/$binary_name"
     return
   fi
 
@@ -77,10 +79,12 @@ compile_binary() {
     exit 1
   fi
 
-  local cli_stage="$stage_root/cli"
-  (cd "$ROOT_DIR/apps/dartclaw_cli" && dart build cli -t bin/dartclaw.dart -o "$cli_stage")
-  cp "$cli_stage/bundle/bin/dartclaw" "$BUILD_DIR/bin/dartclaw"
-  cp -R "$cli_stage/bundle/lib" "$BUILD_DIR/lib"
+  local cli_stage="$stage_root/cli-$binary_name"
+  (cd "$ROOT_DIR/apps/dartclaw_cli" && dart build cli -t "bin/$entry_point.dart" -o "$cli_stage")
+  cp "$cli_stage/bundle/bin/$entry_point" "$BUILD_DIR/bin/$binary_name"
+  if [[ ! -d "$BUILD_DIR/lib" ]]; then
+    cp -R "$cli_stage/bundle/lib" "$BUILD_DIR/lib"
+  fi
 }
 
 sha256_file() {
@@ -107,32 +111,27 @@ bash "$ROOT_DIR/dev/tools/build_bridge.sh" --embed
 echo "==> Generating embedded assets"
 dart run "$ROOT_DIR/dev/tools/embed_assets.dart"
 
-platform_stage="$stage_root/platform"
-
-mkdir -p "$platform_stage/bin"
-printf '%s\n' "$version" > "$platform_stage/VERSION"
-
 release_os="$(platform_name)"
 release_arch="$(arch_name)"
 if [[ -n "$TARGET" ]]; then
   release_os="$(target_os_name "$TARGET")"
   release_arch="$(target_arch_name "$TARGET")"
 fi
-compile_binary "$release_os" "$release_arch"
-
-cp "$BUILD_DIR/bin/dartclaw" "$platform_stage/bin/dartclaw"
-
-platform_entries=(VERSION bin)
-if [[ -d "$BUILD_DIR/lib" ]]; then
-  cp -R "$BUILD_DIR/lib" "$platform_stage/lib"
-  platform_entries+=(lib)
-fi
-
-platform_archive="$BUILD_DIR/dartclaw-v${version}-${release_os}-${release_arch}.tar.gz"
-platform_sha="$platform_archive.sha256"
-
-COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$platform_stage" -czf "$platform_archive" "${platform_entries[@]}"
-
-printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")" > "$BUILD_DIR/SHA256SUMS.txt"
-
-printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")" > "$platform_sha"
+: > "$BUILD_DIR/SHA256SUMS.txt"
+for binary_name in dartclaw dartclaw-workflow; do
+  entry_point="${binary_name//-/_}"
+  compile_binary "$release_os" "$release_arch" "$binary_name" "$entry_point"
+  platform_stage="$stage_root/platform-$binary_name"
+  mkdir -p "$platform_stage/bin"
+  printf '%s\n' "$version" > "$platform_stage/VERSION"
+  cp "$BUILD_DIR/bin/$binary_name" "$platform_stage/bin/$binary_name"
+  platform_entries=(VERSION bin)
+  if [[ -d "$BUILD_DIR/lib" ]]; then
+    cp -R "$BUILD_DIR/lib" "$platform_stage/lib"
+    platform_entries+=(lib)
+  fi
+  platform_archive="$BUILD_DIR/$binary_name-v${version}-${release_os}-${release_arch}.tar.gz"
+  COPYFILE_DISABLE=1 tar --format=ustar --exclude='.DS_Store' --exclude='._*' -C "$platform_stage" -czf "$platform_archive" "${platform_entries[@]}"
+  printf '%s  %s\n' "$(sha256_file "$platform_archive")" "$(basename "$platform_archive")" > "$platform_archive.sha256"
+  cat "$platform_archive.sha256" >> "$BUILD_DIR/SHA256SUMS.txt"
+done

@@ -69,13 +69,36 @@ scheduling:
         minutes: 5
       prompt: "Check system health"
       delivery: none
+
+    - id: remind-dentist              # runs once, then removes its own entry
+      schedule:
+        type: once
+        at: "2026-09-02T15:00:00"     # ISO-8601 instant
+      prompt: "Remind me about the dentist"
+      delivery: announce
 ```
+
+A job created, edited or deleted through the `schedule_upsert` tool, the jobs API or the Scheduling page is loaded into
+the running server before the write is answered — no restart, and no restart marker. A hand edit of `dartclaw.yaml`
+still needs one: file reloads treat the whole `scheduling` section as restart-tier. On a lane that reads untrusted
+channel content, withhold `schedule_upsert` via `agent.disallowed_tools` — see
+[Hardening the primary agent for untrusted channels](security.md#hardening-the-primary-agent-for-untrusted-channels).
+
+### One-time jobs
+
+A `once` job fires at a single instant and then removes itself: it is unloaded and its `scheduling.jobs` entry is
+deleted, whatever the outcome of that one fire — completed, failed after its retries, skipped because a previous run
+was still going, or started on demand. An entry whose instant has already passed when the server composes its jobs
+(after downtime, say) is reported as missed in the log and removed rather than warned about at every start.
+
+Through the tool, the API and the page, a one-time job is written by passing `at` instead of `schedule`. Exactly one of
+the two is accepted, and `at` must be an ISO-8601 instant in the future.
 
 ### Delivery Modes
 
 | Mode | Behavior |
 |------|----------|
-| `announce` | Result sent to the active session or default channel |
+| `announce` | Result streamed to connected web clients (SSE) and sent to every DM channel session's peer. The text is also recorded in each DM session it reached, so that session's next turn re-reads it from the transcript (that turn starts a fresh provider conversation). |
 | `webhook` | Result POSTed to a configured URL |
 | `none` | Result logged but not delivered |
 
@@ -109,12 +132,12 @@ dartclaw jobs run daily-summary
 ```
 
 An on-demand run uses the same isolated cron session, retry policy, delivery mode, and failure alerts as a scheduled
-fire. It does not change the job's timer or pause state, so paused jobs can be tested while remaining paused. A job
-created or edited through the API requires a server restart before it can run.
+fire. For a recurring job it does not change the timer or pause state, so paused jobs can be tested while remaining
+paused. A job created or edited through the API is runnable at once.
 
 Only one execution of a job can run at a time. A second request is rejected, and a scheduled fire that lands while an
-on-demand run is active is skipped; the next recurring fire remains on schedule. For a one-time job, a fire skipped in
-this window is lost. Outside that window, an on-demand run neither consumes nor cancels its pending one-time fire.
+on-demand run is active is skipped; the next recurring fire remains on schedule. For a one-time job the on-demand run
+*is* its fire: the job is unloaded and its entry removed, so the pending instant never arrives.
 
 ### Memory curation
 
@@ -122,6 +145,8 @@ this window is lost. Outside that window, an on-demand run neither consumes nor 
 `0 3 * * *`, after the journal's 22:00 default so a run sees that night's observations). It behaves like every other
 built-in prompt job: pause and resume it from the Scheduling page, run it on demand with `dartclaw jobs run
 memory-curation`, and observe the run in the server logs; the built-in job's delivery is `none` and is not configurable. It keeps no durable run record.
+A refused `memory_apply` change set is logged at WARNING by `MemoryApplyService` with the failure kind and reason (for
+every caller, not only this job), so a run that proposes nothing acceptable is visible without reading the model's reply.
 
 Each fire composes its own prompt from a bounded snapshot of the current corpus, and the entries in that snapshot are
 the only ones the run may change. A `memory_apply` call from the run naming any other entry is refused as a whole set,

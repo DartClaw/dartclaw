@@ -7,7 +7,12 @@ void main() {
   group('workflow event printer dispatch', () {
     test('maps step outcomes to printer statuses', () {
       final output = <String>[];
-      final printer = CliProgressPrinter(totalSteps: 3, workflowName: 'demo', writeLine: output.add);
+      final printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
+        totalSteps: 3,
+        workflowName: 'demo',
+        writeLine: output.add,
+      );
       final timestamp = DateTime.utc(2026, 4);
 
       dispatchWorkflowStepCompletedToPrinter(
@@ -72,7 +77,12 @@ void main() {
 
     test('maps map iteration blocked aliases and success fallback', () {
       final output = <String>[];
-      final printer = CliProgressPrinter(totalSteps: 3, workflowName: 'demo', writeLine: output.add);
+      final printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
+        totalSteps: 3,
+        workflowName: 'demo',
+        writeLine: output.add,
+      );
       final timestamp = DateTime.utc(2026, 4);
 
       dispatchMapIterationCompletedToPrinter(

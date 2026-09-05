@@ -579,7 +579,7 @@ channels:
         eventBus: eventBus,
       );
       final manager = ChannelManager(
-        queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => ''),
+        queue: RecordingMessageQueue(),
         config: const ChannelConfig.defaults(),
         liveScopeConfig: liveScopeConfig,
       );
@@ -775,10 +775,10 @@ channels:
       );
 
       expect(json['job']['name'], 'test-job');
-      expect(json['pendingRestart'], true);
-
-      // Verify restart.pending
-      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), true);
+      // The seam loads what it wrote before answering, so there is nothing
+      // pending and no marker to record.
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('POST with duplicate name returns 409', () async {
@@ -833,7 +833,8 @@ channels:
 
       expect(json['job']['schedule'], '0 8 * * *');
       expect(json['job']['name'], 'my-job');
-      expect(json['pendingRestart'], true);
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('PUT non-existent job returns 404', () async {
@@ -852,7 +853,8 @@ channels:
       final json = await api(router).expectJsonObject('DELETE', '/api/scheduling/jobs/my-job');
 
       expect(json['deleted'], true);
-      expect(json['pendingRestart'], true);
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('DELETE non-existent job returns 404', () async {
@@ -941,14 +943,8 @@ channels:
 
       expect(json['task']['id'], 'daily-review');
       expect(json['task']['type'], 'task');
-      expect(json['pendingRestart'], true);
-
-      // Verify restart.pending written with scheduling.jobs
-      final pendingFile = File(p.join(dataDir, 'restart.pending'));
-      expect(pendingFile.existsSync(), true);
-      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
-      expect(pending['fields'], contains('scheduling.jobs'));
-      expect(pending['fields'], isNot(contains('automation.scheduled_tasks')));
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('POST /api/scheduling/tasks with duplicate id returns 409', () async {
@@ -982,12 +978,8 @@ channels:
 
       expect(json['task']['enabled'], false);
       expect(json['task']['task']['title'], 'New title');
-      expect(json['pendingRestart'], true);
-
-      // Verify restart.pending uses scheduling.jobs key
-      final pendingFile = File(p.join(dataDir, 'restart.pending'));
-      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
-      expect(pending['fields'], contains('scheduling.jobs'));
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('PUT /api/scheduling/tasks/<id> returns 404 for missing task', () async {
@@ -1008,12 +1000,8 @@ channels:
       final json = await api(router).expectJsonObject('DELETE', '/api/scheduling/tasks/removable-task');
 
       expect(json['deleted'], true);
-      expect(json['pendingRestart'], true);
-
-      // Verify restart.pending uses scheduling.jobs key
-      final pendingFile = File(p.join(dataDir, 'restart.pending'));
-      final pending = jsonDecode(pendingFile.readAsStringSync()) as Map;
-      expect(pending['fields'], contains('scheduling.jobs'));
+      expect(json.containsKey('pendingRestart'), isFalse);
+      expect(File(p.join(dataDir, 'restart.pending')).existsSync(), false);
     });
 
     test('DELETE /api/scheduling/tasks/<id> returns 404 for missing task', () async {

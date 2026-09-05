@@ -81,6 +81,12 @@ class ScheduledJob {
   /// Whether each fire runs in its own session rather than the shared cron one.
   final bool perFireSession;
 
+  /// Whether this job came from `scheduling.jobs` rather than from the runtime.
+  ///
+  /// [ScheduleService.replaceConfigJobs] diffs only these, so a built-in job
+  /// survives every live application of a config write.
+  final bool isConfigDeclared;
+
   new({
     required this.id,
     this.prompt = '',
@@ -101,6 +107,7 @@ class ScheduledJob {
     this.composePrompt,
     this.promptResolver,
     this.perFireSession = false,
+    this.isConfigDeclared = false,
   });
 
   /// Parses a job from a YAML config map.
@@ -200,6 +207,7 @@ class ScheduledJob {
       model: model,
       effort: effort,
       taskDefinition: taskDefinition,
+      isConfigDeclared: true,
     );
   }
 }

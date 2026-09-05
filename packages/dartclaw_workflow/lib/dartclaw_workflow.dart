@@ -229,3 +229,5 @@ export 'src/skills/workspace_skill_linker.dart'
         WorkspaceLinkFactory,
         WorkspaceSkillInventory,
         WorkspaceSkillLinker;
+
+export 'src/workflow/bash_step_runner.dart' show BashShellInvocation, selectBashShell;

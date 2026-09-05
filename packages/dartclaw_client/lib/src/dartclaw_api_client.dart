@@ -61,9 +61,17 @@ class DartclawApiClient {
   /// GETs [path] and requires a JSON object body.
   ///
   /// Throws [DartclawApiException] with code `INVALID_RESPONSE` when the body
-  /// decodes to anything else.
-  Future<Map<String, dynamic>> getObject(String path, {Map<String, Object?>? queryParameters}) async {
-    return _expectObject(await get(path, queryParameters: queryParameters), path);
+  /// decodes to anything else or a successful HTTP status differs from
+  /// [expectedStatusCode], when specified. By default any 2xx status is accepted.
+  Future<Map<String, dynamic>> getObject(
+    String path, {
+    Map<String, Object?>? queryParameters,
+    int? expectedStatusCode,
+  }) async {
+    return _expectObject(
+      await _requestJson('GET', path, queryParameters: queryParameters, expectedStatusCode: expectedStatusCode),
+      path,
+    );
   }
 
   /// GETs [path] and requires a JSON array body.
@@ -172,6 +180,7 @@ class DartclawApiClient {
     String path, {
     Object? body,
     Map<String, Object?>? queryParameters,
+    int? expectedStatusCode,
   }) async {
     final response = await _transport.send(
       _buildRequest(method: method, path: path, body: body, queryParameters: queryParameters),
@@ -179,6 +188,13 @@ class DartclawApiClient {
     final responseBody = await response.readAsString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _exceptionForResponse(path, response.statusCode, responseBody);
+    }
+    if (expectedStatusCode != null && response.statusCode != expectedStatusCode) {
+      throw DartclawApiException(
+        'Expected HTTP $expectedStatusCode from $path, received HTTP ${response.statusCode}.',
+        code: 'INVALID_RESPONSE',
+        statusCode: response.statusCode,
+      );
     }
     if (responseBody.trim().isEmpty) {
       return null;
@@ -225,8 +241,17 @@ class DartclawApiClient {
     if (parsed is Map<String, dynamic>) {
       final error = parsed['error'];
       if (error is Map<String, dynamic>) {
-        code = error['code'] as String?;
-        message = error['message'] as String?;
+        final errorCode = error['code'];
+        final errorMessage = error['message'];
+        if ((errorCode != null && errorCode is! String) || (errorMessage != null && errorMessage is! String)) {
+          throw DartclawApiException(
+            'Invalid error response from $path.',
+            code: 'INVALID_RESPONSE',
+            statusCode: statusCode,
+          );
+        }
+        code = errorCode as String?;
+        message = errorMessage as String?;
         details = error['details'];
       } else if (error is String) {
         message = error;
@@ -392,10 +417,16 @@ class _IoApiTransport implements ApiTransport {
           code: 'CONNECTION_REFUSED',
         );
       }
-      throw DartclawApiException('Network error while connecting to ${request.uri.origin}: ${error.message}');
+      throw DartclawApiException(
+        'Network error while connecting to ${request.uri.origin}: ${error.message}',
+        code: 'NETWORK_ERROR',
+      );
     } on HandshakeException catch (error) {
       client.close(force: true);
-      throw DartclawApiException('TLS handshake failed for ${request.uri.origin}: $error');
+      throw DartclawApiException(
+        'TLS handshake failed for ${request.uri.origin}: $error',
+        code: 'TLS_HANDSHAKE_FAILED',
+      );
     } catch (_) {
       // Close client on any failure (network/cert/timeout) before bubbling the original error.
       client.close(force: true);

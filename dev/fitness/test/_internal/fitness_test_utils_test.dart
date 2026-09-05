@@ -110,4 +110,55 @@ dartclaw_cli -> dartclaw_whatsapp  # edge the CLI no longer has
       expect(allowlist.assertNoStaleEntries, returnsNormally);
     });
   });
+
+  group('topLevelKeysInBlock reads a block at whatever indentation it uses', () {
+    // YAML fixes no indent width. A pubspec indented deeper than two spaces
+    // resolves like any other, so a parser that only reads two-space keys
+    // hands its gate an empty set and the gate reports compliance it never
+    // checked.
+    const fourSpace = [
+      'name: dartclaw_probe',
+      'dependencies:',
+      '    dartclaw_core:',
+      '        path: ../dartclaw_core',
+      '    dartclaw_cli:',
+      '        path: ../../apps/dartclaw_cli',
+      'dev_dependencies:',
+      '    test: ^1.31.0',
+    ];
+
+    test('a four-space dependency block yields its keys, not an empty set', () {
+      expect(topLevelKeysInBlock(fourSpace, 'dependencies:'), {'dartclaw_core', 'dartclaw_cli'});
+      expect(topLevelKeysInBlock(fourSpace, 'dev_dependencies:'), {'test'});
+    });
+
+    test('nested keys are not read as declarations', () {
+      expect(topLevelKeysInBlock(fourSpace, 'dependencies:'), isNot(contains('path')));
+    });
+
+    test('a two-space block still reads the same', () {
+      expect(
+        topLevelKeysInBlock(const [
+          'dependencies:',
+          '  dartclaw_core:',
+          '    path: ../dartclaw_core',
+          '',
+          'dev_dependencies:',
+          '  test: ^1.31.0',
+        ], 'dependencies:'),
+        {'dartclaw_core'},
+      );
+    });
+
+    test('a heading that is absent yields an empty set', () {
+      expect(topLevelKeysInBlock(const ['name: x'], 'dependencies:'), isEmpty);
+    });
+
+    test('a block whose content parses to nothing fails instead of reading as empty', () {
+      expect(
+        () => topLevelKeysInBlock(const ['dependencies:', '  - dartclaw_core'], 'dependencies:'),
+        throwsA(isA<TestFailure>().having((error) => error.message, 'message', contains('dependencies:'))),
+      );
+    });
+  });
 }

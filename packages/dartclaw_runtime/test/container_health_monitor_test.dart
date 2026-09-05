@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 /// Creates a ContainerManager with a custom `docker inspect` response.
 ContainerManager _makeManager({required String profileId, required bool Function() isRunning}) {
   return ContainerManager(
+    ownerLabel: 'dartclaw.data-dir=test1234',
     config: ContainerConfig(enabled: true, image: 'test:latest'),
     containerName: 'test-$profileId',
     profileId: profileId,
@@ -133,6 +134,7 @@ void main() {
       var firstHealthy = true;
       final first = _makeManager(profileId: 'workspace', isRunning: () => firstHealthy);
       final second = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: ContainerConfig(enabled: true, image: 'test:latest'),
         containerName: 'test-workspace-2',
         profileId: 'workspace',
@@ -186,6 +188,7 @@ void main() {
       // exit 1 with a daemon-connection stderr — indistinguishable from a dead
       // container by exit code alone, but it proves nothing, so no crash fires.
       final manager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: ContainerConfig(enabled: true, image: 'test:latest'),
         containerName: 'test-daemon-blip',
         profileId: 'workspace',
@@ -213,6 +216,7 @@ void main() {
     test('a removed container (no such object) still fires a crash', () async {
       var removed = false;
       final manager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: ContainerConfig(enabled: true, image: 'test:latest'),
         containerName: 'test-removed',
         profileId: 'workspace',
@@ -248,6 +252,7 @@ void main() {
       final inspectResult = Completer<ProcessResult>();
       var inspectCalls = 0;
       final manager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true, image: 'test:latest'),
         containerName: 'test-slow-health',
         profileId: 'workspace',
@@ -283,6 +288,7 @@ void main() {
       final firstInspectStarted = Completer<void>();
       var inspectCalls = 0;
       ContainerManager slowManager(String name) => ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true, image: 'test:latest'),
         containerName: name,
         profileId: 'workspace',

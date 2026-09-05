@@ -755,6 +755,41 @@ void main() {
     expect(workerRequests.single.spawnEnvironment?['DARTCLAW_STEP_ARTIFACTS_DIR'], artifactsDir);
     expect(executions.snapshot.providers['claude']?.effective, 1);
   });
+
+  test('a second workflow step gets its own worker rather than the first step artifacts worker', () async {
+    // A workflow worker is constructed around one task's artifacts dir and spawn environment, so reusing it for the
+    // next task would hand that task the previous step's inputs.
+    final firstArtifacts = '${context.tempDir.path}/first-step-artifacts';
+    final secondArtifacts = '${context.tempDir.path}/second-step-artifacts';
+    await createStep(
+      'worker-first',
+      configJson: {
+        WorkflowTaskConfig.stepArtifactsEnv: {'DARTCLAW_STEP_ARTIFACTS_DIR': firstArtifacts},
+      },
+    );
+    await drive(const [TurnResult()], replies: const ['first done']);
+
+    expect(executions.snapshot.providers['claude']?.active, 0);
+    expect(executions.snapshot.providers['claude']?.effective, 1);
+
+    await createStep(
+      'worker-second',
+      configJson: {
+        WorkflowTaskConfig.stepArtifactsEnv: {'DARTCLAW_STEP_ARTIFACTS_DIR': secondArtifacts},
+      },
+    );
+    await drive(const [TurnResult()], replies: const ['second done']);
+
+    expect(workerRequests, hasLength(2));
+    expect(workerRequests.map((request) => request.artifactsDir), [firstArtifacts, secondArtifacts]);
+    expect(workerRequests.map((request) => request.spawnEnvironment?['DARTCLAW_STEP_ARTIFACTS_DIR']), [
+      firstArtifacts,
+      secondArtifacts,
+    ]);
+    expect(executions.snapshot.providers['claude']?.cached, 0);
+    expect(executions.snapshot.providers['claude']?.active, 0);
+    expect(executions.snapshot.providers['claude']?.effective, 1);
+  });
 }
 
 final class _PausingUserMessageService extends MessageService {

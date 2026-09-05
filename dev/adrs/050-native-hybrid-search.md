@@ -1,6 +1,6 @@
 # ADR-050: Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost
 
-**Status:** Accepted – 2026-07-25. Scheduled as **0.25 Phase B** (brief: private `dartclaw-private/docs/specs/0.25/hybrid-search-prd-brief.md`); implementation follows Phase A. Validation spike passed 2026-07-25. Supersedes [ADR-004](004-vector-search-approach.md); QMD remains the shipped opt-in path until Phase B GA (deprecate-then-remove).
+**Status:** Accepted – 2026-07-25. Scheduled as **0.26 Phase B** (brief: private `dartclaw-private/docs/specs/0.26/hybrid-search-prd-brief.md`); implementation follows Phase A. Validation spike passed 2026-07-25. Supersedes [ADR-004](004-vector-search-approach.md); QMD remains the shipped opt-in path until Phase B GA (deprecate-then-remove).
 **Deciders:** DartClaw team
 
 **Related:** [ADR-004](004-vector-search-approach.md) (superseded – QMD outpost), [ADR-045](045-pluggable-database-backend.md) (`FullTextIndex`/`VectorIndex` seams; this ADR delivers its former Phase 3), [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (bundled-native-library shipping precedent), [ADR-034](034-enforced-package-dependency-direction.md) (dependency direction), [ADR-002](002-file-based-storage.md) (search index is derived/rebuildable)
@@ -11,7 +11,7 @@
 
 ADR-004 (2026-02) chose the QMD outpost for semantic memory search because no in-process embedding path existed for pure-Dart AOT – every ONNX/llama.cpp binding was Flutter-bound. That premise is gone as of mid-2026: **`llamadart`** (pub.dev, pure Dart, no Flutter) binds llama.cpp via the now-stable Dart build-hooks mechanism; its hook downloads prebuilt llama.cpp bundles and declares them as `DynamicLoadingBundled` code assets, so `dart build cli` ships them in `lib/` beside the AOT binary – exactly how `libsqlite3` ships today (ADR-048).
 
-Meanwhile ADR-045's 0.25 Phase A creates the retrieval seams (`FullTextIndex`; `tsvector` language-aware keyword search on PostgreSQL) and deferred `pgvector` (former Phase 3) solely on the missing embedding source. The remaining gap for built-in hybrid search is: embedding generation, ~50 lines of RRF fusion, and vector storage per backend.
+Meanwhile ADR-045's 0.26 Phase A creates the retrieval seams (`FullTextIndex`; `tsvector` language-aware keyword search on PostgreSQL) and deferred `pgvector` (former Phase 3) solely on the missing embedding source. The remaining gap for built-in hybrid search is: embedding generation, ~50 lines of RRF fusion, and vector storage per backend.
 
 The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-search architecture survey) is in the private research `dartclaw-private/docs/research/dart-native-hybrid-search/research.md`; a frozen public synthesis is in the [research appendix](research/050-native-hybrid-search.md).
 
@@ -34,7 +34,7 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking – QMD's own benchmark shows plain hybrid fusion carries the measurable gain on keyword-friendly corpora; the excluded stages cost two resident GGUF models. The typed sub-query fusion seam keeps the door open; the future path is on-demand reranking via DartClaw's existing LLM harnesses.
 8. **QMD retirement:** `search.backend: qmd` gets a deprecation warning at Phase B GA; `QmdManager`/`QmdSearchBackend`/factory branch and docs are removed one milestone later.
 
-The schedule is exact: 0.24 keeps QMD fully supported and assigns it no canonical-memory authority; 0.25 Phase B emits
+The schedule is exact: 0.24 keeps QMD fully supported and assigns it no canonical-memory authority; 0.26 Phase B emits
 the deprecation warning; the following milestone removes the implementation.
 9. **Packaging (owner-accepted 2026-07-25):** one default binary, all-in – no build flavor for the search native assets (jointly resolved with ADR-045 Open Questions #3 for `postgres`).
 
@@ -45,7 +45,7 @@ the deprecation warning; the following milestone removes the implementation.
 - **Semantic + hybrid search becomes built-in** on both database backends – no Node.js, no npm, no external process in the recommended path (minimal-attack-surface philosophy).
 - **Swedish/multilingual semantic recall independent of keyword stemming** – embeddings sidestep morphology; the spike fixture shows exactly the FTS5-`unicode61` failure categories going from 0.00 to 1.00.
 - **Proven shipping model** – native libs ride the ADR-048 `dart build cli` bundle; one per-target build, inspectable `lib/` siblings.
-- **Small and auditable** – the whole package is ~1–1.5k LOC composing seams that 0.25 Phase A already builds.
+- **Small and auditable** – the whole package is ~1–1.5k LOC composing seams that 0.26 Phase A already builds.
 - **pgvector unblocked** – ADR-045 Phase 3 ships instead of staying parked on the embedding-source question.
 
 ### Negative / accepted
@@ -80,7 +80,7 @@ the deprecation warning; the following milestone removes the implementation.
 
 ## References
 
-- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record), `dartclaw-private/docs/specs/0.25/hybrid-search-prd-brief.md` (Phase B brief)
+- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record), `dartclaw-private/docs/specs/0.26/hybrid-search-prd-brief.md` (Phase B brief)
 - Public frozen synthesis: [research appendix](research/050-native-hybrid-search.md)
 - llamadart: https://pub.dev/packages/llamadart · https://github.com/leehack/llamadart
 - Model: https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF

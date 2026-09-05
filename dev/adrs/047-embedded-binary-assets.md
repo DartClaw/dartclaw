@@ -1,6 +1,6 @@
 # ADR-047: Embedded Binary Assets — Generated Dart Source Replaces the Sidecar/Download Model
 
-**Status:** Accepted — 2026-07-10. Implemented in 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). FIS bundle in private repo `docs/specs/0.20.1/`. Amended by [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (2026-07-10): release artifacts are no longer single-file — `dart build cli` bundles the SQLite native library in a sibling `lib/` on every platform. Built-in text and binary assets remain embedded per this ADR. Corrected 2026-07-27 to document the implemented text-map plus binary-byte-map shape and source-tree development precedence; the accepted data-as-code decision is unchanged. **Amended 2026-08-06**: the generated libraries are no longer committed — see [Amendment: generated at build time](#amendment-2026-08-06--generated-at-build-time-not-committed). The data-as-code decision itself is unchanged.
+**Status:** Accepted — 2026-07-10. Implemented in 0.20.1 (before 0.21 Windows, whose release-artifact story it simplifies). Milestone record in private repo `docs/specs/0.20.1/prd.md`; the FIS bundle was consolidated into it and removed at release preparation. Amended by [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (2026-07-10): release artifacts are no longer single-file — `dart build cli` bundles the SQLite native library in a sibling `lib/` on every platform. Built-in text and binary assets remain embedded per this ADR. Corrected 2026-07-27 to document the implemented text-map plus binary-byte-map shape and source-tree development precedence; the accepted data-as-code decision is unchanged. **Amended 2026-08-06**: the generated libraries are no longer committed — see [Amendment: generated at build time](#amendment-2026-08-06--generated-at-build-time-not-committed). The data-as-code decision itself is unchanged.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-018](018-cli-onboarding-architecture.md) (CLI onboarding — introduced the asset download path), [ADR-038](038-homebrew-formula-publication.md) (Homebrew formula — consumes the platform archive this ADR simplifies)
@@ -64,7 +64,7 @@ Runtime resolution walks a five-way provenance chain (`asset_resolver.dart`: exp
 
 ## Implementation Notes
 
-- Land as the 0.20.1 FIS bundle (private repo `docs/specs/0.20.1/`): embedding + generation + gates first, consumption + deletion + release-pipeline cleanup second.
+- Land as the 0.20.1 FIS bundle (two stories, consolidated into private repo `docs/specs/0.20.1/prd.md`): embedding + generation + gates first, consumption + deletion + release-pipeline cleanup second.
 - Encoding is an internal detail of the generated libraries — text consumers see decoded `String` values and binary consumers see decoded immutable `List<int>` values, so a later backing-encoding switch (e.g. gzip+base64 if payload grows) is non-breaking.
 - The maintainer workflow profile's `preferSourceTree` must keep winning over embedded content; add a regression test.
 - Risk: stale generated content when running from source without regenerating — mitigated by dev-mode source-tree precedence; since 2026-08-06 the files are generated before every gate, so staleness is structurally impossible rather than detected.

@@ -11,6 +11,8 @@ void main() {
         {'port': 3000.0},
         {'concurrency.max_parallel_turns': 5},
         {'sessions.reset_hour': 12},
+        // -1 is the operator's way to switch the daily reset off.
+        {'sessions.reset_hour': -1},
         {'sessions.idle_timeout_minutes': 0},
         {'agent.max_turns': null},
         {'agent.max_turns': 5},
@@ -76,8 +78,8 @@ void main() {
         (updates: {'port': 65536}, field: 'port', messageContains: ['between 1 and 65535']),
         (updates: {'port': 'abc'}, field: 'port', messageContains: ['must be an integer', 'String']),
         (updates: {'port': -1}, field: 'port', messageContains: ['between 1 and 65535']),
-        (updates: {'sessions.reset_hour': 24}, field: 'sessions.reset_hour', messageContains: ['between 0 and 23']),
-        (updates: {'sessions.reset_hour': -1}, field: 'sessions.reset_hour', messageContains: ['between 0 and 23']),
+        (updates: {'sessions.reset_hour': 24}, field: 'sessions.reset_hour', messageContains: ['between -1 and 23']),
+        (updates: {'sessions.reset_hour': -2}, field: 'sessions.reset_hour', messageContains: ['between -1 and 23']),
         (
           updates: {'concurrency.max_parallel_turns': 0},
           field: 'concurrency.max_parallel_turns',

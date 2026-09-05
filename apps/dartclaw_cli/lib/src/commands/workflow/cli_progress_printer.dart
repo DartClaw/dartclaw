@@ -19,6 +19,7 @@ import 'live_status_line.dart';
 /// are printed above the spinner. With no live line (tests, CI, pipes, JSON)
 /// the output is exactly the append-only form above.
 class CliProgressPrinter {
+  final String commandPrefix;
   final int totalSteps;
   final String workflowName;
   final WriteLine _writeLine;
@@ -30,6 +31,7 @@ class CliProgressPrinter {
   final bool standalone;
 
   new({
+    required this.commandPrefix,
     required this.totalSteps,
     required this.workflowName,
     required WriteLine writeLine,
@@ -214,7 +216,7 @@ class CliProgressPrinter {
     _emitSpans([
       const StyledSpan('[workflow]', _cTag),
       StyledSpan(
-        ' Use `dartclaw workflow resume $runId$flag` to approve or `dartclaw workflow cancel $runId$flag` to reject.',
+        ' Use `$commandPrefix resume $runId$flag` to approve or `$commandPrefix cancel $runId$flag` to reject.',
       ),
     ]);
   }

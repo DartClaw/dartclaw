@@ -1,6 +1,3 @@
-All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_acp`.
+# Changelog
 
-## Unreleased
-
-### Added
-- Package created by relocating the ACP harness, client, protocol adapter, reverse-call handlers, target validation, NDJSON channel, config DTOs and section parser out of `dartclaw_core` and `dartclaw_config`. Behaviour is unchanged; `json_rpc_2` and `stream_channel` are now this package's dependencies alone
+Release history for this package is recorded in the repository-level [CHANGELOG.md](../../CHANGELOG.md), one section per DartClaw release. This file exists for package-layout convention only; per-package version sections will be cut from the root changelog if the package is ever published to pub.dev (see `dev/adrs/008-sdk-publishing-strategy.md`).

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/standalone_lifecycle_support.dart' show requiredWorkflowProviders;
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
-import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, DartclawRuntimeExecutionStack;
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -16,7 +15,6 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-import '../../helpers/fake_api_transport.dart';
 import '../../helpers/fake_exit.dart';
 
 HarnessFactory _harnessFactoryFor(AgentHarness Function() builder) {
@@ -91,14 +89,14 @@ WorkflowRunCommand _standaloneCommand({
   List<String>? stdoutOutput,
   List<String>? stderrOutput,
   HarnessFactory? harnessFactory,
-  DartclawApiClient? apiClient,
+  Future<bool> Function(Uri)? reachabilityProbe,
   Map<String, String>? environment,
   FakeProviderAuthPreflight? providerAuthPreflight,
   FakeSkillIntrospector? skillIntrospector,
   bool runWorkflowSkillsBootstrap = false,
 }) => WorkflowRunCommand(
   config: config,
-  apiClient: apiClient,
+  reachabilityProbe: reachabilityProbe ?? (_) async => false,
   environment: environment,
   harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
   searchDbFactory: (_) => sqlite3.openInMemory(),
@@ -266,7 +264,7 @@ steps:
         '  1. ok-step: completed (0 tokens)',
         '  2. bad-step: failed (0 tokens)',
         '[digest] Next:',
-        '  dartclaw workflow retry <run-id> --standalone',
+        '  dartclaw retry <run-id> --standalone',
       ]);
       expect(errors, isEmpty);
     });
@@ -442,10 +440,7 @@ steps:
       final command = _standaloneCommand(
         config: config,
         stderrOutput: output,
-        apiClient: DartclawApiClient(
-          baseUri: Uri.parse('http://localhost:3333'),
-          transport: FakeApiTransport(sendResponses: [_response(503)]),
-        ),
+        reachabilityProbe: (_) async => false,
         environment: const {},
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -944,14 +939,6 @@ Map<String, dynamic> _runStartedGitStrategy(List<String> output) {
   final run = started['run'] as Map<String, dynamic>;
   final definitionJson = run['definitionJson'] as Map<String, dynamic>;
   return definitionJson['gitStrategy'] as Map<String, dynamic>;
-}
-
-ApiResponse _response(int statusCode, [Object? body]) {
-  return ApiResponse(
-    statusCode: statusCode,
-    headers: const {'content-type': 'application/json; charset=utf-8'},
-    body: Stream.value(utf8.encode(body == null ? '{}' : jsonEncode(body))),
-  );
 }
 
 void _writeSkill(String root, String name) {

@@ -27,6 +27,7 @@ void main() {
     setUp(() {
       liveOut = <String>[];
       final printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
         totalSteps: definition.steps.length,
         workflowName: definition.name,
         writeLine: (_) {},

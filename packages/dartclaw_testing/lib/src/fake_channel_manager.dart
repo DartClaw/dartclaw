@@ -12,7 +12,10 @@ class FakeChannelManager extends ChannelManager {
 
   new()
     : super(
-        queue: MessageQueue(dispatcher: (_, _, {senderJid, senderDisplayName}) async => '', maxConcurrentTurns: 1),
+        queue: MessageQueue(
+          dispatcher: (_, _, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+          maxConcurrentTurns: 1,
+        ),
         config: const ChannelConfig.defaults(),
       );
 

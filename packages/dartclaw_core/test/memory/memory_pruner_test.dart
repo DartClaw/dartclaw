@@ -668,6 +668,66 @@ void main() {
       await authority.close();
     });
 
+    // S04 – a prune with nothing to do must not advance the collection revision; the
+    // seed is already in the pruner's output form (created-ordered entries, no empty
+    // archive or audit member) so the only possible difference is the revision line.
+    test('canonical prune with nothing to archive or dedupe leaves the revision unchanged', () async {
+      final now = DateTime.now().toUtc();
+      CanonicalMemoryEntry detail(String id, String content, Duration age) => CanonicalMemoryEntry(
+        id: id,
+        revision: 1,
+        topic: 'general',
+        summary: content,
+        content: content,
+        created: now.subtract(age),
+        updated: now.subtract(age),
+        provenance: MemorySourceRef(sourceLocator: 'test'),
+      );
+      final entries = [
+        detail('6fda91a3-f1b4-46c2-acd6-5bb4d13c13b9', 'Fresh fact one', const Duration(hours: 3)),
+        detail('2277cbfe-f704-46eb-ac2f-08ca4a7ad620', 'Fresh fact two', const Duration(hours: 2)),
+        detail('c402a342-18be-4810-9887-cf4654c845fd', 'Fresh fact three', const Duration(hours: 1)),
+      ];
+      final corpus = CanonicalMemoryCorpus(
+        index: MemoryIndexDocument(
+          metadata: MemoryCollectionMetadata(collectionId: '07f35d89-16c1-4864-8385-7b0ed720479a', revision: 8),
+          entries: [
+            for (final entry in entries)
+              MemoryIndexEntry(
+                id: entry.id,
+                revision: entry.revision,
+                topic: entry.topic,
+                summary: entry.summary,
+                updated: entry.updated,
+              ),
+          ],
+        ),
+        topics: [MemoryTopicDocument(topic: 'general', entries: entries)],
+      );
+      for (final member in corpus.byteInventory().entries) {
+        final file = File('${tempDir.path}/${member.key}');
+        file.parent.createSync(recursive: true);
+        file.writeAsBytesSync(member.value);
+      }
+      final authority = MemoryCorpusService(workspaceDir: tempDir.path);
+      addTearDown(authority.close);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      final before = await authority.manifest();
+      final rowsBefore = memoryService.search('Fresh').map((row) => row.locator).toList()..sort();
+
+      final result = await pruner.prune();
+
+      expect(result.entriesArchived, 0);
+      expect(result.duplicatesRemoved, 0);
+      expect(result.entriesRemaining, 3);
+      final after = await authority.manifest();
+      expect(after.collectionRevision, 8);
+      expect(after.fingerprint, before.fingerprint);
+      expect(File('${tempDir.path}/MEMORY.archive.md').existsSync(), isFalse);
+      expect(File('${tempDir.path}/MEMORY.audit.md').existsSync(), isFalse);
+      expect(memoryService.search('Fresh').map((row) => row.locator).toList()..sort(), rowsBefore);
+    });
+
     // The pruner rebuilds the whole corpus; errors and learnings are
     // outside its selection and must survive byte-identical.
     test('canonical prune leaves the error and learning documents byte-identical', () async {

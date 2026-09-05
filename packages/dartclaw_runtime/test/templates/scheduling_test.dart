@@ -1,10 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_runtime/src/scheduling/scheduled_task_runner.dart';
-import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/scheduling.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -153,15 +150,13 @@ void main() {
           description: 'Summarise the week',
         ),
       ];
-      final jobsFragment = schedulingJobsFragment(jobs: jobs, systemJobNames: const [], loadedJobIds: const {'digest'});
-      final loadedTaskIds = {ScheduledTaskRunner.jobIdForDefinition('weekly-report')};
-      final tasksFragment = schedulingTasksFragment(tasks: tasks, loadedJobIds: loadedTaskIds);
+      final jobsFragment = schedulingJobsFragment(jobs: jobs, systemJobNames: const []);
+      final tasksFragment = schedulingTasksFragment(tasks: tasks);
       final page = schedulingTemplate(
         sidebarData: emptySidebar,
         navItems: emptyNavItems,
         jobs: jobs,
         scheduledTasks: tasks,
-        loadedJobIds: {'digest', ...loadedTaskIds},
       );
 
       expect(jobsFragment, startsWith('<div id="scheduling-jobs-table"'));
@@ -170,30 +165,20 @@ void main() {
       expect(page, contains(tasksFragment));
     });
 
-    test('loaded scheduled tasks use the runner job ID while config-only tasks require restart', () {
-      const loaded = ScheduledTaskDefinition(
+    // SC03: every config-declared entry is loaded by the write that created it,
+    // so there is no "waiting for a restart" state left for a row to report.
+    test('no scheduled-task row claims a restart is needed', () {
+      const definition = ScheduledTaskDefinition(
         id: 'weekly-report',
         cronExpression: '0 9 * * 1',
         title: 'Weekly report',
         description: 'Summarise the week',
       );
-      const configOnly = ScheduledTaskDefinition(
-        id: 'monthly-report',
-        cronExpression: '0 9 1 * *',
-        title: 'Monthly report',
-        description: 'Summarise the month',
-      );
-      final runner = ScheduledTaskRunner(
-        taskService: TaskService(InMemoryTaskRepository()),
-        definitions: const [loaded],
-      );
-      final loadedJobIds = runner.buildJobs().map((job) => job.id).toSet();
 
-      final loadedHtml = schedulingTasksFragment(tasks: const [loaded], loadedJobIds: loadedJobIds);
-      final configOnlyHtml = schedulingTasksFragment(tasks: const [configOnly], loadedJobIds: loadedJobIds);
+      final html = schedulingTasksFragment(tasks: const [definition]);
 
-      expect(loadedHtml, isNot(contains('Restart to run')));
-      expect(configOnlyHtml, contains('Restart to run'));
+      expect(html, contains('Weekly report'));
+      expect(html, isNot(contains('Restart to run')));
     });
 
     test('forms use hidden attributes and canonical metric cards', () {
@@ -239,15 +224,56 @@ void main() {
       expect('status-badge-success'.allMatches(html).length, 1);
     });
 
-    test('restart badge present in form', () {
+    // SC03: the form writes a job the seam loads before it answers, so neither
+    // the badge nor the footer sentence may promise a restart.
+    test('the job form carries a one-time instant field and no restart badge', () {
       final html = schedulingJobFormFragment(values: emptyJobFormValues);
-      expect(html, contains('restart-badge'));
-      expect(html, contains('restart required'));
+      expect(html, contains('id="job-at" name="at"'));
+      expect(html, contains('Run once at'));
+      expect(html, isNot(contains('restart-badge')));
+      expect(html, isNot(contains('restart required')));
     });
 
-    test('info footer mentions restart requirement', () {
+    test('the task form carries no restart badge either', () {
+      final html = schedulingTaskFormFragment(values: emptyTaskFormValues);
+      expect(html, isNot(contains('restart-badge')));
+      expect(html, isNot(contains('restart required')));
+    });
+
+    test('the edit form is prefilled with a stored one-time instant', () {
+      final html = schedulingJobFormFragment(
+        values: (
+          name: 'remind-dentist',
+          schedule: '',
+          at: '2026-09-02T15:00:00.000',
+          prompt: 'Remind me',
+          delivery: 'announce',
+        ),
+        editName: 'remind-dentist',
+      );
+
+      expect(html, contains('value="2026-09-02T15:00:00.000"'));
+    });
+
+    // SC05: a hand edit of the YAML is still restart-tier, so the footer must
+    // not read as if the immediacy covered it.
+    test('info footer separates a change made here from a hand edit of the YAML', () {
       final html = schedulingTemplate(sidebarData: emptySidebar, navItems: emptyNavItems, jobs: [], systemJobNames: []);
-      expect(html, contains('Job changes require a restart'));
+      expect(html, contains('Changes made here take effect immediately'));
+      expect(html, contains('a hand edit of <code>dartclaw.yaml</code> needs a restart'));
+    });
+
+    test('a one-time row shows its instant and no cron description', () {
+      final html = schedulingJobsFragment(
+        jobs: [
+          {'name': 'remind-dentist', 'schedule': '2026-09-02T15:00:00.000', 'delivery': 'announce'},
+        ],
+        systemJobNames: const [],
+      );
+
+      expect(html, contains('2026-09-02T15:00:00.000'));
+      expect(html, isNot(contains('Restart to run')));
+      expect(html, contains('<span class="cron-human"></span>'));
     });
 
     test('task-type entries are excluded from the Scheduled Jobs table (no phantom row)', () {

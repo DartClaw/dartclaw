@@ -113,12 +113,10 @@ WorkflowRun _makeRun(WorkflowDefinition definition, {String? id}) {
 /// The merge-resolve skill's declared outputs, as its finalizer envelope carries them.
 Map<String, dynamic> _mrOutputs({
   String outcome = 'resolved',
-  List<String> conflictedFiles = const ['lib/story.dart'],
   String summary = 'resolved conflicts',
   String? errorMessage,
 }) => <String, dynamic>{
   'merge_resolve.outcome': outcome,
-  'merge_resolve.conflicted_files': conflictedFiles,
   'merge_resolve.resolution_summary': summary,
   if (errorMessage != null && errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
 };
@@ -158,7 +156,7 @@ void _assertArtifactFields(MergeResolveAttemptArtifact a) {
   expect(a.storyId, isNotEmpty, reason: 'story_id must be non-empty');
   expect(a.attemptNumber, greaterThan(0), reason: 'attempt_number must be > 0');
   expect(a.outcome, isNotEmpty, reason: 'outcome must be non-empty');
-  // conflicted_files: non-null list (may be empty on resolved)
+  // conflicted_files: the host's promotion-conflict set (may be empty on resolved)
   expect(a.conflictedFiles, isNotNull, reason: 'conflicted_files must be present');
   // resolution_summary: present (may be empty on failed)
   expect(a.resolutionSummary, isNotNull, reason: 'resolution_summary must be present');

@@ -331,7 +331,6 @@ final class WorkflowExecutorHarness {
     await seedDeclaredOutputs(taskId, const {
       'merge_resolve.outcome': 'failed',
       'merge_resolve.error_message': 'simulated failure',
-      'merge_resolve.conflicted_files': <String>['lib/story.dart'],
       'merge_resolve.resolution_summary': '',
     });
   }

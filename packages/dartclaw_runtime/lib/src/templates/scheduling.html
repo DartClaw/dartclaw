@@ -47,7 +47,7 @@
 
   <div class="info-footer">
     Scheduling configured in <code>dartclaw.yaml</code> under <code>scheduling:</code>.
-    Job changes require a restart to take effect.
+    Changes made here take effect immediately; a hand edit of <code>dartclaw.yaml</code> needs a restart.
   </div>
 </div>
 
@@ -64,12 +64,19 @@
       <div class="form-field">
         <label class="form-label t-caption tracking-caps" for="job-schedule">Schedule</label>
         <div class="schedule-row">
-          <input type="text" class="form-input" id="job-schedule" name="schedule" required placeholder="0 7 * * *"
+          <input type="text" class="form-input" id="job-schedule" name="schedule" placeholder="0 7 * * *"
                  data-action="input->dc-scheduling#updateJobCronPreview"
                  tl:attr="value=${schedule},aria-invalid=${scheduleInvalid}">
           <span class="cron-preview" id="cron-preview" tl:text="${cronHuman}"></span>
         </div>
         <div class="form-error t-caption" tl:text="${scheduleError}"></div>
+      </div>
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="job-at">Run once at</label>
+        <input type="text" class="form-input" id="job-at" name="at" placeholder="2026-09-02T15:00"
+               tl:attr="value=${at},aria-invalid=${atInvalid}">
+        <div class="form-hint t-caption">Fill this instead of Schedule for a job that runs once and then removes itself.</div>
+        <div class="form-error t-caption" tl:text="${atError}"></div>
       </div>
       <div class="form-field">
         <label class="form-label t-caption tracking-caps" for="job-prompt">Prompt</label>
@@ -87,7 +94,6 @@
         </div>
       </div>
       <div class="form-error t-caption" role="alert" tl:text="${formError}"></div>
-      <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
       <div class="form-actions">
         <button class="btn btn-primary btn-sm" type="submit" tl:text="${submitLabel}">Save Job</button>
         <button class="btn btn-ghost btn-sm" type="button" hx-get="/scheduling/jobs/form/close"
@@ -110,7 +116,6 @@
           <td>
             <span tl:classappend="${job.statusDotClass}" class="status-dot" aria-hidden="true"></span>
             <span tl:text="${job.status}"></span>
-            <span tl:if="${job.notRunning}" class="status-badge status-badge-warning">Restart to run</span>
           </td>
           <td tl:if="${job.hasActions}"><div class="action-btns">
             <button tl:if="${job.canStart}" class="btn btn-icon-sm" title="Run now" aria-label="Run now" data-icon="play"
@@ -153,7 +158,6 @@
         <textarea class="form-textarea" id="task-acceptance" name="acceptanceCriteria" rows="2" tl:text="${acceptance}"></textarea></div>
       <label class="form-field form-field--checkbox"><input type="checkbox" class="form-checkbox" id="task-enabled" name="enabled" tl:attr="checked=${enabled}"><span class="form-label t-caption tracking-caps">Enabled</span></label>
       <div class="form-error t-caption" role="alert" tl:text="${formError}"></div>
-      <div><span class="restart-badge"><span class="icon icon-triangle-alert" aria-hidden="true"></span> restart required</span></div>
       <div class="form-actions"><button class="btn btn-primary btn-sm" type="submit" tl:text="${submitLabel}">Save Task</button>
         <button class="btn btn-ghost btn-sm" type="button" hx-get="/scheduling/tasks/form/close" hx-target="#task-form" hx-swap="outerHTML">Cancel</button></div>
     </div>
@@ -169,8 +173,7 @@
         <td><span tl:text="${task.title}"></span><span class="cron-human cron-human--sub-id" tl:text="${task.id}"></span></td>
         <td><span class="cron-expr" tl:text="${task.schedule}"></span><span class="cron-human" tl:text="${task.cronHuman}"></span></td>
         <td><span class="delivery-badge">task</span></td>
-        <td><span tl:classappend="${task.statusDotClass}" class="status-dot"></span> <span tl:text="${task.statusText}"></span>
-          <span tl:if="${task.notRunning}" class="status-badge status-badge-warning">Restart to run</span></td>
+        <td><span tl:classappend="${task.statusDotClass}" class="status-dot"></span> <span tl:text="${task.statusText}"></span></td>
         <td><div class="action-btns scheduling-action-btns">
           <button class="btn btn-icon-sm scheduling-action-toggle" hx-target="#scheduling-tasks-table" hx-swap="outerHTML"
                   tl:attr="hx-post=${task.toggleUrl},aria-label=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'},title=${task.enabled ? 'Disable scheduled task' : 'Enable scheduled task'},data-icon=${task.enabled ? 'check' : 'circle-x'}"></button>

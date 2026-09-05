@@ -18,6 +18,7 @@ library;
 /// Every keyword the emitter may use. A schema position carrying anything else
 /// is a defect: this reader would silently ignore it.
 const Set<String> emittedKeywords = {
+  r'$id',
   r'$schema',
   'title',
   'description',

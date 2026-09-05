@@ -8,8 +8,11 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 
 - This package depends on no other `dartclaw_*` package. Runtime dependencies are limited to `collection`, `logging`,
   `meta`, `path`, `yaml`, and `yaml_edit`.
-- Do not add server, channel, workflow, storage, SQLite, Shelf, or network-client concerns. Channel-specific config
-  classes stay in their channel packages; server serializers and live subscribers stay in the runtime package.
+- Do not add server, channel, workflow, storage, SQLite, or Shelf concerns. Channel-specific config classes stay in
+  their channel packages; server serializers and live subscribers stay in the runtime package.
+- Outbound HTTP is limited to the shared one-shot seam in `http_request.dart` (`HttpClientFactory`, `httpRequest`) and
+  the classifiers that call it. It sits at this tier because every tier above needs it and none may be imported from
+  here; a service client, a connection pool, or a streaming transport still does not belong in this package.
 - Shared value types are immutable data shapes with JSON/Map serialization. Services and concrete persistence do not
   belong with them.
 - Guards evaluate policy and return verdicts. They do not fire runtime events. The composing runtime translates
@@ -39,7 +42,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`.
 - Named credentials stored on disk reach `credentials:` through `DartclawConfig.registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir))`,
   mirroring `registerExtensionParser` (test-only `clearStoredCredentialProvider` clears it). `load` invokes the closure on
-  **every** call, passing `credentialsDirFor(server.dataDir)`, and `_parseCredentials` merges the result with the **store
+  **every** call unless `resolveStoredCredentials: false` requests the declared view, passing `credentialsDirFor(server.dataDir)`, and `_parseCredentials` merges the result with the **store
   winning**. The closure receives the directory rather than resolving it: this package opens no credential file. A closure
   that throws degrades to no stored credentials plus a warning; the whole config must not fail on one unusable store. The
   registration site is `dartclaw_cli`'s `config_loader.dart` (`ensureStoredCredentialProviderRegistered`), so every
@@ -106,5 +109,9 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `lib/src/config_meta.dart`, `config_meta/`, `config_constraints.dart`, `config_numeric_bounds.dart` – field registry and validation authority.
 - `lib/src/guard.dart`, `guard_verdict.dart`, and the `*_guard.dart` files – guard framework and built-ins; `content_scan.dart` – the one classification + fail-policy authority.
 - `lib/src/safe_process.dart`, `process/git_runner.dart` – subprocess boundary.
+- `lib/src/http_request.dart` – the one-shot HTTP seam every package uses: create → optional connection timeout → open
+  → headers → utf8-encoded body → close → utf8-decode → `close(force: true)`, returning `(statusCode, body)` without
+  interpreting the status. Bodies are written as utf8 bytes, not through `write`, which encodes latin1 whenever the
+  content type names no charset. Callers that need streaming, response headers, or a reused client keep their own loop.
 - `lib/src/models.dart`, `session_key.dart`, `agent_definition.dart`, `output_schema.dart`, `execution_policy.dart` – shared values.
 - `lib/src/workflow_step_execution.dart`, `workflow_step_execution_repository.dart` – shared workflow-step execution value and persistence port.

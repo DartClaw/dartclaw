@@ -4,31 +4,31 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../scheduling/schedule_mutation.dart';
 import '../scheduling/schedule_service.dart';
+import '../scheduling/scheduled_task_runner.dart';
 import 'tool_schema.dart';
-
-/// What every successful [ScheduleUpsertTool] call tells the model to pass on.
-///
-/// `ScheduleService` takes its job list at construction, so a written job does
-/// not fire until the server restarts. A result that reads as "scheduled" is a
-/// lie the owner acts on.
-const _restartNotice = 'Written to config. The job does not run until the server restarts.';
 
 /// MCP tool that creates or updates a scheduled job through the shared
 /// scheduling-mutation seam.
 ///
-/// Performs no validation of its own beyond its declared input contract: cron
-/// validation and the config write are the seam's, exactly as for the web API.
+/// Performs no validation of its own beyond its declared input contract: the
+/// schedule rule and the config write are the seam's, exactly as for the web
+/// API. The seam loads what it wrote before returning, so the result reports
+/// whether the running scheduler holds the job rather than promising a restart.
 class ScheduleUpsertTool implements McpTool {
-  new({required ScheduleMutationService mutations}) : _mutations = mutations;
+  new({required ScheduleMutationService mutations, ScheduleService? schedules})
+    : _mutations = mutations,
+      _schedules = schedules;
 
   final ScheduleMutationService _mutations;
+  final ScheduleService? _schedules;
 
   @override
   String get name => 'schedule_upsert';
 
   @override
   String get description =>
-      'Create or update a scheduled job. $_restartNotice List what is configured and what is running with '
+      'Create or update a scheduled job. It runs from the moment this call returns — no restart. Pass "schedule" for '
+      'a recurring job or "at" for a one-time job, never both. List what is configured and what is running with '
       'schedule_list first.';
 
   @override
@@ -36,6 +36,12 @@ class ScheduleUpsertTool implements McpTool {
     {
       'id': {'type': 'string', 'description': 'Job identifier; an existing job with this id is replaced.'},
       'schedule': {'type': 'string', 'description': 'Five-field cron expression, e.g. "0 9 * * 1".'},
+      'at': {
+        'type': 'string',
+        'description':
+            'ISO-8601 instant for a one-time job, e.g. "2026-09-02T15:00:00". Must be in the future. The job '
+            'removes itself once it has fired. Mutually exclusive with schedule.',
+      },
       'type': {
         'type': 'string',
         'enum': const ['prompt', 'task'],
@@ -52,7 +58,7 @@ class ScheduleUpsertTool implements McpTool {
       'model': {'type': 'string', 'description': 'Model override for this job.'},
       'effort': {'type': 'string', 'description': 'Effort override for this job.'},
     },
-    const ['id', 'schedule', 'type'],
+    const ['id', 'type'],
   );
 
   @override
@@ -82,17 +88,26 @@ class ScheduleUpsertTool implements McpTool {
     };
     if (shapeRefusal != null) return toolError('invalid_request', shapeRefusal);
 
-    final schedule = args['schedule'] as String;
-    final cronRefusal = ScheduleMutationService.cronRefusal(schedule);
-    if (cronRefusal != null) return toolError('invalid_cron', cronRefusal, {'schedule': schedule});
-
     final id = args['id'] as String;
+    if (_mutations.reservedJobIds.contains(id)) {
+      return toolError('conflict', 'Job "$id" is a built-in job and cannot be edited through schedule_upsert', {
+        'id': id,
+      });
+    }
+
+    // The schedule/at rule is the seam's, so the tool and the jobs API cannot
+    // accept different instants or different cron expressions.
+    final schedule = _mutations.resolveSchedule(args['schedule'], args['at']);
+    if (schedule.refusal != null) {
+      return toolError('invalid_schedule', schedule.refusal!, {'field': schedule.field});
+    }
+
     // Only what the call actually supplied: an omitted `delivery` must not be
     // written as `none` over a stored `webhook`, and the loader applies its own
     // default for an entry that carries none.
     final job = <String, dynamic>{
       'id': id,
-      'schedule': schedule,
+      'schedule': schedule.value,
       'type': type,
       if (args['prompt'] != null) 'prompt': args['prompt'],
       if (args['delivery'] != null) 'delivery': args['delivery'],
@@ -114,19 +129,20 @@ class ScheduleUpsertTool implements McpTool {
     }
 
     try {
-      await _mutations.commit(jobs);
+      await _mutations.commitAndApply(jobs);
     } on StateError catch (error) {
       return toolError('write_failed', 'Config backup failed: ${error.message}', {'id': id});
     } on FileSystemException catch (error) {
       return toolError('write_failed', 'Config write failed: ${error.message}', {'id': id});
     }
-    _mutations.markRestartPending();
+    // A `type: task` entry reaches the scheduler under the runner's job id, so
+    // asking about the entry id would report every task upsert as not loaded.
+    final loadedId = type == 'task' ? ScheduledTaskRunner.jobIdForDefinition(id) : id;
     return toolJson({
       'id': id,
       'created': created,
-      'schedule': schedule,
-      'pending_restart': true,
-      'note': _restartNotice,
+      'schedule': schedule.value,
+      'loaded': _schedules?.hasJob(loadedId) ?? false,
     });
   }
 }
@@ -151,8 +167,8 @@ class ScheduleListTool implements McpTool {
 
   @override
   String get description =>
-      'List scheduled jobs: what is configured, what the running server actually loaded, and what is waiting for a '
-      'restart. Built-in jobs are listed too and cannot be edited through schedule_upsert.';
+      'List scheduled jobs: what is configured, what the running server actually loaded, and what is paused. '
+      'Built-in jobs are listed too and cannot be edited through schedule_upsert.';
 
   @override
   Map<String, dynamic> get inputSchema => toolSchema(const {}, const []);
@@ -180,7 +196,10 @@ class ScheduleListTool implements McpTool {
         'loaded': entry != null,
         'paused': entry?.paused ?? false,
         'editable': true,
-        if (entry == null) 'note': 'Written to config but not loaded; it runs after the next server restart.',
+        // A written job is loaded before its write returns, so a configured
+        // entry the scheduler does not hold is one it could not compose.
+        if (entry == null && _schedules != null)
+          'note': 'Written to config but not loaded; check the server log for the reason it was skipped.',
       });
     }
     // A loaded job with no config entry is built-in: the runtime registers it

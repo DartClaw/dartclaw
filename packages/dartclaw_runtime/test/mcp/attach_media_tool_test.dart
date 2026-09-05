@@ -76,7 +76,9 @@ void main() {
     sseBroadcast = SseBroadcast();
     whatsapp = FakeChannel(type: ChannelType.whatsapp, ownedJids: {peerId, secondPeerId});
     channels = ChannelManager(
-      queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok'),
+      queue: MessageQueue(
+        dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => 'ok',
+      ),
       config: const ChannelConfig.defaults(),
     )..registerChannel(whatsapp);
     delivery = DeliveryService(channelManager: channels, sseBroadcast: sseBroadcast, sessions: sessions);

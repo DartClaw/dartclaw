@@ -1,16 +1,3 @@
-All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_whatsapp`.
+# Changelog
 
-## Unreleased
-
-### Added
-- Native typing indication for direct and group turns through GOWA chat presence
-
-### Changed
-- **Breaking:** removed `MediaExtraction`, `extractMediaDirectives`, `TaskTriggerConfig`, the `workspaceDir` argument from `formatResponse`, and the `workspaceDir` constructor argument from `WhatsAppChannel`. See the root 0.25 changelog for migration paths.
-
-## 0.9.0
-
-### Added
-- MIT LICENSE, pubspec metadata, and a package-level changelog
-- Standalone WhatsApp channel package with `WhatsAppChannel`, `WhatsAppConfig`, and `GowaManager`
-- Response formatting and media extraction helpers for channel delivery
+Release history for this package is recorded in the repository-level [CHANGELOG.md](../../CHANGELOG.md), one section per DartClaw release. This file exists for package-layout convention only; per-package version sections will be cut from the root changelog if the package is ever published to pub.dev (see `dev/adrs/008-sdk-publishing-strategy.md`).

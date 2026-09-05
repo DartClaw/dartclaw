@@ -109,7 +109,7 @@ export 'src/channel/turn_progress_event.dart'
         StatusTickProgressEvent,
         TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
-export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId;
+export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId, supportsThreadBinding;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
 export 'src/channel/sidecar_process_manager.dart' show SidecarProcessManager;
 

@@ -117,8 +117,47 @@ Standalone workflow commands add one scoped discovery step before the default in
 
 Values support `${ENV_VAR}` substitution. CLI flags override config file values.
 
+The path may be a symlink, for example to a copy kept under version control. Every write DartClaw makes – `dartclaw
+config set`, `PATCH /api/config`, the Settings UI, the scheduling tool and API – resolves the link and writes through to
+its target, so the link survives and the versioned file is the one that changes. The `.bak` copy is written beside the
+link.
+
 `gateway.mcp_clients` requires it: a client token must be written as a `${VAR}` reference, never a literal, and an
 unresolved reference refuses to start. See [Context Engine Mode](context-engine.md).
+
+### Editor support
+
+`dartclaw init` starts every new `dartclaw.yaml`, including workflow configs, with a YAML language server modeline
+pointing to the schema for the binary's version. It leaves existing files' headers alone. To attach the schema to an
+existing file, add this as its first line, using your installed version (`dartclaw --version`):
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.1/schemas/dartclaw.schema.json
+```
+
+For VS Code with the YAML extension, the equivalent workspace setting is:
+
+```json
+{
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.1/schemas/dartclaw.schema.json": ["dartclaw.yaml"]
+  }
+}
+```
+
+For offline use, export the running binary's schema and point the modeline at that local file:
+
+```bash
+dartclaw config schema --out dartclaw.schema.json
+```
+
+```yaml
+# yaml-language-server: $schema=./dartclaw.schema.json
+```
+
+The release URL pins validation to that version. After upgrading, change the modeline or `yaml.schemas` version
+segment by hand, or re-export the local schema. A development build's URL resolves only once its release tag is pushed;
+until then the editor may report that it cannot load the schema.
 
 ### Minimal Config
 
@@ -128,6 +167,7 @@ host: localhost
 data_dir: ~/.dartclaw
 ```
 
+<!-- The block between the BEGIN/END GENERATED CONFIG REFERENCE markers is written by dev/tools/render_config_reference.dart from ConfigMeta. Edit the field's FieldMeta description and re-run the tool; hand edits inside the block are overwritten. -->
 <!-- BEGIN GENERATED CONFIG REFERENCE -->
 ### Core Config
 
@@ -175,7 +215,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |
 | `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
 | `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
-| `memory.max_bytes` | integer | minimum 1 | Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required) |
+| `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
 | `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
 | `mcp_servers.<name>.enabled` | boolean |  | Whether the server is used. It is forced off at load when its credential does not resolve. (restart required) |
@@ -184,7 +224,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
 | `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
 | `sessions.idle_timeout_minutes` | integer | minimum 0 | Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload) |
-| `sessions.reset_hour` | integer | 0–23 | Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload) |
+| `sessions.reset_hour` | integer | -1–23 | Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset. (reload) |
 | `sessions.dm_scope` | string | one of "per-channel-contact", "per-contact", "shared" | How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live) |
 | `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
 | `logging.level` | string | one of "FINE", "INFO", "SEVERE", "WARNING" | Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required) |
@@ -316,7 +356,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **dev_mode** |  |  |  |
 | `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
 | **features** |  |  |  |
-| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, and post task notifications as new threads. (restart required) |
+| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required) |
 | `features.thread_binding.idle_timeout_minutes` | integer | 1–1440 | Minutes of thread inactivity before the binding is dropped. The sweep runs every five minutes, so removal can lag. (restart required) |
 | **gateway** |  |  |  |
 | `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
@@ -415,7 +455,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `memory.curation.schedule` | string |  | Cron expression driving the curation run. (restart required) |
 | `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
 | `memory.journal.schedule` | string |  | Cron expression driving the distillation run. (restart required) |
-| `memory.max_bytes` | integer | minimum 1 | Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt. (restart required) |
+| `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.archive_after_days` | integer | minimum 1 | Days before a canonical memory entry is archived. Must be positive. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
 | `memory.pruning.schedule` | string |  | Cron expression driving the archival run. (restart required) |
@@ -476,7 +516,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `sessions.maintenance.prune_after_days` | integer | minimum 0 | Days of inactivity after which a session is archived. 0 archives nothing. (restart required) |
 | `sessions.maintenance.schedule` | string |  | Cron expression driving the automatic maintenance run. An empty string disables it. (restart required) |
 | `sessions.model` | null or string |  | Model used for scoped conversational turns. Null inherits the primary lane setting. (restart required) |
-| `sessions.reset_hour` | integer | 0–23 | Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically. (reload) |
+| `sessions.reset_hour` | integer | -1–23 | Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset. (reload) |
 | **source_dir** |  |  |  |
 | `source_dir` | null or string |  | Checkout root used to locate templates and static assets during development. Null uses the embedded copies. (restart required) |
 | **static_dir** |  |  |  |
@@ -853,6 +893,12 @@ with an editor, not through the API.
 A running server is not affected by a bad edit: a reload, or a write through `PATCH /api/config`, keeps the
 configuration it is already running and reports the failure.
 
+**After an upgrade**, the refusal is the checklist: it lists every offending path at once, and a key that changed
+shape rather than disappearing (for example the 0.24 `tasks.execution.<task-type>` map, a scalar since 0.25.0) is
+refused with a message naming its replacement. The keys each release removed are recorded under *Breaking* in the
+[changelog](../../CHANGELOG.md), and `schemas/dartclaw.schema.json` validates a file offline in any schema-aware
+editor before the server is restarted.
+
 Two things are deliberately *not* refused, so an upgrade cannot cost you your boot:
 
 - Every key listed under **Deprecated Keys** below. Those load with a warning.
@@ -863,6 +909,11 @@ Two things are deliberately *not* refused, so an upgrade cannot cost you your bo
 
 The following configuration keys are deprecated. They still load, with a warning, and will be removed in a future
 version. Delete them from `dartclaw.yaml` at your convenience.
+
+These two tables are the live inventory of what the loader still tolerates: every entry in
+`ConfigMeta.toleratedLegacyKeys` appears here by its exact key path, and a fitness gate fails the build if one does
+not. A key's *removal* is recorded once in `CHANGELOG.md` under the version that removed it; what still loads is
+recorded here.
 
 | Deprecated Key | Use Instead | Notes |
 |---|---|---|
@@ -878,15 +929,16 @@ version. Delete them from `dartclaw.yaml` at your convenience.
 |---|---|
 | `automation.scheduled_tasks` | `scheduling.jobs` with `type: task` – entries are rewritten at load, so the schedule is unchanged |
 | `guard_audit.max_entries` | `guard_audit.max_retention_days` |
+| `channels.whatsapp.task_trigger`, `channels.signal.task_trigger`, `channels.google_chat.task_trigger` (whole subtrees) | `task_create` – the channel task-trigger grammar is gone |
 | `container.mounts` | – host paths are not mounted into agent containers from config |
 | `container.extra_args` | – the Docker argument vector comes from the security profile alone |
 | `container.mount_allowlist` | – same, and it was read by nothing after 0.24.2 |
-| `andthen.*` | – DartClaw no longer provisions AndThen skills |
-| `advisor.*` | – Run supervision is the workflow orchestration agent |
-| `guards.input_sanitizer.*` | `guards.content` – the classifier is the only injection judge |
-| `canvas.*` | – Removed in 0.18.0 |
-| `crowd_coding.*` | `features.thread_binding` plus `governance.crowd_coding` |
-| `delegation.*` | Define logical agents under `agent.agents`; start them with `sessions_spawn` and continue them with `sessions_send` |
+| `andthen` (whole subtree) | – DartClaw no longer provisions AndThen skills |
+| `advisor` (whole subtree) | – Run supervision is the workflow orchestration agent |
+| `guards.input_sanitizer` (whole subtree) | `guards.content` – the classifier is the only injection judge |
+| `canvas` (whole subtree) | – Removed in 0.18.0 |
+| `crowd_coding` (whole subtree) | `features.thread_binding` plus `governance.crowd_coding` |
+| `delegation` (whole subtree) | Define logical agents under `agent.agents`; start them with `sessions_spawn` and continue them with `sessions_send` |
 | `tasks.max_concurrent` | `providers.<id>.pool_size` – per-provider worker-lease capacity for background execution |
 
 ## Network Exposure Warning

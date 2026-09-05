@@ -71,7 +71,7 @@ class ProjectServiceImpl implements ProjectService {
   final CredentialsConfig _credentials;
   final EventBus? _eventBus;
   final ProjectGitRunner _gitRunner;
-  final HttpClient Function() _httpClientFactory;
+  final HttpClientFactory _httpClientFactory;
   final GitHubProbeRunner? _gitHubProbeRunner;
   final Logger _log;
 
@@ -100,7 +100,7 @@ class ProjectServiceImpl implements ProjectService {
     required CredentialsConfig credentials,
     EventBus? eventBus,
     ProjectGitRunner? gitRunner,
-    HttpClient Function()? httpClientFactory,
+    HttpClientFactory? httpClientFactory,
     GitHubProbeRunner? gitHubProbeRunner,
   }) : _dataDir = dataDir,
        _projectConfig = projectConfig,

@@ -241,9 +241,8 @@ class TaskWiring {
       currentDirectory: _runtimeCwd,
       dataDir: _dataDir,
     );
-    _taskExecutor.start();
     _postServerWired = true;
-    _log.fine('TaskExecutor started');
+    _log.fine('TaskExecutor wired');
   }
 
   /// Injects a push-back feedback delivery callback into [TaskReviewService].

@@ -214,6 +214,7 @@ void main() {
       List<String>? capturedExecArgs;
 
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-restricted',
         profileId: 'restricted',
@@ -278,6 +279,7 @@ void main() {
       List<String>? capturedExecArgs;
 
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-restricted-notools',
         profileId: 'restricted',
@@ -320,6 +322,7 @@ void main() {
       List<String>? capturedExecArgs;
 
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-workspace-placeholder',
         profileId: 'workspace',
@@ -359,6 +362,7 @@ void main() {
       addTearDown(() => stateDir.deleteSync(recursive: true));
 
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-restricted-nosdk',
         profileId: 'restricted',
@@ -400,6 +404,7 @@ void main() {
       List<String>? capturedExecArgs;
 
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-workspace-secrets',
         profileId: 'workspace',
@@ -796,6 +801,7 @@ void main() {
       final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
       addTearDown(() => stateDir.deleteSync(recursive: true));
       return ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-$profileId',
         profileId: profileId,
@@ -842,6 +848,7 @@ void main() {
       final stateDir = Directory.systemTemp.createTempSync('dartclaw-state-');
       addTearDown(() => stateDir.deleteSync(recursive: true));
       final containerManager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: const ContainerConfig(enabled: true),
         containerName: 'dartclaw-test1234-workspace',
         profileId: 'workspace',

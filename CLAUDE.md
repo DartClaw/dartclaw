@@ -48,8 +48,8 @@ Keep this root file lean – cross-cutting rules here, package-specific ones in 
 
 This table is the main registry of document locations relevant to development and project management. Used by AndThen skills and other skills / commands.
 
-| Topic | Location | When to read |
-|-------|----------|--------------|
+| Document Type | Location | When to read |
+|---------------|----------|--------------|
 | Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, session continuity notes. Check what's in flight before starting work |
 | Learnings | `dev/state/LEARNINGS.md` (bounded index, ≤150 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings --ceiling 150` (pass the ceiling explicitly – this index table has no `Ceiling` column for the script to read); entries for an already-sharded topic go into the shard file by hand, and shard graduation is a hand operation |
 | Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
@@ -158,7 +158,7 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 - **Deslop** – before adding non-trivial code, search for an existing implementation. For duplicate cleanup run `deslop . --output .deslop/deslop-report --no-fail-over`, inspect worst-first clusters by stable `id` in the JSON report, refactor one semantically valid cluster at a time, test, rescan. Never hide owned code or distort code to silence a finding; `exclude` is for unowned code, `report_hide` for generated code.
 
 ### Dart tooling
-- **Dart LSP plugin** (`https://github.com/tolo/coding-agent-toolkit/tree/main/plugins/dart-lsp`) spawns `dart language-server` – diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages. **Fix all diagnostics immediately**; run `dart analyze` before declaring work done. In a fresh checkout or git worktree, run `dart run dev/tools/embed_assets.dart` first – the embedded asset libraries are generated, not committed, and `lib/` imports them.
+- **Dart LSP plugin** (`https://github.com/tolo/coding-agent-toolkit/tree/main/plugins/dart-lsp`) spawns `dart language-server` – diagnostics, hover, goToDefinition, findReferences, call hierarchy across workspace packages. **Fix all diagnostics immediately**; run `dart analyze` before declaring work done. In a fresh checkout or git worktree, run `dart run dev/tools/embed_assets.dart` first – the embedded asset libraries are generated, not committed, and `lib/` imports them – and `dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile`, or `dart analyze` reports a missing `package:image` in that standalone tool.
 - **Dart MCP server is not active** – use Bash for Dart CLI commands; use the pub.dev JSON API for package searches.
 
 ### Parallels VMs (macOS host)

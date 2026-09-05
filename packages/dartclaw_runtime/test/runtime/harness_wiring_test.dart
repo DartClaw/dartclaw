@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_acp/dartclaw_acp.dart';
@@ -133,7 +134,7 @@ void main() {
     );
     try {
       await expectLater(
-        harnessWiring!.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called')),
+        harnessWiring!.wire(turnManagerGetter: () => throw UnimplementedError('serverRefGetter should not be called')),
         matcher,
       );
     } finally {
@@ -157,6 +158,50 @@ void main() {
     }
     return factory;
   }
+
+  test('S06 full harness wiring still delivers SSE frames', () async {
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude']));
+    final broadcast = harnessWiring!.sseBroadcast!;
+    final client = broadcast.subscribe();
+    final frame = client.stream.first;
+    broadcast.broadcast('budget_warning', {'percentage': 80});
+    expect(utf8.decode(await frame), 'event: budget_warning\ndata: {"percentage":80}\n\n');
+    await broadcast.dispose();
+  });
+
+  test('S06 scoped workers omit SSE and retain the headless logical-agent refusal', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [AgentDefinition(id: 'helper', description: 'Helper', prompt: 'Assist')],
+      ),
+    );
+    await wireStorageAndSecurity();
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 0,
+      harnessFactory: fakeFactory(['claude']),
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+      headless: true,
+      workflowProviderScope: const {},
+    );
+    expect(harnessWiring!.sseBroadcast, isNull);
+    await harnessWiring!.wire(turnManagerGetter: () => null);
+    expect(harnessWiring!.sseBroadcast, isNull);
+    final result = await harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
+      'agent': 'helper',
+      'message': 'Assist with this task',
+    });
+    expect(result['isError'], isTrue);
+    expect((result['content'] as List).first['text'], contains('Logical-agent sessions require the server surface'));
+    expect(createdHarnesses, isEmpty);
+  });
 
   test('direct config rejects a blank primary provider', () async {
     config = config.copyWith(agent: const AgentConfig(provider: ' '));
@@ -537,7 +582,7 @@ void main() {
       messageRedactor: MessageRedactor(),
       eventBus: eventBus,
     );
-    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
     wiredServer = composeServer(
       core: ServerCoreDeps(
         sessions: storage!.sessions,
@@ -712,7 +757,7 @@ void main() {
       messageRedactor: MessageRedactor(),
       eventBus: eventBus,
     );
-    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
     wiredServer = composeServer(
       core: ServerCoreDeps(
         sessions: storage!.sessions,
@@ -787,7 +832,7 @@ void main() {
       messageRedactor: MessageRedactor(),
       eventBus: eventBus,
     );
-    await harnessWiring!.wire(serverRefGetter: () => wiredServer);
+    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
     wiredServer = composeServer(
       core: ServerCoreDeps(
         sessions: storage!.sessions,

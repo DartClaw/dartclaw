@@ -97,6 +97,7 @@ void main() {
       },
     );
     final manager = ContainerManager(
+      ownerLabel: ContainerManager.ownerLabel(dataDir.path),
       config: const ContainerConfig(enabled: true, image: agentProbeImage),
       containerName: name,
       profileId: 'workspace',

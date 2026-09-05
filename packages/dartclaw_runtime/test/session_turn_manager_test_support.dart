@@ -64,6 +64,7 @@ class FakeTurnManager extends TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     Duration? turnTimeout,
+    TurnOrigin? origin,
   }) async {
     reserveCalled = true;
     if (_busy) {
@@ -234,6 +235,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     Duration? turnTimeout,
+    TurnOrigin? origin,
   }) async {
     _reservations += 1;
     if (_reservations == 2) {
@@ -259,6 +261,7 @@ final class QueuingFakeTurnManager extends FakeTurnManager {
       allowedTools: allowedTools,
       readOnly: readOnly,
       turnTimeout: turnTimeout,
+      origin: origin,
     );
   }
 }

@@ -246,7 +246,14 @@ void main() {
     test('registers channels before the first request without auto-connecting', () {
       final channelManager = ChannelManager(
         queue: MessageQueue(
-          dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
+          dispatcher: (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) async => 'ok',
         ),
         config: const ChannelConfig.defaults(),
       );
@@ -264,7 +271,14 @@ void main() {
     test('throws after the first served request', () async {
       final channelManager = ChannelManager(
         queue: MessageQueue(
-          dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
+          dispatcher: (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) async => 'ok',
         ),
         config: const ChannelConfig.defaults(),
       );

@@ -61,6 +61,18 @@ class ResolvedProviderTarget {
   });
 }
 
+/// The family default executable for [providerId] — what a lane spawns when
+/// neither `providers.<id>.executable` nor a harness registration names one.
+///
+/// [claudeExecutable] carries `server.claude_executable` where a config is in
+/// hand; the pre-config `dartclaw init` paths pass none.
+String defaultProviderExecutable(String providerId, {String claudeExecutable = ProviderIdentity.claude}) =>
+    switch (ProviderIdentity.family(providerId)) {
+      ProviderIdentity.claude => claudeExecutable,
+      ProviderIdentity.codex => ProviderIdentity.codex,
+      _ => providerId,
+    };
+
 /// Resolves the spawn target for [providerId] against [config].
 ///
 /// The executable is `providers.<id>.executable`, then the registered entry's,
@@ -81,11 +93,7 @@ ResolvedProviderTarget resolveProviderTarget(
   final executable =
       entry?.executable ??
       registeredEntry?.executable ??
-      switch (ProviderIdentity.family(providerId)) {
-        ProviderIdentity.claude => config.server.claudeExecutable,
-        ProviderIdentity.codex => 'codex',
-        _ => providerId,
-      };
+      defaultProviderExecutable(providerId, claudeExecutable: config.server.claudeExecutable);
   return ResolvedProviderTarget(
     providerId: providerId,
     executable: executable,

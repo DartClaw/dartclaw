@@ -127,6 +127,31 @@ void main() {
     });
   });
 
+  group('worker-state health projection', () {
+    // Named per value rather than derived, so the table states the intent the
+    // switch encodes: only a stopped or unreportable worker is bad news.
+    const expected = {
+      WorkerState.idle: 'healthy',
+      WorkerState.busy: 'healthy',
+      WorkerState.crashed: 'degraded',
+      WorkerState.stopped: 'unhealthy',
+    };
+
+    test('answers for every WorkerState value, and for a worker it cannot read', () {
+      expect(expected.keys, unorderedEquals(WorkerState.values));
+      expected.forEach((state, status) => expect(healthStatusForWorkerState(state), status, reason: state.name));
+      expect(healthStatusForWorkerState(null), 'degraded');
+    });
+
+    test('badges every word it produces through one mapping', () {
+      expect(healthStatusBadgeVariant('healthy'), 'success');
+      expect(healthStatusBadgeVariant('degraded'), 'warning');
+      expect(healthStatusBadgeVariant('unhealthy'), 'error');
+      // A word from outside the vocabulary is unreadable, not healthy.
+      expect(healthStatusBadgeVariant('unavailable'), 'error');
+    });
+  });
+
   group('healthHandler', () {
     test('GET /health returns JSON 200 with expected fields', () async {
       final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);

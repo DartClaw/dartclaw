@@ -10,13 +10,14 @@ class ProjectsRemoveCommand extends ConnectedCommand {
     super.config,
     super.apiClient,
     super.writeLine,
+    super.stderrLine,
     super.exitFn,
     bool Function()? hasTerminal,
     String? Function()? readLine,
   }) : _hasTerminal = hasTerminal ?? (() => stdin.hasTerminal),
        _readLine = readLine ?? stdin.readLineSync {
     argParser
-      ..addFlag('yes', negatable: false, help: 'Skip the confirmation prompt')
+      ..addFlag('yes', abbr: 'y', negatable: false, help: 'Skip the confirmation prompt')
       ..addFlag('json', negatable: false, help: 'Output as JSON');
   }
 
@@ -29,8 +30,14 @@ class ProjectsRemoveCommand extends ConnectedCommand {
   @override
   Future<void> run() => runConnected((apiClient) async {
     final projectId = requirePositionalArg('Project ID required');
-    if (!_shouldProceed(projectId)) {
-      writeLine('Project removal aborted.');
+    if (!confirmDestructive(
+      yes: argResults!['yes'] as bool,
+      hasTerminal: _hasTerminal(),
+      readLine: _readLine,
+      prompt: 'Remove project $projectId? This also removes related tasks, worktrees, and runtime state.',
+      stderrLine: stderrLine,
+    )) {
+      stderrLine('Project removal aborted.');
       exitFn(1);
     }
 
@@ -41,13 +48,4 @@ class ProjectsRemoveCommand extends ConnectedCommand {
       writeLine('Removed project $projectId.');
     }
   });
-
-  bool _shouldProceed(String projectId) {
-    if (argResults!['yes'] as bool || !_hasTerminal()) {
-      return true;
-    }
-    writeLine('Remove project $projectId? This also removes related tasks, worktrees, and runtime state. [y/N]');
-    final answer = _readLine()?.trim().toLowerCase();
-    return answer == 'y' || answer == 'yes';
-  }
 }

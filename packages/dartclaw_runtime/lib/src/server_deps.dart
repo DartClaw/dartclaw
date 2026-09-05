@@ -153,6 +153,13 @@ class ServerObservabilityDeps {
   final SearchBackend? searchBackend;
   final MemoryCorpusService? memoryCorpus;
   final ScheduleService? scheduleService;
+
+  /// Loads a written `scheduling.jobs` list into [scheduleService].
+  ///
+  /// Handed to every surface that writes through `ScheduleMutationService`, so
+  /// the tool, the jobs API and the scheduling page all report a job the
+  /// scheduler holds rather than one waiting for a restart.
+  final Future<void> Function()? schedulingJobsApplier;
   final WorkspaceGitSync? gitSync;
   final EventBusSseBridge? eventBusSseBridge;
 
@@ -169,6 +176,7 @@ class ServerObservabilityDeps {
     this.searchBackend,
     this.memoryCorpus,
     this.scheduleService,
+    this.schedulingJobsApplier,
     this.gitSync,
     EventBusSseBridge? eventBusSseBridge,
   }) : eventBus = eventBus,
@@ -250,6 +258,7 @@ void registerServerSystemPages(
     searchBackendGetter: () => server._observability.searchBackend,
     memoryCorpusGetter: () => server._observability.memoryCorpus,
     scheduleServiceGetter: () => server._observability.scheduleService,
+    schedulingJobsApplier: server._observability.schedulingJobsApplier,
     kgServiceGetter: () => server._web.kgService,
     config: config,
     auditReader: server._core.dataDir != null ? AuditLogReader(dataDir: server._core.dataDir!) : null,

@@ -70,9 +70,11 @@ The budget resets at midnight in the configured timezone. Both fixed UTC offsets
 **Actions**:
 
 - `block` — once the day's token total reaches the cap, subsequent turns are refused until the next reset.
-- `warn` — turns continue, but an alert is emitted once the cap is exceeded.
+- `warn` — turns continue, but an alert is emitted once the cap is exceeded. The day's warning fires once: if it
+  was already spent at 80%, reaching 100% is silent.
 
-A soft warning is emitted at 80% of the cap regardless of `action`. This warning state is in-memory only and resets when the server restarts.
+A soft warning is emitted at 80% of the cap regardless of `action`. The warning is deduplicated through the
+persisted daily aggregate marker, so it survives a server restart — restarting does not re-arm the day's warning.
 
 Daily budgets apply to everyone, including admin senders. This is deliberate: emergency overrides exist for control flow (`/stop`), not for spending.
 

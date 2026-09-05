@@ -194,6 +194,26 @@ another_unknown:
     });
   });
 
+  group('symlinked config', () {
+    test('writes through the link to its target and keeps the link', () async {
+      final realPath = '${tempDir.path}/versioned/dartclaw.yaml';
+      File(realPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('port: 3000\n');
+      final linkPath = '${tempDir.path}/link.yaml';
+      Link(linkPath).createSync(realPath);
+      final linked = ConfigWriter(configPath: linkPath);
+      addTearDown(linked.dispose);
+
+      await linked.updateFields({'port': 3001});
+
+      expect(FileSystemEntity.isLinkSync(linkPath), isTrue, reason: 'the link must survive the write');
+      expect(File(realPath).readAsStringSync(), contains('port: 3001'));
+      expect(File(linked.backupPath).readAsStringSync(), contains('port: 3000'));
+      expect(File('$realPath.tmp').existsSync(), isFalse);
+    }, skip: Platform.isWindows ? 'symlink creation needs a privilege on Windows' : false);
+  });
+
   group('concurrent writes', () {
     test('concurrent writes are serialized and both applied', () async {
       File(configPath).writeAsStringSync('port: 3000\nhost: localhost\n');

@@ -25,6 +25,7 @@
 - Public API exports use explicit `show` clauses in `lib/dartclaw_acp.dart`.
 - A non-empty turn system prompt is prepended to the ACP message together with bounded replay history; model and effort overrides remain unsupported.
 - `AcpHarness` gives stdout exclusively to the JSON-RPC peer and reads stderr separately. Route decode and stream errors through `_failStream`, which accepts only the currently owned process, fails the active turn with `ProcessStreamException`, closes the peer before serialized teardown and ignores teardown-induced duplicate faults. Never replace that path with a logging-only `onError`.
+- Wire shape is pinned to ACP 0.13.4 (the `agent-client-protocol-schema` crate on docs.rs): `initialize` sends `clientCapabilities` (boolean `terminal`; `fs.readTextFile` / `fs.writeTextFile` booleans inside the nested filesystem capability), `session/new` answers `result.sessionId`, `session/update` carries `params.update` discriminated by `sessionUpdate` with assistant text wrapped as `update.content.content` `{type: "text", text}`, and `tool_call` / `tool_call_update` use `toolCallId`, `title`, `status`, `rawInput`, `rawOutput`. The `test/` fixtures assert these names. When bumping the protocol version, read the crate's `agent.rs` / `client.rs` sources rather than prose about newer method names – an earlier lookup summary that omitted the `ContentChunk` wrapper had to be corrected against them.
 
 ## Testing
 

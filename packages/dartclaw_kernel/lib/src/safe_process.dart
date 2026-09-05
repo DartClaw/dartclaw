@@ -192,25 +192,6 @@ abstract final class SafeProcess {
     );
   }
 
-  /// Starts a long-lived `git` subprocess with [arguments] under the credential-plan env policy.
-  static Future<Process> gitStart(
-    List<String> arguments, {
-    required ProcessEnvironmentPlan plan,
-    String? workingDirectory,
-    Map<String, String>? baseEnvironment,
-    bool noSystemConfig = false,
-    ProcessStartMode mode = ProcessStartMode.normal,
-  }) {
-    return start(
-      'git',
-      arguments,
-      env: EnvPolicy.credentialPlan(plan: plan, noSystemConfig: noSystemConfig),
-      baseEnvironment: baseEnvironment,
-      workingDirectory: workingDirectory,
-      mode: mode,
-    );
-  }
-
   /// Resolves [policy] against [baseEnvironment] (default: the parent process
   /// environment) into the map a spawn would receive.
   ///

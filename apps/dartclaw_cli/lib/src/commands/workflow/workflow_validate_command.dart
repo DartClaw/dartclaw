@@ -1,3 +1,5 @@
+import '../command_path.dart';
+
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -62,7 +64,7 @@ class WorkflowValidateCommand extends Command<void> {
       'Exits 0 for clean or warnings-only definitions, 1 for errors.';
 
   @override
-  String get invocation => '${runner?.executableName} workflow validate <path>';
+  String get invocation => '${commandPath(this)} <path>';
 
   @override
   Future<void> run() async {

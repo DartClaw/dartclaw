@@ -2,14 +2,14 @@
 name: dartclaw-merge-resolve
 description: Resolve a story-branch merge conflict against the integration branch via mechanical merge + LLM-driven semantic resolution + verification, committing all-or-nothing.
 argument-hint: ""
-user-invocable: false
+disable-model-invocation: true
 ---
 
 # DartClaw Merge Resolve
 
 LLM-driven merge conflict resolution for DartClaw story-branch worktrees. Runs exclusively via the bang (`!`) operator — no Dart-side git logic.
 
-> **DC-NATIVE SKILL — SCOPE NOTE** (ADR-025): This skill implements DartClaw-internal plumbing (agent-resolved merge, FR1). It is workflow-internal and not user-invocable directly. Bang-operator (`!command`) semantics are identical on Claude Code and Codex — verified by S57 SPIKE-1.
+> **DC-NATIVE SKILL — SCOPE NOTE** (ADR-025): This skill implements DartClaw-internal plumbing (agent-resolved merge, FR1). It is workflow-internal: the host invokes it by slash command, it is hidden from the interactive menu and never model-invoked (`disable-model-invocation: true`; `user-invocable: false` would make Claude Code refuse the slash form). Bang-operator (`!command`) semantics are identical on Claude Code and Codex — verified by S57 SPIKE-1.
 
 ## INPUTS — Environment Variables
 
@@ -34,7 +34,6 @@ Before doing anything else, check that the three required env vars are set:
 If any required var is unset (output contains `ENV_MISSING_*`), terminate immediately with:
 - `merge_resolve.outcome`: `"failed"`
 - `merge_resolve.error_message`: `"MERGE_RESOLVE_INTEGRATION_BRANCH unset"` (or the appropriate var name)
-- `merge_resolve.conflicted_files`: `[]`
 - `merge_resolve.resolution_summary`: `""`
 - **Do not proceed** to any git operations.
 
@@ -47,7 +46,7 @@ Run both commands to understand the current state:
 !git diff --name-only --diff-filter=U
 ```
 
-The output of `!git diff --name-only --diff-filter=U` is the **canonical source** for `merge_resolve.conflicted_files`. Collect those paths; sort them lexicographically. If no paths are returned, `conflicted_files` is `[]`.
+The paths `!git diff --name-only --diff-filter=U` returns are the files to resolve in STEP 3. They are not an output: the workflow host records the conflicted set from its own promotion attempt.
 
 ## STEP 2 — Mechanical Merge
 
@@ -57,7 +56,7 @@ Attempt a mechanical merge of the integration branch:
 !sh -c 'git merge "$MERGE_RESOLVE_INTEGRATION_BRANCH" --no-edit && echo MERGE_OK || echo MERGE_FAIL'
 ```
 
-- If output is `MERGE_OK`: no conflict markers were produced — set `merge_resolve.conflicted_files = []` and proceed directly to **STEP 4** (verification).
+- If output is `MERGE_OK`: no conflict markers were produced — proceed directly to **STEP 4** (verification).
 - If output is `MERGE_FAIL`: conflict markers were produced — proceed to **STEP 3** (semantic resolution).
 
 **Note**: `!git merge "$MERGE_RESOLVE_INTEGRATION_BRANCH" --no-edit` is the canonical merge invocation. Do NOT use `git merge --abort`, `git reset --hard`, or `git clean -fd` — cleanup is plumbing's responsibility (BPC-29).
@@ -75,7 +74,7 @@ Accumulate reasoning notes throughout; these become `merge_resolve.resolution_su
 
 ## STEP 4 — Verification
 
-Run the project's applicable verification commands — formatting, static analysis / linting, type checks, tests — using whatever invocations the project documents (CLAUDE.md, AGENTS.md, contributor docs, `pyproject.toml`/`pubspec.yaml`/`package.json` scripts, etc.). All applicable checks must pass; pre-existing failures unrelated to this merge must be explicitly recorded in `merge_resolve.verification_notes`. If the project documents no verification commands, fall back to markers + `git diff --check` only.
+Run the project's applicable verification commands — formatting, static analysis / linting, type checks, tests — using whatever invocations the project documents (CLAUDE.md, AGENTS.md, contributor docs, `pyproject.toml`/`pubspec.yaml`/`package.json` scripts, etc.). All applicable checks must pass; pre-existing failures unrelated to this merge must be explicitly recorded in `merge_resolve.resolution_summary`. If the project documents no verification commands, fall back to markers + `git diff --check` only.
 
 ## STEP 5 — Internal Remediation Loop
 
@@ -89,7 +88,6 @@ When any verification check fails:
 **Token ceiling exhaustion**: If you detect that you are approaching the token ceiling and verification is still failing, terminate with:
 - `merge_resolve.outcome`: `"failed"`
 - `merge_resolve.error_message`: `"token_ceiling exceeded at <stage>"` where `<stage>` is one of `format`, `analyze`, `test`, or `marker-resolution` (whichever was active when the budget ran out)
-- `merge_resolve.conflicted_files`: the paths from STEP 1
 - `merge_resolve.resolution_summary`: whatever partial reasoning was produced
 - **Skip the commit step entirely — do not proceed to STEP 6.**
 
@@ -110,14 +108,18 @@ After a successful commit, emit the final output (STEP 7) with `outcome: "resolv
 
 ## STEP 7 — Emit Structured Output
 
-Emit all four output fields on **every** terminal path. If a previous attempt failed, correct the named
+Emit all three output fields on **every** terminal path. If a previous attempt failed, correct the named
 failure before returning; only name a path for a file that already exists on disk.
+
+`merge_resolve.outcome` is a closed enum: exactly `resolved`, `failed`, or `cancelled`. Any other value,
+or an omitted field, fails the attempt with the key named — it is never interpreted as a failed resolution.
+
+`merge_resolve.error_message` is a string or JSON `null` — never the four-character string `"null"`.
 
 ### Success path (`outcome: "resolved"`)
 
 ```
 merge_resolve.outcome: resolved
-merge_resolve.conflicted_files: ["path/a.dart", "path/b.dart"]   ← sorted lexicographically from STEP 1; [] if mechanical merge was clean
 merge_resolve.resolution_summary: <non-empty prose: what was resolved and why>
 merge_resolve.error_message: null
 ```
@@ -126,7 +128,6 @@ merge_resolve.error_message: null
 
 ```
 merge_resolve.outcome: failed
-merge_resolve.conflicted_files: ["..."]   ← from STEP 1
 merge_resolve.resolution_summary: <whatever partial reasoning was produced; "" only if none>
 merge_resolve.error_message: <non-empty: e.g. "token_ceiling exceeded at format", "MERGE_RESOLVE_INTEGRATION_BRANCH unset">
 ```
@@ -135,7 +136,6 @@ merge_resolve.error_message: <non-empty: e.g. "token_ceiling exceeded at format"
 
 ```
 merge_resolve.outcome: cancelled
-merge_resolve.conflicted_files: ["..."]   ← best available from STEP 1, or [] if cancelled before detection
 merge_resolve.resolution_summary: <partial reasoning; "" only if none>
 merge_resolve.error_message: cancelled by harness
 ```

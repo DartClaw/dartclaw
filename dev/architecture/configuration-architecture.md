@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation.
+**Current through**: 0.25.1 versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation.
 
 ---
 
@@ -309,13 +309,18 @@ This rule answers *coverage* — can the registry describe this path — and it 
 
 ### Published JSON Schema
 
-`ConfigMeta.toJsonSchema()` projects the whole registry into a JSON Schema (draft 2020-12) over `dartclaw.yaml`, committed at `schemas/dartclaw.schema.json` so an operator can attach it in a schema-aware editor and see an unknown key, a wrong type, an out-of-range number or an invalid enum value before the server is started.
+`ConfigMeta.toJsonSchema(version: version)` projects the whole registry into a JSON Schema (draft 2020-12) over `dartclaw.yaml`, committed at `schemas/dartclaw.schema.json` so an operator can attach it in a schema-aware editor and see an unknown key, a wrong type, an out-of-range number or an invalid enum value before the server is started.
 
 ```
 packages/dartclaw_kernel/lib/src/config_meta/json_schema.dart   # the projection
 packages/dartclaw_kernel/tool/generate_config_schema.dart       # writer, and --check for the gate
 schemas/dartclaw.schema.json                                    # the committed artifact
 ```
+
+`ConfigMeta.jsonSchemaSource(version: version)` owns the JSON bytes for both the generator and the offline
+`dartclaw config schema` command. The generator reads the kernel pubspec version; the CLI and `init` use
+`dartclawVersion`, which the workspace version gate holds in lockstep. New `init` configs begin with a modeline
+pointing to that release URL; existing headers are preserved. A version bump requires schema regeneration.
 
 **Generated only.** The artifact is a third representation of the same field metadata, so it may never be hand-edited: `dev/tools/fitness/run_all.sh` runs the generator's `--check`, which fails on any byte difference — and on a missing file — naming the artifact and the regeneration command. Output is timestamp-free and key-sorted at every level, so reordering declarations inside `ConfigMeta` leaves the bytes identical.
 
@@ -325,7 +330,7 @@ curates a capped orientation table without hiding any non-core field. The fitnes
 drift in both directions, and that each published leaf has either a production consumer or a rationale naming its
 indirect consumer.
 
-**Closed vocabulary.** Exactly `$schema`, `title`, `description`, `type`, `properties`, `additionalProperties`, `items`, `enum`, `minimum`, `maximum` — asserted closed by schema position, not by key name (real config keys are called `default`, `title`, `description` and `type`). No `required` and no `default`: `required` would need the per-variant conditional keywords the vocabulary deliberately excludes (see *What stays runtime-only* below — several fields do have required keys, and the loader diagnoses them), and `FieldMeta` carries no default, so emitting one would invent a second source. No `$id`, because nothing is published at a URL yet.
+**Closed vocabulary.** Exactly `$id`, `$schema`, `title`, `description`, `type`, `properties`, `additionalProperties`, `items`, `enum`, `minimum`, `maximum` — asserted closed by schema position, not by key name (real config keys are called `default`, `title`, `description` and `type`). No `required` and no `default`: `required` would need the per-variant conditional keywords the vocabulary deliberately excludes (see *What stays runtime-only* below — several fields do have required keys, and the loader diagnoses them), and `FieldMeta` carries no default, so emitting one would invent a second source. `$id` appears only at the root and names the release-tag URL returned by `ConfigMeta.jsonSchemaUrl(version)`.
 
 **Mutability is description, never a keyword.** Every registered field is emitted regardless of tier — the YAML file stays authoritative, so `guards.enabled`, `credentials.*` and the `channels` block are legal to write there and only the API refuses them. The tier rides in the `description` as one of four fixed suffixes (` (live)`, ` (reload)`, ` (restart required)`, ` (file-only, not settable via API or CLI)`), and an entry field inherits its container's. No `readOnly`, `writeOnly` or `deprecated` is emitted.
 
@@ -354,9 +359,10 @@ message; or (ii) DartClaw's own examples or testing profiles have carried it in 
 added to make a test pass — a path that must load and is not legacy belongs in `fields`.
 
 Two gates hold the set honest, both in `packages/dartclaw_kernel/test/config_meta_test.dart`: its membership is
-asserted against a literal, so every addition is a deliberate edit; and every row's path must appear in the
-CHANGELOG's `### Deprecated` section under `## [Unreleased]`, so a deferred break stays announced rather than becoming
-permanent silence.
+asserted against a literal, so every addition is a deliberate edit; and every row's path must appear verbatim under
+`## Deprecated Keys` in `docs/guide/configuration.md`, so a deferred break stays announced rather than becoming
+permanent silence. That guide section is the one live inventory of what the loader tolerates; `CHANGELOG.md` records a
+removal once, under the version that removed it, and carries no rolling copy.
 
 **This map is the named receiving artifact for deregistration.** A story that removes a path from `fields` adds its row
 here in the same change, and the enforcing artifact is the membership test above. Deregistering without a row turns an
@@ -635,7 +641,7 @@ packages/dartclaw_kernel/lib/src/config_notifier.dart
 
 `restartRequiredSections` reflects the most recent successful reload alone; a reload with no restart-tier change empties it, and a reload rejected by an admission guard leaves it untouched.
 
-**Registration admission**: `register()` throws `ArgumentError` when a service's watch key resolves to a restart-tier section — that delta is never produced, so the watcher could never fire. It is one half of "a watcher that can never fire cannot register"; the other half — a section absent from the table and therefore never compared, which is what left `AlertRouter` dead for a release — is held by the `config_section_tier_coverage` fitness gate. A watch key whose first segment matches no declared section is still admitted.
+**Registration admission**: `register()` throws `ArgumentError` when a service's watch key resolves to a restart-tier section, and when its first segment names no section in the table at all — neither delta is ever produced, so the watcher could never fire. The undeclared-section refusal names the key, because the trap is the namespace: watch keys use the `DartclawConfig` field name, so a `guards.*` watcher sits dead where a `security.*` one fires. The complementary gap — a section on `DartclawConfig` that is absent from the table and therefore never compared, which is what left `AlertRouter` dead for a release — is held by the `config_section_tier_coverage` fitness gate.
 
 **Non-reloadable field handling**: `server.port`, `server.host`, and `server.data_dir` are explicitly excluded. If they change, a warning is logged but the delta does not include `server.*` (unless other server fields also changed).
 
@@ -707,7 +713,8 @@ Controlled by `gateway.reload.mode`:
 1. Trigger received (file-watch on all platforms; SIGUSR1 on POSIX)
 2. `loadDartclawConfig()` re-reads YAML from disk and parses every channel section
 3. `ConfigNotifier.reload(newConfig)` computes delta and notifies services
-4. If reload fails (parse error), the existing config is preserved and error is logged
+4. The summary logs the changed sections, and — when `restartRequiredSections` is non-empty — the sections now persisted but waiting on a restart; without that line a restart-tier-only edit reads as "no reloadable changes detected"
+5. If reload fails (parse error), the existing config is preserved and error is logged
 
 ### What's Hot-Reloadable vs. What Requires Restart
 
@@ -798,6 +805,11 @@ final myConfig = config.extension<MyCustomConfig>('myCustomSection');
 ---
 
 ## 8. Credential Management
+
+Config loads merge named-store credentials by default. Diagnostic callers pass `resolveStoredCredentials: false`
+through the existing loader chain to read the declared view, even after registration. That load never invokes the
+store callback. Named-store config reads and subscription diagnostic reads use guarded `readOnly` factories;
+provisioning remains with explicit store writers.
 
 Credentials follow a reference-based model. The `credentials:` config section may hold a literal but should normally
 reference environment variables; `dartclaw secrets` keeps named values outside `dartclaw.yaml` entirely. Consumers

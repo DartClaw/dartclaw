@@ -2,7 +2,7 @@
 name: dartclaw-discover-andthen-plan
 description: Discover AndThen PRD, plan, and story-spec state for plan-and-implement workflows.
 argument-hint: "[project-root-or-prd-path]"
-user-invocable: false
+disable-model-invocation: true
 ---
 
 # Discover AndThen Plan

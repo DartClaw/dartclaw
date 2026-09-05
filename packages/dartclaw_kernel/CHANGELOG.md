@@ -1,15 +1,3 @@
-All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_kernel`.
+# Changelog
 
-## Unreleased
-
-### Changed
-
-- Formed `dartclaw_kernel` from the models, configuration, and security packages without changing their behaviour.
-- Removed the unused security-to-models dependency and the cross-package re-export chain.
-
-## 0.9.0
-
-### Added
-- Extracted `ConfigMeta`, `ConfigValidator`, `ConfigWriter`, and `ScopeReconciler`
-  from `dartclaw_server`
-- Added the public `dartclaw_config` library entrypoint and package test suite
+Release history for this package is recorded in the repository-level [CHANGELOG.md](../../CHANGELOG.md), one section per DartClaw release. This file exists for package-layout convention only; per-package version sections will be cut from the root changelog if the package is ever published to pub.dev (see `dev/adrs/008-sdk-publishing-strategy.md`).

@@ -783,6 +783,7 @@ final class _CapturingTurnRunner extends TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     Duration? turnTimeout,
+    TurnOrigin? origin,
   }) async {
     lastDirectory = directory;
     lastPromptScope = promptScope;
@@ -852,6 +853,7 @@ class BusyOnceTurnManager extends TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     Duration? turnTimeout,
+    TurnOrigin? origin,
   }) async {
     if (_busyOnce) {
       _busyOnce = false;

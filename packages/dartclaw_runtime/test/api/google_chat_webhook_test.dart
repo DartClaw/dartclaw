@@ -63,7 +63,7 @@ ChannelManager _buildChannelManager({
   final queue = MessageQueue(
     debounceWindow: Duration.zero,
     maxConcurrentTurns: 1,
-    dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async {
+    dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async {
       final dispatched = ChannelMessage(
         id: sessionKey,
         channelType: ChannelType.googlechat,

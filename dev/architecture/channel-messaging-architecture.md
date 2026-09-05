@@ -130,7 +130,7 @@ class ChannelManager {
 
 ## 3. Inbound Message Pipeline
 
-The full inbound flow from raw platform event to agent turn. Access control applies to the three gated paths only (WhatsApp webhook, Signal SSE, Google Chat webhook); the Google Chat Space Events Pub/Sub dispatch enters at `ChannelManager.handleInboundMessage` and skips every gate below (TD-123):
+The full inbound flow from raw platform event to agent turn. Access control runs on every path: the WhatsApp webhook, Signal SSE and the Google Chat webhook run the gate in full, and the Google Chat Space Events Pub/Sub dispatch runs it with the mention stage off (un-mentioned space traffic is that feature's purpose) before reaching `ChannelManager.handleInboundMessage`:
 
 ```
                      Webhook POST / Pub/Sub Pull / SSE Event
@@ -223,7 +223,7 @@ The full inbound flow from raw platform event to agent turn. Access control appl
 
 2. **Channel adapter normalizes** -- Each channel implementation parses the raw payload and produces a `ChannelMessage`. Bot-originated messages are filtered at this stage.
 
-3. **Access control** -- WhatsApp, Signal and the Google Chat webhook all run the same `ChannelInboundGate.evaluate` in `dartclaw_core`: DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`), group messages pass through `GroupAccessMode` checks, and group messages are then checked against `MentionGating`. The gate is pure -- it returns a `ChannelInboundDecision` naming the admitting or dropping stage, and each channel keeps its own drop logging and pairing effect (WhatsApp and Signal log, Google Chat posts a pairing code into the space). An absent `DmAccessController` or `MentionGating` admits at that stage rather than denying. **The Google Chat Space Events Pub/Sub dispatch (§7) is the exception: it reaches `handleInboundMessage` with no DM, group or mention gating at all -- see TD-123.**
+3. **Access control** -- WhatsApp, Signal and the Google Chat webhook all run the same `ChannelInboundGate.evaluate` in `dartclaw_core`: DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`), group messages pass through `GroupAccessMode` checks, and group messages are then checked against `MentionGating`. The gate is pure -- it returns a `ChannelInboundDecision` naming the admitting or dropping stage, and each channel keeps its own drop logging and pairing effect (WhatsApp and Signal log, Google Chat posts a pairing code into the space). An absent `DmAccessController` or `MentionGating` admits at that stage rather than denying. The Google Chat Space Events Pub/Sub dispatch (§7) runs the same gate with the mention stage off and acks a refused message rather than nacking it.
 
 4. **Mention gating** -- Applied inside the gate, to group messages only. If `requireMention` is true and the bot's JID is not in `mentionedJids` or text patterns, the message is dropped.
 
@@ -248,6 +248,12 @@ Introduced in 0.12 (Crowd Coding), thread binding enables channel threads (e.g.,
 be routed to a specific task session. It is opt-in through `features.thread_binding.enabled`; the runtime creates the
 binding store and enables binding commands, tools, notifications, and routing only when that key is true.
 
+`supportsThreadBinding(channelType)` in `thread_binding.dart` is the single authority for which channels can hold a
+binding, and it answers Google Chat alone — the one channel that stamps `metadata['threadName']`, the sole input to
+`extractThreadId`. Every writer honours it: `/bind` keys off `extractThreadId` directly, `task_bind` narrows its
+`channel_type` enum through it, `POST /api/tasks/<id>/bindings` rejects on it, and `ThreadBindingStore.load()` drops
+(and rewrites away) persisted rows that fail it. A binding the router cannot resolve is never written.
+
 ### 4.1 Data Model
 
 ```
@@ -270,7 +276,7 @@ In-memory `Map<String, ThreadBinding>` backed by `thread-bindings.json` with ato
 
 ### 4.3 ThreadBindingRouter
 
-Stateless routing helper used by `ChannelTaskBridge`. Extracts `threadId` from `message.metadata['threadName']`, looks up the binding in the store, and routes the message to the bound session key if found.
+Stateless routing helper used by `ChannelTaskBridge`. Extracts `threadId` from `message.metadata['threadName']` via `extractThreadId`, looks up the binding in the store, and routes the message to the bound session key if found. `extractThreadId` is also what `/bind` and `/unbind` key on, so the read and write sides cannot disagree about what a binding is keyed by.
 
 ### 4.4 ThreadBindingLifecycleManager
 
@@ -449,7 +455,7 @@ Google Chat is the most complex channel integration, with two ingest paths and a
 
 **Webhook** -- Google Chat sends HTTP POST to a configured endpoint. `GoogleChatWebhookHandler` and `GoogleChatJwtVerifier` in `dartclaw_google_chat` authenticate the JWT, parse the payload, apply access control and mention gating, then forward to `ChannelManager`. The handler covers `MESSAGE`, `ADDED_TO_SPACE`, `REMOVED_FROM_SPACE`, `CARD_CLICKED` and `APP_COMMAND`.
 
-**Pub/Sub** -- `PubSubClient` polls a Cloud Pub/Sub subscription for CloudEvent messages delivered by Google Workspace Events API. `CloudEventAdapter` converts these into `ChannelMessage` objects. Supports `message.v1.created` and `message.v1.batchCreated` event types.
+**Pub/Sub** -- `PubSubClient` polls a Cloud Pub/Sub subscription for CloudEvent messages delivered by Google Workspace Events API. `CloudEventAdapter` converts these into `ChannelMessage` objects, and `GoogleChatSpaceEventsWiring` runs the inbound gate with the mention stage off before forwarding to `ChannelManager`; a refused message is acked, not nacked. Supports `message.v1.created` and `message.v1.batchCreated` event types.
 
 ### 7.2 Authentication
 

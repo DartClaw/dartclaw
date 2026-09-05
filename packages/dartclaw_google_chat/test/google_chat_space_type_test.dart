@@ -26,6 +26,16 @@ void main() {
     test('a non-string deprecated key falls through to the current key', () {
       expect(resolveSpaceType(const {'type': 42, 'spaceType': 'SPACE'}), 'SPACE');
     });
+
+    // The Space Events path proves its space kind by construction (only named
+    // spaces carry subscriptions), so it may widen the fallback — but nothing
+    // else about the resolution changes with it.
+    test('an explicit fallback applies only when no usable key is present', () {
+      expect(resolveSpaceType(null, fallback: 'SPACE'), 'SPACE');
+      expect(resolveSpaceType(const {'name': 'spaces/AAAA'}, fallback: 'SPACE'), 'SPACE');
+      expect(resolveSpaceType(const {'spaceType': 'DIRECT_MESSAGE'}, fallback: 'SPACE'), 'DM');
+      expect(resolveSpaceType(const {'type': 'ROOM'}, fallback: 'SPACE'), 'ROOM');
+    });
   });
 
   group('resolveGroupJid', () {

@@ -24,7 +24,11 @@ class RecordingMessageQueue extends MessageQueue {
     super.isAdmin,
     this.forwardToSuper = false,
     this.onEnqueue,
-  }) : super(dispatcher: dispatcher ?? ((sessionKey, message, {senderJid, senderDisplayName}) async => 'ok'));
+  }) : super(
+         dispatcher:
+             dispatcher ??
+             ((sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => 'ok'),
+       );
 
   final bool forwardToSuper;
   final RecordingMessageQueueEnqueueCallback? onEnqueue;

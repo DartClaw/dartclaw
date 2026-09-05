@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # Release readiness check — runs the automatable pre-tag gates from CLAUDE.md
-# § Release Preparation. Manual gates are listed at the end as reminders; they
+# § Release Preparation, then verifies that CI itself was green on this exact
+# commit (the local host runs neither the Linux container job nor the Windows
+# release matrix). Manual gates are listed at the end as reminders; they
 # require provider credentials, a running server, or external platforms.
 #
 # Usage:
@@ -32,7 +34,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -167,7 +169,38 @@ else
   tail -40 /tmp/release_check_fitness.log | sed 's/^/        /'
 fi
 
-section "10. Whitespace errors"
+section "10. Green CI run on this exact commit"
+# This script runs on a developer host, which never executes the Linux
+# `Container boundary` job or the Windows release matrix. Three 0.25.0 tag
+# builds went red after it reported all-clear, so a green local run is no
+# longer allowed to stand in for CI. Every job is required by name — a run
+# where one was skipped must not read as coverage — and `--commit` needs the
+# full SHA, which is why `git rev-parse` is not abbreviated.
+ci_sha="$(git rev-parse HEAD)"
+if ! command -v gh > /dev/null 2>&1; then
+  fail "gh CLI not installed — cannot verify the Checks run on $ci_sha"
+else
+  ci_run_id="$(gh run list --workflow Checks --commit "$ci_sha" --limit 1 \
+    --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId' 2>/tmp/release_check_ci.log)"
+  if [[ -z "$ci_run_id" ]]; then
+    fail "no successful Checks run for $ci_sha — push the branch and let CI finish before squashing"
+    sed 's/^/        /' /tmp/release_check_ci.log
+  else
+    ci_jobs="$(gh run view "$ci_run_id" --json jobs --jq '.jobs[] | .name + "=" + .conclusion' 2>/tmp/release_check_ci.log)"
+    missing=()
+    for required_job in "Check" "Container boundary" "PowerShell scripts"; do
+      grep -qx "$required_job=success" <<< "$ci_jobs" || missing+=("$required_job")
+    done
+    if [[ ${#missing[@]} -eq 0 ]]; then
+      pass "Checks run $ci_run_id green on $ci_sha (all required jobs)"
+    else
+      fail "Checks run $ci_run_id on $ci_sha is missing a green job: ${missing[*]}"
+      printf '%s\n' "$ci_jobs" | sed 's/^/        /'
+    fi
+  fi
+fi
+
+section "11. Whitespace errors"
 if git diff --check > /tmp/release_check_whitespace.log 2>&1; then
   pass "no whitespace errors"
 else

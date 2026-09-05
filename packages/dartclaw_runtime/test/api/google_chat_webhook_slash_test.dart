@@ -314,7 +314,7 @@ void main() {
     expect(dispatchedMessage, isNull);
   });
 
-  test('slash commands bypass DM access control checks', () async {
+  test('slash commands are refused by DM access control checks', () async {
     handler = _buildHandler(
       taskService: tasks,
       sessionService: sessions,
@@ -339,11 +339,10 @@ void main() {
       'user': {'name': 'users/999', 'displayName': 'Mallory', 'type': 'HUMAN'},
     });
 
-    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
-
+    // A denied sender gets the same empty acknowledgement an ordinary refused
+    // message gets — no card, and no session archived.
+    expect(await response.readAsString(), '{}');
     expect(dispatchedMessage, isNull);
-    expect(body['cardsV2'], isA<List<dynamic>>());
-    expect(_cardHeader(body), {'title': 'Session Reset', 'subtitle': 'Confirmation'});
   });
 }
 
@@ -399,7 +398,10 @@ Map<String, dynamic> _cardHeader(Map<String, dynamic> responseBody) {
 }
 
 class _NoopMessageQueue extends MessageQueue {
-  new() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
+  new()
+    : super(
+        dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+      );
 
   @override
   void enqueue(ChannelMessage message, Channel channel, String sessionKey) {}

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-# Verifies all published packages in the workspace share the same version.
+# Verifies all published packages in the workspace, and every packaging
+# artifact that pins a version, share the same version.
 # Usage: bash dev/tools/check_versions.sh [expected_version]
 # Exit code 0 = all versions match, 1 = mismatch found.
 
@@ -55,6 +56,43 @@ elif [[ "$runtime_version" != "$expected" ]]; then
 else
   echo "  OK: dartclawVersion @ $runtime_version"
 fi
+
+# Packaging templates carry the same pin. The release renders them at tag time,
+# so a drift here ships a formula or manifest pointing at assets that do not
+# exist for that tag — and nothing else checks them.
+for formula in "$REPO_ROOT/package/homebrew/dartclaw.rb" "$REPO_ROOT/package/homebrew/dartclaw-workflow.rb"; do
+  name="package/homebrew/$(basename "$formula")"
+  formula_version="$(sed -n 's/^  version "\([^"]*\)"/\1/p' "$formula" | head -1)"
+  if [[ -z "$formula_version" ]]; then
+    echo "MISMATCH: unable to read version from $name"
+    errors=$((errors + 1))
+  elif [[ "$formula_version" != "$expected" ]]; then
+    echo "MISMATCH: $name has version $formula_version (expected $expected)"
+    errors=$((errors + 1))
+  else
+    echo "  OK: $name @ $formula_version"
+  fi
+done
+
+# The Scoop manifests additionally carry a concrete install-time URL, which must
+# name the same version as the manifest's own version field.
+for manifest in "$REPO_ROOT/package/scoop/dartclaw.json" "$REPO_ROOT/package/scoop/dartclaw-workflow.json"; do
+  name="package/scoop/$(basename "$manifest")"
+  artifact="$(basename "$manifest" .json)"
+  manifest_version="$(sed -n 's/^  "version": "\([^"]*\)",/\1/p' "$manifest" | head -1)"
+  if [[ -z "$manifest_version" ]]; then
+    echo "MISMATCH: unable to read version from $name"
+    errors=$((errors + 1))
+  elif [[ "$manifest_version" != "$expected" ]]; then
+    echo "MISMATCH: $name has version $manifest_version (expected $expected)"
+    errors=$((errors + 1))
+  elif ! grep -qF "/v$expected/$artifact-v$expected-windows-x64.zip" "$manifest"; then
+    echo "MISMATCH: $name install-time URL does not name $artifact-v$expected-windows-x64.zip"
+    errors=$((errors + 1))
+  else
+    echo "  OK: $name @ $manifest_version"
+  fi
+done
 
 if [[ $errors -gt 0 ]]; then
   echo

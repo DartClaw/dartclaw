@@ -58,8 +58,9 @@ void main() {
     });
 
     test('applies each declared bound independently', () {
-      expect(evaluate('sessions.reset_hour', -1), isA<OutOfRange>());
+      expect(evaluate('sessions.reset_hour', -2), isA<OutOfRange>());
       expect(evaluate('sessions.reset_hour', 24), isA<OutOfRange>());
+      expect(evaluate('sessions.reset_hour', -1), isNull);
       expect(evaluate('sessions.reset_hour', 0), isNull);
       expect(evaluate('agent.max_turns', 0), isA<OutOfRange>());
       expect(evaluate('agent.max_turns', 1 << 30), isNull);

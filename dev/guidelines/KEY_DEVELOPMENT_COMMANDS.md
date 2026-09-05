@@ -63,9 +63,9 @@ dart pub get
 # dev/tools/build.sh run it automatically.
 dart run dev/tools/embed_assets.dart
 
-# Build the standalone binary via `dart build cli`. Produces build/bin/dartclaw
-# plus a bundled SQLite library in the sibling build/lib/ (keep the two together;
-# the binary resolves the library relative to itself) and the release tarball.
+# Build both binaries via `dart build cli`: build/bin/dartclaw and
+# build/bin/dartclaw-workflow, with SQLite in sibling build/lib/.
+# Keep bin/ and lib/ together. Each binary gets its own release tarball + checksum.
 bash dev/tools/build.sh
 ```
 
@@ -151,7 +151,7 @@ into the server's static assets, so canonical CSS edits need no separate sync st
 ## Generated Artifacts
 
 ```bash
-# Published config JSON Schema — rerun after any ConfigMeta change
+# Published config JSON Schema — rerun after any ConfigMeta change or a version bump
 dart run packages/dartclaw_kernel/tool/generate_config_schema.dart
 
 # Operator config reference — rerun after the schema or curated core list changes
@@ -159,7 +159,7 @@ dart run dev/tools/render_config_reference.dart
 ```
 
 `schemas/dartclaw.schema.json` is generated only. `bash dev/tools/fitness/run_all.sh` runs the same script with
-`--check` and fails when the committed artifact has drifted from `ConfigMeta` or is missing, naming this command.
+`--check` and fails when the committed artifact has drifted from `ConfigMeta` or the workspace version, or is missing, naming this command.
 
 The generated region in `docs/guide/configuration.md` is projected from the committed schema. Its core table is
 curated in `dev/tools/config_reference_core_keys.txt` and capped at 90 resolvable keys. The fitness run checks both
@@ -199,6 +199,15 @@ dart analyze
 > **Reporter**: Use `--reporter=failures-only` for agent-driven test runs — it suppresses passing-test output and only shows failures, reducing noise. This is the default the Dart MCP `run_tests` tool uses internally.
 >
 > **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(currentDirectory:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
+
+Tier rows the AndThen completion transition (`andthen:ops complete-story`) executes; `{file}` and `{test}` are
+substituted from a FIS proof line. Keep them in step with the commands below and with `test_workspace.sh`.
+
+| Tier | Command |
+|---|---|
+| fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli` |
+| full | `bash dev/tools/test_workspace.sh` |
+| run one test | `dart test --reporter=failures-only {file} --name "{test}"` |
 
 Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
 `dart test packages/dartclaw_runtime` and `dart test apps/dartclaw_cli` commands should run without manual sqlite

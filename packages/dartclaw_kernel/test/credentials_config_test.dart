@@ -228,7 +228,7 @@ credentials:
 ''');
 
       expect(config.credentials.isEmpty, isTrue);
-      expect(config.warnings, anyElement(contains('credentials.anthropic has unknown "type" "subscription"')));
+      expect(config.warnings, contains('credentials.anthropic has unknown "type" – skipping'));
     });
   });
 }

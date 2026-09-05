@@ -264,6 +264,7 @@ Change calls to `oldMethod()` to `newMethod()`.
 - Highlight breaking changes prominently
 - Include migration guidance for major versions
 - Reference issue numbers where applicable
+- Workspace packages that are not published to pub.dev keep a pointer `CHANGELOG.md` to the repository-level changelog (one release record); per-version sections are cut from it only when a package is published
 
 
 ## pub.dev Scoring (160 points max)

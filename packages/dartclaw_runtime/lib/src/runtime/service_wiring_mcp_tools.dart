@@ -31,10 +31,14 @@ Future<OutboundMcpPool?> _registerMcpTools(
   // argument, which is what makes them answer the same way to a chat turn and a
   // cron turn — and is why a containerized lane reaches exactly what the host
   // lane of the same kind reaches, through the shared canonical mapping.
-  final scheduleMutations = ScheduleMutationService(writer: configWriter, dataDir: ctx.dataDir);
+  final scheduleMutations = ScheduleMutationService(
+    writer: configWriter,
+    applyJobs: scheduling.applyJobs,
+    reservedJobIds: () => scheduling.scheduleService?.builtInJobIds ?? const {},
+  );
   server.registerTool(WorkflowRunTool(definitions: workflowDefinitions, workflows: workflowService));
   server.registerTool(WorkflowListTool(definitions: workflowDefinitions));
-  server.registerTool(ScheduleUpsertTool(mutations: scheduleMutations));
+  server.registerTool(ScheduleUpsertTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));
   server.registerTool(ScheduleListTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));
   server.registerTool(
     AttachMediaTool(workspace: WorkspacePathGuard(config.workspaceDir), delivery: scheduling.deliveryService),

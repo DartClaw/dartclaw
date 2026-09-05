@@ -7,4 +7,8 @@ library;
 export 'datetime_format.dart' show formatLocalDateTime, tryParseIsoInstant;
 export 'frontmatter.dart' show splitFrontmatter;
 export 'duration_format.dart' show humanizeDuration, humanizeDurationMs, humanizeSpan;
-export 'http_request.dart' show HttpClientFactory, httpRequest;
+
+// Owned by `dartclaw_kernel` so the tier below core can use it too; re-exported
+// here because core's own callers and the packages above it already reach it
+// through this barrel.
+export 'package:dartclaw_kernel/dartclaw_kernel.dart' show HttpClientFactory, httpRequest;

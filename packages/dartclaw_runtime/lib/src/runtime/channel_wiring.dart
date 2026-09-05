@@ -99,31 +99,13 @@ class ChannelWiring {
 
     final reviewHandler = _task.reviewHandler;
 
-    // Parse channel configs
-    final waConfig = config.channels.channelConfigs['whatsapp'];
-    final sigConfig = config.channels.channelConfigs['signal'];
     final googleChatConfig = resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat);
-
-    WhatsAppConfig? parsedWhatsAppConfig;
-    SignalConfig? parsedSignalConfig;
-    if (waConfig != null) {
-      final warns = <String>[];
-      parsedWhatsAppConfig = WhatsAppConfig.fromYaml(waConfig, warns);
-      for (final w in warns) {
-        _log.warning(w);
-      }
-    }
-    if (sigConfig != null) {
-      final warns = <String>[];
-      parsedSignalConfig = SignalConfig.fromYaml(sigConfig, warns);
-      for (final w in warns) {
-        _log.warning('Signal config: $w');
-      }
-    }
+    final whatsAppConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);
+    final signalConfig = resolveChannelConfig<SignalConfig>(config, ChannelType.signal);
 
     final googleChatEnabled = googleChatConfig.enabled;
-    final waEnabled = parsedWhatsAppConfig?.enabled ?? false;
-    final sigEnabled = parsedSignalConfig?.enabled ?? false;
+    final waEnabled = whatsAppConfig.enabled;
+    final sigEnabled = signalConfig.enabled;
 
     final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
 
@@ -188,26 +170,25 @@ class ChannelWiring {
 
     if (waEnabled && _channelManager != null) {
       try {
-        final parsedConfig = parsedWhatsAppConfig!;
         final webhookSecretBytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
         _webhookSecret = base64Url.encode(webhookSecretBytes).replaceAll('=', '');
         final webhookUrl = 'http://localhost:$_port/webhook/whatsapp?secret=$_webhookSecret';
 
         final gowaManager = GowaManager(
-          executable: parsedConfig.gowaExecutable,
-          host: parsedConfig.gowaHost,
-          port: parsedConfig.gowaPort,
-          dbUri: parsedConfig.gowaDbUri,
+          executable: whatsAppConfig.gowaExecutable,
+          host: whatsAppConfig.gowaHost,
+          port: whatsAppConfig.gowaPort,
+          dbUri: whatsAppConfig.gowaDbUri,
           webhookUrl: webhookUrl,
           osName: config.server.name,
         );
         final waChannel = WhatsAppChannel(
           gowa: gowaManager,
-          config: parsedConfig,
-          dmAccess: DmAccessController(mode: parsedConfig.dmAccess, allowlist: parsedConfig.dmAllowlist.toSet()),
+          config: whatsAppConfig,
+          dmAccess: DmAccessController(mode: whatsAppConfig.dmAccess, allowlist: whatsAppConfig.dmAllowlist.toSet()),
           mentionGating: MentionGating(
-            requireMention: parsedConfig.requireMention,
-            mentionPatterns: parsedConfig.mentionPatterns,
+            requireMention: whatsAppConfig.requireMention,
+            mentionPatterns: whatsAppConfig.mentionPatterns,
             ownJid: '',
           ),
           channelManager: _channelManager!,
@@ -425,13 +406,11 @@ class ChannelWiring {
 
     if (sigEnabled && _channelManager != null) {
       try {
-        final activeSignalConfig = parsedSignalConfig!;
-
         final sidecar = SignalCliManager(
-          executable: activeSignalConfig.executable,
-          host: activeSignalConfig.host,
-          port: activeSignalConfig.port,
-          phoneNumber: activeSignalConfig.phoneNumber,
+          executable: signalConfig.executable,
+          host: signalConfig.host,
+          port: signalConfig.port,
+          phoneNumber: signalConfig.phoneNumber,
           onRegistered: (phone) {
             _log.info('Signal: writing registered phone $phone to config');
             unawaited(
@@ -443,18 +422,18 @@ class ChannelWiring {
         );
 
         final sigDmAccess = DmAccessController(
-          mode: activeSignalConfig.dmAccess,
-          allowlist: activeSignalConfig.dmAllowlist.toSet(),
+          mode: signalConfig.dmAccess,
+          allowlist: signalConfig.dmAllowlist.toSet(),
         );
         final sigMentionGating = MentionGating(
-          requireMention: activeSignalConfig.requireMention,
-          mentionPatterns: activeSignalConfig.mentionPatterns,
-          ownJid: activeSignalConfig.phoneNumber,
+          requireMention: signalConfig.requireMention,
+          mentionPatterns: signalConfig.mentionPatterns,
+          ownJid: signalConfig.phoneNumber,
         );
 
         final sigChannel = SignalChannel(
           sidecar: sidecar,
-          config: activeSignalConfig,
+          config: signalConfig,
           dmAccess: sigDmAccess,
           mentionGating: sigMentionGating,
           channelManager: _channelManager!,
@@ -549,24 +528,34 @@ class ChannelWiring {
         sessions: sessions,
         turnManagerGetter: turnManagerGetter,
       ),
-      dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-        final overrides = resolveChannelTurnOverrides(
-          sessionKey: sessionKey,
-          config: config,
-          groupConfigResolver: _groupConfigResolver,
-        );
-        return dispatchChannelTurn(
-          sessions: sessions,
-          messages: messages,
-          turnManagerGetter: () => serverRef().turns,
-          sessionKey: sessionKey,
-          message: message,
-          senderJid: senderJid,
-          senderDisplayName: senderDisplayName,
-          model: overrides.model,
-          effort: overrides.effort,
-        );
-      },
+      dispatcher:
+          (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) async {
+            final overrides = resolveChannelTurnOverrides(
+              sessionKey: sessionKey,
+              config: config,
+              groupConfigResolver: _groupConfigResolver,
+            );
+            return dispatchChannelTurn(
+              sessions: sessions,
+              messages: messages,
+              turnManagerGetter: () => serverRef().turns,
+              sessionKey: sessionKey,
+              message: message,
+              channelType: channelType,
+              senderJid: senderJid,
+              senderDisplayName: senderDisplayName,
+              groupJid: groupJid,
+              model: overrides.model,
+              effort: overrides.effort,
+            );
+          },
     );
     return ChannelManager(
       queue: messageQueue,
@@ -610,8 +599,10 @@ class ChannelWiring {
       turnManagerGetter: () => serverRef().turns,
       sessionKey: sessionKey,
       message: message.text,
+      channelType: message.channelType,
       senderJid: message.senderJid,
       senderDisplayName: message.senderDisplayName,
+      groupJid: message.groupJid,
       model: overrides.model,
       effort: overrides.effort,
     );
@@ -625,8 +616,10 @@ Future<String> dispatchChannelTurn({
   required core.TurnManager Function() turnManagerGetter,
   required String sessionKey,
   required String message,
+  required ChannelType channelType,
   String? senderJid,
   String? senderDisplayName,
+  String? groupJid,
   String? model,
   String? effort,
 }) async {
@@ -635,7 +628,7 @@ Future<String> dispatchChannelTurn({
   await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
 
   if (session.title == null && senderJid != null) {
-    await sessions.updateTitle(session.id, channelSessionTitle(senderJid));
+    await sessions.updateTitle(session.id, channelSessionTitle(channelType, senderJid));
   }
 
   // The current message is already persisted; pass full history so channel
@@ -652,6 +645,7 @@ Future<String> dispatchChannelTurn({
     model: model,
     effort: effort,
     promptScope: PromptScope.primary,
+    origin: (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null),
   );
   final outcome = await turns.waitForOutcome(session.id, turnId);
   return outcome.responseText ?? '';

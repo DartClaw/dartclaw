@@ -1,4 +1,5 @@
 import '../audit/audit_log_reader.dart';
+import '../health/health_service.dart';
 import 'audit_table.dart';
 import 'components.dart';
 import 'helpers.dart';
@@ -28,12 +29,16 @@ String healthDashboardTemplate({
   final uptimeStr = formatUptime(uptimeSeconds);
   final dbSizeStr = formatBytes(dbSizeBytes);
   final artifactDiskStr = formatBytes(totalArtifactDiskBytes);
-  final statusLabel = status[0].toUpperCase() + status.substring(1);
+  final statusLabel = titleCase(status);
 
-  final (statusCardClass, statusBadgeClass, statusDotClass) = switch (status) {
-    'healthy' => ('card-featured-accent', 'status-badge-success', 'status-dot--live'),
-    'degraded' => ('card-featured-warning', 'status-badge-warning', 'status-dot--warning'),
-    _ => ('card-featured-error', 'status-badge-error', 'status-dot--error'),
+  final statusVariant = healthStatusBadgeVariant(status);
+  final statusBadgeClass = 'status-badge-$statusVariant';
+  // Card and dot styling hangs off the badge variant rather than off the status
+  // word, so this view reads no health vocabulary of its own.
+  final (statusCardClass, statusDotClass) = switch (statusVariant) {
+    'success' => ('card-featured-accent', 'status-dot--live'),
+    'warning' => ('card-featured-warning', 'status-dot--warning'),
+    _ => ('card-featured-error', 'status-dot--error'),
   };
 
   // Status is never carried by the hero copy alone — the badge card below

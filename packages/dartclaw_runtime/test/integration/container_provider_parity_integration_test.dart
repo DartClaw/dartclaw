@@ -58,6 +58,7 @@ void main() {
     // mounts nothing and works out of the container's own tmpfs.
     final workspace = Directory(p.join(dataDir.path, 'workspaces', containerName))..createSync(recursive: true);
     final manager = ContainerManager(
+      ownerLabel: ContainerManager.ownerLabel(dataDir.path),
       config: const ContainerConfig(enabled: true, image: agentProbeImage),
       containerName: containerName,
       profileId: profile,

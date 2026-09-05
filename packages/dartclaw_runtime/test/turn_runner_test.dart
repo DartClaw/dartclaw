@@ -795,6 +795,44 @@ void main() {
     expect(worker.lastSystemPrompt, 'SEARCH PERSONA');
   });
 
+  test('a channel turn names its channel and contact in the composed system prompt', () async {
+    scheduleTurnCompletion(worker, responseText: 'ok');
+    final session = await sessions.createSession(type: SessionType.channel);
+
+    final turnId = await runner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'hi'},
+      ],
+      promptScope: PromptScope.primary,
+      origin: (channel: 'signal', contact: 'Alice', group: false),
+    );
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(
+      worker.lastSystemPrompt,
+      contains('## Channel\n- Channel: signal\n- Conversation: direct\n- Contact: "Alice"'),
+    );
+  });
+
+  test('a web turn names web as its channel and carries no contact', () async {
+    scheduleTurnCompletion(worker, responseText: 'ok');
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.startTurn(
+      session.id,
+      [
+        {'role': 'user', 'content': 'hi'},
+      ],
+      promptScope: PromptScope.primary,
+      origin: (channel: 'web', contact: null, group: false),
+    );
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(worker.lastSystemPrompt, contains('## Channel\n- Channel: web\n- Conversation: direct'));
+    expect(worker.lastSystemPrompt, isNot(contains('- Contact:')));
+  });
+
   test('logical-agent and main turns supply the expected harness agent identity', () async {
     final session = await sessions.getOrCreateMainSession();
 

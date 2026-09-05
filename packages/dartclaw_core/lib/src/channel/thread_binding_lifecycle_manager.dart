@@ -60,9 +60,9 @@ class ThreadBindingLifecycleManager {
     _cleanupTimer = null;
   }
 
-  void _onTaskStatusChanged(TaskStatusChangedEvent event) {
+  Future<void> _onTaskStatusChanged(TaskStatusChangedEvent event) async {
     if (!event.newStatus.terminal) return;
-    final removed = _store.deleteByTaskId(event.taskId);
+    final removed = await _store.deleteByTaskId(event.taskId);
     for (final binding in removed) {
       _log.info(
         'Removed thread binding for task ${event.taskId} '
@@ -72,9 +72,9 @@ class ThreadBindingLifecycleManager {
     }
   }
 
-  void _cleanupExpiredBindings() {
+  Future<void> _cleanupExpiredBindings() async {
     final cutoff = DateTime.now().subtract(_idleTimeout);
-    final expired = _store.removeExpiredBindings(cutoff);
+    final expired = await _store.removeExpiredBindings(cutoff);
     for (final binding in expired) {
       _log.info(
         'Removed thread binding for task ${binding.taskId} '

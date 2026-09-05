@@ -8,11 +8,24 @@ import 'package:path/path.dart' as p;
 import '../observability/usage_tracker.dart';
 import '../version.dart';
 
+/// The one projection of [WorkerState] onto a health string, for the health
+/// endpoint and the web status page alike.
+///
+/// Every value is named: a wildcard arm would report a future state as healthy
+/// with nothing to notice it, and this projection is what an operator's probe
+/// reads. A new [WorkerState] must fail to compile here until it is classified.
 String healthStatusForWorkerState(WorkerState? state) => switch (state) {
   WorkerState.stopped => 'unhealthy',
   WorkerState.crashed || null => 'degraded',
-  _ => 'healthy',
+  WorkerState.idle || WorkerState.busy => 'healthy',
 };
+
+const _badgeVariants = {'healthy': 'success', 'degraded': 'warning', 'unhealthy': 'error'};
+
+/// The badge variant every surface renders a [healthStatusForWorkerState] word
+/// as. A word outside that vocabulary takes the error variant, since a status
+/// no consumer here produced is not evidence of health.
+String healthStatusBadgeVariant(String status) => _badgeVariants[status] ?? 'error';
 
 /// Collects runtime health metrics: uptime, worker state, session count, DB size.
 class HealthService {

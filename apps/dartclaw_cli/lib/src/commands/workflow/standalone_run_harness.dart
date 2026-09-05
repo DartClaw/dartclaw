@@ -247,7 +247,12 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
     }
     if (finalRun.status != WorkflowRunStatus.pending && finalRun.status != WorkflowRunStatus.running) {
       final childTasks = (await taskService.list()).where((task) => task.workflowRunId == finalRun.id).toList();
-      final digest = buildWorkflowRunDigest(run: finalRun, definition: definition, childTasks: childTasks);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: printer.commandPrefix,
+        run: finalRun,
+        definition: definition,
+        childTasks: childTasks,
+      );
       if (jsonOutput) {
         stdoutLine(jsonEncode(digest.toJson()));
       } else {

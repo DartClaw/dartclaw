@@ -3,7 +3,8 @@ import 'session_scope_config.dart';
 
 /// Configuration for the session subsystem.
 class SessionConfig {
-  /// resetHour.
+  /// Local hour at which main, channel and cron sessions are archived and
+  /// restarted under the same key. Negative disables the daily reset.
   final int resetHour;
 
   /// idleTimeoutMinutes.

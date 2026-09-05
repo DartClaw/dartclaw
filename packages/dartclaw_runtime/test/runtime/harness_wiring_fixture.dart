@@ -96,6 +96,7 @@ Future<HarnessWiring> wireTestHarness({
     turnTimerFactory: turnTimerFactory,
     turnNow: turnNow,
   );
-  await harnessWiring.wire(serverRefGetter: serverRefGetter);
+  await harnessWiring.wire(turnManagerGetter: () => serverRefGetter().turns);
+  await harnessWiring.startPrimary();
   return harnessWiring;
 }

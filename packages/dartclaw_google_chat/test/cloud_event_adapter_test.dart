@@ -186,6 +186,18 @@ void main() {
         expect((result as MessageResult).messages.first.groupJid, isNull);
       });
 
+      // Both ingress paths resolve the space kind through one seam, so the
+      // current-API spelling lands on the gate as the same DM it is on the
+      // webhook path.
+      test('normalizes DIRECT_MESSAGE to DM and drops the group jid', () {
+        final adapter = CloudEventAdapter();
+        final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(spaceType: 'DIRECT_MESSAGE')));
+        expect(result, isA<MessageResult>());
+        final message = (result as MessageResult).messages.first;
+        expect(message.groupJid, isNull);
+        expect(message.metadata['spaceType'], 'DM');
+      });
+
       test('sets groupJid for ROOM space type', () {
         final adapter = CloudEventAdapter();
         final result = adapter.processMessage(receivedMessageFrom(sampleCreatedEvent(spaceType: 'ROOM')));

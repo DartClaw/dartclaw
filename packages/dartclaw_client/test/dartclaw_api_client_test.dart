@@ -1,11 +1,47 @@
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('DartclawApiClient', () {
+    test('connection refused carries a transport code without HTTP status', () async {
+      final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = socket.port;
+      await socket.close();
+      final client = DartclawApiClient(baseUri: Uri.parse('http://127.0.0.1:$port'));
+
+      await expectLater(
+        client.get('/health'),
+        throwsA(
+          isA<DartclawApiException>()
+              .having((error) => error.code, 'code', 'CONNECTION_REFUSED')
+              .having((error) => error.statusCode, 'statusCode', isNull),
+        ),
+      );
+    });
+
+    test('getObject keeps default 2xx acceptance but can require an exact status', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [
+          _jsonResponse(201, {'ok': true}),
+          _jsonResponse(201, {'ok': true}),
+        ],
+      );
+      final client = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
+      expect(await client.getObject('/health'), {'ok': true});
+      await expectLater(
+        client.getObject('/health', expectedStatusCode: 200),
+        throwsA(
+          isA<DartclawApiException>()
+              .having((e) => e.code, 'code', 'INVALID_RESPONSE')
+              .having((e) => e.statusCode, 'statusCode', 201),
+        ),
+      );
+    });
+
     test('request carries the bearer token and returns the decoded JSON body', () async {
       final transport = FakeApiTransport(
         sendResponses: [

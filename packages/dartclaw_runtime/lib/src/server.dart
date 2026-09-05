@@ -542,6 +542,8 @@ class DartclawServer {
         guardChain: _core.guardChain,
         channelAccessService: _channelAccessService,
         guardEditorService: _guardEditorService,
+        applyJobs: _observability.schedulingJobsApplier,
+        reservedJobIds: () => _observability.scheduleService?.builtInJobIds ?? const {},
       );
       router.mount('/', cfgApiRouter.call);
     }

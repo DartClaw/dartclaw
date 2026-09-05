@@ -7,15 +7,33 @@ Examples in this page use `dartclaw` as the command name. If you are running fro
 Global flags:
 
 ```bash
+dartclaw --version
 dartclaw --config /path/to/dartclaw.yaml status
 dartclaw --server localhost:4000 workflow runs
 ```
+
+## Exit codes
+
+Connected-command failures are written to stderr; stdout remains available for data and JSON output.
+
+| Code | Meaning |
+|---|---|
+| `0` | Success, graceful shutdown, or a completed `status` report (including an unavailable server) |
+| `1` | Other failure, declined confirmation, or failed workflow run |
+| `2` | Workflow run cancelled, paused, or awaiting approval |
+| `3` | Server unreachable: connection refused, network failure, or TLS handshake failure |
+| `4` | Authentication refused (HTTP 401 or 403) |
+| `5` | Request rejected (other HTTP 4xx) |
+| `6` | Server error (HTTP 5xx) |
+| `64` | Invalid command usage |
+| `130` | Interrupted credential input |
 
 Top-level command families:
 
 - `auth`
 - `runners`
 - `config`
+- `doctor`
 - `google-auth`
 - `init`
 - `jobs`
@@ -47,9 +65,56 @@ dartclaw serve --port 3333
 dartclaw status
 ```
 
-Reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
+Probes `/health` at the configured server, honoring `--server` and `--token`, and names the URL in its report:
+
+- `running` includes the server version and uptime; `Harness:` reports the server's worker state. A version mismatch also shows the CLI version.
+- `not running` means the connection was refused.
+- `unreachable` includes the message from any other probe failure.
+
+The report exits `0` even when the server is unavailable. It also reads persisted collection and index-health evidence without starting the server. It reports the collection revision,
 canonical role counts, exact observation usage and warning, and derived-index state. Missing or unreadable evidence is
 shown as `unknown`, never as zero or healthy.
+
+### `doctor`
+
+```bash
+dartclaw doctor
+dartclaw --config /path/to/dartclaw.yaml doctor --json
+dartclaw doctor --fix
+```
+
+Re-runs the setup checks from the config file, with or without a running server. Each row has an id,
+`pass`, `warn`, `fail`, or `skip` status, and a summary. Warnings and failures include remediation.
+Exit code is `1` if any row fails, otherwise `0`.
+
+| Row ids | Checks |
+|---|---|
+| `config.parse`, `config.valid` | Readable YAML and the loader's validation messages; one validity row per warning |
+| `provider.<id>.binary`, `provider.<id>.credential` | Configured executable, version and the same credential check as `init` |
+| `data_dir.writable`, `data_dir.layout` | Writable instance and required workspace, sessions and logs directories |
+| `server.port` or `server.health` | Free port, or a running server's version and uptime; mismatched CLI/server versions warn |
+| `secrets.literals`, `secrets.unresolvable`, `secrets.shadowed`, `secrets.orphans`, `secrets.permissions` | The same value-free findings as [`secrets audit`](#secrets-audit) |
+| `container.runtime`, `container.image`, `container.engine` | Runtime, existing image and supported engine architecture; unavailable checks warn for inferred isolation and fail when explicitly enabled |
+| `container.orphans` | Leftover owned containers, reclaimed at the next `dartclaw serve` start; skipped for a running server, absent without a runtime |
+| `windows.reload_mode`, `windows.git_bash`, `windows.sqlite_dll` | Windows-only checks for reload mode, Git Bash and the bundled release DLL; permissions are skipped there |
+
+`--server` probes that address instead of the local port. Health probes send no token. A missing or malformed
+config skips dependent checks; a fatal loader rejection, including unknown fields, also prevents directory repairs.
+Loadable validation failures remain visible while other checks run.
+
+`--fix` creates only missing `workspace/`, `sessions/` and `logs/` directories at their configured paths, then re-runs
+the checks. A repaired layout is shown as `fixed`; each created directory is listed. It does not write YAML, change
+permissions, build images, or remove containers. Fixing directories does not clear other failures.
+
+`--json` writes one document and uses the same exit code:
+
+```text
+{version, config_path, server, checks: [{id, status, summary, detail?, remediation?, fixable, fixed?}],
+ summary: {pass, warn, fail, skip}}
+```
+
+`server` is the health response when a server answers, otherwise `null`. A repaired row retains status `pass` and
+adds `fixed: true`; summary counts use the four statuses. No credential values are printed.
 
 ### `stop`
 
@@ -221,6 +286,17 @@ dartclaw config set tasks.artifact_retention_days 30
 dartclaw config set alerts.enabled false --json
 ```
 
+### `config schema`
+
+```bash
+dartclaw config schema
+dartclaw config schema --out dartclaw.schema.json
+```
+
+Emits the config JSON Schema for the running binary's version without loading configuration or connecting to a server.
+Without `--out`, JSON goes to stdout; `--out` writes the same bytes and overwrites an existing file. The parent directory
+must exist. See [Editor support](configuration.md#editor-support) for attaching it to `dartclaw.yaml`.
+
 ## Jobs
 
 ### `jobs list`
@@ -248,9 +324,11 @@ dartclaw jobs show daily-summary --json
 ### `jobs delete`
 
 ```bash
-dartclaw jobs delete daily-summary
-dartclaw jobs delete daily-summary --json
+dartclaw jobs delete daily-summary --yes
+dartclaw jobs delete daily-summary --yes --json
 ```
+
+Use `--yes` (or `-y`) to proceed without a prompt; otherwise stdin must be a terminal and confirmation is requested on stderr (`y`/`yes` proceeds), while a non-terminal invocation refuses with exit `1` and sends no request.
 
 ### `jobs run`
 
@@ -260,7 +338,8 @@ dartclaw jobs run daily-summary --json
 ```
 
 Starts a configured prompt job immediately on the running server. Observe its configured delivery and server logs for
-the outcome. Job changes made through the API require a restart before the job can run.
+the outcome. A job created or edited through the API, the tool or the Scheduling page is loaded live, so it is runnable
+as soon as that write returns.
 
 ## Projects
 
@@ -301,6 +380,8 @@ dartclaw projects remove <project-id> --yes
 dartclaw projects remove <project-id> --yes --json
 ```
 
+Use `--yes` (or `-y`) to proceed without a prompt; otherwise stdin must be a terminal and confirmation is requested on stderr (`y`/`yes` proceeds), while a non-terminal invocation refuses with exit `1` and sends no request.
+
 ## Sessions
 
 ### `sessions list`
@@ -336,9 +417,11 @@ dartclaw sessions archive <session-id> --json
 ### `sessions delete`
 
 ```bash
-dartclaw sessions delete <session-id>
-dartclaw sessions delete <session-id> --json
+dartclaw sessions delete <session-id> --yes
+dartclaw sessions delete <session-id> --yes --json
 ```
+
+Use `--yes` (or `-y`) to proceed without a prompt; otherwise stdin must be a terminal and confirmation is requested on stderr (`y`/`yes` proceeds), while a non-terminal invocation refuses with exit `1` and sends no request.
 
 ### `sessions cleanup`
 

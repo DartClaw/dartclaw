@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show HttpClientFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show HttpClientFactory, httpRequest;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -197,16 +197,16 @@ class QmdManager {
 
   /// Check if the daemon is healthy.
   Future<bool> healthCheck() async {
-    final client = _httpFactory();
     try {
-      final request = await client.getUrl(Uri.parse('$baseUrl/health')).timeout(const Duration(seconds: 3));
-      final response = await request.close().timeout(const Duration(seconds: 3));
+      final response = await httpRequest(
+        Uri.parse('$baseUrl/health'),
+        timeout: const Duration(seconds: 3),
+        factory: _httpFactory,
+      );
       return response.statusCode == 200;
     } catch (e) {
       _log.fine('QMD health check failed: $e');
       return false;
-    } finally {
-      client.close(force: true);
     }
   }
 

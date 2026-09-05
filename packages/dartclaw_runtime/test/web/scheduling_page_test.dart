@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' show MessageService;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
 import 'package:dartclaw_runtime/src/templates/scheduling.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/scheduling_page.dart';
@@ -99,7 +100,16 @@ scheduling:
       prompt: Existing prompt
 ''');
       writer = ConfigWriter(configPath: configPath);
-      page = SchedulingPage(configWriter: writer, scheduleServiceGetter: () => service);
+      addTearDown(writer.dispose);
+      // Wired the way the composition root wires it, so what the page reports
+      // about a job is what the running scheduler holds.
+      final applier = SchedulingJobsApplier(
+        configPath: configPath,
+        jobs: ScheduleMutationService(writer: writer),
+        scheduleService: () => service,
+        taskService: TaskService(InMemoryTaskRepository()),
+      );
+      page = SchedulingPage(configWriter: writer, scheduleServiceGetter: () => service, applyJobs: applier.apply);
     });
 
     Future<({int status, String body, Map<String, String> headers})> send(
@@ -161,8 +171,49 @@ scheduling:
       expect(response.body, contains('id="job-form" hidden=""'));
       expect(response.body, contains('digest'));
       expect(response.body, contains('hx-swap-oob="true"'));
-      expect(response.body, contains('id="restart-banner"'));
+      // S08: the write is already live, so there is no restart banner to raise
+      // and no restart wording in the toast.
+      expect(response.body, isNot(contains('id="restart-banner"')));
+      final trigger = jsonDecode(response.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+      expect((trigger['dc:toast'] as Map)['message'], 'Job added');
       expect((await writer.readSchedulingJobs()).map((job) => job['name']), contains('digest'));
+      expect(service.hasJob('digest'), isTrue);
+    });
+
+    test('S08 a one-time job renders its instant, loads, and reopens without throwing', () async {
+      final at = DateTime.now().add(const Duration(hours: 2)).toIso8601String();
+
+      final created = await send(
+        'POST',
+        '/scheduling/jobs/create',
+        form: {'name': 'remind-dentist', 'schedule': '', 'at': at, 'prompt': 'Remind me', 'delivery': 'announce'},
+      );
+
+      expect(created.status, 200);
+      // The instant, not a cron preview and not the stored map.
+      expect(created.body, contains(at));
+      expect(created.body, isNot(contains('type: once')));
+      expect(service.hasJob('remind-dentist'), isTrue);
+
+      final form = await send('GET', '/scheduling/jobs/remind-dentist/form');
+      expect(form.status, 200);
+      expect(form.body, contains('value="$at"'));
+      expect(form.headers['hx-trigger-after-swap'], isNull, reason: 'the form must open, not fall back to a toast');
+    });
+
+    test('S08 a job created through the page is runnable straight away', () async {
+      await send(
+        'POST',
+        '/scheduling/jobs/create',
+        form: {'name': 'standup', 'schedule': '0 9 * * *', 'at': '', 'prompt': 'Run standup', 'delivery': 'announce'},
+      );
+
+      final run = await send('POST', '/scheduling/jobs/standup/run');
+
+      expect(run.status, 200);
+      final trigger = jsonDecode(run.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+      expect((trigger['dc:toast'] as Map)['type'], 'success');
+      expect((trigger['dc:toast'] as Map)['message'], "Job 'standup' started");
     });
 
     test('S02 edit form is prefilled from config with a server cron description', () async {
@@ -353,19 +404,18 @@ scheduling:
       expect(digest['prompt'], 'Existing prompt');
     });
 
-    test('S05 config-only rows are marked as not running while loaded rows are not', () async {
+    test('S05 no job row claims a restart is needed', () async {
       final fragment = schedulingJobsFragment(
         jobs: [
           {'name': workspaceGitSyncJobId, 'schedule': '0 1 * * *'},
           {'name': 'nightly', 'schedule': '0 2 * * *'},
         ],
         systemJobNames: const [],
-        loadedJobIds: {workspaceGitSyncJobId},
       );
 
       expect(fragment, contains('$workspaceGitSyncJobId</span>'));
-      expect(RegExp('Restart to run').allMatches(fragment), hasLength(1));
       expect(fragment, contains('nightly'));
+      expect(fragment, isNot(contains('Restart to run')));
     });
 
     test('S06 run-now refusal returns the unchanged table and scheduler explanation', () async {
@@ -374,7 +424,9 @@ scheduling:
       expect(response.status, 200);
       expect(response.body, contains('digest'));
       final trigger = jsonDecode(response.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
-      expect(((trigger['dc:toast'] as Map)['message'] as String), contains('require a restart'));
+      final message = (trigger['dc:toast'] as Map)['message'] as String;
+      expect(message, contains('not present in the running scheduler'));
+      expect(message, isNot(contains('restart')));
     });
 
     test('S02 and S04 scheduled task edit and delete use stored config and table fragments', () async {
@@ -397,7 +449,7 @@ scheduling:
 
       final pageResponse = await send('GET', '/scheduling');
       expect(pageResponse.body, contains('Weekly report'));
-      expect(pageResponse.body, contains('Restart to run'));
+      expect(pageResponse.body, isNot(contains('Restart to run')));
 
       final form = await send('GET', '/scheduling/tasks/weekly-report/form');
       expect(form.body, contains('value="weekly-report" disabled=""'));

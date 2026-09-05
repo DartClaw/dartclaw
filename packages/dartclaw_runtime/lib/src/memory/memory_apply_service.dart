@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 /// Maximum accepted character count for a caller-authored merge or removal reason.
@@ -15,6 +16,8 @@ typedef MemoryIndexReconciler = FutureOr<void> Function(
   String baseFingerprint,
   String userId,
 );
+
+final _log = Logger('MemoryApplyService');
 
 /// Atomically applies closed personal-memory change sets through collection CAS.
 ///
@@ -61,6 +64,30 @@ final class MemoryApplyService {
   /// When a run scope is registered for [provenance]'s session, the whole change set
   /// is refused before any mutation if any operation names an entry outside it.
   Future<Map<String, Object?>> apply(
+    Map<String, dynamic> params, {
+    required String userId,
+    required MemorySourceRef provenance,
+  }) async {
+    final result = await _apply(params, userId: userId, provenance: provenance);
+    // The result reaches the calling model only; a scheduled curation run that
+    // is refused every fire would otherwise look like a clean run in the log.
+    if (result['failure'] case final Map<String, Object?> failure) {
+      final operationCount = (result['operations'] as Map?)?.length ?? 0;
+      final line =
+          'memory_apply ${result['canonicalOutcome']} for ${provenance.sourceLocator}: '
+          '${failure['kind']} at ${failure['stage']} – ${_boundedReason('${failure['reason']}')} '
+          '($operationCount operations)';
+      // A stale revision is ordinary CAS contention the caller re-reads and retries.
+      if (failure['kind'] == 'conflict') {
+        _log.info(line);
+      } else {
+        _log.warning(line);
+      }
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> _apply(
     Map<String, dynamic> params, {
     required String userId,
     required MemorySourceRef provenance,

@@ -1,6 +1,3 @@
-All DartClaw packages use lock-step versioning. This changelog tracks changes relevant to `dartclaw_client`.
+# Changelog
 
-## Unreleased
-
-### Added
-- Dependency-free HTTP and SSE client for a running DartClaw server: `DartclawApiClient`, the `ApiTransport`/`ApiRequest`/`ApiResponse` seam, and `DartclawApiException`. Extracted unchanged from the DartClaw CLI, which now consumes this package.
+Release history for this package is recorded in the repository-level [CHANGELOG.md](../../CHANGELOG.md), one section per DartClaw release. This file exists for package-layout convention only; per-package version sections will be cut from the root changelog if the package is ever published to pub.dev (see `dev/adrs/008-sdk-publishing-strategy.md`).

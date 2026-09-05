@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Proves container isolation end to end: a real agent turn runs inside a
 # container, the container holds no provider credential, and a task tool is
-# served to it over the MCP bridge.
+# served to it over the MCP bridge. SIGKILL and restart prove orphan reclamation;
+# CI decoys also prove foreign-labelled and unlabelled containers survive.
 #
 # Usage: bash dev/testing/profiles/container/run.sh [--ci]
 #
@@ -106,6 +107,7 @@ fi
 CONFIG="${DATA_DIR}/${CONFIG_NAME}"
 LOG_PATH="${DATA_DIR}/server.log"
 SERVER_PID=""
+DECOYS=()
 
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -117,11 +119,18 @@ cleanup() {
   # recomputed here would match nothing and leak every container it meant to
   # reap. The server sweeps its own authorities at shutdown; this is the
   # backstop for a kill that skipped that.
-  if [ -f "$LOG_PATH" ]; then
-    for name in $(grep -oE 'Container dartclaw-[a-z0-9-]+ \(' "$LOG_PATH" | awk '{print $2}' | sort -u); do
+  if [ "${#DECOYS[@]}" -gt 0 ]; then
+    for name in "${DECOYS[@]}"; do
       "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
     done
   fi
+  for log in "${DATA_DIR}/server.log" "${DATA_DIR}/server-restart.log"; do
+    if [ -f "$log" ]; then
+      for name in $(grep -oE 'Container dartclaw-[a-z0-9-]+ \(' "$log" | awk '{print $2}' | sort -u); do
+        "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
+      done
+    fi
+  done
   if [ -z "${DARTCLAW_CONTAINER_DATA_DIR:-}" ]; then
     rm -rf "${DATA_DIR}"
   fi
@@ -149,18 +158,30 @@ if [ ! -x "${REPO_ROOT}/build/bridge/dartclaw-bridge-linux-x64" ]; then
   bash "${REPO_ROOT}/dev/tools/build_bridge.sh" >/dev/null
 fi
 
-# `dart run`, not `dart <file>`: only `dart run` executes the build hooks that
-# produce the sqlite3 native asset. A runner without a system libsqlite3 has
-# nothing to fall back to and the server dies in storage wiring.
-(cd "${REPO_ROOT}" && exec dart run apps/dartclaw_cli/bin/dartclaw.dart \
-  --config "$CONFIG" serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$LOG_PATH" 2>&1 &
-SERVER_PID=$!
+boot_server() {
+  # `dart run`, not `dart <file>`: only `dart run` executes the build hooks that
+  # produce the sqlite3 native asset. A runner without a system libsqlite3 has
+  # nothing to fall back to and the server dies in storage wiring.
+  (cd "${REPO_ROOT}" && exec dart run apps/dartclaw_cli/bin/dartclaw.dart \
+    --config "$CONFIG" serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$LOG_PATH" 2>&1 &
+  SERVER_PID=$!
 
-for _ in $(seq 1 60); do
-  curl -sf "http://localhost:$PORT/health" >/dev/null && break
-  sleep 1
-done
-curl -sf "http://localhost:$PORT/health" >/dev/null || fail_with_log "server did not come up"
+  for _ in $(seq 1 60); do
+    kill -0 "$SERVER_PID" 2>/dev/null || fail_with_log "server exited during boot"
+    curl -sf "http://localhost:$PORT/health" >/dev/null && break
+    sleep 1
+  done
+  curl -sf "http://localhost:$PORT/health" >/dev/null || fail_with_log "server did not come up"
+}
+
+crash_server() {
+  kill -9 "$SERVER_PID"
+  wait "$SERVER_PID" 2>/dev/null || true
+  SERVER_PID=""
+  LOG_PATH="${DATA_DIR}/server-restart.log"
+}
+
+boot_server
 
 if [ -n "$CI_MODE" ]; then
   # The resolved posture, read off what a non-TTY boot actually emits: the
@@ -170,7 +191,31 @@ if [ -n "$CI_MODE" ]; then
   if grep -q 'agent has full host access' "$LOG_PATH"; then
     fail_with_log "the server downgraded to advisory mode on a runner that has a container runtime"
   fi
-  echo "PASS: posture resolved to container isolation on $RUNTIME, serving, with no turn and no credential."
+  OWNER_LABEL="$(sed -n 's/.*Container sweep: 0 orphaned container(s) reclaimed for label \(dartclaw.data-dir=.*\)$/\1/p' "$LOG_PATH")"
+  [ -n "$OWNER_LABEL" ] || fail_with_log "initial boot did not report its owner label"
+  INITIAL_CONTAINER="$(grep -oE 'Container dartclaw-[a-z0-9]+-workspace-[a-z0-9]+ \(workspace\) started' "$LOG_PATH" |
+    head -1 | awk '{print $2}')"
+  [ -n "$INITIAL_CONTAINER" ] || fail_with_log "initial boot started no primary container"
+  DECOY_PREFIX="${INITIAL_CONTAINER%-*}"
+  DECOYS=("${DECOY_PREFIX}-decoy" "${DECOY_PREFIX}-foreign" "${DECOY_PREFIX}-nolabel")
+  crash_server
+  # CI isolates the decoy set; local mode retains the actual primary leak until restart.
+  "$RUNTIME" rm -f "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
+  "$RUNTIME" create --name "${DECOYS[0]}" --label "$OWNER_LABEL" dartclaw-agent:latest sleep infinity >/dev/null
+  "$RUNTIME" create --name "${DECOYS[1]}" --label "${OWNER_LABEL}-other" dartclaw-agent:latest sleep infinity >/dev/null
+  "$RUNTIME" create --name "${DECOYS[2]}" dartclaw-agent:latest sleep infinity >/dev/null
+  "$RUNTIME" start "${DECOYS[@]}" >/dev/null
+  boot_server
+  [ "$(grep -c 'Reclaimed orphaned container' "$LOG_PATH" || true)" -eq 1 ] || fail_with_log "expected exactly one reclaim warning"
+  grep -Fq "Reclaimed orphaned container ${DECOYS[0]} left by" "$LOG_PATH" || fail_with_log "owned decoy was not reclaimed"
+  NAMES="$("$RUNTIME" ps -a --format '{{.Names}}')"
+  if printf '%s\n' "$NAMES" | grep -Fxq "${DECOYS[0]}"; then
+    fail_with_log "owned decoy still exists"
+  fi
+  for name in "${DECOYS[1]}" "${DECOYS[2]}"; do
+    printf '%s\n' "$NAMES" | grep -Fxq "$name" || fail_with_log "foreign or unlabelled decoy was removed: $name"
+  done
+  echo "PASS: inferred container isolation and crash recovery on $RUNTIME; foreign and unlabelled decoys survived."
   exit 0
 fi
 
@@ -179,7 +224,7 @@ SESSION_ID="$(printf '%s' "$SESSION_JSON" | python3 -c 'import sys, json; print(
 
 curl -sf -X POST "http://localhost:$PORT/api/sessions/$SESSION_ID/send" \
   -H 'content-type: application/json' \
-  -d '{"message":"Call the task_list tool, then reply with exactly: ok"}' >/dev/null ||
+  -d '{"message":"Call the mcp__dartclaw__task_list tool from the dartclaw MCP server, then reply with exactly: ok"}' >/dev/null ||
   fail_with_log "send failed"
 
 TURN_OK=""
@@ -214,4 +259,16 @@ fi
 AUDIT="${DATA_DIR}/audit-$(date -u +%Y-%m-%d).ndjson"
 grep -q 'task_list' "$AUDIT" 2>/dev/null || fail_with_log "no task_list dispatch was audited in $AUDIT"
 
-echo "PASS: containerized turn completed, no credential in the container, task_list served over the bridge."
+crash_server
+"$RUNTIME" ps --format '{{.Names}}' | grep -Fxq "$STARTED_CONTAINER" ||
+  fail_with_log "SIGKILL did not leave the turn container running"
+boot_server
+grep -Fq "Reclaimed orphaned container $STARTED_CONTAINER left by" "$LOG_PATH" ||
+  fail_with_log "restart did not reclaim the turn container"
+NAMES="$("$RUNTIME" ps -a --format '{{.Names}}')"
+if printf '%s\n' "$NAMES" | grep -Fxq "$STARTED_CONTAINER"; then
+  fail_with_log "turn container survived restart"
+fi
+[ ! -e "${DATA_DIR}/containers/${STARTED_CONTAINER}" ] || fail_with_log "generated state survived restart"
+
+echo "PASS: containerized turn, credential isolation, task_list bridge, and crash recovery."

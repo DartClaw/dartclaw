@@ -743,20 +743,19 @@ dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, shared enu
                                         AgentExecution, deterministic utilities
      ▲
      │
-dartclaw_core       (runtime + sqlite3) SessionService, MessageService, KvService,
+dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvService,
      ▲                                  MemoryFileService, Task*, Goal*, EventBus,
      │                                  ThreadBindingStore, ProjectService (interface),
-     │                                  HarnessFactory, harness interfaces
-     │
-dartclaw_core    (sqlite3)           SqliteTaskRepository, SqliteGoalRepository,
-     ▲                                  SqliteAgentExecutionRepository,
+     │                                  HarnessFactory, harness interfaces,
+     │                                  SqliteTaskRepository, SqliteGoalRepository,
+     │                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
      │                                  SqliteWorkflowRunRepository,
      │                                  MemoryService (FTS5), SearchDb, TaskDb,
      │                                  TurnStateStore, TurnTraceService,
      │                                  TaskEventService
      │
-dartclaw_workflow   (core + storage)    WorkflowRegistry, WorkflowDefinition/Step/Loop,
+dartclaw_workflow   (core)              WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
      │                                  WorkflowContext, schema presets, built-in skills,
      │                                  WorkflowRunRepository + WorkflowStepExecutionRepository

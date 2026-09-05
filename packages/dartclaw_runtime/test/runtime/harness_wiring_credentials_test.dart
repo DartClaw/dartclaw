@@ -133,7 +133,7 @@ void main() {
       environment: environment,
     );
     try {
-      await wiring.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
+      await wiring.wire(turnManagerGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
     } on _StartupExit {
       // The real exitFn never returns; the marker stands in for that.
     } finally {

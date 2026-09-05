@@ -38,8 +38,8 @@ void main() {
 
     tearDown(() async {
       await eventBus.dispose();
-      // Allow unawaited _persist() calls (fire-and-forget in deleteByTaskId /
-      // removeExpiredBindings) to complete before the temp directory is removed.
+      // The manager's event handler and cleanup timer call the store without
+      // awaiting, so let their persists land before the temp directory goes.
       await Future<void>.delayed(const Duration(milliseconds: 10));
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });

@@ -12,6 +12,12 @@ void main() {
 
   // ARCH-GATE: prevents files from exceeding 800 LOC; monitors LOC trends.
   // Default-off — run with: dart test -t fitness-shape
+  //
+  // Only files already over 800 carry an entry, and that ceiling is a downward
+  // ratchet. `tool/regenerate_fitness_baseline.dart` re-freezes those at
+  // today's size, so running it to clear a size failure is a reviewed act:
+  // last done 2026-09-05 (six files, +55 lines over the 2026-08-23 cut) when
+  // the per-file freeze on under-800 files was dropped.
   group('Fitness - size', () {
     test('F-SIZE-1: max 800 LOC per file (frozen allow-list)', () {
       final allowlist = baseline.allowlist['F-SIZE-1'] ?? const <String, Object?>{};

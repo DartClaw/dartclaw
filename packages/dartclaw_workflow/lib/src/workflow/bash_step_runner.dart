@@ -26,6 +26,7 @@ const _bashStdoutMaxBytes = 64 * 1024;
 const _bashStderrMaxBytes = 64 * 1024;
 final _log = Logger('BashStepRunner');
 
+/// The resolved executable and arguments for a host shell invocation.
 typedef BashShellInvocation = ({String executable, List<String> arguments});
 
 Future<ExecutableLookupResult> _resolveExecutableLookup(String executable, PlatformCapabilities capabilities) async {
@@ -36,6 +37,8 @@ Future<ExecutableLookupResult> _resolveExecutableLookup(String executable, Platf
   return (exitCode: matches.isEmpty ? 1 : 0, stdout: matches.join('\n'));
 }
 
+/// Resolves the host shell without starting it.
+/// Throws [UnsupportedCapabilityError] when Git Bash is required but absent.
 Future<BashShellInvocation> selectBashShell({
   required PlatformCapabilities capabilities,
   required String command,

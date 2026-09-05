@@ -1,3 +1,5 @@
+import '../command_path.dart';
+
 import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun;
@@ -16,8 +18,10 @@ import 'standalone_run_harness.dart';
 /// [run].
 abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
   new({
+    super.standaloneOnly,
+    super.reachabilityProbe,
     super.config,
-    super.apiClient,
+    super.connection,
     super.writeLine,
     super.exitFn,
     super.searchDbFactory,
@@ -34,13 +38,12 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
   }
 
   @override
-  String get invocation => '${runner!.executableName} workflow $name <runId>';
+  String get invocation => '${commandPath(this)} <runId>';
 
   /// POSTs to `/api/workflows/runs/[runId]/[pathSuffix]` and prints either the
   /// JSON envelope or `Workflow <id> <verb> (<status>).`.
   Future<void> runAgainstRun({required String runId, required String pathSuffix, required String verb}) =>
-      runConnected((apiClient) async {
-        final result = await apiClient.postObject('/api/workflows/runs/$runId/$pathSuffix');
+      connection!.runAction(connectionContext, runId, pathSuffix, (result) {
         if (argResults!['json'] as bool) {
           writeLine(const JsonEncoder.withIndent('  ').convert(result));
         } else {
@@ -58,6 +61,7 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
   ) async {
     final definition = WorkflowDefinition.fromJson(session.run.definitionJson);
     final printer = CliProgressPrinter(
+      commandPrefix: commandPrefix(this),
       totalSteps: definition.steps.length,
       workflowName: definition.name,
       writeLine: writeLine,

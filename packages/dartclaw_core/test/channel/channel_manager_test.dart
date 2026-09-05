@@ -19,10 +19,18 @@ void main() {
       channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
       queue = MessageQueue(
         debounceWindow: const Duration(milliseconds: 50),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async {
-          dispatched.add((sessionKey, message));
-          return 'ok';
-        },
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+            }) async {
+              dispatched.add((sessionKey, message));
+              return 'ok';
+            },
       );
       manager = ChannelManager(
         queue: queue,
@@ -117,7 +125,14 @@ void main() {
     ChannelManager buildManager({SessionScopeConfig? scopeConfig, LiveScopeConfig? liveScopeConfig}) {
       final queue = MessageQueue(
         debounceWindow: const Duration(milliseconds: 50),
-        dispatcher: (sessionKey, message, {String? senderJid, String? senderDisplayName}) async => 'ok',
+        dispatcher: (
+          sessionKey,
+          message, {
+          required ChannelType channelType,
+          String? senderJid,
+          String? senderDisplayName,
+          String? groupJid,
+        }) async => 'ok',
       );
       return ChannelManager(
         queue: queue,

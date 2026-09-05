@@ -232,8 +232,19 @@ void main() {
     });
 
     test('empty definition filter shows all workflows while retaining status', () async {
-      await workflows.start(_makeDefinition(name: 'first-workflow'), const {});
-      await workflows.start(_makeDefinition(name: 'second-workflow'), const {});
+      final now = DateTime.now();
+      for (final name in ['first-workflow', 'second-workflow']) {
+        await workflowRepo.insert(
+          WorkflowRun(
+            id: 'run-$name',
+            definitionName: name,
+            status: WorkflowRunStatus.running,
+            startedAt: now,
+            updatedAt: now,
+            definitionJson: _makeDefinition(name: name).toJson(),
+          ),
+        );
+      }
       final context = _makeContext(workflowService: workflows, taskService: tasks);
 
       final response = await page.handler(_get('/workflows?status=running&definition='), context);

@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
+**Current through**: 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
 
 ---
 
@@ -487,7 +487,8 @@ When the resolved posture is enabled — declared `container.enabled: true`, or 
 
 ```
 docker create \
-  --name dartclaw-<hash>-<profile> \
+  --name dartclaw-<hash>-<profile>-<epoch><authorityId> \
+  --label dartclaw.data-dir=<data dir> \
   --network none \                          # No direct internet access
   --cap-drop ALL \                          # Drop all Linux capabilities
   --read-only \                             # Read-only root filesystem
@@ -519,7 +520,11 @@ A security profile defines one container's mounts, network, and capabilities. It
 | **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, default tasks, cron jobs |
 | **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, explicitly declared tasks |
 
-**Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>` — deterministic 8-char FNV-1a digest of the data directory (Docker-safe local identifier, not cryptographic), collision-free across multiple DartClaw installs on the same Docker daemon.
+**Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>-<epoch><authorityId>` uses a deterministic
+8-character FNV-1a digest of the exact data-dir string and a per-process epoch/counter for each authority.
+`ContainerManager.ownerLabel(dataDir)` carries the data-dir string verbatim as `dartclaw.data-dir=<data dir>`.
+The digest is used only for names, never ownership: different data dirs can share a name digest. Each data dir must have one server.
+The primary harness starts after server composition and MCP registration so its startup discovery can reach the complete tool surface. Task polling and scheduling activate only after primary startup and the post-MCP startup hook succeed; recovered workers therefore see the same complete registry.
 
 **Task dispatch**: the task lane defaults to `workspace`. The authenticated HTTP task API may declare `workspace` or
 `restricted`; channel and model-facing task creation cannot declare a profile. The `research` category is refused so
@@ -553,6 +558,13 @@ These provider-sandbox rows describe qualified POSIX hosts. Claude's native sand
 and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL when this isolation boundary is required.
 
 ### Container Health Monitoring
+
+`ContainerManager.ownedContainers` lists all states using `ps -a --filter label=dartclaw.data-dir=<data dir>` and is the
+shared query for reclamation and doctor. `reclaimOwnedContainers` removes each listed container and its generated
+state, warning per reclaim. `SecurityWiring` calls it after the boot runtime probe, before image checks, and after
+lease cleanup on shutdown when a gateway exists. Each runtime call has the five-second `runtimeProbeTimeout`;
+failures warn and never fail wiring. There is no periodic or prefix sweep, and unlabelled pre-release leaks need
+one-time manual removal. A forced shutdown deadline can interrupt cleanup; the next boot reclaims what remains.
 
 `ContainerHealthMonitor` runs periodic health checks (every 10 seconds by default) on all managed containers. State transitions (healthy -> unhealthy, unhealthy -> healthy) are surfaced as `ContainerCrashedEvent` and `ContainerStartedEvent` via the EventBus.
 
@@ -705,7 +717,7 @@ Sensitive workflow and git paths are routed through `SafeProcess` in `dartclaw_k
 
 ### Git Subprocess Centralization
 
-Every production git subprocess flows through one runner: `runGit(...)` in `dartclaw_kernel` (`lib/src/process/git_runner.dart`), the only production caller of `SafeProcess.git`. A fitness gate (`dev/fitness/test/safe_process_usage_test.dart`) fails the build on any direct `SafeProcess.git` / `SafeProcess.gitStart` call outside that runner, anywhere under `packages/*/lib` or `apps/*/lib` — so a second runner cannot spawn git without routing through the seam.
+Every production git subprocess flows through one runner: `runGit(...)` in `dartclaw_kernel` (`lib/src/process/git_runner.dart`), the only production caller of `SafeProcess.git`. A fitness gate (`dev/fitness/test/safe_process_usage_test.dart`) fails the build on any direct `SafeProcess.git` call outside that runner, anywhere under `packages/*/lib` or `apps/*/lib` — so a second runner cannot spawn git without routing through the seam.
 
 - `EnvPolicy.credentialPlan` preserves the git-safe baseline env, strips parent secrets, overlays the caller's `ProcessEnvironmentPlan` (e.g. `GitCredentialPlan`), and keeps `includeParentEnvironment: false`.
 - **`noSystemConfig: true` is the seam's default**, so a newly added call site cannot inherit the unsafe posture by omission. Automation-owned git paths — worktree setup/cleanup, the task-accept commit path, the workflow git port, workflow-orchestrated checkouts, and every CLI workflow git call — take the default; `git worktree add` and the accept path perform checkouts and commits, so system-level filter drivers and hooks would otherwise run inside DartClaw's own automation.

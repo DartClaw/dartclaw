@@ -101,6 +101,7 @@
 - **A write that becomes read-modify-write needs `secureWriteFile`.** The file is the sole copy; truncating `writeAsString` turns any interruption into total loss. `storage/atomic_write.dart:13`.
 - **A reachability category must count inbound links, not the page's own.** Wiki `orphan` read each page's outbound links, so a leaf-only corpus flagged every page every run – no signal.
 - **A markdown link regex must split `#fragment`/`?query` off the path.** `](page.md#section)` matched `\]\(([^)]+\.md)\)` not at all: target never link-checked, page counted linkless.
+- **Fingerprint the corpus replacement at the current revision, bump only on commit.** `MEMORY.md` carries its revision in its bytes, so a post-bump identity guard never fires.
 
 ## Container / Deployment
 
@@ -139,3 +140,10 @@
 - **A guard test must assert the value the guard suppresses, not the input.** Asserting the prompt job's *prompt* stayed unlogged left the `onExecute` guard unpinned – deleting it passed 49 tests.
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first" – both orderings passed 115 tests.
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
+- **`dev/fitness` caps a `*_test.dart` at 1300 lines; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
+
+## Scheduling
+
+- **A paused one-time job must keep its timer.** Its instant arrives once; cancel the timer and it passes unnoticed, leaving a paused row nothing will run that still holds its id against a re-create.
+- **`ScheduleService` resolves a job id by first match, and config jobs precede built-ins.** A colliding `scheduling.jobs` entry starves the built-in; drop it at construction, not only on live apply.
+

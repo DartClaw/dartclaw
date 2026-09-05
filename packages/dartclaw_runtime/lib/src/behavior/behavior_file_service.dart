@@ -99,7 +99,11 @@ class BehaviorFileService {
   /// - [PromptScope.task]: SOUL (workspace) + TOOLS
   /// - [PromptScope.restricted]: TOOLS only
   ///
-  Future<String> composeSystemPrompt({PromptScope scope = PromptScope.primary, bool includeOnboarding = false}) async {
+  Future<String> composeSystemPrompt({
+    PromptScope scope = PromptScope.primary,
+    bool includeOnboarding = false,
+    TurnOrigin? origin,
+  }) async {
     final parts = <String>[];
 
     // SOUL.md — workspace only (project SOUL.md is deprecated; harness binary reads CLAUDE.md/AGENTS.md natively)
@@ -118,6 +122,7 @@ class BehaviorFileService {
     if (scope == PromptScope.primary) {
       // USER.md — workspace only (agent-updatable user context)
       await _addSection(parts, 'USER.md', '## User Context');
+      _addChannelOrigin(parts, origin);
     }
 
     // TOOLS.md — workspace only (interactive and task scopes)
@@ -149,7 +154,11 @@ class BehaviorFileService {
   /// - [PromptScope.primary]: SOUL + USER + TOOLS + errors + AGENTS + bounded memory
   /// - [PromptScope.task]: SOUL + TOOLS + AGENTS + memory hint
   /// - [PromptScope.restricted]: TOOLS + memory hint
-  Future<String> composeStaticPrompt({PromptScope scope = PromptScope.primary, bool includeOnboarding = false}) async {
+  Future<String> composeStaticPrompt({
+    PromptScope scope = PromptScope.primary,
+    bool includeOnboarding = false,
+    TurnOrigin? origin,
+  }) async {
     final parts = <String>[];
 
     if (scope == PromptScope.restricted) {
@@ -163,6 +172,7 @@ class BehaviorFileService {
       if (scope == PromptScope.primary) {
         // USER.md — workspace only (agent-updatable user context)
         await _addSection(parts, 'USER.md', '## User Context');
+        _addChannelOrigin(parts, origin);
       }
 
       // TOOLS.md — workspace only (human-maintained environment notes)
@@ -211,6 +221,18 @@ class BehaviorFileService {
     if (scope == PromptScope.restricted) return '';
     final content = await _readFile(p.join(workspaceDir, 'AGENTS.md'));
     return content ?? '';
+  }
+
+  // The contact label is channel-supplied text: JSON-encoded so a display name
+  // carrying a newline cannot forge a section in the composed prompt.
+  static void _addChannelOrigin(List<String> parts, TurnOrigin? origin) {
+    if (origin == null) return;
+    parts.add(
+      '## Channel\n'
+      '- Channel: ${origin.channel}\n'
+      '- Conversation: ${origin.group ? 'group' : 'direct'}'
+      '${origin.contact == null ? '' : '\n- Contact: ${jsonEncode(origin.contact)}'}',
+    );
   }
 
   /// Reads a workspace file and adds it as a headed section if non-empty.

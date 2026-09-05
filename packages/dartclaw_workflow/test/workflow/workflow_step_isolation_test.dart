@@ -39,10 +39,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         PromptAugmenter,
         SessionService,
         SkillPromptBuilder,
+        SkillProvisioner,
         WorkflowDefinition,
         WorkflowDefinitionParser,
         WorkflowContext,
-        WorkflowStep;
+        WorkflowStep,
+        WorkspaceSkillInventory,
+        WorkspaceSkillLinker;
 import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart' show buildExecutionEnvelopeSchema;
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart'
     show stepArtifactsDirEnvVar, workflowStepArtifactsDir;
@@ -271,6 +274,8 @@ void main() {
   late final String executorModel;
   late final String permissionMode;
   late final Directory artifactDir;
+  late final Directory skillsCacheDir;
+  late final WorkspaceSkillInventory skillInventory;
   late Directory tempDir;
   late String fixtureDir;
   late String runtimeArtifactsDir;
@@ -318,6 +323,19 @@ void main() {
     // the Codex sibling, not out of that fear.
     permissionMode = 'bypassPermissions';
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
+
+    // The harness runs Claude Code against `fixtureDir` with
+    // `--setting-sources project`, so it only sees `dartclaw-*` skills staged
+    // under the fixture itself — never the operator's own `~/.claude/skills`.
+    // Reproduce the production seam (`SkillProvisioner` copy +
+    // `WorkspaceSkillLinker` link) here instead of relying on whatever the
+    // developer's box happens to have cached.
+    skillsCacheDir = Directory.systemTemp.createTempSync('dartclaw_workflow_step_isolation_skills_');
+    await SkillProvisioner(
+      dataDir: skillsCacheDir.path,
+      dcNativeSkillsSourceDir: p.join(workflowRepositoryRoot(), 'packages', 'dartclaw_workflow', 'skills'),
+    ).ensureCacheCurrent();
+    skillInventory = WorkspaceSkillInventory.fromDataDir(skillsCacheDir.path);
   });
 
   setUp(() {
@@ -334,6 +352,13 @@ void main() {
     Process.runSync('git', ['config', 'user.email', 'workflow-tests@example.com'], workingDirectory: fixtureDir);
     Process.runSync('git', ['add', '.'], workingDirectory: fixtureDir);
     Process.runSync('git', ['commit', '-qm', 'Initial fixture'], workingDirectory: fixtureDir);
+    WorkspaceSkillLinker().materialize(
+      dataDir: skillsCacheDir.path,
+      workspaceDir: fixtureDir,
+      skillNames: skillInventory.skillNames,
+      agentMdNames: skillInventory.agentMdNames,
+      agentTomlNames: skillInventory.agentTomlNames,
+    );
 
     final database = sqlite3.openInMemory();
     taskService = TaskService(SqliteTaskRepository(database));
@@ -368,6 +393,12 @@ void main() {
     await messageService.dispose();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
+    }
+  });
+
+  tearDownAll(() {
+    if (skillsCacheDir.existsSync()) {
+      skillsCacheDir.deleteSync(recursive: true);
     }
   });
 

@@ -1,3 +1,5 @@
+import '../command_path.dart';
+
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -39,6 +41,7 @@ abstract class _InitImpl extends Command<void> {
   @override
   String get description => 'Set up a DartClaw instance (config, workspace scaffold, onboarding)';
 
+  final bool workflowOnly;
   final Logger _logger;
   final SetupChecks _setupChecks;
   final Future<List<String>> Function(SetupState) _applySetup;
@@ -48,6 +51,7 @@ abstract class _InitImpl extends Command<void> {
   final ServiceBackend? _serviceBackend;
 
   new({
+    this.workflowOnly = false,
     Logger? logger,
     SetupChecks? setupChecks,
     Future<List<String>> Function(SetupState)? applySetup,
@@ -95,9 +99,10 @@ abstract class _InitImpl extends Command<void> {
       ..addOption('auth-codex', allowed: ['env', 'oauth'], help: 'Codex auth method')
       ..addOption('model-claude', help: 'Claude model (haiku, sonnet, opus)')
       ..addOption('model-codex', help: 'Codex model')
-      ..addOption('port', abbr: 'p', help: 'Port for the HTTP server', valueHelp: 'N')
+      ..addOption('port', hide: workflowOnly, abbr: 'p', help: 'Port for the HTTP server', valueHelp: 'N')
       ..addOption(
         'gateway-auth',
+        hide: workflowOnly,
         allowed: ['token', 'none'],
         allowedHelp: {'token': 'Require bearer token for HTTP access', 'none': 'No HTTP authentication'},
         help: 'Gateway authentication mode',
@@ -110,6 +115,7 @@ abstract class _InitImpl extends Command<void> {
       )
       ..addOption(
         'launch',
+        hide: workflowOnly,
         allowed: ['foreground', 'background', 'service', 'skip'],
         allowedHelp: {
           'foreground': 'Start server in foreground (dartclaw serve)',
@@ -270,9 +276,13 @@ abstract class _InitImpl extends Command<void> {
         p.normalize(p.absolute(p.join('.dartclaw', 'dartclaw.yaml'))),
       );
       if (isCwdLocal) {
-        _writeLine('Run a workflow: dartclaw workflow run --standalone code-review');
+        _writeLine(
+          'Run a workflow: ${workflowOnly ? commandPrefix(this) : '${commandPrefix(this)} workflow'} run --standalone code-review',
+        );
       } else {
-        _writeLine('Run a workflow: dartclaw workflow run --standalone --config $configPath code-review');
+        _writeLine(
+          'Run a workflow: ${workflowOnly ? commandPrefix(this) : '${commandPrefix(this)} workflow'} run --standalone --config $configPath code-review',
+        );
       }
       return;
     }
@@ -419,7 +429,7 @@ abstract class _InitImpl extends Command<void> {
   }
 
   SetupState _resolveFromFlags(DartclawConfig? existingConfig) {
-    final workflowTrack = argResults!['workflow'] as bool;
+    final workflowTrack = workflowOnly || argResults!['workflow'] as bool;
     final defaults = workflowTrack
         ? _workflowDefaultsFromExisting(existingConfig)
         : _defaultsFromExisting(existingConfig);
@@ -569,7 +579,7 @@ abstract class _InitImpl extends Command<void> {
   }
 
   Future<SetupState> _runWizard(DartclawConfig? existingConfig) async {
-    if (argResults!['workflow'] as bool) {
+    if (workflowOnly || argResults!['workflow'] as bool) {
       return _runWorkflowWizard(existingConfig);
     }
 
@@ -897,25 +907,13 @@ abstract class _InitImpl extends Command<void> {
         _logger.err('Invalid port: $input — enter a number between 1 and 65535.');
         continue;
       }
-      if (await _portInUse(parsed)) {
+      if (!await _setupChecks.portAvailable(parsed)) {
         final next = parsed + 1;
         _logger.warn('Port $parsed is already in use. Try $next?');
         candidate = next;
         continue;
       }
       return parsed;
-    }
-  }
-
-  Future<bool> _portInUse(int port) async {
-    ServerSocket? socket;
-    try {
-      socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
-      return false;
-    } on SocketException {
-      return true;
-    } finally {
-      await socket?.close();
     }
   }
 
@@ -1116,6 +1114,7 @@ class InitCommand extends _InitImpl {
   String get name => 'init';
 
   new({
+    super.workflowOnly,
     super.logger,
     super.setupChecks,
     super.applySetup,
@@ -1131,6 +1130,7 @@ class SetupAliasCommand extends _InitImpl {
   String get name => 'setup';
 
   new({
+    super.workflowOnly,
     super.logger,
     super.setupChecks,
     super.applySetup,

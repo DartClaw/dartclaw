@@ -73,7 +73,6 @@ class RebuildIndexCommand extends Command<void> {
             'canonicalRevision': result.revision,
             'indexedRows': result.rowCount,
             'health': result.health.state.name,
-            'unchanged': false,
             // The human path reads this off the preflight report; the JSON path had no way to see it.
             'reconciled': preflight.status == MemoryPreflightStatus.reconciled,
           }),

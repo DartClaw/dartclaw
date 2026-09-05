@@ -566,7 +566,7 @@ class _RuntimeAssembly {
   final String dataDir;
   final int port;
   final HarnessFactory harnessFactory;
-  final ServerFactory serverFactory;
+  final ServerFactory? serverFactory;
   final bool headless;
   final List<HarnessRegistrar> harnessRegistrars;
   final SearchDbFactory searchDbFactory;
@@ -603,10 +603,6 @@ class _RuntimeAssembly {
   final RemotePushService? remotePushServiceOverride;
   final PrCreator? prCreatorOverride;
 
-  /// The providers execution capacity is provisioned for, or `null` for every
-  /// configured provider plus the primary lane. Bound at completion, because
-  /// the zero-server lane only knows the set after its definition resolves.
-  Set<String>? _workflowProviderScope;
   final OutboundMcpTransportFactory? outboundMcpTransportFactory;
   final PostMcpStartupHook postMcpStartupHook;
 
@@ -681,7 +677,7 @@ class _RuntimeAssembly {
     this.remotePushServiceOverride,
     PrCreator? prCreator,
     @visibleForTesting Map<String, String>? environment,
-  }) : serverFactory = serverFactory ?? _identityServerFactory,
+  }) : serverFactory = serverFactory,
        platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        _environment = environment ?? Platform.environment,
        runtimeCwd = runtimeCwd ?? Directory.current.path,
@@ -753,7 +749,6 @@ class _RuntimeAssembly {
   /// lane when it is `null`.
   Future<DartclawRuntime> completeWithExecution(Set<String>? workflowProviderScope) async {
     _requireBaseWired();
-    _workflowProviderScope = workflowProviderScope;
     final ctx = _ctx;
     final project = _project;
     final storage = _storage;
@@ -763,7 +758,7 @@ class _RuntimeAssembly {
     final security = await _wireSecurity(ctx, agentDefs);
     _correctPostureIfDowngraded(security);
     // 4. Harness
-    final harness = await _wireHarness(ctx, storage, security);
+    final harness = await _wireHarness(ctx, storage, security, workflowProviderScope);
     // 5. Tasks (pre-server)
     final task = await _wirePreServerTasks(ctx, storage, project);
     // Injected before the channels are wired: it rebuilds the review handler
@@ -803,23 +798,21 @@ class _RuntimeAssembly {
     security.credentialHealth = credentialHealth;
     harness.credentialHealth = credentialHealth;
     _credentialHealth = credentialHealth;
-    final scheduling = channel == null
+    // One instance for the config API, the scheduling-mutation seam and the
+    // live-job applier — two would keep two backup timestamps. It opens a stream
+    // subscription only the server disposes, so it stays under the same
+    // `channel != null` condition as the server branch below.
+    final configWriter = channel == null ? null : config_tools.ConfigWriter(configPath: resolvedConfigPath);
+    final scheduling = channel == null || configWriter == null
         ? null
-        : await _wireScheduling(ctx, storage, channel, harness, security, credentialHealth);
+        : await _wireScheduling(ctx, storage, channel, harness, security, credentialHealth, configWriter);
     final scopeReconciler = _wireScopeReconciler(ctx);
     final groupSessionInit = channel == null ? null : await _wireGroupSessionInit(ctx, storage, channel);
 
     DartclawServer? server;
     OutboundMcpPool? outboundMcpPool;
-    if (channel != null && scheduling != null) {
-      // Constructed inside the branch that consumes it: the writer opens a
-      // stream subscription and only the server disposes it, so a build that
-      // composes no server must not create one.
-      //
-      // One instance for both the config API and the scheduling-mutation seam
-      // the MCP tools consume — two would keep two backup timestamps.
-      final configWriter = config_tools.ConfigWriter(configPath: resolvedConfigPath);
-      server = serverFactory(
+    if (channel != null && scheduling != null && configWriter != null) {
+      server = (serverFactory ?? _identityServerFactory)(
         _composeRuntimeServer(
           config,
           resolvedConfigPath,
@@ -854,22 +847,8 @@ class _RuntimeAssembly {
         configWriter,
         outboundMcpTransportFactory: outboundMcpTransportFactory,
       );
-      try {
-        await postMcpStartupHook(channel);
-      } catch (error, stackTrace) {
-        try {
-          await outboundMcpPool?.close();
-        } catch (closeError, closeStackTrace) {
-          _log.warning(
-            'Failed to close outbound MCP pool after startup error: $closeError',
-            closeError,
-            closeStackTrace,
-          );
-        }
-        Error.throwWithStackTrace(error, stackTrace);
-      }
     }
-    return _assembleRuntime(
+    final runtime = _assembleRuntime(
       ctx,
       (providerId) => _providerProbeEnvironment(ctx, providerId),
       server,
@@ -889,6 +868,20 @@ class _RuntimeAssembly {
       outboundMcpPool,
       trackedWorkflowGitCleanup: _trackedWorkflowGitCleanup(storage, project, workflowService),
     );
+    try {
+      await harness.startPrimary();
+      if (channel != null) await postMcpStartupHook(channel);
+      runtime.taskExecutor?.start();
+      runtime.scheduleService?.start();
+      return runtime;
+    } catch (error, stackTrace) {
+      try {
+        await runtime.shutdown();
+      } catch (cleanupError, cleanupStackTrace) {
+        _log.warning('Failed to shut down runtime after startup error', cleanupError, cleanupStackTrace);
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   /// The teardown sweep for the zero-server lane, or `null` for a build whose
@@ -989,17 +982,21 @@ class _RuntimeAssembly {
       messageRedactor: ctx.messageRedactor,
       subscriptionCredentials: ctx.subscriptions.readAll,
       codexRefresh: ctx.codexRefresh,
-      // Server ref resolved lazily – the MCP registry exists only after the
-      // server is built, while authorities are created at turn time. A headless
-      // build never builds one, so the gateway refuses a bridged-MCP grant with
-      // its own message instead of resolving an unbound reference.
+      // Primary authority acquisition precedes composition; harness startup
+      // waits until the MCP registry is ready. Headless builds have no registry
+      // and the gateway refuses bridged-MCP grants.
       mcpHandlerRef: headless ? null : () => ctx.composedServerGetter().mcpHandler,
     );
     await security.wire(agentDefs: agentDefs);
     return security;
   }
 
-  Future<HarnessWiring> _wireHarness(_WiringContext ctx, StorageWiring storage, SecurityWiring security) async {
+  Future<HarnessWiring> _wireHarness(
+    _WiringContext ctx,
+    StorageWiring storage,
+    SecurityWiring security,
+    Set<String>? workflowProviderScope,
+  ) async {
     final harness = HarnessWiring(
       config: config,
       dataDir: ctx.dataDir,
@@ -1014,11 +1011,10 @@ class _RuntimeAssembly {
       subscriptionCredentials: ctx.subscriptions.readAll,
       codexRefresh: ctx.codexRefresh,
       headless: headless,
-      workflowProviderScope: _workflowProviderScope,
+      workflowProviderScope: workflowProviderScope,
       harnessRegistrars: harnessRegistrars,
     );
-    // Server ref resolved lazily – closures in harness capture the getter.
-    await harness.wire(serverRefGetter: ctx.serverRefGetter);
+    await harness.wire(turnManagerGetter: () => headless ? null : ctx._serverTurns);
     ctx.registeredProviderEntries = harness.registeredProviderEntries;
     ctx.registrarCredentialOverlay = harness.registrarCredentialOverlay;
     return harness;
@@ -1057,7 +1053,7 @@ class _RuntimeAssembly {
     await channel.wire(
       serverRefGetter: ctx.composedServerGetter,
       turnManagerGetter: ctx.turnManagerGetter,
-      sseBroadcast: harness.sseBroadcast,
+      sseBroadcast: harness.sseBroadcast!,
       messageRedactor: ctx.messageRedactor,
       healthService: harness.primaryHealthService,
       budgetEnforcer: harness.budgetEnforcer,
@@ -1322,15 +1318,14 @@ class _RuntimeAssembly {
 
   /// Delivers push-back feedback as a new turn on the task's own session.
   ///
-  /// A closure rather than a bound reference: the composed server is bound
-  /// after this runs, so resolving it eagerly would throw at wiring time.
+  /// The turn manager is bound after this closure is installed.
   PushBackFeedbackDelivery _pushBackFeedbackDelivery(_WiringContext ctx, StorageWiring storage) {
     return ({required String taskId, required String sessionKey, required String feedback}) async {
       final session = await storage.sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
       final messages = [
         {'role': 'user', 'content': feedback},
       ];
-      await ctx.composedServerGetter().turns.startTurn(
+      await ctx.turnManagerGetter().startTurn(
         session.id,
         messages,
         source: 'push-back',
@@ -1347,6 +1342,7 @@ class _RuntimeAssembly {
     HarnessWiring harness,
     SecurityWiring security,
     CredentialHealthMonitor credentialHealth,
+    config_tools.ConfigWriter configWriter,
   ) async {
     final scheduling = SchedulingWiring(
       config: config,
@@ -1354,9 +1350,10 @@ class _RuntimeAssembly {
       storage: storage,
       channel: channel,
       security: security,
-      sseBroadcast: harness.sseBroadcast,
+      sseBroadcast: harness.sseBroadcast!,
       memoryHandlers: harness.memoryHandlers,
       credentialHealth: credentialHealth,
+      messageRedactor: ctx.messageRedactor,
       behavior: harness.behavior,
       configNotifier: ctx.configNotifier,
     );
@@ -1364,6 +1361,7 @@ class _RuntimeAssembly {
       turns: ctx._serverTurns,
       contextMonitor: harness.contextMonitor,
       policyResolver: harness.policyResolver,
+      configWriter: configWriter,
     );
     return scheduling;
   }
@@ -1402,7 +1400,6 @@ class _RuntimeAssembly {
   /// turn seam, so an agent step refuses instead of spawning.
   Future<DartclawRuntime> completeLifecycleOnly() async {
     _requireBaseWired();
-    _workflowProviderScope = const {};
     final ctx = _ctx;
     // Neither the security nor the harness layer is composed: nothing a
     // lifecycle verb does needs them, and composing them runs ACP validation
@@ -1491,7 +1488,7 @@ class _RuntimeAssembly {
       turns: ctx._serverTurns,
       drainDeadline: const Duration(seconds: 30),
       exit: exitFn,
-      broadcastSse: harness.sseBroadcast.broadcast,
+      broadcastSse: harness.sseBroadcast!.broadcast,
       writeRestartPending: writeRestartPending,
       dataDir: ctx.dataDir,
     );

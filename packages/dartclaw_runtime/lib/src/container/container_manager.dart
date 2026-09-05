@@ -80,6 +80,7 @@ class ContainerManager implements ContainerExecutor {
 
   final ContainerConfig config;
   final String containerName;
+  final String _ownerLabel;
   @override
   final String profileId;
   final List<String> workspaceMounts;
@@ -113,6 +114,7 @@ class ContainerManager implements ContainerExecutor {
   new({
     required this.config,
     required this.containerName,
+    required String ownerLabel,
     required this.profileId,
     required this.workspaceMounts,
     required this.generatedStateDir,
@@ -124,7 +126,8 @@ class ContainerManager implements ContainerExecutor {
     this.workingDir = '/project',
     RunCommand? runCommand,
     StartCommand? startCommand,
-  }) : buildContextDir = buildContextDir ?? Directory.current.path,
+  }) : _ownerLabel = ownerLabel,
+       buildContextDir = buildContextDir ?? Directory.current.path,
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
 
@@ -147,6 +150,65 @@ class ContainerManager implements ContainerExecutor {
   static String generateName(String dataDir, String profileId) {
     final hash = _stableHexHash(dataDir);
     return 'dartclaw-$hash-$profileId';
+  }
+
+  /// Ownership label for the exact data-dir string supplied to server wiring.
+  /// The data-dir string is carried verbatim, without hashing or canonicalizing it.
+  static String ownerLabel(String dataDir) => 'dartclaw.data-dir=$dataDir';
+
+  /// Lists running and exited containers labelled for this exact data-dir string.
+  /// Use the server's data-dir spelling without canonicalizing it.
+  /// Throws [StateError] naming the runtime if the bounded query fails.
+  static Future<List<String>> ownedContainers(
+    String dataDir, {
+    required String runtimeBinary,
+    RunCommand runCommand = Process.run,
+  }) async {
+    try {
+      final result = await runCommand(runtimeBinary, [
+        'ps',
+        '-a',
+        '--filter',
+        'label=${ownerLabel(dataDir)}',
+        '--format',
+        '{{.Names}}',
+      ]).timeout(runtimeProbeTimeout);
+      if (result.exitCode != 0) throw StateError('${result.stderr}');
+      return (result.stdout as String).split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+    } catch (error) {
+      throw StateError('Failed to list owned containers with $runtimeBinary: $error');
+    }
+  }
+
+  /// Reclaims labelled containers when no live authority can own them.
+  /// Call before acquiring authorities or after releasing all leases.
+  /// Returns confirmed removals; failures are logged and never thrown.
+  static Future<int> reclaimOwnedContainers(
+    String dataDir, {
+    required String runtimeBinary,
+    RunCommand runCommand = Process.run,
+  }) async {
+    var reclaimed = 0;
+    try {
+      final names = await ownedContainers(dataDir, runtimeBinary: runtimeBinary, runCommand: runCommand);
+      for (final name in names) {
+        try {
+          final result = await runCommand(runtimeBinary, ['rm', '-f', name]).timeout(runtimeProbeTimeout);
+          if (result.exitCode != 0 && !_confirmsAbsence(result.stderr)) {
+            throw StateError('${result.stderr}');
+          }
+          reclaimed++;
+          await _deleteGeneratedStateDir(p.join(dataDir, 'containers', name), name);
+          _log.warning('Reclaimed orphaned container $name left by an earlier dartclaw serve for this data dir');
+        } catch (error) {
+          _log.warning('Failed to reclaim orphaned container $name with $runtimeBinary: $error');
+        }
+      }
+    } catch (error) {
+      _log.warning('Failed to sweep owned containers with $runtimeBinary: $error');
+    }
+    _log.info('Container sweep: $reclaimed orphaned container(s) reclaimed for label ${ownerLabel(dataDir)}');
+    return reclaimed;
   }
 
   // FNV-1a is sufficient here: we need a deterministic, Docker-safe suffix
@@ -207,8 +269,7 @@ class ContainerManager implements ContainerExecutor {
 
   /// Ensure the container image exists (build or pull).
   Future<void> ensureImage() async {
-    final result = await _run(_binary, ['image', 'inspect', config.image]);
-    if (result.exitCode == 0) {
+    if (await imageExists(_binary, config.image, runCommand: _run)) {
       _log.info('Container image ${config.image} found for $profileId');
       return;
     }
@@ -218,6 +279,12 @@ class ContainerManager implements ContainerExecutor {
     if (buildResult.exitCode != 0) {
       throw StateError('Failed to build Docker image: ${buildResult.stderr}');
     }
+  }
+
+  /// Inspects an image without pulling or building it. Propagates command failures.
+  static Future<bool> imageExists(String runtimeBinary, String image, {RunCommand runCommand = Process.run}) async {
+    final result = await runCommand(runtimeBinary, ['image', 'inspect', image]).timeout(runtimeProbeTimeout);
+    return result.exitCode == 0;
   }
 
   /// Whether this manager has already created (or adopted) its container.
@@ -256,6 +323,7 @@ class ContainerManager implements ContainerExecutor {
     final args = [
       'create',
       '--name', containerName,
+      '--label', _ownerLabel,
       '--network', 'none',
       '--cap-drop', 'ALL',
       '--read-only',
@@ -295,8 +363,16 @@ class ContainerManager implements ContainerExecutor {
   ///
   /// The engine, not the host process, is authoritative: a macOS arm64 host
   /// can run an amd64 Linux engine.
-  Future<String?> serverArchitecture() async {
-    final result = await _run(_binary, ['version', '--format', '{{.Server.Arch}}']);
+  Future<String?> serverArchitecture() => engineArchitecture(_binary, runCommand: _run);
+
+  /// Returns a supported bridge architecture, or null for an unsupported engine.
+  /// Propagates command failures and timeouts.
+  static Future<String?> engineArchitecture(String runtimeBinary, {RunCommand runCommand = Process.run}) async {
+    final result = await runCommand(runtimeBinary, [
+      'version',
+      '--format',
+      '{{.Server.Arch}}',
+    ]).timeout(runtimeProbeTimeout);
     if (result.exitCode != 0) return null;
     return BridgeBinaryProvisioner.architectureFor(result.stdout as String);
   }
@@ -331,7 +407,7 @@ class ContainerManager implements ContainerExecutor {
     final removal = await _run(_binary, ['rm', '-f', containerName]);
     // Generated state is deleted whether or not removal succeeded: a leaked
     // container must not also leave a readable generated home behind.
-    await _deleteGeneratedStateDir();
+    await _deleteGeneratedStateDir(generatedStateDir, containerName);
     // Only an explicitly-confirmed absence lets a failed removal pass: a daemon
     // error is `unknown`, and admitting it as success would leak a live
     // container (with its mounts) while returning its capacity.
@@ -385,7 +461,7 @@ class ContainerManager implements ContainerExecutor {
     }
   }
 
-  Future<void> _deleteGeneratedStateDir() async {
+  static Future<void> _deleteGeneratedStateDir(String generatedStateDir, String containerName) async {
     try {
       final directory = Directory(generatedStateDir);
       if (await directory.exists()) {

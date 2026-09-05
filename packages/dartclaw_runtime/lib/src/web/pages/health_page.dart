@@ -49,7 +49,7 @@ class HealthDashboardPage extends DashboardPage {
     final pubsubHealth = pubsubHealthGetter?.call();
 
     final page = healthDashboardTemplate(
-      status: status['status'] as String? ?? 'healthy',
+      status: status['status'] as String,
       uptimeSeconds: status['uptime_s'] as int? ?? 0,
       workerState: status['worker_state'] as String? ?? '',
       sessionCount: status['session_count'] as int? ?? 0,

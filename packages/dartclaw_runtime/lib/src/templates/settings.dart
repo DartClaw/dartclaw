@@ -1,3 +1,4 @@
+import '../health/health_service.dart';
 import '../web/channel_status.dart';
 import '../web/settings/settings_sections.dart';
 import 'components.dart';
@@ -49,11 +50,7 @@ String settingsTemplate({
   final uptimeStr = formatUptime(uptimeSeconds);
 
   final healthLabel = titleCase(status);
-  final healthVariant = switch (status) {
-    'healthy' => 'success',
-    'degraded' => 'warning',
-    _ => 'error',
-  };
+  final healthVariant = healthStatusBadgeVariant(status);
 
   // Pre-render status badges.
   final healthBadgeHtml = statusBadgeTemplate(variant: healthVariant, text: healthLabel);

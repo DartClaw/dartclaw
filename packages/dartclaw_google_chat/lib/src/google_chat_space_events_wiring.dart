@@ -20,7 +20,7 @@ class GoogleChatSpaceEventsWiring {
   final CloudEventAdapter _adapter;
   final MessageDeduplicator _deduplicator;
   final ChannelManager _channelManager;
-  final GoogleChatChannel? _channel;
+  final GoogleChatChannel _channel;
 
   /// Cache of resolved sender display names keyed by sender JID.
   final Map<String, ({String displayName, DateTime cachedAt})> _senderDisplayNames = {};
@@ -33,7 +33,7 @@ class GoogleChatSpaceEventsWiring {
     required CloudEventAdapter adapter,
     required MessageDeduplicator deduplicator,
     required ChannelManager channelManager,
-    GoogleChatChannel? channel,
+    required GoogleChatChannel channel,
   }) : _pubSubClient = pubSubClient,
        _subscriptionManager = subscriptionManager,
        _adapter = adapter,
@@ -93,6 +93,9 @@ class GoogleChatSpaceEventsWiring {
 
   Future<bool> _dispatchMessages(List<ChannelMessage> messages, String pubsubMessageId) async {
     for (final channelMessage in messages) {
+      if (!_admitted(channelMessage)) {
+        continue;
+      }
       final messageName = channelMessage.metadata['messageName'] as String?;
       if (messageName != null && messageName.isNotEmpty) {
         if (!_deduplicator.tryProcess(messageName)) {
@@ -102,20 +105,48 @@ class GoogleChatSpaceEventsWiring {
       }
       await _enrichSenderDisplayName(channelMessage);
 
-      final channel = _channel;
-      if (channel != null) {
-        final spaceName = channelMessage.metadata['spaceName'] as String?;
-        if (spaceName != null && spaceName.isNotEmpty) {
-          await channel.sendTypingIndicator(
-            spaceName: spaceName,
-            turnId: channelMessage.id,
-            reactionTargetMessageName: channelMessage.metadata['messageName'] as String?,
-          );
-        }
+      final spaceName = channelMessage.metadata['spaceName'] as String?;
+      if (spaceName != null && spaceName.isNotEmpty) {
+        await _channel.sendTypingIndicator(
+          spaceName: spaceName,
+          turnId: channelMessage.id,
+          reactionTargetMessageName: channelMessage.metadata['messageName'] as String?,
+        );
       }
       _channelManager.handleInboundMessage(channelMessage);
     }
     return true;
+  }
+
+  /// Runs the shared inbound gate with mention gating switched off: Space Events
+  /// subscriptions exist to deliver traffic that never mentions the bot.
+  ///
+  /// A refused message is dropped, never nacked, and no pairing is started: a
+  /// pairing code has no reply path here, and subscriptions cover named spaces.
+  bool _admitted(ChannelMessage message) {
+    final decision = ChannelInboundGate.evaluate(
+      message,
+      dmAccess: _channel.dmAccess,
+      mentionGating: null,
+      groupAccess: _channel.config.groupAccess,
+      groupAllowlist: _channel.config.groupIds,
+    );
+    switch (decision) {
+      case ChannelInboundDecision.admitted:
+        return true;
+      case ChannelInboundDecision.dmDenied:
+      case ChannelInboundDecision.dmPairingRequired:
+        _log.fine('Dropping Space Events DM from unauthorized sender ${message.senderJid}');
+        return false;
+      case ChannelInboundDecision.groupAccessDisabled:
+        _log.fine('Dropping Space Events message from ${message.groupJid} (group access disabled)');
+        return false;
+      case ChannelInboundDecision.groupNotAllowlisted:
+        _log.fine('Dropping Space Events message from unlisted space ${message.groupJid}');
+        return false;
+      case ChannelInboundDecision.mentionRequired:
+        return false;
+    }
   }
 
   /// Resolves [message]'s `senderDisplayName` metadata via the members API.
@@ -133,8 +164,7 @@ class GoogleChatSpaceEventsWiring {
     final spaceName = message.metadata['spaceName'] as String?;
     if (spaceName == null || spaceName.isEmpty) return;
 
-    final restClient = _channel?.restClient;
-    if (restClient == null) return;
+    final restClient = _channel.restClient;
 
     // Check cache.
     final cached = _senderDisplayNames[senderJid];

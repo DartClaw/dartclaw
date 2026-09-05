@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/init/setup_apply.dart';
 import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
@@ -469,7 +471,8 @@ New preference
       await SetupApply.apply(workflowState);
 
       final raw = File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync();
-      expect(raw, startsWith('# DartClaw — standalone workflow config'));
+      expect(raw.split('\n').first, '# yaml-language-server: \$schema=${ConfigMeta.jsonSchemaUrl(dartclawVersion)}');
+      expect(raw.split('\n')[1], startsWith('# DartClaw — standalone workflow config'));
       expect(raw, contains('dartclaw workflow run --standalone <name>'));
       expect(raw, contains('Drop custom workflow YAMLs in ./.dartclaw/workflows/custom/'));
       // Block style, not a single-line flow map.
@@ -493,6 +496,19 @@ New preference
       expect(File(p.join(tempDir.path, 'workspace', 'ONBOARDING.md')).existsSync(), isFalse);
     });
 
+    for (final workflowTrack in [false, true]) {
+      test('existing config retains its user header without a modeline (workflow: $workflowTrack)', () async {
+        final file = File(p.join(tempDir.path, 'dartclaw.yaml'));
+        file.writeAsStringSync('# My configuration\ndata_dir: .\nagent:\n  provider: claude\n');
+
+        await SetupApply.apply(_state(instanceDir: tempDir.path, workflowTrack: workflowTrack));
+
+        final raw = file.readAsStringSync();
+        expect(raw.split('\n').first, '# My configuration');
+        expect(raw, isNot(contains('yaml-language-server')));
+      });
+    }
+
     test('workflow track does not overwrite an existing gitignore', () async {
       File(p.join(tempDir.path, '.gitignore'))
         ..createSync()
@@ -507,7 +523,8 @@ New preference
       await SetupApply.apply(_state(instanceDir: tempDir.path));
 
       final raw = File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync();
-      expect(raw, startsWith('# DartClaw configuration'));
+      expect(raw.split('\n').first, '# yaml-language-server: \$schema=${ConfigMeta.jsonSchemaUrl(dartclawVersion)}');
+      expect(raw.split('\n')[1], '# DartClaw configuration');
       expect(raw, isNot(contains('standalone workflow config')));
     });
   });

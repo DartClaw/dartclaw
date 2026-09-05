@@ -1,3 +1,6 @@
+import 'workflow_connected_command.dart';
+import '../command_path.dart';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
@@ -14,17 +17,20 @@ import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
-class WorkflowStatusCommand extends ConnectedCommand {
+class WorkflowStatusCommand extends WorkflowConnectedCommand {
   final TaskDbFactory _taskDbFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
+  final bool standaloneOnly;
+
   new({
+    this.standaloneOnly = false,
     super.config,
     TaskDbFactory? taskDbFactory,
     String? currentDirectory,
     Map<String, String>? environment,
-    super.apiClient,
+    super.connection,
     super.writeLine,
     super.exitFn,
   }) : _taskDbFactory = taskDbFactory ?? openTaskDb,
@@ -32,7 +38,13 @@ class WorkflowStatusCommand extends ConnectedCommand {
        _environment = environment {
     argParser
       ..addFlag('json', negatable: false, help: 'Output as JSON')
-      ..addFlag('standalone', negatable: false, help: 'Read workflow status directly from the local tasks database');
+      ..addFlag(
+        'standalone',
+        negatable: false,
+        help: standaloneOnly
+            ? 'Always on; accepted for script compatibility.'
+            : 'Read workflow status directly from the local tasks database',
+      );
   }
 
   @override
@@ -42,7 +54,7 @@ class WorkflowStatusCommand extends ConnectedCommand {
   String get description => 'Show workflow run status';
 
   @override
-  String get invocation => '${runner!.executableName} workflow status <runId>';
+  String get invocation => '${commandPath(this)} <runId>';
 
   @override
   Future<void> run() async {
@@ -52,13 +64,12 @@ class WorkflowStatusCommand extends ConnectedCommand {
     }
     final runId = args.first;
 
-    if (argResults!['standalone'] as bool) {
+    if (standaloneOnly || argResults!['standalone'] as bool) {
       await _runStandalone(runId);
       return;
     }
 
-    await runConnected((apiClient) async {
-      final run = await apiClient.getObject('/api/workflows/runs/$runId');
+    await connection!.status(connectionContext, runId, (run) {
       if (argResults!['json'] as bool) {
         writeLine(const JsonEncoder.withIndent('  ').convert(run));
       } else {
@@ -166,12 +177,12 @@ class WorkflowStatusCommand extends ConnectedCommand {
       if (approvalMessage != null && approvalMessage.isNotEmpty) {
         writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
       }
-      writeLine('  Actions:     Run `dartclaw workflow resume $runId` to approve');
-      writeLine('               Run `dartclaw workflow cancel $runId` to reject');
+      writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to approve');
+      writeLine('               Run `${commandPrefix(this)} cancel $runId` to reject');
     } else if (run['status'] == 'paused') {
-      writeLine('  Actions:     Run `dartclaw workflow resume $runId` to continue');
+      writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to continue');
     } else if (run['status'] == 'failed') {
-      writeLine('  Actions:     Run `dartclaw workflow retry $runId` to retry');
+      writeLine('  Actions:     Run `${commandPrefix(this)} retry $runId` to retry');
     }
   }
 
@@ -196,10 +207,10 @@ class WorkflowStatusCommand extends ConnectedCommand {
       if (approvalMessage != null) {
         writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
       }
-      writeLine('  Actions:     Run `dartclaw workflow resume ${run.id} --standalone` to approve');
-      writeLine('               Run `dartclaw workflow cancel ${run.id} --standalone` to reject');
+      writeLine('  Actions:     Run `${commandPrefix(this)} resume ${run.id} --standalone` to approve');
+      writeLine('               Run `${commandPrefix(this)} cancel ${run.id} --standalone` to reject');
     } else if (run.status == WorkflowRunStatus.failed) {
-      writeLine('  Actions:     Run `dartclaw workflow retry ${run.id} --standalone` to retry');
+      writeLine('  Actions:     Run `${commandPrefix(this)} retry ${run.id} --standalone` to retry');
     }
     if (run.errorMessage != null) {
       writeLine('  Error:       ${scrubAgentReportedText(run.errorMessage!)}');

@@ -494,18 +494,21 @@ void main() {
       }
     });
 
-    test('every accept-set row is announced in the CHANGELOG, so a deferred break stays visible', () async {
-      final changelog = await _repoFile('CHANGELOG.md');
-      final deprecated = _unreleasedDeprecatedSection(changelog);
-      expect(deprecated, isNotEmpty, reason: 'the Unreleased ### Deprecated section could not be read');
+    test('every accept-set row is in the operator guide inventory, so a deferred break stays visible', () async {
+      // The guide is the one live inventory of what the loader still tolerates.
+      // CHANGELOG records a removal once, under the version that removed it; a
+      // rolling copy there would be a second answer to the same question.
+      final guide = await _repoFile('docs/guide/configuration.md');
+      final inventory = _deprecatedKeyInventory(guide);
+      expect(inventory, isNotEmpty, reason: 'the guide\'s ## Deprecated Keys section could not be read');
 
       for (final path in ConfigMeta.toleratedLegacyKeys.keys) {
-        expect(deprecated, contains('`$path`'), reason: '$path has no CHANGELOG deprecation row');
+        expect(inventory, contains('`$path`'), reason: '$path has no row under ## Deprecated Keys');
       }
 
       // The gate has to be able to fail, on the two ways it realistically can:
-      // a row added without an entry, and a released section standing in for
-      // the unreleased one after a version bump.
+      // a row added to the accept set without an inventory entry, and a slice
+      // that silently reads nothing.
       final unannounced = {
         ...ConfigMeta.toleratedLegacyKeys,
         'invented.row': const ToleratedLegacyKey(
@@ -514,12 +517,14 @@ void main() {
           replacement: 'Never announced anywhere.',
         ),
       };
-      expect(unannounced.keys.where((path) => !deprecated.contains('`$path`')), ['invented.row']);
+      expect(unannounced.keys.where((path) => !inventory.contains('`$path`')), ['invented.row']);
       expect(
-        _unreleasedDeprecatedSection(changelog.replaceFirst('## [Unreleased]', '## [9.9.9] - 2099-01-01')),
+        _deprecatedKeyInventory(guide.replaceFirst('## Deprecated Keys', '## Renamed Away')),
         isEmpty,
-        reason: 'the slice must not fall through to a released section',
+        reason: 'a renamed or deleted section must fail the gate, not pass it empty',
       );
+      // The `### Removed Preview Keys` subsection is part of the inventory.
+      expect(inventory, contains('### Removed Preview Keys'));
     });
 
     test('keys the loader tolerates but ignores are recorded as such, not as fields', () {
@@ -1241,23 +1246,14 @@ Future<String> _repoFile(String relativePath) async {
   return File(p.join(repoRoot, relativePath)).readAsStringSync();
 }
 
-/// The `### Deprecated` block under the changelog's `## [Unreleased]` heading.
-///
-/// Bounded to that release's own block: searching on to end-of-file would let a
-/// released `### Deprecated` section answer for the unreleased one the moment
-/// release prep renames the heading, and the gate would pass on a row nobody
-/// announced.
-String _unreleasedDeprecatedSection(String markdown) {
+/// The `## Deprecated Keys` section of the operator config guide, up to the next
+/// top-level heading — so the `### Removed Preview Keys` subsection is included.
+String _deprecatedKeyInventory(String markdown) {
   final lines = markdown.split('\n');
-  final unreleased = lines.indexWhere((line) => line.trim() == '## [Unreleased]');
-  if (unreleased < 0) return '';
-  final nextRelease = lines.indexWhere((line) => line.startsWith('## '), unreleased + 1);
-  final block = lines.sublist(unreleased + 1, nextRelease < 0 ? lines.length : nextRelease);
-
-  final start = block.indexWhere((line) => line.trim() == '### Deprecated');
+  final start = lines.indexWhere((line) => line.trim() == '## Deprecated Keys');
   if (start < 0) return '';
-  final end = block.indexWhere((line) => line.startsWith('#'), start + 1);
-  return block.sublist(start + 1, end < 0 ? block.length : end).join('\n');
+  final end = lines.indexWhere((line) => line.startsWith('## ') && !line.startsWith('### '), start + 1);
+  return lines.sublist(start + 1, end < 0 ? lines.length : end).join('\n');
 }
 
 /// Leaf paths documented in the guide's generated Full Config Reference table.

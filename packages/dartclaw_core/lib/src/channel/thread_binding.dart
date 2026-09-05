@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+
 import '../storage/atomic_write.dart';
 import 'channel.dart';
 
@@ -110,16 +112,26 @@ class ThreadBindingStore {
         _log.warning('Thread bindings file is not a JSON array — starting empty');
         return;
       }
+      var dropped = 0;
       for (final entry in decoded) {
         if (entry is! Map<String, dynamic>) continue;
         try {
           final binding = ThreadBinding.fromJson(entry);
+          if (!supportsThreadBinding(binding.channelType)) {
+            _log.warning(
+              'Dropping unroutable thread binding for task ${binding.taskId} on ${binding.channelType} — '
+              'that channel carries no thread identity',
+            );
+            dropped++;
+            continue;
+          }
           _bindings[ThreadBinding.key(binding.channelType, binding.threadId)] = binding;
         } catch (e) {
           _log.warning('Skipping malformed thread binding entry: $e');
         }
       }
       _log.fine('Loaded ${_bindings.length} thread binding(s)');
+      if (dropped > 0) await _persist();
     } on FormatException catch (e) {
       _log.warning('Thread bindings file contains invalid JSON — starting empty: $e');
     } on Exception catch (e) {
@@ -158,10 +170,10 @@ class ThreadBindingStore {
     await _persist();
   }
 
-  /// Removes all bindings for [taskId]. Persists immediately.
+  /// Removes all bindings for [taskId]. Persists before returning.
   ///
   /// Returns the removed bindings, or an empty list if none existed.
-  List<ThreadBinding> deleteByTaskId(String taskId) {
+  Future<List<ThreadBinding>> deleteByTaskId(String taskId) async {
     final removed = <ThreadBinding>[];
     _bindings.removeWhere((_, binding) {
       if (binding.taskId == taskId) {
@@ -170,19 +182,15 @@ class ThreadBindingStore {
       }
       return false;
     });
-    if (removed.isNotEmpty) {
-      // Best-effort persist — in-memory state is already updated.
-      _persist().catchError(
-        (Object e, StackTrace st) => _log.warning('Failed to persist binding deletion for task $taskId', e, st),
-      );
-    }
+    if (removed.isNotEmpty) await _persist();
     return removed;
   }
 
   /// Removes all bindings whose [ThreadBinding.lastActivity] is before [cutoff].
   ///
-  /// Persists if any entries were removed. Returns the list of removed bindings.
-  List<ThreadBinding> removeExpiredBindings(DateTime cutoff) {
+  /// Persists before returning if any entries were removed. Returns the list of
+  /// removed bindings.
+  Future<List<ThreadBinding>> removeExpiredBindings(DateTime cutoff) async {
     final expired = <ThreadBinding>[];
     _bindings.removeWhere((_, binding) {
       if (binding.lastActivity.isBefore(cutoff)) {
@@ -191,12 +199,7 @@ class ThreadBindingStore {
       }
       return false;
     });
-    // Best-effort persist — in-memory state is already updated.
-    if (expired.isNotEmpty) {
-      _persist().catchError(
-        (Object e, StackTrace st) => _log.warning('Failed to persist expired binding removal', e, st),
-      );
-    }
+    if (expired.isNotEmpty) await _persist();
     return expired;
   }
 
@@ -221,6 +224,14 @@ class ThreadBindingStore {
     await atomicWriteJson(_file, data);
   }
 }
+
+/// Whether [channelType] carries the per-message thread identity a
+/// [ThreadBinding] is keyed by.
+///
+/// Only Google Chat stamps `metadata['threadName']`, the sole input to
+/// [extractThreadId], so a binding stored for any other channel could never be
+/// resolved on the inbound path.
+bool supportsThreadBinding(String channelType) => channelType == ChannelType.googlechat.name;
 
 /// Extracts the Google Chat thread name from a [ChannelMessage]'s metadata.
 ///

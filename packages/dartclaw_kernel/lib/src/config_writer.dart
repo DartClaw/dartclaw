@@ -18,7 +18,8 @@ class _WriteOp {
 
 /// Non-destructive YAML config writer with backup and atomic writes.
 ///
-/// Preserves comments, blank lines, key ordering, and unknown keys.
+/// Preserves comments, blank lines, key ordering, and unknown keys. A
+/// symlinked [configPath] is written through to its target; the link survives.
 /// Thread-safe via internal write queue (serialized operations).
 class ConfigWriter {
   /// configPath.
@@ -97,10 +98,13 @@ class ConfigWriter {
       throw StateError('Backup failed, aborting config write: $e');
     }
 
-    // Atomic write: temp file + rename
-    final tempFile = File('$configPath.tmp');
+    // Atomic write: temp file + rename onto the resolved target. Renaming onto
+    // a symlinked configPath would replace the link with a regular file and
+    // detach the instance from the file the operator versions.
+    final targetPath = await file.resolveSymbolicLinks();
+    final tempFile = File('$targetPath.tmp');
     await tempFile.writeAsString(editor.toString());
-    await tempFile.rename(configPath);
+    await tempFile.rename(targetPath);
   }
 
   /// Narrows a whole-number `double` to `int` for a field declared

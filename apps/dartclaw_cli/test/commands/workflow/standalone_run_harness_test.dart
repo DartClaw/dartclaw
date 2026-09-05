@@ -91,6 +91,7 @@ void main() {
       liveOut = <String>[];
       stdoutLines = <String>[];
       printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
         totalSteps: definition.steps.length,
         workflowName: definition.name,
         writeLine: stdoutLines.add,
@@ -325,6 +326,7 @@ void main() {
     });
 
     CliProgressPrinter printerFor({required bool jsonOutput}) => CliProgressPrinter(
+      commandPrefix: 'dartclaw workflow',
       totalSteps: definition.steps.length,
       workflowName: definition.name,
       writeLine: stdoutLines.add,

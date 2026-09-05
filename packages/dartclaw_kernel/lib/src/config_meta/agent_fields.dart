@@ -14,7 +14,9 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'memory.maxBytes',
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
-    description: 'Byte budget for the bounded prompt memory index. Must be positive; a larger budget spends more of every prompt.',
+    description:
+        'Byte budget applied to each prompt memory projection – the index and the errors section – '
+        'independently. Must be positive; a larger budget spends more of every prompt.',
     min: 1,
   ),
   'agent.model': FieldMeta(
@@ -134,8 +136,8 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'sessions.resetHour',
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.reloadable,
-    description: 'Local hour at which main, channel and cron sessions reset daily. User-created ones are never reset automatically.',
-    min: 0,
+    description: 'Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset.',
+    min: -1,
     max: 23,
   ),
   'sessions.idle_timeout_minutes': FieldMeta(

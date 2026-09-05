@@ -20,9 +20,9 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C11 | Define the restart-required dispatch contract | A listener exists but no producer dispatches `restart-required`; defining the trigger is a product/runtime contract decision. |
 | RP01 | Bound audit-dashboard reads | The dashboard polls and fully scans every retained audit partition. A cap changes filter/pagination completeness, while caching or indexing adds state; define the supported event volume and whether the dashboard promises full retained-history queries before choosing the mechanism. |
 
-**0.26 candidates (flagged 2026-08-07)**: the UI-canon rows above (C01, C02, C08, C10, C11) touch the same surfaces and canon that 0.26 Chat & Session Experience reworks — decide take-or-defer at 0.26 PRD time, alongside the decided items below.
+**Chat & Session Experience candidates (flagged 2026-08-07)**: the UI-canon rows above (C01, C02, C08, C10, C11) touch the same surfaces and canon that Chat & Session Experience (`0.next-chat-and-sessions`) reworks — decide take-or-defer at its PRD time, alongside the decided items below.
 
-### Decided 2026-08-07 (operator) – awaiting scheduling, raise at 0.26 planning
+### Decided 2026-08-07 (operator) – awaiting scheduling, raise at Chat & Session Experience planning (`0.next-chat-and-sessions`)
 
 | Ledger | Decision |
 |---|---|
@@ -33,7 +33,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 ## TD-119 – Logical-agent session cancellation lacks caller-to-child causality
 
-**Status**: Scheduled for 0.27 Phase A. TD-110's dispatch seam landed in 0.25 (story S19), so the co-design partner now exists: build the typed caller-aware context on it rather than alongside it.
+**Status**: Scheduled for Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`). TD-110's dispatch seam landed in 0.25 (story S19), so the co-design partner now exists: build the typed caller-aware context on it rather than alongside it.
 **Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker)
 **Found**: 2026-08-09, 0.24 logical-agent session retrospective
 **Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
@@ -42,7 +42,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Build the typed context on the shipped MCP dispatch seam (`McpProtocolHandler`, 0.25), which already resolves the caller's authority, session and agent ids per dispatch.
 
-**Target**: 0.27 Phase A.
+**Target**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`).
 
 ## TD-118 – Inline remediation loop halts on `maxIterations` before the verify-fix gate
 
@@ -71,14 +71,14 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Context**: One-shot review/implement agents spawn with no MCP config of their own, so they inherit the operator's full `~/.codex` / `~/.claude` global MCP server set (context7, fetch, etc.). No DartClaw config surface exists to curate or trim MCP servers per project for these spawns.
 
-**Candidate**: 0.27 Phase A (flagged 2026-08-07). The guarded-MCP theme it shared with TD-110 is now half-shipped: 0.25's dispatch seam guards the *inbound* host surface, and this item is the untouched *outbound* half — a one-shot agent's inherited provider-global MCP servers never reach that seam. Decide at 0.27 PRD re-scoping whether the per-project MCP curation surface rides that milestone.
+**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). The guarded-MCP theme it shared with TD-110 is now half-shipped: 0.25's dispatch seam guards the *inbound* host surface, and this item is the untouched *outbound* half — a one-shot agent's inherited provider-global MCP servers never reach that seam. Decide at its PRD re-scoping whether the per-project MCP curation surface rides that milestone.
 
 ## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
 
-**Status**: Scheduled 2026-08-07 (owner) – folded into 0.25 story S14 "Instance-local storage hygiene" (`dartclaw-private/docs/specs/0.25/s14-instance-local-storage-hygiene.md`, PRD FR13); close when S14 ships
+**Status**: Scheduled 2026-08-07 (owner) – folded into the Pluggable Database Backend milestone (0.26 since the 2026-08-18 renumbering); split 2026-09-02 into its own story S15 "Filesystem-backed instance-local state" (`dartclaw-private/docs/specs/0.26/s15-filesystem-backed-instance-local-state.md`, PRD FR13); close when S15 ships
 **Severity**: Low (conceptual cleanliness; zero operational impact today)
 **Found**: 2026-08-07, owner design discussion during 0.25 rider planning
-**Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `apps/dartclaw_cli/.../storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
+**Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
 
 **Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
 
@@ -88,7 +88,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Status**: Resolved 2026-08-20 – 0.25 story S19 "Guarded MCP dispatch seam". Kept here only until the next backlog cleanup.
 
-**Resolution**: The dispatch-level enforcement the 2026-07-29 decision called for shipped in 0.25, not 0.27:
+**Resolution**: The dispatch-level enforcement the 2026-07-29 decision called for shipped in 0.25, not in a later milestone:
 `McpProtocolHandler` guard-evaluates and audits every inbound `tools/call` at one seam, for every registered tool, and
 `McpTool` carries a required read/write classification. See [ADR-009](../adrs/009-internal-mcp-server.md) § Amendment
 (0.25) and `dev/architecture/security-architecture.md`.
@@ -106,6 +106,7 @@ Last reviewed: 2026-08-20
 
 ## TD-106 – Investigate deeper Codex restriction surface
 
+**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`) – flagged 2026-09-03 as part of the guarded-dispatch debt sweep.
 **Severity**: Medium (security hardening; provider capability gap)
 **Found**: 2026-05-14 21:22 CEST, complete-discover-project-split remediation FIS
 **Affects**: Codex workflow task execution, MCP server scoping, profile config, `shell_environment_policy`
@@ -349,34 +350,6 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-06-27
 
-## TD-121 – Per-authority container names unreclaimable after abnormal exit (no prefix/label sweep)
-
-**Severity**: High (one leaked running container per in-flight authority, accumulating across restarts)
-**Found**: 2026-08-11, 0.24 execution-isolation Critic pass
-**Affects**: `ContainerManager.start()` leak reclamation, per-authority container naming
-
-**Context**: container names embed a per-process epoch specifically so they never repeat, but `ContainerManager.start()` reclaims leaks only by removing the *same* deterministic name, and there is no prefix- or label-based sweep. SIGKILL, OOM, or a shutdown-timeout force-exit therefore leaves one running container per in-flight authority, accumulating across restarts. A startup sweep over the `dartclaw-<hash(dataDir)>-` prefix would restore the self-healing the deterministic names used to provide.
-
-**Re-verified 2026-08-11 (0.24 scoped-host-gateway)**: unchanged and now broader in reach — every containerized execution, including each workflow one-shot turn, creates and destroys its own container, so an abnormal exit leaks one container per in-flight authority rather than per profile.
-
-**Needs decision**: multi-instance safety of a `dartclaw-<hash(dataDir)>-` prefix sweep when instances share a data dir.
-
-**Note**: the scoped-host-gateway and container-parity stories of the active 0.24 execution-isolation plan rework these surfaces and may resolve or reshape this item – re-verify before implementing. Full detail: FIS observations, `dev/bundle/docs/specs/0.24-execution-isolation/s01-effective-execution-policy.md`, Run 2026-08-11 20:13 UTC (repoint to the canonical private-repo spec path if this entry outlives the bundle).
-
-## TD-123 – Google Chat Space Events (Pub/Sub) inbound path applies no access control
-
-**Severity**: Medium (opt-in path only – no shipped config enables it; when enabled, inbound Pub/Sub messages reach the agent with no DM, group, or mention gating)
-**Found**: 2026-08-19, during 0.25 Lean Runtime planning (FR13 shared-channel-base analysis)
-**Affects**: `packages/dartclaw_google_chat/lib/src/google_chat_space_events_wiring.dart:116`, `cloud_event_adapter.dart`, contrast with `google_chat_webhook.dart`
-
-**Context**: the Space Events wiring reaches `handleInboundMessage` directly, with no group-access check, no DM-access check, and no mention gating; `cloud_event_adapter.dart` applies no access control either. The HTTP webhook path (`google_chat_webhook.dart`) does gate. The 0.25 package review recorded Google Chat as "running the same pipeline twice more", which overstates it by one copy and obscures that one of the paths runs no pipeline at all. Reachable only with `space_events.enabled: true`; no example or testing-profile config sets it.
-
-**Needs decision**: whether the Pub/Sub path is *intended* to bypass gating (e.g. because Workspace Events subscriptions are themselves scoped per space) or whether it should adopt the same inbound gate as the webhook path. Adopting the gate is a behaviour change for anyone running the opt-in path, so it cannot ride the 0.25 FR13 extraction, which is behaviour-preserving.
-
-**Not fixed in 0.25**: FR13's shared inbound gating pipeline (plan story S46) explicitly preserves this path as-is under a named criterion, so the extraction cannot silently alter access control. The Google Chat package re-cut (story S35) and Space Events absorption (story S84) preserve it.
-
-Last reviewed: 2026-08-19
-
 ## TD-124 – Webhook HTTP helpers have two package owners
 
 **Severity**: Low (the copies are behaviorally identical, but changes can drift)
@@ -444,3 +417,50 @@ be retired in favour of the `windows-runtime` profile. Either way the choice is 
 local fix.
 
 Last reviewed: 2026-08-28
+
+## TD-143 – `dartclaw config get` is not on the one config schema source
+
+**Severity**: Low (wrong answer for a registered key, no data loss)
+**Found**: 0.25 S10/S11 ledgers; verified 2026-09-05 on `feat/0.25.1`
+**Affects**: `apps/dartclaw_cli/lib/src/commands/config/config_get_command.dart`, `ConfigSerializer.toJson` (`/api/config`)
+
+**Observed**: the command uses `ConfigMeta.fields` only to translate a YAML path to a JSON key, then looks the value up
+in the `/api/config` JSON, which emits a fixed per-channel subset. A registered-but-unemitted key prints
+`Unknown config key`, and neither type nor reload tier is ever printed. S10's acceptance scenario was amended to
+`_meta.fields` and `config set`; the `config get` half was assigned to S11 and never decided.
+
+**Needs decision**: answer from the registry (`_meta.fields`, value read from wherever the runtime holds it) or widen
+`ConfigSerializer` to every registered key. Either changes what `/api/config` promises.
+
+Last reviewed: 2026-09-05
+
+## TD-145 – `/api/goals` is half-surfaced
+
+**Severity**: Low
+**Found**: 0.25 deletion gate (the audit's "dead" claim was falsified, so the subsystem was preserved); verified 2026-09-05
+**Affects**: `packages/dartclaw_runtime/lib/src/api/goal_routes.dart`, `templates/tasks.html` goal `<select>`
+
+**Observed**: the API is the only creation and deletion path, so the tasks page's goal select is empty on a fresh
+install until someone POSTs a goal.
+
+**Needs decision**: product – give goals a first-class surface, or retire the subsystem deliberately.
+
+Last reviewed: 2026-09-05
+
+## TD-146 – `TaskFailureReason.turnFailure` is one retry-dedup key for every non-completed turn
+
+**Severity**: Low
+**Found**: 0.25 S02 ledger; verified 2026-09-05
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_failure_kind.dart`, `task_executor.dart` (the `turnFailure`
+call site), `task_budget_policy_failure.dart` (the dedup compare)
+
+**Observed**: retry dedup compares `TaskFailureKind.key` – two consecutive failures under one key stop the retry loop –
+and the executor maps every non-completed turn outcome to `turnFailure`, so a timeout followed by an unrelated stream
+failure dedupe as one reason. The 0.25 typed-failure work moved the key write to where it is read; it did not split the
+kind. Related, routed as a quick fix with the proposed semantic "a manual start resets retry state":
+`TaskActionService.start` is a bare `failed → queued` transition that keeps `retryCount`, `configJson['lastError']` and
+`configJson['_lastFailureKind']`, so the restarted run dedupes its first failure against the previous run's key.
+
+**Needs decision**: which turn outcomes are distinct retry reasons (a taxonomy over `TurnOutcome.status`).
+
+Last reviewed: 2026-09-05

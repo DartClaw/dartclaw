@@ -263,9 +263,9 @@ class CloudEventAdapter {
       return null;
     }
 
-    // Space Events CloudEvents may omit space.type — default to SPACE since
+    // Space Events CloudEvents may omit space.type — fall back to SPACE since
     // only named spaces have Workspace Events subscriptions (not DMs).
-    final spaceType = (space?['type'] as String?) ?? (space?['spaceType'] as String?) ?? 'SPACE';
+    final spaceType = utils.resolveSpaceType(space, fallback: 'SPACE');
     final groupJid = utils.resolveGroupJid(spaceType: spaceType, spaceName: spaceName);
 
     // Parse timestamp

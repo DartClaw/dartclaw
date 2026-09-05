@@ -51,7 +51,7 @@ class PrCreator {
   static final _log = Logger('PrCreator');
 
   final CredentialsConfig _credentials;
-  final HttpClient Function() _httpClientFactory;
+  final HttpClientFactory _httpClientFactory;
   final Uri _apiBaseUri;
 
   /// Injectable request runner for testing.
@@ -59,7 +59,7 @@ class PrCreator {
 
   new({
     CredentialsConfig credentials = const CredentialsConfig.defaults(),
-    HttpClient Function()? httpClientFactory,
+    HttpClientFactory? httpClientFactory,
     GitHubApiRunner? apiRunner,
 
     /// GitHub REST API origin, defaulting to `https://api.github.com`.
@@ -185,27 +185,21 @@ class PrCreator {
     Uri uri, {
     required Map<String, String> headers,
     String? body,
-  }) async {
+  }) {
     final runner = _apiRunner;
     if (runner != null) {
       return runner(method, uri, headers: headers, body: body);
     }
 
-    final client = _httpClientFactory();
-    client.connectionTimeout = const Duration(seconds: 10);
-    try {
-      final request = await client.openUrl(method, uri);
-      headers.forEach(request.headers.set);
-      if (body != null) {
-        // `content-type` is already set, and IOSink refuses an encoding change after that.
-        request.add(utf8.encode(body));
-      }
-      final response = await request.close().timeout(const Duration(seconds: 15));
-      final responseBody = await utf8.decoder.bind(response).join();
-      return (statusCode: response.statusCode, body: responseBody);
-    } finally {
-      client.close(force: true);
-    }
+    return httpRequest(
+      uri,
+      method: method,
+      headers: headers,
+      body: body,
+      connectionTimeout: const Duration(seconds: 10),
+      timeout: const Duration(seconds: 15),
+      factory: _httpClientFactory,
+    );
   }
 
   String? _extractGitHubMessage(String body) {

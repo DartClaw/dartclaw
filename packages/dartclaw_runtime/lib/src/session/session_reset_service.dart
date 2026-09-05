@@ -11,7 +11,8 @@ import 'package:path/path.dart' as p;
 /// On reset, keyed sessions (main/channel/cron) are converted to archive type
 /// and a fresh session is created with the same key. User sessions have their
 /// messages cleared in place. The daily timer fires at a configurable hour
-/// (default 4 AM). Idle timeout is opt-in (default 0 = disabled).
+/// (default 4 AM); a negative hour disables it. Idle timeout is opt-in
+/// (default 0 = disabled).
 class SessionResetService implements Reconfigurable {
   static final _log = Logger('SessionResetService');
 
@@ -22,6 +23,7 @@ class SessionResetService implements Reconfigurable {
   Future<void> Function(String sessionId)? _resetSessionContinuity;
 
   Timer? _dailyTimer;
+  bool _started = false;
   final Map<String, Timer> _idleTimers = {};
 
   new({
@@ -45,14 +47,18 @@ class SessionResetService implements Reconfigurable {
     _resetHour = newHour;
     _idleTimeoutMinutes = newIdle;
     _log.info('SessionResetService reconfigured (resetHour: $_resetHour, idleTimeoutMinutes: $_idleTimeoutMinutes)');
-    if (hourChanged && _dailyTimer != null) {
-      _dailyTimer!.cancel();
+    // A disabled hour holds no timer, so a null one no longer distinguishes
+    // "never started" from "switched off" — only `_started` does.
+    if (hourChanged && _started) {
+      _dailyTimer?.cancel();
+      _dailyTimer = null;
       _scheduleDailyTimer();
     }
   }
 
   /// Starts the daily reset timer.
   void start() {
+    _started = true;
     _scheduleDailyTimer();
   }
 
@@ -103,7 +109,9 @@ class SessionResetService implements Reconfigurable {
 
   /// Cancels all timers.
   void dispose() {
+    _started = false;
     _dailyTimer?.cancel();
+    _dailyTimer = null;
     for (final timer in _idleTimers.values) {
       timer.cancel();
     }
@@ -111,6 +119,10 @@ class SessionResetService implements Reconfigurable {
   }
 
   void _scheduleDailyTimer() {
+    if (_resetHour < 0) {
+      _log.info('Daily reset disabled (sessions.reset_hour: $_resetHour)');
+      return;
+    }
     final now = DateTime.now();
     var next = DateTime(now.year, now.month, now.day, _resetHour);
     if (next.isBefore(now) || next.isAtSameMomentAs(now)) {

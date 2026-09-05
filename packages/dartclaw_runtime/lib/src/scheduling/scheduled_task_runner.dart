@@ -8,6 +8,52 @@ import 'scheduled_job.dart';
 import '../task/task_service.dart';
 
 final _log = Logger('ScheduledTaskRunner');
+final _configJobsLog = Logger('ScheduledJobs');
+
+/// The jobs `scheduling.jobs` declares, plus the ids [composeConfigJobs] refused
+/// to load because their one-time instant had already passed.
+typedef ComposedConfigJobs = ({List<ScheduledJob> jobs, List<String> missedOnceIds});
+
+/// Composes every config-declared job — prompt entries and `type: task` entries
+/// alike — for [ScheduleService].
+///
+/// The one composer boot wiring and the live applier share, so a job written
+/// through the mutation seam is loaded exactly as the next start would load it.
+/// An unparsable entry is logged and skipped rather than failing the whole list.
+/// A one-time entry whose instant is not still ahead of [now] is not loaded and
+/// its id is reported in `missedOnceIds`, so the caller can drop the stale entry
+/// instead of warning about it at every start.
+ComposedConfigJobs composeConfigJobs(
+  SchedulingConfig scheduling, {
+  required TaskService taskService,
+  DateTime Function()? now,
+}) {
+  final clock = now ?? DateTime.now;
+  final jobs = <ScheduledJob>[];
+  final missedOnceIds = <String>[];
+  for (final entry in scheduling.jobs) {
+    final ScheduledJob job;
+    try {
+      job = ScheduledJob.fromConfig(entry);
+    } catch (e) {
+      _configJobsLog.warning('Invalid scheduled job config: $e — skipping');
+      continue;
+    }
+    // Task entries reach the scheduler through the parsed definitions below,
+    // which carry the dedup and creation behaviour a raw entry does not.
+    if (job.jobType == ScheduledJobType.task) continue;
+    if (job.scheduleType == ScheduleType.once && !(job.onceAt?.isAfter(clock()) ?? false)) {
+      _configJobsLog.info('One-time job "${job.id}": instant ${job.onceAt} already passed — missed, removing entry');
+      missedOnceIds.add(job.id);
+      continue;
+    }
+    jobs.add(job);
+  }
+  final taskJobs = ScheduledTaskRunner(taskService: taskService, definitions: scheduling.taskDefinitions).buildJobs();
+  if (taskJobs.isNotEmpty) _configJobsLog.info('Registered ${taskJobs.length} automation scheduled task(s)');
+  jobs.addAll(taskJobs);
+  return (jobs: jobs, missedOnceIds: missedOnceIds);
+}
 
 /// Bridges [ScheduledTaskDefinition] entries into [ScheduledJob] instances
 /// for registration with [ScheduleService].
@@ -45,7 +91,9 @@ class ScheduledTaskRunner {
           id: jobIdForDefinition(def.id),
           scheduleType: ScheduleType.cron,
           cronExpression: cronExpr,
+          taskDefinition: def,
           onExecute: () => _executeScheduledTask(def),
+          isConfigDeclared: true,
         ),
       );
     }

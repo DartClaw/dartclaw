@@ -151,8 +151,11 @@ void main() {
 
   /// Wires the host boundary against the current store, recording exits and
   /// what startup logged on the way there.
-  Future<({List<int> exits, List<String> logs})> wireHostBoundary({CodexVendorRefresh? vendorRefresh}) async {
+  Future<({List<int> exits, List<String> logs, Object? startupError})> wireHostBoundary({
+    CodexVendorRefresh? vendorRefresh,
+  }) async {
     final exits = <int>[];
+    Object? startupError;
     final logs = <String>[];
     final subscription = Logger.root.onRecord.listen((record) => logs.add('${record.message} ${record.error ?? ''}'));
     storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
@@ -186,17 +189,22 @@ void main() {
       environment: const {'PATH': '/nonexistent'},
     );
     try {
-      await wiring.wire(serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
+      await wiring.wire(turnManagerGetter: () => throw UnimplementedError('serverRefGetter should not be called'));
       harnessWiring = wiring;
+      try {
+        await wiring.startPrimary();
+      } catch (error) {
+        startupError = error;
+      }
     } on _StartupExit {
       // The real exitFn never returns; the marker stands in for that.
     } finally {
       await subscription.cancel();
     }
-    return (exits: exits, logs: logs);
+    return (exits: exits, logs: logs, startupError: startupError);
   }
 
-  test('a spent refresh lineage exits startup before any provider CLI is spawned', () async {
+  test('a spent refresh lineage rejects startup before any provider CLI is spawned', () async {
     // Past the vendor's 8-day rotation window: a refresh that produces nothing
     // here is spent rather than merely unreachable, which is the one signal
     // that separates a terminal credential from a retryable one.
@@ -204,20 +212,15 @@ void main() {
 
     final outcome = await wireHostBoundary();
 
-    expect(outcome.exits, [1], reason: 'an unusable subscription credential must fail startup closed');
+    expect(outcome.exits, isEmpty, reason: 'construction must succeed before the credential startup gate');
+    expect(outcome.startupError, isNotNull, reason: 'an unusable subscription credential must fail startup closed');
     expect(spawns, isEmpty, reason: 'a provider CLI was spawned on a credential the host cannot make usable');
     // The credential was present and readable throughout, so this refusal came
     // from the freshness gate rather than from an admission presence check.
     expect(store.read('codex'), isNotNull);
-    // And the exit is pinned to that cause: `wire()` exits 1 for several
-    // unrelated startup failures, any of which would satisfy the two
-    // assertions above while the gate itself had quietly stopped working.
-    expect(
-      outcome.logs.where((line) => line.contains('can no longer be refreshed') && line.contains('codex login')),
-      isNotEmpty,
-      reason: 'startup exited 1 without reporting the terminal credential: ${outcome.logs}',
-    );
-    // The refusal reaches the operator without the credential in it.
+    expect(outcome.startupError.toString(), contains('can no longer be refreshed'));
+    expect(outcome.startupError.toString(), contains('codex login'));
+    expect(outcome.startupError.toString(), isNot(contains('rt-must-never-be-read')));
     expect(outcome.logs.where((line) => line.contains('rt-must-never-be-read')), isEmpty);
   });
 
@@ -229,6 +232,7 @@ void main() {
     final outcome = await wireHostBoundary();
 
     expect(outcome.exits, isEmpty, reason: 'a usable-but-ageing credential was refused: ${outcome.logs}');
+    expect(outcome.startupError, isNull);
     expect(spawns, hasLength(1));
     expect(spawns.single.environment['CODEX_HOME'], store.codexHome);
   });
@@ -247,6 +251,7 @@ void main() {
       isEmpty,
       reason: 'a recoverable credential was refused instead of refreshed: ${outcome.logs}',
     );
+    expect(outcome.startupError, isNull);
     expect(spawns, hasLength(1));
     expect(store.readCodexAuth()!.expiresAt.isAfter(clock), isTrue, reason: 'the store was never rotated');
   });

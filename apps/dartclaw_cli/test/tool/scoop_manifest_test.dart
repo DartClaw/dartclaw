@@ -29,136 +29,198 @@ String _repoRoot() {
 
 void main() {
   final repoRoot = _repoRoot();
-  final manifestPath = p.join(repoRoot, 'package', 'scoop', 'dartclaw.json');
 
-  test('Scoop manifest pins the Windows release asset and executable', () {
-    final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
-    final architecture = manifest['architecture'] as Map<String, dynamic>;
-    final x64 = architecture['64bit'] as Map<String, dynamic>;
+  final toolDir = Directory.systemTemp.createTempSync('dc-scoop-tool');
+  final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
+  File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
+  tearDownAll(() => toolDir.deleteSync(recursive: true));
 
-    expect(manifest['version'], dartclawVersion);
-    expect(architecture.keys, ['64bit']);
-    expect(
-      x64['url'],
-      'https://github.com/DartClaw/dartclaw/releases/download/'
-      'v$dartclawVersion/dartclaw-v$dartclawVersion-windows-x64.zip',
-    );
-    expect(x64['hash'], matches(RegExp(r'^[0-9a-f]{64}$')));
-    expect(_hashSlotCount(manifest), 1);
-    expect(manifest['bin'], r'bin\dartclaw.exe');
-    final autoupdate = manifest['autoupdate'] as Map<String, dynamic>;
-    final autoupdateArchitecture = autoupdate['architecture'] as Map<String, dynamic>;
-    final autoupdateX64 = autoupdateArchitecture['64bit'] as Map<String, dynamic>;
-    expect(
-      autoupdateX64['url'],
-      r'https://github.com/DartClaw/dartclaw/releases/download/v$version/dartclaw-v$version-windows-x64.zip',
-    );
-  });
+  ProcessResult runTool(List<String> args) =>
+      Process.runSync(Platform.resolvedExecutable, [toolPath, ...args], workingDirectory: toolDir.path);
 
-  test('Scoop renderer injects the published Windows checksum', () {
-    final toolDir = Directory.systemTemp.createTempSync('dc-scoop-tool');
-    final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
-    File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
-    addTearDown(() => toolDir.deleteSync(recursive: true));
+  /// Stages both Windows checksum files with distinct digests, so a renderer
+  /// that picked the wrong artifact would inject the other one's digest.
+  String stageChecksums(Directory dir, String artifact) {
+    const digests = {'dartclaw': 'ab', 'dartclaw-workflow': 'cd'};
+    for (final entry in digests.entries) {
+      final archive = '${entry.key}-v$dartclawVersion-windows-x64.zip';
+      File(p.join(dir.path, '$archive.sha256')).writeAsStringSync('${entry.value * 32}  $archive\n');
+    }
+    return digests[artifact]! * 32;
+  }
 
-    final archive = 'dartclaw-v$dartclawVersion-windows-x64.zip';
-    final digest = 'ab' * 32;
-    File(p.join(toolDir.path, '$archive.sha256')).writeAsStringSync('$digest  $archive\n');
-    final outputPath = p.join(toolDir.path, 'dartclaw.json');
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      toolPath,
-      '--manifest',
-      manifestPath,
-      '--checksums-dir',
-      toolDir.path,
-      '--version',
-      dartclawVersion,
-      '--output',
-      outputPath,
-    ], workingDirectory: toolDir.path);
+  for (final artifact in ['dartclaw', 'dartclaw-workflow']) {
+    final manifestPath = p.join(repoRoot, 'package', 'scoop', '$artifact.json');
+    final artifactArgs = artifact == 'dartclaw' ? const <String>[] : ['--artifact', artifact];
 
-    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
-    final rendered = jsonDecode(File(outputPath).readAsStringSync()) as Map<String, dynamic>;
-    final x64 = (rendered['architecture'] as Map<String, dynamic>)['64bit'] as Map<String, dynamic>;
-    expect(rendered['version'], dartclawVersion);
-    expect(x64['hash'], digest);
-    expect(_hashSlotCount(rendered), 1);
-  });
+    test('Scoop $artifact manifest pins the Windows release asset and executable', () {
+      final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
+      final architecture = manifest['architecture'] as Map<String, dynamic>;
+      final x64 = architecture['64bit'] as Map<String, dynamic>;
 
-  test('Scoop renderer rejects version drift', () {
-    final toolDir = Directory.systemTemp.createTempSync('dc-scoop-drift');
-    final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
-    File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
-    addTearDown(() => toolDir.deleteSync(recursive: true));
+      expect(manifest['version'], dartclawVersion);
+      expect(architecture.keys, ['64bit']);
+      expect(
+        x64['url'],
+        'https://github.com/DartClaw/dartclaw/releases/download/'
+        'v$dartclawVersion/$artifact-v$dartclawVersion-windows-x64.zip',
+      );
+      expect(x64['hash'], matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(_hashSlotCount(manifest), 1);
+      expect(manifest['bin'], 'bin\\$artifact.exe');
+      final autoupdate = manifest['autoupdate'] as Map<String, dynamic>;
+      final autoupdateArchitecture = autoupdate['architecture'] as Map<String, dynamic>;
+      final autoupdateX64 = autoupdateArchitecture['64bit'] as Map<String, dynamic>;
+      expect(
+        autoupdateX64['url'],
+        'https://github.com/DartClaw/dartclaw/releases/download/v\$version/'
+        '$artifact-v\$version-windows-x64.zip',
+      );
+    });
 
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      toolPath,
-      '--manifest',
-      manifestPath,
-      '--checksums-dir',
-      toolDir.path,
-      '--version',
-      '0.0.0-nonmatching',
-    ], workingDirectory: toolDir.path);
+    test('Scoop $artifact renderer injects its own published Windows checksum', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-render');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    expect(result.exitCode, isNonZero);
-    expect('${result.stderr}', contains('lockstep'));
-  });
+      final digest = stageChecksums(tempDir, artifact);
+      final outputPath = p.join(tempDir.path, '$artifact.json');
+      final result = runTool([
+        '--manifest',
+        manifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+        '--output',
+        outputPath,
+      ]);
 
-  test(r'Scoop renderer rejects a literal $version in the concrete release URL', () {
-    final toolDir = Directory.systemTemp.createTempSync('dc-scoop-url-template');
-    final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
-    File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
-    addTearDown(() => toolDir.deleteSync(recursive: true));
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      final rendered = jsonDecode(File(outputPath).readAsStringSync()) as Map<String, dynamic>;
+      final x64 = (rendered['architecture'] as Map<String, dynamic>)['64bit'] as Map<String, dynamic>;
+      expect(rendered['version'], dartclawVersion);
+      expect(x64['hash'], digest);
+      expect(x64['url'], contains('$artifact-v$dartclawVersion-windows-x64.zip'));
+      expect(rendered['bin'], 'bin\\$artifact.exe');
+      expect(_hashSlotCount(rendered), 1);
+    });
 
-    final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
-    final architecture = manifest['architecture'] as Map<String, dynamic>;
-    final x64 = architecture['64bit'] as Map<String, dynamic>;
-    x64['url'] =
-        r'https://github.com/DartClaw/dartclaw/releases/download/v$version/'
-        'dartclaw-v$dartclawVersion-windows-x64.zip';
-    final malformedManifestPath = p.join(toolDir.path, 'malformed.json');
-    File(malformedManifestPath).writeAsStringSync(jsonEncode(manifest));
+    test('Scoop $artifact renderer refuses a missing checksum for its own artifact', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-missing');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      toolPath,
-      '--manifest',
-      malformedManifestPath,
-      '--checksums-dir',
-      toolDir.path,
-      '--version',
-      dartclawVersion,
-    ], workingDirectory: toolDir.path);
+      final other = artifact == 'dartclaw' ? 'dartclaw-workflow' : 'dartclaw';
+      final archive = '$other-v$dartclawVersion-windows-x64.zip';
+      File(p.join(tempDir.path, '$archive.sha256')).writeAsStringSync('${'ef' * 32}  $archive\n');
 
-    expect(result.exitCode, isNonZero);
-    expect('${result.stderr}', contains('architecture.64bit.url'));
-  });
+      final result = runTool([
+        '--manifest',
+        manifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+      ]);
 
-  test('Scoop renderer rejects multiple hash slots', () {
-    final toolDir = Directory.systemTemp.createTempSync('dc-scoop-hash-slots');
-    final toolPath = p.join(toolDir.path, 'render_scoop_manifest.dart');
-    File(p.join(repoRoot, 'dev', 'tools', 'render_scoop_manifest.dart')).copySync(toolPath);
-    addTearDown(() => toolDir.deleteSync(recursive: true));
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('$artifact-v$dartclawVersion-windows-x64.zip.sha256'));
+    });
 
-    final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
-    manifest['hash'] = 'ff' * 32;
-    final malformedManifestPath = p.join(toolDir.path, 'malformed.json');
-    File(malformedManifestPath).writeAsStringSync(jsonEncode(manifest));
-    final result = Process.runSync(Platform.resolvedExecutable, [
-      toolPath,
-      '--manifest',
-      malformedManifestPath,
-      '--checksums-dir',
-      toolDir.path,
-      '--version',
-      dartclawVersion,
-    ], workingDirectory: toolDir.path);
+    test('Scoop $artifact renderer rejects version drift', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-drift');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
 
-    expect(result.exitCode, isNonZero);
-    expect('${result.stderr}', contains('exactly one 64-bit hash slot'));
-  });
+      final result = runTool([
+        '--manifest',
+        manifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        '0.0.0-nonmatching',
+      ]);
 
-  test('release workflow publishes the rendered manifest to the Scoop bucket', () {
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('lockstep'));
+    });
+
+    test('Scoop $artifact renderer rejects a literal \$version in the concrete release URL', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-url-template');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
+      final architecture = manifest['architecture'] as Map<String, dynamic>;
+      final x64 = architecture['64bit'] as Map<String, dynamic>;
+      x64['url'] =
+          'https://github.com/DartClaw/dartclaw/releases/download/v\$version/'
+          '$artifact-v$dartclawVersion-windows-x64.zip';
+      final malformedManifestPath = p.join(tempDir.path, 'malformed.json');
+      File(malformedManifestPath).writeAsStringSync(jsonEncode(manifest));
+
+      final result = runTool([
+        '--manifest',
+        malformedManifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+      ]);
+
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('architecture.64bit.url'));
+    });
+
+    test('Scoop $artifact renderer rejects a foreign artifact URL', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-foreign-url');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      stageChecksums(tempDir, artifact);
+      final other = artifact == 'dartclaw' ? 'dartclaw-workflow' : 'dartclaw';
+      final foreignManifestPath = p.join(tempDir.path, 'foreign.json');
+      File(foreignManifestPath)
+          .writeAsStringSync(File(p.join(repoRoot, 'package', 'scoop', '$other.json')).readAsStringSync());
+
+      final result = runTool([
+        '--manifest',
+        foreignManifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+      ]);
+
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('architecture.64bit.url'));
+    });
+
+    test('Scoop $artifact renderer rejects multiple hash slots', () {
+      final tempDir = Directory.systemTemp.createTempSync('dc-scoop-hash-slots');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      final manifest = jsonDecode(File(manifestPath).readAsStringSync()) as Map<String, dynamic>;
+      manifest['hash'] = 'ff' * 32;
+      final malformedManifestPath = p.join(tempDir.path, 'malformed.json');
+      File(malformedManifestPath).writeAsStringSync(jsonEncode(manifest));
+      final result = runTool([
+        '--manifest',
+        malformedManifestPath,
+        ...artifactArgs,
+        '--checksums-dir',
+        tempDir.path,
+        '--version',
+        dartclawVersion,
+      ]);
+
+      expect(result.exitCode, isNonZero);
+      expect('${result.stderr}', contains('exactly one 64-bit hash slot'));
+    });
+  }
+
+  test('release workflow publishes both rendered manifests to the Scoop bucket', () {
     final workflow =
         loadYaml(File(p.join(repoRoot, '.github', 'workflows', 'release-binaries.yml')).readAsStringSync()) as YamlMap;
     final scoop = (workflow['jobs'] as YamlMap)['scoop'] as YamlMap;
@@ -170,9 +232,12 @@ void main() {
     expect(scoop['needs'], 'publish');
     expect(scoop['environment'], 'distribution-publication');
     expect(download['run'], contains("--pattern 'dartclaw-v*-windows-x64.zip.sha256'"));
+    expect(download['run'], contains("--pattern 'dartclaw-workflow-v*-windows-x64.zip.sha256'"));
     expect(render['run'], contains('dev/tools/render_scoop_manifest.dart'));
+    expect(render['run'], contains('--manifest package/scoop/dartclaw-workflow.json'));
+    expect(render['run'], contains('--artifact dartclaw-workflow'));
     expect(publish['run'], contains('DartClaw/scoop-dartclaw.git'));
-    expect(publish['run'], contains('bucket/dartclaw.json'));
+    expect(publish['run'], contains('bucket/dartclaw.json bucket/dartclaw-workflow.json'));
     expect((publish['env'] as YamlMap)['HOMEBREW_TAP_TOKEN'], r'${{ secrets.HOMEBREW_TAP_TOKEN }}');
     expect(publish['run'], contains('HOMEBREW_TAP_TOKEN not configured; skipping bucket update.'));
     expect(publish['run'], contains(r'x-access-token:${HOMEBREW_TAP_TOKEN}@github.com'));

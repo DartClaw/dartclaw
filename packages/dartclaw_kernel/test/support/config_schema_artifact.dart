@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 /// Command that rewrites the committed artifact. Named in the drift failure so
 /// a contributor never has to look it up.
@@ -47,9 +48,13 @@ Future<String> resolveRepoRoot() async {
 
 String configSchemaPath(String repoRoot) => p.join(repoRoot, 'schemas', 'dartclaw.schema.json');
 
-/// The artifact's bytes as the generator writes them: two-space indent, LF
-/// endings, one trailing newline, no timestamp and no version stamp.
-String renderConfigSchema() => '${const JsonEncoder.withIndent('  ').convert(ConfigMeta.toJsonSchema())}\n';
+String configSchemaVersion(String repoRoot) {
+  final pubspec =
+      loadYaml(File(p.join(repoRoot, 'packages', 'dartclaw_kernel', 'pubspec.yaml')).readAsStringSync()) as YamlMap;
+  return pubspec['version'] as String;
+}
+
+String renderConfigSchema({required String version}) => ConfigMeta.jsonSchemaSource(version: version);
 
 /// Why the committed artifact no longer answers for the registry, or null when
 /// it does.
@@ -60,9 +65,22 @@ String renderConfigSchema() => '${const JsonEncoder.withIndent('  ').convert(Con
 /// for reasons that have nothing to do with drift.
 String? configSchemaDrift({required String artifactPath, required String? committed, required String rendered}) {
   if (committed != null && _normalize(committed) == _normalize(rendered)) return null;
-  final cause = committed == null
+  var cause = committed == null
       ? '$artifactPath is missing.'
       : '$artifactPath has drifted from the config field registry.';
+  if (committed != null) {
+    try {
+      final expectedId = (jsonDecode(rendered) as Map<String, dynamic>)[r'$id'];
+      final decoded = jsonDecode(committed);
+      if (decoded is Map<String, dynamic> && decoded[r'$id'] != expectedId) {
+        cause =
+            '$artifactPath has drifted: \$id names a different version than the workspace. '
+            'Committed: ${decoded[r'$id']}; expected: $expectedId.';
+      }
+    } on FormatException {
+      // Malformed JSON is still registry drift and needs the same regeneration.
+    }
+  }
   return '$cause\nRegenerate it with: $configSchemaRegenerationCommand';
 }
 

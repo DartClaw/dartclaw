@@ -9,7 +9,7 @@ import 'support/config_schema_artifact.dart';
 import 'support/json_schema_walker.dart';
 
 void main() {
-  final schema = ConfigMeta.toJsonSchema();
+  final schema = ConfigMeta.toJsonSchema(version: '0.25.1');
   late String repoRoot;
 
   setUpAll(() async => repoRoot = await resolveRepoRoot());

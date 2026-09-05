@@ -11,9 +11,55 @@ import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
+import '../../helpers/fake_exit.dart';
 
 void main() {
   group('Jobs commands', () {
+    for (final (terminal, answer, flag, json, proceeds) in <(bool, String?, String?, bool, bool)>[
+      (true, 'y', null, false, true),
+      (true, ' YES ', null, true, true),
+      (true, 'n', null, false, false),
+      (true, '', null, false, false),
+      (true, null, null, false, false),
+      (false, null, null, false, false),
+      (true, null, '-y', false, true),
+      (false, null, '--yes', true, true),
+    ]) {
+      test('delete terminal=$terminal answer=$answer flag=$flag json=$json', () async {
+        final payload = {'deleted': 'daily-summary'};
+        final transport = FakeApiTransport(sendResponses: [jsonResponse(200, payload)]);
+        final output = <String>[];
+        final errors = <String>[];
+        final command = JobsDeleteCommand(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+          writeLine: output.add,
+          stderrLine: errors.add,
+          exitFn: fakeExit,
+          hasTerminal: () => terminal,
+          readLine: () {
+            if (!terminal || flag != null) throw StateError('Unexpected prompt');
+            return answer;
+          },
+        );
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+        final run = runner.run(['delete', 'daily-summary', ?flag, if (json) '--json']);
+        if (proceeds) {
+          await run;
+          expect(transport.requests.single.method, 'DELETE');
+          expect(transport.requests.single.uri.path, '/api/scheduling/jobs/daily-summary');
+          expect(output, [json ? const JsonEncoder.withIndent('  ').convert(payload) : 'Deleted job daily-summary.']);
+        } else {
+          await expectLater(run, throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)));
+          expect(transport.requests, isEmpty);
+          expect(output, isEmpty);
+        }
+        expect(errors, [
+          if (flag == null)
+            terminal ? 'Delete job daily-summary? [y/N]' : 'Refusing without --yes: stdin is not a terminal.',
+          if (!proceeds) 'Job daily-summary not deleted.',
+        ]);
+      });
+    }
     test('jobs parent registers expected subcommands', () {
       final command = JobsCommand();
       expect(command.subcommands.keys, containsAll(['list', 'create', 'show', 'delete', 'run']));
@@ -213,25 +259,6 @@ void main() {
       );
     });
 
-    test('delete prints restart guidance', () async {
-      final transport = FakeApiTransport(
-        sendResponses: [
-          jsonResponse(200, {'deleted': 'daily-summary'}),
-        ],
-      );
-      final output = <String>[];
-      final command = JobsDeleteCommand(
-        apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
-        writeLine: output.add,
-      );
-      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
-
-      await runner.run(['delete', 'daily-summary']);
-
-      expect(output.single, contains('Restart the server'));
-      expect(transport.requests.single.uri.path, '/api/scheduling/jobs/daily-summary');
-    });
-
     test('run starts a job and prints observation guidance', () async {
       final transport = FakeApiTransport(
         sendResponses: [
@@ -275,29 +302,44 @@ void main() {
       ('slash/job', 'slash%2Fjob'),
       ('already%20encoded', 'already%2520encoded'),
     ]) {
-      test('run encodes $name as exactly one route segment', () async {
-        final transport = FakeApiTransport(
-          sendResponses: [
-            jsonResponse(202, {'name': name, 'status': 'started'}),
-          ],
-        );
-        final output = <String>[];
-        final command = JobsRunCommand(
-          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
-          writeLine: output.add,
-        );
-        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+      for (final verb in ['run', 'delete']) {
+        test('$verb encodes $name as exactly one route segment', () async {
+          final transport = FakeApiTransport(
+            sendResponses: [
+              jsonResponse(202, {'name': name, 'status': 'started'}),
+            ],
+          );
+          final output = <String>[];
+          final client = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
+          final command = verb == 'run'
+              ? JobsRunCommand(apiClient: client, writeLine: output.add)
+              : JobsDeleteCommand(
+                  apiClient: client,
+                  writeLine: output.add,
+                  stderrLine: (line) => fail(line),
+                  exitFn: fakeExit,
+                );
+          final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
-        await runner.run(['run', name]);
+          await runner.run([verb, name, if (verb == 'delete') '--yes']);
+          final suffix = verb == 'run' ? '/run' : '';
 
-        expect(transport.requests.single.uri.toString(), 'http://localhost:3333/api/scheduling/jobs/$encoded/run');
-        expect(transport.requests.single.uri.pathSegments, ['api', 'scheduling', 'jobs', name, 'run']);
-        expect(output.single, contains(name));
-      });
+          expect(transport.requests.single.uri.toString(), 'http://localhost:3333/api/scheduling/jobs/$encoded$suffix');
+          expect(transport.requests.single.uri.pathSegments, [
+            'api',
+            'scheduling',
+            'jobs',
+            name,
+            if (verb == 'run') 'run',
+          ]);
+          expect(transport.requests.single.method, verb == 'run' ? 'POST' : 'DELETE');
+          expect(output.single, contains(name));
+        });
+      }
     }
 
-    test('run prints a 404 restart hint verbatim', () async {
-      const message = 'Job is not present in the running scheduler; newly created jobs require a restart.';
+    test('run relays a server 404 message verbatim on stderr', () async {
+      const message = 'Job was not found.';
       final transport = FakeApiTransport(
         sendResponses: [
           jsonResponse(404, {
@@ -306,22 +348,20 @@ void main() {
         ],
       );
       final output = <String>[];
-      final exits = <int>[];
+      final errors = <String>[];
       final command = JobsRunCommand(
         apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
         writeLine: output.add,
-        exitFn: (code) {
-          exits.add(code);
-          throw const _ExitIntercept();
-        },
+        stderrLine: errors.add,
+        exitFn: fakeExit,
       );
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
-      await expectLater(runner.run(['run', 'new-job']), throwsA(isA<_ExitIntercept>()));
+      await expectLater(runner.run(['run', 'new-job']), throwsA(isA<FakeExit>().having((e) => e.code, 'code', 5)));
 
-      expect(output, [message]);
-      expect(exits, [1]);
-      expect(output.single, isNot(contains('out of sync')));
+      expect(output, isEmpty);
+      expect(errors, [message]);
+      expect(errors.single, isNot(contains('out of sync')));
     });
 
     test('run requires a job name', () {
@@ -331,8 +371,4 @@ void main() {
       expect(() => runner.run(['run']), throwsA(isA<UsageException>()));
     });
   });
-}
-
-class _ExitIntercept implements Exception {
-  const new();
 }

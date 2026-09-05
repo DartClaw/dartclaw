@@ -3,31 +3,56 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-01 19:04 CEST
+Last Updated: 2026-09-04 14:10 CEST
 
 ## Current Phase
 
-**P1: 0.25 Lean Runtime – release-ready, awaiting tag**
+**P1: 0.25.1 – release-process hardening and deployment-feedback fixes**
 
-**Status**: Feature-complete, main (0.24.3) merged, live merge-gate verification green, transient bundle removed, pins at 0.25.0; three of seven success metrics not met. See the verdict table below.
+**Status**: Release-ready on `feat/0.25.1`, awaiting tag. Pins at 0.25.1 across `version.dart`, all thirteen
+publishable pubspecs, both Homebrew formulas, the Scoop manifest and the schema `$id`. 0.25.0 is tagged and published
+(`4419d252`). Bug fixes from the 2026-09-02 deployment-feedback review and five owner-driven operator quick wins ride
+this patch alongside the release-process work; the 0.25 verdict table below is retained as the shipped record.
 
 ## Current Focus
 
-- 94 of 96 stories done. S63 and S64 are deferred to 0.30 (their FIS moved to `dartclaw-private/docs/specs/0.30/`).
-  Branch `feat/0.25-lean-runtime`, squash-merge to `main` pending the owner's go.
-- Close-out record: `dartclaw-private/docs/specs/0.25/prd.md` § Implementation Record (canonical; the public bundle
-  copy is gone per `dev/state/SPEC-LIFECYCLE.md`), `CHANGELOG.md` § 0.25.0, `dev/state/DECISIONS.md` § Still Current
-  (2026-08-31/09-01 bullets), `dev/state/LOC-BASELINE-0.25.md` § Reviewed margin rebaseline.
-- Live merge-gate verification (2026-09-01): `spec-and-implement` and `plan-and-implement` publish scenarios green on
-  real Codex turns (PR #84, #85 on the fixture repo, both closed). Two shipped-path defects found and fixed on the
-  way: `github-pr` publishing never reached GitHub (IOSink encoding) and workflow step commits never reached the
-  integration branch (detached shared worktree since `2be4a932`).
-- After the tag: the Homebrew/Scoop publication audits in `dev/guidelines/RELEASE_PREPARATION.md`.
+- Release-process hardening carried out of the 0.25.0 tag: landed at `d818bf5b`. `release_check.sh` gate 10 resolves
+  `Checks` by full HEAD SHA and requires `Check`, `Container boundary` and `PowerShell scripts` green by name;
+  `Release Binaries` gained a `workflow_dispatch` dry run with `publish` gated on `github.ref_type == 'tag'`; CI gained
+  a `windows-latest` job that parses every tracked `.ps1` and runs PSScriptAnalyzer at Error severity;
+  `RELEASE_PREPARATION.md` requires the pushed branch green before the squash and forbids follow-up commits on `main`.
+  Evidence: gate 10 flipped FAIL → PASS across `Checks` run 33594460721 on the same commit, and dispatch run
+  33595119483 built all five targets and skipped every publishing job.
+- Deployment-feedback fixes (2026-09-02 review of the second-brain findings): the Bash-env credential strip now covers
+  `CLAUDE_CODE_OAUTH_TOKEN` (`27ea2afc`); refused `memory_apply` change sets log at WARNING so an inert curation run is
+  visible (`0112c02c`); a byte-identical corpus replacement no longer bumps `Collection-Revision`, so the nightly prune
+  stops committing empty revisions (FIS `memory-corpus-noop-commit`, executed at `5423ac84`); seam-written
+  `scheduling.jobs` apply live and one-time `at` jobs are writable (FIS `live-scheduling-jobs`, executed at `4bb5fc46`). The channel→agent binding request was reframed in the private backlog around single-owner
+  multi-persona; no code. The 2026-09-01 items closed at `53a84e60`: `ConfigWriter` writes through a symlinked config,
+  the tolerated `guards.input_sanitizer` key names its replacement, and the `tasks.execution` map-to-scalar break is
+  recorded under 0.25.0 instead of the retro-edited 0.24.0 section (the suggested tolerated rewrite was declined as a
+  silent placement weakening). The second-brain feedback file has no open items.
+- Operator quick wins (owner, 2026-09-03), five standalone FIS, all executed: the lean workflow-only binary
+  `dartclaw-workflow` with a flat command tree (`5f6a8057`…`3852c7f9`; a `Release Binaries` dispatch dry run built all
+  ten archives on 2026-09-04, run 33861257861); `dartclaw doctor` with `--fix` and `--json` (`8f4c6027`); labelled
+  reclamation of containers leaked by an abnormal exit, closing TD-121 (`0fc21078`); release-pinned config JSON schema
+  with the `init` modeline and offline `dartclaw config schema --out` (`9213e0d8`); and the CLI quick wins – a
+  server-probing `status`, stderr with distinct exit codes 3–6, and `--yes` on destructive deletes (`288bc8c8`).
+  The bundle is consolidated into `dartclaw-private/docs/specs/0.25.1/prd.md` and removed from this repo.
+- Second SecondBrain feedback batch (2026-09-05, analysed and executed the same day): the primary-agent hardening
+  recipe and its startup warning (`7fb1e5dd`, `86994030`), the originating channel named in the composed prompt
+  (`e6139fc3`, `TurnDispatcher` break for embedders), announced results recorded in the DM sessions they reach and in the
+  daily log (`9e55248d`), and `sessions.reset_hour: -1` (`fd178dc0`). Seam-write approval and a model-free `type: shell`
+  job are spec candidates in the private product backlog; per-agent workspaces and channel → agent binding stay on the
+  roadmap. Record: private 0.25.1 PRD § Deployment feedback, second batch.
+
+- 0.25 close-out record (unchanged): `dartclaw-private/docs/specs/0.25/prd.md` § Implementation Record (canonical),
+  `CHANGELOG.md` § 0.25.0, `dev/state/DECISIONS.md` § Still Current.
 
 ## 0.25 success-metric verdicts
 
-Measured at `ea678de2` against the merge base `a3eccab2`, with the one recorded command block
-([`LOC-BASELINE-0.25.md`](LOC-BASELINE-0.25.md)). No PRD figure is quoted as a baseline or an achievement.
+Measured at `ea678de2` against the merge base `a3eccab2` (`*.dart` under `lib/` and `test/`, generated `*.g.dart`
+excluded, `wc -l`). No PRD figure is quoted as a baseline or an achievement.
 
 | # | Target | Measured | Verdict |
 |---|---|---|---|
@@ -60,6 +85,11 @@ counted on landed — so there is nothing to re-baseline against, and the figure
 
 ## Recently Completed
 
+- **0.25.0 released** (tagged 2026-09-01, `4419d252`): all five platform archives, their checksums and
+  `SHA256SUMS.txt` published. Two Windows-only defects held the first three tag runs red — the FTS5 build probe
+  (`dev/tools/build_windows.ps1`) and the runtime smoke (`dev/testing/profiles/windows-runtime/run.ps1`) each seeded
+  the retained preview memory dialect that `MemoryPreflight` refuses by design. Both now reach the canonical corpus
+  authority instead. Nothing had been published, so the tag moved rather than adding a commit to `main`.
 - **0.25 close-out** (2026-09-01): 0.24.3 merged (`46222850`); publish-path fixes (`f37b02f0`, `37a20d68`, `d05b994e`);
   `simplify-code` and `architecture-review` steps removed from the built-ins after the AndThen 1.0 plugin split;
   LOC ceilings re-cut with a 1500 band (`933c6f9c`); planner test mapping on `gpt-5.6-luna` after `gpt-5.6-sol`
@@ -72,9 +102,18 @@ counted on landed — so there is nothing to re-baseline against, and the figure
   results, and the named credential store with `dartclaw secrets set|list|rm|audit` and
   `search.providers.<id>.credential`. Detail in `CHANGELOG.md`.
 
+## Release gates – 0.25.1
+
+- **Live integration tests skipped by owner decision (2026-09-04).** `bash dev/testing/profiles/workflow-live/run.sh --full`
+  was not run for this patch. The release-blocking evidence is the automated gate set: `release_check.sh --version 0.25.1`
+  all green, `Checks` green on the pinned commit with `Check`, `Container boundary` and `PowerShell scripts` by name, and
+  a `Release Binaries` `workflow_dispatch` dry run building all ten archives and running the Windows installer test.
+- Homebrew and Scoop render both artifacts. Both formulas were rendered locally against fixture checksums before the tag;
+  the tag-time render is the first real execution of the publication jobs.
+
 ## Blockers
 
-- None before the squash-merge. `dev/tools/release_check.sh --version 0.25.0` passes on the release candidate.
+None. 0.25.0 Homebrew and Scoop publication completed – every job in `Release Binaries` run 33546071918 is green.
 
 ## Open follow-ups
 
@@ -88,6 +127,17 @@ counted on landed — so there is nothing to re-baseline against, and the figure
   `crowd-coding.excalidraw` and `recipe-crowd-coding.excalidraw` (the chat-grammar deletions),
   `inbound-message-pipeline.excalidraw` (the shared gating pipeline) and `package-dag.excalidraw` (the topology
   re-cut). Nothing under any `docs/diagrams/` was modified, in either repo.
+- **0.25 ledger residue routed (2026-09-05)**: the raw gap analyses behind the 0.25 consolidation were verified folded
+  and deleted. Decision-class code facts are `TECH-DEBT-BACKLOG.md` TD-143–TD-146; fixable-now ones landed on this
+  branch (RP5–RP9 in the private 0.25.1 PRD): foreach iteration coverage `ebec577f`, the `HttpClient` seam moved to
+  kernel with UTF-8 bodies `6cfb216a`, one health badge mapping plus `WorkerState` in the enum gate `ce38735c`, the
+  worker-discard pin `48dfa718`, and manual-start retry reset `b860a1a1`.
+  Boy-scout cleanups from the same ledgers followed on 2026-09-05 (dead `SafeProcess.gitStart`, third-copy CLI
+  helpers, duplicate channel parse, the merge-resolve outcome sentinel, per-package changelogs as pointers, and more) –
+  the itemised table with commits is the private 0.25.1 PRD § Release-preparation defect fixes. Two stay recorded only in the private 0.25 PRD § Open items: the workflow e2e
+  remediation loop is no longer deterministically exercised (needs a production-shaped substitute for a provider run),
+  and the shared runtime test support composes a flat guard chain where production layers it (left as is: layered
+  inheritance is pinned by three other suites, and the non-reuse property now has its own test).
 - **One glob-dialect follow-through**: `guards.file.extra_rules` patterns are now compiled by the shared
   `globToRegex`, which changes `**` to segment-anchored. Any operator rule relying on the old partial-segment match
   needs rewriting; the CHANGELOG carries the migration line.

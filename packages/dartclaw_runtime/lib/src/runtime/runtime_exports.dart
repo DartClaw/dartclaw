@@ -5,6 +5,7 @@ export 'provider_resolution.dart'
         ResolvedProviderTarget,
         buildProviderProbeEnvironment,
         buildProviderSpawnEnvironment,
+        defaultProviderExecutable,
         prepareCodexSubscriptionHome,
         resolveCodexVendorExecutable,
         resolveProviderTarget;

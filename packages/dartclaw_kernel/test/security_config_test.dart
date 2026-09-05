@@ -84,9 +84,10 @@ void main() {
       );
     });
 
-    test('guards.input_sanitizer is an unknown key and parses to no field', () {
+    test('guards.input_sanitizer is tolerated with its replacement named and parses to no field', () {
       final config = loadYaml('guards:\n  input_sanitizer:\n    enabled: false\n');
-      expect(config.warnings, anyElement(contains('Unknown guards config key: input_sanitizer')));
+      expect(config.warnings, anyElement(contains('Ignoring guards.input_sanitizer: Removed regex injection guard')));
+      expect(config.reloadBlockingWarnings, isEmpty, reason: 'a tolerated key is an advisory, not a blocker');
       expect(config.security.guardsYaml.containsKey('input_sanitizer'), isTrue, reason: 'raw YAML is preserved');
       expect(SecurityConfig.defaults(), config.security.copyWith(guardsYaml: const {}));
     });

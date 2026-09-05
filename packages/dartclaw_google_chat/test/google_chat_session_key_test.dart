@@ -120,7 +120,10 @@ void main() {
 }
 
 class _NoopMessageQueue extends MessageQueue {
-  new() : super(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => '');
+  new()
+    : super(
+        dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+      );
 
   @override
   void enqueue(ChannelMessage message, Channel channel, String sessionKey) {}

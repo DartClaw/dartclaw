@@ -67,6 +67,11 @@ List<String> _buildClaudeArgs({
   if (outputSchemaJson != null) ...['--json-schema', outputSchemaJson],
 ];
 
+/// Credential names a model-supplied Bash `env` map may never carry. The host's
+/// own copy reaches the provider through the spawn environment only; a value
+/// the model puts here would hand it to an arbitrary child process.
+const _bashEnvCredentialNames = ['ANTHROPIC_API_KEY', claudeOauthTokenEnvVar];
+
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
 class ClaudeCodeHarness extends BaseHarness {
@@ -1294,14 +1299,17 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     final envMap = toolInput['env'] as Map<String, dynamic>?;
-    if (envMap != null && envMap.containsKey('ANTHROPIC_API_KEY')) {
-      final sanitizedEnv = Map<String, dynamic>.from(envMap)..remove('ANTHROPIC_API_KEY');
-      final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
-      _log.info('Stripped ANTHROPIC_API_KEY from bash env');
-      if (_tryWriteHookResponse(requestId, _adapter.buildCredentialStripResponse(requestId, updatedInput))) {
-        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+    if (envMap != null) {
+      final strippedNames = _bashEnvCredentialNames.where(envMap.containsKey).toList();
+      if (strippedNames.isNotEmpty) {
+        final sanitizedEnv = Map<String, dynamic>.from(envMap)..removeWhere((name, _) => strippedNames.contains(name));
+        final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
+        _log.info('Stripped ${strippedNames.join(', ')} from bash env');
+        if (_tryWriteHookResponse(requestId, _adapter.buildCredentialStripResponse(requestId, updatedInput))) {
+          emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
+        }
+        return;
       }
-      return;
     }
 
     if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true))) {

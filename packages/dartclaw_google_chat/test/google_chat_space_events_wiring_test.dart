@@ -55,7 +55,10 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('space_events_wiring_test_');
     restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.message),
+      config: const GoogleChatConfig(
+        typingIndicatorMode: TypingIndicatorMode.message,
+        groupAccess: GroupAccessMode.open,
+      ),
       restClient: restClient,
     );
     channelManager = FakeChannelManager();
@@ -68,7 +71,7 @@ void main() {
     }
   });
 
-  GoogleChatSpaceEventsWiring buildWiring({required AdapterResult result, GoogleChatChannel? typingChannel}) {
+  GoogleChatSpaceEventsWiring buildWiring({required AdapterResult result, required GoogleChatChannel typingChannel}) {
     return GoogleChatSpaceEventsWiring(
       pubSubClient: _FakePubSubClient(),
       subscriptionManager: _FakeWorkspaceEventsManager(tempDir.path),
@@ -76,6 +79,22 @@ void main() {
       deduplicator: deduplicator,
       channelManager: channelManager,
       channel: typingChannel,
+    );
+  }
+
+  GoogleChatChannel gatedChannel({
+    GroupAccessMode groupAccess = GroupAccessMode.open,
+    List<GroupEntry> groupAllowlist = const [],
+    MentionGating? mentionGating,
+  }) {
+    return GoogleChatChannel(
+      config: GoogleChatConfig(
+        typingIndicatorMode: TypingIndicatorMode.message,
+        groupAccess: groupAccess,
+        groupAllowlist: groupAllowlist,
+      ),
+      restClient: restClient,
+      mentionGating: mentionGating,
     );
   }
 
@@ -110,27 +129,13 @@ void main() {
 
   test('does not send typing indicator when disabled', () async {
     final disabledChannel = GoogleChatChannel(
-      config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
+      config: const GoogleChatConfig(
+        typingIndicatorMode: TypingIndicatorMode.disabled,
+        groupAccess: GroupAccessMode.open,
+      ),
       restClient: restClient,
     );
     final wiring = buildWiring(result: MessageResult([testMessage()]), typingChannel: disabledChannel);
-
-    await wiring.processMessage(
-      const ReceivedMessage(
-        ackId: 'ack',
-        data: '',
-        messageId: 'pubsub-1',
-        publishTime: '2026-03-25T10:00:00Z',
-        attributes: {},
-      ),
-    );
-
-    expect(restClient.sentMessages, isEmpty);
-    expect(channelManager.received, hasLength(1));
-  });
-
-  test('does not send typing indicator when channel is absent', () async {
-    final wiring = buildWiring(result: MessageResult([testMessage()]));
 
     await wiring.processMessage(
       const ReceivedMessage(
@@ -151,7 +156,10 @@ void main() {
 
     setUp(() {
       disabledChannel = GoogleChatChannel(
-        config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.disabled,
+          groupAccess: GroupAccessMode.open,
+        ),
         restClient: restClient,
       );
     });
@@ -256,5 +264,73 @@ void main() {
 
     expect(restClient.sentMessages, isEmpty);
     expect(channelManager.received, isEmpty);
+  });
+
+  group('inbound gate on the Pub/Sub path', () {
+    const received = ReceivedMessage(
+      ackId: 'ack',
+      data: '',
+      messageId: 'pubsub-1',
+      publishTime: '2026-03-25T10:00:00Z',
+      attributes: {},
+    );
+
+    test('a space outside the group allowlist never reaches the channel manager', () async {
+      final wiring = buildWiring(
+        result: MessageResult([testMessage()]),
+        typingChannel: gatedChannel(
+          groupAccess: GroupAccessMode.allowlist,
+          groupAllowlist: [const GroupEntry(id: 'spaces/OTHER')],
+        ),
+      );
+
+      final acked = await wiring.processMessage(received);
+
+      // Refused traffic is acked, not nacked: a redelivery would only be refused again.
+      expect(acked, isTrue);
+      expect(channelManager.received, isEmpty);
+      expect(restClient.sentMessages, isEmpty, reason: 'no typing indicator for refused traffic');
+      expect(restClient.getMemberDisplayNameCalls, isEmpty, reason: 'no enrichment call for refused traffic');
+    });
+
+    test('group_access: disabled drops every space message', () async {
+      final wiring = buildWiring(
+        result: MessageResult([testMessage()]),
+        typingChannel: gatedChannel(groupAccess: GroupAccessMode.disabled),
+      );
+
+      await wiring.processMessage(received);
+
+      expect(channelManager.received, isEmpty);
+    });
+
+    test('an allowlisted space still reaches the channel manager', () async {
+      final wiring = buildWiring(
+        result: MessageResult([testMessage()]),
+        typingChannel: gatedChannel(
+          groupAccess: GroupAccessMode.allowlist,
+          groupAllowlist: [const GroupEntry(id: 'spaces/AAAA')],
+        ),
+      );
+
+      await wiring.processMessage(received);
+
+      expect(channelManager.received, hasLength(1));
+    });
+
+    // Space Events exist to deliver traffic that never mentions the bot, so the
+    // mention stage of the gate is the one stage this path skips.
+    test('mention gating does not apply to Space Events traffic', () async {
+      final wiring = buildWiring(
+        result: MessageResult([testMessage()]),
+        typingChannel: gatedChannel(
+          mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: 'users/bot'),
+        ),
+      );
+
+      await wiring.processMessage(received);
+
+      expect(channelManager.received, hasLength(1));
+    });
   });
 }

@@ -143,7 +143,7 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| Per-package `lib/` LOC ceiling | one recorded number per member, in `_libLocCeilings`, re-baselined against `dev/state/LOC-BASELINE-0.25.md`'s command | A downward ratchet by default; a reviewed raise requires measured necessity, exhausted safe reductions, the proportional-band ceiling, and a CHANGELOG rationale |
+| Per-package `lib/` LOC ceiling | one recorded number per member, in `_libLocCeilings`, re-baselined against the measured value the check reports | A downward ratchet by default; a reviewed raise requires measured necessity, exhausted safe reductions, the proportional-band ceiling, and a CHANGELOG rationale |
 | LOC band | `min(400, ceiling ~/ 4)` | The slack a ceiling may carry above actual. Proportional under the constant, capped by it above: a flat `400` is inert in the shrink direction for any package smaller than itself — the 45-line umbrella could shrink to zero and pass. The band is what makes "a ceiling only goes down" checkable from a single snapshot rather than from history |
 | Workspace package count | `<= 12` | Keep the count of directories under `packages/` exact, with `dartclaw_bridge` counted as its own package |
 
@@ -206,10 +206,9 @@ no longer earns, and the proportional band fails it until it comes down. Raising
 one requires, in order: safe behaviour-preserving reduction exhausted and stated;
 maintainer acceptance of a reviewed-necessity exception under
 [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md); and the
-record written in the same change — a justification comment in `arch_check.dart`,
-a section in `dev/state/LOC-BASELINE-0.25.md` naming the measured value and what
-could not be removed, and a `CHANGELOG.md` line. An implementing agent reports a
-breach and never raises a ceiling itself.
+record written in the same change — a justification comment in `arch_check.dart`
+naming the measured value and what could not be removed, and a `CHANGELOG.md`
+line. An implementing agent reports a breach and never raises a ceiling itself.
 
 ## Change Process
 

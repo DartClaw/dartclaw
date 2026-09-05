@@ -431,7 +431,15 @@ abstract final class ConfigMeta {
   ///
   /// [toleratedLegacyKeys] are not emitted, so a config still carrying one
   /// gets an editor warning the loader would not raise.
-  static Map<String, Object?> toJsonSchema() => _buildConfigJsonSchema();
+  static Map<String, Object?> toJsonSchema({required String version}) => _buildConfigJsonSchema(version);
+
+  /// Published schema URL at the release tag for [version], without a `v` prefix.
+  static String jsonSchemaUrl(String version) =>
+      'https://raw.githubusercontent.com/DartClaw/dartclaw/v$version/schemas/dartclaw.schema.json';
+
+  /// Schema for [version] as two-space-indented JSON with LF and one trailing newline.
+  static String jsonSchemaSource({required String version}) =>
+      '${const JsonEncoder.withIndent('  ').convert(toJsonSchema(version: version))}\n';
 
   /// Whether [yamlPath] exists and is not [ConfigMutability.readonly].
   static bool isWritable(String yamlPath) {

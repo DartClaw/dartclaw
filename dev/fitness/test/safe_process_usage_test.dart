@@ -18,18 +18,16 @@
 //   `package:dartclaw_kernel/dartclaw_kernel.dart` — the second gate below
 //   forbids reaching for `SafeProcess.git` directly.
 //   If the call site genuinely must spawn git directly (e.g. a new canonical
-//   wrapper), add an entry to
-//   `allowlist/safe_process_usage.txt`
-//   with format `<relative-path>  # <rationale>`. The allowlist is shared by
-//   both gates, so an entry waives both for that file.
+//   wrapper), add an entry to `allowlist/safe_process_raw_git.txt` with format
+//   `<relative-path>  # <rationale>`. It waives this gate only.
 //
 // Second gate: one git-runner seam.
 //
 // What this enforces:
 //   Production code must reach git through `runGit(...)` from
 //   `package:dartclaw_kernel/dartclaw_kernel.dart`, not through
-//   `SafeProcess.git` / `SafeProcess.gitStart` directly. Only the canonical
-//   runner (`process/git_runner.dart`) may call them.
+//   `SafeProcess.git` directly. Only the canonical runner
+//   (`process/git_runner.dart`) may call it.
 //
 // Why:
 //   `GIT_CONFIG_NOSYSTEM` is a security-relevant spawn policy. With one owner
@@ -41,8 +39,12 @@
 // How to resolve a failure:
 //   Route the call through `runGit(args, workingDirectory: ..., plan: ...,
 //   noSystemConfig: ...)`. If the file genuinely is a new canonical runner,
-//   add it to `allowlist/safe_process_usage.txt` with a rationale — noting
-//   that the entry waives the raw-`Process.run` gate above as well.
+//   add it to `allowlist/safe_process_git_seam.txt` with a rationale.
+//
+// The two gates hold separate allowlists on purpose. One shared list meant a
+// rationale written for a raw spawn also excused the seam call in the same
+// file, and the reverse — each gate asks a different question, so each carries
+// its own answers.
 
 import 'dart:io';
 
@@ -50,20 +52,29 @@ import 'package:test/test.dart';
 
 import '_internal/fitness_test_utils.dart';
 
+const _rawGitAllowlistName = 'safe_process_raw_git.txt';
+const _gitSeamAllowlistName = 'safe_process_git_seam.txt';
+
 void main() {
-  late Allowlist allowlist;
+  late Allowlist rawGitAllowlist;
+  late Allowlist gitSeamAllowlist;
   late String repoRoot;
 
   setUpAll(() {
     repoRoot = findRepoRoot();
-    allowlist = readAllowlist(repoRoot, 'safe_process_usage.txt');
+    rawGitAllowlist = readAllowlist(repoRoot, _rawGitAllowlistName);
+    gitSeamAllowlist = readAllowlist(repoRoot, _gitSeamAllowlistName);
   });
 
   // A stale entry guards nothing; fail the gate that owns it rather than pass quietly.
-  tearDownAll(() => allowlist.assertNoStaleEntries());
+  tearDownAll(() {
+    rawGitAllowlist.assertNoStaleEntries();
+    gitSeamAllowlist.assertNoStaleEntries();
+  });
 
   test('allowlist entries have required rationale format', () {
-    assertAllowlistFormat(allowlistFile(repoRoot, 'safe_process_usage.txt'), entryFormat: '<relative-path>');
+    assertAllowlistFormat(allowlistFile(repoRoot, _rawGitAllowlistName), entryFormat: '<relative-path>');
+    assertAllowlistFormat(allowlistFile(repoRoot, _gitSeamAllowlistName), entryFormat: '<relative-path>');
   });
 
   test('no raw git Process.run/Process.start in production code', () {
@@ -85,7 +96,7 @@ void main() {
             if (rawGitPattern.hasMatch(lines[i])) {
               // Consulted only on a real spawn site, so an entry for a file that
               // no longer spawns reads as stale instead of silent.
-              if (allowlist.containsKey(relativePath)) continue;
+              if (rawGitAllowlist.containsKey(relativePath)) continue;
               violations.add(
                 '$relativePath:${i + 1}: raw git Process.run/start — '
                 'use SafeProcess.git instead (see $fitnessReadmePath)',
@@ -106,14 +117,14 @@ void main() {
 
   test('SafeProcess.git is only called from the canonical git runner', () {
     final violations = <String>[];
-    final directGitPattern = RegExp(r'SafeProcess\.(git|gitStart)\s*\(');
+    final directGitPattern = RegExp(r'SafeProcess\.git\s*\(');
 
     for (final file in productionDartFiles(repoRoot)) {
       final relativePath = relativeTo(file.path, repoRoot);
       final lines = file.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {
         if (directGitPattern.hasMatch(lines[i])) {
-          if (allowlist.containsKey(relativePath)) continue;
+          if (gitSeamAllowlist.containsKey(relativePath)) continue;
           violations.add(
             '$relativePath:${i + 1}: direct SafeProcess.git call — '
             'route it through runGit from package:dartclaw_kernel (see $fitnessReadmePath)',

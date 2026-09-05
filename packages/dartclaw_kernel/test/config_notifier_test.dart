@@ -253,10 +253,6 @@ void main() {
 
     group('registration admission', () {
       test('a service watching a restart-tier section is refused, naming the section and its tier', () {
-        // The other half of "a watcher that can never fire cannot register" —
-        // a section missing from the table entirely is caught by the
-        // config_section_tier_coverage fitness gate, which is what the dead
-        // AlertRouter (a watcher on a section reload() never compared) needed.
         expect(
           () => notifier.register(_FakeReconfigurable({'workflow.*'})),
           throwsA(
@@ -271,6 +267,21 @@ void main() {
 
       test('a specific watch key resolves to its section, not just the glob form', () {
         expect(() => notifier.register(_FakeReconfigurable({'governance.rate_limits'})), throwsArgumentError);
+      });
+
+      test('a watch key naming no declared section is refused, naming the key', () {
+        // `guards` is the YAML key; the field — and so the delta key — is
+        // `security`, so this watcher would have sat dead rather than failing.
+        expect(
+          () => notifier.register(_FakeReconfigurable({'guards.*'})),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.toString(),
+              'message',
+              allOf(contains('guards.*'), contains('no such section')),
+            ),
+          ),
+        );
       });
 
       test('a service watching a live-diffed section registers and still receives its deltas', () {

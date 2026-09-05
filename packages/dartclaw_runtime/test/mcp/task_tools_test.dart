@@ -463,6 +463,25 @@ void main() {
       expect(bindings.lookupByThread('googlechat', 'thread-taken')!.taskId, 'live-1');
     });
 
+    test('a channel with no thread identity is not offered and is refused when named', () async {
+      final handler = passingHandler(bindingStore: bindings);
+      final schema = TaskBindTool(tasks: tasks, bindings: bindings).inputSchema;
+      final channels = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
+
+      expect(channels, ['googlechat'], reason: 'only Google Chat stamps the thread id the router reads');
+
+      final refused = _result(
+        await _call(
+          handler,
+          'task_bind',
+          arguments: {'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': '120363000@g.us'},
+        ),
+      );
+      expect(refused['isError'], isTrue);
+      expect(_payload(refused)['reason'], 'invalid_request');
+      expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
+    });
+
     test('binding the same task and thread twice reports the existing binding without duplicating it', () async {
       final handler = passingHandler(bindingStore: bindings);
       const args = {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-repeat'};
@@ -493,14 +512,9 @@ void main() {
       expect(payload['removed'], 2);
       expect(bindings.lookupByTask('bound-1'), isEmpty);
 
-      // `ThreadBindingStore.deleteByTaskId` acknowledges from memory and persists
-      // off the call path, so durability is awaited rather than assumed.
-      final file = File('${tempDir.path}/thread_bindings.json');
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (file.readAsStringSync().contains('bound-1') && DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      final reloaded = ThreadBindingStore(file);
+      // The reported count must already be durable — `task_unbind` returns only
+      // after `deleteByTaskId` has persisted.
+      final reloaded = ThreadBindingStore(File('${tempDir.path}/thread_bindings.json'));
       await reloaded.load();
       expect(reloaded.lookupByTask('bound-1'), isEmpty, reason: 'the removal must outlive the in-memory map');
     });

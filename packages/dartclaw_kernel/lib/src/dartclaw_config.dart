@@ -402,11 +402,13 @@ class DartclawConfig {
   /// [cliOverrides] — key/value pairs from CLI flags (snake_case keys).
   /// [env] — environment variables (defaults to `Platform.environment`).
   /// [fileReader] — returns file contents or null; injectable for tests.
+  /// [resolveStoredCredentials] — false reads only declared credentials, without invoking the store provider.
   factory load({
     String? configPath,
     Map<String, String>? cliOverrides,
     Map<String, String>? env,
     String? Function(String path)? fileReader,
+    bool resolveStoredCredentials = true,
   }) {
     final environment = env ?? Platform.environment;
     final reader = fileReader ?? _defaultFileReader;
@@ -439,7 +441,7 @@ class DartclawConfig {
       environment,
       const CredentialsConfig.defaults(),
       warns,
-      stored: _storedCredentials(credentialsDirFor(server.dataDir), warns),
+      stored: resolveStoredCredentials ? _storedCredentials(credentialsDirFor(server.dataDir), warns) : const {},
     );
     final harness = _parseHarness(yaml, const HarnessConfig.defaults(), warns);
     // These sections reference credentials by name, so they parse after it.

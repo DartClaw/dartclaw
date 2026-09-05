@@ -1,0 +1,8 @@
+# Allowlist for safe_process_usage_test.dart, gate 2 only: one git-runner seam.
+# Format: <relative-path-from-repo-root>  # <rationale>
+# Rationale is mandatory — explain why this file may call SafeProcess.git
+# instead of routing through runGit.
+# It waives nothing in gate 1; a raw Process.run('git', …) in the same file
+# needs its own entry in safe_process_raw_git.txt.
+
+packages/dartclaw_kernel/lib/src/process/git_runner.dart  # canonical runGit seam; the one production caller of SafeProcess.git

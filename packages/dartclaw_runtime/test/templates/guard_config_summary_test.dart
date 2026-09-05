@@ -71,15 +71,42 @@ void main() {
   });
 
   group('NetworkGuard extraction', () {
-    test('shows domains and truncates at 15', () {
-      final chain = GuardChain(guards: [NetworkGuard(config: NetworkGuardConfig.defaults())]);
+    test('shows domains sorted, truncated at 15, with the remainder counted', () {
+      final domains = {for (var i = 16; i >= 1; i--) 'd${i.toString().padLeft(2, '0')}.example.com'};
+      final chain = GuardChain(
+        guards: [
+          NetworkGuard(
+            config: NetworkGuardConfig(allowedDomains: domains, exfilPatterns: []),
+          ),
+        ],
+      );
 
       final configs = extractGuardConfigs(chain, security: const SecurityConfig());
       final net = configs.firstWhere((c) => c.guardKey == 'network');
 
       expect(net.enabled, isTrue);
       final domainsSection = net.sections.firstWhere((s) => s.label == 'Allowed Domains');
-      expect(domainsSection.items.first.style, 'mono');
+      final shown = domainsSection.items.first;
+      expect(shown.style, 'mono');
+      final expectedShown = [for (var i = 1; i <= 15; i++) 'd${i.toString().padLeft(2, '0')}.example.com'];
+      expect(shown.value, '${expectedShown.join(', ')} (+ 1 more)');
+    });
+
+    test('shows every domain and no remainder count at the limit', () {
+      final domains = {for (var i = 1; i <= 15; i++) 'd${i.toString().padLeft(2, '0')}.example.com'};
+      final chain = GuardChain(
+        guards: [
+          NetworkGuard(
+            config: NetworkGuardConfig(allowedDomains: domains, exfilPatterns: []),
+          ),
+        ],
+      );
+
+      final configs = extractGuardConfigs(chain, security: const SecurityConfig());
+      final net = configs.firstWhere((c) => c.guardKey == 'network');
+
+      final domainsSection = net.sections.firstWhere((s) => s.label == 'Allowed Domains');
+      expect(domainsSection.items.first.value, domains.join(', '));
     });
 
     test('includes agent overrides section when present', () {

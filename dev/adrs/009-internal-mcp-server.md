@@ -158,7 +158,7 @@ partition of the tool surface total. A third-party outbound adapter declares `wr
 server does — the host cannot verify the claim.
 
 Closes TD-110. See `dev/architecture/security-architecture.md` for the coverage boundary (base chain only; per-runner
-tool policy is out of reach at this seam) and CHANGELOG `[Unreleased]`.
+tool policy is out of reach at this seam) and `CHANGELOG.md` § 0.25.0.
 
 ## References
 

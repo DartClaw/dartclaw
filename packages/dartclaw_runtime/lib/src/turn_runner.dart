@@ -16,6 +16,7 @@ import 'concurrency/session_lock_manager.dart';
 import 'context/context_monitor.dart';
 import 'governance/budget_enforcer.dart';
 import 'logging/log_context.dart';
+import 'memory/daily_log_record.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
 import 'turn_governance_enforcer.dart';
@@ -252,6 +253,7 @@ class TurnRunner implements core.TurnRunner {
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   }) async {
     await admitTurn(sessionId, isHumanInput: isHumanInput);
     try {
@@ -273,6 +275,7 @@ class TurnRunner implements core.TurnRunner {
         allowedTools: allowedTools,
         readOnly: readOnly,
         promptScope: promptScope,
+        origin: origin,
         externallyAdmitted: false,
       );
     } catch (_) {
@@ -315,6 +318,7 @@ class TurnRunner implements core.TurnRunner {
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   }) async => _reserveTurnState(
     sessionId,
     agentName: agentName,
@@ -333,6 +337,7 @@ class TurnRunner implements core.TurnRunner {
     allowedTools: allowedTools,
     readOnly: readOnly,
     promptScope: promptScope,
+    origin: origin,
     externallyAdmitted: true,
   );
 
@@ -354,6 +359,7 @@ class TurnRunner implements core.TurnRunner {
     required List<String>? allowedTools,
     required bool readOnly,
     required PromptScope? promptScope,
+    required TurnOrigin? origin,
     required bool externallyAdmitted,
   }) {
     // One turn per worker at a time. A provider process — Claude Code's
@@ -397,6 +403,7 @@ class TurnRunner implements core.TurnRunner {
       allowedTools: allowedTools,
       readOnly: readOnly,
       promptScope: promptScope,
+      origin: origin,
     );
     if (externallyAdmitted) _externallyAdmittedTurns.add(turnId);
     _outcomePending[turnId] = Completer<TurnOutcome>();
@@ -480,6 +487,7 @@ class TurnRunner implements core.TurnRunner {
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -494,6 +502,7 @@ class TurnRunner implements core.TurnRunner {
       allowedTools: allowedTools,
       readOnly: readOnly,
       promptScope: promptScope,
+      origin: origin,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;

@@ -143,6 +143,15 @@ class ReloadTriggerService {
         '${delta.changedKeys.join(', ')}',
       );
     }
+    // Without this the summary reads as "nothing happened" after a
+    // restart-tier-only edit, which is the case the operator most needs named.
+    final restartRequired = _notifier.restartRequiredSections;
+    if (restartRequired.isNotEmpty) {
+      _log.info(
+        'ReloadTriggerService: reload persisted — restart required for: '
+        '${restartRequired.join(', ')}',
+      );
+    }
   }
 
   /// Cancels all subscriptions and pending debounce timer. Idempotent.

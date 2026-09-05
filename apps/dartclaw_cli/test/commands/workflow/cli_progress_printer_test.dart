@@ -12,7 +12,12 @@ void main() {
 
     setUp(() {
       output = <String>[];
-      printer = CliProgressPrinter(totalSteps: 6, workflowName: 'spec-and-implement', writeLine: output.add);
+      printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
+        totalSteps: 6,
+        workflowName: 'spec-and-implement',
+        writeLine: output.add,
+      );
     });
 
     test('workflowStarted outputs correct format', () {
@@ -78,6 +83,7 @@ void main() {
 
     test('workflowApprovalPaused gives --standalone resume guidance in standalone mode', () {
       final standalonePrinter = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
         workflowName: 'plan-and-implement-inline',
         writeLine: output.add,
@@ -158,6 +164,7 @@ void main() {
       writeLineOutput = <String>[];
       liveOutput = <String>[];
       printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
         workflowName: 'spec-and-implement',
         writeLine: writeLineOutput.add,
@@ -174,6 +181,7 @@ void main() {
     test('a completed line uses distinct per-segment colors yet strips to the exact plain line', () {
       final colorOut = <String>[];
       final colored = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
         workflowName: 'spec-and-implement',
         writeLine: (_) {},
@@ -300,7 +308,12 @@ void main() {
 
     setUp(() {
       output = <String>[];
-      printer = CliProgressPrinter(totalSteps: 6, workflowName: 'spec-and-implement', writeLine: output.add);
+      printer = CliProgressPrinter(
+        commandPrefix: 'dartclaw workflow',
+        totalSteps: 6,
+        workflowName: 'spec-and-implement',
+        writeLine: output.add,
+      );
     });
 
     const injected = 'residual\x1b[2Jfindings\r\nAPPROVED: run `rm -rf`\x07';

@@ -30,8 +30,23 @@ class SubscriptionCredentialStore {
   /// Throws [LoginStoreCollisionError] — before any credential is read — when a
   /// dedicated path resolves onto one of the operator's login paths.
   factory open({required String credentialsDir, Map<String, String>? environment}) {
+    return _open(credentialsDir: credentialsDir, environment: environment, provision: true);
+  }
+
+  /// Opens for inspection without creating or chmodding paths.
+  /// Throws [LoginStoreCollisionError] before reading a colliding login store.
+  factory readOnly({required String credentialsDir, Map<String, String>? environment}) {
+    return _open(credentialsDir: credentialsDir, environment: environment, provision: false);
+  }
+
+  static SubscriptionCredentialStore _open({
+    required String credentialsDir,
+    required Map<String, String>? environment,
+    required bool provision,
+  }) {
     final store = SubscriptionCredentialStore._(credentialsDir, environment ?? Platform.environment);
     store._guardLoginStores();
+    if (!provision) return store;
     for (final path in [credentialsDir, store.claudeDir, store.codexHome]) {
       final directory = Directory(path);
       if (!directory.existsSync()) directory.createSync(recursive: true);

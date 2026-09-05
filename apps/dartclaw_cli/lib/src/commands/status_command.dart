@@ -1,21 +1,20 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
+import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine, dartclawVersion, formatUptime;
 
+import 'cli_global_options.dart';
+import 'connected_command_support.dart';
 import 'config_loader.dart';
 
-typedef StatusWriteLine = void Function(String line);
+/// Reports server health and persisted local session, memory and index evidence.
+class StatusCommand extends ConnectedCommand {
+  new({super.config, super.apiClient, super.writeLine, super.exitFn, super.stderrLine});
 
-/// Shows DartClaw status: data directory info, session count, worker path.
-class StatusCommand extends Command<void> {
-  final DartclawConfig? _config;
-  final StatusWriteLine _writeLine;
-
-  new({DartclawConfig? config, StatusWriteLine? writeLine})
-    : _config = config,
-      _writeLine = writeLine ?? stdout.writeln;
+  WriteLine get _writeLine => writeLine;
 
   @override
   String get name => 'status';
@@ -25,10 +24,44 @@ class StatusCommand extends Command<void> {
 
   @override
   Future<void> run() async {
-    final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
+    final config = injectedConfig ?? loadCliConfig(configPath: globalResults?['config'] as String?);
 
     for (final w in config.warnings) {
       _writeLine('WARNING: $w');
+    }
+
+    final apiClient =
+        injectedApiClient ??
+        apiClientFromConfig(
+          config: config,
+          serverOverride: serverOverride(globalResults),
+          tokenOverride: globalOptionString(globalResults, 'token'),
+        );
+    _writeLine('DartClaw Status');
+    final origin = apiClient.baseUri.origin;
+    try {
+      final health = await readServerHealth(apiClient);
+      final uptime = health['uptime_s'] as int;
+      final version = health['version'];
+      final workerState = health['worker_state'];
+      if (workerState is! String) {
+        throw DartclawApiException('Invalid health response from /health.', code: 'INVALID_RESPONSE');
+      }
+      final mismatch = version == dartclawVersion ? '' : '; CLI is v$dartclawVersion';
+      _writeLine('  Server:    running at $origin (v$version, up ${formatUptime(uptime)}$mismatch)');
+      _writeLine('  Harness:   $workerState');
+    } on DartclawApiException catch (error) {
+      _writeLine(
+        error.statusCode == null && error.code == 'CONNECTION_REFUSED'
+            ? '  Server:    not running at $origin'
+            : '  Server:    unreachable at $origin: ${error.message}',
+      );
+    } on TimeoutException {
+      _writeLine('  Server:    unreachable at $origin: health request timed out');
+    } on HttpException catch (error) {
+      _writeLine('  Server:    unreachable at $origin: ${error.message}');
+    } on FormatException catch (error) {
+      _writeLine('  Server:    unreachable at $origin: ${error.message}');
     }
 
     final dataDir = config.server.dataDir;
@@ -41,10 +74,8 @@ class StatusCommand extends Command<void> {
     final sessions = SessionService(baseDir: config.sessionsDir);
     final sessionList = await sessions.listSessions();
 
-    _writeLine('DartClaw Status');
     _writeLine('  Data dir:  $dataDir');
     _writeLine('  Sessions:  ${sessionList.length}');
-    _writeLine('  Harness:   not running (executable: ${config.server.claudeExecutable})');
     await _writeMemoryStatus(config);
   }
 

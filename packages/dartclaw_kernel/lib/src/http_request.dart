@@ -8,8 +8,8 @@ typedef HttpClientFactory = HttpClient Function();
 /// Performs a one-shot HTTP request and returns the status code + decoded body.
 ///
 /// Owns the [HttpClient] lifecycle: create → optional [connectionTimeout] → open
-/// → set [headers] → optional write [body] → close → utf8-decode → finally
-/// `close(force: true)`.
+/// → set [headers] → optional utf8-encoded [body] → close → utf8-decode →
+/// finally `close(force: true)`.
 ///
 /// Does **not** interpret the status code — the caller applies its own policy.
 /// [timeout] is applied to each network step that can block (open, close, and
@@ -32,7 +32,9 @@ Future<({int statusCode, String body})> httpRequest(
     final request = await client.openUrl(method, uri).timeout(timeout);
     headers.forEach(request.headers.set);
     if (body != null) {
-      request.write(body);
+      // `HttpClientRequest.write` encodes with latin1 unless the content type
+      // names a charset, which throws on any character above U+00FF.
+      request.add(utf8.encode(body));
     }
     final response = await request.close().timeout(timeout);
     final responseBody = await response.transform(utf8.decoder).join().timeout(timeout);

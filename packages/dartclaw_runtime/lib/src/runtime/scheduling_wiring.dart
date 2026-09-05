@@ -7,6 +7,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
 
 import '../config/runtime_toggle_applier.dart';
+import '../config/scheduling_jobs_applier.dart';
 import 'channel_wiring.dart';
 import 'security_wiring.dart';
 import 'storage_wiring.dart';
@@ -33,6 +34,7 @@ class SchedulingWiring {
     required SseBroadcast sseBroadcast,
     required MemoryHandlers memoryHandlers,
     required CredentialHealthMonitor credentialHealth,
+    required MessageRedactor messageRedactor,
     BehaviorFileService? behavior,
     ConfigNotifier? configNotifier,
   }) : _eventBus = eventBus,
@@ -42,6 +44,7 @@ class SchedulingWiring {
        _sseBroadcast = sseBroadcast,
        _memoryHandlers = memoryHandlers,
        _credentialHealth = credentialHealth,
+       _messageRedactor = messageRedactor,
        _behavior = behavior,
        _configNotifier = configNotifier;
 
@@ -53,6 +56,7 @@ class SchedulingWiring {
   final SseBroadcast _sseBroadcast;
   final MemoryHandlers _memoryHandlers;
   final CredentialHealthMonitor _credentialHealth;
+  final MessageRedactor _messageRedactor;
   final BehaviorFileService? _behavior;
   final ConfigNotifier? _configNotifier;
 
@@ -67,7 +71,9 @@ class SchedulingWiring {
   late List<Map<String, dynamic>> _displayJobs;
   late List<String> _systemJobNames;
   ChannelManager? _fallbackDeliveryChannelManager;
+  late SchedulingJobsApplier _jobsApplier;
   late List<ScheduledJob> _scheduledJobs;
+  late List<String> _missedOneTimeJobIds;
   late final DeliveryService _deliveryService;
 
   /// The single writer of per-provider credential health. Detecting paths other
@@ -76,6 +82,13 @@ class SchedulingWiring {
   CredentialHealthMonitor get credentialHealth => _credentialHealth;
 
   ScheduleService? get scheduleService => _scheduleService;
+
+  /// Loads a written `scheduling.jobs` list into [scheduleService].
+  ///
+  /// Handed to every construction site of `ScheduleMutationService`, which
+  /// awaits it after each commit — that is what makes a job written through the
+  /// tool, the API or the page run without a restart.
+  Future<void> Function() get applyJobs => _jobsApplier.apply;
 
   /// The single owner of DM-target resolution for host-originated sends.
   ///
@@ -89,6 +102,13 @@ class SchedulingWiring {
   MemoryStatusService? get memoryStatusService => _memoryStatusService;
   RuntimeConfig get runtimeConfig => _runtimeConfig;
   ConfigChangeSubscriber get configChangeSubscriber => _configChangeSubscriber;
+
+  /// Config-declared one-time jobs whose instant had already passed at boot.
+  ///
+  /// Their `scheduling.jobs` entries are stale: nothing will ever run them, so
+  /// the composition root drops them instead of warning at every start.
+  List<String> get missedOneTimeJobIds => _missedOneTimeJobIds;
+
   List<Map<String, dynamic>> get displayJobs => _displayJobs;
   List<String> get systemJobNames => _systemJobNames;
 
@@ -97,6 +117,7 @@ class SchedulingWiring {
     required TurnManager turns,
     required ContextMonitor contextMonitor,
     required ExecutionPolicyResolver policyResolver,
+    required ConfigWriter configWriter,
   }) async {
     // Scheduled prompts, heartbeat, and knowledge extraction carry neither
     // logical-agent identity nor a task execution declaration, so they take the deployment
@@ -117,18 +138,11 @@ class SchedulingWiring {
         .toList();
     _systemJobNames = <String>[heartbeatJobId];
 
-    // Parse user-configured non-task scheduled jobs.
-    _scheduledJobs = <ScheduledJob>[];
-    for (final jobConfig in config.scheduling.jobs) {
-      try {
-        final job = ScheduledJob.fromConfig(jobConfig);
-        if (job.jobType != ScheduledJobType.task) {
-          _scheduledJobs.add(job);
-        }
-      } catch (e) {
-        _log.warning('Invalid scheduled job config: $e — skipping');
-      }
-    }
+    // Config-declared jobs come from the one composer the live applier also
+    // uses, so a boot load and a live application cannot answer differently.
+    final composed = composeConfigJobs(config.scheduling, taskService: taskService);
+    _missedOneTimeJobIds = composed.missedOnceIds;
+    _scheduledJobs = [...composed.jobs];
 
     if (config.memory.journalEnabled) {
       _scheduledJobs.add(
@@ -303,7 +317,11 @@ class SchedulingWiring {
                 sessions: sessions,
                 config: config.sessions.maintenanceConfig,
                 activeChannelKeys: activeChannelKeys,
-                activeJobIds: _scheduledJobs.map((j) => j.id).toSet(),
+                // Read at fire time, not from the wiring snapshot: a job added
+                // live after boot owns a cron session maintenance must protect.
+                activeJobIds: {
+                  for (final entry in _scheduleService?.entries ?? const <LoadedScheduleEntry>[]) entry.id,
+                },
                 isSessionActive: turns.isActive,
                 sessionsDir: config.sessionsDir,
                 taskService: taskService,
@@ -343,16 +361,6 @@ class SchedulingWiring {
       }
     }
 
-    // Register automation scheduled tasks (task-type jobs).
-    if (config.scheduling.taskDefinitions.isNotEmpty) {
-      final taskRunner = ScheduledTaskRunner(taskService: taskService, definitions: config.scheduling.taskDefinitions);
-      final taskJobs = taskRunner.buildJobs();
-      _scheduledJobs.addAll(taskJobs);
-      if (taskJobs.isNotEmpty) {
-        _log.info('Registered ${taskJobs.length} automation scheduled task(s)');
-      }
-    }
-
     // Heartbeat and workspace git sync are always registered so their live
     // toggles work from a boot-disabled start; both start paused when off.
     _scheduledJobs.add(
@@ -381,36 +389,58 @@ class SchedulingWiring {
     final deliveryChannelManager =
         channelManager ??
         (_fallbackDeliveryChannelManager = ChannelManager(
-          queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => ''),
+          queue: MessageQueue(
+            dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async =>
+                '',
+          ),
           config: const ChannelConfig.defaults(),
         ));
     final deliveryService = DeliveryService(
       channelManager: deliveryChannelManager,
       sseBroadcast: _sseBroadcast,
       sessions: sessions,
+      messages: _storage.messages,
+      memoryFile: _storage.memoryFile,
+      redactor: _messageRedactor,
+      resetSessionContinuity: turns.resetSessionContinuity,
     );
     _deliveryService = deliveryService;
 
-    if (_scheduledJobs.isNotEmpty) {
-      _scheduleService = ScheduleService(
-        turns: turns,
-        sessions: sessions,
-        jobs: _scheduledJobs,
-        delivery: deliveryService,
-        eventBus: _eventBus,
-        workerProviderId: config.agent.provider,
-        workerPolicy: backgroundPolicy,
-      );
-      _scheduleService!.start();
-      if (!config.scheduling.heartbeatEnabled) _scheduleService!.pauseJob(heartbeatJobId);
-      if (_gitSync != null && !config.workspace.gitSyncEnabled) {
-        _scheduleService!.pauseJob(workspaceGitSyncJobId);
-      }
-      _log.info(
-        'Heartbeat scheduled (every ${config.scheduling.heartbeatIntervalMinutes} minutes, '
-        '${config.scheduling.heartbeatEnabled ? 'enabled' : 'paused'})',
-      );
+    // The applier-less seam instance behind every write this wiring performs
+    // itself: both persist an unload the runtime has already carried out, so
+    // re-applying the list they write would loop.
+    final jobsStore = ScheduleMutationService(writer: configWriter);
+
+    // Constructed unconditionally: heartbeat and credential health are always
+    // registered, and a live write must reach a scheduler that already exists.
+    final scheduleService = _scheduleService = ScheduleService(
+      turns: turns,
+      sessions: sessions,
+      jobs: _scheduledJobs,
+      delivery: deliveryService,
+      eventBus: _eventBus,
+      workerProviderId: config.agent.provider,
+      workerPolicy: backgroundPolicy,
+      onOneTimeComplete: (id) => jobsStore.removeJobs([id]),
+    );
+    if (!config.scheduling.heartbeatEnabled) scheduleService.pauseJob(heartbeatJobId);
+    if (_gitSync != null && !config.workspace.gitSyncEnabled) {
+      scheduleService.pauseJob(workspaceGitSyncJobId);
     }
+    _log.info(
+      'Heartbeat scheduled (every ${config.scheduling.heartbeatIntervalMinutes} minutes, '
+      '${config.scheduling.heartbeatEnabled ? 'enabled' : 'paused'})',
+    );
+
+    _jobsApplier = SchedulingJobsApplier(
+      configPath: configWriter.configPath,
+      jobs: jobsStore,
+      scheduleService: () => _scheduleService,
+      taskService: taskService,
+    );
+    // A one-time entry whose instant passed while the server was down is stale:
+    // nothing will run it, so it goes now rather than warning at every start.
+    if (_missedOneTimeJobIds.isNotEmpty) await jobsStore.removeJobs(_missedOneTimeJobIds);
 
     // Memory status service — gathers metrics for the dashboard API.
     _memoryStatusService = MemoryStatusService(

@@ -165,9 +165,9 @@ class ReservedCommandHandler {
     }
     final taskId = parts[1].trim();
 
-    final bindingKey = _extractBindingKey(message);
-    if (bindingKey == null) {
-      await _sendResponse(channel, recipientId, 'Cannot bind — this message is not in a thread or group.');
+    final threadId = extractThreadId(message);
+    if (threadId == null) {
+      await _sendResponse(channel, recipientId, 'Cannot bind — this message is not in a thread.');
       return 'rejected';
     }
 
@@ -186,7 +186,7 @@ class ReservedCommandHandler {
     }
 
     final channelType = message.channelType.name;
-    final existing = threadBindingStore.lookupByThread(channelType, bindingKey);
+    final existing = threadBindingStore.lookupByThread(channelType, threadId);
     if (existing != null) {
       if (existing.taskId == task.id) {
         await _sendResponse(channel, recipientId, 'Already bound to task ${task.id}.');
@@ -200,7 +200,7 @@ class ReservedCommandHandler {
     await threadBindingStore.create(
       ThreadBinding(
         channelType: channelType,
-        threadId: bindingKey,
+        threadId: threadId,
         taskId: task.id,
         sessionKey: task.sessionId ?? SessionKey.taskSession(taskId: task.id),
         createdAt: now,
@@ -223,33 +223,25 @@ class ReservedCommandHandler {
       return 'rejected';
     }
 
-    final bindingKey = _extractBindingKey(message);
-    if (bindingKey == null) {
-      await _sendResponse(channel, recipientId, 'Cannot unbind — this message is not in a thread or group.');
+    final threadId = extractThreadId(message);
+    if (threadId == null) {
+      await _sendResponse(channel, recipientId, 'Cannot unbind — this message is not in a thread.');
       return 'rejected';
     }
 
-    final existing = threadBindingStore.lookupByThread(message.channelType.name, bindingKey);
+    final existing = threadBindingStore.lookupByThread(message.channelType.name, threadId);
     if (existing == null) {
-      await _sendResponse(channel, recipientId, 'No binding found for this thread/group.');
+      await _sendResponse(channel, recipientId, 'No binding found for this thread.');
       return 'executed';
     }
 
-    await threadBindingStore.delete(message.channelType.name, bindingKey);
+    await threadBindingStore.delete(message.channelType.name, threadId);
     await _sendResponse(
       channel,
       recipientId,
       'Unbound from task ${existing.taskId}. Messages here return to normal routing.',
     );
     return 'executed';
-  }
-
-  static String? _extractBindingKey(ChannelMessage message) {
-    final threadId = extractThreadId(message);
-    if (threadId != null) return threadId;
-    final groupJid = message.groupJid;
-    if (groupJid != null && groupJid.isNotEmpty) return groupJid;
-    return null;
   }
 
   static Future<void> _sendResponse(Channel channel, String recipientId, String text) async {

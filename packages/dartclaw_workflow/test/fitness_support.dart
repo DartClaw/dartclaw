@@ -90,7 +90,13 @@ final class FitnessSnapshot {
       generatedAt: generatedAt,
       regenerationRecipe: 'dart run packages/dartclaw_workflow/tool/regenerate_fitness_baseline.dart',
       allowlist: {
-        'F-SIZE-1': {for (final entry in fileLoc.entries) entry.key: entry.value},
+        // Only files already past the default are recorded: an entry is a
+        // grandfathered exception that may only come down, not a per-file
+        // freeze that every ordinary edit trips.
+        'F-SIZE-1': {
+          for (final entry in fileLoc.entries)
+            if (entry.value > workflowFitnessThreshold) entry.key: entry.value,
+        },
         'F-CLASS-1': {for (final entry in classMethodCounts.entries) entry.key: entry.value},
         'F-CLASS-2': {for (final entry in fileMethodCounts.entries) entry.key: entry.value},
         'F-COMPLEX-1': {for (final entry in methodComplexities.entries) entry.key: entry.value},
@@ -151,7 +157,7 @@ FitnessSnapshot collectFitnessSnapshot(String repoRoot) {
     final sanitized = _sanitizeDartSource(source);
 
     fileLoc[relative] = file.readAsLinesSync().length;
-    final metrics = _extractMethodMetrics(relative, sanitized);
+    final metrics = extractMethodMetrics(relative, sanitized);
     fileMethodCounts[relative] = metrics.length;
     for (final metric in metrics) {
       methodComplexities[metric.key] = metric.complexity;
@@ -208,7 +214,17 @@ Set<String> _scenarioTypes(String source) {
   return match.group(1)!.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toSet();
 }
 
-List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
+final _classDeclaration = RegExp(r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)');
+
+/// A `=` that assigns, as opposed to `==`, `!=`, `<=`, `>=` or `=>`.
+final _assignment = RegExp(r'(?<![=!<>])=(?![=>])');
+
+/// The members [source] declares, keyed by enclosing class.
+///
+/// [source] must already be sanitized (see [sanitizeDartSourceForFitness]).
+/// Public so the counting rules can be pinned directly - the snapshot is a
+/// whole-tree scan and says nothing about which shapes it got right.
+List<MethodMetric> extractMethodMetrics(String relativePath, String source) {
   final methods = <MethodMetric>[];
   final lines = const LineSplitter().convert(source);
   final classStack = <({String name, int depth})>[];
@@ -218,14 +234,12 @@ List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
   while (index < lines.length) {
     final line = lines[index];
     final trimmed = line.trim();
+    var consumedTo = index;
 
-    final classMatch = RegExp(r'\b(?:abstract\s+|base\s+|sealed\s+|final\s+|interface\s+)*class\s+(\w+)')
-        .firstMatch(line);
+    final classMatch = _classDeclaration.firstMatch(line);
     if (classMatch != null && line.contains('{')) {
       classStack.add((name: classMatch.group(1)!, depth: braceDepth + _count(line, '{')));
-    }
-
-    if (_looksLikeMethodStart(trimmed)) {
+    } else if (_looksLikeMethodStart(trimmed)) {
       final signatureLines = <String>[trimmed];
       var endIndex = index;
       while (!_signatureComplete(signatureLines.join(' ')) && endIndex + 1 < lines.length) {
@@ -233,59 +247,173 @@ List<MethodMetric> _extractMethodMetrics(String relativePath, String source) {
         signatureLines.add(lines[endIndex].trim());
       }
       final signature = signatureLines.join(' ');
-      final methodName = _methodName(signature);
-      if (methodName != null && !_isControlKeyword(methodName)) {
-        final className = classStack.isEmpty ? null : classStack.last.name;
-        if (signature.contains('=>')) {
-          methods.add(
-            MethodMetric(
-              filePath: relativePath,
-              key: '$relativePath::${className ?? '#top'}::$methodName',
-              className: className,
-              methodName: methodName,
-              complexity: _cyclomaticComplexity(signature),
-            ),
-          );
-          index = endIndex;
-        } else if (signature.contains('{')) {
+      final className = classStack.isEmpty ? null : classStack.last.name;
+      final methodName = _declarationName(signature, className);
+      if (methodName != null) {
+        var body = signature;
+        if (!signature.contains('=>') && signature.contains('{')) {
           final bodyLines = <String>[signature];
           var localDepth = _count(signature, '{') - _count(signature, '}');
           while (localDepth > 0 && endIndex + 1 < lines.length) {
             endIndex++;
-            final bodyLine = lines[endIndex];
-            bodyLines.add(bodyLine);
-            localDepth += _count(bodyLine, '{');
-            localDepth -= _count(bodyLine, '}');
+            bodyLines.add(lines[endIndex]);
+            localDepth += _count(lines[endIndex], '{');
+            localDepth -= _count(lines[endIndex], '}');
           }
-          methods.add(
-            MethodMetric(
-              filePath: relativePath,
-              key: '$relativePath::${className ?? '#top'}::$methodName',
-              className: className,
-              methodName: methodName,
-              complexity: _cyclomaticComplexity(bodyLines.join('\n')),
-            ),
-          );
-          index = endIndex;
+          body = bodyLines.join('\n');
         }
+        methods.add(
+          MethodMetric(
+            filePath: relativePath,
+            key: '$relativePath::${className ?? '#top'}::$methodName',
+            className: className,
+            methodName: methodName,
+            complexity: _cyclomaticComplexity(body),
+          ),
+        );
+        consumedTo = endIndex;
       }
     }
 
-    braceDepth += _count(line, '{');
-    braceDepth -= _count(line, '}');
+    // Every consumed line is accounted for, not just the one the loop is on. A
+    // member body whose braces went uncounted left the depth one deeper per
+    // member, so an enclosing class never closed and every later top-level
+    // declaration was attributed to it.
+    for (var i = index; i <= consumedTo; i++) {
+      braceDepth += _count(lines[i], '{');
+      braceDepth -= _count(lines[i], '}');
+    }
     while (classStack.isNotEmpty && braceDepth < classStack.last.depth) {
       classStack.removeLast();
     }
-    index++;
+    index = consumedTo + 1;
   }
 
   return methods;
 }
 
-bool _isControlKeyword(String rawName) => switch (rawName.trim()) {
-  'if' || 'for' || 'while' || 'switch' || 'catch' || 'return' || 'throw' || 'assert' => true,
-  _ => false,
+/// Statement heads a token count alone would read as a declaration:
+/// `await run.close()` and `case Foo(:final x)` both carry two tokens.
+const _statementKeywords = {
+  'await',
+  'yield',
+  'return',
+  'throw',
+  'assert',
+  'case',
+  'else',
+  'do',
+  'try',
+  'catch',
+  'if',
+  'for',
+  'while',
+  'switch',
+  'super',
+  'this',
 };
+
+/// The member [signature] declares, or null when the line is a statement.
+///
+/// Two identifiers and a paren do not separate a declaration from a call:
+/// `final total = Foo(`, `list.add(x)` and `Future<void> close()` all match
+/// that shape, and counting the first two inflates a file's member count with
+/// its own field initialisers and formatter-wrapped constructor arguments.
+///
+/// A declaration head assigns nothing, and either names a type before the
+/// member or is the enclosing class's own constructor. This is a heuristic, not
+/// a parse - a member declared without a return type reads as a call and is
+/// missed. The suite is pinned analyzer-free, so the counts are a trend signal
+/// and the frozen per-file baseline is what actually binds.
+String? _declarationName(String signature, String? enclosingClass) {
+  final getterSetter = RegExp(r'\b(get|set)\s+([A-Za-z_]\w*)').firstMatch(signature);
+  if (getterSetter != null) {
+    return '${getterSetter.group(1)} ${getterSetter.group(2)}';
+  }
+
+  // Each top-level `(` in turn: the first one may belong to a record return
+  // type (`({Map? specs}) validateContract(`) rather than to the parameter list.
+  for (final open in _topLevelParens(signature)) {
+    final name = _declarationNameBefore(signature.substring(0, open).trim(), enclosingClass);
+    if (name != null) return name;
+  }
+  return null;
+}
+
+String? _declarationNameBefore(String head, String? enclosingClass) {
+  if (head.isEmpty) return null;
+  // `operator []=` ends in an `=` that assigns nothing.
+  final declaresOperator = head.contains(RegExp(r'\boperator\b'));
+  if (!declaresOperator && _assignment.hasMatch(head)) return null;
+
+  // Generics carry the only comma a declaration head may hold; with them gone,
+  // a comma or a colon means the line is a map entry or a named argument
+  // (`'hunks': hunks.map(`, `status: values.byName(`), whose prefix would
+  // otherwise supply the second token a declaration needs.
+  final bare = _withoutBracketedRuns(head);
+  if (bare.contains(':') || bare.contains(',')) return null;
+  // With generics stripped, an operator in the head means the line is an
+  // expression, not a declaration: `x ?? Resolver.forPolicy(`, `T v => Foo.of(`.
+  if (bare.contains('??')) return null;
+  if (!declaresOperator && RegExp(r'[=<>|&+\-*/%~!]').hasMatch(bare)) return null;
+  final tokens = bare.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
+  if (tokens.isEmpty || tokens.contains('?') || _statementKeywords.contains(tokens.first)) return null;
+
+  final name = RegExp(r'(operator\s*[^\s(]+|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)$').firstMatch(head)?.group(0)?.trim();
+  if (name == null) return null;
+  if (name.startsWith('operator')) return name;
+
+  // `new` is this codebase's primary-constructor name, not a statement.
+  final isConstructor =
+      enclosingClass != null && (name == 'new' || name == enclosingClass || name.startsWith('$enclosingClass.'));
+  if (tokens.length < 2 && !isConstructor) return null;
+  return name;
+}
+
+/// [source] with every `<...>`, `(...)`, `[...]` and `{...}` run replaced by a
+/// single `#`, so a generic or record type is one token rather than the text it
+/// encloses - `Map<String, int> toJson` must not read as carrying a comma, and
+/// `({int a}) build` must not read as a one-token head.
+String _withoutBracketedRuns(String source) {
+  const openers = {'<': '>', '(': ')', '[': ']', '{': '}'};
+  final out = StringBuffer();
+  final stack = <String>[];
+  for (final char in source.split('')) {
+    if (openers.containsKey(char)) {
+      stack.add(openers[char]!);
+    } else if (stack.isNotEmpty && stack.last == char) {
+      stack.removeLast();
+    } else if (stack.isEmpty) {
+      out.write(char);
+      continue;
+    }
+    if (stack.length == 1 && openers.containsKey(char)) out.write('#');
+  }
+  return out.toString();
+}
+
+/// The indices of every `(` not already inside a bracket pair, so a closure
+/// argument cannot be mistaken for the declaration's parameter list.
+///
+/// `<`/`>` count as brackets: a generic return type may hold a paren
+/// (`Future<(Outcome, String?)> checkBudget(`), and reading that one as the
+/// parameter list loses the member.
+List<int> _topLevelParens(String signature) {
+  final positions = <int>[];
+  var depth = 0;
+  for (var i = 0; i < signature.length; i++) {
+    switch (signature[i]) {
+      case '(':
+        if (depth == 0) positions.add(i);
+        depth++;
+      case '[' || '{' || '<':
+        depth++;
+      case ')' || ']' || '}' || '>':
+        if (depth > 0) depth--;
+    }
+  }
+  return positions;
+}
 
 int _cyclomaticComplexity(String body) {
   var complexity = 1;
@@ -315,18 +443,6 @@ bool _looksLikeMethodStart(String trimmed) {
 
 bool _signatureComplete(String signature) =>
     signature.contains('=>') || signature.contains('{') || signature.endsWith(';');
-
-String? _methodName(String signature) {
-  final getterSetter = RegExp(r'\b(get|set)\s+([A-Za-z_]\w*)').firstMatch(signature);
-  if (getterSetter != null) {
-    return '${getterSetter.group(1)} ${getterSetter.group(2)}';
-  }
-  RegExpMatch? regular;
-  for (final match in RegExp(r'([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?|operator\s+[^\s(]+)\s*\(').allMatches(signature)) {
-    regular = match;
-  }
-  return regular?.group(1)?.trim();
-}
 
 int _count(String source, String char) => RegExp(RegExp.escape(char)).allMatches(source).length;
 

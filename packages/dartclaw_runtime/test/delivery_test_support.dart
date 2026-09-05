@@ -32,6 +32,8 @@ class RecordingDeliveryService extends DeliveryService {
 Future<String> _noopTestChannelDispatch(
   String sessionKey,
   String message, {
+  required ChannelType channelType,
   String? senderJid,
   String? senderDisplayName,
+  String? groupJid,
 }) async => '';

@@ -25,7 +25,8 @@ Map<String, Object?> _node(Map<String, Object?> schema, String path) {
 }
 
 void main() {
-  final schema = ConfigMeta.toJsonSchema();
+  const version = '0.25.1';
+  final schema = ConfigMeta.toJsonSchema(version: version);
   final positions = schemaPositions(schema).toList();
   late String repoRoot;
 
@@ -40,6 +41,12 @@ void main() {
       final maxBytes = _node(schema, 'guards.content.max_bytes');
       expect(maxBytes, containsPair('minimum', 1));
       expect(maxBytes.containsKey('maximum'), isFalse, reason: 'no maximum is declared for guards.content.max_bytes');
+    });
+
+    test('the daily-reset disable value survives into the published bounds', () {
+      final resetHour = _node(schema, 'sessions.reset_hour');
+      expect(resetHour, containsPair('minimum', -1));
+      expect(resetHour, containsPair('maximum', 23));
     });
 
     test('an enumerated field emits its declared set as a string enum', () {
@@ -196,6 +203,8 @@ void main() {
         if (!lib.existsSync()) continue;
         for (final file in lib.listSync(recursive: true).whereType<File>()) {
           if (!file.path.endsWith('.dart')) continue;
+          // This emitter owns the published URL; it does not read the artifact.
+          if (file.path == p.join(repoRoot, 'packages', 'dartclaw_kernel', 'lib', 'src', 'config_meta.dart')) continue;
           if (file.readAsStringSync().contains('dartclaw.schema.json')) offenders.add(file.path);
         }
       }
@@ -222,10 +231,15 @@ void main() {
       expect((_node(schema, 'credentials.<entry>')['properties']! as Map).keys, contains('type'));
     });
 
-    test('the root declares the dialect and a fixed title, and claims no published identity', () {
+    test('the root declares the dialect, title and release identity only at the root', () {
       expect(schema[r'$schema'], 'https://json-schema.org/draft/2020-12/schema');
       expect(schema['title'], 'DartClaw configuration');
-      expect(schema.containsKey(r'$id'), isFalse);
+      expect(
+        ConfigMeta.jsonSchemaUrl(version),
+        'https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.1/schemas/dartclaw.schema.json',
+      );
+      expect(schema[r'$id'], ConfigMeta.jsonSchemaUrl(version));
+      expect(positions.skip(1).where((position) => position.containsKey(r'$id')), isEmpty);
     });
   });
 
@@ -243,39 +257,74 @@ void main() {
         configSchemaDrift(
           artifactPath: artifact.path,
           committed: artifact.readAsStringSync(),
-          rendered: renderConfigSchema(),
+          rendered: renderConfigSchema(version: configSchemaVersion(repoRoot)),
         ),
         isNull,
       );
     });
 
     test('is a function of registry content, so rendering twice changes nothing', () {
-      expect(renderConfigSchema(), renderConfigSchema());
-      expect(renderConfigSchema(), endsWith('}\n'));
-      expect(jsonDecode(renderConfigSchema()), isA<Map<String, Object?>>());
+      expect(
+        renderConfigSchema(version: configSchemaVersion(repoRoot)),
+        renderConfigSchema(version: configSchemaVersion(repoRoot)),
+      );
+      expect(renderConfigSchema(version: configSchemaVersion(repoRoot)), endsWith('}\n'));
+      expect(jsonDecode(renderConfigSchema(version: configSchemaVersion(repoRoot))), isA<Map<String, Object?>>());
     });
 
     test('drift and absence both report the artifact and the regeneration command', () {
       final path = configSchemaPath(repoRoot);
       expect(
-        configSchemaDrift(artifactPath: path, committed: renderConfigSchema(), rendered: renderConfigSchema()),
+        configSchemaDrift(
+          artifactPath: path,
+          committed: renderConfigSchema(version: configSchemaVersion(repoRoot)),
+          rendered: renderConfigSchema(version: configSchemaVersion(repoRoot)),
+        ),
         isNull,
       );
 
-      final drifted = configSchemaDrift(artifactPath: path, committed: '{}\n', rendered: renderConfigSchema());
+      final drifted = configSchemaDrift(
+        artifactPath: path,
+        committed: '{}\n',
+        rendered: renderConfigSchema(version: configSchemaVersion(repoRoot)),
+      );
       expect(drifted, allOf(contains(path), contains(configSchemaRegenerationCommand), contains('drifted')));
 
-      final missing = configSchemaDrift(artifactPath: path, committed: null, rendered: renderConfigSchema());
+      final missing = configSchemaDrift(
+        artifactPath: path,
+        committed: null,
+        rendered: renderConfigSchema(version: configSchemaVersion(repoRoot)),
+      );
       expect(missing, allOf(contains(path), contains(configSchemaRegenerationCommand), contains('missing')));
     });
 
+    test('a stale release identity reports both versions and regeneration', () {
+      final path = configSchemaPath(repoRoot);
+      final drift = configSchemaDrift(
+        artifactPath: path,
+        committed: renderConfigSchema(version: '0.25.0'),
+        rendered: renderConfigSchema(version: '0.25.1'),
+      );
+      expect(
+        drift,
+        allOf(
+          contains(path),
+          contains(r'$id'),
+          contains('different version'),
+          contains('0.25.0'),
+          contains('0.25.1'),
+          contains(configSchemaRegenerationCommand),
+        ),
+      );
+    });
+
     test('a CRLF checkout does not read as drift', () {
-      final crlf = renderConfigSchema().replaceAll('\n', '\r\n');
+      final crlf = renderConfigSchema(version: configSchemaVersion(repoRoot)).replaceAll('\n', '\r\n');
       expect(
         configSchemaDrift(
           artifactPath: 'schemas/dartclaw.schema.json',
           committed: crlf,
-          rendered: renderConfigSchema(),
+          rendered: renderConfigSchema(version: configSchemaVersion(repoRoot)),
         ),
         isNull,
       );

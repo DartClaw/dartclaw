@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 const _gitHubApiVersion = '2026-03-10';
+const _probeTimeout = Duration(seconds: 10);
 
 /// Performs an authenticated probe request against the GitHub API.
 typedef GitHubProbeRunner = Future<({int statusCode, String body})> Function(
@@ -182,7 +183,7 @@ ProjectAuthStatus? describeProjectAuth(Project project, CredentialsConfig creden
 Future<ProjectAuthStatus?> probeProjectAuth(
   Project project,
   CredentialsConfig credentials, {
-  HttpClient Function()? httpClientFactory,
+  HttpClientFactory? httpClientFactory,
   GitHubProbeRunner? probeRunner,
 }) async {
   final described = describeProjectAuth(project, credentials);
@@ -206,7 +207,6 @@ Future<ProjectAuthStatus?> probeProjectAuth(
     return described;
   }
 
-  final client = (httpClientFactory ?? HttpClient.new)();
   final headers = <String, String>{
     HttpHeaders.acceptHeader: 'application/vnd.github+json',
     HttpHeaders.authorizationHeader: 'Bearer ${entry.token}',
@@ -217,7 +217,13 @@ Future<ProjectAuthStatus?> probeProjectAuth(
     final uri = Uri.parse('https://api.github.com/repos/${gitHubRepo.owner}/${gitHubRepo.name}');
     final response = probeRunner != null
         ? await probeRunner(uri, headers: headers)
-        : await _runHttpProbe(client, uri, headers: headers);
+        : await httpRequest(
+            uri,
+            headers: headers,
+            connectionTimeout: _probeTimeout,
+            timeout: _probeTimeout,
+            factory: httpClientFactory,
+          );
 
     if (response.statusCode == 200) {
       return ProjectAuthStatus(
@@ -272,22 +278,7 @@ Future<ProjectAuthStatus?> probeProjectAuth(
       errorCode: 'probe_timeout',
       errorMessage: 'GitHub probe timed out for ${gitHubRepo.slug}.',
     );
-  } finally {
-    client.close(force: true);
   }
-}
-
-Future<({int statusCode, String body})> _runHttpProbe(
-  HttpClient client,
-  Uri uri, {
-  required Map<String, String> headers,
-}) async {
-  client.connectionTimeout = const Duration(seconds: 10);
-  final request = await client.getUrl(uri);
-  headers.forEach(request.headers.set);
-  final response = await request.close().timeout(const Duration(seconds: 10));
-  final body = await utf8.decoder.bind(response).join();
-  return (statusCode: response.statusCode, body: body);
 }
 
 String? _extractGitHubMessage(String body) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env dart
 
 // Renders the published Homebrew formula by injecting the four real platform
-// SHA256 digests into the canonical template at package/homebrew/dartclaw.rb.
+// SHA256 digests into the canonical template under package/homebrew/.
 //
 // The canonical formula carries placeholder digests (they cannot exist until the
 // release binaries are built); this tool replaces each platform's placeholder
@@ -13,6 +13,7 @@
 //     --formula package/homebrew/dartclaw.rb \
 //     --checksums-dir <dir of *.tar.gz.sha256 release assets> \
 //     --version <X.Y.Z> \
+//     [--artifact dartclaw|dartclaw-workflow]  # defaults to dartclaw
 //     [--output <path>]   # defaults to stdout
 import 'dart:io';
 
@@ -23,6 +24,7 @@ void main(List<String> args) {
   final formulaPath = _require(opts, 'formula');
   final checksumsDir = _require(opts, 'checksums-dir');
   final version = _require(opts, 'version');
+  final artifact = opts['artifact'] ?? 'dartclaw';
   _validateReleaseVersion(version);
 
   var formula = File(formulaPath).readAsStringSync();
@@ -32,7 +34,7 @@ void main(List<String> args) {
   }
 
   for (final target in _targets) {
-    final digest = _readDigest(checksumsDir, version, target);
+    final digest = _readDigest(checksumsDir, version, target, artifact);
     final pattern = RegExp('(url "[^"]*-$target\\.tar\\.gz"\\s*\\n\\s*sha256 ")[0-9a-fA-F]{64}(")');
     final matches = pattern.allMatches(formula).toList();
     if (matches.length != 1) {
@@ -58,8 +60,8 @@ void _validateReleaseVersion(String version) {
   }
 }
 
-String _readDigest(String dir, String version, String target) {
-  final file = File('$dir/dartclaw-v$version-$target.tar.gz.sha256');
+String _readDigest(String dir, String version, String target, String artifact) {
+  final file = File('$dir/$artifact-v$version-$target.tar.gz.sha256');
   if (!file.existsSync()) {
     _fail('missing checksum file: ${file.path}');
   }

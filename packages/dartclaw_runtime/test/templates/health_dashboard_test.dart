@@ -1,5 +1,7 @@
 import 'package:dartclaw_runtime/src/audit/audit_log_reader.dart';
+import 'package:dartclaw_runtime/src/health/health_service.dart';
 import 'package:dartclaw_runtime/src/templates/health_dashboard.dart';
+import 'package:dartclaw_runtime/src/templates/settings.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:test/test.dart';
@@ -35,9 +37,28 @@ String _render({String status = 'healthy', Map<String, dynamic>? pubsubHealth}) 
   pubsubHealth: pubsubHealth,
 );
 
+String _renderSettings({required String status}) => settingsTemplate(
+  sidebarData: _emptySidebar(),
+  navItems: _emptyNavItems,
+  uptimeSeconds: 3600,
+  sessionCount: 5,
+  status: status,
+  version: '0.11.0',
+);
+
 void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
+
+  test('the dashboard and the settings card badge a status word identically', () {
+    // Two surfaces, one mapping: a second switch over the health vocabulary
+    // would let one of them drift while both stayed green on their own.
+    for (final status in ['healthy', 'degraded', 'unhealthy', 'unavailable']) {
+      final badge = 'status-badge-${healthStatusBadgeVariant(status)}';
+      expect(_render(status: status), contains(badge), reason: status);
+      expect(_renderSettings(status: status), contains(badge), reason: status);
+    }
+  });
 
   group('health dashboard Pub/Sub card', () {
     test('renders canonical health status variants and metric cards', () {
@@ -48,6 +69,9 @@ void main() {
       ]) {
         final html = _render(status: status);
 
+        // The card and dot classes hang off the badge variant, so pinning the
+        // expected badge to the shared mapping pins all three to it.
+        expect(badge, 'status-badge-${healthStatusBadgeVariant(status)}');
         expect(html, contains(featured));
         expect(html, contains(badge));
         expect(html, contains(dot));

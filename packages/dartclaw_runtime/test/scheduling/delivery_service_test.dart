@@ -9,21 +9,33 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/api/sse_broadcast.dart';
 import 'package:dartclaw_runtime/src/scheduling/delivery.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
   group('DeliveryService', () {
     late Directory tempDir;
+    late String workspaceDir;
     late SessionService sessions;
+    late MessageService messages;
+    late MemoryFileService memoryFile;
     late SseBroadcast sseBroadcast;
+    late List<String> continuityResets;
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('delivery-service-test-');
+      workspaceDir = p.join(tempDir.path, 'workspace');
+      Directory(workspaceDir).createSync(recursive: true);
       sessions = SessionService(baseDir: tempDir.path);
+      messages = MessageService(baseDir: tempDir.path);
+      memoryFile = MemoryFileService(baseDir: workspaceDir);
       sseBroadcast = SseBroadcast();
+      continuityResets = [];
     });
 
     tearDown(() async {
+      await memoryFile.dispose();
+      await messages.dispose();
       await sseBroadcast.dispose();
       if (tempDir.existsSync()) {
         await tempDir.delete(recursive: true);
@@ -223,6 +235,165 @@ void main() {
       expect(whatsapp.sentMessages, isEmpty);
       expect(await _nextSseFrame(controller), isNull);
     });
+
+    test('announce records the delivered result in every DM session it reached', () async {
+      const whatsappPeer = 'dm/contact/one@s.whatsapp.net';
+      const signalPeer = 'signal/+46700000000';
+      final whatsappSession = await _createChannelSession(
+        sessions,
+        SessionKey.dmPerChannelContact(channelType: ChannelType.whatsapp.name, peerId: whatsappPeer),
+      );
+      final signalSession = await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: signalPeer));
+
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: [
+          FakeChannel(type: ChannelType.whatsapp, ownedJids: {whatsappPeer}),
+          FakeChannel(type: ChannelType.signal, ownedJids: {signalPeer}),
+        ],
+        messages: messages,
+        memoryFile: memoryFile,
+        resetSessionContinuity: (sessionId) async => continuityResets.add(sessionId),
+      );
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-record', result: 'the announced text');
+
+      for (final session in [whatsappSession, signalSession]) {
+        final recorded = await messages.getMessages(session.id);
+        expect(recorded, hasLength(1), reason: 'session ${session.id} should hold exactly one announce record');
+        expect(recorded.single.role, 'assistant');
+        expect(recorded.single.content, 'the announced text');
+        expect(jsonDecode(recorded.single.metadata!), {'jobId': 'job-record', 'origin': 'announce'});
+      }
+      expect(continuityResets, unorderedEquals([whatsappSession.id, signalSession.id]));
+    });
+
+    test('announce records nothing for a target whose send failed', () async {
+      const failingPeer = 'dm/contact/fail@s.whatsapp.net';
+      const deliveredPeer = 'signal/+46700000001';
+      final failingSession = await _createChannelSession(
+        sessions,
+        SessionKey.dmPerChannelContact(channelType: ChannelType.whatsapp.name, peerId: failingPeer),
+      );
+      final deliveredSession = await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: deliveredPeer));
+
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: [
+          FakeChannel(type: ChannelType.whatsapp, ownedJids: {failingPeer})..throwOnSend = true,
+          FakeChannel(type: ChannelType.signal, ownedJids: {deliveredPeer}),
+        ],
+        messages: messages,
+        memoryFile: memoryFile,
+        resetSessionContinuity: (sessionId) async => continuityResets.add(sessionId),
+      );
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-failed-send', result: 'best effort');
+
+      expect(await messages.getMessages(failingSession.id), isEmpty);
+      expect(await messages.getMessages(deliveredSession.id), hasLength(1));
+      expect(continuityResets, [deliveredSession.id]);
+    });
+
+    test('an SSE-only announce records no message and no daily-log entry', () async {
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: const [],
+        messages: messages,
+        memoryFile: memoryFile,
+        resetSessionContinuity: (sessionId) async => continuityResets.add(sessionId),
+      );
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-sse-only', result: 'nobody reachable');
+
+      expect(continuityResets, isEmpty);
+      expect(await _readDailyLog(workspaceDir), isNull);
+    });
+
+    test('a busy session continuity reset leaves the record and the delivery standing', () async {
+      const peerId = 'signal/+46700000003';
+      final session = await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: peerId));
+      final signal = FakeChannel(type: ChannelType.signal, ownedJids: {peerId});
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: [signal],
+        messages: messages,
+        memoryFile: memoryFile,
+        resetSessionContinuity: (sessionId) async => throw BusyTurnException('turn in progress', isSameSession: true),
+      );
+
+      await service.deliver(mode: DeliveryMode.announce, jobId: 'job-busy', result: 'delivered anyway');
+
+      expect(signal.sentMessages, hasLength(1));
+      expect(await messages.getMessages(session.id), hasLength(1));
+      expect(await _readDailyLog(workspaceDir), contains('Announce: job-busy'));
+    });
+
+    test('announce appends one redacted daily-log record per fire', () async {
+      const whatsappPeer = 'dm/contact/one@s.whatsapp.net';
+      const signalPeer = 'signal/+46700000004';
+      await _createChannelSession(
+        sessions,
+        SessionKey.dmPerChannelContact(channelType: ChannelType.whatsapp.name, peerId: whatsappPeer),
+      );
+      await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: signalPeer));
+
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: [
+          FakeChannel(type: ChannelType.whatsapp, ownedJids: {whatsappPeer}),
+          FakeChannel(type: ChannelType.signal, ownedJids: {signalPeer}),
+        ],
+        messages: messages,
+        memoryFile: memoryFile,
+        redactor: MessageRedactor(extraPatterns: ['TOPSECRETVALUE']),
+      );
+
+      await service.deliver(
+        mode: DeliveryMode.announce,
+        jobId: 'job-log',
+        result: 'summary with TOPSECRETVALUE inside',
+      );
+
+      final log = await _readDailyLog(workspaceDir);
+      expect(log, isNotNull);
+      expect(RegExp(r'^## \d{2}:\d{2} — "Announce: job-log"$', multiLine: true).allMatches(log!), hasLength(1));
+      expect(log, contains('**User**: "(scheduled)"'));
+      expect(log, contains('**Tools**: []'));
+      expect(log, contains('TOPSECR***'));
+      expect(log, isNot(contains('TOPSECRETVALUE')));
+    });
+
+    test('webhook and none deliveries record nothing', () async {
+      const peerId = 'signal/+46700000005';
+      final session = await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: peerId));
+      final signal = FakeChannel(type: ChannelType.signal, ownedJids: {peerId});
+      final service = _makeService(
+        sessions: sessions,
+        sseBroadcast: sseBroadcast,
+        channels: [signal],
+        messages: messages,
+        memoryFile: memoryFile,
+        resetSessionContinuity: (sessionId) async => continuityResets.add(sessionId),
+      );
+
+      await service.deliver(mode: DeliveryMode.none, jobId: 'job-none', result: 'ignore me');
+      await service.deliver(
+        mode: DeliveryMode.webhook,
+        jobId: 'job-webhook',
+        result: 'posted elsewhere',
+        webhookUrl: 'http://127.0.0.1:1/hook',
+      );
+
+      expect(await messages.getMessages(session.id), isEmpty);
+      expect(continuityResets, isEmpty);
+      expect(await _readDailyLog(workspaceDir), isNull);
+    });
   });
 }
 
@@ -251,20 +422,41 @@ DeliveryService _makeService({
   required SessionService sessions,
   required SseBroadcast sseBroadcast,
   required List<Channel> channels,
+  MessageService? messages,
+  MemoryFileService? memoryFile,
+  MessageRedactor? redactor,
+  Future<void> Function(String sessionId)? resetSessionContinuity,
 }) {
   final manager = ChannelManager(
-    queue: MessageQueue(dispatcher: (sessionKey, message, {senderJid, senderDisplayName}) async => 'ok'),
+    queue: MessageQueue(
+      dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => 'ok',
+    ),
     config: const ChannelConfig.defaults(),
   );
   for (final channel in channels) {
     manager.registerChannel(channel);
   }
   addTearDown(manager.dispose);
-  return DeliveryService(channelManager: manager, sseBroadcast: sseBroadcast, sessions: sessions);
+  return DeliveryService(
+    channelManager: manager,
+    sseBroadcast: sseBroadcast,
+    sessions: sessions,
+    messages: messages,
+    memoryFile: memoryFile,
+    redactor: redactor,
+    resetSessionContinuity: resetSessionContinuity,
+  );
 }
 
-Future<void> _createChannelSession(SessionService sessions, String channelKey) async {
-  await sessions.getOrCreateByKey(channelKey, type: SessionType.channel);
+Future<Session> _createChannelSession(SessionService sessions, String channelKey) {
+  return sessions.getOrCreateByKey(channelKey, type: SessionType.channel);
+}
+
+Future<String?> _readDailyLog(String workspaceDir) async {
+  final now = DateTime.now();
+  final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  final file = File(p.join(workspaceDir, 'memory', '$date.md'));
+  return file.existsSync() ? file.readAsString() : null;
 }
 
 Future<String?> _nextSseFrame(StreamController<List<int>> controller) async {

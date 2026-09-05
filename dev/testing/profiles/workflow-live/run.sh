@@ -73,7 +73,6 @@ FULL_FILES=(
   "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
   "packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart"
   "packages/dartclaw_runtime/test/integration/turn_governance_integration_test.dart"
-  "packages/dartclaw_runtime/test/integration/thread_binding_lifecycle_integration_test.dart"
   "packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart"
   "apps/dartclaw_cli/test/commands/reload_trigger_service_sigusr1_test.dart"
 )
@@ -183,7 +182,6 @@ case "${MODE}:${CANARY:-}" in
     FILES=(
       "packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart"
       "packages/dartclaw_runtime/test/integration/turn_governance_integration_test.dart"
-      "packages/dartclaw_runtime/test/integration/thread_binding_lifecycle_integration_test.dart"
     )
     LOG_LABEL="canary-server"
     ;;

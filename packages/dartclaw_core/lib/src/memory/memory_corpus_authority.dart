@@ -258,16 +258,16 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
       targetSelection,
       currentInventory: currentSelection.corpus.byteInventory(MemoryCorpusService._codec),
     );
-    final targetMembers = <String, _CorpusMemberState>{...manifest.state.members};
-    for (final path in selectedPaths) {
-      if (!targetSelection.containsKey(path)) targetMembers.remove(path);
-    }
-    for (final entry in targetSelection.entries) {
-      targetMembers[entry.key] = _describeMember(entry.key, entry.value, 0);
-    }
+    final targetMembers = _projectMembers(manifest.state.members, selectedPaths, targetSelection);
     _validateProjectedMembers(target, targetMembers);
-    final targetFingerprint = _fingerprintMembers(targetMembers);
-    if (targetFingerprint == manifest.state.fingerprint) {
+    // MEMORY.md renders the collection revision into its own bytes, so only the
+    // replacement rendered at the current revision can match what is stored.
+    final probeMembers = _projectMembers(
+      manifest.state.members,
+      selectedPaths,
+      _withRevision(replacement, revision).byteInventory(MemoryCorpusService._codec),
+    );
+    if (_fingerprintMembers(probeMembers) == manifest.state.fingerprint) {
       return MemoryCorpusChangeResult<T>(
         wasStale: false,
         wasCommitted: false,
@@ -276,6 +276,7 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
         value: change.value,
       );
     }
+    final targetFingerprint = _fingerprintMembers(targetMembers);
     try {
       await _commitSelectedLocked(
         manifest: manifest,
@@ -624,6 +625,21 @@ extension _MemoryCorpusAuthority on MemoryCorpusService {
     final hook = _transitionHook;
     if (hook != null) await hook(transition, path);
   }
+}
+
+Map<String, _CorpusMemberState> _projectMembers(
+  Map<String, _CorpusMemberState> current,
+  Set<String> selectedPaths,
+  Map<String, Uint8List> selection,
+) {
+  final members = <String, _CorpusMemberState>{...current};
+  for (final path in selectedPaths) {
+    if (!selection.containsKey(path)) members.remove(path);
+  }
+  for (final entry in selection.entries) {
+    members[entry.key] = _describeMember(entry.key, entry.value, 0);
+  }
+  return members;
 }
 
 CanonicalMemoryCorpus _withRevision(CanonicalMemoryCorpus corpus, int revision) => CanonicalMemoryCorpus(

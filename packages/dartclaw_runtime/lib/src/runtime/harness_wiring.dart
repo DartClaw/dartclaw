@@ -2,7 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner, TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -21,9 +21,8 @@ class HarnessWiring {
   static const _preCompactObservationMaxBytes = 32 * 1024;
   static const _preCompactMessageCount = 12;
 
-  /// A logical-agent turn needs the server's `TurnManager`; a headless build
-  /// composes none. Refusing here keeps the failure actionable instead of
-  /// surfacing as an unbound-reference crash.
+  /// Logical-agent sessions require the interactive lane, which headless
+  /// compositions deliberately do not expose through the callback.
   static const _noServerSurface =
       'Logical-agent sessions require the server surface, which a headless runtime does not compose';
 
@@ -267,7 +266,7 @@ class HarnessWiring {
   late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
   HealthService? _healthService;
-  late SseBroadcast _sseBroadcast;
+  SseBroadcast? _sseBroadcast;
   late ContextMonitor _contextMonitor;
   late ResultTrimmer _resultTrimmer;
   late SessionLockManager _lockManager;
@@ -305,7 +304,9 @@ class HarnessWiring {
   /// The health probe, for the surfaces that exist only when a primary lane
   /// was built.
   HealthService get primaryHealthService => _healthService ?? (throw StateError('This runtime drives no primary lane'));
-  SseBroadcast get sseBroadcast => _sseBroadcast;
+
+  /// The broadcaster, or `null` before wiring and in the scoped-worker composition.
+  SseBroadcast? get sseBroadcast => _sseBroadcast;
   ContextMonitor get contextMonitor => _contextMonitor;
   ResultTrimmer get resultTrimmer => _resultTrimmer;
   SessionLockManager get lockManager => _lockManager;
@@ -317,10 +318,12 @@ class HarnessWiring {
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
 
-  /// Wires harness services. [serverRefGetter] is resolved lazily for
+  Future<void> startPrimary() async => _harness?.start();
+
+  /// Wires harness services. [turnManagerGetter] is resolved lazily for
   /// the logical-agent session dispatch closure, and answers `null` in a
   /// headless build, which composes no server for it to reach.
-  Future<void> wire({required DartclawServer? Function() serverRefGetter}) async {
+  Future<void> wire({required TurnManager? Function() turnManagerGetter}) async {
     _behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
       projectDir: p.join(Directory.current.path, '.dartclaw'),
@@ -471,6 +474,7 @@ class HarnessWiring {
     );
 
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
+    _warnUnhardenedPrimaryOnChannelIngress();
     _executionInventory = ProviderExecutionInventory.of(
       providerIds: {defaultProviderId, ...ProviderIdentity.normalizeKeys(config.providers.entries).keys},
       registrarProviderIds: _registrarProviderIds,
@@ -594,7 +598,6 @@ class HarnessWiring {
         );
         _harness = primaryHarness;
         _wireCompactionCallbacks(primaryHarness);
-        await primaryHarness.start();
       }
     } catch (e, st) {
       _log.severe('Failed to start harness', e, st);
@@ -620,7 +623,7 @@ class HarnessWiring {
       );
     }
 
-    _sseBroadcast = SseBroadcast();
+    _sseBroadcast = _primaryLaneEnabled ? SseBroadcast() : null;
     _contextMonitor = ContextMonitor(
       reserveTokens: config.context.reserveTokens,
       warningThreshold: config.context.warningThreshold,
@@ -715,8 +718,8 @@ class HarnessWiring {
           securityProfile: session.securityProfile,
         );
 
-        final srv = serverRefGetter() ?? (throw StateError(_noServerSurface));
-        final turnId = await srv.turns.reserveTurn(
+        final turns = turnManagerGetter() ?? (throw StateError(_noServerSurface));
+        final turnId = await turns.reserveTurn(
           session.id,
           agentName: agentId,
           model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
@@ -728,7 +731,7 @@ class HarnessWiring {
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
           final history = await _storage.messages.getMessages(session.id);
-          srv.turns.executeTurn(
+          turns.executeTurn(
             session.id,
             turnId,
             [
@@ -738,10 +741,10 @@ class HarnessWiring {
             agentName: agentId,
           );
         } catch (_) {
-          srv.turns.releaseTurn(session.id, turnId);
+          turns.releaseTurn(session.id, turnId);
           rethrow;
         }
-        final outcome = await srv.turns.waitForOutcome(session.id, turnId);
+        final outcome = await turns.waitForOutcome(session.id, turnId);
         if (outcome.status != TurnStatus.completed) {
           throw StateError('Agent turn failed: ${outcome.errorMessage}');
         }
@@ -754,8 +757,8 @@ class HarnessWiring {
           return;
         }
         try {
-          final srv = serverRefGetter() ?? (throw StateError(_noServerSurface));
-          await srv.turns.resetProviderSessionContinuity(session.id);
+          final turns = turnManagerGetter() ?? (throw StateError(_noServerSurface));
+          await turns.resetProviderSessionContinuity(session.id);
         } finally {
           try {
             if (session.type == SessionType.logicalAgent) {
@@ -1267,6 +1270,27 @@ class HarnessWiring {
     for (final registration in _registrations) {
       registration.toolPolicyWarnings.forEach(_log.warning);
     }
+  }
+
+  /// Warns that the primary lane is unhardened while a channel carries
+  /// untrusted content into it.
+  ///
+  /// Gated on [SecurityWiring.containersEnabled] because `_warnHostAccess`
+  /// already owns the isolation-off posture, and on an enabled channel because
+  /// a web-only deployment has no untrusted ingress to harden against.
+  void _warnUnhardenedPrimaryOnChannelIngress() {
+    if (!_security.containersEnabled) return;
+    if (config.agent.execution == ExecutionMode.container) return;
+    if (config.agent.disallowedTools.isNotEmpty) return;
+    if (!anyChannelEnabled(config)) return;
+
+    _log.warning(
+      'Container isolation is available, but the primary agent runs on the host with every tool while a channel '
+      'is enabled — untrusted channel content reaches a lane that runs as the login user. '
+      'Set agent.execution: container, and withhold the tools this deployment does not need with '
+      'agent.disallowed_tools '
+      '(see docs/guide/security.md § Hardening the primary agent for untrusted channels).',
+    );
   }
 
   /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.

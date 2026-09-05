@@ -9,7 +9,7 @@
 - **Do not declare `HttpClientFactory`.** The workspace's single declaration is `dartclaw_core/lib/src/util/http_request.dart`, which is unreachable from here. Type the injection seam inline as `HttpClient Function()`, as `dartclaw_kernel` and `dartclaw_runtime` already do at five sites. Dart function typedefs are structural, so a caller holding core's alias passes it here unchanged.
 
 ## Conventions
-- The wire contract is consumed by the CLI, the desktop app, and smiðia. Routes, headers, query encoding, the bearer scheme, SSE frame parsing, the reconnect policy, and the `code`/`statusCode`/`details` error envelope are a compatibility surface — change them only deliberately, and say so in `CHANGELOG.md`.
+- The wire contract is consumed by the CLI, the desktop app, and smiðia. Routes, headers, query encoding, the bearer scheme, SSE frame parsing, the reconnect policy, and the `code`/`statusCode`/`details` error envelope are a compatibility surface — change them only deliberately, and say so in the root [`CHANGELOG.md`](../../CHANGELOG.md).
 - Public members carry dartdoc (`public_member_api_docs` is on in `analysis_options.yaml`).
 
 ## Gotchas

@@ -1,0 +1,6 @@
+# Allowlist for safe_process_usage_test.dart, gate 1 only: no raw git subprocesses.
+# Format: <relative-path-from-repo-root>  # <rationale>
+# Rationale is mandatory — explain why this file must spawn git through
+# Process.run / Process.start rather than through runGit.
+# It waives nothing in gate 2; a SafeProcess.git call in the same file needs its
+# own entry in safe_process_git_seam.txt.

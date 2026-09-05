@@ -3,6 +3,21 @@ import 'package:test/test.dart';
 
 void main() {
   group('ContainerManager.generateName', () {
+    test('S01: owner labels preserve data dirs even when name digests collide', () {
+      const dataDirs = [
+        '/home/user/.dartclaw',
+        '/srv/dartclaw/dhjuh2ihju6y',
+        '/srv/dartclaw/sn89rfo2rdpu',
+        r'/srv/data dir/with=equals\and-backslash',
+      ];
+      for (final dataDir in dataDirs) {
+        expect(ContainerManager.ownerLabel(dataDir), 'dartclaw.data-dir=$dataDir');
+      }
+      expect(ContainerManager.generateName(dataDirs[1], 'workspace'), 'dartclaw-f47f5131-workspace');
+      expect(ContainerManager.generateName(dataDirs[2], 'workspace'), 'dartclaw-f47f5131-workspace');
+      expect(ContainerManager.ownerLabel(dataDirs[1]), isNot(ContainerManager.ownerLabel(dataDirs[2])));
+    });
+
     test('produces expected format', () {
       final name = ContainerManager.generateName('/home/user/.dartclaw', 'workspace');
 

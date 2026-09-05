@@ -99,7 +99,7 @@ DartclawServer _composeRuntimeServer(
   ),
   observability: ServerObservabilityDeps(
     eventBus: ctx.eventBus,
-    sseBroadcast: harness.sseBroadcast,
+    sseBroadcast: harness.sseBroadcast!,
     providerStatus: providerStatus,
     memoryFile: storage.memoryFile,
     memoryStatusService: scheduling.memoryStatusService,
@@ -108,6 +108,7 @@ DartclawServer _composeRuntimeServer(
     searchBackend: storage.searchBackend,
     memoryCorpus: storage.memoryCorpus,
     scheduleService: scheduling.scheduleService,
+    schedulingJobsApplier: scheduling.applyJobs,
     gitSync: scheduling.gitSync,
   ),
   web: ServerWebDeps(

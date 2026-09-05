@@ -79,17 +79,90 @@ WorkflowDefinition _mergeResolveDef({
 }
 
 /// Builds a workflow-context assistant message payload with merge-resolve outputs.
+///
+/// A null [outcome] or an empty [errorMessage] omits that key entirely,
+/// standing in for a skill turn that never stated it. A stated JSON `null` is a
+/// different case — spread the result and set the key explicitly.
 Map<String, dynamic> _mergeResolveOutputs({
-  String outcome = 'resolved',
-  List<String> conflictedFiles = const ['lib/foo.dart'],
+  String? outcome = 'resolved',
   String summary = 'resolved conflicts',
   String errorMessage = '',
 }) => <String, dynamic>{
-  'merge_resolve.outcome': outcome,
-  'merge_resolve.conflicted_files': conflictedFiles,
+  'merge_resolve.outcome': ?outcome,
   'merge_resolve.resolution_summary': summary,
   if (errorMessage.isNotEmpty) 'merge_resolve.error_message': errorMessage,
 };
+
+/// Runs one merge-resolve attempt whose skill task returns [outputs], and
+/// returns the attempt artifact the coordinator persisted for it.
+///
+/// Promotion always re-conflicts, so every outcome value reaches the artifact
+/// through the same path and the assertions differ only in what was declared.
+Future<MergeResolveAttemptArtifact> _runSingleAttempt(
+  WorkflowExecutorHarness h, {
+  required String runId,
+  required Map<String, dynamic> outputs,
+}) async {
+  final def = _mergeResolveDef(maxAttempts: 1, escalation: MergeResolveEscalation.fail);
+  final run = WorkflowRun(
+    id: runId,
+    definitionName: def.name,
+    status: WorkflowRunStatus.running,
+    startedAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+    variablesJson: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+    definitionJson: def.toJson(),
+  );
+  await h.repository.insert(run);
+  final context = WorkflowContext(
+    data: {
+      'stories': [
+        {'id': 'S01'},
+      ],
+    },
+    variables: const {'PROJECT': 'proj1', 'BRANCH': 'main'},
+  );
+
+  String? storyTaskId;
+  final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((e) async {
+    await Future<void>.delayed(Duration.zero);
+    final task = await h.taskService.get(e.taskId);
+    if (task != null && task.configJson.containsKey('_workflowMergeResolveEnv')) {
+      await h.completeTaskWithOutcome(e.taskId, outputs: outputs);
+      return;
+    }
+    storyTaskId = e.taskId;
+    await _bindWorktree(h, e.taskId, h.tempDir.path);
+    await h.completeTask(e.taskId);
+  });
+
+  final executor = h.makeExecutor(
+    turnAdapter: standardTurnAdapter(
+      turnId: 'turn-$runId',
+      integrationBranch: 'dartclaw/integration',
+      promoteWorkflowBranch: ({
+        required runId,
+        required projectId,
+        required branch,
+        required integrationBranch,
+        required strategy,
+        String? storyId,
+      }) async => const WorkflowGitPromotionConflict(conflictingFiles: ['lib/foo.dart'], details: 'conflict'),
+      captureWorkflowBranchSha: ({required projectId, required branch}) async => 'sha-$runId',
+      captureAndCleanWorktreeForRetry: ({required projectId, required branch, preAttemptSha}) async =>
+          (sha: 'sha-$runId', isDirty: false, cleanupError: null),
+    ),
+  );
+
+  await executor.execute(run, def, context);
+  await sub.cancel();
+
+  final artifacts = storyTaskId != null ? await h.taskRepository.listArtifactsByTask(storyTaskId!) : <TaskArtifact>[];
+  final mrArtifacts = artifacts.where((a) => a.name.startsWith('merge_resolve_iter_')).toList();
+  expect(mrArtifacts, hasLength(1), reason: 'exactly one attempt artifact must be written');
+  final decoded = jsonDecode(await File(mrArtifacts.single.path).readAsString()) as Map<String, dynamic>;
+  return MergeResolveAttemptArtifact.fromJson(decoded);
+}
 
 /// Sets worktreeJson on [taskId] to simulate a per-map-item worktree binding.
 Future<void> _bindWorktree(WorkflowExecutorHarness h, String taskId, String tempDirPath) async {
@@ -1085,5 +1158,136 @@ void main() {
 
     final finalRun = await h.repository.getById(run.id);
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Outcome output contract (ADR-054) — the declared enum is the only answer
+  // the host accepts; it never invents one.
+  // ---------------------------------------------------------------------------
+
+  group('merge_resolve.outcome contract', () {
+    test('absent outcome is reported as a contract failure naming the key', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-outcome-absent',
+        outputs: _mergeResolveOutputs(outcome: null),
+      );
+
+      expect(
+        artifact.errorMessage,
+        allOf(contains('merge_resolve.outcome'), contains('absent')),
+        reason: 'a skill that never declared an outcome must be reported as such, not defaulted to failure',
+      );
+      expect(artifact.errorMessage, isNot(equals('failed')));
+    });
+
+    test('out-of-vocabulary outcome is reported as a contract failure naming the offending value', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-outcome-invalid',
+        outputs: _mergeResolveOutputs(outcome: 'done'),
+      );
+
+      expect(
+        artifact.outcome,
+        equals('failed'),
+        reason: 'a value outside the declared enum is never carried into the audit record',
+      );
+      expect(artifact.errorMessage, allOf(contains('merge_resolve.outcome'), contains('done')));
+    });
+
+    for (final declared in const ['resolved', 'failed', 'cancelled']) {
+      test("declared outcome '$declared' is recorded verbatim", () async {
+        final artifact = await _runSingleAttempt(
+          h,
+          runId: 'run-outcome-$declared',
+          outputs: _mergeResolveOutputs(outcome: declared, errorMessage: 'agent said $declared'),
+        );
+
+        expect(artifact.outcome, equals(declared));
+        expect(
+          artifact.errorMessage ?? '',
+          isNot(contains('merge_resolve.outcome')),
+          reason: 'a value inside the declared enum is not a contract failure',
+        );
+      });
+    }
+
+    test('absent error message on a failed outcome stays absent', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-error-absent',
+        outputs: _mergeResolveOutputs(outcome: 'failed'),
+      );
+
+      expect(artifact.outcome, equals('failed'));
+      expect(
+        artifact.errorMessage,
+        isNull,
+        reason: "an unstated error message is absent, not the literal string 'failed'",
+      );
+    });
+
+    test('stated error message is recorded verbatim', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-error-stated',
+        outputs: _mergeResolveOutputs(outcome: 'failed', errorMessage: 'token_ceiling exceeded at test'),
+      );
+
+      expect(artifact.errorMessage, equals('token_ceiling exceeded at test'));
+    });
+
+    test('stated null error message stays null', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-error-null',
+        outputs: {
+          ..._mergeResolveOutputs(outcome: 'failed'),
+          'merge_resolve.error_message': null,
+        },
+      );
+
+      expect(artifact.outcome, equals('failed'));
+      expect(
+        artifact.errorMessage,
+        isNull,
+        reason: 'the declared schema allows null; the host records absence, never a stringified sentinel',
+      );
+    });
+
+    test('non-string error message is reported as a contract failure naming the key', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-error-nonstring',
+        outputs: {
+          ..._mergeResolveOutputs(outcome: 'failed'),
+          'merge_resolve.error_message': 42,
+        },
+      );
+
+      expect(
+        artifact.errorMessage,
+        allOf(contains('merge_resolve.error_message'), contains('42')),
+        reason: 'a value outside the declared string-or-null schema is reported, never coerced',
+      );
+    });
+
+    test('conflicted files are the ones promotion reported, not a skill claim', () async {
+      final artifact = await _runSingleAttempt(
+        h,
+        runId: 'run-conflicted-files',
+        outputs: {
+          ..._mergeResolveOutputs(),
+          'merge_resolve.conflicted_files': const ['lib/skill_claimed.dart'],
+        },
+      );
+
+      expect(
+        artifact.conflictedFiles,
+        equals(const ['lib/foo.dart']),
+        reason: 'the conflicted set has one authority — the promotion result — and the skill declares no such output',
+      );
+    });
   });
 }

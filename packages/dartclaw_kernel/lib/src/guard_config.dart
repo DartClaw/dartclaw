@@ -1,3 +1,6 @@
+import 'config_load_warnings.dart';
+import 'config_meta.dart';
+
 /// Configuration for the guard system, parsed from `guards:` section of dartclaw.yaml.
 class GuardConfig {
   /// Whether unexpected guard failures should warn instead of block.
@@ -19,8 +22,12 @@ class GuardConfig {
     final defaults = const GuardConfig.defaults();
 
     for (final key in yaml.keys) {
-      if (!knownKeys.contains(key)) {
+      if (knownKeys.contains(key)) continue;
+      final legacy = ConfigMeta.toleratedLegacyKeys['guards.$key'];
+      if (legacy == null) {
         warns.add('Unknown guards config key: $key');
+      } else {
+        addConfigAdvisory(warns, 'Ignoring guards.$key: ${legacy.replacement}');
       }
     }
 

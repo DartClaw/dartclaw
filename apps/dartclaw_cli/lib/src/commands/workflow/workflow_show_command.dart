@@ -1,3 +1,6 @@
+import 'workflow_connected_command.dart';
+import '../command_path.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,16 +21,19 @@ import 'workflow_list_command.dart' show buildWorkflowRegistry;
 /// Connected mode calls `GET /api/workflows/definitions/<name>[?resolve=true[&step=<id>]]`.
 /// Standalone mode loads the definition from the workspace registry and runs
 /// [WorkflowDefinitionResolver] locally.
-class WorkflowShowCommand extends ConnectedCommand {
+class WorkflowShowCommand extends WorkflowConnectedCommand {
   final AssetResolver _assetResolver;
   final Map<String, String>? _environment;
   final String? _projectFallbackCwd;
   final void Function(String) _write;
 
+  final bool standaloneOnly;
+
   new({
+    this.standaloneOnly = false,
     super.config,
     AssetResolver? assetResolver,
-    super.apiClient,
+    super.connection,
     Map<String, String>? environment,
     String? projectFallbackCwd,
     void Function(String)? write,
@@ -48,7 +54,9 @@ class WorkflowShowCommand extends ConnectedCommand {
       ..addFlag(
         'standalone',
         negatable: false,
-        help: 'Load the workflow from the local registry (bypasses the server)',
+        help: standaloneOnly
+            ? 'Always on; accepted for script compatibility.'
+            : 'Load the workflow from the local registry (bypasses the server)',
       );
   }
 
@@ -59,7 +67,7 @@ class WorkflowShowCommand extends ConnectedCommand {
   String get description => 'Print a workflow definition (raw or fully resolved)';
 
   @override
-  String get invocation => '${runner!.executableName} workflow show <name>';
+  String get invocation => '${commandPath(this)} <name>';
 
   @override
   Future<void> run() async {
@@ -71,30 +79,20 @@ class WorkflowShowCommand extends ConnectedCommand {
     final resolved = argResults!['resolved'] as bool;
     final stepId = argResults!['step'] as String?;
     final asJson = argResults!['json'] as bool;
-    final standalone = argResults!['standalone'] as bool;
+    final standalone = standaloneOnly || argResults!['standalone'] as bool;
 
     if (standalone) {
       await _runStandalone(workflowName, resolved: resolved, stepId: stepId, asJson: asJson);
       return;
     }
 
-    await runConnected((apiClient) async {
-      if (!resolved) {
-        final body = await apiClient.getText('/api/workflows/definitions/$workflowName');
-        _emit(body, asJson: asJson);
-        return;
-      }
-
-      final queryParameters = <String, Object?>{
-        'resolve': 'true',
-        if (stepId != null && stepId.isNotEmpty) 'step': stepId,
-      };
-      final body = await apiClient.getText(
-        '/api/workflows/definitions/$workflowName',
-        queryParameters: queryParameters,
-      );
-      _emit(body, asJson: asJson);
-    });
+    await connection!.definition(
+      connectionContext,
+      workflowName,
+      resolved: resolved,
+      stepId: stepId,
+      onResult: (body) => _emit(body, asJson: asJson),
+    );
   }
 
   Future<void> _runStandalone(

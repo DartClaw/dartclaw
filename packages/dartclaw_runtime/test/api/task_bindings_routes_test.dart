@@ -49,7 +49,7 @@ void main() {
   test('GET /api/tasks/:id/bindings returns all bindings for the task', () async {
     await createTask('task-bindings');
     final now = DateTime.parse('2026-03-10T10:00:00Z');
-    for (final binding in [('googlechat', 'spaces/AAA/threads/BBB'), ('whatsapp', 'group@g.us')]) {
+    for (final binding in [('googlechat', 'spaces/AAA/threads/BBB'), ('googlechat', 'spaces/AAA/threads/CCC')]) {
       await bindings.create(
         ThreadBinding(
           channelType: binding.$1,
@@ -74,6 +74,19 @@ void main() {
     expect(body['taskId'], 'task-bind');
     expect(body['channelType'], 'googlechat');
     expect(body['threadId'], 'spaces/AAA/threads/BBB');
+  });
+
+  test('POST a channel with no thread identity returns 400', () async {
+    await createTask('task-bind');
+    final response = await handler(
+      jsonRequest('POST', '/api/tasks/task-bind/bindings', const {
+        'channelType': 'whatsapp',
+        'threadId': '120363000@g.us',
+      }),
+    );
+    expect(response.statusCode, 400);
+    expect(decodeObject(await response.readAsString())['error']['details']['field'], 'channelType');
+    expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
   });
 
   test('POST duplicate binding returns 409', () async {

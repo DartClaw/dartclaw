@@ -130,23 +130,12 @@ class GoogleChatWebhookHandler {
 
     final slashCommandParser = _slashCommandParser;
     final slashCommandHandler = _slashCommandHandler;
-    if (slashCommandParser != null && slashCommandHandler != null) {
-      final slashCommand = slashCommandParser.parseFromMessage(payload);
-      if (slashCommand != null) {
-        final response = await slashCommandHandler.handle(
-          slashCommand,
-          spaceName: spaceName,
-          senderJid: senderJid,
-          senderDisplayName: user['displayName'] as String?,
-          spaceType: spaceType,
-          sourceMessageId: _resolveMessageId(message),
-        );
-        return _jsonResponse(response);
-      }
-    }
+    final slashCommand = slashCommandParser == null || slashCommandHandler == null
+        ? null
+        : slashCommandParser.parseFromMessage(payload);
 
     final text = resolveMessageText(message);
-    if (text == null || text.isEmpty) {
+    if (slashCommand == null && (text == null || text.isEmpty)) {
       return _jsonResponse(const {});
     }
 
@@ -155,7 +144,7 @@ class GoogleChatWebhookHandler {
       channelType: ChannelType.googlechat,
       senderJid: senderJid,
       groupJid: resolveGroupJid(spaceType: spaceType, spaceName: spaceName),
-      text: text,
+      text: text ?? '',
       mentionedJids: _extractMentionedJids(message),
       metadata: {
         'spaceName': spaceName,
@@ -169,39 +158,26 @@ class GoogleChatWebhookHandler {
       },
     );
 
-    final decision = ChannelInboundGate.evaluate(
+    final refusal = await _refuseByInboundGate(
       channelMessage,
-      dmAccess: dmAccess,
-      mentionGating: mentionGating,
-      groupAccess: config.groupAccess,
-      groupAllowlist: config.groupIds,
+      spaceName: spaceName,
+      senderDisplayName: user['displayName'] as String?,
+      isSlashCommand: slashCommand != null,
     );
-    switch (decision) {
-      case ChannelInboundDecision.admitted:
-        break;
-      case ChannelInboundDecision.dmPairingRequired:
-        final displayName = user['displayName'] as String?;
-        final pairing = dmAccess?.createPairing(senderJid, displayName: displayName);
-        if (pairing != null) {
-          await channel.restClient.send(
-            spaceName: spaceName,
-            text: 'To start chatting, confirm this pairing code in the DartClaw settings: **${pairing.code}**',
-          );
-        }
-        _log.fine('Dropping DM from unauthorized sender $senderJid');
-        return _jsonResponse(const {});
-      case ChannelInboundDecision.dmDenied:
-        _log.fine('Dropping DM from unauthorized sender $senderJid');
-        return _jsonResponse(const {});
-      case ChannelInboundDecision.groupAccessDisabled:
-        _log.fine('Dropping group message from $spaceName (group access disabled)');
-        return _jsonResponse(const {});
-      case ChannelInboundDecision.groupNotAllowlisted:
-        _log.fine('Dropping group message from unlisted space $spaceName');
-        return _jsonResponse(const {});
-      case ChannelInboundDecision.mentionRequired:
-        _log.fine('Dropping group message without bot mention from $spaceName');
-        return _jsonResponse(const {});
+    if (refusal != null) {
+      return refusal;
+    }
+
+    if (slashCommand != null && slashCommandHandler != null) {
+      final response = await slashCommandHandler.handle(
+        slashCommand,
+        spaceName: spaceName,
+        senderJid: senderJid,
+        senderDisplayName: user['displayName'] as String?,
+        spaceType: spaceType,
+        sourceMessageId: _resolveMessageId(message),
+      );
+      return _jsonResponse(response);
     }
 
     final manager = channelManager;
@@ -253,6 +229,57 @@ class GoogleChatWebhookHandler {
     await _sendTypingIndicator(spaceName, channelMessage);
     unawaited(_deliverDeferredResponse(spaceName, responseFuture, channelMessage));
     return _jsonResponse(const {});
+  }
+
+  /// Applies the shared inbound gate, returning the response to answer a refused
+  /// event with, or `null` when the event is admitted.
+  ///
+  /// [isSlashCommand] exempts [ChannelInboundDecision.mentionRequired] alone: a
+  /// registered slash command names this app explicitly, so mention gating has
+  /// no ambient chatter to filter. Every access decision still applies.
+  Future<Response?> _refuseByInboundGate(
+    ChannelMessage message, {
+    required String spaceName,
+    required String? senderDisplayName,
+    required bool isSlashCommand,
+  }) async {
+    final decision = ChannelInboundGate.evaluate(
+      message,
+      dmAccess: dmAccess,
+      mentionGating: mentionGating,
+      groupAccess: config.groupAccess,
+      groupAllowlist: config.groupIds,
+    );
+    final senderJid = message.senderJid;
+    switch (decision) {
+      case ChannelInboundDecision.admitted:
+        return null;
+      case ChannelInboundDecision.dmPairingRequired:
+        final pairing = dmAccess?.createPairing(senderJid, displayName: senderDisplayName);
+        if (pairing != null) {
+          await channel.restClient.send(
+            spaceName: spaceName,
+            text: 'To start chatting, confirm this pairing code in the DartClaw settings: **${pairing.code}**',
+          );
+        }
+        _log.fine('Dropping DM from unauthorized sender $senderJid');
+        return _jsonResponse(const {});
+      case ChannelInboundDecision.dmDenied:
+        _log.fine('Dropping DM from unauthorized sender $senderJid');
+        return _jsonResponse(const {});
+      case ChannelInboundDecision.groupAccessDisabled:
+        _log.fine('Dropping group message from $spaceName (group access disabled)');
+        return _jsonResponse(const {});
+      case ChannelInboundDecision.groupNotAllowlisted:
+        _log.fine('Dropping group message from unlisted space $spaceName');
+        return _jsonResponse(const {});
+      case ChannelInboundDecision.mentionRequired:
+        if (isSlashCommand) {
+          return null;
+        }
+        _log.fine('Dropping group message without bot mention from $spaceName');
+        return _jsonResponse(const {});
+    }
   }
 
   Future<Response> _handleAddedToSpace(Map<String, dynamic> payload) async {
@@ -371,6 +398,23 @@ class GoogleChatWebhookHandler {
     if (slashCommand == null) {
       _log.warning('APP_COMMAND event could not be parsed');
       return _jsonResponse(const {});
+    }
+
+    final refusal = await _refuseByInboundGate(
+      ChannelMessage(
+        id: _resolveMessageId(message),
+        channelType: ChannelType.googlechat,
+        senderJid: senderJid,
+        groupJid: resolveGroupJid(spaceType: spaceType, spaceName: spaceName),
+        text: '/${slashCommand.name}',
+        metadata: {'spaceName': spaceName, 'spaceType': spaceType},
+      ),
+      spaceName: spaceName,
+      senderDisplayName: user?['displayName'] as String?,
+      isSlashCommand: true,
+    );
+    if (refusal != null) {
+      return refusal;
     }
 
     final response = await slashCommandHandler.handle(

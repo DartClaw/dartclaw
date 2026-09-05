@@ -39,9 +39,13 @@ function Assert-NoSystemSqliteOverride {
 }
 
 function Assert-WindowsReleaseLayout {
-  param([Parameter(Mandatory)][string]$Root)
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [string]$BinaryName = 'dartclaw'
+  )
 
-  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
+  $expected = @('VERSION', "bin/$BinaryName.exe", 'lib/sqlite3.dll')
+  foreach ($relativePath in $expected) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
       throw "Windows artifact validation failed: missing $relativePath."
     }
@@ -50,7 +54,6 @@ function Assert-WindowsReleaseLayout {
     throw 'Windows artifact validation failed: unexpected share/ sidecar.'
   }
 
-  $expected = @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')
   $rootPrefix = $Root.TrimEnd('\') + '\'
   $actual = @(Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
       $_.FullName.Substring($rootPrefix.Length).Replace('\', '/')
@@ -62,9 +65,12 @@ function Assert-WindowsReleaseLayout {
 }
 
 function Assert-WindowsBuildBundle {
-  param([Parameter(Mandatory)][string]$Root)
+  param(
+    [Parameter(Mandatory)][string]$Root,
+    [string]$BinaryName = 'dartclaw'
+  )
 
-  foreach ($relativePath in @('bin/dartclaw.exe', 'lib/sqlite3.dll')) {
+  foreach ($relativePath in @("bin/$BinaryName.exe", 'lib/sqlite3.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
       throw "Windows build validation failed: missing $relativePath."
     }
@@ -72,7 +78,10 @@ function Assert-WindowsBuildBundle {
 }
 
 function Invoke-WindowsExecutableSmoke {
-  param([Parameter(Mandatory)][string]$Executable)
+  param(
+    [Parameter(Mandatory)][string]$Executable,
+    [string]$BinaryName = 'dartclaw'
+  )
 
   try {
     & $Executable --help *> $null
@@ -80,12 +89,15 @@ function Invoke-WindowsExecutableSmoke {
       throw "exit code $LASTEXITCODE"
     }
   } catch {
-    throw "Windows artifact validation failed: dartclaw.exe --help smoke failed ($($_.Exception.Message))."
+    throw "Windows artifact validation failed: $BinaryName.exe --help smoke failed ($($_.Exception.Message))."
   }
 }
 
 function Invoke-WindowsBundledSqliteCheck {
-  param([Parameter(Mandatory)][string]$Executable)
+  param(
+    [Parameter(Mandatory)][string]$Executable,
+    [string]$BinaryName = 'dartclaw'
+  )
 
   # Drives FTS5 through the artifact's own binary: rebuild-index issues
   # CREATE VIRTUAL TABLE ... USING fts5 on every run, and Windows' system
@@ -111,10 +123,10 @@ function Invoke-WindowsBundledSqliteCheck {
     }
 
     if ($exitCode -ne 0) {
-      throw "Windows artifact validation failed: bundled SQLite FTS5 check failed with exit code ${exitCode}:`n$($output -join "`n")"
+      throw "Windows artifact validation failed: $BinaryName bundled SQLite FTS5 check failed with exit code ${exitCode}:`n$($output -join "`n")"
     }
     if (-not ($output -match 'Rebuilt index:')) {
-      throw "Windows artifact validation failed: bundled SQLite FTS5 check did not rebuild the index:`n$($output -join "`n")"
+      throw "Windows artifact validation failed: $BinaryName bundled SQLite FTS5 check did not rebuild the index:`n$($output -join "`n")"
     }
   } finally {
     if (Test-Path -LiteralPath $probeRoot) {
@@ -150,21 +162,6 @@ if ($MyInvocation.InvocationName -ne '.') {
   $version = $versionMatch.Matches[0].Groups[1].Value
 
   $cliDir = Join-Path $script:RootDir 'apps/dartclaw_cli'
-  Push-Location $cliDir
-  try {
-    & dart build cli -t bin/dartclaw.dart
-    if ($LASTEXITCODE -ne 0) {
-      throw "Windows release build failed with exit code $LASTEXITCODE."
-    }
-  } finally {
-    Pop-Location
-  }
-
-  $bundle = Join-Path $cliDir 'build/cli/windows_x64/bundle'
-  Assert-WindowsBuildBundle -Root $bundle
-  Invoke-WindowsExecutableSmoke -Executable (Join-Path $bundle 'bin/dartclaw.exe')
-  Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $bundle 'bin/dartclaw.exe')
-
   $buildDir = Join-Path $script:RootDir 'build'
   if (Test-Path -LiteralPath $buildDir) {
     Remove-Item -LiteralPath $buildDir -Recurse -Force
@@ -172,26 +169,50 @@ if ($MyInvocation.InvocationName -ne '.') {
   New-Item -ItemType Directory -Path $buildDir | Out-Null
 
   $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-windows-build-$([guid]::NewGuid())"
-  $stage = Join-Path $tempRoot 'stage'
-  $extracted = Join-Path $tempRoot 'extracted'
-  New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
-  New-Item -ItemType Directory -Path (Join-Path $stage 'lib') -Force | Out-Null
   try {
-    Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $version -NoNewline
-    Copy-Item -LiteralPath (Join-Path $bundle 'bin/dartclaw.exe') -Destination (Join-Path $stage 'bin/dartclaw.exe')
-    Copy-Item -LiteralPath (Join-Path $bundle 'lib/sqlite3.dll') -Destination (Join-Path $stage 'lib/sqlite3.dll')
-    Assert-WindowsReleaseLayout -Root $stage
+    foreach ($binary in @(
+        @{ Name = 'dartclaw'; Entry = 'dartclaw' },
+        @{ Name = 'dartclaw-workflow'; Entry = 'dartclaw_workflow' }
+      )) {
+      $binaryName = $binary.Name
+      $entryName = $binary.Entry
+      $cliStage = Join-Path $tempRoot "$binaryName-cli"
+      Push-Location $cliDir
+      try {
+        & dart build cli -t "bin/$entryName.dart" -o $cliStage
+        if ($LASTEXITCODE -ne 0) {
+          throw "Windows $binaryName release build failed with exit code $LASTEXITCODE."
+        }
+      } finally {
+        Pop-Location
+      }
 
-    $archiveName = "dartclaw-v$version-windows-x64.zip"
-    $archive = Join-Path $buildDir $archiveName
-    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive
-    Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+      $bundle = Join-Path $cliStage 'bundle'
+      $compiledExecutable = Join-Path $bundle "bin/$entryName.exe"
+      Assert-WindowsBuildBundle -Root $bundle -BinaryName $entryName
+      Invoke-WindowsExecutableSmoke -Executable $compiledExecutable -BinaryName $binaryName
+      Invoke-WindowsBundledSqliteCheck -Executable $compiledExecutable -BinaryName $binaryName
 
-    Assert-WindowsReleaseLayout -Root $extracted
-    Invoke-WindowsExecutableSmoke -Executable (Join-Path $extracted 'bin/dartclaw.exe')
-    Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $extracted 'bin/dartclaw.exe')
+      $stage = Join-Path $tempRoot "$binaryName-stage"
+      $extracted = Join-Path $tempRoot "$binaryName-extracted"
+      New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
+      New-Item -ItemType Directory -Path (Join-Path $stage 'lib') -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $version -NoNewline
+      Copy-Item -LiteralPath $compiledExecutable -Destination (Join-Path $stage "bin/$binaryName.exe")
+      Copy-Item -LiteralPath (Join-Path $bundle 'lib/sqlite3.dll') -Destination (Join-Path $stage 'lib/sqlite3.dll')
+      Assert-WindowsReleaseLayout -Root $stage -BinaryName $binaryName
 
-    Write-ChecksumSidecar -Artifact $archive
+      $archiveName = "$binaryName-v$version-windows-x64.zip"
+      $archive = Join-Path $buildDir $archiveName
+      Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive
+      Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+
+      Assert-WindowsReleaseLayout -Root $extracted -BinaryName $binaryName
+      $extractedExecutable = Join-Path $extracted "bin/$binaryName.exe"
+      Invoke-WindowsExecutableSmoke -Executable $extractedExecutable -BinaryName $binaryName
+      Invoke-WindowsBundledSqliteCheck -Executable $extractedExecutable -BinaryName $binaryName
+      Write-ChecksumSidecar -Artifact $archive
+    }
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force

@@ -267,20 +267,159 @@ String relativeTo(String path, String root) {
   return path.startsWith(normalizedRoot) ? path.substring(normalizedRoot.length) : path;
 }
 
+/// The keys declared directly under a top-level pubspec [heading], at whatever
+/// indentation that block happens to use.
+///
+/// YAML fixes no indent width, so a pubspec that indents its blocks deeper than
+/// two spaces is valid and resolves like any other. Reading only two-space keys
+/// hands the caller an empty set, and a gate that decides from that set reports
+/// compliance it never checked - which is why a block with content it cannot
+/// parse fails here instead of returning nothing.
+///
+/// The block's own indent is taken from its first entry; deeper lines are that
+/// entry's children, and anything at column 0 ends the block.
+/// [source] with comments and string literals blanked out, newlines preserved.
+///
+/// A gate that decides from a substring match must not read a mention as
+/// handling: an enum value named in a doc comment or in an error message says
+/// nothing about whether any code branches on it.
+///
+/// `dartclaw_workflow`'s shape suite carries an equivalent stripper. This suite
+/// cannot share it — `fitness_suite_deps_test.dart` pins it free of any
+/// `package:dartclaw*` import — so the copy is the price of that pin. A fix to
+/// one belongs in both.
+String withoutCommentsAndStrings(String source) {
+  final out = StringBuffer();
+  var i = 0;
+  while (i < source.length) {
+    final char = source[i];
+    final next = i + 1 < source.length ? source[i + 1] : '';
+
+    if (char == '/' && next == '/') {
+      while (i < source.length && source[i] != '\n') {
+        out.write(' ');
+        i++;
+      }
+      continue;
+    }
+    if (char == '/' && next == '*') {
+      out.write('  ');
+      i += 2;
+      while (i < source.length && !(source[i] == '*' && i + 1 < source.length && source[i + 1] == '/')) {
+        out.write(source[i] == '\n' ? '\n' : ' ');
+        i++;
+      }
+      if (i < source.length) {
+        out.write('  ');
+        i += 2;
+      }
+      continue;
+    }
+    if (char == "'" || char == '"') {
+      final triple = i + 2 < source.length && source[i + 1] == char && source[i + 2] == char;
+      final quote = triple ? char * 3 : char;
+      out.write(' ' * quote.length);
+      i += quote.length;
+      while (i < source.length) {
+        if (source[i] == r'\') {
+          out.write('  ');
+          i += 2;
+          continue;
+        }
+        if (source.startsWith(quote, i)) {
+          out.write(' ' * quote.length);
+          i += quote.length;
+          break;
+        }
+        out.write(source[i] == '\n' ? '\n' : ' ');
+        i++;
+      }
+      continue;
+    }
+    out.write(char);
+    i++;
+  }
+  return out.toString();
+}
+
+/// Splits [source] on commas that sit outside any bracket pair.
+///
+/// An enhanced enum value may carry a constructor call, so a plain `split(',')`
+/// would read each argument as another value.
+List<String> splitTopLevelCommas(String source) {
+  const openers = {'(': ')', '[': ']', '{': '}', '<': '>'};
+  final parts = <String>[];
+  final buffer = StringBuffer();
+  final stack = <String>[];
+  for (final char in source.split('')) {
+    if (openers.containsKey(char)) {
+      stack.add(openers[char]!);
+    } else if (stack.isNotEmpty && stack.last == char) {
+      stack.removeLast();
+    } else if (char == ',' && stack.isEmpty) {
+      parts.add(buffer.toString());
+      buffer.clear();
+      continue;
+    }
+    buffer.write(char);
+  }
+  parts.add(buffer.toString());
+  return parts;
+}
+
+/// The values [enumName] declares in [declarationPath], read from the
+/// declaration itself.
+///
+/// A gate that carries its own copy of an enum's values is a gate that stops
+/// noticing the value added next: the copy still passes while the consumer it
+/// guards has an unhandled case.
+Set<String> enumValuesIn(String repoRoot, String declarationPath, String enumName) {
+  final file = File('$repoRoot/$declarationPath');
+  if (!file.existsSync()) fail('$declarationPath does not exist, so enum $enumName cannot be read');
+  final source = withoutCommentsAndStrings(file.readAsStringSync());
+  final header = RegExp('\\benum\\s+$enumName\\b[^{]*\\{').firstMatch(source);
+  if (header == null) fail('$declarationPath declares no enum $enumName');
+  final body = source.substring(header.end);
+  // An enhanced enum ends its value list at the first `;`; a plain one at `}`.
+  final semicolon = body.indexOf(';');
+  final brace = body.indexOf('}');
+  final end = semicolon >= 0 && (brace < 0 || semicolon < brace) ? semicolon : brace;
+  if (end < 0) fail('$declarationPath: enum $enumName has no closing body');
+  final values = {
+    for (final part in splitTopLevelCommas(body.substring(0, end)))
+      if (RegExp(r'^\s*([a-z_]\w*)').firstMatch(part) case final match?) match.group(1)!,
+  };
+  if (values.isEmpty) fail('$declarationPath: no values parsed out of enum $enumName');
+  return values;
+}
+
 Set<String> topLevelKeysInBlock(List<String> lines, String heading) {
   final keys = <String>{};
   var inBlock = false;
+  var sawEntry = false;
+  int? blockIndent;
   for (final line in lines) {
     if (!line.startsWith(' ') && line.trim() == heading) {
       inBlock = true;
       continue;
     }
-    if (inBlock && line.isNotEmpty && !line.startsWith(' ')) {
-      break;
-    }
-    if (!inBlock || !line.startsWith('  ') || line.startsWith('    ')) continue;
-    final match = RegExp(r'^\s{2}([a-zA-Z_][a-zA-Z0-9_]*):').firstMatch(line);
+    if (!inBlock) continue;
+    if (line.isNotEmpty && !line.startsWith(' ')) break;
+    final stripped = line.trim();
+    if (stripped.isEmpty || stripped.startsWith('#')) continue;
+    final indent = line.length - line.trimLeft().length;
+    blockIndent ??= indent;
+    if (indent < blockIndent) break;
+    sawEntry = true;
+    if (indent > blockIndent) continue;
+    final match = RegExp(r'^([a-zA-Z_][a-zA-Z0-9_]*):').firstMatch(stripped);
     if (match != null) keys.add(match.group(1)!);
+  }
+  if (sawEntry && keys.isEmpty) {
+    fail(
+      'Block "$heading" has entries but none parsed as a key. The block parser did not read this pubspec, '
+      'so any gate deciding from its result would pass without checking anything.',
+    );
   }
   return keys;
 }

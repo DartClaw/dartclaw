@@ -62,8 +62,9 @@ enum TaskLimitFailure implements TaskFailureKind {
 /// `configJson` key carrying the previous attempt's [TaskFailureKind.key].
 ///
 /// Written only where it is read — the retry branch — so a task that never
-/// retried leaves none behind. It is not cleared when a retried task then fails
-/// permanently, so an operator re-queue can still inherit one. The leading
+/// retried leaves none behind. A permanent failure leaves the last key in
+/// place; `TaskActionService.start` clears it when an operator restarts the
+/// failed task, so the fresh run compares against its own attempts. The leading
 /// underscore puts it inside the reserved-key space the create-task route
 /// refuses, so a client cannot pre-poison a task's retry.
 const lastFailureKindKey = '_lastFailureKind';

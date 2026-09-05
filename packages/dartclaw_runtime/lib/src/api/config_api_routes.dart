@@ -46,12 +46,18 @@ Router configApiRoutes({
   GuardChain? guardChain,
   ChannelAccessService? channelAccessService,
   GuardEditorService? guardEditorService,
+  Future<void> Function()? applyJobs,
+  Set<String> Function()? reservedJobIds,
 }) {
   ensureGitHubWebhookConfigRegistered();
 
   final router = Router();
   const serializer = ConfigSerializer();
-  final scheduleMutations = ScheduleMutationService(writer: writer, dataDir: dataDir);
+  final scheduleMutations = ScheduleMutationService(
+    writer: writer,
+    applyJobs: applyJobs,
+    reservedJobIds: reservedJobIds,
+  );
   final channelAccess =
       channelAccessService ??
       ChannelAccessService(
@@ -270,7 +276,11 @@ Router configApiRoutes({
     });
   });
 
-  // POST /api/scheduling/jobs — create a new job
+  // POST /api/scheduling/jobs — create a new job.
+  //
+  // The seam loads what it wrote before answering, so these responses carry no
+  // pendingRestart. `PATCH /api/config` keeps the key: its restart-tier fields
+  // genuinely wait for one.
   router.post('/api/scheduling/jobs', (Request request) async {
     final parsedBody = await readJsonObject(
       request,
@@ -281,7 +291,7 @@ Router configApiRoutes({
     if (parsedBody.error != null) return parsedBody.error;
     return _scheduleMutationResponse(
       await scheduleMutations.createJob(parsedBody.value!),
-      applied: (job) => jsonResponse(201, {'job': job, 'pendingRestart': true}),
+      applied: (job) => jsonResponse(201, {'job': job}),
     );
   });
 
@@ -297,7 +307,7 @@ Router configApiRoutes({
     if (parsedBody.error != null) return parsedBody.error;
     return _scheduleMutationResponse(
       await scheduleMutations.updateJob(name, parsedBody.value!),
-      applied: (job) => jsonResponse(200, {'job': job, 'pendingRestart': true}),
+      applied: (job) => jsonResponse(200, {'job': job}),
     );
   });
 
@@ -306,7 +316,7 @@ Router configApiRoutes({
     final name = decodePathSegment(rawName);
     return _scheduleMutationResponse(
       await scheduleMutations.deleteJob(name),
-      applied: (_) => jsonResponse(200, {'deleted': true, 'pendingRestart': true}),
+      applied: (_) => jsonResponse(200, {'deleted': true}),
     );
   });
 
@@ -323,7 +333,7 @@ Router configApiRoutes({
     if (parsedBody.error != null) return parsedBody.error;
     return _scheduleMutationResponse(
       await scheduleMutations.createTask(parsedBody.value!),
-      applied: (task) => jsonResponse(201, {'task': task, 'pendingRestart': true}),
+      applied: (task) => jsonResponse(201, {'task': task}),
     );
   });
 
@@ -339,7 +349,7 @@ Router configApiRoutes({
     if (parsedBody.error != null) return parsedBody.error;
     return _scheduleMutationResponse(
       await scheduleMutations.updateTask(id, parsedBody.value!),
-      applied: (task) => jsonResponse(200, {'task': task, 'pendingRestart': true}),
+      applied: (task) => jsonResponse(200, {'task': task}),
     );
   });
 
@@ -348,7 +358,7 @@ Router configApiRoutes({
     final id = decodePathSegment(rawId);
     return _scheduleMutationResponse(
       await scheduleMutations.deleteTask(id),
-      applied: (_) => jsonResponse(200, {'deleted': true, 'pendingRestart': true}),
+      applied: (_) => jsonResponse(200, {'deleted': true}),
     );
   });
 

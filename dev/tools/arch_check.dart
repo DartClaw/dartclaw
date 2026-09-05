@@ -36,9 +36,8 @@ int _maxCeilingFor(int loc) {
   return ceiling;
 }
 
-// Re-baselined 2026-08-22 against the finished 0.25 tree, measured with the
-// command block in dev/state/LOC-BASELINE-0.25.md — the milestone's single LOC
-// authority — and with no other filter. Each entry is `min(previous ceiling,
+// Re-baselined 2026-08-22 against the finished 0.25 tree, measured with
+// _countDartLoc and no other filter. Each entry is `min(previous ceiling,
 // _maxCeilingFor(measured))`: a ceiling never rises, and one that the new band
 // no longer permits comes down to what it does.
 //
@@ -80,8 +79,7 @@ int _maxCeilingFor(int loc) {
 //   package. Safe reduction was exhausted first — both new doc blocks trimmed
 //   three times, and the `require*` accessors moved out of service_wiring.dart
 //   into its result part, which the 1500-line file ceiling forced anyway.
-//   Nothing further came out without deleting a fix. Recorded in
-//   dev/state/LOC-BASELINE-0.25.md § Reviewed T1 runtime rebaseline.
+//   Nothing further came out without deleting a fix.
 //
 // Reviewed margin rebaseline, 2026-09-01 (owner decision, DECISIONS.md § Still
 // Current): _locHeadroom 400 -> 1500 and every ceiling re-cut to
@@ -91,15 +89,18 @@ int _maxCeilingFor(int loc) {
 // every few days; the ratchet keeps its shape, the slack it tolerates is wider.
 // Measured: dartclaw 44, acp 2735, bridge 696, cli 11219, client 469,
 // core 26240, google_chat 6009, kernel 18420, runtime 63856, signal 1347,
-// testing 2988, whatsapp 888, workflow 24132. Recorded in
-// dev/state/LOC-BASELINE-0.25.md § Reviewed margin rebaseline.
+// testing 2988, whatsapp 888, workflow 24132.
+//
+// Subsequent ratchet on 2026-09-05:
+//   dartclaw_core 27740 -> 27705 (measured 26205 after the one-shot HTTP seam
+//   moved down to dartclaw_kernel, which the kernel's own band absorbs)
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 27740,
+  'dartclaw_core': 27705,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 65356,
@@ -277,6 +278,9 @@ List<_CheckResult> _checkLibLocCeilings(String repoRoot) {
   return results;
 }
 
+// Generated Dart is not source: the embedded-asset libraries are base64 payloads
+// whose line count tracks asset bytes (~19K lines at the 0.25 close), so counting
+// them would report asset churn as a code delta.
 int _countDartLoc(Directory directory) {
   var loc = 0;
   for (final file in directory.listSync(recursive: true)) {

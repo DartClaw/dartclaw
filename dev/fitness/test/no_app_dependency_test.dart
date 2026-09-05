@@ -89,10 +89,9 @@ void main() {
       ));
     }
     if (apps.isEmpty) fail('No application package found under apps/; the gate would pass vacuously');
-    // `topLevelKeysInBlock` reads exactly-two-space keys. A pubspec that indents
-    // its blocks deeper is YAML-valid, resolves fine, and would be read as
-    // declaring nothing at all — so a scan that finds no dependency anywhere is
-    // a parser failure, not a clean tree.
+    // `topLevelKeysInBlock` fails on a block it cannot parse, so this catches the
+    // case it cannot see: a walk that found members but reached no pubspec block
+    // at all. No dependency anywhere is a broken scan, not a clean tree.
     if (!libraries.any((member) => member.dependencies.isNotEmpty || member.devDependencies.isNotEmpty)) {
       fail('No dependency was parsed out of any packages/* pubspec; the block parser did not read this tree');
     }

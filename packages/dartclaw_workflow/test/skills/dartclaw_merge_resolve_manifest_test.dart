@@ -47,8 +47,10 @@ void main() {
         expect((frontmatter['description'] as String).trim(), isNotEmpty);
       });
 
-      test('user-invocable is false', () {
-        expect(frontmatter['user-invocable'], isFalse);
+      test('host-invoked by slash command: model invocation disabled, user invocation not refused', () {
+        // `user-invocable: false` makes Claude Code refuse the `/skill` form the harness sends.
+        expect(frontmatter['disable-model-invocation'], isTrue);
+        expect(frontmatter.containsKey('user-invocable'), isFalse);
       });
 
       test('does not carry workflow frontmatter defaults', () {
@@ -80,15 +82,6 @@ void main() {
 
       test('contains !git diff --name-only --diff-filter=U', () {
         expect(content, contains('!git diff --name-only --diff-filter=U'));
-      });
-
-      test('identifies git diff --diff-filter=U as source for conflicted_files', () {
-        // The prompt must tie the diff-filter command to the conflicted_files output
-        expect(
-          content,
-          contains('conflicted_files'),
-          reason: 'conflicted_files must be mentioned near the diff-filter command',
-        );
       });
     });
 
@@ -142,8 +135,14 @@ void main() {
         expect(content, contains('package.json'));
       });
 
-      test('records pre-existing failures in verification notes', () {
-        expect(content, contains('merge_resolve.verification_notes'));
+      test('records pre-existing failures in the resolution summary, a key the coordinator declares', () {
+        expect(
+          content,
+          contains(
+            'pre-existing failures unrelated to this merge must be explicitly recorded in `merge_resolve.resolution_summary`',
+          ),
+        );
+        expect(content, isNot(contains('verification_notes')));
       });
     });
 
@@ -196,12 +195,24 @@ void main() {
         expect(content, contains('outcome: cancelled'));
       });
 
-      test('emits conflicted_files as JSON array on success path', () {
-        expect(content, contains('merge_resolve.conflicted_files'));
+      test('declares no conflicted-files output', () {
+        expect(
+          content,
+          isNot(contains('merge_resolve.conflicted_files')),
+          reason: "the conflicted set is the host's promotion result, not a skill claim (ADR-054)",
+        );
       });
 
       test('emits error_message: null on success path', () {
         expect(content, contains('error_message: null'));
+      });
+
+      test('states the string-or-null error-message contract', () {
+        expect(
+          content,
+          contains('string or JSON `null`'),
+          reason: 'error_message is a declared string-or-null, so no prose sentinel may stand in for null',
+        );
       });
 
       test('emits non-null error_message on failure path', () {

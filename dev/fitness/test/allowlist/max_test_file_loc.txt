@@ -18,4 +18,4 @@ packages/dartclaw_runtime/test/api/session_routes_test.dart  # 2037 LOC; shrink 
 packages/dartclaw_core/test/harness/claude_code_harness_test.dart  # 2070 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/workflow_definition_parser_test.dart  # 1908 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
 packages/dartclaw_workflow/test/workflow/executor_sequential_test.dart  # 1554 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
-packages/dartclaw_runtime/test/api/config_api_routes_test.dart  # 1484 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md
+packages/dartclaw_runtime/test/api/config_api_routes_test.dart  # 1472 LOC; shrink under 800 via .agent_temp/feature-inventory/test-reduction-file-plan.md

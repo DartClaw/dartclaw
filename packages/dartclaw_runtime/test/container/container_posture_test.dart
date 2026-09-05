@@ -76,6 +76,7 @@ void main() {
       );
       final calls = <String>[];
       final manager = ContainerManager(
+        ownerLabel: 'dartclaw.data-dir=test1234',
         config: resolved.container,
         containerName: 'dartclaw-test',
         profileId: 'restricted',

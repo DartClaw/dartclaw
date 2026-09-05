@@ -4,7 +4,7 @@
 
 ## Shape
 - **Outbound**: agent reply → `markdownToGoogleChat()` → balanced native-markup chunking (max 4000) → `GoogleChatRestClient` per-space write queue → `chat.googleapis.com/v1` → Google Chat.
-- **Inbound** has two paths that converge: synchronous webhook (`GoogleChatWebhookHandler` after `GoogleChatJwtVerifier`) OR async Pub/Sub (`PubSubClient` pull loop → `CloudEventAdapter` → sealed `AdapterResult`) — both pass through `MessageDeduplicator` (in core) → `ChannelMessage` → `ChannelManager` → `ChannelTaskBridge`.
+- **Inbound** has two paths that converge: synchronous webhook (`GoogleChatWebhookHandler` after `GoogleChatJwtVerifier`) OR async Pub/Sub (`PubSubClient` pull loop → `CloudEventAdapter` → sealed `AdapterResult`) — both run `ChannelInboundGate` (webhook: `_refuseByInboundGate`; Pub/Sub: `GoogleChatSpaceEventsWiring._admitted`, mention stage off) and pass through `MessageDeduplicator` (in core) → `ChannelMessage` → `ChannelManager` → `ChannelTaskBridge`.
 - **Subscription lifecycle**: `WorkspaceEventsManager.reconcile()` creates/recovers expired Workspace Events subs at startup; renewal fires at 75 % of TTL; full-data subs require user-OAuth (not service-account).
 
 ## Boundaries
@@ -28,6 +28,15 @@
 - Reactions silently latch off after the first 403 / insufficient-scope response (`addReaction` returns `null`). Test flows that depend on reactions must reset that latch.
 - `ownsJid()` is `jid.startsWith('spaces/')` — Chat resource names, not JIDs. Don't add `@` heuristics.
 - `QuoteReplyMode.native` excludes `DM` **and** `GROUP_CHAT` (API limitation); `sender` excludes only `DM`. Maintain the distinction in `_withSenderAttribution` / `_nativeQuotedMessageName`.
+- `GoogleChatWebhookHandler` runs `_refuseByInboundGate` — the one call site of `ChannelInboundGate` in this
+  package — before **both** slash-command dispatch (`MESSAGE` and `APP_COMMAND`) and message dispatch. Adding a
+  new inbound event that acts on a sender's behalf means routing it through that helper, not a second check.
+  `mentionRequired` is its only exempt outcome, and only for a parsed slash command. The Pub/Sub path gates in
+  `GoogleChatSpaceEventsWiring._admitted` with `mentionGating: null` — un-mentioned traffic is what Space Events
+  exist to deliver — and drops (acks) refused traffic rather than nacking it.
+- `resolveSpaceType` in `google_chat_utils.dart` is the one space-kind resolver for both ingress paths. Its
+  fallback fails closed to `DM`; `CloudEventAdapter` passes `fallback: 'SPACE'` because subscriptions exist only
+  for named spaces. Do not re-derive the space kind from `space['type']` / `space['spaceType']` anywhere else.
 - Bot-message filtering happens in `CloudEventAdapter` against `_botUser` (e.g., `users/BOT_ID`). When changing the bot identity, also update `GoogleChatConfig.botUser` — they must match.
 
 ## Testing

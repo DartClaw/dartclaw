@@ -1,4 +1,4 @@
-export 'channel_config_resolver.dart' show resolveChannelConfig;
+export 'channel_config_resolver.dart' show anyChannelEnabled, resolveChannelConfig;
 export 'config_change_subscriber.dart' show ConfigChangeSubscriber;
 export 'config_load.dart' show loadDartclawConfig;
 export 'config_serializer.dart' show ConfigSerializer;

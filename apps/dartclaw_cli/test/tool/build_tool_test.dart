@@ -72,55 +72,94 @@ void main() {
     if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
   });
 
-  test('produces a bundled-binary platform archive and checksums', () async {
+  test('workflow-only: produces both archives with the excluded libraries absent', () async {
     final result = await Process.run('bash', [buildScript], workingDirectory: repoRoot);
     expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
-    final archive = p.join(buildDir.path, 'dartclaw-v$version-${_hostOsName()}-${_hostArchName()}.tar.gz');
-    final archiveSha = '$archive.sha256';
-    final sums = p.join(buildDir.path, 'SHA256SUMS.txt');
-    final binaryPath = p.join(buildDir.path, 'bin', 'dartclaw');
-    expect(File(binaryPath).existsSync(), isTrue);
-    expect(File(archive).existsSync(), isTrue);
-    expect(File(archiveSha).existsSync(), isTrue);
-    expect(File(sums).existsSync(), isTrue);
-    expect(
-      buildDir.listSync().whereType<File>().any((file) => p.basename(file.path).startsWith('dartclaw-assets-')),
-      isFalse,
-    );
+    final full = File(p.join(buildDir.path, 'bin', 'dartclaw')).readAsBytesSync();
+    final lean = File(p.join(buildDir.path, 'bin', 'dartclaw-workflow')).readAsBytesSync();
+    final fullText = String.fromCharCodes(full);
+    final leanText = String.fromCharCodes(lean);
+    const excludedLibraries = [
+      'package:shelf/',
+      'package:shelf_router/',
+      'package:shelf_static/',
+      'package:dartclaw_client/',
+      'package:dartclaw_runtime/src/server.dart',
+      'package:dartclaw_runtime/src/api/',
+      'package:dartclaw_runtime/src/web/',
+      'package:dartclaw_runtime/src/auth/auth_middleware.dart',
+      'package:dartclaw_runtime/src/runtime/channel_wiring.dart',
+      'package:dartclaw_whatsapp/src/whatsapp_channel.dart',
+      'package:dartclaw_whatsapp/src/gowa_manager.dart',
+      'package:dartclaw_signal/src/signal_channel.dart',
+      'package:dartclaw_signal/src/signal_cli_manager.dart',
+      'package:dartclaw_google_chat/src/google_chat_channel.dart',
+      'package:dartclaw_google_chat/src/google_chat_webhook.dart',
+      'package:dartclaw_google_chat/src/workspace_events_manager.dart',
+    ];
+    for (final marker in excludedLibraries) {
+      expect(fullText.contains(marker), isTrue, reason: 'Positive control: $marker');
+      expect(leanText.contains(marker), isFalse, reason: 'Lean retains $marker');
+    }
+    expect(lean.length, lessThan(full.length));
+    print('Binary bytes: full=${full.length}, lean=${lean.length}');
+    for (final name in ['serve', 'workflow']) {
+      final refused = Process.runSync(p.join(buildDir.path, 'bin', 'dartclaw-workflow'), [name]);
+      expect(refused.exitCode, 64);
+      expect(refused.stderr, contains('Could not find a command named "$name".'));
+    }
+    for (final binaryName in ['dartclaw', 'dartclaw-workflow']) {
+      final archive = p.join(buildDir.path, '$binaryName-v$version-${_hostOsName()}-${_hostArchName()}.tar.gz');
+      final archiveSha = '$archive.sha256';
+      final sums = p.join(buildDir.path, 'SHA256SUMS.txt');
+      final binaryPath = p.join(buildDir.path, 'bin', binaryName);
+      expect(File(binaryPath).existsSync(), isTrue);
+      expect(File(archive).existsSync(), isTrue);
+      expect(File(archiveSha).existsSync(), isTrue);
+      expect(File(sums).existsSync(), isTrue);
+      expect(
+        buildDir.listSync().whereType<File>().any((file) => p.basename(file.path).startsWith('dartclaw-assets-')),
+        isFalse,
+      );
 
-    final retiredCommand = Process.runSync(binaryPath, ['assets']);
-    expect(retiredCommand.exitCode, 64);
-    expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
+      final retiredCommand = Process.runSync(binaryPath, ['assets']);
+      expect(retiredCommand.exitCode, 64);
+      expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
 
-    final entries = _tarEntries(archive);
-    expect(entries, containsAll(['VERSION', 'bin/', 'bin/dartclaw', 'lib/', 'lib/${_hostLibraryName()}']));
-    expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
+      final entries = _tarEntries(archive);
+      expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/', 'lib/${_hostLibraryName()}']));
+      expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
 
-    final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
-    expect(File(archiveSha).readAsStringSync().trim(), checksumLine);
-    expect(File(sums).readAsStringSync().trim(), checksumLine);
+      final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
+      expect(File(archiveSha).readAsStringSync().trim(), checksumLine);
+      expect(File(sums).readAsLinesSync(), contains(checksumLine));
+      expect(File(sums).readAsLinesSync(), hasLength(2));
+      final versionResult = Process.runSync(binaryPath, ['--version']);
+      expect(versionResult.exitCode, 0);
+      expect((versionResult.stdout as String).trim(), dartclawVersion);
 
-    // Regression guard for the bundled-SQLite migration: a binary built without
-    // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
-    // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
-    // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
-    final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
-    addTearDown(() => smokeDir.deleteSync(recursive: true));
-    final smokeWorkspace = p.join(smokeDir.path, 'workspace');
-    Directory(smokeWorkspace).createSync(recursive: true);
-    await seedCanonicalMemory(
-      smokeWorkspace,
-      topics: const {
-        'general': ['Bundled sqlite smoke entry'],
-      },
-    );
-    final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
-    File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
+      // Regression guard for the bundled-SQLite migration: a binary built without
+      // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
+      // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
+      // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
+      final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
+      addTearDown(() => smokeDir.deleteSync(recursive: true));
+      final smokeWorkspace = p.join(smokeDir.path, 'workspace');
+      Directory(smokeWorkspace).createSync(recursive: true);
+      await seedCanonicalMemory(
+        smokeWorkspace,
+        topics: const {
+          'general': ['Bundled sqlite smoke entry'],
+        },
+      );
+      final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
+      File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
 
-    final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
-    expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
-    expect(rebuild.stdout, contains('Rebuilt index:'));
+      final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
+      expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
+      expect(rebuild.stdout, contains('Rebuilt index:'));
+    }
   }, timeout: const Timeout(Duration(minutes: 15)));
 
   test('produces target-stamped stub archives without a bundled library', () {
@@ -133,17 +172,19 @@ void main() {
       );
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
-      final archive = File(p.join(buildDir.path, 'dartclaw-v$version-$target.tar.gz'));
-      expect(archive.existsSync(), isTrue);
-      expect(File('${archive.path}.sha256').existsSync(), isTrue);
-      expect(File(p.join(buildDir.path, 'bin', 'dartclaw')).existsSync(), isTrue);
+      for (final binaryName in ['dartclaw', 'dartclaw-workflow']) {
+        final archive = File(p.join(buildDir.path, '$binaryName-v$version-$target.tar.gz'));
+        expect(archive.existsSync(), isTrue);
+        expect(File('${archive.path}.sha256').existsSync(), isTrue);
+        expect(File(p.join(buildDir.path, 'bin', binaryName)).existsSync(), isTrue);
 
-      final entries = _tarEntries(archive.path);
-      expect(entries, containsAll(['VERSION', 'bin/', 'bin/dartclaw']));
-      // The compile stub emits no native library, so no lib/ is staged.
-      expect(entries.any((entry) => entry.startsWith('lib/')), isFalse);
-      expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
-      expect(File(p.join(buildDir.path, 'SHA256SUMS.txt')).readAsStringSync().trim().split('\n'), hasLength(1));
+        final entries = _tarEntries(archive.path);
+        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName']));
+        // The compile stub emits no native library, so no lib/ is staged.
+        expect(entries.any((entry) => entry.startsWith('lib/')), isFalse);
+        expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
+        expect(File(p.join(buildDir.path, 'SHA256SUMS.txt')).readAsStringSync().trim().split('\n'), hasLength(2));
+      }
     }
   });
 }

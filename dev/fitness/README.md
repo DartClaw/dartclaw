@@ -23,6 +23,12 @@ rename while the thing it excused is gone. Remove the entry, or re-key it to wha
 (`bridge_package_deps.txt`, `testing_package_deps.txt`, `package_cycles.txt`) are mandated empty and their gates decide
 on a hard-coded exact set or on the resolved package graph, so those assert emptiness instead.
 
+Gates that read a pubspec block (`dependency_direction`, `testing_package_deps`, `no_app_dependency`,
+`fitness_suite_deps`) share one parser in `test/_internal/fitness_test_utils.dart`. It reads the block at whatever
+indentation the file uses — YAML fixes no width, and a two-space-only reader hands a gate an empty set for a
+four-space pubspec, which reads as compliance — and it **fails** on a block whose entries it cannot parse rather than
+returning nothing.
+
 A gate consults a key only once it has found a real violation, so **run a gate file whole**. A name-filtered run
 (`dart test -n '<one test>'`) skips the scan that does the consulting and will report every live entry as stale.
 
@@ -188,7 +194,7 @@ Two gates share this file and its allowlist.
 
 ### Gate 2 — one git-runner seam
 
-**What it enforces**: Production code must reach git through `runGit(...)` from `package:dartclaw_kernel/dartclaw_kernel.dart`, not through `SafeProcess.git` / `SafeProcess.gitStart` directly. Only the canonical runner (`packages/dartclaw_kernel/lib/src/process/git_runner.dart`) may call them.
+**What it enforces**: Production code must reach git through `runGit(...)` from `package:dartclaw_kernel/dartclaw_kernel.dart`, not through `SafeProcess.git` directly. Only the canonical runner (`packages/dartclaw_kernel/lib/src/process/git_runner.dart`) may call it.
 
 **Why**: `GIT_CONFIG_NOSYSTEM` is a security-relevant spawn policy. With one owner the safe posture is the default and every opt-out is enumerable; with one copy per call site the policy drifts invisibly — which is how the task-accept path staged and committed with system hooks in band until 0.24.2.
 
@@ -205,11 +211,14 @@ await runGit(['status'], workingDirectory: dir, plan: plan, noSystemConfig: fals
 ```
 `plan` defaults to `const EmptyProcessEnvironmentPlan()` and `noSystemConfig` to `true`; pass `noSystemConfig: false` only for user-visible or remote-transport git, and name the classification at the call site (see `dev/architecture/security-architecture.md` § Git Subprocess Centralization).
 
-If the call site genuinely is a new canonical runner that must spawn git directly, add an entry to `test/allowlist/safe_process_usage.txt`:
+Each gate holds its own allowlist — `test/allowlist/safe_process_raw_git.txt` for gate 1,
+`test/allowlist/safe_process_git_seam.txt` for gate 2:
 ```
 packages/dartclaw_foo/lib/src/git_wrapper.dart  # canonical SafeProcess equivalent for X; must spawn git directly
 ```
-The allowlist is shared by both gates, so an entry waives both for that file — keep the rationale explicit about which spawn the file owns.
+They were one file until the split, and a rationale written for a raw spawn silenced the seam gate in the same
+file — the two gates ask different questions, so a file that genuinely owns both spawns needs an entry in both, each
+saying why.
 
 ---
 
@@ -225,7 +234,7 @@ operational vocabulary and paths.
 
 ### How to resolve a failure
 
-Follow the remediation printed by the failing invariant. Route curation through the immutable run-now action, keep
+Follow the remediation printed by the failing invariant. Describe curation as the scheduled prompt job it is, keep
 natural-language queries at caller boundaries, and use canonical entry IDs or native source locators. These are
 zero-baseline rules and have no allowlist. Unexport a corpus implementation detail with no production consumer, or add
 the concrete production use that justifies its public contract.
@@ -332,9 +341,25 @@ to make the zero-exception posture explicit.
 
 ## `enum_exhaustive_consumer_test.dart`
 
-**What it enforces**: Selected `WorkflowRunStatus` and `TaskStatus` consumers textually handle every enum value, and alert classifier/formatter consumers mention every `DartclawEvent` subtype.
+**What it enforces**: Selected `WorkflowRunStatus`, `TaskStatus` and `WorkerState` consumers name every value the enum
+declares, and the alert classifier names every concrete `DartclawEvent` subtype. Two registered files — the alert
+classifier and the worker-state health projection — additionally carry no `_ =>` arm, and the alert formatter may not
+name an event type at all. Both value sets are **derived**, not listed: the enum
+values are read from the declaration file the target names, and the event subtypes by transitive closure over
+`packages/dartclaw_core/lib/src/events/` (a `sealed`/`abstract` link is an intermediate, anything else reached from
+`DartclawEvent` is a leaf). Consumer source is scanned with comments and string literals stripped.
 
-**Why**: Adding an enum value or alertable event type should fail until UI, CLI, SSE, and alert rendering surfaces are updated.
+**Why**: Adding an enum value or alertable event type should fail until UI, CLI, SSE, health and alert rendering
+surfaces are updated. A gate that carried its own copy of the values stopped noticing the value added next, and a
+whole-file substring scan accepted a value named only in a doc comment — a dropped `switch` arm passed on both counts.
+A wildcard arm is what lets a new value take a fallback with no compile error, so a file whose exhaustiveness *is* the
+guarantee may not carry one. The scan itself is exercised against a planted gap, not only against the passing tree.
+
+**What it still cannot see**: the *consumer* lists are by name. A file removed from a target's `consumers` stops being
+checked, and a consumer that is never listed is never checked. Closing that needs a parse of every switch in the tree,
+which needs `package:analyzer`; this suite is pinned dependency-free (see `fitness_suite_deps_test.dart`), so the
+compiler is the primary guard wherever the switch is over a sealed type or a non-nullable enum, and this gate is the
+secondary one for the surfaces where a wildcard arm is legal.
 
 ### How to resolve a failure
 
@@ -342,6 +367,7 @@ Update the named consumer to handle the missing value. If a consumer is delibera
 ```
 packages/dartclaw_foo/lib/src/file.dart:WorkflowRunStatus  # <rationale>
 ```
+The key for the event target is `<file>:DartclawEvent`.
 
 ---
 

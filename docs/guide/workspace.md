@@ -199,7 +199,7 @@ curated stores are updated only by their listed agent or job path:
 | Canonical topic pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving old topic entries and removing exact replays in one corpus transaction, then regenerating the bounded index |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` – see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
 | Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` – see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
-| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe` and qualifying human-facing turn capture | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and default FTS5 projection; opt-in QMD also indexes workspace Markdown. |
+| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe`, qualifying human-facing turn capture, and announced scheduled results (one record per fire) | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture, but a scheduled job delivering `announce` writes one record per fire because a human received that text. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and default FTS5 projection; opt-in QMD also indexes workspace Markdown. |
 
 Host-side memory APIs and maintenance reject canonical workspace text files larger than 64 MiB. Daily logs use the
 tighter 8 MiB per-file limit before reading existing content.
@@ -219,12 +219,19 @@ Primary turns assemble fresh bounded context in this order:
 
 1. **SOUL.md**
 2. **USER.md** (wrapped in `## User Context`)
-3. **TOOLS.md** (wrapped in `## Environment Notes`)
-4. **Recent errors** (newest-first projection of the canonical error role, capped by `memory.max_bytes`; states how
+3. **Channel** (`## Channel`) -- the channel the turn arrived on, whether it is a direct or group conversation, and the
+   sender's display name or identifier. Present only when the turn came from a channel or the web UI; task and
+   restricted prompts never carry it
+4. **TOOLS.md** (wrapped in `## Environment Notes`)
+5. **Recent errors** (newest-first projection of the canonical error role, capped by `memory.max_bytes`; states how
    many older records it dropped)
-5. **Bounded canonical memory index projection** (priority/recency ordered; bulk learnings and topic bodies stay on demand)
-6. **ONBOARDING.md** (human conversational turns only, when fresh)
-7. **AGENTS.md** (safety rules -- appended after behavior content)
+6. **Bounded canonical memory index projection** (priority/recency ordered; bulk learnings and topic bodies stay on demand)
+7. **ONBOARDING.md** (human conversational turns only, when fresh)
+8. **AGENTS.md** (safety rules -- appended after behavior content)
+
+For Claude the system prompt is a spawn flag, so a changed `## Channel` section restarts the worker. Under the default
+`sessions.dm_scope: per-channel-contact` the section is constant for the life of a session and costs nothing extra. Under
+`per-contact` one contact writing from two channels shares a session, so each switch between them restarts the worker.
 
 ## Git Sync
 

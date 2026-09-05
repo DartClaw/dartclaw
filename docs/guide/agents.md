@@ -113,7 +113,7 @@ Prefer canonical names because they are portable across mapped providers: `shell
 
 Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's declared `container_profile` when present, otherwise `workspace`. An ACP provider runs on the host only, so on a container-enabled deployment give the agent `execution: host` — a resolved container policy is refused before the turn starts rather than weakened. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
 
-Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker remains occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work in 0.27.
+Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker remains occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work (Knowledge Interop & Steward milestone).
 
 ### Tool Policy Cascade
 
@@ -122,6 +122,9 @@ On logical-agent turns, tool access is evaluated by `ToolPolicyGuard` through a 
 1. **Global deny** — `agent.disallowed_tools` blocks tools for the main agent and every logical agent
 2. **Agent deny** — `denied_tools` blocks tools for that specific logical agent
 3. **Sandbox allow** – a non-empty `tools` list is a closed allowlist
+
+See [Hardening the primary agent for untrusted channels](security.md#hardening-the-primary-agent-for-untrusted-channels)
+for using `agent.disallowed_tools` to withhold tools from a primary lane exposed to untrusted channel content.
 
 The active turn's agent identity is threaded through each provider interception path before this evaluation. Claude registers an unfiltered `PreToolUse` hook so built-ins and dynamically named MCP tools reach the host guard. When Claude defers an allowlisted tool behind `ToolSearch`, DartClaw permits that schema-discovery step but evaluates the selected tool separately against the closed policy; discovery does not grant the capability. Codex enforcement exists only for operations that emit approval requests: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses the host guard. Disabling the optional security-guard bundle leaves configured tool policy and per-turn filters active. ACP enforcement covers host reverse file calls and permission requests only; operations that request no permission do not reach the guard. DartClaw warns at startup when configured agent policy cannot be fully mediated by the selected provider posture.
 

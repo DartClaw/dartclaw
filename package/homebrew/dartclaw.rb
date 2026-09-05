@@ -1,7 +1,7 @@
 class Dartclaw < Formula
   desc "Security-conscious AI agent runtime"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.25.0"
+  version "0.25.1"
   license "MIT"
 
   on_macos do

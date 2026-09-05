@@ -37,6 +37,7 @@ abstract interface class TurnManager {
     Duration? turnTimeout,
     bool isHumanInput = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   });
 
   void executeTurn(
@@ -70,6 +71,7 @@ abstract interface class TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     PromptScope? promptScope,
+    TurnOrigin? origin,
   });
 
   Future<void> cancelTurn(String sessionId);

@@ -39,20 +39,18 @@ String? resolveMessageText(Map<String, dynamic> message) {
 /// when both are present. `DIRECT_MESSAGE` normalizes to `DM`, so one spelling
 /// reaches every consumer of the result.
 ///
-/// Returns `DM` when the resource carries neither key, or carries a non-string
-/// value for both: a message that cannot be proven to come from a named space
-/// is access-checked as a direct message rather than admitted under the group
-/// policy.
-String resolveSpaceType(Map<String, dynamic>? space) {
+/// Returns [fallback] when the resource carries neither key, or carries a
+/// non-string value for both. The default fails closed: a message that cannot
+/// be proven to come from a named space is access-checked as a direct message
+/// rather than admitted under the group policy. Pass a different [fallback]
+/// only where the event source itself proves the space kind.
+String resolveSpaceType(Map<String, dynamic>? space, {String fallback = 'DM'}) {
   final raw = switch (space) {
     {'type': final String type} => type,
     {'spaceType': final String spaceType} => spaceType,
-    _ => null,
+    _ => fallback,
   };
-  return switch (raw) {
-    null || 'DIRECT_MESSAGE' => 'DM',
-    final type => type,
-  };
+  return raw == 'DIRECT_MESSAGE' ? 'DM' : raw;
 }
 
 /// Resolves the group JID from a Google Chat space type and name.

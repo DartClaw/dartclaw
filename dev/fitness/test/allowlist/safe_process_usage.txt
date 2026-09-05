@@ -1,5 +1,0 @@
-# Allowlist for safe_process_usage_test.dart
-# Format: <relative-path-from-repo-root>  # <rationale>
-# Rationale is mandatory — explain why this file must call Process directly.
-
-packages/dartclaw_kernel/lib/src/process/git_runner.dart  # canonical runGit seam; the one production caller of SafeProcess.git

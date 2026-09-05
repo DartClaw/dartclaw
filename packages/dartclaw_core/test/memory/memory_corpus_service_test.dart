@@ -738,6 +738,106 @@ void main() {
     expect((await authority.manifest()).status.errorEntryCount, 1);
   });
 
+  // S01 – the authority, not its callers, decides that identical content is not a change.
+  test('changeSelected identity: a byte-identical replacement is reported unchanged and writes nothing', () async {
+    _writeCorpus(workspace, _corpus());
+    final authority = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(authority.close);
+    final manifest = await authority.manifest();
+    final before = _tree(workspace);
+    var afterCommitCalls = 0;
+
+    final result = await authority.changeSelected<String>(
+      expectedRevision: manifest.collectionRevision,
+      include: (_, path) => path == 'memory/topics/preferences.md',
+      prepare: (selected) => MemoryCorpusChange(value: 'unchanged', replacement: selected),
+      afterCommit: (_, _) async => afterCommitCalls++,
+    );
+
+    expect(result.wasStale, isFalse);
+    expect(result.wasCommitted, isFalse);
+    expect(result.collectionRevision, 12);
+    expect(result.fingerprint, manifest.fingerprint);
+    expect(result.value, 'unchanged');
+    expect(afterCommitCalls, 0);
+    expect(_tree(workspace), before);
+    expect((await authority.manifest()).collectionRevision, 12);
+  });
+
+  // S02 – any byte difference still commits at the next revision.
+  test('changeSelected identity: a replacement differing by one byte commits at the next revision', () async {
+    _writeCorpus(workspace, _corpus());
+    final authority = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(authority.close);
+    final manifest = await authority.manifest();
+
+    final result = await authority.changeSelected<void>(
+      expectedRevision: manifest.collectionRevision,
+      include: (_, path) => path == 'memory/topics/preferences.md',
+      prepare: (selected) {
+        final topic = selected.topics.single;
+        final current = topic.entries.single;
+        return MemoryCorpusChange(
+          value: null,
+          replacement: CanonicalMemoryCorpus(
+            index: selected.index,
+            topics: [
+              MemoryTopicDocument(
+                topic: topic.topic,
+                entries: [
+                  CanonicalMemoryEntry(
+                    id: current.id,
+                    revision: current.revision,
+                    topic: current.topic,
+                    summary: current.summary,
+                    content: '${current.content}!',
+                    created: current.created,
+                    updated: current.updated,
+                    provenance: current.provenance,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    expect(result.wasCommitted, isTrue);
+    expect(result.collectionRevision, 13);
+    expect(result.fingerprint, isNot(manifest.fingerprint));
+    expect(File(p.join(workspace.path, 'MEMORY.md')).readAsStringSync(), contains('Collection-Revision: 13'));
+  });
+
+  // S03 – the selection refusal runs before the identity probe, so a caller bug that
+  // happens to change nothing is still reported as a bug.
+  test('changeSelected identity: an unselected document is refused even when its bytes match the stored one', () async {
+    final stored = _allRoleCorpus();
+    _writeCorpus(workspace, stored);
+    final authority = MemoryCorpusService(workspaceDir: workspace.path);
+    addTearDown(authority.close);
+    final manifest = await authority.manifest();
+    final before = _tree(workspace);
+
+    await expectLater(
+      authority.changeSelected<void>(
+        expectedRevision: manifest.collectionRevision,
+        include: (role, _) => role == MemoryRole.learning,
+        prepare: (selected) => MemoryCorpusChange(
+          value: null,
+          replacement: CanonicalMemoryCorpus(
+            index: selected.index,
+            learnings: selected.learnings,
+            errors: stored.errors,
+          ),
+        ),
+      ),
+      throwsA(isA<ArgumentError>().having((error) => '${error.message}', 'message', contains('outside the selected'))),
+    );
+    expect(_tree(workspace), before);
+    expect((await authority.manifest()).collectionRevision, manifest.collectionRevision);
+  });
+
   test('invalid stopped edit leaves bytes and revision untouched', () async {
     _writeCorpus(workspace, _corpus(revision: 16));
     final initial = MemoryCorpusService(workspaceDir: workspace.path);

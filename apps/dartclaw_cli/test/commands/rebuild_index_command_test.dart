@@ -53,7 +53,6 @@ void main() {
       'canonicalRevision': 1,
       'indexedRows': 0,
       'health': 'healthy',
-      'unchanged': false,
       'reconciled': false,
     });
   });

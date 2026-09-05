@@ -73,6 +73,7 @@ class WorkflowRunDigest {
 /// run's child [childTasks]. Per-step status comes from [stepStatusFromTask]
 /// (the shared mapper); reason/tokens come from the persisted run context.
 WorkflowRunDigest buildWorkflowRunDigest({
+  required String commandPrefix,
   required WorkflowRun run,
   required WorkflowDefinition definition,
   required List<Task> childTasks,
@@ -150,17 +151,17 @@ WorkflowRunDigest buildWorkflowRunDigest({
     runId: run.id,
     status: run.status,
     rows: rows,
-    nextActions: _nextActions(run.id, run.status),
+    nextActions: _nextActions(commandPrefix, run.id, run.status),
   );
 }
 
-List<String> _nextActions(String runId, WorkflowRunStatus status) => switch (status) {
+List<String> _nextActions(String commandPrefix, String runId, WorkflowRunStatus status) => switch (status) {
   WorkflowRunStatus.completed => const [],
   WorkflowRunStatus.paused || WorkflowRunStatus.awaitingApproval => [
-    'dartclaw workflow resume $runId --standalone',
-    'dartclaw workflow cancel $runId --standalone',
+    '$commandPrefix resume $runId --standalone',
+    '$commandPrefix cancel $runId --standalone',
   ],
-  WorkflowRunStatus.failed => ['dartclaw workflow retry $runId --standalone'],
+  WorkflowRunStatus.failed => ['$commandPrefix retry $runId --standalone'],
   // The service rejects retry for anything but failed, and the frozen
   // definition snapshot makes a fresh run the real path – suggest nothing.
   WorkflowRunStatus.cancelled => const [],

@@ -132,7 +132,7 @@ Router configRoutes({
         404,
         'NOT_FOUND',
         'Job "$name" is not present in the running scheduler or is not runnable on demand. '
-            'Newly created or edited jobs require a restart; otherwise check server logs for configuration errors.',
+            'Check the server logs for the configuration error that kept it from loading.',
       ),
     };
   });

@@ -7,7 +7,8 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 | Dependency | Version | Purpose |
 |-----------|---------|---------|
 | Homebrew | Latest | DartClaw install path on macOS and Linux |
-| PowerShell | 5.1+ | Qualified Windows installer; Scoop requires a public Windows asset and bucket manifest |
+| PowerShell | 5.1+ | Qualified Windows installer |
+| Scoop | Latest | Optional Windows install path; the `DartClaw/scoop-dartclaw` bucket carries `dartclaw` and `dartclaw-workflow` |
 | Dart SDK | ^3.13.0 | Build toolchain for source checkouts and development runs |
 | `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
@@ -55,6 +56,26 @@ brew install dartclaw
 dartclaw --version
 ```
 
+For a host that only runs workflows, install the separate workflow binary (co-installable with `dartclaw`):
+
+```bash
+brew install DartClaw/dartclaw/dartclaw-workflow
+dartclaw-workflow --version
+dartclaw-workflow init
+dartclaw-workflow run my-flow --json
+```
+
+On Windows x64 the same binary installs from the public Scoop bucket with `scoop install dartclaw/dartclaw-workflow` –
+see the [Windows guide](windows.md).
+
+Release assets also include `dartclaw-workflow-v<version>-<os>-<arch>.tar.gz` and
+`dartclaw-workflow-v<version>-windows-x64.zip`, each with its own checksum. Extract the complete archive and add
+its `bin/` directory to `PATH`; keep the sibling `lib/` directory. Migrate a standalone script by replacing
+`dartclaw workflow` with `dartclaw-workflow`; the existing `--standalone` flag remains accepted. Provider CLIs and
+credentials are still required for agent steps. Use configured API-key environment variables, or provision the
+instance's subscription credentials with the full `dartclaw auth` command and the same config/data directory.
+The workflow binary has no `auth` command. See [CLI Operations](cli-operations.md#headless-ci-usage).
+
 On Windows x64, run the PowerShell installer from a trusted release checkout:
 
 ```powershell
@@ -64,8 +85,8 @@ irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
 The installer downloads `dartclaw-v<version>-windows-x64.zip`, verifies its checksum, and installs the complete
 `VERSION` + `bin` + `lib` tree under `%LOCALAPPDATA%\Programs\DartClaw` by default. It adds
 `%LOCALAPPDATA%\Programs\DartClaw\bin` to your persistent user `PATH`; open a new terminal before running
-`dartclaw --version`. The public Scoop bucket and its qualified commands are recorded in the
-[Windows guide](windows.md); they become usable after both the Windows release asset and rendered manifest publish.
+`dartclaw --version`. The public Scoop bucket is an alternative install path, recorded in the
+[Windows guide](windows.md); it carries `dartclaw` and, from 0.25.1, `dartclaw-workflow`.
 
 Provider CLIs are not Homebrew dependencies of DartClaw. Install the providers you plan to use and verify them explicitly:
 
@@ -85,7 +106,7 @@ bash dev/tools/build.sh
 build/bin/dartclaw --version
 ```
 
-The build produces `build/bin/dartclaw` alongside a `build/lib/` holding the bundled SQLite library; keep the two directories together when relocating.
+The build produces `build/bin/dartclaw` and `build/bin/dartclaw-workflow`, with a shared `build/lib/` holding the bundled SQLite library. Each release archive includes its own `bin/` and `lib/`; keep them together when relocating.
 
 All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/bin/dartclaw`.
 
@@ -128,6 +149,8 @@ For Codex (`provider: codex`), step 2 is `dartclaw --config "$CONFIG" auth codex
 DartClaw's own credential store instead of `~/.codex`.
 
 `dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal, or accepts all inputs via flags with `--non-interactive`. All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running it against an existing instance shows current values as defaults.
+
+Re-run the same checks any time with `dartclaw doctor`.
 
 ```bash
 # Non-interactive setup (e.g. for scripts or CI)

@@ -12,7 +12,7 @@ import '../test/support/config_schema_artifact.dart';
 Future<void> main(List<String> args) async {
   final repoRoot = await resolveRepoRoot();
   final file = File(configSchemaPath(repoRoot));
-  final rendered = renderConfigSchema();
+  final rendered = renderConfigSchema(version: configSchemaVersion(repoRoot));
 
   if (args.contains('--check')) {
     final drift = configSchemaDrift(

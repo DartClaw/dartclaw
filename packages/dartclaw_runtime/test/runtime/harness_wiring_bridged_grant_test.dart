@@ -22,6 +22,7 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import '../container/gateway/gateway_test_support.dart' show RecordingMcpTool;
+import 'fake_container_authority.dart';
 import 'harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) {
@@ -83,50 +84,14 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
       allowedMcpTools: allowedMcpTools,
       artifactsDir: artifactsDir,
     ));
-    return _FakeLease();
+    return FakeContainerAuthorityLease(
+      mcpBridgeUrl: 'http://127.0.0.1:8081/mcp',
+      pathMapping: const {
+        '/host/artifacts': containerArtifactsPath,
+        '/host/artifacts/report.md': '$containerArtifactsPath/report.md',
+      },
+    );
   }
-}
-
-class _FakeLease implements ContainerAuthorityLease {
-  @override
-  final ContainerExecutor container = _FakeContainer();
-
-  @override
-  Future<void> release() async {}
-}
-
-class _FakeContainer implements ContainerExecutor {
-  @override
-  final String profileId = 'workspace';
-
-  @override
-  final String workingDir = '/project';
-
-  @override
-  final bool hasProjectMount = true;
-
-  @override
-  final String generatedStateDir = '/tmp/dartclaw-fake-authority';
-
-  @override
-  final String providerBridgeUrl = 'http://127.0.0.1:8080';
-
-  @override
-  final String? mcpBridgeUrl = 'http://127.0.0.1:8081/mcp';
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) =>
-      throw UnimplementedError('The fake authority never spawns');
-
-  @override
-  String? containerPathForHostPath(String hostPath) => switch (hostPath) {
-    '/host/artifacts' => containerArtifactsPath,
-    '/host/artifacts/report.md' => '$containerArtifactsPath/report.md',
-    _ => null,
-  };
 }
 
 void main() {
@@ -197,7 +162,7 @@ void main() {
         eventBus: eventBus,
       );
       await harnessWiring!.wire(
-        serverRefGetter: () => throw UnimplementedError('serverRefGetter should not be called'),
+        turnManagerGetter: () => throw UnimplementedError('serverRefGetter should not be called'),
       );
       return records;
     } finally {

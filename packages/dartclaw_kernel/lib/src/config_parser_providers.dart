@@ -469,8 +469,8 @@ CredentialsConfig _parseCredentials(
           envVars: envReferences(tokenRaw),
         );
 
-      case final unknownType:
-        warns.add('credentials.$credentialName has unknown "type" "$unknownType" — skipping');
+      default:
+        warns.add('credentials.$credentialName has unknown "type" – skipping');
         continue;
     }
   }

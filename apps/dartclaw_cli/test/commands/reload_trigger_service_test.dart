@@ -365,6 +365,28 @@ harness:
 
         expect(notifier.reloadCalls, hasLength(1));
       });
+
+      test('doReload names the restart-required sections a delta cannot report', () async {
+        // A restart-tier-only edit produces no delta, so the summary alone read
+        // as "nothing changed" while the new values sat waiting on a restart.
+        final records = <LogRecord>[];
+        final logSub = Logger.root.onRecord.listen(records.add);
+        addTearDown(logSub.cancel);
+        final restartTierNotifier = _TrackingConfigNotifier(const DartclawConfig());
+        final svc = ReloadTriggerService(
+          configPath: '/tmp/dartclaw.yaml',
+          notifier: restartTierNotifier,
+          reloadConfig: const ReloadConfig(mode: 'signal'),
+          configLoader: () => const DartclawConfig(governance: GovernanceConfig(queueStrategy: QueueStrategy.fair)),
+        );
+
+        await svc.doReload();
+
+        expect(
+          records.map((record) => record.message),
+          contains(allOf(contains('restart required for'), contains('governance'))),
+        );
+      });
     });
 
     group('mode: signal', () {

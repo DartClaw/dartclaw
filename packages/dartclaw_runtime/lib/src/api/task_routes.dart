@@ -209,6 +209,11 @@ Router taskRoutes(
       if (threadId == null || threadId.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'threadId is required', {'field': 'threadId'});
       }
+      if (!supportsThreadBinding(channelType)) {
+        return errorResponse(400, 'INVALID_INPUT', 'Channel $channelType carries no thread identity to bind', {
+          'field': 'channelType',
+        });
+      }
 
       final existing = store.lookupByThread(channelType, threadId);
       if (existing != null) {
@@ -216,8 +221,8 @@ Router taskRoutes(
           409,
           'CONFLICT',
           existing.taskId == id
-              ? 'Binding already exists for this thread/group'
-              : 'Thread/group already bound to task ${existing.taskId}',
+              ? 'Binding already exists for this thread'
+              : 'Thread already bound to task ${existing.taskId}',
         );
       }
 

@@ -40,6 +40,7 @@ void registerSystemDashboardPages(
   MemoryStatusService? Function()? memoryStatusServiceGetter,
   MemoryPruneService? Function()? memoryPruneServiceGetter,
   ScheduleService? Function()? scheduleServiceGetter,
+  Future<void> Function()? schedulingJobsApplier,
   MemoryService? Function()? memoryServiceGetter,
   SearchBackend? Function()? searchBackendGetter,
   MemoryCorpusService? Function()? memoryCorpusGetter,
@@ -117,6 +118,7 @@ void registerSystemDashboardPages(
         runtimeConfigGetter: runtimeConfigGetter,
         configWriter: configWriter,
         scheduleServiceGetter: scheduleServiceGetter,
+        applyJobs: schedulingJobsApplier,
       ),
     );
   }

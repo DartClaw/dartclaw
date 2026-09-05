@@ -55,6 +55,30 @@ void main() {
     await runner.run(['--config', configFile.path, 'secrets', 'set', name, '--type', 'api-key']);
   }
 
+  test('DR01 merged to declared to merged loads preserve each view without invoking the store for declared', () {
+    configFile.writeAsStringSync(
+      'data_dir: $dataDir\ncredentials:\n  sample:\n    type: api-key\n    api_key: declared\n',
+    );
+    var calls = 0;
+    DartclawConfig.registerStoredCredentialProvider((_) {
+      calls++;
+      return {'sample': const CredentialEntry(apiKey: 'stored')};
+    });
+    expect(DartclawConfig.load(configPath: configFile.path).credentials['sample']?.secret, 'stored');
+    expect(
+      loadCliConfig(configPath: configFile.path, resolveStoredCredentials: false).credentials['sample']?.secret,
+      'declared',
+    );
+    expect(calls, 1);
+    expect(DartclawConfig.load(configPath: configFile.path).credentials['sample']?.secret, 'stored');
+    expect(calls, 2);
+  });
+
+  test('DR02 a config load does not provision credential directories', () {
+    loadCliConfig(configPath: configFile.path, env: {'HOME': home});
+    expect(Directory(credentialsDir).existsSync(), isFalse);
+  });
+
   test('the registered provider is re-invoked per load, not replayed from a startup snapshot', () async {
     openStore().write('brave-search', const CredentialEntry(apiKey: 'v1'));
     final startup = DartclawConfig.load(configPath: configFile.path);

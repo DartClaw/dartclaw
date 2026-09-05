@@ -67,6 +67,7 @@ void main() {
       onDenied: (_, reason) => denials?.add(reason),
     );
     final manager = ContainerManager(
+      ownerLabel: ContainerManager.ownerLabel(dataDir.path),
       config: const ContainerConfig(enabled: true, image: gatewayProbeImage),
       containerName: 'dartclaw-gwtest-${DateTime.now().microsecondsSinceEpoch}-${sessionId.hashCode.abs()}',
       profileId: profile,

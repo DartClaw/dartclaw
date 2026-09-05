@@ -67,7 +67,12 @@ void main() {
         _task('t3', 2, TaskStatus.accepted),
       ];
 
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: tasks);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: tasks,
+      );
 
       expect(digest.rows, hasLength(4));
       expect(digest.rows[0].status, equals('failed'));
@@ -94,7 +99,12 @@ void main() {
       // Engine gates and aggregators settle with `<step>.status` only — no task
       // row and no `step.<id>.outcome` — and must not be mislabelled "pending".
       final run = _run(WorkflowRunStatus.completed, {'s01.status': 'success', 's02.status': 'failed'});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
 
       expect(digest.rows[0].status, equals('completed'));
       expect(digest.rows[1].status, equals('failed'));
@@ -108,7 +118,12 @@ void main() {
         'step.s01.outcome': 'failed',
         'step.s01.outcome.reason': 'residual\x1b[2Jfindings\r\nnoise\x0731m',
       });
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
 
       // Builder-level scrub: both the human lines and toJson carry the clean value.
       expect(digest.rows[0].reason, equals('residualfindings noise31m'));
@@ -120,7 +135,12 @@ void main() {
     test('a cancelled task under a paused run rolls up as interrupted (resumable)', () {
       final run = _run(WorkflowRunStatus.paused, const {});
       final tasks = [_task('t1', 0, TaskStatus.cancelled)];
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: tasks);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: tasks,
+      );
 
       expect(digest.rows[0].status, equals('interrupted'));
     });
@@ -128,40 +148,70 @@ void main() {
     test('a cancelled task under a terminally cancelled run stays cancelled', () {
       final run = _run(WorkflowRunStatus.cancelled, const {});
       final tasks = [_task('t1', 0, TaskStatus.cancelled)];
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: tasks);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: tasks,
+      );
 
       expect(digest.rows[0].status, equals('cancelled'));
     });
 
     test('a teardown-cancelled outcome rolls up as interrupted regardless of run status', () {
       final run = _run(WorkflowRunStatus.paused, {'step.s01.outcome': 'cancelled'});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
 
       expect(digest.rows[0].status, equals('interrupted'));
     });
 
     test('cancelled run suggests no next-actions (retry is failed-only)', () {
       final run = _run(WorkflowRunStatus.cancelled, const {});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       expect(digest.nextActions, isEmpty);
     });
 
     test('completed run has no next-actions', () {
       final run = _run(WorkflowRunStatus.completed, const {});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       expect(digest.nextActions, isEmpty);
       expect(digest.status, equals(WorkflowRunStatus.completed));
     });
 
     test('failed run offers a retry --standalone next-action', () {
       final run = _run(WorkflowRunStatus.failed, const {});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       expect(digest.nextActions, equals(['dartclaw workflow retry run-1 --standalone']));
     });
 
     test('renders the digest as parseable JSON with a per-story array', () {
       final run = _run(WorkflowRunStatus.paused, {'step.s01.outcome': 'failed', 'step.s01.outcome.reason': 'boom'});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       final json = digest.toJson();
       expect(json['type'], equals('workflow_run_digest'));
       expect(json['runId'], equals('run-1'));
@@ -173,7 +223,12 @@ void main() {
 
     test('human renderer prints one row per story plus next-action commands', () {
       final run = _run(WorkflowRunStatus.paused, {'step.s01.outcome': 'failed', 'step.s01.outcome.reason': 'boom'});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       final lines = renderWorkflowRunDigestLines(digest);
 
       expect(lines.first, contains('Run run-1'));
@@ -183,7 +238,12 @@ void main() {
 
     test('color renderer wraps statuses in ANSI and strips back to the plain form', () {
       final run = _run(WorkflowRunStatus.completed, {'s01.status': 'success', 's02.status': 'failed'});
-      final digest = buildWorkflowRunDigest(run: run, definition: _definition(), childTasks: const []);
+      final digest = buildWorkflowRunDigest(
+        commandPrefix: 'dartclaw workflow',
+        run: run,
+        definition: _definition(),
+        childTasks: const [],
+      );
       final colored = renderWorkflowRunDigestLines(digest, color: true);
 
       // Per-status color: completed run header green, failed step red, completed step green.

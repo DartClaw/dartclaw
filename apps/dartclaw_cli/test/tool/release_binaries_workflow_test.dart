@@ -59,6 +59,13 @@ void main() {
     expect(upload['uses'], startsWith('actions/upload-artifact@'));
     expect((upload['with'] as YamlMap)['name'], r'release-${{ matrix.target }}');
     expect((upload['with'] as YamlMap)['if-no-files-found'], 'error');
+    // S09: neither artifact prefix matches the other, so both need explicit paths.
+    expect(((upload['with'] as YamlMap)['path'] as String).trim().split('\n'), [
+      r'build/dartclaw-v*-${{ matrix.target }}.${{ matrix.archive_ext }}',
+      r'build/dartclaw-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256',
+      r'build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}',
+      r'build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256',
+    ]);
     expect(buildSteps.any((step) => '${step['uses']}'.startsWith('softprops/action-gh-release@')), isFalse);
   });
 
@@ -99,12 +106,63 @@ void main() {
     );
     expect(checksum['run'], contains('shasum -a 256 -c'));
     expect(checksum['run'], contains('SHA256SUMS.txt'));
+    final archives = RegExp(r'"(dartclaw(?:-workflow)?-v\$\{VERSION\}-[^"\n]+)"')
+        .allMatches(checksum['run'] as String)
+        .map((match) => match[1])
+        .toList();
+    expect(archives, [
+      for (final artifact in ['dartclaw', 'dartclaw-workflow'])
+        for (final target in ['linux-x64', 'linux-arm64', 'macos-arm64', 'macos-x64', 'windows-x64'])
+          '$artifact-v\${VERSION}-$target.${target == 'windows-x64' ? 'zip' : 'tar.gz'}',
+    ]);
     final publisher = publishSteps.singleWhere((step) => step['name'] == 'Publish release assets');
     expect(publisher['uses'], startsWith('softprops/action-gh-release@'));
     expect(RegExp('softprops/action-gh-release@').allMatches(workflow), hasLength(1));
 
     expect((jobs['homebrew'] as YamlMap)['needs'], 'publish');
+    final homebrewSteps = ((jobs['homebrew'] as YamlMap)['steps'] as YamlList).cast<YamlMap>();
+    final checksums = homebrewSteps.singleWhere((step) => step['name'] == 'Download platform checksums');
+    expect(checksums['run'], contains("--pattern 'dartclaw-v*.tar.gz.sha256'"));
+    expect(checksums['run'], contains("--pattern 'dartclaw-workflow-v*.tar.gz.sha256'"));
+    final render = homebrewSteps.singleWhere((step) => step['name'] == 'Render Homebrew formula');
+    final tap = homebrewSteps.singleWhere((step) => step['name'] == 'Publish formula to tap');
+    for (final artifact in ['dartclaw', 'dartclaw-workflow']) {
+      expect(render['run'], contains('--formula package/homebrew/$artifact.rb'));
+      expect(render['run'], contains('--output rendered-$artifact.rb'));
+      expect(tap['run'], contains('cp rendered-$artifact.rb tap-repo/Formula/$artifact.rb'));
+    }
+    expect(render['run'], contains('--artifact dartclaw-workflow'));
+    expect(tap['run'], contains('git add Formula/dartclaw.rb Formula/dartclaw-workflow.rb'));
+    expect(RegExp('git commit ').allMatches(tap['run'] as String), hasLength(1));
+    expect((jobs['homebrew'] as YamlMap)['environment'], 'distribution-publication');
     expect((jobs['scoop'] as YamlMap)['needs'], 'publish');
+  });
+
+  test('a dispatched dry run validates the artifact and distributes nothing', () {
+    final triggers = (document['on'] ?? document[true]) as YamlMap;
+    expect(
+      triggers.containsKey('workflow_dispatch'),
+      isTrue,
+      reason: 'Nothing else exercises the release matrix until a tag is pushed.',
+    );
+    expect(((triggers['push'] as YamlMap)['tags'] as YamlList).toList(), ['v*']);
+
+    // Everything up to and including the installer test runs on a dry run; the
+    // one job that distributes is gated, and its dependants inherit the skip.
+    for (final validating in ['build', 'windows-installer']) {
+      expect((jobs[validating] as YamlMap)['if'], isNull, reason: '$validating must run on a dry run');
+    }
+    expect((jobs['publish'] as YamlMap)['if'], "github.ref_type == 'tag'");
+    expect((jobs['homebrew'] as YamlMap)['needs'], 'publish');
+    expect((jobs['scoop'] as YamlMap)['needs'], 'publish');
+
+    // The tag-name comparison has nothing to compare against off a tag, but the
+    // workspace lockstep check must still run.
+    for (final lockstep in ['Verify release version lockstep', 'Verify release version lockstep (Windows)']) {
+      final run = buildStep(lockstep)['run'] as String;
+      expect(run, contains('dev/tools/check_versions.sh'));
+      expect(run, contains('GITHUB_REF_TYPE'));
+    }
   });
 
   test('workflow keeps publication privileges narrow and excludes spike coupling', () {

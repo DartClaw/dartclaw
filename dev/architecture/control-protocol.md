@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -772,8 +772,8 @@ claude binary
         │
         ├─► If block → deny response (hookSpecificOutput.permissionDecision: "deny")
         │
-        ├─► Credential stripping: if toolInput.env contains ANTHROPIC_API_KEY,
-        │   strip it and return updatedInput in hookSpecificOutput
+        ├─► Credential stripping: if toolInput.env contains ANTHROPIC_API_KEY or
+        │   CLAUDE_CODE_OAUTH_TOKEN, strip them and return updatedInput in hookSpecificOutput
         │
         └─► Otherwise → allow response
 ```

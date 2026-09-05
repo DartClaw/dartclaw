@@ -4,9 +4,23 @@
 
 ## Active Milestone
 
+### 0.25.1 — Release-process hardening
+
+**Status: release-ready on `feat/0.25.1`, awaiting tag.** Release-process hardening plus bug fixes from the
+2026-09-02 deployment-feedback review, and (owner, 2026-09-03) five operator quick wins: `dartclaw doctor`, the
+TD-121 leaked-container sweep, the lean workflow-only binary `dartclaw-workflow` (flat command tree,
+standalone-only), config JSON-schema distribution (`$schema` modeline, `dartclaw config schema --out`), and CLI
+quick wins (truthful `status`, stderr + exit codes, `--yes` on deletes). Closes the gap the 0.25.0 tag exposed:
+`release_check.sh` runs only on the developer's host, which never exercises the Linux container job or the Windows
+release matrix, so a green local check preceded three red tag builds. The release now publishes ten archives across
+five targets — `dartclaw` and `dartclaw-workflow` each on macOS arm64/x64, Linux x64/arm64 and Windows x64. Record:
+`dartclaw-private/docs/specs/0.25.1/prd.md`.
+
+## Released
+
 ### 0.25 — Lean Runtime
 
-**Status: feature-complete on `feat/0.25-lean-runtime`, awaiting bundle removal, release check and merge.** 93 of 96
+**Status: released 2026-09-01 as `v0.25.0`.** 94 of 96
 stories done. The milestone deleted the re-derive/repair/default machinery and the hand-rolled chat grammars, moved
 those capabilities onto a guarded MCP tool surface (`task_create`, `task_review`, `task_bind`, `workflow_run`,
 `schedule_upsert`, `attach_media`, `wiki_write`), made container isolation the default posture where a runtime
@@ -17,42 +31,31 @@ harness path as interactive ones.
 **Three of seven success metrics did not hold**, and are recorded as such rather than re-baselined: the net LOC
 reduction (lib fell 1,996 against a 12,000 target and the test surface grew 7,520), the CLI's ≤ 8K lib LOC bar
 (10,491, down from 20,769), and the ≥ 40 dead-config-key removal (~29 plus 2 uncounted — several keys turned out to
-be live and were preserved under the no-regression constraint). Measured figures, the command that produced them and
-the per-clause verdicts are in [`STATE.md`](STATE.md) and [`LOC-BASELINE-0.25.md`](LOC-BASELINE-0.25.md).
+be live and were preserved under the no-regression constraint). Measured figures and the per-clause verdicts are in
+[`STATE.md`](STATE.md).
 
-**Deferred to 0.30**: S63 and S64, the workflow schema-emitting validator. They stayed `spec-ready`; the preserved
+**Deferred at close-out, re-homed to 0.26 as S16/S17 on 2026-09-03**: S63 and S64, the workflow schema-emitting validator. They stayed `spec-ready`; the preserved
 work is parked on `parked/s64-workflow-schema`.
 
 ## Planned
 
-### Pluggable Database Backend & Multi-Language Search
+> **Numbering policy (owner, 2026-09-03):** a version number is assigned only when work on a milestone starts. Planned milestones are referred to by name and slug (their private spec directory) until then. Canonical sequencing and detail: `dartclaw-private/docs/ROADMAP.md`.
 
-> Milestone number owner-assigned — this entry held "0.25" before the Lean Runtime milestone took that number.
+### 0.26 — Pluggable Database Backend & Multi-Language Search
 
-### 0.26 — Chat & Session Experience
+Next. `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap + compatibility gate, `FullTextIndex` with language-aware search on PostgreSQL, credential-reference `DATABASE_URL`, TLS fail-closed, dual-backend contract suite; then Phase B native hybrid search (`dartclaw_search`, ADR-050). Plan bundle regenerated against 0.25 on 2026-09-03 (15 stories) plus the two workflow-schema stories deferred from 0.25 (S16/S17, formerly S63/S64).
 
-Best-in-class Web chat + session-management control-plane on the Afterglow system — the app-track flagship. Sequenced
-after 0.22 (renumbered from 0.23 on 2026-07-24). **Hard prerequisite: 0.23** — its canon revision changes the
-Phase-0 conversation components (`.composer`, `.tool-call`, `.approval-card`, `.notif-item`, `.palette-item`) this
-milestone builds on (added 2026-07-25).
+### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 
-### 0.27 — Knowledge Interop & Steward
+Best-in-class Web chat + session-management control-plane on the Afterglow system: settle/unsettle inbox sidebar, live-everywhere SSE, drafts, steer-vs-queue, forking, `Session.projectId`, notification center, Cmd+K and the composer command surface. The 0.25 removal of the web chat slash-command palette and command-discovery endpoint was ruled a regression on 2026-09-03; this milestone rebuilds them. Prerequisites 0.22 and 0.23 are shipped. Carries the 0.23 UI-canon ledger rows and TD-051.
 
-Guarded knowledge writes, the deferred validation/dogfooding/steward loop, OKF bundle interop, and governed idle-time
-memory curation. Reuses 0.24's observe/apply/CAS authority and on-demand action surfaces for governed autonomy and
-guarded wiki/KG writes; it does not gain a generic file-replacement tool. It follows the 0.25 storage/search seams. Phase A
-also owns caller-aware MCP dispatch context, exact logical-agent-turn cancellation, and an opt-in pinned-provider matrix for
-the guard-interception capabilities this milestone relies on.
+### Knowledge Interop & Steward + Dreaming (`0.next-knowledge-interop`) — after Chat & Session Experience
 
-### 0.28 — Workflow Track: DSL v2
+The 0.19 validation/dogfooding/steward tail, write-time state/event routing, OKF v0.2 conformance + bundle import through the knowledge inbox, and governed idle-time memory curation extending the shipped `memory-curation` job. Phase A is the guarded-dispatch debt sweep (TD-119 caller-aware MCP context + child cancellation, TD-116 outbound MCP curation, per-task tool policy on inbound MCP dispatch, TD-106 candidate); TD-110 itself shipped in 0.25. Indexing rides 0.26's `FullTextIndex`.
 
-Additive workflow DSL v2 grammar (`script:`, `workflow:` sub-workflows, inline `agents:`, fresh-context loops, conditional `approval:` routing) plus the TR-10 server-first authoring UI. First slice of the workflow track (the 2026-07-04 rebrand's "0.22" target, split + renumbered 2026-07-06, shifted again 2026-07-24).
-Inline-agent execution shares the existing global worker capacity. Provider `pool_size` is the sole worker-capacity limit
-for background execution.
+### Workflow Track, slice 1: Dynamic Workflows + Orchestration Agent (`0.next-workflow-track`) — after Knowledge Interop
 
-### 0.29 — Workflow Track: Dynamic Workflows + Orchestration Agent
-
-Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`) plus the ADR-044 orchestration agent. Second workflow slice.
+Runtime-composed, schema-validated workflows (generate-validate-run, restored `workflow-builder`, quarantined auto-composed triggers) with 0.26's published `workflow.schema.json` as the trust boundary, plus the ADR-044 orchestration agent whose supervisor event lands in the sealed `dartclaw_core` event library (ADR-057). Workflow DSL v2 was downgraded to an unscheduled draft on 2026-09-03; nothing here depends on it.
 
 ## Recently Shipped
 

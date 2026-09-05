@@ -12,15 +12,9 @@ const _flushPrompt =
 const _dailyLogSessionTypes = {SessionType.main, SessionType.user, SessionType.channel};
 const _dailyLogMaxDepth = 16;
 const _dailyLogMaxCollectionItems = 512;
-const _dailyLogMaxSerializedToolBytes = 64 * 1024;
-// Raw text caps reserve worst-case JSON-escaping headroom within the sink's record ceiling.
-const _dailyLogMaxRawTitleBytes = 1024;
-const _dailyLogMaxRawUserBytes = 48 * 1024;
-const _dailyLogMaxRawResultBytes = 16 * 1024;
 const _dailyLogDepthTruncated = '[truncated: recursion depth]';
 const _dailyLogItemsTruncated = '[truncated: collection items]';
 const _dailyLogToolsTruncated = '[truncated: tool events]';
-const _dailyLogBytesTruncated = '[truncated: serialized bytes]';
 
 extension _TurnRunnerMemory on TurnRunner {
   Future<void> _appendDailyLog({
@@ -35,7 +29,6 @@ extension _TurnRunnerMemory on TurnRunner {
     if (memFile == null || toolEventCount == 0 || toolEvents.isEmpty) return;
 
     final now = DateTime.now();
-    final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
     var title = 'Chat';
     final sessions = _sessions;
@@ -76,15 +69,15 @@ extension _TurnRunnerMemory on TurnRunner {
     for (var i = 0; i < eventCount; i++) {
       final t = toolEvents[i];
       final serialized = _DailyLogSerializer(redactor).serializeInput(t.input);
-      final toolName = _dailyLogText(redactor, t.toolName, 1024);
+      final toolName = dailyLogText(redactor, t.toolName, 1024);
       final key = '$toolName:${serialized.identity}';
       if (seen.add(key)) {
         final summary = '$toolName(${serialized.summary})';
         final encodedBytes = utf8.encode(jsonEncode(summary)).length;
         final separatorBytes = toolSummaries.isEmpty ? 0 : 1;
-        final markerBytes = utf8.encode(jsonEncode(_dailyLogBytesTruncated)).length + 1;
-        if (serializedToolBytes + separatorBytes + encodedBytes + markerBytes > _dailyLogMaxSerializedToolBytes) {
-          toolSummaries.add(_dailyLogBytesTruncated);
+        final markerBytes = utf8.encode(jsonEncode(dailyLogBytesTruncated)).length + 1;
+        if (serializedToolBytes + separatorBytes + encodedBytes + markerBytes > dailyLogMaxSerializedToolBytes) {
+          toolSummaries.add(dailyLogBytesTruncated);
           bytesTruncated = true;
           break;
         }
@@ -95,27 +88,23 @@ extension _TurnRunnerMemory on TurnRunner {
     if (!bytesTruncated && toolEventCount > maxEvents) {
       final separatorBytes = toolSummaries.isEmpty ? 0 : 1;
       final markerBytes = utf8.encode(jsonEncode(_dailyLogToolsTruncated)).length;
-      if (serializedToolBytes + separatorBytes + markerBytes <= _dailyLogMaxSerializedToolBytes) {
+      if (serializedToolBytes + separatorBytes + markerBytes <= dailyLogMaxSerializedToolBytes) {
         toolSummaries.add(_dailyLogToolsTruncated);
       } else {
-        toolSummaries.add(_dailyLogBytesTruncated);
+        toolSummaries.add(dailyLogBytesTruncated);
       }
     }
 
-    final titleSummary = _dailyLogText(redactor, title, _dailyLogMaxRawTitleBytes);
-    final userSummary = _dailyLogText(redactor, loggedUserMessage ?? '(no message)', _dailyLogMaxRawUserBytes);
-    final resultSummary = _dailyLogText(
-      redactor,
-      result,
-      _dailyLogMaxRawResultBytes,
-    ).trim().replaceAll(RegExp(r'\s+'), ' ');
-    final entry =
-        '## $time — ${jsonEncode(titleSummary)}\n'
-        '**User**: ${jsonEncode(userSummary)}\n'
-        '**Tools**: ${jsonEncode(toolSummaries)}\n'
-        '**Result**: ${jsonEncode(resultSummary)}';
-
-    await memFile.appendDailyLog(entry);
+    await memFile.appendDailyLog(
+      buildDailyLogRecord(
+        at: now,
+        redactor: redactor,
+        title: title,
+        userMessage: loggedUserMessage ?? '(no message)',
+        toolSummaries: toolSummaries,
+        result: result,
+      ),
+    );
   }
 
   Future<void> _runFlushTurn(String sessionId) async {
@@ -157,7 +146,7 @@ extension _TurnRunnerMemory on TurnRunner {
 
 /// The summary is written through a running byte budget rather than encoded
 /// whole and then cut back, so peak memory stays at
-/// [_dailyLogMaxSerializedToolBytes] however wide the input is.
+/// [dailyLogMaxSerializedToolBytes] however wide the input is.
 ///
 /// Identity is fed the raw value stream ahead of that budget and of redaction:
 /// two calls sharing a large leading value summarise identically, and deriving
@@ -178,7 +167,7 @@ final class _DailyLogSerializer {
   ({String summary, String identity}) serializeInput(Map<String, dynamic> input) {
     _writeValue(input, depth: 0);
     return (
-      summary: _dailyLogBounded(_summary.toString(), _dailyLogMaxSerializedToolBytes, truncated: _truncated),
+      summary: dailyLogBounded(_summary.toString(), dailyLogMaxSerializedToolBytes, truncated: _truncated),
       identity: _identity.finish(),
     );
   }
@@ -249,14 +238,14 @@ final class _DailyLogSerializer {
   void _writeString(String value) {
     _identity.string(value);
     if (_exhausted) return;
-    final bounded = _utf8Prefix(value, _dailyLogMaxSerializedToolBytes - _usedBytes);
+    final bounded = dailyLogUtf8Prefix(value, dailyLogMaxSerializedToolBytes - _usedBytes);
     // Redaction always sees the value's own cap, never the smaller budget
     // remainder: that remainder lands wherever the entries before it ended, and
     // a secret split by it stops matching its pattern. Only what fits the
     // remainder is written, so the extra text redacted here never reaches the
     // entry.
     final redacted = _redactor.redact(
-      bounded.complete ? bounded.text : _utf8Prefix(value, _dailyLogMaxSerializedToolBytes).text,
+      bounded.complete ? bounded.text : dailyLogUtf8Prefix(value, dailyLogMaxSerializedToolBytes).text,
     );
     _write(jsonEncode(redacted));
     // The cut must outlive the value that took it: redaction can shrink an
@@ -277,7 +266,7 @@ final class _DailyLogSerializer {
   /// but not the walk, which keeps feeding identity.
   void _write(String value) {
     if (_exhausted) return;
-    final bounded = _utf8Prefix(value, _dailyLogMaxSerializedToolBytes - _usedBytes);
+    final bounded = dailyLogUtf8Prefix(value, dailyLogMaxSerializedToolBytes - _usedBytes);
     _summary.write(bounded.text);
     _usedBytes += bounded.bytes;
     if (!bounded.complete) {
@@ -327,34 +316,4 @@ final class _DailyLogIdentity {
     _sink.close();
     return '$_result';
   }
-}
-
-/// [value] redacted and bounded to [maxBytes].
-///
-/// The cut runs before redaction to bound the regex work on an unbounded value,
-/// and again after because redaction can lengthen text (`[REDACTED]` is longer
-/// than a short match) and because only the second pass carries the truncation
-/// marker. Cutting first is not what keeps an over-cap secret safe — a PEM block
-/// survives it only because the redactor carries an unterminated-block pattern,
-/// and a pattern needing a complete shape can still leave a partial match.
-String _dailyLogText(MessageRedactor redactor, String value, int maxBytes) {
-  final bounded = _utf8Prefix(value, maxBytes);
-  return _dailyLogBounded(redactor.redact(bounded.text), maxBytes, truncated: !bounded.complete);
-}
-
-/// [value] cut to [maxBytes], carrying the truncation marker when anything was
-/// dropped here or by [truncated] upstream.
-String _dailyLogBounded(String value, int maxBytes, {bool truncated = false}) {
-  final fitted = _utf8Prefix(value, maxBytes);
-  if (fitted.complete && !truncated) return fitted.text;
-  final markerBytes = _utf8Prefix(_dailyLogBytesTruncated, maxBytes).bytes;
-  return '${_utf8Prefix(value, maxBytes - markerBytes).text}$_dailyLogBytesTruncated';
-}
-
-/// The kernel's byte-boundary truncation plus the byte count and completeness
-/// the daily-log budget needs. The cut itself is not re-derived here.
-({String text, int bytes, bool complete}) _utf8Prefix(String value, int maxBytes) {
-  if (maxBytes <= 0) return (text: '', bytes: 0, complete: value.isEmpty);
-  final text = truncateUtf8Bytes(value, maxBytes);
-  return (text: text, bytes: utf8.encode(text).length, complete: text.length == value.length);
 }

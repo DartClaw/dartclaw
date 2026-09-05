@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.1/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.2/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

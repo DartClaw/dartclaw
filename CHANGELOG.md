@@ -12,6 +12,8 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ---
 
+## [Unreleased]
+
 ## [0.25.1] - 2026-09-05
 
 ### Added

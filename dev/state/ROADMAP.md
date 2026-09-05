@@ -4,9 +4,19 @@
 
 ## Active Milestone
 
+### 0.25.2 — SecondBrain deployment feedback, continued
+
+**Status: opened on `feat/0.25.2` from the 0.25.1 squash (`ccfd9fcf`), 2026-09-06; pins at 0.25.2; no PRD yet.** The
+open items from the deployment feedback file – an operator approval mode for chat-driven scheduling writes
+(`scheduling.mutation.approval`) and a model-free, file-only `type: shell` job kind – plus the next feedback batch.
+Both shapes are recorded in the private product backlog (§ Scheduling: Seam-Write Approval and Model-Free Feed Jobs).
+0.26 waits behind this patch.
+
+## Released
+
 ### 0.25.1 — Release-process hardening
 
-**Status: release-ready on `feat/0.25.1`, awaiting tag.** Release-process hardening plus bug fixes from the
+**Status: released 2026-09-05 as `v0.25.1`.** Release-process hardening plus bug fixes from the
 2026-09-02 deployment-feedback review, and (owner, 2026-09-03) five operator quick wins: `dartclaw doctor`, the
 TD-121 leaked-container sweep, the lean workflow-only binary `dartclaw-workflow` (flat command tree,
 standalone-only), config JSON-schema distribution (`$schema` modeline, `dartclaw config schema --out`), and CLI
@@ -14,9 +24,9 @@ quick wins (truthful `status`, stderr + exit codes, `--yes` on deletes). Closes 
 `release_check.sh` runs only on the developer's host, which never exercises the Linux container job or the Windows
 release matrix, so a green local check preceded three red tag builds. The release now publishes ten archives across
 five targets — `dartclaw` and `dartclaw-workflow` each on macOS arm64/x64, Linux x64/arm64 and Windows x64. Record:
-`dartclaw-private/docs/specs/0.25.1/prd.md`.
-
-## Released
+`dartclaw-private/docs/specs/0.25.1/prd.md`. The same patch carried the second SecondBrain feedback batch (primary-agent hardening recipe and
+startup warning, channel identity in the composed prompt, announce continuity, `sessions.reset_hour: -1`) and the
+boy-scout cleanups from the 0.25 ledgers.
 
 ### 0.25 — Lean Runtime
 

@@ -2,36 +2,60 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'group_entry.dart';
 
-/// Lookup service for structured [GroupEntry] configuration keyed by
-/// `(ChannelType, groupId)`.
+/// The one lookup from a conversation to its structured allowlist row, for
+/// both allowlists: group rows keyed by `(ChannelType, groupId)` and DM rows
+/// keyed by `(ChannelType, peerId)`.
 ///
-/// Only entries that carry at least one override field (`name`, `project`,
-/// `model`, or `effort`) are stored — plain-string-equivalent entries (all
-/// overrides null) are omitted and [resolve] returns null for them.
+/// Only rows that carry at least one optional field (`name`, `project`,
+/// `model`, `effort`, or `agent`) are stored — plain-string-equivalent rows
+/// (all optional fields null) are omitted and every lookup returns null for
+/// them.
 class GroupConfigResolver {
-  final Map<(ChannelType, String), GroupEntry> _entries;
+  final Map<(ChannelType, String), GroupEntry> _groups;
+  final Map<(ChannelType, String), GroupEntry> _dms;
 
-  const new _(this._entries);
+  const new _(this._groups, this._dms);
 
-  /// Builds a resolver from per-channel [GroupEntry] lists.
+  /// Builds a resolver from per-channel group rows and per-channel DM rows.
   ///
-  /// Entries where all optional fields are null are skipped (they are
+  /// Rows where all optional fields are null are skipped (they are
   /// semantically identical to plain-string entries and don't need lookup).
-  factory fromChannelEntries(Map<ChannelType, List<GroupEntry>> entries) {
+  factory fromChannelEntries(
+    Map<ChannelType, List<GroupEntry>> groups, {
+    Map<ChannelType, List<GroupEntry>> dms = const {},
+  }) => GroupConfigResolver._(_index(groups), _index(dms));
+
+  static Map<(ChannelType, String), GroupEntry> _index(Map<ChannelType, List<GroupEntry>> entries) {
     final map = <(ChannelType, String), GroupEntry>{};
     for (final MapEntry(:key, :value) in entries.entries) {
       for (final entry in value) {
-        if (entry.name != null || entry.project != null || entry.model != null || entry.effort != null) {
+        if (entry.name != null ||
+            entry.project != null ||
+            entry.model != null ||
+            entry.effort != null ||
+            entry.agent != null) {
           map[(key, entry.id)] = entry;
         }
       }
     }
-    return GroupConfigResolver._(map);
+    return map;
   }
 
-  /// Returns the [GroupEntry] for [channelType] + [groupId], or null if the
+  /// Returns the group row for [channelType] + [groupId], or null if the
   /// entry is a plain string (no overrides) or not found.
-  GroupEntry? resolve(ChannelType channelType, String groupId) => _entries[(channelType, groupId)];
+  GroupEntry? resolve(ChannelType channelType, String groupId) => _groups[(channelType, groupId)];
+
+  /// Returns the DM row for [channelType] + [peerId], or null if the entry is
+  /// a plain string (no overrides) or not found.
+  GroupEntry? resolveDm(ChannelType channelType, String peerId) => _dms[(channelType, peerId)];
+
+  /// Returns the row owning a conversation: the group row when [groupId] is
+  /// given, else the DM row for [peerId].
+  GroupEntry? resolveRow(ChannelType channelType, {String? groupId, String? peerId}) {
+    if (groupId != null) return resolve(channelType, groupId);
+    if (peerId != null) return resolveDm(channelType, peerId);
+    return null;
+  }
 
   /// Normalizes a config-file channel key (e.g. `'google_chat'`) to the
   /// matching [ChannelType], or null if not recognized.

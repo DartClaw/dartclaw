@@ -78,6 +78,9 @@ class BehaviorFileService {
   /// Custom identifier preservation text used with [IdentifierPreservationMode.custom].
   final String? identifierInstructions;
 
+  /// Text standing in for the workspace `SOUL.md` body; null reads the file.
+  final String? soulOverride;
+
   /// Tracks whether the project SOUL.md deprecation warning has been logged.
   bool _projSoulDeprecationWarned = false;
 
@@ -90,13 +93,34 @@ class BehaviorFileService {
     this.compactInstructions,
     this.identifierPreservation = IdentifierPreservationMode.strict,
     this.identifierInstructions,
+    this.soulOverride,
   });
+
+  /// A copy of this service whose SOUL position carries [soul] instead of the
+  /// workspace `SOUL.md`, sharing the workspace dir and every collaborator.
+  ///
+  /// A blank [soul] yields no variant: this service is returned, so the
+  /// workspace `SOUL.md` is inherited.
+  BehaviorFileService withSoul(String soul) {
+    if (soul.trim().isEmpty) return this;
+    return BehaviorFileService(
+      workspaceDir: workspaceDir,
+      projectDir: projectDir,
+      maxMemoryBytes: maxMemoryBytes,
+      memoryCorpus: memoryCorpus,
+      onboardingExpiryDays: onboardingExpiryDays,
+      compactInstructions: compactInstructions,
+      identifierPreservation: identifierPreservation,
+      identifierInstructions: identifierInstructions,
+      soulOverride: soul,
+    );
+  }
 
   /// Composes the full system prompt for the given [scope].
   ///
   /// Files included per scope:
-  /// - [PromptScope.primary]: SOUL + USER + TOOLS + errors + bounded memory + compact instructions
-  /// - [PromptScope.task]: SOUL (workspace) + TOOLS
+  /// - [PromptScope.primary]: SOUL + USER + channel origin + TOOLS + errors + bounded memory + compact instructions
+  /// - [PromptScope.task]: SOUL (workspace or [soulOverride]) + channel origin + TOOLS
   /// - [PromptScope.restricted]: TOOLS only
   ///
   Future<String> composeSystemPrompt({
@@ -118,12 +142,12 @@ class BehaviorFileService {
       return parts.join('\n\n');
     }
 
-    // primary and task scopes: SOUL → USER (primary only) → TOOLS → ...
+    // primary and task scopes: SOUL → USER (primary only) → channel origin → TOOLS → ...
     if (scope == PromptScope.primary) {
       // USER.md — workspace only (agent-updatable user context)
       await _addSection(parts, 'USER.md', '## User Context');
-      _addChannelOrigin(parts, origin);
     }
+    _addChannelOrigin(parts, origin);
 
     // TOOLS.md — workspace only (interactive and task scopes)
     await _addSection(parts, 'TOOLS.md', '## Environment Notes');
@@ -151,8 +175,8 @@ class BehaviorFileService {
   /// Composes static prompt content for append-mode harnesses.
   ///
   /// Scope controls which workspace files are included at spawn time:
-  /// - [PromptScope.primary]: SOUL + USER + TOOLS + errors + AGENTS + bounded memory
-  /// - [PromptScope.task]: SOUL + TOOLS + AGENTS + memory hint
+  /// - [PromptScope.primary]: SOUL + USER + channel origin + TOOLS + errors + AGENTS + bounded memory
+  /// - [PromptScope.task]: SOUL + channel origin + TOOLS + AGENTS + memory hint
   /// - [PromptScope.restricted]: TOOLS + memory hint
   Future<String> composeStaticPrompt({
     PromptScope scope = PromptScope.primary,
@@ -172,8 +196,8 @@ class BehaviorFileService {
       if (scope == PromptScope.primary) {
         // USER.md — workspace only (agent-updatable user context)
         await _addSection(parts, 'USER.md', '## User Context');
-        _addChannelOrigin(parts, origin);
       }
+      _addChannelOrigin(parts, origin);
 
       // TOOLS.md — workspace only (human-maintained environment notes)
       await _addSection(parts, 'TOOLS.md', '## Environment Notes');
@@ -245,8 +269,8 @@ class BehaviorFileService {
 
   Future<void> _addGlobalSoul(List<String> parts) async {
     _checkProjectSoulDeprecation();
-    final globalSoul = await _readFile(p.join(workspaceDir, 'SOUL.md'));
-    parts.add(globalSoul ?? defaultPrompt);
+    final soul = soulOverride ?? await _readFile(p.join(workspaceDir, 'SOUL.md'));
+    parts.add(soul ?? defaultPrompt);
   }
 
   Future<void> _addOnboardingSection(List<String> parts, {required bool include}) async {

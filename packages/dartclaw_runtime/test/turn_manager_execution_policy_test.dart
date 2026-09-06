@@ -174,4 +174,71 @@ void main() {
     await expectLater(hostOutcome, throwsStateError);
     await expectLater(containerOutcome, throwsStateError);
   });
+
+  group('bound channel lease', () {
+    /// A coordinator whose admission hook records every request it admits.
+    (ExecutionCoordinator, List<ExecutionRequest>) recordingCoordinator() {
+      final primary = FakeTurnRunner();
+      final worker = FakeTurnRunner();
+      final requests = <ExecutionRequest>[];
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        primary: primary,
+        allowPrimaryBackgroundFallback: false,
+        admitExecution: (request) {
+          requests.add(request);
+          return primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput);
+        },
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (_) async => worker,
+      );
+      return (coordinator, requests);
+    }
+
+    Future<ExecutionRequest> requestFor(String sessionId, {String agentName = 'main'}) async {
+      final (coordinator, requests) = recordingCoordinator();
+      final turns = TurnManager.fromCoordinator(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        coordinator: coordinator,
+        sessions: sessions,
+        policyResolver: resolverFor(containersEnabled: false),
+      );
+      addTearDown(turns.executions.dispose);
+      final turnId = await turns.reserveTurn(sessionId, agentName: agentName);
+      final outcome = turns.waitForOutcome(sessionId, turnId);
+      turns.releaseTurn(sessionId, turnId);
+      await expectLater(outcome, throwsStateError);
+      return requests.single;
+    }
+
+    test('a channel turn named for an agent waits for admission on the worker lane, keyed by that agent', () async {
+      final session = await sessions.createSession(type: SessionType.channel);
+
+      final request = await requestFor(session.id, agentName: 'ana');
+
+      expect(request.surface, ExecutionSurface.logicalAgent);
+      expect(request.admission, ExecutionAdmission.wait);
+      expect(request.logicalAgentId, 'ana');
+    });
+
+    test('a logical-agent turn still requests fail-fast admission', () async {
+      final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+      final request = await requestFor(session.id, agentName: 'ana');
+
+      expect(request.surface, ExecutionSurface.logicalAgent);
+      expect(request.admission, ExecutionAdmission.failFast);
+      expect(request.logicalAgentId, 'ana');
+    });
+
+    test('a main channel turn requests exactly what it does today', () async {
+      final session = await sessions.createSession(type: SessionType.channel);
+
+      final request = await requestFor(session.id);
+
+      expect(request.surface, ExecutionSurface.channel);
+      expect(request.admission, ExecutionAdmission.wait);
+      expect(request.logicalAgentId, isNull);
+    });
+  });
 }

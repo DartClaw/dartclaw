@@ -202,11 +202,13 @@ class ConfigWriter {
     }
   }
 
-  /// Reads a channel allowlist from the YAML config file.
+  /// Reads a channel allowlist from the YAML config file as its stored rows:
+  /// plain strings and structured maps alike, as plain Dart values, so a write
+  /// built from this read keeps every row.
   ///
   /// Reads from `channels.<channelType>.<fieldName>` (e.g. `channels.whatsapp.dm_allowlist`).
   /// Returns an empty list if the path is absent or unreadable.
-  Future<List<String>> readChannelAllowlist(String channelType, String fieldName) async {
+  Future<List<Object>> readChannelAllowlist(String channelType, String fieldName) async {
     final file = File(configPath);
     if (!file.existsSync()) return [];
     try {
@@ -214,7 +216,7 @@ class ConfigWriter {
       final editor = YamlEditor(content);
       final value = editor.parseAt(['channels', channelType, fieldName]).value;
       if (value is! List) return [];
-      return value.whereType<String>().toList();
+      return value.map(_deepConvert).whereType<Object>().toList();
     } on ArgumentError {
       return [];
     } catch (e) {
@@ -234,10 +236,11 @@ class ConfigWriter {
     return value;
   }
 
-  /// Writes a channel allowlist to the YAML config file.
+  /// Writes a channel allowlist – the row list [readChannelAllowlist] answers,
+  /// edited – to the YAML config file.
   ///
   /// Writes to `channels.<channelType>.<fieldName>` using the write queue.
-  Future<void> writeChannelAllowlist(String channelType, String fieldName, List<String> entries) {
+  Future<void> writeChannelAllowlist(String channelType, String fieldName, List<Object> entries) {
     return updateFields({'channels.$channelType.$fieldName': entries});
   }
 

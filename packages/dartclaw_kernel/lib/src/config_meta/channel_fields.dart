@@ -128,7 +128,7 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.googleChat.dmAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved one-to-one Google Chat senders, used while direct access is allowlist-based.',
+    description: 'Approved one-to-one Google Chat senders, used while direct access is allowlist-based. Plain user resource names, or maps carrying an id plus optional name, project, model, effort and agent.',
     nullable: true,
   ),
   'channels.google_chat.group_access': FieldMeta(
@@ -144,7 +144,7 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.googleChat.groupAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model and effort.',
+    description: 'Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent.',
     nullable: true,
   ),
   'channels.google_chat.require_mention': FieldMeta(
@@ -342,14 +342,14 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.whatsapp.dmAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved one-to-one WhatsApp senders, used while direct access is allowlist-based.',
+    description: 'Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent.',
   ),
   'channels.whatsapp.group_allowlist': FieldMeta(
     yamlPath: 'channels.whatsapp.group_allowlist',
     jsonKey: 'channels.whatsapp.groupAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model and effort.',
+    description: 'Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent.',
   ),
   'channels.whatsapp.mention_patterns': FieldMeta(
     yamlPath: 'channels.whatsapp.mention_patterns',
@@ -448,14 +448,14 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.signal.dmAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based.',
+    description: 'Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. Plain numbers, or maps carrying an id plus optional name, project, model, effort and agent.',
   ),
   'channels.signal.group_allowlist': FieldMeta(
     yamlPath: 'channels.signal.group_allowlist',
     jsonKey: 'channels.signal.groupAllowlist',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model and effort are also accepted.',
+    description: 'Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model, effort and agent are also accepted.',
   ),
   'channels.signal.mention_patterns': FieldMeta(
     yamlPath: 'channels.signal.mention_patterns',

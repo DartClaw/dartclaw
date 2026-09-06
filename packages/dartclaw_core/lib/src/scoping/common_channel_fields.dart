@@ -14,8 +14,8 @@ class CommonChannelFields<TGroupAccess extends Enum> {
   /// Group-message access policy for the channel.
   final TGroupAccess groupAccess;
 
-  /// Approved direct-message senders when [dmAccess] is allowlist-based.
-  final List<String> dmAllowlist;
+  /// Approved direct-message rows when [dmAccess] is allowlist-based.
+  final List<GroupEntry> dmAllowlist;
 
   /// Approved group entries when [groupAccess] is allowlist-based.
   final List<GroupEntry> groupAllowlist;
@@ -85,10 +85,16 @@ class CommonChannelFields<TGroupAccess extends Enum> {
       invalidValueMessage: (value) => 'Invalid $channelName.group_access: "$value" — using default',
     );
 
-    final dmAllowlist = _parseStringList(yaml['dm_allowlist']);
+    final dmAllowlistRaw = yaml['dm_allowlist'];
+    final dmAllowlist = GroupEntry.parseList(
+      dmAllowlistRaw is List ? dmAllowlistRaw : null,
+      field: '$channelName.dm_allowlist',
+      onWarning: warns.add,
+    );
     final groupAllowlistRaw = yaml['group_allowlist'];
     final groupAllowlist = GroupEntry.parseList(
       groupAllowlistRaw is List ? groupAllowlistRaw : null,
+      field: '$channelName.group_allowlist',
       onWarning: warns.add,
     );
     final mentionPatterns = _parseStringList(yaml['mention_patterns']);

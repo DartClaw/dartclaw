@@ -278,14 +278,14 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.google_chat.audience.value` | null or string |  | Expected audience matching the declared form. A request that fails it is rejected before parsing. (file-only, not settable via API or CLI) |
 | `channels.google_chat.bot_user` | null or string |  | Chat user resource name of the bot, used to drop its own messages. Null disables self-filtering. (restart required) |
 | `channels.google_chat.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Google Chat conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
-| `channels.google_chat.dm_allowlist` | array or null |  | Approved one-to-one Google Chat senders, used while direct access is allowlist-based. (restart required) |
+| `channels.google_chat.dm_allowlist` | array or null |  | Approved one-to-one Google Chat senders, used while direct access is allowlist-based. Plain user resource names, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.google_chat.enabled` | boolean |  | Run the Google Chat integration. Off leaves its transport unstarted. (restart required) |
 | `channels.google_chat.feedback.enabled` | boolean |  | Post progress updates while a long turn runs. (restart required) |
 | `channels.google_chat.feedback.min_feedback_delay` | string |  | Duration such as 5s a turn must run before the first progress update appears. (restart required) |
 | `channels.google_chat.feedback.status_interval` | string |  | Duration such as 30s between progress updates once they start. (restart required) |
 | `channels.google_chat.feedback.status_style` | string | one of "creative", "minimal", "silent" | Wording of progress updates: creative, minimal, or silent. (restart required) |
 | `channels.google_chat.group_access` | string | one of "allowlist", "disabled", "open" | Which Google Chat groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
-| `channels.google_chat.group_allowlist` | array or null |  | Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model and effort. (restart required) |
+| `channels.google_chat.group_allowlist` | array or null |  | Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.google_chat.max_chunk_size` | integer | minimum 1 | Accepted and discarded — outbound Google Chat chunking is pinned at 4000 characters. A non-positive value is still reported at load. (restart required) |
 | `channels.google_chat.mention_patterns` | array |  | Accepted and discarded — Google Chat recognizes a mention from the platform annotation, not from a regex. (restart required) |
 | `channels.google_chat.oauth_credentials` | null or string |  | Path to the OAuth client credentials JSON needed by user-auth features such as Workspace Events subscriptions. (restart required) |
@@ -309,11 +309,11 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.retry_policy.jitter_factor` | number | 0–1 | Fraction of the backoff randomly added to each delivery retry, spreading a burst of failures apart. 0 retries on a fixed schedule; default 0.2. (restart required) |
 | `channels.retry_policy.max_attempts` | integer | minimum 1 | Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required) |
 | `channels.signal.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Signal conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
-| `channels.signal.dm_allowlist` | array |  | Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. (restart required) |
+| `channels.signal.dm_allowlist` | array |  | Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. Plain numbers, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.signal.enabled` | boolean |  | Run the Signal integration. Off leaves the signal-cli daemon unstarted. (restart required) |
 | `channels.signal.executable` | string |  | Binary name or absolute path of signal-cli. (restart required) |
 | `channels.signal.group_access` | string | one of "allowlist", "disabled", "open" | Which Signal groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
-| `channels.signal.group_allowlist` | array |  | Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model and effort are also accepted. (restart required) |
+| `channels.signal.group_allowlist` | array |  | Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model, effort and agent are also accepted. (restart required) |
 | `channels.signal.host` | string |  | Address the signal-cli daemon listens on. Default 127.0.0.1. (restart required) |
 | `channels.signal.max_chunk_size` | integer | minimum 1 | Largest outbound Signal chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required) |
 | `channels.signal.mention_patterns` | array |  | Extra regexes counted as naming the bot in a Signal group, on top of the built-in detection. (restart required) |
@@ -322,14 +322,14 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.signal.require_mention` | boolean |  | Only act on Signal group messages that name the bot. Off answers every message in the group. (restart required) |
 | `channels.signal.response_prefix` | string |  | Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required) |
 | `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
-| `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. (restart required) |
+| `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |
 | `channels.whatsapp.gowa_db_uri` | null or string |  | Connection string giving the GOWA sidecar persistent pairing state. Null keeps its own local store. (restart required) |
 | `channels.whatsapp.gowa_executable` | string |  | Binary name or absolute path of the GOWA sidecar that talks to WhatsApp. (restart required) |
 | `channels.whatsapp.gowa_host` | string |  | Address the GOWA sidecar HTTP API listens on. Default 127.0.0.1. (restart required) |
 | `channels.whatsapp.gowa_port` | integer | 1–65535 | Port the GOWA sidecar HTTP API listens on. Default 3000; an instance already listening there is attached to rather than spawned. (restart required) |
 | `channels.whatsapp.group_access` | string | one of "allowlist", "disabled", "open" | Which WhatsApp groups may reach the agent: allowlist checks the listed groups, open accepts any, disabled ignores them. (restart required) |
-| `channels.whatsapp.group_allowlist` | array |  | Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model and effort. (restart required) |
+| `channels.whatsapp.group_allowlist` | array |  | Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.whatsapp.max_chunk_size` | integer | minimum 1 | Largest outbound WhatsApp chunk in characters, multipart labels included. A longer reply is split. Default 4000. (restart required) |
 | `channels.whatsapp.mention_patterns` | array |  | Extra regexes counted as naming the bot in a WhatsApp group, on top of the built-in detection. (restart required) |
 | `channels.whatsapp.require_mention` | boolean |  | Only act on WhatsApp group messages that name the bot. Off answers every message in the group. (restart required) |

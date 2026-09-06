@@ -21,3 +21,6 @@
 ### Signal
 - **Sealed-sender: pairing UUID vs later `sourceNumber`.** Allowlist must handle both forms and self-heal on first dual-form message.
 - **UUIDs are mixed-case.** Lowercase before storage and lookup.
+
+### Session routing
+- **A `channel`-surface execution request is re-routed onto the primary's provider and policy.** `ExecutionCoordinator._laneFor` sends `ExecutionSurface.channel` to the primary lane and `_routeRequest` rewrites the request, so a channel session pinned to another provider or a container profile would silently run as the primary. A pinned channel turn must present the logical-agent surface (`TurnManager._reserveExecutionForSession` does this for a channel session named for an agent), keeping `wait` admission.

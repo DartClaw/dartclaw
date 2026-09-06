@@ -211,7 +211,7 @@ class ConfigSerializer {
             'statusStyle': googleChatConfig.feedback.statusStyle.name,
           },
           'dmAccess': googleChatConfig.dmAccess.name,
-          'dmAllowlist': googleChatConfig.dmAllowlist,
+          'dmAllowlist': googleChatConfig.dmIds,
           'groupAccess': googleChatConfig.groupAccess.name,
           'groupAllowlist': googleChatConfig.groupIds,
           'requireMention': googleChatConfig.requireMention,

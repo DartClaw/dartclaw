@@ -16,6 +16,17 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Added
 
+- **Channel conversations bound to a logical agent (`agent: <name>` on an allowlist row)** – a `dm_allowlist` or
+  `group_allowlist` entry may name an `agent.agents.<name>` definition: that peer's or group's messages open and
+  continue a session keyed by the agent, pinned to the agent's provider, execution mode and container profile, run
+  with the agent's tool policy, model and effort (the row's own `model` / `effort` still win) and prompted with the
+  agent's `prompt` in place of `SOUL.md` over the task composition – `TOOLS.md`, `AGENTS.md` and the channel origin,
+  without the owner's `USER.md` or memory index. A bound turn queues on `providers.<id>.pool_size` capacity rather
+  than failing fast and never writes the owner's daily log. `dm_allowlist` now takes the same structured entries as
+  `group_allowlist`, so a DM row's `model` / `effort` apply for the first time, and its parse warnings name
+  `<channel>.dm_allowlist`. A row naming an undeclared agent refuses the config load rather than routing the peer to
+  the primary agent. Web sessions and workspaces are unchanged: a bound persona reads and writes the owner's one
+  workspace.
 - **Model-free scheduled job (`type: shell`)** – a `scheduling.jobs` entry that runs a command instead of a model
   turn, for a credentialed data feed the agent only reads. It uses the scheduler the deployment already runs: the same
   cron and interval schedules, `enabled`, `retry.*`, failure alerting, on-demand run and Scheduling-page row as every
@@ -42,6 +53,10 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Changed
 
+- **Runtime LOC ceiling raised for the channel agent binding** – `dartclaw_runtime/lib` measures 65,871 Dart lines
+  after the bound dispatch, the SOUL stand-in, the load-time refusal, the row-preserving allowlist writes and the
+  worker-lane reservation landed; the ceiling is re-cut to `_maxCeilingFor(measured)`, 67,371, and the necessity is
+  recorded in `dev/tools/arch_check.dart` (ADR-033).
 - **Runtime LOC ceiling raised for the scheduling approval gate** – `dartclaw_runtime/lib` measures 65,676 Dart lines
   after the pending-change store, the seam's park/approve/reject and the Scheduling page's pending section; the
   reviewed ceiling is 65,700. The proportional band and the automatic downward slack ratchet are unchanged.
@@ -52,6 +67,12 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Fixed
 
+- **Allowlist writes keep structured rows** – adding or removing an entry through the config API or the settings
+  page, and confirming a DM pairing, wrote back a plain id list and silently dropped every structured
+  `group_allowlist` row. Writes now edit the stored rows by id, and the API and page still answer ids.
+- **A bound group has no `main` twin** – the startup and config-change pre-creation of group sessions carries the
+  row's `agent`, so the titled session is the one the group's messages land in; the config-change path now parses
+  rows through the one allowlist parser instead of extracting ids by hand.
 - **A `scheduling.jobs` entry written with an inline collection no longer breaks the next job write** – `ConfigWriter`
   handed `YamlEditor` the `YamlMap`/`YamlList` nodes it had read back, and the editor re-emitted any that were
   flow-style (`task: {title: T, description: D}`, `command: ["a", "b"]`) at column 0, failing every later create,

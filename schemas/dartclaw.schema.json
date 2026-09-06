@@ -304,7 +304,7 @@
               "type": "string"
             },
             "dm_allowlist": {
-              "description": "Approved one-to-one Google Chat senders, used while direct access is allowlist-based. (restart required)",
+              "description": "Approved one-to-one Google Chat senders, used while direct access is allowlist-based. Plain user resource names, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
                 "type": "string"
               },
@@ -357,7 +357,7 @@
               "type": "string"
             },
             "group_allowlist": {
-              "description": "Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model and effort. (restart required)",
+              "description": "Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
                 "type": "string"
               },
@@ -555,7 +555,7 @@
               "type": "string"
             },
             "dm_allowlist": {
-              "description": "Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. (restart required)",
+              "description": "Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. Plain numbers, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
                 "type": "string"
               },
@@ -579,7 +579,7 @@
               "type": "string"
             },
             "group_allowlist": {
-              "description": "Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model and effort are also accepted. (restart required)",
+              "description": "Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model, effort and agent are also accepted. (restart required)",
               "items": {
                 "type": "string"
               },
@@ -639,7 +639,7 @@
               "type": "string"
             },
             "dm_allowlist": {
-              "description": "Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. (restart required)",
+              "description": "Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
                 "type": "string"
               },
@@ -680,7 +680,7 @@
               "type": "string"
             },
             "group_allowlist": {
-              "description": "Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model and effort. (restart required)",
+              "description": "Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
                 "type": "string"
               },

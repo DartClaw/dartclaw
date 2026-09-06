@@ -131,9 +131,34 @@ for using `agent.disallowed_tools` to withhold tools from a primary lane exposed
 
 The active turn's agent identity is threaded through each provider interception path before this evaluation. Claude registers an unfiltered `PreToolUse` hook so built-ins and dynamically named MCP tools reach the host guard. When Claude defers an allowlisted tool behind `ToolSearch`, DartClaw permits that schema-discovery step but evaluates the selected tool separately against the closed policy; discovery does not grant the capability. Codex enforcement exists only for operations that emit approval requests: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses the host guard. Disabling the optional security-guard bundle leaves configured tool policy and per-turn filters active. ACP enforcement covers host reverse file calls and permission requests only; operations that request no permission do not reach the guard. DartClaw warns at startup when configured agent policy cannot be fully mediated by the selected provider posture.
 
+### Binding a Channel Conversation to an Agent
+
+A `dm_allowlist` or `group_allowlist` entry may carry `agent: <name>`, naming an `agent.agents.<name>` definition (see
+the [WhatsApp](whatsapp.md), [Signal](signal.md) and [Google Chat](google-chat.md) guides for the row form). That peer's
+or group's messages then open and continue a session keyed by the agent instead of `main`, under the same `dm_scope` /
+`group_scope` rule as every other channel conversation, and a row without `agent` keeps the primary agent. Precedence
+is row → primary: there is no channel-level default agent.
+
+A bound conversation executes as the agent. Its session is pinned to the agent's `provider`, `execution` mode and
+`security_profile` exactly as a `sessions_spawn` session is; the turn carries the agent's name, so `tools` and
+`denied_tools` apply through the [tool policy cascade](#tool-policy-cascade) whole – a declared `tools` list closes the
+set for that conversation – and under a container policy the bridged MCP grant is the agent's. The agent's `model` and
+`effort` apply unless the row, the channel scope or the crowd-coding fallback set their own; the row's win.
+
+Its prompt is the persona over the task composition: the agent's `prompt` stands where the workspace `SOUL.md` stands for
+the owner (a blank `prompt` inherits `SOUL.md`), followed by `TOOLS.md`, `AGENTS.md`, the channel-origin section and the
+memory-retrieval hint. The owner's `USER.md`, recent errors and memory index are not composed in, and the persona's turns
+never write the owner's daily activity log, so the nightly journal never folds a persona's conversation into the owner's
+memory. Tool-mediated memory access (`memory_read`, `memory_search` and the write tools) is bounded only by the agent's
+`tools` – a persona has no vault of its own yet and reads and writes the owner's one workspace. An agent resolving to
+the `restricted` container profile composes tools only, with no identity, as a restricted task turn does.
+
+Each persona chatting concurrently consumes a `providers.<id>.pool_size` worker slot on its provider; a bound turn waits
+for a slot rather than failing fast the way a nested `sessions_spawn` does. Web sessions stay on the primary agent.
+
 ### Capacity Boundary
 
-The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller. A scheduled or task turn holds a lease for its whole turn, so a logical agent it spawns needs a second one — which is why the default capacity is two.
+The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and unbound channel turns; a channel conversation [bound to an agent](#binding-a-channel-conversation-to-an-agent) takes a worker lease like a logical-agent session, waiting for one rather than failing fast. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller. A scheduled or task turn holds a lease for its whole turn, so a logical agent it spawns needs a second one — which is why the default capacity is two.
 
 Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle host worker may be retained and reused only when its provider and security profile match. A logical-agent container is retained only for that exact session/agent owner across its turns and destroyed on discard, eviction, or shutdown; it never crosses principals. The number of profiles or retained containers does not consume or enlarge active worker lease capacity.
 

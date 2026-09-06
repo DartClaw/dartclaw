@@ -2,6 +2,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:io';
 
+import 'package:yaml/yaml.dart';
+
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
@@ -217,6 +219,95 @@ channels:
         json: {'entry': '1234567890'},
         status: 400,
       );
+    });
+  });
+
+  group('structured rows survive', () {
+    const boundJid = '46700000001@s.whatsapp.net';
+    const plainJid = '46700000002@s.whatsapp.net';
+    const boundRow = {'id': boundJid, 'agent': 'ana'};
+
+    List<Object?> storedRows(String field) {
+      final doc = loadYaml(File(configPath).readAsStringSync()) as YamlMap;
+      final rows = (doc['channels'] as YamlMap)['whatsapp'][field] as YamlList;
+      return [for (final row in rows) row is YamlMap ? Map<String, Object?>.from(row) : row];
+    }
+
+    setUp(() {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+channels:
+  whatsapp:
+    enabled: true
+    dm_allowlist:
+      - id: $boundJid
+        agent: ana
+      - $plainJid
+    group_allowlist:
+      - id: 120363041234567890@g.us
+        agent: ana
+      - 120363099999999999@g.us
+''');
+    });
+
+    test('adding and removing a peer leave the map row intact, and the id list answers every row', () async {
+      final waCtrl = DmAccessController(mode: DmAccessMode.allowlist);
+      final router = createRouter(waController: waCtrl);
+      const added = '46700000003@s.whatsapp.net';
+
+      final addBody = await api(router)
+          .expectJsonObject('POST', '/api/config/channels/whatsapp/dm-allowlist', json: {'entry': added});
+      expect(addBody['allowlist'], [boundJid, plainJid, added]);
+      expect(storedRows('dm_allowlist'), [boundRow, plainJid, added]);
+      expect(waCtrl.isAllowed(added), isTrue);
+
+      final removeBody = await api(router)
+          .expectJsonObject('DELETE', '/api/config/channels/whatsapp/dm-allowlist', json: {'entry': added});
+      expect(removeBody['allowlist'], [boundJid, plainJid]);
+      expect(storedRows('dm_allowlist'), [boundRow, plainJid]);
+    });
+
+    test('adding an id a map row already holds is a duplicate, and removing it removes that row', () async {
+      final router = createRouter(waController: DmAccessController(mode: DmAccessMode.allowlist));
+
+      await api(router)
+          .expectResponse('POST', '/api/config/channels/whatsapp/dm-allowlist', json: {'entry': boundJid}, status: 409);
+      expect(storedRows('dm_allowlist'), [boundRow, plainJid]);
+
+      final body = await api(router)
+          .expectJsonObject('DELETE', '/api/config/channels/whatsapp/dm-allowlist', json: {'entry': boundJid});
+      expect(body['allowlist'], [plainJid]);
+      expect(storedRows('dm_allowlist'), [plainJid]);
+    });
+
+    test('confirming a pairing appends the peer once beside the untouched map row', () async {
+      final waCtrl = DmAccessController(mode: DmAccessMode.pairing);
+      final router = createRouter(waController: waCtrl);
+      final pairing = waCtrl.createPairing('46700000004@s.whatsapp.net', displayName: 'Dana')!;
+
+      final body = await api(router)
+          .expectJsonObject('POST', '/api/channels/whatsapp/dm-pairing/confirm', json: {'code': pairing.code});
+
+      expect(body['confirmed'], isTrue);
+      expect(storedRows('dm_allowlist'), [boundRow, plainJid, '46700000004@s.whatsapp.net']);
+      expect(waCtrl.isAllowed('46700000004@s.whatsapp.net'), isTrue);
+    });
+
+    test('the group list keeps its map row through a write and reads as ids', () async {
+      final router = createRouter(waController: DmAccessController(mode: DmAccessMode.allowlist));
+
+      final read = await api(router).expectJsonObject('GET', '/api/config/channels/whatsapp/group-allowlist');
+      expect(read['allowlist'], ['120363041234567890@g.us', '120363099999999999@g.us']);
+
+      await api(router).expectJsonObject(
+        'DELETE',
+        '/api/config/channels/whatsapp/group-allowlist',
+        json: {'entry': '120363099999999999@g.us'},
+      );
+      expect(storedRows('group_allowlist'), [
+        {'id': '120363041234567890@g.us', 'agent': 'ana'},
+      ]);
     });
   });
 }

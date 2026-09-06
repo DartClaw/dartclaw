@@ -38,7 +38,7 @@ void main() {
         expect(config.botUser, 'users/123456');
         expect(config.typingIndicatorMode, TypingIndicatorMode.disabled);
         expect(config.dmAccess, DmAccessMode.allowlist);
-        expect(config.dmAllowlist, ['spaces/AAA/users/1']);
+        expect(config.dmIds, ['spaces/AAA/users/1']);
         expect(config.groupAccess, GroupAccessMode.allowlist);
         expect(config.groupIds, ['spaces/AAA']);
         expect(config.requireMention, isFalse);
@@ -78,7 +78,7 @@ void main() {
             expect(config.webhookPath, '/integrations/googlechat');
             expect(config.typingIndicatorMode, TypingIndicatorMode.message);
             expect(config.dmAccess, DmAccessMode.pairing);
-            expect(config.dmAllowlist, isEmpty);
+            expect(config.dmIds, isEmpty);
             expect(config.groupAccess, GroupAccessMode.disabled);
             expect(config.groupIds, isEmpty);
             expect(config.requireMention, isTrue);

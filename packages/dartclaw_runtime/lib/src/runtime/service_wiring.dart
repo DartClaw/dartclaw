@@ -48,6 +48,7 @@ import '../server.dart'
     show ServerChannelDeps, ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
 import '../server_composition.dart';
 import '../restart_service.dart' show consumeRestartPending;
+import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
 import 'harness_wiring.dart';
 import 'scheduling_wiring.dart';
@@ -1049,6 +1050,7 @@ class _RuntimeAssembly {
       storage: storage,
       task: task,
       resolvedConfigPath: resolvedConfigPath,
+      agentBinder: ChannelAgentBinder.forHarness(harness),
     );
     await channel.wire(
       serverRefGetter: ctx.composedServerGetter,

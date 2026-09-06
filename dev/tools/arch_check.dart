@@ -102,6 +102,18 @@ int _maxCeilingFor(int loc) {
 //   a net 407 lines over a tree the shell-job kind had already brought to 87
 //   lines under the ceiling. The gate is one authority with no duplicated
 //   validator, so nothing came out without dropping a required arm.
+//
+// Reviewed necessity, 2026-09-06 (ADR-033):
+//   dartclaw_runtime  65700 -> 67371 (measured 65871; re-cut to
+//   _maxCeilingFor(measured) on the finished tree). The channel agent binding
+//   adds the bound dispatch branch and its binder (channel_agent_binding.dart),
+//   the SOUL stand-in variant on BehaviorFileService, the load-time refusal of
+//   an undeclared agent, row-preserving allowlist reads and writes, and the
+//   worker-lane reservation for a bound channel turn — a net 171 lines over a
+//   tree the approval gate had left 24 lines under the ceiling. The binder
+//   consumes the one policy resolver and the one row lookup rather than copying
+//   either, and what the story retired (the group id decoded back out of a
+//   session key, the hand-rolled config-change row extraction) already came out.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -111,7 +123,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_core': 27705,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
-  'dartclaw_runtime': 65700,
+  'dartclaw_runtime': 67371,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 3984,
   'dartclaw_whatsapp': 1184,

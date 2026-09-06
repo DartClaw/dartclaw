@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.25 kernel formation and storage absorption.
+**Current through**: 0.25.2 channel agent binding.
 
 ---
 
@@ -128,6 +128,15 @@ Format: `agent:<agentId>:<scope>:<identifiers>`
 | `cronSession()`        | `cron`  | `agent:main:cron:daily-summary`                     |
 | `taskSession()`        | `task`  | `agent:main:task:abc123`                            |
 | `logicalAgentSession()`| `logical` | `agent:review%3Asecurity:logical:turn%2F123`       |
+
+The `agentId` component is `main` for web sessions and for channel rows without a
+binding. A `dm_allowlist` or `group_allowlist` row carrying `agent: <name>` makes
+`ChannelManager.deriveSessionKey` emit that name instead (for example
+`agent:ana:dm:signal:%2B46700000001`), so a bound conversation is its own
+session with no storage change: `dispatchChannelTurn` creates it pinned to the
+agent's provider and execution policy the way `sessions_spawn` pins a
+logical-agent session, and its turns run under the agent's name on the worker
+lane with `wait` admission.
 
 Identifier components are URI-encoded by the factory methods to prevent
 delimiter collisions. The `SessionKey.parse()` factory reconstructs the
@@ -534,7 +543,8 @@ without waiting for the first inbound message.
    `channels.<type>.group_allowlist` key changes
 
 **Session creation flow**:
-1. Compute `SessionKey.groupShared()` for each `(channelType, groupId)` pair
+1. Compute `SessionKey.groupShared()` for each `(channelType, groupId)` pair,
+   with the row's `agent` (default `main`) as the key's agent component
 2. Call `SessionService.getOrCreateByKey()` with `SessionType.channel`
 3. Set title via display name resolution chain:
    - Structured `GroupEntry.name` (trimmed, non-empty)

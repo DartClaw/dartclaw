@@ -369,8 +369,8 @@ class GoogleChatConfig {
   /// Direct-message access policy for one-to-one Google Chat spaces.
   final DmAccessMode dmAccess;
 
-  /// Approved direct-message space identifiers when [dmAccess] is restricted.
-  final List<String> dmAllowlist;
+  /// Approved direct-message rows when [dmAccess] is restricted.
+  final List<GroupEntry> dmAllowlist;
 
   /// Group-space access policy.
   final GroupAccessMode groupAccess;
@@ -406,7 +406,7 @@ class GoogleChatConfig {
     this.botUser,
     this.typingIndicatorMode = TypingIndicatorMode.message,
     this.dmAccess = DmAccessMode.pairing,
-    this.dmAllowlist = const [],
+    this.dmAllowlist = const <GroupEntry>[],
     this.groupAccess = GroupAccessMode.disabled,
     this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
@@ -425,6 +425,10 @@ class GoogleChatConfig {
   /// Provides backward-compatible access equivalent to the previous
   /// `List<String> groupAllowlist` field.
   List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
+
+  /// The peer ids from [dmAllowlist] as a plain string list – the shape the
+  /// DM access check consumes.
+  List<String> get dmIds => GroupEntry.groupIds(dmAllowlist);
 
   /// OAuth scopes required to create and remove reactions.
   Set<String> get requiredReactionScopes =>

@@ -463,6 +463,116 @@ void main() {
       expect(receivedSessionKey, contains(Uri.encodeComponent('sender@s.whatsapp.net')));
     });
   });
+  group('agent binding', () {
+    const boundPeer = '+46700000001';
+    const plainPeer = '+46700000002';
+    const boundGroup = 'spaces/AAA';
+    const plainGroup = 'spaces/BBB';
+
+    final rows = GroupConfigResolver.fromChannelEntries(
+      {
+        ChannelType.googlechat: [const GroupEntry(id: boundGroup, agent: 'ana'), const GroupEntry(id: plainGroup)],
+      },
+      dms: {
+        ChannelType.signal: [const GroupEntry(id: boundPeer, agent: 'ana'), const GroupEntry(id: plainPeer)],
+      },
+    );
+
+    ChannelManager buildManager({required SessionScopeConfig scopeConfig, GroupConfigResolver? rows}) {
+      final queue = MessageQueue(
+        debounceWindow: const Duration(milliseconds: 50),
+        dispatcher: (
+          sessionKey,
+          message, {
+          required ChannelType channelType,
+          String? senderJid,
+          String? senderDisplayName,
+          String? groupJid,
+        }) async => 'ok',
+      );
+      return ChannelManager(
+        queue: queue,
+        config: const ChannelConfig.defaults(),
+        liveScopeConfig: LiveScopeConfig(scopeConfig),
+        groupConfigResolver: rows,
+      );
+    }
+
+    ChannelMessage dm(String peer) => ChannelMessage(channelType: ChannelType.signal, senderJid: peer, text: 'hi');
+    ChannelMessage groupMessage(String group) =>
+        ChannelMessage(channelType: ChannelType.googlechat, senderJid: 'users/1', groupJid: group, text: 'hi');
+
+    for (final dmScope in DmScope.values) {
+      test('dm_scope ${dmScope.name}: a bound row yields the agent key, an unbound sender the key it has today', () {
+        final scope = SessionScopeConfig(dmScope: dmScope, groupScope: GroupScope.shared);
+        final bound = buildManager(scopeConfig: scope, rows: rows);
+        final unwired = buildManager(scopeConfig: scope);
+
+        final boundKey = bound.deriveSessionKey(dm(boundPeer));
+        final unwiredBoundKey = unwired.deriveSessionKey(dm(boundPeer));
+        expect(SessionKey.parse(boundKey).agentId, 'ana');
+        expect(SessionKey.parse(unwiredBoundKey).agentId, 'main');
+        expect(boundKey, unwiredBoundKey.replaceFirst('agent:main:', 'agent:ana:'));
+        expect(bound.deriveSessionKey(dm(plainPeer)), unwired.deriveSessionKey(dm(plainPeer)));
+        expect(SessionKey.parse(bound.deriveSessionKey(dm(plainPeer))).agentId, 'main');
+
+        bound.dispose();
+        unwired.dispose();
+      });
+    }
+
+    for (final groupScope in GroupScope.values) {
+      test(
+        'group_scope ${groupScope.name}: a bound row yields the agent key, an unbound group the key it has today',
+        () {
+          final scope = SessionScopeConfig(dmScope: DmScope.perChannelContact, groupScope: groupScope);
+          final bound = buildManager(scopeConfig: scope, rows: rows);
+          final unwired = buildManager(scopeConfig: scope);
+
+          final boundKey = bound.deriveSessionKey(groupMessage(boundGroup));
+          final unwiredBoundKey = unwired.deriveSessionKey(groupMessage(boundGroup));
+          expect(SessionKey.parse(boundKey).agentId, 'ana');
+          expect(boundKey, unwiredBoundKey.replaceFirst('agent:main:', 'agent:ana:'));
+          expect(bound.deriveSessionKey(groupMessage(plainGroup)), unwired.deriveSessionKey(groupMessage(plainGroup)));
+          expect(SessionKey.parse(bound.deriveSessionKey(groupMessage(plainGroup))).agentId, 'main');
+
+          bound.dispose();
+          unwired.dispose();
+        },
+      );
+    }
+
+    test('dm_scope shared gives one session per agent lane, not per bound peer', () {
+      final bound = buildManager(
+        scopeConfig: const SessionScopeConfig(dmScope: DmScope.shared, groupScope: GroupScope.shared),
+        rows: GroupConfigResolver.fromChannelEntries(
+          {},
+          dms: {
+            ChannelType.signal: [const GroupEntry(id: '+1', agent: 'ana'), const GroupEntry(id: '+2', agent: 'ana')],
+          },
+        ),
+      );
+      expect(bound.deriveSessionKey(dm('+1')), 'agent:ana:dm:shared');
+      expect(bound.deriveSessionKey(dm('+2')), 'agent:ana:dm:shared');
+      expect(bound.deriveSessionKey(dm('+3')), 'agent:main:dm:shared');
+      bound.dispose();
+    });
+
+    test('a group message never takes the sender DM row', () {
+      final bound = buildManager(
+        scopeConfig: const SessionScopeConfig.defaults(),
+        rows: GroupConfigResolver.fromChannelEntries(
+          {},
+          dms: {
+            ChannelType.googlechat: [const GroupEntry(id: 'users/1', agent: 'ana')],
+          },
+        ),
+      );
+      expect(SessionKey.parse(bound.deriveSessionKey(groupMessage(plainGroup))).agentId, 'main');
+      expect(bound.resolveRow(groupMessage(plainGroup)), isNull);
+      bound.dispose();
+    });
+  });
 }
 
 /// A minimal bridge that captures the sessionKey passed to tryHandle and

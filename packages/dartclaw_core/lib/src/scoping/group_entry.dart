@@ -1,12 +1,13 @@
-/// A structured group allowlist entry carrying an optional display name, project
-/// binding, model override, and effort override.
+/// A structured allowlist row – a DM peer or a group – carrying an optional
+/// display name, project binding, model override, effort override and the
+/// logical agent the conversation is bound to.
 ///
 /// Plain-string allowlist entries are represented as `GroupEntry(id: id)` with
 /// all optional fields null — functionally equivalent to the previous
 /// `List<String>` representation.
 class GroupEntry {
-  /// The channel-specific group identifier (e.g. WhatsApp JID, Signal group ID,
-  /// Google Chat space name).
+  /// The channel-specific identifier: a DM peer id, or a group id (WhatsApp
+  /// JID, Signal group ID, Google Chat space name).
   final String id;
 
   /// Optional human-readable display name shown in the session sidebar.
@@ -15,15 +16,22 @@ class GroupEntry {
   /// Optional project ID for task creation routing.
   final String? project;
 
-  /// Optional model override for turns from this group.
+  /// Optional model override for turns from this row.
   final String? model;
 
-  /// Optional effort override for turns from this group.
+  /// Optional effort override for turns from this row.
   final String? effort;
 
-  const new({required this.id, this.name, this.project, this.model, this.effort});
+  /// Optional `agent.agents.<name>` this row's conversation runs as; null
+  /// means the primary agent.
+  final String? agent;
+
+  const new({required this.id, this.name, this.project, this.model, this.effort, this.agent});
 
   /// Parses a mixed YAML list of strings and maps into a [GroupEntry] list.
+  ///
+  /// [field] is the config path being parsed (e.g. `whatsapp.dm_allowlist`)
+  /// and prefixes every warning.
   ///
   /// - Plain `String` items become `GroupEntry(id: item)`.
   /// - `Map` items with an `id` key become fully structured entries.
@@ -32,11 +40,11 @@ class GroupEntry {
   /// - Duplicate IDs: last entry wins (with warning).
   /// - Whitespace-only [name] is treated as null.
   /// - Unknown keys in a map entry are ignored with a warning.
-  static List<GroupEntry> parseList(List<dynamic>? raw, {void Function(String)? onWarning}) {
+  static List<GroupEntry> parseList(List<dynamic>? raw, {required String field, void Function(String)? onWarning}) {
     if (raw == null || raw.isEmpty) return const [];
 
     final seen = <String, GroupEntry>{};
-    const knownKeys = {'id', 'name', 'project', 'model', 'effort'};
+    const knownKeys = {'id', 'name', 'project', 'model', 'effort', 'agent'};
 
     for (final item in raw) {
       if (item is String) {
@@ -44,15 +52,14 @@ class GroupEntry {
       } else if (item is Map) {
         final idRaw = item['id'];
         if (idRaw is! String || idRaw.trim().isEmpty) {
-          onWarning?.call('GroupEntry map missing or invalid "id" field — skipping');
+          onWarning?.call('$field: map missing or invalid "id" field — skipping');
           continue;
         }
         final id = idRaw;
 
-        // Warn about unknown keys
         for (final key in item.keys) {
           if (!knownKeys.contains(key.toString())) {
-            onWarning?.call('GroupEntry: unknown key "$key" in entry for id "$id" — ignoring');
+            onWarning?.call('$field: unknown key "$key" in entry for id "$id" — ignoring');
           }
         }
 
@@ -61,23 +68,22 @@ class GroupEntry {
         final project = item['project'] is String ? item['project'] as String : null;
         final model = item['model'] is String ? item['model'] as String : null;
         final effort = item['effort'] is String ? item['effort'] as String : null;
+        final agent = item['agent'] is String ? item['agent'] as String : null;
 
         if (seen.containsKey(id)) {
-          onWarning?.call('GroupEntry: duplicate id "$id" — last entry wins');
+          onWarning?.call('$field: duplicate id "$id" — last entry wins');
         }
-        seen[id] = GroupEntry(id: id, name: name, project: project, model: model, effort: effort);
+        seen[id] = GroupEntry(id: id, name: name, project: project, model: model, effort: effort, agent: agent);
       } else {
-        onWarning?.call('GroupEntry: invalid item type "${item.runtimeType}" — skipping: $item');
+        onWarning?.call('$field: invalid item type "${item.runtimeType}" — skipping: $item');
       }
     }
 
     return seen.values.toList();
   }
 
-  /// Returns the group IDs from [entries] as a plain string list.
-  ///
-  /// Provides backward-compatible access equivalent to the previous
-  /// `List<String> groupAllowlist` field.
+  /// Returns the ids from [entries] as a plain string list – the shape every
+  /// access check consumes.
   static List<String> groupIds(List<GroupEntry> entries) => entries.map((e) => e.id).toList();
 
   @override
@@ -89,11 +95,13 @@ class GroupEntry {
           name == other.name &&
           project == other.project &&
           model == other.model &&
-          effort == other.effort;
+          effort == other.effort &&
+          agent == other.agent;
 
   @override
-  int get hashCode => Object.hash(id, name, project, model, effort);
+  int get hashCode => Object.hash(id, name, project, model, effort, agent);
 
   @override
-  String toString() => 'GroupEntry(id: $id, name: $name, project: $project, model: $model, effort: $effort)';
+  String toString() =>
+      'GroupEntry(id: $id, name: $name, project: $project, model: $model, effort: $effort, agent: $agent)';
 }

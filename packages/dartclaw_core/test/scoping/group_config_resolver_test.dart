@@ -79,4 +79,60 @@ void main() {
       expect(GroupConfigResolver.normalizeConfigKey('googlechat'), ChannelType.googlechat);
     });
   });
+
+  group('dm rows', () {
+    test('a DM row carrying only agent resolves', () {
+      final resolver = GroupConfigResolver.fromChannelEntries(
+        {},
+        dms: {
+          ChannelType.signal: [const GroupEntry(id: '+46700000001', agent: 'ana')],
+        },
+      );
+      expect(resolver.resolveDm(ChannelType.signal, '+46700000001')?.agent, 'ana');
+      expect(resolver.resolveRow(ChannelType.signal, peerId: '+46700000001')?.agent, 'ana');
+    });
+
+    test('a plain-string DM row resolves to null', () {
+      final resolver = GroupConfigResolver.fromChannelEntries(
+        {},
+        dms: {
+          ChannelType.signal: [const GroupEntry(id: '+46700000002')],
+        },
+      );
+      expect(resolver.resolveDm(ChannelType.signal, '+46700000002'), isNull);
+      expect(resolver.resolveRow(ChannelType.signal, peerId: '+46700000002'), isNull);
+    });
+
+    test('a group id and a peer id with the same literal value do not collide', () {
+      final resolver = GroupConfigResolver.fromChannelEntries(
+        {
+          ChannelType.whatsapp: [const GroupEntry(id: 'same', agent: 'group-agent')],
+        },
+        dms: {
+          ChannelType.whatsapp: [const GroupEntry(id: 'same', agent: 'dm-agent')],
+        },
+      );
+      expect(resolver.resolve(ChannelType.whatsapp, 'same')?.agent, 'group-agent');
+      expect(resolver.resolveDm(ChannelType.whatsapp, 'same')?.agent, 'dm-agent');
+      expect(resolver.resolveRow(ChannelType.whatsapp, groupId: 'same', peerId: 'same')?.agent, 'group-agent');
+      expect(resolver.resolveRow(ChannelType.whatsapp, peerId: 'same')?.agent, 'dm-agent');
+    });
+
+    test('a group row carrying only agent is retained', () {
+      final resolver = GroupConfigResolver.fromChannelEntries({
+        ChannelType.googlechat: [const GroupEntry(id: 'spaces/AAA', agent: 'ana')],
+      });
+      expect(resolver.resolve(ChannelType.googlechat, 'spaces/AAA')?.agent, 'ana');
+    });
+
+    test('a lookup with neither group nor peer id answers null', () {
+      final resolver = GroupConfigResolver.fromChannelEntries(
+        {},
+        dms: {
+          ChannelType.signal: [const GroupEntry(id: '+1', agent: 'ana')],
+        },
+      );
+      expect(resolver.resolveRow(ChannelType.signal), isNull);
+    });
+  });
 }

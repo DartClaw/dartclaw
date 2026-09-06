@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.25; 0.25 kernel package formation.
+**Current through**: 0.25.2 channel agent binding.
 
 ---
 
@@ -719,6 +719,8 @@ class SessionScopeConfig {
 
 `ChannelManager.deriveSessionKey()` resolves the effective scope by checking per-channel overrides first, then falling back to global defaults.
 
+The key's `agentId` component comes from the message's structured allowlist row: `ChannelManager.resolveRow()` asks the one `GroupConfigResolver` for the group row by `groupJid`, else the sender's DM row by `senderJid`, and the row's `agent` (default `main`) is passed to every `SessionKey` factory, so `agent: <name>` on a row opens that agent's session under the unchanged scope rule (`dm_scope: shared` means one session per agent lane). Both dispatch sites in `ChannelWiring` resolve the same row for `resolveChannelTurnOverrides` (row → per-channel → scope → crowd) and, when the row is bound, for `ChannelAgentBinder`, which resolves the agent through `HarnessWiring`'s `ExecutionPolicyResolver` and hands `dispatchChannelTurn` a pinned session (`provider`, `securityProfile`, `executionMode`) plus a `BehaviorFileService.withSoul(prompt)` variant composed under `PromptScope.task`; the unbound branch is today's `startTurn` call. `loadDartclawConfig` refuses a row naming an undeclared agent, and `GroupSessionInitializer` pre-creates group sessions with the same agent component.
+
 ### 11.3 Session Key Generation
 
 `SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`.
@@ -734,7 +736,7 @@ Top-level `channels:` YAML section with `debounce_window_ms`, `max_queue_depth`,
 
 ### 12.2 DM Access and Groups
 
-Per-channel `dm_access` mode (`pairing` | `allowlist` | `open` | `disabled`) with `allowlist` entries. Group access via `group_access` (`allowlist` | `open` | `disabled`) with `group_ids`.
+Per-channel `dm_access` mode (`pairing` | `allowlist` | `open` | `disabled`) with `dm_allowlist` rows, and `group_access` (`allowlist` | `open` | `disabled`) with `group_allowlist` rows. Both lists are parsed by `GroupEntry.parseList` into the same row form – a plain id, or a map carrying `id` plus optional `name`, `project`, `model`, `effort` and `agent` – and the channel configs expose `dmIds` / `groupIds` for the access checks. `ConfigWriter.readChannelAllowlist` answers the stored rows and `ChannelAccessService` edits them by id, so an API or pairing write never flattens a structured row.
 
 ### 12.3 Session Scope
 

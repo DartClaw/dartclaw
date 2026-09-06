@@ -58,19 +58,33 @@ final class ChannelAccessService {
     _ => false,
   };
 
+  /// The id a stored allowlist row answers to: the string itself, or a map
+  /// row's `id`. Every read the API and the settings page answer is this
+  /// projection; the stored rows themselves are what a write carries.
+  static String? _rowId(Object row) => switch (row) {
+    final String id => id,
+    final Map<Object?, Object?> map when map['id'] is String => map['id'] as String,
+    _ => null,
+  };
+
+  static List<String> _idsOf(List<Object> rows) => [
+    for (final row in rows)
+      if (_rowId(row) case final String id) id,
+  ];
+
   Future<ChannelAccessResult> readAllowlist(String type, String list) async {
     if (list == 'dm') {
       final controller = controllerFor(type);
       if (controller != null) return ChannelAccessApplied({'allowlist': controller.allowlist.toList()});
       if (type == 'google_chat') {
-        return ChannelAccessApplied({'allowlist': await writer.readChannelAllowlist(type, 'dm_allowlist')});
+        return ChannelAccessApplied({'allowlist': _idsOf(await writer.readChannelAllowlist(type, 'dm_allowlist'))});
       }
       return ChannelAccessRefused(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
     if (!supportsGroupAccess(type)) {
       return ChannelAccessRefused(404, 'NOT_FOUND', 'Channel "$type" is not configured');
     }
-    return ChannelAccessApplied({'allowlist': await writer.readChannelAllowlist(type, 'group_allowlist')});
+    return ChannelAccessApplied({'allowlist': _idsOf(await writer.readChannelAllowlist(type, 'group_allowlist'))});
   }
 
   Future<ChannelAccessResult> addAllowlist(String type, String list, Object? entryValue) =>
@@ -101,14 +115,18 @@ final class ChannelAccessService {
       stored = canonicalAllowlistEntry(type, entry);
     }
     final key = isDm ? 'dm_allowlist' : 'group_allowlist';
-    final current = controller?.allowlist.toList() ?? await writer.readChannelAllowlist(type, key);
-    final contains = current.contains(stored);
+    // The stored rows are the write's source for both lists: a DM controller's
+    // id set never held a structured row, so writing it back would flatten
+    // every binding. The controller still answers for an id it holds in memory
+    // only (a Signal sealed-sender self-heal), as it did before.
+    final rows = await writer.readChannelAllowlist(type, key);
+    final contains = _idsOf(rows).contains(stored) || (controller?.allowlist.contains(stored) ?? false);
     final listLabel = isDm ? 'allowlist' : 'group allowlist';
     if (add == contains) {
       final message = add ? 'Entry "$entry" already in $listLabel' : 'Entry "$entry" not in $listLabel';
       return ChannelAccessRefused(add ? 409 : 404, add ? 'CONFLICT' : 'NOT_FOUND', message);
     }
-    final updated = add ? [...current, stored] : current.where((value) => value != stored).toList();
+    final updated = add ? [...rows, stored] : rows.where((row) => _rowId(row) != stored).toList();
     final failure = await _write(() => writer.writeChannelAllowlist(type, key, updated));
     if (failure != null) return failure;
     if (list == 'dm') {
@@ -120,7 +138,7 @@ final class ChannelAccessService {
         eventBus?.fire(
           ConfigChangedEvent(
             changedKeys: [field],
-            oldValues: {field: current},
+            oldValues: {field: rows},
             newValues: {field: updated},
             requiresRestart: true,
             timestamp: DateTime.now(),
@@ -128,7 +146,7 @@ final class ChannelAccessService {
         );
       }
     }
-    return ChannelAccessApplied({add ? 'added' : 'removed': true, 'allowlist': updated});
+    return ChannelAccessApplied({add ? 'added' : 'removed': true, 'allowlist': _idsOf(updated)});
   }
 
   ChannelAccessResult readPairings(String type) {
@@ -160,7 +178,8 @@ final class ChannelAccessService {
     if (pairing == null) {
       return const ChannelAccessRefused(404, 'NOT_FOUND', 'Pairing code not found or expired');
     }
-    final updated = [...controller.allowlist, pairing.jid];
+    final rows = await writer.readChannelAllowlist(type, 'dm_allowlist');
+    final updated = _idsOf(rows).contains(pairing.jid) ? rows : [...rows, pairing.jid];
     final failure = await _write(() => writer.writeChannelAllowlist(type, 'dm_allowlist', updated));
     if (failure != null) return failure;
     if (!controller.confirmPairing(code)) {

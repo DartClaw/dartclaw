@@ -262,6 +262,7 @@ class HarnessWiring {
   late List<McpTool> _semanticMcpTools;
   late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
+  late String _defaultProviderId;
   late SelfImprovementService _selfImprovement;
   late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
@@ -287,6 +288,9 @@ class HarnessWiring {
   AgentHarness get primaryHarness => _harness ?? (throw StateError('This runtime drives no primary lane'));
   ExecutionCoordinator get executions => _executions;
   ExecutionPolicyResolver get policyResolver => _policyResolver;
+
+  /// `agent.provider`, normalized – the provider a definition without one inherits.
+  String get defaultProviderId => _defaultProviderId;
   ProviderExecutionInventory get executionInventory => _executionInventory;
   HarnessLaunchOptions get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
@@ -415,6 +419,7 @@ class HarnessWiring {
       throw StateError('agent.provider must not be blank');
     }
     final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
+    _defaultProviderId = defaultProviderId;
     _authEnabled = config.gateway.authMode != 'none';
     if (_headless) {
       // Nothing to authenticate: minting or persisting a gateway token here

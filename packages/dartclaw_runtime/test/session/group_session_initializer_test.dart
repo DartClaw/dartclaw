@@ -413,4 +413,85 @@ void main() {
       expect(allSessions, isEmpty);
     });
   });
+
+  group('bound group', () {
+    test('a bound row pre-creates exactly one session, under the agent key', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'googlechat',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'spaces/AAA', agent: 'ana', name: 'Ana room')],
+          ),
+        ],
+      );
+      await init.initialize();
+      init.dispose();
+
+      final all = await sessions.listSessions(type: SessionType.channel);
+      expect(all, hasLength(1));
+      final bound = await sessions.getByKey(
+        SessionKey.groupShared(agentId: 'ana', channelType: 'googlechat', groupId: 'spaces/AAA'),
+      );
+      expect(bound, isNotNull);
+      expect(bound!.title, 'Ana room');
+      expect(await sessions.getByKey(SessionKey.groupShared(channelType: 'googlechat', groupId: 'spaces/AAA')), isNull);
+    });
+
+    test('an unbound row pre-creates the key it does today', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [
+          const ChannelGroupConfig(
+            channelType: 'signal',
+            groupAccessEnabled: true,
+            groupEntries: [GroupEntry(id: 'grp-1')],
+          ),
+        ],
+      );
+      await init.initialize();
+      init.dispose();
+
+      expect(await sessions.getByKey(SessionKey.groupShared(channelType: 'signal', groupId: 'grp-1')), isNotNull);
+    });
+
+    test('a config change carrying a bound map row pre-creates the agent key', () async {
+      final init = GroupSessionInitializer(
+        sessions: sessions,
+        eventBus: eventBus,
+        channelConfigs: [const ChannelGroupConfig(channelType: 'whatsapp', groupAccessEnabled: true, groupEntries: [])],
+      );
+      await init.initialize();
+
+      eventBus.fire(
+        ConfigChangedEvent(
+          changedKeys: const ['channels.whatsapp.group_allowlist'],
+          oldValues: const {'channels.whatsapp.group_allowlist': <Object>[]},
+          newValues: const {
+            'channels.whatsapp.group_allowlist': [
+              {'id': 'grp@g.us', 'agent': 'ana'},
+              'plain@g.us',
+            ],
+          },
+          requiresRestart: true,
+          timestamp: DateTime(2026),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      init.dispose();
+
+      expect(
+        await sessions.getByKey(SessionKey.groupShared(agentId: 'ana', channelType: 'whatsapp', groupId: 'grp@g.us')),
+        isNotNull,
+      );
+      expect(await sessions.getByKey(SessionKey.groupShared(channelType: 'whatsapp', groupId: 'grp@g.us')), isNull);
+      expect(
+        await sessions.getByKey(SessionKey.groupShared(channelType: 'whatsapp', groupId: 'plain@g.us')),
+        isNotNull,
+      );
+    });
+  });
 }

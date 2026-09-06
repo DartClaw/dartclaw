@@ -118,6 +118,45 @@ void main() {
     );
   }
 
+  /// Wires a [HarnessWiring] directly (bypassing [wireTestHarness]) and composes
+  /// a [DartclawServer] around it, mirroring production's turn-manager-getter cycle.
+  Future<void> wireHarnessWithServer(HarnessFactory factory) async {
+    late DartclawServer wiredServer;
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
+    wiredServer = composeServer(
+      core: ServerCoreDeps(
+        sessions: storage!.sessions,
+        messages: storage!.messages,
+        worker: harnessWiring!.primaryHarness,
+        staticDir: tempDir.path,
+        config: config,
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: storage!.sessions,
+          messages: storage!.messages,
+          worker: harnessWiring!.primaryHarness,
+          behavior: harnessWiring!.behavior,
+          executions: harnessWiring!.executions,
+          sessionsForTurns: storage!.sessions,
+          config: config,
+        ),
+        executions: harnessWiring!.executions,
+      ),
+    );
+  }
+
   /// Wires an unwired [HarnessWiring] so a test can assert on `wire()` itself.
   Future<void> wireHarnessExpectingFailure(HarnessFactory factory, Matcher matcher) async {
     harnessWiring = HarnessWiring(
@@ -543,41 +582,7 @@ void main() {
       ),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude']);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude']));
 
     Future<void> expectLogicalAgentSession({
       required String agent,
@@ -673,40 +678,7 @@ void main() {
       ),
     );
     await wireStorageAndSecurity();
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: fakeFactory(['claude'], supportsStructuredOutput: supportsStructuredOutput),
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude'], supportsStructuredOutput: supportsStructuredOutput));
 
     final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
       'agent': 'extractor',
@@ -716,7 +688,12 @@ void main() {
     final agentHarness = createdHarnesses.last;
     await agentHarness.turnInvoked;
     final observed = agentHarness.lastOutputSchema;
-    agentHarness.completeSuccess(const TurnResult(structuredOutput: {'answer': 'extracted'}));
+    // A harness without structured output answers in text; the host check is what the schema rests on there.
+    agentHarness.completeSuccess(
+      supportsStructuredOutput
+          ? const TurnResult(structuredOutput: {'answer': 'extracted'})
+          : const TurnResult(finalText: '{"answer":"extracted"}'),
+    );
     final result = await resultFuture;
     expect(result['isError'], isNull, reason: 'the host-side schema check passes on the bare JSON value');
     expect(result['content'], contains(containsPair('text', '{"answer":"extracted"}')));
@@ -808,41 +785,7 @@ void main() {
       credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: 'openai-key')}),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude', providerId]);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude', providerId]));
 
     Future<void> completeLogicalAgentSession(String agentId) async {
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
@@ -883,41 +826,7 @@ void main() {
       ),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude']);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude']));
 
     final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
       'agent': 'search',

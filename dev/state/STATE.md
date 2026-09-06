@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-06 10:19 CEST
+Last Updated: 2026-09-06 20:43 CEST
 
 ## Current Phase
 
@@ -13,32 +13,39 @@ Last Updated: 2026-09-06 10:19 CEST
 `version.dart`, every publishable pubspec, both Homebrew formulas, both Scoop manifests and the schema `$id`. 0.25.1 is
 tagged (`v0.25.1`, 2026-09-05); its record is `CHANGELOG.md` § 0.25.1 and `dartclaw-private/docs/specs/0.25.1/prd.md`.
 The third SecondBrain feedback batch is fixed on the branch (pushed at `1a258cd3`); its record is the patch PRD
-`dartclaw-private/docs/specs/0.25.2/prd.md`. Seam-write approval (1d) and the model-free `type: shell` job (2)
-join the patch as two standalone FIS; the shell job is done (`16917bc8`, 2026-09-06) and seam-write approval is
-spec-ready (§ Active Stories). 0.26 (database backend) waits
-behind this patch.
+`dartclaw-private/docs/specs/0.25.2/prd.md`. Three standalone FIS joined the patch and are on the branch: the
+model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and the channel agent binding
+(`75afa358`, 2026-09-06; § Active Stories). 0.26 (database backend) waits behind this patch.
 
 ## Current Focus
 
-- 0.25.2: the third feedback batch is on the branch and recorded in the private PRD; 1d and 2 are specified (§ Active
-  Stories) and wait for execution – each from a fresh session with the `andthen:exec-spec` skill, in either order (the
-  shell job carries its own seam refusal). The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a
-  candidate for the patch too.
+- 0.25.2: the third feedback batch and the three standalone FIS (§ Active Stories) are on the branch; the private PRD
+  carries each outcome (§ As built). Before the squash: the bundle fold-back per `SPEC-LIFECYCLE.md`, and the
+  `wire()`-level proof the binding's story gate left as a Note (no test drives `ChannelAgentBinder` through the
+  composition root). The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for the
+  patch too.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories
 
 <!-- Active stories derive from the governing plan. Store rows here only for ad-hoc work outside that plan. -->
 
-Standalone FIS for the two open SecondBrain feedback items (no plan bundle; a `.state.json` sidecar sits beside each):
+Standalone FIS for the open SecondBrain feedback items (no plan bundle; a `.state.json` sidecar sits beside each):
 
 | FIS | Status | Scope |
 |---|---|---|
-| `dev/bundle/docs/specs/0.25.2/seam-write-approval.md` | spec-ready | `scheduling.mutation.approval: none \| operator` – under `operator` a `schedule_upsert` write is parked and settled on the Scheduling page; kernel config key + runtime seam, tool, page |
+| `dev/bundle/docs/specs/0.25.2/seam-write-approval.md` | done (`c2057657`) | `scheduling.mutation.approval: none \| operator` – under `operator` a `schedule_upsert` write is parked and settled on the Scheduling page; kernel config key + runtime seam, tool, page |
+| `dev/bundle/docs/specs/0.25.2/channel-agent-binding.md` | done (`75afa358`) | `agent: <name>` on a DM or group allowlist row binds that peer to a logical agent: session key carries the agent id, session pinned with the agent's policy on worker capacity (`wait` admission), `PromptScope.task` with the agent's `prompt` in the SOUL position (no owner USER.md or memory; persona turns skip the daily log); rows without `agent` unchanged. Folds in the allowlist-write data loss and the group-session twin. Private 0.25.2 PRD D13–D16 |
 | `dev/bundle/docs/specs/0.25.2/shell-scheduled-job.md` | done (`16917bc8`) | `type: shell` job – argv command, `credentials.<name>` env injection, atomic output under `<data_dir>/feeds/`, file-only (seam, API, tool and page refuse it); kernel entry shape + runtime |
 
 ## Recently Completed
 
+- **Channel agent binding on `feat/0.25.2`** (2026-09-06, `75afa358`): `agent: <name>` on a DM or group allowlist row
+  opens that agent's session (key component), pinned to the agent's provider and execution policy on the worker lane
+  with `wait` admission, prompted with the agent's `prompt` in the SOUL position over the task composition, never
+  writing the owner's daily log; `dm_allowlist` shares the group row form; allowlist writes keep structured rows; an
+  undeclared agent refuses the load. Fifteen tasks, story gate PASS in round 2, full tier green; record in the private
+  0.25.2 PRD § As built.
 - **Third SecondBrain feedback batch fixed on `feat/0.25.2`** (2026-09-06, items 5–8 of the deployment feedback file,
   archived in its `resolved.md`): the Claude SDK `initialize` handshake never carried `disallowedTools`/`maxTurns`, so
   `agent.disallowed_tools`, `agent.max_turns` and the native `WebFetch`/`WebSearch` suppression were no-ops – now spawn

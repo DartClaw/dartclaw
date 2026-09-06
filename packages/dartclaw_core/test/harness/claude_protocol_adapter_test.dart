@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/src/harness/claude_protocol_adapter.dart';
 import 'package:dartclaw_core/src/harness/protocol_message.dart';
+import 'package:dartclaw_core/src/agents/tool_policy_cascade.dart';
 import 'package:test/test.dart';
 
 String _j(Map<String, dynamic> value) => jsonEncode(value);
@@ -105,6 +106,37 @@ void main() {
       expect(controlRequest.requestId, 'req-42');
       expect(controlRequest.subtype, 'can_use_tool');
       expect(controlRequest.data['tool_name'], 'bash');
+    });
+
+    test('nativeToolNames inverts mapToolName for every policy spelling the cascade normalizes', () {
+      final adapter = ClaudeProtocolAdapter();
+      const policySpellings = [
+        'shell',
+        'file_read',
+        'file_write',
+        'file_edit',
+        'web_fetch',
+        'web_search',
+        'Bash',
+        'command_execution',
+        'Read',
+        'Write',
+        'write_file',
+        'Edit',
+        'NotebookEdit',
+        'edit_file',
+        'WebFetch',
+        'WebSearch',
+      ];
+      for (final spelling in policySpellings) {
+        final canonical = ToolPolicyCascade.normalizeEntry(spelling);
+        final natives = ClaudeProtocolAdapter.nativeToolNames(canonical);
+        expect(natives, isNotEmpty, reason: spelling);
+        for (final native in natives) {
+          expect(adapter.mapToolName(native)?.stableName, canonical, reason: '$spelling -> $native');
+        }
+      }
+      expect(ClaudeProtocolAdapter.nativeToolNames('schedule_upsert'), ['schedule_upsert']);
     });
 
     test('parses result', () {

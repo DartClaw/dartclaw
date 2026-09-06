@@ -379,7 +379,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             userMessage: userMessageFull,
             toolEvents: toolHooks.toolEvents,
             toolEventCount: toolHooks.toolCallCount,
-            result: accumulated,
+            result: responseContent,
           );
         } catch (e) {
           TurnRunner._log.warning('Failed to write daily log', e);

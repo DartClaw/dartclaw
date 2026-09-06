@@ -25,6 +25,7 @@ import 'harness_launch_options.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
+import '../agents/tool_policy_cascade.dart';
 import 'tool_policy.dart';
 
 part 'claude_code_harness_mcp.dart';
@@ -703,9 +704,14 @@ class ClaudeCodeHarness extends BaseHarness {
   List<String> get _deniedNativeWebTools => containerManager == null ? const [] : const ['WebSearch', 'WebFetch'];
 
   /// Every withheld tool in the spelling `--disallowedTools` takes, once each.
+  ///
+  /// Policy entries may use any provider's native spelling; the cascade's
+  /// normalizer is the one table for those, so `command_execution` withholds
+  /// `Bash` here exactly as it does at the guard.
   List<String> get _spawnDisallowedTools => {
     for (final name in [...harnessConfig.disallowedTools, ..._deniedNativeWebTools])
-      ...ClaudeProtocolAdapter.nativeToolNames(name),
+      if (name.trim().isNotEmpty)
+        ...ClaudeProtocolAdapter.nativeToolNames(ToolPolicyCascade.normalizeEntry(name.trim())),
   }.toList();
 
   String? _resolveProviderOption(String? override, String? fallback) {

@@ -101,7 +101,9 @@ claude --print \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
        [--mcp-config <path>] \
-       [--json-schema <json>]
+       [--json-schema <json>] \
+       [--max-turns <n>] \
+       [--disallowedTools <name>...]        # variadic: always last
 ```
 
 | Flag | Purpose |
@@ -118,6 +120,8 @@ claude --print \
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL `can_use_tool` channel (not an interactive TTY). Emitted only when native permissions are *not* skipped – the `restricted` container profile, or a non-`bypassPermissions`/`dontAsk` `permissionMode`. **Not** emitted in the default config |
 | `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--settings <json>` | Inline settings JSON (sandbox / permissions allow-deny). Emitted only when the provider's `sandbox`/`permissions`/`settings` options are present |
+| `--max-turns <n>` | `agent.max_turns` or a per-turn override (a changed override restarts the process). Exceeding it ends the turn with `subtype: error_max_turns`, mapped to an error result |
+| `--disallowedTools <name>...` | `agent.disallowed_tools` plus the native `WebSearch`/`WebFetch` suppression when DartClaw serves the guarded MCP versions or the spawn is containerized. Entries are normalized through `ToolPolicyCascade.normalizeEntry` and mapped to Claude's spelling (`shell` → `Bash`, `file_edit` → `Edit` + `NotebookEdit`); unknown names pass through. The flag is variadic, so it is always the last argument |
 | `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
 | `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessLaunchOptions`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
@@ -213,22 +217,19 @@ The first exchange after spawning. Dart sends an `initialize` control request; t
           "timeout": 10
         }
       ]
-    },
-    "disallowedTools": ["WebSearch"],
-    "maxTurns": 25,
-    "model": "sonnet"
+    }
   }
 }
 ```
+
+Tool policy, the turn cap, model and effort are **not** handshake fields: the SDK protocol has no such keys and the
+binary ignores unknown ones silently. They travel as the spawn flags above.
 
 Key fields in the `request` object:
 
 | Field | Source | Description |
 |---|---|---|
 | `hooks` | Hardcoded | Unfiltered `PreToolUse` (30s, all built-ins and dynamic MCP tools), `PostToolUse` (10s, audit), `PermissionDenied` (10s, audit), and `PreCompact` (10s, compaction signal) |
-| `disallowedTools` | `HarnessLaunchOptions.disallowedTools` | Tool blocklist enforced by the binary |
-| `maxTurns` | `HarnessLaunchOptions.maxTurns` | Safety cap on agentic loops |
-| `model` | `HarnessLaunchOptions.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
 | `sdkMcpServers` | Fallback only | In-protocol MCP tools (used when no HTTP MCP server is configured) |
 
 **claude → Dart:**
@@ -891,12 +892,12 @@ Key behavioral properties:
 
 ### HarnessLaunchOptions
 
-Configuration forwarded in the initialize handshake:
+Spawn-time options, fixed for the life of a harness; every field that reaches the binary does so as a CLI flag:
 
 ```dart
 class HarnessLaunchOptions {
-  final List<String> disallowedTools;  // Tool blocklist
-  final int? maxTurns;                 // Safety cap
+  final List<String> disallowedTools;  // --disallowedTools (Claude); guard-only on Codex/ACP
+  final int? maxTurns;                 // --max-turns
   final String? model;                 // Model selection (supports [1m] suffix)
   final String? effort;                // Reasoning-effort override
   final String? appendSystemPrompt;    // Behavior content (spawn-time flag)
@@ -1508,7 +1509,7 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart` | `ClaudeCodeHarness` – all JSONL handling, spawn, lifecycle |
 | `packages/dartclaw_core/lib/src/harness/claude_protocol.dart` | `ClaudeMessage` sealed hierarchy + `parseJsonlLine()` |
 | `packages/dartclaw_core/lib/src/harness/agent_harness.dart` | `AgentHarness` abstract interface |
-| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – initialize handshake fields |
+| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – spawn-time options |
 | `packages/dartclaw_core/lib/src/harness/tool_policy.dart` | `ToolApprovalPolicy`, response builders |
 | `packages/dartclaw_core/lib/src/harness/mcp_tool.dart` | `McpTool` interface |
 | `packages/dartclaw_core/lib/src/harness/tool_result.dart` | `ToolResult` sealed class |

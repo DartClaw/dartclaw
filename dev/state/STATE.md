@@ -14,7 +14,8 @@ Last Updated: 2026-09-06 10:19 CEST
 tagged (`v0.25.1`, 2026-09-05); its record is `CHANGELOG.md` § 0.25.1 and `dartclaw-private/docs/specs/0.25.1/prd.md`.
 The third SecondBrain feedback batch is fixed on the branch (pushed at `1a258cd3`); its record is the patch PRD
 `dartclaw-private/docs/specs/0.25.2/prd.md`. Seam-write approval (1d) and the model-free `type: shell` job (2)
-join the patch as two standalone FIS, both spec-ready on 2026-09-06 (§ Active Stories). 0.26 (database backend) waits
+join the patch as two standalone FIS; the shell job is done (`16917bc8`, 2026-09-06) and seam-write approval is
+spec-ready (§ Active Stories). 0.26 (database backend) waits
 behind this patch.
 
 ## Current Focus
@@ -34,7 +35,7 @@ Standalone FIS for the two open SecondBrain feedback items (no plan bundle; a `.
 | FIS | Status | Scope |
 |---|---|---|
 | `dev/bundle/docs/specs/0.25.2/seam-write-approval.md` | spec-ready | `scheduling.mutation.approval: none \| operator` – under `operator` a `schedule_upsert` write is parked and settled on the Scheduling page; kernel config key + runtime seam, tool, page |
-| `dev/bundle/docs/specs/0.25.2/shell-scheduled-job.md` | spec-ready | `type: shell` job – argv command, `credentials.<name>` env injection, atomic output under `<data_dir>/feeds/`, file-only (seam, API, tool and page refuse it); kernel entry shape + runtime |
+| `dev/bundle/docs/specs/0.25.2/shell-scheduled-job.md` | done (`16917bc8`) | `type: shell` job – argv command, `credentials.<name>` env injection, atomic output under `<data_dir>/feeds/`, file-only (seam, API, tool and page refuse it); kernel entry shape + runtime |
 
 ## Recently Completed
 

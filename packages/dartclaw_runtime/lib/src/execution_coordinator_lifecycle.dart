@@ -96,9 +96,10 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
           (runner) => (!workersOnly || !identical(runner, _primary)) && !ownedContainers.any((w) => w.runner == runner),
         )
         .toList();
-    // Only work on this very session blocks the reset: a worker serving another
-    // session holds no continuity for this one, because a harness process is
-    // bound to the session it is running.
+    // Only work on this very session blocks the reset; every runner is still
+    // asked, and each harness decides what its process holds for the session
+    // (a Claude process serves one conversation, a Codex process keeps a thread
+    // per session it has served).
     final busyWithSession =
         _active.values.any(
           (execution) =>

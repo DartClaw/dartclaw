@@ -43,6 +43,10 @@ abstract interface class TurnRunner {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+
+    /// The caller validates the result host-side, so a harness that cannot
+    /// enforce [outputSchema] gets none instead of refusing the turn.
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,

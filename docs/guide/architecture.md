@@ -335,7 +335,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 | `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, default tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, explicitly declared tasks |
 
-A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs.
+A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs – with the default of two, a container deployment that sets no `providers.<id>.pool_size` may run two containers at once.
 
 Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
 

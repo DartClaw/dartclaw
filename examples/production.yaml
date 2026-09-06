@@ -34,8 +34,9 @@ container:
   enabled: true
   image: dartclaw-sandbox:latest
 
-# Concurrent worker leases for tasks, scheduled jobs and logical agents (default 2).
-# A scheduled job that spawns a logical agent holds one lease and needs a second.
+# Concurrent worker leases for tasks, scheduled jobs and logical agents (default 2:
+# a scheduled job that spawns a logical agent holds one lease and its child needs a
+# second). 3 lets one background task run beside that pair.
 providers:
   claude:
     executable: claude

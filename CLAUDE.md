@@ -52,7 +52,7 @@ This table is the main registry of document locations relevant to development an
 |---------------|----------|--------------|
 | Current state | `dev/state/STATE.md` | Current version, phase, active stories, blockers, session continuity notes. Check what's in flight before starting work |
 | Learnings | `dev/state/LEARNINGS.md` (bounded index, prune at 200 lines) + topic shards in `dev/state/learnings/` | Before debugging unfamiliar subsystems: read the index whole, open only task-relevant shards (`→ learnings/<topic>.md` pointers). Add discoveries via `andthen:ops update-learnings` with **no** `--ceiling` – a learning worth recording is never dropped because the index is full. 200 lines is a **prune trigger, not an append gate**: once the index is over it, prune or graduate a topic to a shard in its own change, never inside the run that tripped it. The 200-character per-entry cap still applies. Entries for an already-sharded topic go into the shard file by hand, and shard graduation is a hand operation |
-| Product (summary) | `dev/state/PRODUCT.md` | Vision and principles |
+| Product | `dev/state/PRODUCT.md` | **Canonical.** Vision, philosophy, scope, architecture |
 | Roadmap (current + next) | `dev/state/ROADMAP.md` | Active milestone and what's after |
 | Tech stack | `dev/state/STACK.md` | Languages, packages, external services |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | Domain glossary – use these terms in code, docs, naming |

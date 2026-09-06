@@ -234,24 +234,6 @@ void main() {
     File(p.join(workspace.path, 'inbox', 'flaky.md')).writeAsStringSync('Flaky source body.');
     var turnCalls = 0;
     final flaky = FakeTurnManager(
-      onStartTurn: (
-        sessionId,
-        messages, {
-        source,
-        agentName = 'main',
-        model,
-        effort,
-        systemPromptOverride,
-        maxTurns,
-        outputSchema,
-        providerSessionId,
-        requestProviderSessionResume = false,
-        taskId,
-        isHumanInput = false,
-        allowedTools,
-        readOnly = false,
-        promptScope,
-      }) async => 'extract-turn',
       onWaitForOutcome: (sessionId, turnId) async {
         if (turnCalls++ == 0) throw StateError('injected extraction failure');
         return TurnOutcome(

@@ -112,6 +112,14 @@ void main() {
 
       expect(harness.state, WorkerState.stopped);
       expect(processes.single.killCalled, isTrue);
+
+      // The binding is cleared along with the stop, so a repeat reset for the
+      // same session finds nothing bound and is a no-op rather than a second
+      // stop/kill on an already-stopped process.
+      await harness.resetSessionContinuity('A');
+
+      expect(processes, hasLength(1));
+      expect(harness.state, WorkerState.stopped);
     });
   });
 }

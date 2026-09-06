@@ -32,4 +32,63 @@ void main() {
     expect(turns.startedTurns.single.providerSessionId, 'provider-session-y');
     expect(turns.startedTurns.single.requestProviderSessionResume, isTrue);
   });
+
+  test('onReserveTurn and onStartTurn callbacks receive outputSchemaWhenSupported as passed', () async {
+    bool? reserveSeen;
+    bool? startSeen;
+    final turns = FakeTurnManager(
+      onReserveTurn:
+          (
+            sessionId, {
+            agentName = 'main',
+            directory,
+            model,
+            effort,
+            systemPromptOverride,
+            workerPolicy,
+            maxTurns,
+            outputSchema,
+            outputSchemaWhenSupported = false,
+            providerSessionId,
+            requestProviderSessionResume = false,
+            taskId,
+            isHumanInput = false,
+            promptScope,
+            allowedTools,
+            readOnly = false,
+          }) async {
+            reserveSeen = outputSchemaWhenSupported;
+            return 'reserved-turn';
+          },
+      onStartTurn:
+          (
+            sessionId,
+            messages, {
+            source,
+            agentName = 'main',
+            model,
+            effort,
+            systemPromptOverride,
+            maxTurns,
+            outputSchema,
+            outputSchemaWhenSupported = false,
+            providerSessionId,
+            requestProviderSessionResume = false,
+            taskId,
+            isHumanInput = false,
+            allowedTools,
+            readOnly = false,
+            promptScope,
+          }) async {
+            startSeen = outputSchemaWhenSupported;
+            return 'started-turn';
+          },
+    );
+
+    await turns.reserveTurn('session-1', outputSchemaWhenSupported: true);
+    await turns.startTurn('session-2', const [], outputSchemaWhenSupported: true);
+
+    expect(reserveSeen, isTrue);
+    expect(startSeen, isTrue);
+  });
 }

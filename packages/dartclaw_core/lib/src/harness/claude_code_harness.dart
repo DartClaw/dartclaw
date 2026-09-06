@@ -307,6 +307,7 @@ class ClaudeCodeHarness extends BaseHarness {
     await stop();
     _sessionId = null;
     _turnsSinceStart = 0;
+    _conversationSessionId = null;
   }
 
   Future<void> _stopInternal() async {

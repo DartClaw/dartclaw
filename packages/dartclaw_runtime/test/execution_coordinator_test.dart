@@ -628,6 +628,45 @@ void main() {
       await lease!.release();
     });
 
+    test('continuity reset of another session proceeds while a worker is busy', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+
+      final busy = await fixture.acquire(sessionId: 'session-a');
+      final idle = await fixture.acquire(sessionId: 'session-b');
+      final idleRunner = idle.runner;
+      await idle.release();
+      expect(idleRunner, isNot(same(busy.runner)));
+
+      await fixture.coordinator.resetSessionContinuity('session-b');
+
+      expect((idleRunner.harness as _TestHarness).resetContinuitySessions, ['session-b']);
+      await busy.release();
+    });
+
+    test('continuity reset of an unrelated session proceeds at capacity one', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final busy = await fixture.acquire(sessionId: 'session-a');
+
+      await fixture.coordinator.resetSessionContinuity('session-b');
+
+      await busy.release();
+    });
+
+    test('continuity reset of the busy session itself fails closed', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+      final busy = await fixture.acquire(sessionId: 'session-a');
+
+      await expectLater(
+        fixture.coordinator.resetSessionContinuity('session-a'),
+        throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
+      );
+
+      await busy.release();
+    });
+
     test('snapshot and lifecycle events report real allocation state', () async {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);

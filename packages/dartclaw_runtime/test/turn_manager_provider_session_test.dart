@@ -245,7 +245,7 @@ void main() {
     await releasedOutcome;
   });
 
-  test('continuity reset fails closed when an unrelated relevant worker is busy', () async {
+  test('continuity reset proceeds while an unrelated worker is busy, and fails closed for its own session', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_provider_busy_reset_test_');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -278,11 +278,15 @@ void main() {
     final busyTurnId = await turns.startTurn(busySession.id, const []);
     await worker.turnInvoked;
 
-    await expectLater(
-      turns.resetProviderSessionContinuity(targetSession.id),
-      throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isFalse)),
-    );
+    await turns.resetProviderSessionContinuity(targetSession.id);
+
+    // The busy worker's process is bound to the session it is running, so it is
+    // never asked to drop continuity for the session being reset.
     expect(worker.resetSessionIds, isEmpty);
+    await expectLater(
+      turns.resetProviderSessionContinuity(busySession.id),
+      throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
+    );
 
     worker.completeSuccess();
     await turns.waitForOutcome(busySession.id, busyTurnId);

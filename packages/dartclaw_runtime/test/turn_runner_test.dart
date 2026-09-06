@@ -181,6 +181,35 @@ void main() {
     await runner.waitForOutcome(session.id, turnId);
   });
 
+  test('continuity reset of another session runs while a turn is in progress', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'test'},
+    ]);
+
+    await runner.resetSessionContinuity('other-session');
+
+    expect(worker.resetContinuitySessions, isEmpty);
+
+    scheduleTurnCompletion(worker, responseText: 'ok');
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
+  test('continuity reset of the session being run fails closed', () async {
+    final session = await sessions.getOrCreateMainSession();
+    final turnId = await runner.startTurn(session.id, [
+      {'role': 'user', 'content': 'test'},
+    ]);
+
+    await expectLater(
+      runner.resetSessionContinuity(session.id),
+      throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
+    );
+
+    scheduleTurnCompletion(worker, responseText: 'ok');
+    await runner.waitForOutcome(session.id, turnId);
+  });
+
   test('executes turn and produces TurnOutcome.completed', () async {
     scheduleTurnCompletion(worker, responseText: 'Hello from runner!');
     final session = await sessions.getOrCreateMainSession();

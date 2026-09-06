@@ -476,18 +476,17 @@ class TurnRunner implements core.TurnRunner {
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
-    if (_activeTurns.isNotEmpty) {
-      throw BusyTurnException(
-        'Cannot reset session continuity while a turn is in progress',
-        isSameSession: _activeTurns.containsKey(sessionId),
-      );
+    if (_activeTurns.containsKey(sessionId)) {
+      throw BusyTurnException('Cannot reset session continuity while a turn is in progress', isSameSession: true);
     }
     _recentOutcomes.removeWhere((_, entry) => entry.outcome.sessionId == sessionId);
     _recoveredSessions.remove(sessionId);
     _turnProgressSnapshots.remove(sessionId);
     _forceClearTurnPolicy(sessionId);
     await _turnState?.delete(sessionId);
-    await _worker.resetSessionContinuity(sessionId);
+    // A busy worker's process is bound to the session it serves, so it holds no
+    // continuity for this one; asking it to reset would only refuse.
+    if (_activeTurns.isEmpty) await _worker.resetSessionContinuity(sessionId);
   }
 
   Future<String> startTurn(

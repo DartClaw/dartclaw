@@ -58,6 +58,9 @@ class FakeAgentHarness extends AgentHarness {
   /// Number of [turn] invocations observed.
   int turnCallCount = 0;
 
+  /// Session ids passed to [resetSessionContinuity], in call order.
+  final resetContinuitySessions = <String>[];
+
   /// Most recent turn session id.
   String? lastSessionId;
 
@@ -211,6 +214,11 @@ class FakeAgentHarness extends AgentHarness {
       _turnInvokedCompleter.complete();
     }
     return _turnCompleter!.future;
+  }
+
+  @override
+  Future<void> resetSessionContinuity(String sessionId) async {
+    resetContinuitySessions.add(sessionId);
   }
 
   @override

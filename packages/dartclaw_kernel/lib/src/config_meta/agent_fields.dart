@@ -473,7 +473,10 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'agent.disallowedTools',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults.',
+    description:
+        'Tool names withheld from every turn – primary lane, scheduled jobs, tasks and logical agents – in canonical '
+        '(shell, file_edit, web_fetch, …) or provider-native spelling. Claude is spawned without them; the host guard '
+        'refuses them on every provider. Empty withholds nothing beyond the harness defaults.',
   ),
   'agent.history.max_message_chars': FieldMeta(
     yamlPath: 'agent.history.max_message_chars',

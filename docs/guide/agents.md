@@ -117,9 +117,12 @@ Caller cancellation does not currently propagate into an in-flight `sessions_spa
 
 ### Tool Policy Cascade
 
-On logical-agent turns, tool access is evaluated by `ToolPolicyGuard` through a 3-layer policy (most restrictive wins):
+Tool access is evaluated by `ToolPolicyGuard` through a 3-layer policy (most restrictive wins). The main agent has no
+agent identity, so only the first layer binds it:
 
-1. **Global deny** — `agent.disallowed_tools` blocks tools for the main agent and every logical agent
+1. **Global deny** — `agent.disallowed_tools` blocks tools for the main agent, scheduled and task turns, and every
+   logical agent. Claude is additionally spawned with `--disallowedTools`, so the model is never offered them; Codex and
+   ACP have no equivalent and rely on the guard at their interception points below
 2. **Agent deny** — `denied_tools` blocks tools for that specific logical agent
 3. **Sandbox allow** – a non-empty `tools` list is a closed allowlist
 

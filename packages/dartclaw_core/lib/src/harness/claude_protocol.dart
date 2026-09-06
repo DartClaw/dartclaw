@@ -156,6 +156,12 @@ final class TerminalResult extends ClaudeMessage {
 
   /// Payload the CLI validated against the turn's `--json-schema`.
   final Map<String, dynamic>? structuredOutput;
+
+  /// The final assistant message's text, as the CLI reports it on `result`.
+  ///
+  /// Null on an error line, where `result` carries the failure detail instead,
+  /// and when the CLI reports no text.
+  final String? finalText;
   final double? costUsd;
   final int? durationMs;
   final int? inputTokens;
@@ -167,6 +173,7 @@ final class TerminalResult extends ClaudeMessage {
     this.stopReason,
     this.subtype,
     this.structuredOutput,
+    this.finalText,
     this.costUsd,
     this.durationMs,
     this.inputTokens,
@@ -177,7 +184,7 @@ final class TerminalResult extends ClaudeMessage {
   @override
   String toString() =>
       'TerminalResult(stopReason: $stopReason, subtype: $subtype, structuredOutput: $structuredOutput, '
-      'costUsd: $costUsd, durationMs: $durationMs, '
+      'finalText: $finalText, costUsd: $costUsd, durationMs: $durationMs, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens, '
       'cacheReadInputTokens: $cacheReadInputTokens, cacheCreationInputTokens: $cacheCreationInputTokens)';
 }
@@ -301,17 +308,18 @@ ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {
 
 ClaudeMessage _parseResult(Map<String, dynamic> json) {
   final usage = json['usage'] as Map<String, dynamic>?;
+  // Retry exhaustion is an error whether or not the CLI flags it as one: the
+  // turn produced no schema-valid payload, and a success carrying a null one
+  // is indistinguishable from a model that chose to return nothing.
+  final isError = json['is_error'] == true || json['subtype'] == claudeStructuredOutputRetriesExhaustedSubtype;
+  final resultText = json['result'];
   return TerminalResult(
-    // Retry exhaustion is an error whether or not the CLI flags it as one: the
-    // turn produced no schema-valid payload, and a success carrying a null one
-    // is indistinguishable from a model that chose to return nothing.
-    stopReason: json['is_error'] == true || json['subtype'] == claudeStructuredOutputRetriesExhaustedSubtype
-        ? 'error'
-        : json['stop_reason'] as String?,
+    stopReason: isError ? 'error' : json['stop_reason'] as String?,
     subtype: json['subtype'] as String?,
     structuredOutput: json['structured_output'] is Map<String, dynamic>
         ? json['structured_output'] as Map<String, dynamic>
         : null,
+    finalText: !isError && resultText is String && resultText.isNotEmpty ? resultText : null,
     costUsd: (json['total_cost_usd'] as num?)?.toDouble(),
     durationMs: json['duration_ms'] as int?,
     inputTokens: usage?['input_tokens'] as int?,

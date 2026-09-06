@@ -473,36 +473,6 @@ void main() {
     expect(verdict, isA<GuardBlock>());
   });
 
-  test('logical agents are not forwarded as provider-native agents', () async {
-    config = config.copyWith(
-      gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
-      search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
-      agent: AgentConfig(
-        provider: 'claude',
-        definitions: const [
-          AgentDefinition(
-            id: 'search',
-            description: 'Search',
-            prompt: 'Search',
-            allowedTools: {'WebSearch', 'WebFetch'},
-          ),
-          AgentDefinition(
-            id: 'worker',
-            description: 'Worker',
-            prompt: 'Work',
-            allowedTools: {'shell', 'file_read', 'Grep'},
-          ),
-          AgentDefinition(id: 'unrestricted', description: 'Unrestricted', prompt: 'Work'),
-        ],
-      ),
-    );
-
-    await wireStorageAndSecurity();
-    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
-
-    expect(recordedConfigs.single.harnessConfig.toInitializeFields(), isNot(contains('agents')));
-  });
-
   test('token-authenticated harness reaches the server on its bound loopback host', () async {
     config = config.copyWith(
       gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),

@@ -445,13 +445,14 @@ void main() {
 
         await h.start();
 
+        final command = container.lastCommand;
+        final flag = command.indexOf('--disallowedTools');
+        expect(flag, greaterThanOrEqualTo(0));
+        expect(command.sublist(flag + 1), containsAll(['Computer', 'WebSearch', 'WebFetch']));
         final initialize = container.spawned!.capturedStdinJson.firstWhere(
           (message) => (message['request'] as Map?)?['subtype'] == 'initialize',
         );
-        expect(
-          ((initialize['request'] as Map)['disallowedTools'] as List).cast<String>(),
-          containsAll(['Computer', 'WebSearch', 'WebFetch']),
-        );
+        expect((initialize['request'] as Map).keys, isNot(contains('disallowedTools')));
       });
 
       test('translates plain path-based settings for containerized execution without overlays', () async {
@@ -588,6 +589,7 @@ void main() {
         final succeeded = await nextTurn;
         expect(succeeded.stopReason, 'end_turn');
         expect(succeeded.isError, isFalse);
+        expect(succeeded.finalText, 'ok');
         expect(harness.state, WorkerState.idle);
       });
 
@@ -735,6 +737,27 @@ void main() {
         final idx = capturedArgs!.indexOf('--append-system-prompt');
         expect(idx, greaterThanOrEqualTo(0), reason: '--append-system-prompt flag should be present');
         expect(capturedArgs![idx + 1], 'test behavior prompt');
+      });
+
+      test('spawn args withhold tools in native spelling and cap turns; the handshake carries neither', () async {
+        List<String>? capturedArgs;
+        final fake = makeCapturingClaudeProcess();
+        final h = buildClaudeHarness(
+          harnessConfig: const HarnessLaunchOptions(disallowedTools: ['shell', 'file_edit', 'Computer'], maxTurns: 7),
+          processFactory: capturingInitFactory(process: fake, onSpawn: (spawn) => capturedArgs = spawn.args),
+        );
+        addTeardownAsync(() => h.dispose());
+
+        await h.start();
+
+        final args = capturedArgs!;
+        expect(args.sublist(args.indexOf('--max-turns')).take(2), ['--max-turns', '7']);
+        final flag = args.indexOf('--disallowedTools');
+        expect(args.sublist(flag + 1), ['Bash', 'Edit', 'NotebookEdit', 'Computer']);
+        final initialize = fake.capturedStdinJson.firstWhere(
+          (message) => (message['request'] as Map?)?['subtype'] == 'initialize',
+        );
+        expect((initialize['request'] as Map).keys, unorderedEquals(['subtype', 'hooks']));
       });
 
       test('spawn args omit --append-system-prompt when not configured', () async {

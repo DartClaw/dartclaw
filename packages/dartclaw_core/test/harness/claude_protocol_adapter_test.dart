@@ -110,12 +110,19 @@ void main() {
     test('parses result', () {
       final adapter = ClaudeProtocolAdapter();
       final msg = adapter.parseLine(
-        _j({'type': 'result', 'stop_reason': 'end_turn', 'total_cost_usd': 0.0042, 'duration_ms': 1500}),
+        _j({
+          'type': 'result',
+          'stop_reason': 'end_turn',
+          'result': 'final answer',
+          'total_cost_usd': 0.0042,
+          'duration_ms': 1500,
+        }),
       );
 
       expect(msg, isA<TurnComplete>());
       final result = msg! as TurnComplete;
       expect(result.stopReason, 'end_turn');
+      expect(result.finalText, 'final answer');
       expect(result.costUsd, closeTo(0.0042, 1e-6));
       expect(result.durationMs, 1500);
       expect(result.cacheReadTokens, isNull);

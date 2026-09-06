@@ -9,7 +9,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 /// 3. Sandbox allow — only explicitly listed tools are permitted (closed set)
 ///
 /// A capability passes only if it is NOT in global deny, NOT in agent deny,
-/// AND IS in the agent's allow set. Claude's exact schema-discovery helper may
+/// AND IS in the agent's allow set. The main agent has no agent identity, so
+/// only the global deny binds it. Claude's exact schema-discovery helper may
 /// pass after deny evaluation; the selected capability is evaluated separately.
 class ToolPolicyCascade {
   final Set<String> globalDeny;
@@ -27,13 +28,15 @@ class ToolPolicyCascade {
   /// Normalizes a known provider-native policy entry to its stable name.
   static String normalizeEntry(String entry) => _knownToolNames[entry] ?? entry;
 
-  /// Returns true if the tool is allowed for [agentId].
-  bool isAllowed(String agentId, String canonicalToolName, {String? rawProviderToolName}) {
+  /// Returns true if the tool is allowed for [agentId], or for the main agent
+  /// when [agentId] is null.
+  bool isAllowed(String? agentId, String canonicalToolName, {String? rawProviderToolName}) {
     final names = {canonicalToolName, ?rawProviderToolName};
     final denyNames = {...names, if (rawProviderToolName?.startsWith('mcp_') ?? false) 'mcp_call'};
 
     // Layer 1: global deny
     if (globalDeny.any(denyNames.contains)) return false;
+    if (agentId == null) return true;
 
     // Layer 2: agent-specific deny
     final agentDenySet = agentDeny[agentId];
@@ -70,8 +73,8 @@ class ToolPolicyCascade {
 
 /// Guard that wraps [ToolPolicyCascade] for integration with [GuardChain].
 ///
-/// Uses `context.agentId` for agent-scoped policy evaluation. When no agent
-/// context is set (i.e. main agent), passes all tools through.
+/// Uses `context.agentId` for agent-scoped policy evaluation. Without one (the
+/// main agent) only the global deny applies.
 class ToolPolicyGuard extends Guard {
   static final _log = Logger('ToolPolicyGuard');
 
@@ -90,15 +93,14 @@ class ToolPolicyGuard extends Guard {
     if (context.hookPoint != 'beforeToolCall') return GuardVerdict.pass();
 
     final agentId = context.agentId;
-    if (agentId == null) return GuardVerdict.pass();
-
     final canonicalToolName = context.toolName;
     if (canonicalToolName == null) return GuardVerdict.pass();
     final displayName = context.rawProviderToolName ?? canonicalToolName;
 
     if (!cascade.isAllowed(agentId, canonicalToolName, rawProviderToolName: context.rawProviderToolName)) {
-      _log.warning('Tool "$displayName" blocked by policy for agent "$agentId"');
-      return GuardVerdict.block('Tool "$displayName" not allowed for agent "$agentId"');
+      final subject = agentId == null ? 'the main agent' : 'agent "$agentId"';
+      _log.warning('Tool "$displayName" blocked by policy for $subject');
+      return GuardVerdict.block('Tool "$displayName" not allowed for $subject');
     }
 
     return GuardVerdict.pass();

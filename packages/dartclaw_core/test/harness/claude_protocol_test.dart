@@ -337,6 +337,29 @@ void main() {
             expect((message as TerminalResult).costUsd, 1.0);
           },
         ),
+        (
+          name: 'final assistant text',
+          json: {'type': 'result', 'stop_reason': 'end_turn', 'result': 'Fredag 4/9. Kvällsrutinen …'},
+          expectMessage: (message) {
+            expect((message as TerminalResult).finalText, 'Fredag 4/9. Kvällsrutinen …');
+          },
+        ),
+        (
+          name: 'empty result text is no final text',
+          json: {'type': 'result', 'stop_reason': 'end_turn', 'result': ''},
+          expectMessage: (message) {
+            expect((message as TerminalResult).finalText, isNull);
+          },
+        ),
+        (
+          name: 'error line keeps its detail out of the final text',
+          json: {'type': 'result', 'is_error': true, 'result': 'Failed to authenticate'},
+          expectMessage: (message) {
+            final result = message as TerminalResult;
+            expect(result.stopReason, 'error');
+            expect(result.finalText, isNull);
+          },
+        ),
       ];
 
       for (final testCase in cases) {

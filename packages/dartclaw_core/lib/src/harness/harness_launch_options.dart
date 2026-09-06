@@ -1,6 +1,8 @@
-/// Configuration for SDK options forwarded in the initialize handshake.
+/// Spawn-time options for a harness process.
 class HarnessLaunchOptions {
-  /// Tools that the runtime must refuse even if the model requests them.
+  /// Tools the provider must not offer the model, in canonical or native
+  /// spelling. Claude receives them as `--disallowedTools` at spawn; Codex and
+  /// ACP have no equivalent, so there the host guard is the only enforcement.
   final List<String> disallowedTools;
 
   /// Optional hard cap on the number of turns the runtime may take.
@@ -56,7 +58,6 @@ class HarnessLaunchOptions {
   /// authentication-disabled loopback gateway.
   final String? mcpGatewayToken;
 
-  /// Creates immutable initialize-handshake options for a harness.
   const new({
     this.disallowedTools = const [],
     this.maxTurns,
@@ -86,15 +87,5 @@ class HarnessLaunchOptions {
       mcpServerUrl: mcpServerUrl ?? this.mcpServerUrl,
       mcpGatewayToken: mcpGatewayToken ?? this.mcpGatewayToken,
     );
-  }
-
-  /// Returns non-null fields as map entries for the initialize handshake.
-  Map<String, dynamic> toInitializeFields() {
-    return {
-      if (disallowedTools.isNotEmpty) 'disallowedTools': disallowedTools,
-      if (maxTurns != null) 'maxTurns': maxTurns,
-      if (model != null) 'model': model,
-      if (effort != null) 'effort': effort,
-    };
   }
 }

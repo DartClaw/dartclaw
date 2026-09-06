@@ -189,7 +189,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `agent.effort` | null or string |  | Reasoning effort handed verbatim to the harness. Null leaves its own default. (restart required) |
 | `agent.execution` | null or string | one of "container", "host", null | Where primary-lane turns run. Selecting container demands container isolation be on — host is never substituted silently. (restart required) |
 | `agent.max_turns` | integer or null | minimum 1 | Ceiling on assistant turns inside one exchange. Null leaves the harness default. (restart required) |
-| `agent.disallowed_tools` | array |  | Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults. (restart required) |
+| `agent.disallowed_tools` | array |  | Tool names withheld from every turn – primary lane, scheduled jobs, tasks and logical agents – in canonical (shell, file_edit, web_fetch, …) or provider-native spelling. Claude is spawned without them; the host guard refuses them on every provider. Empty withholds nothing beyond the harness defaults. (restart required) |
 | `auth.cookie_secure` | boolean |  | Add the Secure attribute to the session cookie. Needed for HTTPS deployments; it breaks sign-in over plain HTTP. (restart required) |
 | `auth.trusted_proxies` | array or null |  | Addresses whose forwarded-for header is believed when resolving a client IP. Empty believes none. (restart required) |
 | `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
@@ -252,7 +252,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `agent.agents.<name>.provider` | null or string |  | Harness driving this agent. Null inherits the primary lane setting; blank is refused. (restart required) |
 | `agent.agents.<name>.security_profile` | null or string | one of "restricted", "workspace", null | Container posture: workspace can write the checkout, restricted cannot. It never selects host or container placement. (restart required) |
 | `agent.agents.<name>.tools` | array |  | Tools this agent may call. Empty enforces no allowlist at all, which is warned about at load. (restart required) |
-| `agent.disallowed_tools` | array |  | Tool names withheld from primary-lane turns. Empty withholds nothing beyond the harness defaults. (restart required) |
+| `agent.disallowed_tools` | array |  | Tool names withheld from every turn – primary lane, scheduled jobs, tasks and logical agents – in canonical (shell, file_edit, web_fetch, …) or provider-native spelling. Claude is spawned without them; the host guard refuses them on every provider. Empty withholds nothing beyond the harness defaults. (restart required) |
 | `agent.effort` | null or string |  | Reasoning effort handed verbatim to the harness. Null leaves its own default. (restart required) |
 | `agent.execution` | null or string | one of "container", "host", null | Where primary-lane turns run. Selecting container demands container isolation be on — host is never substituted silently. (restart required) |
 | `agent.history.max_message_chars` | integer | minimum 500 | Characters of one replayed message kept when history is rebuilt. Values under 500 are refused. (restart required) |

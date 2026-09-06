@@ -38,6 +38,8 @@ List<String> _buildClaudeArgs({
   String? settings,
   String? outputSchemaJson,
   String? providerSessionId,
+  int? maxTurns,
+  List<String> disallowedTools = const [],
   bool persistSession = false,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
@@ -65,6 +67,9 @@ List<String> _buildClaudeArgs({
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
   if (settings != null) ...['--settings', settings],
   if (outputSchemaJson != null) ...['--json-schema', outputSchemaJson],
+  if (maxTurns != null) ...['--max-turns', '$maxTurns'],
+  // Variadic: the CLI reads names up to the next flag, so this stays last.
+  if (disallowedTools.isNotEmpty) ...['--disallowedTools', ...disallowedTools],
 ];
 
 /// Credential names a model-supplied Bash `env` map may never carry. The host's
@@ -613,6 +618,8 @@ class ClaudeCodeHarness extends BaseHarness {
       settings: nativeSettings,
       outputSchemaJson: _processOutputSchemaJson,
       providerSessionId: _processProviderSession.id,
+      maxTurns: _processMaxTurns,
+      disallowedTools: _spawnDisallowedTools,
       persistSession: _processProviderSession.persists,
       // A step's declared rules are its total policy, so its spawn never reads
       // the host operator's user-scope settings: a server lane whose tool
@@ -694,6 +701,12 @@ class ClaudeCodeHarness extends BaseHarness {
   /// suppression keeps the client from asking at all; the bridged MCP grant is
   /// the only web path a container has.
   List<String> get _deniedNativeWebTools => containerManager == null ? const [] : const ['WebSearch', 'WebFetch'];
+
+  /// Every withheld tool in the spelling `--disallowedTools` takes, once each.
+  List<String> get _spawnDisallowedTools => {
+    for (final name in [...harnessConfig.disallowedTools, ..._deniedNativeWebTools])
+      ...ClaudeProtocolAdapter.nativeToolNames(name),
+  }.toList();
 
   String? _resolveProviderOption(String? override, String? fallback) {
     final trimmed = override?.trim();
@@ -900,12 +913,6 @@ class ClaudeCodeHarness extends BaseHarness {
             },
           ],
         },
-        initializeFields: {
-          ...harnessConfig.toInitializeFields(),
-          if (_deniedNativeWebTools.isNotEmpty)
-            'disallowedTools': [...harnessConfig.disallowedTools, ..._deniedNativeWebTools],
-          if (_processMaxTurns != null) 'maxTurns': _processMaxTurns,
-        },
         // Gated on the boundary, not the URL: a container whose authority was
         // granted no tools has a null bridge URL, and must end up with *less*
         // exposure, not the SDK memory tools deny-by-default excluded.
@@ -1076,6 +1083,7 @@ class ClaudeCodeHarness extends BaseHarness {
         :final stopReason,
         :final subtype,
         :final structuredOutput,
+        :final finalText,
         :final costUsd,
         :final inputTokens,
         :final outputTokens,
@@ -1104,6 +1112,7 @@ class ClaudeCodeHarness extends BaseHarness {
             TurnResult(
               stopReason: stopReason,
               error: error,
+              finalText: finalText,
               costUsd: costUsd,
               providerSessionId: _processProviderSession.persists ? _sessionId : null,
               structuredOutput: structuredOutput,

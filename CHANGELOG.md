@@ -14,6 +14,25 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ## [Unreleased]
 
+### Fixed
+
+- **`agent.disallowed_tools` and `agent.max_turns` reach the Claude process** – both were sent only as fields of
+  the SDK `initialize` handshake, which the protocol has never carried, so Claude offered the withheld tools and
+  ignored the turn cap on every lane; the guard skipped the primary lane too because it evaluates nothing without an
+  agent identity. The deny list is now a `--disallowedTools` spawn flag (canonical names mapped to the native ones:
+  `shell` → `Bash`, `file_edit` → `Edit` and `NotebookEdit`, …), the cap is `--max-turns`, and the guard's global
+  layer binds the main agent as well. A workflow finalizer's `maxTurns: 2` is therefore enforced for the first time.
+- **A scheduled or task turn delivers the final assistant message, not the working notes** – Claude's terminal
+  `result` line carries the last assistant message, and the adapter dropped it, so the stored message and every
+  `delivery: announce` text was the concatenation of all text blocks the model wrote between tool calls. The Claude
+  harness now reports that final text, as Codex already did; the stream to the web UI is unchanged.
+
+### Security
+
+- **Claude's native `WebFetch` and `WebSearch` are withheld when DartClaw serves the guarded MCP `web_fetch` and
+  `web_search`** – the suppression relied on the same dead handshake field, so the native tools (no SSRF policy, no
+  ContentGuard) were reachable on every Claude host turn and inside containers. They now go through the spawn flag.
+
 ## [0.25.1] - 2026-09-05
 
 ### Added

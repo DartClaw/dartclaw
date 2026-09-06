@@ -211,6 +211,16 @@ const Map<String, FieldMeta> _agentFields = {
     mutability: ConfigMutability.restart,
     description: 'Cron expression driving the automatic maintenance run. An empty string disables it.',
   ),
+  'scheduling.mutation.approval': FieldMeta(
+    yamlPath: 'scheduling.mutation.approval',
+    jsonKey: 'scheduling.mutation.approval',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description:
+        'Who commits a job the agent writes through schedule_upsert. none commits and loads it at once; operator '
+        'parks it until it is approved or rejected on the Scheduling page. The jobs API and the page always commit.',
+    allowedValues: ['none', 'operator'],
+  ),
   'scheduling.heartbeat.interval_minutes': FieldMeta(
     yamlPath: 'scheduling.heartbeat.interval_minutes',
     jsonKey: 'scheduling.heartbeat.intervalMinutes',

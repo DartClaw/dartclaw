@@ -141,7 +141,7 @@ file   | packages/dartclaw_runtime/lib/src/mcp/memory_tools.dart#MemoryObserveTo
 
 - **TI02** The generated config schema and operator config reference carry the new key with no drift
   - Run the two commands in `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md#generated-artifacts`; both artifacts are generated only, never hand-edited. `config_meta_test.dart`'s registry and guide gates must stay green.
-  - **Verify**: `cmd: dart run dev/tools/render_config_reference.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -q 'scheduling\.mutation\.approval' schemas/dartclaw.schema.json && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart` – the schema check reports no drift, both generated artifacts carry the key, and the registry gates pass
+  - **Verify**: `cmd: dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -qU '"mutation": \{\s*"additionalProperties": false,\s*"properties": \{\s*"approval": \{' schemas/dartclaw.schema.json && dart run dev/tools/render_config_reference.dart && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart` – the schema check reports no drift, both generated artifacts carry the key, and the registry gates pass
   - **SATISFIES**: SC02
 
 - **TI03** A parked change is durable across a restart through one data-dir JSON store
@@ -191,4 +191,73 @@ file   | packages/dartclaw_runtime/lib/src/mcp/memory_tools.dart#MemoryObserveTo
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-06 11:26 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI02 Verify target repaired | Stale targets: – | `cmd: dart run dev/tools/render_config_reference.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -q 'scheduling\.mutation\.approval' schemas/dartclaw.schema.json && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart` → `cmd: dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -qU '"mutation": \{\s*"additionalProperties": false,\s*"properties": \{\s*"approval": \{' schemas/dartclaw.schema.json && dart run dev/tools/render_config_reference.dart && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && git diff --quiet -- docs/guide/configuration.md schemas/dartclaw.schema.json || true; dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart`
+
+### Run: 2026-09-06 11:26 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI02 Verify target repaired | Stale targets: – | `cmd: dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -qU '"mutation": \{\s*"additionalProperties": false,\s*"properties": \{\s*"approval": \{' schemas/dartclaw.schema.json && dart run dev/tools/render_config_reference.dart && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && git diff --quiet -- docs/guide/configuration.md schemas/dartclaw.schema.json || true; dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart` → `cmd: dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && rg -qU '"mutation": \{\s*"additionalProperties": false,\s*"properties": \{\s*"approval": \{' schemas/dartclaw.schema.json && dart run dev/tools/render_config_reference.dart && rg -q 'scheduling\.mutation\.approval' docs/guide/configuration.md && dart test --reporter=failures-only packages/dartclaw_kernel/test/config_meta_test.dart`
+
+### Run: 2026-09-06 11:26 UTC – observations
+
+#### DRIFT
+
+- spec-stale: TI02's Verify grepped the literal dotted path `scheduling.mutation.approval` in `schemas/dartclaw.schema.json`, but the generated schema is nested JSON (`scheduling` → `mutation` → `approval` properties) and carries no dotted path for any field, so that check could never pass. Repaired through `repair-proof` to match the nested `"mutation"`/`"approval"` block; the `--check` drift gate and the guide grep are unchanged. | Stale targets: –
+
+### Run: 2026-09-06 11:39 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+- **`_warnUnhardenedPrimaryOnChannelIngress` still fires under `scheduling.mutation.approval: operator`.** `runtime/harness_wiring.dart` warns whenever a channel is enabled, the primary runs on the host and `agent.disallowed_tools` is empty, and it does not read the approval mode, so a deployment following the guide's new recommendation still gets a startup warning pointing at the deny. The guide states the warning's condition as it is. Widening that check is a security-posture decision outside this FIS.
+- **`dartclaw_runtime/lib` crossed its `arch_check` LOC ceiling (65,356) by this story's net 366 lines** on a tree the sibling shell-job story had left 87 lines under it. Raised to 65,700 with the recorded-necessity comment in `dev/tools/arch_check.dart` and a CHANGELOG note, the form the 2026-08-27 precedent uses; the raise is the owner's to accept, since ADR-033 makes a ceiling raise a maintainer decision.
+- **The durability task's prose (the store task) says a missing store file "degrades to empty with a warning".** The store logs a missing file at `fine`, the `ThreadBindingStore` precedent: a fresh boot has no file and a warning on every clean start is noise, and no parked change can be lost when there was nothing to load. Unreadable and malformed files warn as specified and are tested.
+
+### Run: 2026-09-06 11:58 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Story-gate round 1 findings routed `Note` and left in place, for the owner:
+
+- **Parking is unbounded and not collapsed per job id** (`upsertJob` mints a UUID record per call; `PendingScheduleChangeStore._persist` rewrites the whole file). A model turn repeating the same upsert accumulates rows and buries a genuine request on the operator page. The FIS rules out TTLs and a general framework and is silent on per-`jobId` dedupe, so collapsing to one record per job id is a scope call. Class: ambiguous-intent.
+- **Settling a parked change writes no audit record.** The parked call is audited at MCP dispatch; the operator's approve/reject in `scheduling_page.dart#_settle` writes no `AuditEntry`, event or log line, so a rejected request leaves no trace of who asked or who refused. ADR-054 frames the decision as a security boundary; the FIS names no audit surface. Class: code-defect, owner call on the audit surface.
+- **Two `none`-path refusal strings changed.** The built-in-id refusal now carries the seam's `cannot be written through this API` wording instead of the tool's former `cannot be edited through schedule_upsert`, and a backup failure loses its `Config backup failed:` prefix; reason codes (`conflict`, `write_failed`) are unchanged and pinned. Restoring the wording would re-author a second string beside the seam's; left as the seam's one sentence. Class: code-defect, cosmetic.
+- **`ScheduleUpsertTool` as a `ContextualMcpTool` on a scoped lane with a policy but no identity.** `mcp_bridge_surface.dart` passes `callerIdentity: null` when a principal's `sessionId` trims to empty, and the dispatch then refuses every contextual tool. Whether that principal shape is reachable is undetermined; the FIS gotcha covers the unscoped primary lane only. Class: ambiguous-intent.
+- **`dev/state/PROMPT-SURFACES.md` still lacks rows for `workflow_tools.dart`, `attach_media_tool.dart` and `wiki_write_tool.dart`.** This change added the `schedule_tools.dart` row it re-contracted; the sibling omissions predate it and want an inventory audit, not a story edit.
+
+### Run: 2026-09-06 12:09 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Story-gate round 2 findings routed `Note` and left in place, for the owner:
+
+- **The `schedule_upsert` description opens with an unconditional "runs from the moment this call returns — no restart"** and only its added sentence qualifies it for `operator`. TI05 asked for exactly one added factual sentence and the implementation matches it; folding the condition into the lead sentence re-contracts a prompt surface and is the owner's call. Class: spec-stale.
+- **An applier failure after a landed commit reports as `BACKUP_FAILED`.** `_write` maps every `StateError` to that code, and `commitAndApply` awaits the applier inside the same try, so a scheduler-side failure after a successful write is labelled a backup failure. Pre-existing mapping shared by every seam caller; the `afterCommit` record drop is unaffected and tested. Class: code-defect, pre-existing.
+- **Approval also refuses a `type: shell` entry that took the id while the change waited** (through `commitAndApply`'s fresh-read file-only check), a third stale-host-state case the guide's and changelog's "re-checks only" sentence does not enumerate. Outcome shape is the same: refuse, stay pending. Class: code-defect, wording.
+- **Three unguarded invariants**: the serializer's `scheduling.mutation.approval` projection has no test; nothing asserts the store the MCP tool site holds is the same instance the Scheduling page settles from; `ScheduleMutationApproval.fromYaml` and the `FieldMeta.allowedValues` set are written twice with no round-trip gate (the `MaintenanceMode` sibling carries one). Each is a test addition the FIS did not pin. Class: code-defect, proof gaps.
+- **`test/generated/embedded_assets_test.dart` fails on a checkout without `build/bridge-embed/`** because the generated map then carries no bridge binaries; the text-asset assertions covering this story's template, CSS and controller pass. Environmental, not a regression; the full workspace tier regenerates assets first and is green.
+
+### Run: 2026-09-06 12:15 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Visual validation, round 3 (screenshots 40–46 under `.agent_temp/visual-validation/screenshots/`): approve, reject-with-confirm, escaping of the parked prompt, task title and job id, the relative age with ISO title, and the hidden empty section all pass at 1280 and 375. Three P3 polish items remain after the two remediation rounds the story gate allows:
+
+- **`.scheduling-pending-table` still scrolls 10px inside its `.table-wrap` at 375px** (clientWidth 349, scrollWidth 359; the sibling jobs and tasks tables are 349/349). The four visible columns' combined min-content is ~10px over the fit and no single column is the cause; every control renders inside the visible box. Closing it means tighter cell padding on the Change and Requested columns at that breakpoint, or stacking the Approve/Reject buttons full-width.
+- **At 375px the 78px Job column wraps the whole parked prompt at about two words per line**, so a long prompt makes a 530px-tall row. Legible and contained; a line clamp or a lower character budget for the prompt sub-line at mobile width would read better. Rendering the prompt whole was chosen deliberately: it is what approval commits.
+- **`overflow-wrap: anywhere` on the requester cell breaks a token mid-word at 1280** (`schedule_upse / rt` in a 127px column). `overflow-wrap: break-word` breaks only when a word cannot otherwise fit and is the better value; left as is so the reviewed snapshot stays frozen.
+
+### Run: 2026-09-06 12:16 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Story-gate round 3 (verdict PASS) findings routed `Note`, for the owner:
+
+- **At 375px the responsive rule hides the pending table's third column, which is Schedule.** The sibling jobs and tasks tables drop Delivery / Type in that position; the pending table reuses the same `nth-child(3)` rule, so a mobile approval is made without the cron or `at` text on the row. Remedy is a column-priority call: put Change third so it is the one hidden, or fold the schedule into the Job cell as a third sub-line beside `type · delivery`. Class: code-defect.
+- **`_pendingSummary` renders an absent `type` as `prompt`.** Unreachable through the one writer (`schedule_upsert` requires an enum-validated `type`), so only a hand-edited store file reaches it; still a sentinel over a stored value on the approval surface. Either render the empty summary or guard `job.type` in `fromJson` beside `job.id`. Class: code-defect.
+- **The parked prompt renders whole with no height bound.** `schedule_upsert`'s `prompt` carries no `maxLength`, so a very long parked prompt makes a very tall row. Rendering it whole was round 2's requirement (the operator approves this text); a line clamp with the full text on `title` would keep the row actionable. Class: code-defect, owner call.
+- **The composition-root thread is unproven by test**: nothing drives `SchedulingWiring.pendingScheduleChanges` through `ServerObservabilityDeps` → `registerSystemDashboardPages` → `SchedulingPage.pendingChanges`, and every hop is nullable, so a dropped thread would degrade silently to an empty pending list. Restated from round 2 as the one silent failure mode.

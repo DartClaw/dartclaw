@@ -39,8 +39,11 @@ scheduling:
     late ScheduleService service;
     late Router router;
 
+    late ConfigWriter writer;
+    late SchedulingJobsApplier applier;
+
     setUp(() {
-      final writer = ConfigWriter(configPath: configPath);
+      writer = ConfigWriter(configPath: configPath);
       addTearDown(writer.dispose);
       service = ScheduleService(
         turns: FakeTurnManager(),
@@ -55,7 +58,7 @@ scheduling:
         ],
       )..start();
       addTearDown(service.stop);
-      final applier = SchedulingJobsApplier(
+      applier = SchedulingJobsApplier(
         configPath: configPath,
         jobs: ScheduleMutationService(writer: writer),
         scheduleService: () => service,
@@ -115,6 +118,38 @@ scheduling:
         status: 409,
       );
       expect(service.builtInJobIds, {'heartbeat'});
+    });
+
+    test('the jobs API never parks', () async {
+      // The API's seam site takes neither the approval mode nor the store, so
+      // the loaded config's `operator` cannot reach it: every write commits.
+      final gated = configApiRoutes(
+        config: const DartclawConfig(scheduling: SchedulingConfig(mutationApproval: ScheduleMutationApproval.operator)),
+        writer: writer,
+        validator: const ConfigValidator(),
+        runtimeConfig: RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: false, gitSyncPushEnabled: false),
+        dataDir: dataDir,
+        applyJobs: applier.apply,
+        reservedJobIds: () => service.builtInJobIds,
+      );
+
+      final created = await api(gated).expectJsonObject(
+        'POST',
+        '/api/scheduling/jobs',
+        json: {'name': 'standup', 'schedule': '0 9 * * *', 'prompt': 'Run standup', 'delivery': 'announce'},
+        status: 201,
+      );
+      expect(created['job']['name'], 'standup');
+      expect(created.containsKey('pending'), isFalse);
+      expect(service.hasJob('standup'), isTrue);
+
+      await api(gated).expectJsonObject('PUT', '/api/scheduling/jobs/standup', json: {'schedule': '0 18 * * *'});
+      expect(service.entries.singleWhere((entry) => entry.id == 'standup').cronExpression, '0 18 * * *');
+
+      await api(gated).expectJsonObject('DELETE', '/api/scheduling/jobs/standup');
+      expect(service.hasJob('standup'), isFalse);
+
+      expect(File(p.join(dataDir, 'pending-schedule-changes.json')).existsSync(), isFalse);
     });
 
     test('S06 an at in the past is refused as INVALID_INPUT with nothing loaded', () async {

@@ -36,6 +36,7 @@
   </div>
   <tl:block tl:utext="${jobFormHtml}"></tl:block>
   <tl:block tl:utext="${jobsTableHtml}"></tl:block>
+  <tl:block tl:utext="${pendingChangesHtml}"></tl:block>
 
   <div class="section-toolbar section-toolbar--spaced">
     <h2 class="section-header">Scheduled Tasks</h2>
@@ -133,6 +134,42 @@
       </tbody>
     </table>
   </div>
+</div>
+
+<div tl:fragment="pendingChanges" id="scheduling-pending-changes" tl:attr="hidden=${hasPending ? null : ''}">
+  <tl:block tl:if="${hasPending}">
+    <div class="section-toolbar section-toolbar--spaced">
+      <h2 class="section-header">Pending Changes</h2>
+    </div>
+    <div class="table-fade-wrap"><div class="table-wrap">
+      <table class="data-table scheduling-pending-table">
+        <caption class="sr-only">Schedule writes awaiting operator approval</caption>
+        <thead><tr><th>Job</th><th>Change</th><th>Schedule</th><th>Requested</th><th>Actions</th></tr></thead>
+        <tbody>
+          <tr tl:each="change : ${changes}">
+            <td class="scheduling-pending-job">
+              <span tl:text="${change.jobId}"></span>
+              <span class="cron-human cron-human--sub-id" tl:text="${change.summary}"></span>
+              <span class="cron-human" tl:text="${change.body}"></span>
+            </td>
+            <td><span class="card-badge badge-muted" tl:text="${change.kind}"></span></td>
+            <td><span class="cron-expr" tl:text="${change.schedule}"></span></td>
+            <td class="scheduling-pending-requester">
+              <span tl:text="${change.requester}"></span>
+              <time class="cron-human cron-human--sub-id" tl:attr="datetime=${change.requestedAtIso},title=${change.requestedAtIso}" tl:text="${change.requestedAt}"></time>
+            </td>
+            <td><div class="action-btns scheduling-action-btns">
+              <button class="btn btn-primary btn-sm" type="button" hx-target="#scheduling-pending-changes" hx-swap="outerHTML"
+                      tl:attr="hx-post=${change.approveUrl}">Approve</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-action="click->dc-scheduling#confirmDelete"
+                      data-delete-label="Confirm Reject"
+                      tl:attr="data-delete-message=${change.rejectMessage},data-delete-url=${change.rejectUrl}">Reject</button>
+            </div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div></div>
+  </tl:block>
 </div>
 
 <div tl:fragment="taskForm" class="well-content" id="task-form" tl:attr="hidden=${open ? null : ''}">

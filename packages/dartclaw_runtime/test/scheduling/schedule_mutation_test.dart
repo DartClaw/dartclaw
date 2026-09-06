@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -7,6 +7,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
 import 'package:dartclaw_runtime/src/scheduling/schedule_mutation.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -509,6 +510,325 @@ scheduling:
 
       expect(configText(), isNot(contains('once-off')));
       expect(configText(), contains('mail-feed'));
+    });
+  });
+  group('approval mode parks a model-originated upsert', () {
+    late PendingScheduleChangeStore store;
+    late Set<String> reserved;
+    late ScheduleMutationService parking;
+
+    /// A job body the way `schedule_upsert` builds one: validated, `schedule`
+    /// already resolved through the seam.
+    Map<String, dynamic> body({String id = 'weekly', Object? schedule = '0 9 * * 1'}) => {
+      'id': id,
+      'schedule': schedule,
+      'type': 'prompt',
+      'prompt': 'Summarize the week',
+      'delivery': 'announce',
+    };
+
+    ScheduleMutationService seam({
+      required PendingScheduleChangeStore store,
+      ScheduleMutationApproval approval = ScheduleMutationApproval.none,
+    }) => ScheduleMutationService(
+      writer: writer,
+      applyJobs: applier.apply,
+      reservedJobIds: () => reserved,
+      now: () => clock,
+      approval: approval,
+      pendingChanges: store,
+    );
+
+    setUp(() async {
+      store = PendingScheduleChangeStore(File(p.join(dataDir, 'pending-schedule-changes.json')));
+      await store.load();
+      reserved = {...service.builtInJobIds};
+      parking = seam(store: store, approval: ScheduleMutationApproval.operator);
+    });
+
+    test('S01 under operator an upsert writes nothing and stores one record', () async {
+      final before = configText();
+
+      final outcome = await parking.upsertJob(body(), requester: 'mcp-client:ops');
+
+      expect(outcome.result, isA<ScheduleMutationParked>());
+      expect(outcome.created, isTrue);
+      expect(configText(), before, reason: 'a parked write must leave dartclaw.yaml byte-identical');
+      expect(service.hasJob('weekly'), isFalse);
+      final change = store.values.single;
+      expect(change.changeId, (outcome.result as ScheduleMutationParked).changeId);
+      expect(change.jobId, 'weekly');
+      expect(change.kind, PendingChangeKind.created);
+      expect(change.job, body());
+      expect(change.requester, 'mcp-client:ops');
+      expect(change.requestedAt, clock.toUtc());
+      expect(change.requestedAt.isUtc, isTrue);
+    });
+
+    test('S01 an upsert over an existing id parks the tool body as a replacement', () async {
+      applied(await mutations.createJob({...body(), 'name': 'weekly', 'delivery': 'webhook'}..remove('id')));
+      await mutations.updateJob('weekly', {'webhook_url': 'https://example.test/hook'});
+      final before = configText();
+
+      final outcome = await parking.upsertJob(body(schedule: '0 18 * * 1'), requester: 'schedule_upsert');
+
+      expect(outcome.created, isFalse);
+      expect(configText(), before);
+      final change = store.values.single;
+      expect(change.kind, PendingChangeKind.replaced);
+      // The body as the tool supplied it: the merge over the stored entry
+      // happens at commit, so the record is not an authority over keys the
+      // model never named.
+      expect(change.job, body(schedule: '0 18 * * 1'));
+      expect(service.entries.singleWhere((entry) => entry.id == 'weekly').cronExpression, '0 9 * * 1');
+    });
+
+    test('S02 approving merges over the entry as it is now, so an operator edit made meanwhile survives', () async {
+      applied(await mutations.createJob({...body(), 'name': 'weekly', 'delivery': 'webhook'}..remove('id')));
+      final parked =
+          (await parking.upsertJob(body(schedule: '0 18 * * 1'), requester: 'schedule_upsert')).result
+              as ScheduleMutationParked;
+      applied(await mutations.updateJob('weekly', {'enabled': false, 'webhook_url': 'https://example.test/hook'}));
+
+      applied(await seam(store: store).approve(parked.changeId));
+
+      final stored = (await writer.readSchedulingJobs()).single;
+      expect(stored['schedule'], '0 18 * * 1');
+      expect(stored['enabled'], isFalse);
+      expect(stored['webhook_url'], 'https://example.test/hook');
+    });
+
+    test('S01 an upsert naming a file-only shell entry is refused, not parked', () async {
+      writeConfig(
+        '\n'
+        '    - id: mail-feed\n'
+        '      type: shell\n'
+        '      schedule: "0 * * * *"\n'
+        '      command:\n'
+        '        - /usr/local/bin/hey\n'
+        '      output: mail.json',
+      );
+      final before = configText();
+
+      final refusal = refused((await parking.upsertJob(body(id: 'mail-feed'), requester: 'mcp-client:ops')).result);
+
+      expect(refusal.status, 400);
+      expect(refusal.code, 'INVALID_INPUT');
+      expect(refusal.message, contains('Shell jobs are file-only'));
+      expect(store.values, isEmpty, reason: 'a write that could never commit must not be parked');
+      expect(configText(), before);
+    });
+
+    test('S02 the record is dropped once the commit lands, even when the applier then fails', () async {
+      final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      final settling = ScheduleMutationService(
+        writer: writer,
+        applyJobs: () async => throw StateError('applier down'),
+        reservedJobIds: () => reserved,
+        now: () => clock,
+        pendingChanges: store,
+      );
+
+      final refusal = refused(await settling.approve(parked.changeId));
+
+      expect(refusal.code, 'BACKUP_FAILED');
+      // The file and the store agree: the job shipped, so nothing is pending
+      // for a reject to claim it discarded.
+      expect((await writer.readSchedulingJobs()).single['id'], 'weekly');
+      expect(store.values, isEmpty);
+    });
+
+    test('S02 approve writes the parked body and the running scheduler holds the job', () async {
+      final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      final settling = seam(store: store);
+
+      final result = await settling.approve(parked.changeId);
+
+      expect(applied(result)['id'], 'weekly');
+      expect((await writer.readSchedulingJobs()).single, body());
+      expect(service.hasJob('weekly'), isTrue);
+      expect(store.values, isEmpty);
+      expect(restartMarkerWritten(), isFalse);
+    });
+
+    test('S03 reject drops the change and touches neither the YAML nor the scheduler', () async {
+      final before = configText();
+      final loadedBefore = service.entries.map((entry) => entry.id).toList();
+      final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+
+      final result = await seam(store: store).reject(parked.changeId);
+
+      expect(result, isA<ScheduleMutationApplied>());
+      expect(configText(), before);
+      expect(service.entries.map((entry) => entry.id), loadedBefore);
+      expect(store.values, isEmpty);
+    });
+
+    test('S06 a parked one-time instant that has since passed is refused and stays pending', () async {
+      final at = clock.add(const Duration(minutes: 10)).toIso8601String();
+      final parked =
+          (await parking.upsertJob(body(schedule: {'type': 'once', 'at': at}), requester: 'mcp-client:ops')).result
+              as ScheduleMutationParked;
+      final before = configText();
+      clock = clock.add(const Duration(minutes: 20));
+
+      final refusal = refused(await seam(store: store).approve(parked.changeId));
+
+      expect(refusal.status, 400);
+      expect(refusal.code, 'INVALID_INPUT');
+      // The same sentence resolveSchedule answers with: one future-instant rule.
+      expect(refusal.message, '"at" must be later than now: "$at"');
+      expect(configText(), before);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(store.values.single.changeId, parked.changeId);
+    });
+
+    test('S06 a parked id that has since become a built-in is refused and stays pending', () async {
+      final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      final before = configText();
+      reserved.add('weekly');
+
+      final refusal = refused(await seam(store: store).approve(parked.changeId));
+
+      expect(refusal.status, 409);
+      expect(refusal.code, 'CONFLICT');
+      expect(refusal.message, contains('built-in'));
+      expect(configText(), before);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(store.values.single.changeId, parked.changeId);
+    });
+
+    test('S06 a changeId naming no stored change is refused with nothing written', () async {
+      final before = configText();
+      final settling = seam(store: store);
+
+      final approve = refused(await settling.approve('no-such-change'));
+      final reject = refused(await settling.reject('no-such-change'));
+
+      for (final refusal in [approve, reject]) {
+        expect(refusal.status, 404);
+        expect(refusal.code, 'NOT_FOUND');
+        expect(refusal.message, 'Pending change "no-such-change" not found');
+      }
+      expect(configText(), before);
+    });
+
+    test('S07 under none the same upsert commits and applies, and nothing is parked', () async {
+      final outcome = await seam(store: store).upsertJob(body(), requester: 'schedule_upsert');
+
+      expect(applied(outcome.result)['id'], 'weekly');
+      expect(outcome.created, isTrue);
+      expect(service.hasJob('weekly'), isTrue);
+      expect((await writer.readSchedulingJobs()).single['prompt'], 'Summarize the week');
+      expect(store.values, isEmpty);
+    });
+
+    test('S07 a built-in id is refused by upsertJob under either mode with nothing parked', () async {
+      final before = configText();
+
+      for (final seamUnderTest in [parking, seam(store: store)]) {
+        final refusal = refused((await seamUnderTest.upsertJob(body(id: 'heartbeat'), requester: 'x')).result);
+        expect(refusal.status, 409);
+        expect(refusal.message, contains('built-in'));
+      }
+      expect(configText(), before);
+      expect(store.values, isEmpty);
+    });
+
+    test('SC01 operator mode without a store is a construction error, not a silent commit', () {
+      expect(
+        () => ScheduleMutationService(writer: writer, approval: ScheduleMutationApproval.operator),
+        throwsArgumentError,
+      );
+    });
+
+    group('a parked change survives a restart', () {
+      File storeFile() => File(p.join(dataDir, 'pending-schedule-changes.json'));
+
+      test('a second store over the same file loads the same record and approving through it writes the job', () async {
+        final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+
+        final rebooted = PendingScheduleChangeStore(storeFile());
+        await rebooted.load();
+
+        final change = rebooted.values.single;
+        expect(change.changeId, parked.changeId);
+        expect(change.job, body());
+        expect(change.requester, 'mcp-client:ops');
+        expect(change.requestedAt, clock.toUtc());
+        expect(change.kind, PendingChangeKind.created);
+
+        applied(await seam(store: rebooted).approve(parked.changeId));
+        expect((await writer.readSchedulingJobs()).single, body());
+        expect(service.hasJob('weekly'), isTrue);
+        expect(rebooted.values, isEmpty);
+        expect(jsonDecode(storeFile().readAsStringSync()), isEmpty);
+      });
+
+      List<String> captureWarnings() {
+        final warnings = <String>[];
+        final subscription = Logger.root.onRecord
+            .where((record) => record.loggerName == 'PendingScheduleChangeStore' && record.level >= Level.WARNING)
+            .listen((record) => warnings.add(record.message));
+        addTearDown(subscription.cancel);
+        return warnings;
+      }
+
+      Map<String, dynamic> soundEntry() => PendingScheduleChange(
+        changeId: 'sound',
+        jobId: 'weekly',
+        kind: PendingChangeKind.created,
+        job: body(),
+        requester: 'mcp-client:ops',
+        requestedAt: clock.toUtc(),
+      ).toJson();
+
+      test('a malformed entry beside a sound one is skipped with a warning naming it', () async {
+        storeFile().writeAsStringSync(
+          jsonEncode([
+            soundEntry(),
+            {...soundEntry(), 'changeId': 'unknown-kind', 'kind': 'teleported'},
+            {...soundEntry(), 'changeId': 'no-job-id', 'job': body()..remove('id')},
+          ]),
+        );
+        final warnings = captureWarnings();
+
+        final loaded = PendingScheduleChangeStore(storeFile());
+        await loaded.load();
+
+        expect(loaded.values.map((change) => change.changeId), ['sound']);
+        expect(warnings, hasLength(2));
+        expect(
+          warnings[0],
+          allOf(startsWith('Skipping malformed pending schedule change entry'), contains('unknown-kind')),
+        );
+        expect(
+          warnings[1],
+          allOf(startsWith('Skipping malformed pending schedule change entry'), contains('no-job-id')),
+        );
+      });
+
+      test('an unreadable file loads empty and warns', () async {
+        storeFile().writeAsStringSync('not json at all');
+        final warnings = captureWarnings();
+
+        final loaded = PendingScheduleChangeStore(storeFile());
+        await loaded.load();
+
+        expect(loaded.values, isEmpty);
+        expect(warnings.single, startsWith('Failed to load pending schedule changes — starting empty'));
+      });
+
+      test('a file that is not a JSON array loads empty and warns', () async {
+        storeFile().writeAsStringSync(jsonEncode(soundEntry()));
+        final warnings = captureWarnings();
+
+        final loaded = PendingScheduleChangeStore(storeFile());
+        await loaded.load();
+
+        expect(loaded.values, isEmpty);
+        expect(warnings.single, 'Pending schedule changes file is not a JSON array — starting empty');
+      });
     });
   });
 }

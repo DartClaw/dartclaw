@@ -737,6 +737,12 @@
   [blocking] Invalid type for interval_minutes: "String" — using default
 === scheduling.jobs#type-nonmap ===
   [blocking] Invalid type for jobs: "int" — using defaults
+=== scheduling.mutation#scalar ===
+  [blocking] Invalid type for mutation: "int" — using defaults
+=== scheduling.mutation.approval#non-member ===
+  [blocking] Invalid value for scheduling.mutation.approval: "__dartclaw_not_a_member__" — using default
+=== scheduling.mutation.approval#type-nonstring ===
+  [blocking] Invalid type for approval: "int" — using defaults
 === search#scalar ===
   [blocking] Invalid type for search: "int" — using defaults
 === search.backend#non-member ===

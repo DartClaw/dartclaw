@@ -650,7 +650,12 @@
   .table-fade-wrap::after { content: ''; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 32px; background: linear-gradient(to right, transparent, var(--bg-card)); pointer-events: none; z-index: 1; }
   .table-wrap { padding-right: var(--sp-2); }
 }
-.scheduling-jobs-table, .scheduling-tasks-table { min-width: 560px; }
+.scheduling-jobs-table, .scheduling-tasks-table, .scheduling-pending-table { min-width: 560px; }
+/* The parked prompt is rendered whole — it is what approval commits — so its
+   cell wraps instead of widening the table; the requester token has no break
+   opportunity of its own. */
+.scheduling-pending-job { max-width: 28rem; }
+.scheduling-pending-job .cron-human, .scheduling-pending-requester { white-space: normal; overflow-wrap: anywhere; }
 .data-table tr.row-error { background: color-mix(in srgb, var(--error) 5%, transparent); }
 .data-table tr.row-error:hover { background: color-mix(in srgb, var(--error) 10%, var(--bg-card)); }
 .cron-expr { font-size: var(--text-xs); color: var(--fg-sub0); font-family: var(--font-mono); }
@@ -1593,7 +1598,9 @@ select.form-select.channel-mode-select-hidden {
   .scheduling-jobs-table th:nth-child(3),
   .scheduling-jobs-table td:nth-child(3),
   .scheduling-tasks-table th:nth-child(3),
-  .scheduling-tasks-table td:nth-child(3) {
+  .scheduling-tasks-table td:nth-child(3),
+  .scheduling-pending-table th:nth-child(3),
+  .scheduling-pending-table td:nth-child(3) {
     display: none;
   }
 
@@ -1601,14 +1608,17 @@ select.form-select.channel-mode-select-hidden {
      with sp-2 cell padding and the actions free to wrap, so the desktop
      min-width is released rather than lowered. */
   .scheduling-jobs-table,
-  .scheduling-tasks-table {
+  .scheduling-tasks-table,
+  .scheduling-pending-table {
     min-width: 0;
   }
 
   .scheduling-jobs-table th,
   .scheduling-jobs-table td,
   .scheduling-tasks-table th,
-  .scheduling-tasks-table td {
+  .scheduling-tasks-table td,
+  .scheduling-pending-table th,
+  .scheduling-pending-table td {
     white-space: normal;
     padding-inline: var(--sp-2);
   }

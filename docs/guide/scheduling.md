@@ -79,10 +79,33 @@ scheduling:
 ```
 
 A job created, edited or deleted through the `schedule_upsert` tool, the jobs API or the Scheduling page is loaded into
-the running server before the write is answered — no restart, and no restart marker. A hand edit of `dartclaw.yaml`
-still needs one: file reloads treat the whole `scheduling` section as restart-tier. On a lane that reads untrusted
-channel content, withhold `schedule_upsert` via `agent.disallowed_tools` — see
+the running server before the write is answered — no restart, and no restart marker. The one exception is a tool
+write under `scheduling.mutation.approval: operator`, which is parked until you approve it (below). A hand edit of
+`dartclaw.yaml` still needs a restart: file reloads treat the whole `scheduling` section as restart-tier. On a lane
+that reads untrusted channel content, turn approval on — or withhold `schedule_upsert` outright via
+`agent.disallowed_tools` — see
 [Hardening the primary agent for untrusted channels](security.md#hardening-the-primary-agent-for-untrusted-channels).
+
+### Operator approval for tool writes
+
+```yaml
+scheduling:
+  mutation:
+    approval: operator          # none (default) | operator
+```
+
+Under `operator`, a `schedule_upsert` call from a model turn is validated exactly as today but not written: the job body
+is parked in `<data_dir>/pending-schedule-changes.json` together with who asked (the MCP caller's identity, or the tool
+name for the primary lane) and when, and the tool answers `{"id": ..., "pending": true, "changeId": ...}` instead of
+`loaded`. Nothing changes in `dartclaw.yaml` or the running scheduler until you settle the change on the Scheduling
+page, where a **Pending Changes** section lists every parked write with Approve and Reject buttons. Approve commits the
+parked body through the same write path an unparked write takes, so the job is live when the toast appears; Reject
+discards it. Both need an admin session. A parked change survives a restart. Approval re-checks only what host state
+can have changed since parking — a one-time instant that has since passed, or a job id that has since become a
+built-in — and refuses with the reason while leaving the change pending for an explicit Reject.
+
+The mode gates the tool alone. The jobs API and the Scheduling page are authenticated operator surfaces and always
+commit directly, whatever the key says. The default `none` keeps every surface as it was.
 
 ### One-time jobs
 

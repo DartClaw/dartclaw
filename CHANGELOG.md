@@ -30,8 +30,21 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
   only by editing `dartclaw.yaml`. A containerized agent lane does not see the host data directory and therefore
   cannot read `feeds/`. See [Scheduling § Shell jobs](docs/guide/scheduling.md#shell-jobs).
 
+- **Operator approval for tool-written jobs (`scheduling.mutation.approval`)** – under `operator`, a `schedule_upsert`
+  call from a model turn is validated as before but parked instead of written: the job body, the requester (the MCP
+  caller's identity, or the tool name) and a timestamp go to `<data_dir>/pending-schedule-changes.json`, and the tool
+  answers `pending: true` with a `changeId` instead of `loaded`. The Scheduling page lists every parked change and
+  settles it behind the admin gate: Approve commits through the same write path an unparked write takes and loads
+  the job at once, Reject discards it. Approval re-checks only a one-time instant that has since passed and a job id
+  that has since become a built-in. The jobs API and the Scheduling page keep committing directly; the default `none`
+  changes nothing. Recommended over `agent.disallowed_tools: [schedule_upsert]` for a lane reading untrusted channel
+  content – see [Scheduling § Operator approval for tool writes](docs/guide/scheduling.md#operator-approval-for-tool-writes).
+
 ### Changed
 
+- **Runtime LOC ceiling raised for the scheduling approval gate** – `dartclaw_runtime/lib` measures 65,676 Dart lines
+  after the pending-change store, the seam's park/approve/reject and the Scheduling page's pending section; the
+  reviewed ceiling is 65,700. The proportional band and the automatic downward slack ratchet are unchanged.
 - **`providers.<id>.pool_size` defaults to `2`** (was `1`). A scheduled or task turn that spawns a logical agent
   holds one worker lease and its child needs a second; with one lease the child failed on every fire, and the built-in
   `search` agent means every deployment has a logical agent. Two is a ceiling, not a target – workers still spawn

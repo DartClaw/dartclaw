@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:uuid/uuid.dart';
 
 import 'cron_parser.dart';
+import 'pending_schedule_change.dart';
 
 /// Thrown by [ScheduleMutationService.commitAndApply] when a write would add,
 /// remove or change a `type: shell` entry.
@@ -47,6 +49,19 @@ final class ScheduleMutationRefused extends ScheduleMutationResult {
   final ScheduleMutationRefusal refusal;
 }
 
+/// A validated write held back for operator approval instead of committed.
+///
+/// Only [ScheduleMutationService.upsertJob] answers this, and only under
+/// [ScheduleMutationApproval.operator]; every other operation commits.
+final class ScheduleMutationParked extends ScheduleMutationResult {
+  const new(this.changeId);
+
+  final String changeId;
+}
+
+/// What an upsert did: its seam result, and whether the id was new.
+typedef ScheduleUpsertOutcome = ({ScheduleMutationResult result, bool created});
+
 /// What a request's `schedule` / `at` pair resolves to: the `schedule` value the
 /// job entry must carry, or the reason the pair cannot be honoured.
 typedef ResolvedSchedule = ({Object? value, String? refusal, String? field});
@@ -62,25 +77,48 @@ typedef ResolvedSchedule = ({Object? value, String? refusal, String? field});
 /// then awaits the injected applier, which hands the running [ScheduleService]
 /// the jobs the written file declares. No restart marker is recorded for
 /// `scheduling.jobs` and no caller may claim one is needed.
+///
+/// The one exception is a model-originated [upsertJob] under
+/// [ScheduleMutationApproval.operator]: the validated body is parked in the
+/// pending store and committed only by [approve], through the same write path.
+/// The mode is a constructor argument from the composition root, never a
+/// caller value, which is what keeps the gate deterministic (ADR-054).
 class ScheduleMutationService {
   final ConfigWriter _writer;
   final Future<void> Function()? _applyJobs;
   final Set<String> Function()? _reservedJobIds;
   final DateTime Function() _now;
+  final ScheduleMutationApproval _approval;
+  final PendingScheduleChangeStore? _pendingChanges;
 
   /// [applyJobs] loads the written jobs into the running scheduler and
   /// [reservedJobIds] answers which ids the runtime already owns. Both are
   /// resolved lazily by the composition root, because the scheduler this seam
   /// feeds is constructed after the surfaces that write through it.
+  ///
+  /// [approval] gates [upsertJob] alone and requires [pendingChanges] when it
+  /// is `operator`; a surface that only settles parked changes passes the store
+  /// and no mode.
   new({
     required ConfigWriter writer,
     Future<void> Function()? applyJobs,
     Set<String> Function()? reservedJobIds,
     DateTime Function()? now,
+    ScheduleMutationApproval approval = ScheduleMutationApproval.none,
+    PendingScheduleChangeStore? pendingChanges,
   }) : _writer = writer,
        _applyJobs = applyJobs,
        _reservedJobIds = reservedJobIds,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _approval = approval,
+       _pendingChanges = pendingChanges {
+    if (_approval == ScheduleMutationApproval.operator && _pendingChanges == null) {
+      throw ArgumentError('approval: operator requires a pending-change store');
+    }
+  }
+
+  /// The parked changes this seam can settle, oldest first.
+  List<PendingScheduleChange> get pendingChanges => _pendingChanges?.values ?? const [];
 
   /// The job ids the runtime registered itself, which no write may claim.
   Set<String> get reservedJobIds => _reservedJobIds?.call() ?? const {};
@@ -119,11 +157,8 @@ class ScheduleMutationService {
       if (at is! String || at.trim().isEmpty) {
         return (value: null, refusal: '"at" must be a non-empty ISO-8601 instant', field: 'at');
       }
-      final instant = DateTime.tryParse(at);
-      if (instant == null) return (value: null, refusal: 'Invalid "at" instant: "$at"', field: 'at');
-      if (!instant.isAfter(_now())) {
-        return (value: null, refusal: '"at" must be later than now: "$at"', field: 'at');
-      }
+      final refusal = instantRefusal(at);
+      if (refusal != null) return (value: null, refusal: refusal, field: 'at');
       return (value: <String, dynamic>{'type': 'once', 'at': at}, refusal: null, field: null);
     }
     if (schedule is! String || schedule.trim().isEmpty) {
@@ -132,6 +167,19 @@ class ScheduleMutationService {
     final cronError = cronRefusal(schedule);
     if (cronError != null) return (value: null, refusal: cronError, field: 'schedule');
     return (value: schedule, refusal: null, field: null);
+  }
+
+  /// Why [at] is not a one-time instant this seam can still honour, or `null`
+  /// when it parses and lies ahead of the seam's clock.
+  ///
+  /// The one future-instant rule: [resolveSchedule] applies it to a request and
+  /// [approve] re-applies it to a parked `{type: once, at}` body, so the two
+  /// cannot answer differently.
+  String? instantRefusal(String at) {
+    final instant = DateTime.tryParse(at);
+    if (instant == null) return 'Invalid "at" instant: "$at"';
+    if (!instant.isAfter(_now())) return '"at" must be later than now: "$at"';
+    return null;
   }
 
   /// Index of the entry [id] names in [jobs], or `-1`.
@@ -239,6 +287,90 @@ class ScheduleMutationService {
 
   Future<ScheduleMutationResult> deleteJob(String name) async => _delete(name, taskScoped: false);
 
+  /// Creates or replaces the entry [job]'s `id` names, the `schedule_upsert`
+  /// contract.
+  ///
+  /// [job] is the body the caller already validated against its own declared
+  /// contract, `schedule` resolved through [resolveSchedule]. An existing entry
+  /// is merged, not replaced, so operator-set keys the caller cannot express
+  /// survive. Under [ScheduleMutationApproval.operator] the caller's body is
+  /// parked as supplied under [requester] — host-owned provenance, never a
+  /// caller argument — and the result is [ScheduleMutationParked]; the merge
+  /// happens once, at commit, so an operator edit made while the change waits
+  /// is not reverted by approving it. Otherwise it commits and applies like
+  /// every other write. A body that could never commit — one naming a
+  /// file-only `type: shell` entry — is refused here under either mode, by the
+  /// same predicate [commitAndApply] applies.
+  Future<ScheduleUpsertOutcome> upsertJob(Map<String, dynamic> job, {required String requester}) async {
+    final id = job['id'] as String;
+    final reserved = _reservedRefusal(id, noun: 'Job', field: 'id');
+    if (reserved != null) return (result: reserved, created: false);
+    final jobs = await readJobs();
+    final created = indexOfJob(jobs, id) == -1;
+    final merged = _mergeUpsert(jobs, job);
+    final shellRefusal = _shellWriteRefusal(jobs, merged.jobs);
+    if (shellRefusal != null) return (result: _refused(400, 'INVALID_INPUT', shellRefusal), created: created);
+    if (_approval == ScheduleMutationApproval.operator) {
+      final change = PendingScheduleChange(
+        changeId: const Uuid().v4(),
+        jobId: id,
+        kind: created ? PendingChangeKind.created : PendingChangeKind.replaced,
+        job: job,
+        requester: requester,
+        requestedAt: _now().toUtc(),
+      );
+      await _pendingChanges!.add(change);
+      return (result: ScheduleMutationParked(change.changeId), created: created);
+    }
+    return (result: await _write(merged.jobs, merged.job), created: created);
+  }
+
+  /// Commits the parked change [changeId] through the same write path an
+  /// unparked upsert takes, then drops it from the store.
+  ///
+  /// The body is not re-validated — the seam accepted it when it parked it.
+  /// Only the two conditions host state can have changed underneath are
+  /// re-checked: the id becoming a built-in, and a one-time instant passing. A
+  /// refusal before the commit leaves the change pending for an explicit
+  /// reject. The record is dropped the moment the commit lands, before the
+  /// applier runs: a job that is in `dartclaw.yaml` must not stay listed as
+  /// pending, or a later reject would claim to discard a write that shipped.
+  Future<ScheduleMutationResult> approve(String changeId) async {
+    final change = _pendingChanges?.byId(changeId);
+    if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+    final reserved = _reservedRefusal(change.jobId, noun: 'Job', field: 'id');
+    if (reserved != null) return reserved;
+    if (change.job['schedule'] case {'type': 'once', 'at': final String at}) {
+      final refusal = instantRefusal(at);
+      if (refusal != null) return _refused(400, 'INVALID_INPUT', refusal, 'at');
+    }
+    final merged = _mergeUpsert(await readJobs(), change.job);
+    return _write(merged.jobs, merged.job, afterCommit: () => _pendingChanges!.remove(changeId));
+  }
+
+  /// Discards the parked change [changeId]; nothing is written to config.
+  Future<ScheduleMutationResult> reject(String changeId) async {
+    final change = _pendingChanges?.byId(changeId);
+    if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+    await _pendingChanges!.remove(changeId);
+    return ScheduleMutationApplied(change.job);
+  }
+
+  /// The whole list with [job] merged over the entry its id names, or appended.
+  static ({List<Map<String, dynamic>> jobs, Map<String, dynamic> job}) _mergeUpsert(
+    List<Map<String, dynamic>> stored,
+    Map<String, dynamic> job,
+  ) {
+    final jobs = stored.map(Map<String, dynamic>.from).toList();
+    final index = indexOfJob(jobs, job['id'] as String);
+    if (index == -1) {
+      jobs.add(job);
+      return (jobs: jobs, job: job);
+    }
+    jobs[index] = {...jobs[index], ...job};
+    return (jobs: jobs, job: jobs[index]);
+  }
+
   Future<ScheduleMutationResult> createTask(Map<String, dynamic> body) async {
     final id = body['id'];
     final schedule = body['schedule'];
@@ -338,9 +470,13 @@ class ScheduleMutationService {
     return _write(updated, null);
   }
 
-  Future<ScheduleMutationResult> _write(List<Map<String, dynamic>> jobs, Map<String, dynamic>? value) async {
+  Future<ScheduleMutationResult> _write(
+    List<Map<String, dynamic>> jobs,
+    Map<String, dynamic>? value, {
+    Future<void> Function()? afterCommit,
+  }) async {
     try {
-      await commitAndApply(jobs);
+      await commitAndApply(jobs, afterCommit: afterCommit);
       return ScheduleMutationApplied(value);
     } on ShellJobWriteRefused catch (error) {
       return _refused(400, 'INVALID_INPUT', error.message);
@@ -399,10 +535,14 @@ class ScheduleMutationService {
   /// read, not the caller's snapshot, because every mutation here is a
   /// read-modify-write over the whole list and a stale snapshot would let a
   /// concurrent hand edit through.
-  Future<void> commitAndApply(List<Map<String, dynamic>> jobs) async {
+  ///
+  /// [afterCommit] runs once the file is written and before the applier, for
+  /// state that must agree with the file rather than with the load.
+  Future<void> commitAndApply(List<Map<String, dynamic>> jobs, {Future<void> Function()? afterCommit}) async {
     final refusal = _shellWriteRefusal(await readJobs(), jobs);
     if (refusal != null) throw ShellJobWriteRefused(refusal);
     await commit(jobs);
+    await afterCommit?.call();
     await _applyJobs?.call();
   }
 

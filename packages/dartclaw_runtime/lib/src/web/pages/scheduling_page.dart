@@ -3,8 +3,10 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../../api/api_helpers.dart';
+import '../../auth/request_auth_context.dart';
 import '../../behavior/heartbeat_job.dart';
 import '../../runtime_config.dart';
+import '../../scheduling/pending_schedule_change.dart';
 import '../../scheduling/schedule_mutation.dart';
 import '../../scheduling/schedule_service.dart';
 import '../../scheduling/scheduled_job.dart';
@@ -14,8 +16,12 @@ import '../web_utils.dart';
 
 const _maxSchedulingFormBytes = 32 * 1024;
 
+// The seam instance this page builds carries no approval mode, so a parked
+// result cannot reach these handlers; the arms exist for exhaustiveness.
+const _neverParks = 'The Scheduling page never parks a scheduling write';
+
 class SchedulingPage extends DashboardPage {
-  new({this.runtimeConfigGetter, this.configWriter, this.scheduleServiceGetter, this.applyJobs});
+  new({this.runtimeConfigGetter, this.configWriter, this.scheduleServiceGetter, this.applyJobs, this.pendingChanges});
 
   final RuntimeConfig? Function()? runtimeConfigGetter;
   final ConfigWriter? configWriter;
@@ -26,6 +32,9 @@ class SchedulingPage extends DashboardPage {
   /// Resolved lazily by the composition root, exactly as [scheduleServiceGetter]
   /// is: the page is registered before the scheduler it feeds exists.
   final Future<void> Function()? applyJobs;
+
+  /// Parked `schedule_upsert` writes this page lists and settles.
+  final PendingScheduleChangeStore? pendingChanges;
 
   @override
   String get route => '/scheduling';
@@ -52,6 +61,8 @@ class SchedulingPage extends DashboardPage {
     (method: 'POST', path: '/scheduling/tasks/<id>/update'),
     (method: 'POST', path: '/scheduling/tasks/<id>/delete'),
     (method: 'POST', path: '/scheduling/tasks/<id>/toggle'),
+    (method: 'POST', path: '/scheduling/pending/<changeId>/approve'),
+    (method: 'POST', path: '/scheduling/pending/<changeId>/reject'),
   ];
 
   @override
@@ -73,6 +84,9 @@ class SchedulingPage extends DashboardPage {
     }
     if (request.method == 'POST' && action == 'toggle') return _toggle(context, id!);
     if (request.method == 'POST' && action == 'run') return _run(context, id!);
+    if (request.method == 'POST' && segments.contains('pending') && (action == 'approve' || action == 'reject')) {
+      return _settle(request, context, rawChangeId: request.params['changeId'] ?? id!, approve: action == 'approve');
+    }
     return _page(context);
   }
 
@@ -94,6 +108,7 @@ class SchedulingPage extends DashboardPage {
         jobs: data.jobs,
         systemJobNames: context.systemJobNames,
         scheduledTasks: data.tasks,
+        pendingChanges: pendingChanges?.values ?? const [],
         restartBannerHtml: context.restartBannerHtml(),
         appName: context.appName,
       ),
@@ -222,6 +237,7 @@ class SchedulingPage extends DashboardPage {
         );
       }
     }
+    if (result case ScheduleMutationParked()) return Response(500, body: _neverParks);
     return _saved(
       context,
       task: task,
@@ -302,8 +318,45 @@ class SchedulingPage extends DashboardPage {
     final (type, message) = switch (result) {
       ScheduleMutationApplied() => ('success', success),
       ScheduleMutationRefused(:final refusal) => ('error', refusal.message),
+      ScheduleMutationParked() => ('error', _neverParks),
     };
     return Response.ok(table, headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
+  }
+
+  /// Approves or rejects a parked change; admin only, since settling is the
+  /// operator decision the approval mode exists for.
+  Future<Response> _settle(
+    Request request,
+    PageContext context, {
+    required String rawChangeId,
+    required bool approve,
+  }) async {
+    if (!requestHasAdminAccess(request)) {
+      return Response(403, body: 'Settling a pending scheduling change requires an admin user');
+    }
+    final mutation = _mutations(context);
+    if (mutation == null) return Response(503, body: 'Scheduling editing is not available');
+    final changeId = decodePathSegment(rawChangeId);
+    final result = approve ? await mutation.approve(changeId) : await mutation.reject(changeId);
+    final (type, message) = switch (result) {
+      ScheduleMutationApplied(:final value) => (
+        'success',
+        approve
+            ? 'Approved: job "${value?['id']}" is live'
+            : 'Rejected: the pending change to job "${value?['id']}" is discarded',
+      ),
+      ScheduleMutationRefused(:final refusal) => ('error', refusal.message),
+      ScheduleMutationParked() => ('error', _neverParks),
+    };
+    final pending = schedulingPendingChangesFragment(changes: mutation.pendingChanges);
+    // An approval put a job into the running scheduler, so the jobs table rides
+    // along out of band rather than waiting for a reload.
+    var jobs = '';
+    if (approve && result is ScheduleMutationApplied) {
+      final data = await _liveData(context);
+      jobs = schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, outOfBand: true);
+    }
+    return Response.ok('$pending$jobs', headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
   }
 
   ScheduleMutationService? _mutations(PageContext context) {
@@ -315,6 +368,7 @@ class SchedulingPage extends DashboardPage {
             writer: writer,
             applyJobs: applyJobs,
             reservedJobIds: () => scheduleServiceGetter?.call()?.builtInJobIds ?? const {},
+            pendingChanges: pendingChanges,
           );
   }
 

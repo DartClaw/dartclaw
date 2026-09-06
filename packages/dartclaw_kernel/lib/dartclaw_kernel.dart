@@ -136,7 +136,7 @@ export 'src/provider_validator.dart' show ProviderValidator, processOutputToText
 export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersConfig;
 export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
-export 'src/scheduling_config.dart' show SchedulingConfig;
+export 'src/scheduling_config.dart' show ScheduleMutationApproval, SchedulingConfig;
 export 'src/search_config.dart' show SearchConfig, SearchProviderEntry;
 export 'src/security_config.dart' show SecurityBashStepConfig, SecurityConfig;
 export 'src/server_config.dart' show ServerConfig;

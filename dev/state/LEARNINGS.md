@@ -45,6 +45,7 @@
 - **`yaml_edit.update()` doesn't auto-create intermediate maps.** Throws `ArgumentError` on missing keys. Catch, create empty maps for missing segments, retry.
 - **Empty YAML document root is null, not an empty map.** Initialize with `editor.update([], {})` before path creation works.
 - **JSON decoders emit doubles for whole-number values.** Distinguish `3000.0` (accept) from `3000.5` (reject) via `value != value.toInt().toDouble()`.
+- **A new `ConfigMeta` field drifts a third artifact.** Beside schema and reference, rerun `packages/dartclaw/test/config_advisory_baseline_test.dart` with `DARTCLAW_UPDATE_CONFIG_ADVISORY_GOLDEN=1`.
 
 ## Concurrency / Async
 
@@ -99,6 +100,7 @@
 - **Re-derive a recorded blocker against the current transport.** TD-122's "not a wiring change" held only for the output-only spawn; on a leased `TurnRunner` the guard hook points were reachable.
 - **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates) – 0.25 PRD review F1/F6: two false dead claims.
 - **A doc-task `Verify` must fail on the pre-change tree.** `rg -q` clauses matched a bare word or spanned two paths – dry-run each `cmd:` Verify for non-zero exit; one path per clause.
+- **`schemas/dartclaw.schema.json` is nested; a dotted key path never appears in it.** A Verify grepping `a.b.c` there cannot pass — match the leaf under its parent block or rely on `--check`.
 
 ## CSS
 

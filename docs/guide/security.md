@@ -220,24 +220,30 @@ the operator to a POSIX host or WSL; auto-detection never runs there at all. See
 
 When a channel delivers untrusted content to the primary lane, tighten the default posture: set `agent.execution:
 container` so the primary runs isolated instead of on the host — startup refuses if `container.enabled` inference
-found no runtime, rather than silently falling back to the host; withhold tools the deployment does not need with
-`agent.disallowed_tools`, at minimum `schedule_upsert` so a chat turn cannot write `scheduling.jobs`; and gate senders
-with `channels.<x>.dm_access: allowlist`. On the host the primary runs as the login user, so every CLI and
-keychain-backed credential that user can reach is reachable through the shell tool, and `NetworkGuard` sees URLs in
-the command text, not what a binary connects to.
+found no runtime, rather than silently falling back to the host; put `scheduling.mutation.approval: operator` in
+place so a chat turn can still ask for a scheduled job but cannot write `scheduling.jobs` until you approve it on the
+Scheduling page (see [Scheduling § Operator approval for tool writes](scheduling.md#operator-approval-for-tool-writes));
+withhold any other tools the deployment does not need with `agent.disallowed_tools`; and gate senders with
+`channels.<x>.dm_access: allowlist`. On the host the primary runs as the login user, so every CLI and keychain-backed
+credential that user can reach is reachable through the shell tool, and `NetworkGuard` sees URLs in the command text,
+not what a binary connects to.
 
 ```yaml
 agent:
   execution: container
-  disallowed_tools: [schedule_upsert]
+
+scheduling:
+  mutation:
+    approval: operator
 
 channels:
   signal:
     dm_access: allowlist
 ```
 
-The server logs a startup warning naming this section when a channel is enabled, the primary runs on the host, and
-`agent.disallowed_tools` is empty.
+The stricter alternative is to withhold the tool outright — `agent.disallowed_tools: [schedule_upsert]` — which
+loses chat-driven scheduling entirely. The server logs a startup warning naming this section when a channel is
+enabled, the primary runs on the host, and `agent.disallowed_tools` is empty.
 
 ### Recovery After an Abnormal Exit
 

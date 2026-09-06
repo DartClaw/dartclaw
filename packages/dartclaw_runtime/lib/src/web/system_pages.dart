@@ -12,6 +12,7 @@ import '../memory/memory_status_service.dart';
 import '../memory/memory_prune_service.dart';
 import '../provider_status_service.dart';
 import '../runtime_config.dart';
+import '../scheduling/pending_schedule_change.dart';
 import '../scheduling/schedule_service.dart';
 import 'page_registry.dart';
 import 'settings/settings_surface.dart';
@@ -41,6 +42,7 @@ void registerSystemDashboardPages(
   MemoryPruneService? Function()? memoryPruneServiceGetter,
   ScheduleService? Function()? scheduleServiceGetter,
   Future<void> Function()? schedulingJobsApplier,
+  PendingScheduleChangeStore? pendingScheduleChanges,
   MemoryService? Function()? memoryServiceGetter,
   SearchBackend? Function()? searchBackendGetter,
   MemoryCorpusService? Function()? memoryCorpusGetter,
@@ -119,6 +121,7 @@ void registerSystemDashboardPages(
         configWriter: configWriter,
         scheduleServiceGetter: scheduleServiceGetter,
         applyJobs: schedulingJobsApplier,
+        pendingChanges: pendingScheduleChanges,
       ),
     );
   }

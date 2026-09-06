@@ -132,6 +132,29 @@ providers:
         expect(config.warnings, ['Invalid onboarding.expiry_days: "0" — using default 14']);
       });
 
+      group('scheduling.mutation.approval', () {
+        test('operator parses to the enum', () {
+          final config = loadYaml('scheduling:\n  mutation:\n    approval: operator\n');
+
+          expect(config.scheduling.mutationApproval, ScheduleMutationApproval.operator);
+          expect(config.warnings, isEmpty);
+        });
+
+        test('an unknown literal warns and yields none', () {
+          final config = loadYaml('scheduling:\n  mutation:\n    approval: ask-first\n');
+
+          expect(config.scheduling.mutationApproval, ScheduleMutationApproval.none);
+          expect(config.warnings, ['Invalid value for scheduling.mutation.approval: "ask-first" — using default']);
+        });
+
+        test('an absent scheduling.mutation section yields none', () {
+          final config = loadYaml('scheduling:\n  heartbeat:\n    enabled: false\n');
+
+          expect(config.scheduling.mutationApproval, ScheduleMutationApproval.none);
+          expect(loadNoFile().scheduling.mutationApproval, ScheduleMutationApproval.none);
+        });
+      });
+
       test('parseWithLoadWarnings surfaces an out-of-package parser warning in warnings', () {
         final config = loadNoFile();
 

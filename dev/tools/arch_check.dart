@@ -94,6 +94,14 @@ int _maxCeilingFor(int loc) {
 // Subsequent ratchet on 2026-09-05:
 //   dartclaw_core 27740 -> 27705 (measured 26205 after the one-shot HTTP seam
 //   moved down to dartclaw_kernel, which the kernel's own band absorbs)
+//
+// Reviewed necessity, 2026-09-06 (ADR-033):
+//   dartclaw_runtime  65356 -> 65700 (measured 65676). The operator approval
+//   gate for `schedule_upsert` adds one pending-change store, the seam's
+//   park/approve/reject, a page fragment with two routes and their wiring —
+//   a net 407 lines over a tree the shell-job kind had already brought to 87
+//   lines under the ceiling. The gate is one authority with no duplicated
+//   validator, so nothing came out without dropping a required arm.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -103,7 +111,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_core': 27705,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
-  'dartclaw_runtime': 65356,
+  'dartclaw_runtime': 65700,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 3984,
   'dartclaw_whatsapp': 1184,

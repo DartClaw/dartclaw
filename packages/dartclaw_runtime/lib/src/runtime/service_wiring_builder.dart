@@ -109,6 +109,7 @@ DartclawServer _composeRuntimeServer(
     memoryCorpus: storage.memoryCorpus,
     scheduleService: scheduling.scheduleService,
     schedulingJobsApplier: scheduling.applyJobs,
+    pendingScheduleChanges: scheduling.pendingScheduleChanges,
     gitSync: scheduling.gitSync,
   ),
   web: ServerWebDeps(

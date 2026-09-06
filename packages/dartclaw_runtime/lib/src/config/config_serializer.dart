@@ -91,6 +91,7 @@ class ConfigSerializer {
           'intervalMinutes': config.scheduling.heartbeatIntervalMinutes,
         },
         'jobs': config.scheduling.jobs,
+        'mutation': {'approval': config.scheduling.mutationApproval.toYaml()},
       },
       'context': {
         'reserveTokens': config.context.reserveTokens,

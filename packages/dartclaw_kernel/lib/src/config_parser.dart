@@ -818,6 +818,7 @@ SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig de
   var jobs = <Map<String, dynamic>>[];
   var heartbeatEnabled = defaults.heartbeatEnabled;
   var heartbeatIntervalMinutes = defaults.heartbeatIntervalMinutes;
+  var mutationApproval = defaults.mutationApproval;
 
   final schedulingMap = _sectionMap('scheduling', yaml, warns);
   if (schedulingMap != null) {
@@ -838,6 +839,19 @@ SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig de
       heartbeatIntervalMinutes =
           readInt('interval_minutes', hbMap, warns, defaultValue: defaults.heartbeatIntervalMinutes) ??
           defaults.heartbeatIntervalMinutes;
+    }
+
+    final mutationMap = readMap('mutation', schedulingMap, warns);
+    if (mutationMap != null) {
+      final approvalRaw = readString('approval', mutationMap, warns);
+      if (approvalRaw != null) {
+        final field = ConfigMeta.fields['scheduling.mutation.approval']!;
+        if (FieldConstraints.evaluate(field, approvalRaw) == null) {
+          mutationApproval = ScheduleMutationApproval.fromYaml(approvalRaw)!;
+        } else {
+          warns.add('Invalid value for scheduling.mutation.approval: "$approvalRaw" — using default');
+        }
+      }
     }
   }
 
@@ -884,6 +898,7 @@ SchedulingConfig _parseScheduling(Map<String, dynamic> yaml, SchedulingConfig de
     taskDefinitions: taskDefs,
     heartbeatEnabled: heartbeatEnabled,
     heartbeatIntervalMinutes: heartbeatIntervalMinutes,
+    mutationApproval: mutationApproval,
   );
 }
 

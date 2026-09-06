@@ -160,6 +160,9 @@ class ServerObservabilityDeps {
   /// the tool, the jobs API and the scheduling page all report a job the
   /// scheduler holds rather than one waiting for a restart.
   final Future<void> Function()? schedulingJobsApplier;
+
+  /// Parked `schedule_upsert` writes the scheduling page settles.
+  final PendingScheduleChangeStore? pendingScheduleChanges;
   final WorkspaceGitSync? gitSync;
   final EventBusSseBridge? eventBusSseBridge;
 
@@ -177,6 +180,7 @@ class ServerObservabilityDeps {
     this.memoryCorpus,
     this.scheduleService,
     this.schedulingJobsApplier,
+    this.pendingScheduleChanges,
     this.gitSync,
     EventBusSseBridge? eventBusSseBridge,
   }) : eventBus = eventBus,
@@ -259,6 +263,7 @@ void registerServerSystemPages(
     memoryCorpusGetter: () => server._observability.memoryCorpus,
     scheduleServiceGetter: () => server._observability.scheduleService,
     schedulingJobsApplier: server._observability.schedulingJobsApplier,
+    pendingScheduleChanges: server._observability.pendingScheduleChanges,
     kgServiceGetter: () => server._web.kgService,
     config: config,
     auditReader: server._core.dataDir != null ? AuditLogReader(dataDir: server._core.dataDir!) : null,

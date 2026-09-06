@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
+import 'package:dartclaw_runtime/src/scheduling/schedule_mutation.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -45,6 +47,7 @@ void main() {
   late ConfigWriter writer;
   late ScheduleMutationService mutations;
   late ScheduleService service;
+  late SchedulingJobsApplier applier;
   late RecordingGuardAuditLogger audit;
   late DateTime clock;
 
@@ -93,7 +96,7 @@ scheduling:
       ],
       now: () => clock,
     )..start();
-    final applier = SchedulingJobsApplier(
+    applier = SchedulingJobsApplier(
       configPath: configPath,
       jobs: ScheduleMutationService(writer: writer),
       scheduleService: () => service,
@@ -744,4 +747,178 @@ scheduling:
       expect(configText(), contains('mail-feed'));
     });
   });
+
+  group('parked upsert', () {
+    const upsertArguments = {
+      'id': 'weekly',
+      'schedule': '0 9 * * 1',
+      'type': 'prompt',
+      'prompt': 'Summarize the week',
+      'delivery': 'announce',
+    };
+    late PendingScheduleChangeStore store;
+
+    /// The seam the way `_registerMcpTools` builds it under a config declaring
+    /// `scheduling.mutation.approval: operator`: mode and store both present.
+    ScheduleMutationService parkingSeam(DartclawConfig config) => ScheduleMutationService(
+      writer: writer,
+      applyJobs: applier.apply,
+      reservedJobIds: () => service.builtInJobIds,
+      now: () => clock,
+      approval: config.scheduling.mutationApproval,
+      pendingChanges: store,
+    );
+
+    const operatorConfig = DartclawConfig(
+      scheduling: SchedulingConfig(mutationApproval: ScheduleMutationApproval.operator),
+    );
+
+    setUp(() async {
+      store = PendingScheduleChangeStore(File(p.join(dataDir, 'pending-schedule-changes.json')));
+      await store.load();
+    });
+
+    test('under operator the answer carries pending and a changeId and no loaded key', () async {
+      final before = configText();
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service));
+
+      final payload = _payload(_result(await _call(handler, 'schedule_upsert', upsertArguments)));
+
+      expect(payload['id'], 'weekly');
+      expect(payload['pending'], isTrue);
+      expect(payload['changeId'], store.values.single.changeId);
+      expect(payload.containsKey('loaded'), isFalse);
+      expect(payload.containsKey('created'), isFalse);
+      expect(configText(), before);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(store.values.single.job['prompt'], 'Summarize the week');
+      // A parked write is still a dispatched write: guarded and audited as one.
+      expect(auditRows(), [('schedule_upsert', 'allow')]);
+    });
+
+    test('under none the answer is unchanged and nothing is parked', () async {
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: parkingSeam(const DartclawConfig.defaults()), schedules: service));
+
+      final payload = _payload(_result(await _call(handler, 'schedule_upsert', upsertArguments)));
+
+      expect(payload, {'id': 'weekly', 'created': true, 'schedule': '0 9 * * 1', 'loaded': true});
+      expect(service.hasJob('weekly'), isTrue);
+      expect(store.values, isEmpty);
+    });
+
+    test('a callWithContext dispatch parks the caller authority as requester, a plain call the tool name', () async {
+      final tool = ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service);
+      final scoped = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(tool);
+      final asClient = scoped.scopedTo(
+        _AllowAllPolicy(),
+        callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:ops'),
+      );
+
+      _result(await _call(asClient, 'schedule_upsert', upsertArguments));
+      _result(await _call(scoped, 'schedule_upsert', {...upsertArguments, 'id': 'daily'}));
+
+      final byJob = {for (final change in store.values) change.jobId: change.requester};
+      expect(byJob, {'weekly': 'mcp-client:ops', 'daily': 'schedule_upsert'});
+    });
+
+    test('an approval-, pending- or requester-named argument is refused by the closed schema', () async {
+      final before = configText();
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service));
+
+      for (final forged in const ['approval', 'pending', 'requester']) {
+        final response = await _call(handler, 'schedule_upsert', {...upsertArguments, forged: 'none'});
+        // The dispatch seam refuses an undeclared argument as invalid params
+        // before the tool runs, so nothing reaches the seam.
+        expect(response['error'], isNotNull, reason: forged);
+        expect((response['error'] as Map)['message'], contains('unknown argument "$forged"'));
+      }
+      expect(store.values, isEmpty);
+      expect(configText(), before);
+    });
+
+    test('under operator an upsert naming a shell id is refused through the one authority, not parked', () async {
+      File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+scheduling:
+  jobs:
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+      output: mail.json
+''');
+      final before = configText();
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service));
+
+      final result = _result(
+        await _call(handler, 'schedule_upsert', {
+          'id': 'mail-feed',
+          'type': 'prompt',
+          'schedule': '*/5 * * * *',
+          'prompt': 'Take this job over',
+        }),
+      );
+
+      expect(result['isError'], isTrue);
+      expect(_payload(result)['reason'], 'invalid_request');
+      expect(_payload(result)['message'], contains('Shell jobs are file-only'));
+      expect(store.values, isEmpty);
+      expect(configText(), before);
+    });
+
+    test('the tool surface receives the configured approval mode', () async {
+      // Built the way `_registerMcpTools` builds it: mode from config, store
+      // from the wiring. Built the way the jobs API builds it: neither.
+      final toolSeam = parkingSeam(operatorConfig);
+      final apiSeam = ScheduleMutationService(
+        writer: writer,
+        applyJobs: applier.apply,
+        reservedJobIds: () => service.builtInJobIds,
+        now: () => clock,
+      );
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: toolSeam, schedules: service));
+
+      final parked = _payload(_result(await _call(handler, 'schedule_upsert', upsertArguments)));
+      final committed = await apiSeam.createJob({
+        'name': 'digest',
+        'schedule': '0 6 * * *',
+        'prompt': 'Run digest',
+        'delivery': 'none',
+      });
+
+      expect(parked['pending'], isTrue);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(committed, isA<ScheduleMutationApplied>());
+      expect(service.hasJob('digest'), isTrue);
+      expect(store.values.map((change) => change.jobId), ['weekly']);
+    });
+  });
+}
+
+class _AllowAllPolicy implements McpCallerPolicy {
+  @override
+  bool allows(String toolName) => true;
+
+  @override
+  void onDenied(String toolName) {}
 }

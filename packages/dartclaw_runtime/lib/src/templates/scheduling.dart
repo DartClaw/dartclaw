@@ -1,7 +1,9 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../scheduling/cron_parser.dart';
+import '../scheduling/pending_schedule_change.dart';
 import 'components.dart';
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -28,6 +30,7 @@ String schedulingTemplate({
   List<Map<String, dynamic>> jobs = const [],
   List<String> systemJobNames = const [],
   List<ScheduledTaskDefinition> scheduledTasks = const [],
+  List<PendingScheduleChange> pendingChanges = const [],
   String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
@@ -43,6 +46,7 @@ String schedulingTemplate({
         jobs: jobs,
         systemJobNames: systemJobNames,
         scheduledTasks: scheduledTasks,
+        pendingChanges: pendingChanges,
       ),
     },
   );
@@ -55,6 +59,7 @@ String schedulingContentFragment({
   required List<Map<String, dynamic>> jobs,
   required List<String> systemJobNames,
   required List<ScheduledTaskDefinition> scheduledTasks,
+  List<PendingScheduleChange> pendingChanges = const [],
 }) => templateLoader.trellis.renderFragment(
   templateLoader.source('scheduling'),
   fragment: 'schedulingContent',
@@ -74,6 +79,7 @@ String schedulingContentFragment({
     'heartbeatOn': heartbeatEnabled,
     'jobFormHtml': schedulingJobFormFragment(),
     'jobsTableHtml': schedulingJobsFragment(jobs: jobs, systemJobNames: systemJobNames),
+    'pendingChangesHtml': schedulingPendingChangesFragment(changes: pendingChanges),
     'taskFormHtml': schedulingTaskFormFragment(),
     'tasksTableHtml': schedulingTasksFragment(tasks: scheduledTasks),
   },
@@ -141,6 +147,57 @@ String schedulingJobsFragment({
     },
   );
 }
+
+/// The parked `schedule_upsert` writes awaiting an operator.
+///
+/// Every value but the change id and timestamp came from a model turn, so each
+/// reaches the markup through `tl:text` / `tl:attr` only. The root renders even
+/// when empty — hidden — so a settle response has a target to swap.
+String schedulingPendingChangesFragment({required List<PendingScheduleChange> changes}) {
+  final rows = changes
+      .map(
+        (change) => <String, dynamic>{
+          'jobId': change.jobId,
+          'summary': _pendingSummary(change.job),
+          'body': _pendingBody(change.job),
+          'kind': change.kind.name,
+          'schedule': _pendingScheduleText(change.job['schedule']),
+          'requester': change.requester,
+          'requestedAt': formatRelativeTime(change.requestedAt),
+          'requestedAtIso': change.requestedAt.toUtc().toIso8601String(),
+          'approveUrl': '/scheduling/pending/${Uri.encodeComponent(change.changeId)}/approve',
+          'rejectUrl': '/scheduling/pending/${Uri.encodeComponent(change.changeId)}/reject',
+          'rejectMessage': "Reject the pending change to '${change.jobId}'?",
+        },
+      )
+      .toList();
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('scheduling'),
+    fragment: 'pendingChanges',
+    context: {'hasPending': rows.isNotEmpty, 'changes': rows},
+  );
+}
+
+/// What kind of job the body declares and where it delivers — the two words
+/// that tell an operator whether approving it reaches a channel.
+String _pendingSummary(Map<String, dynamic> job) {
+  final type = job['type']?.toString() ?? 'prompt';
+  final delivery = job['delivery'];
+  return delivery == null ? type : '$type · $delivery';
+}
+
+/// The payload approval commits: the prompt a prompt job runs, or the title a
+/// task job creates. Rendered whole — the operator is approving this text.
+String _pendingBody(Map<String, dynamic> job) => switch (job) {
+  {'type': 'task', 'task': {'title': final Object title}} => 'Task: $title',
+  {'prompt': final Object prompt} => '$prompt',
+  _ => '',
+};
+
+String _pendingScheduleText(Object? schedule) => switch (schedule) {
+  {'type': 'once', 'at': final Object at} => 'once at $at',
+  _ => schedule?.toString() ?? '',
+};
 
 String schedulingTasksFragment({required List<ScheduledTaskDefinition> tasks, bool outOfBand = false}) {
   final rows = tasks

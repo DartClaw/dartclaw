@@ -6,13 +6,13 @@
 
 ### 0.25.2 — SecondBrain deployment feedback, continued
 
-**Status: opened on `feat/0.25.2` from the 0.25.1 squash (`ccfd9fcf`), 2026-09-06; pins at 0.25.2; no PRD yet.** The
-open items from the deployment feedback file – an operator approval mode for chat-driven scheduling writes
-(`scheduling.mutation.approval`) and a model-free, file-only `type: shell` job kind – plus the next feedback batch.
-Both shapes are recorded in the private product backlog (§ Scheduling: Seam-Write Approval and Model-Free Feed Jobs).
-The third feedback batch (spawn-flag deny list and turn cap, final-text delivery, provider-enforced logical-agent
-schemas, `pool_size` default 2, narrowed continuity reset) is already on the branch (CHANGELOG § Unreleased). 0.26 waits
-behind this patch.
+**Status: fixed on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06), unreleased; pins at 0.25.2;
+record in the private patch PRD `docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch: spawn-flag deny
+list and turn cap with the global deny binding the main lane, final-text delivery, provider-enforced logical-agent
+schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § Unreleased). The open feedback items – an
+operator approval mode for chat-driven scheduling writes (`scheduling.mutation.approval`) and a model-free, file-only
+`type: shell` job kind – stay spec candidates in the private product backlog (§ Scheduling: Seam-Write Approval and
+Model-Free Feed Jobs). 0.26 waits behind this patch.
 
 ## Released
 

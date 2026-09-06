@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-06 07:50 CEST
+Last Updated: 2026-09-06 09:37 CEST
 
 ## Current Phase
 
@@ -12,16 +12,15 @@ Last Updated: 2026-09-06 07:50 CEST
 **Status**: Opened on `feat/0.25.2` from the 0.25.1 squash (`ccfd9fcf`) on 2026-09-06; pins at 0.25.2 across
 `version.dart`, every publishable pubspec, both Homebrew formulas, both Scoop manifests and the schema `$id`. 0.25.1 is
 tagged (`v0.25.1`, 2026-09-05); its record is `CHANGELOG.md` § 0.25.1 and `dartclaw-private/docs/specs/0.25.1/prd.md`.
-Scope: the open SecondBrain feedback items – seam-write approval (1d) and the model-free `type: shell` job (2), both spec
-candidates in the private product backlog – plus the next feedback batch; a PRD at
-`dartclaw-private/docs/specs/0.25.2/prd.md` is the first artefact to write. 0.26 (database backend) waits behind it.
+The third SecondBrain feedback batch is fixed on the branch (pushed at `1a258cd3`); its record is the patch PRD
+`dartclaw-private/docs/specs/0.25.2/prd.md`. Seam-write approval (1d) and the model-free `type: shell` job (2) stay
+spec candidates in the private product backlog. 0.26 (database backend) waits behind this patch.
 
 ## Current Focus
 
-- 0.25.2 has no PRD or plan yet; start from `SecondBrain/system/dartclaw-feedback/open.md` (items 1d and 2 remain)
-  and the backlog entries under `PRODUCT-BACKLOG.md` § Scheduling: Seam-Write Approval and Model-Free Feed Jobs. The
-  AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for this patch too. The PRD should
-  absorb the third feedback batch below as shipped fix-now units (analysis: `.agent_temp/secondbrain-feedback-plan-20260906.md`, transient).
+- 0.25.2 is release-ready as a bugfix patch: the third feedback batch is on the branch and recorded in the private
+  PRD. Whether 1d and 2 (backlog spec candidates) join this patch or the next is the owner's call; the AndThen
+  plan-skill background-subagent finding (§ Open follow-ups) is a candidate too.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories

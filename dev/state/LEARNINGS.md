@@ -14,7 +14,6 @@
 - **`Stream` lacks `whereType<T>()`.** Use `.where((e) => e is T).cast<T>()`.
 - **`=> {` in `.map()` parses as a set literal, not a block body.** Use `.map((x) { return ...; })`.
 - **Zone context lost in `.listen()` callbacks.** Values set with `runZonedGuarded` / `LogContext.runWith()` aren't visible inside async stream callbacks once control returns to the event loop.
-- **Class fields can't be null-promoted.** Extract to a `final` local first.
 - **Microtask starvation in async loops.** `(_) async {}` and `Future.value()` complete on the microtask queue; a `while` loop awaiting only those monopolizes the event loop, so timer callbacks (`Completer` resolutions, `stop()`, etc.) never fire → multi-GB OOM. Add `await Future<void>.delayed(Duration.zero)` as a yield point in every production async loop.
 - **DST-boundary date arithmetic flakes test fixtures.** `Duration(days: N)` subtracted from local-midnight `DateTime`s can roll to the previous calendar day. Use explicit year/month/day construction in date-sensitive fixtures.
 - **An arrow-body `Future.then` cleanup callback re-adopts the source future.** `probe.then((_) => _cache.remove(key), onError: (e,_) => _cache.remove(key))` returns the cached future itself; on rejection the continuation adopts that error as an *unhandled* async error. Use statement bodies (`{ _cache.remove(key); }`) so the callbacks return void.
@@ -122,6 +121,7 @@
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type declared, exported and caught whose only `throw` was a fake – grep the producer before done.
 - **A "why this cannot be fixed" analysis is scoped to the transport it was written against.** TD-122 recorded that attaching guards to a workflow step was "not a wiring change" because the one-shot spawn was output-only and `TurnGuardEvaluator` was "additionally session-shaped". The session-shaped half was an artefact of the output-only spawn: once the step runs on a leased `TurnRunner`, the message-received and before-send hook points are reachable. Re-derive the blocker against the current transport before inheriting it.
 - **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates) – 0.25 PRD review F1/F6: two false dead claims.
+- **A doc-task `Verify` must fail on the pre-change tree.** `rg -q` clauses matched a bare word or spanned two paths – dry-run each `cmd:` Verify for non-zero exit; one path per clause.
 
 ## CSS
 

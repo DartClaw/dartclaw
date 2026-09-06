@@ -9,10 +9,10 @@
 **Status: fixed on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06), unreleased; pins at 0.25.2;
 record in the private patch PRD `docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch: spawn-flag deny
 list and turn cap with the global deny binding the main lane, final-text delivery, provider-enforced logical-agent
-schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § Unreleased). The open feedback items – an
+schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § Unreleased). The two open feedback items – an
 operator approval mode for chat-driven scheduling writes (`scheduling.mutation.approval`) and a model-free, file-only
-`type: shell` job kind – stay spec candidates in the private product backlog (§ Scheduling: Seam-Write Approval and
-Model-Free Feed Jobs). 0.26 waits behind this patch.
+`type: shell` job kind – join the patch as standalone FIS under `dev/bundle/docs/specs/0.25.2/` (spec-ready
+2026-09-06, execution pending). 0.26 waits behind this patch.
 
 ## Released
 

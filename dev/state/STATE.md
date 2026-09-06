@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-06 09:37 CEST
+Last Updated: 2026-09-06 10:19 CEST
 
 ## Current Phase
 
@@ -13,19 +13,28 @@ Last Updated: 2026-09-06 09:37 CEST
 `version.dart`, every publishable pubspec, both Homebrew formulas, both Scoop manifests and the schema `$id`. 0.25.1 is
 tagged (`v0.25.1`, 2026-09-05); its record is `CHANGELOG.md` § 0.25.1 and `dartclaw-private/docs/specs/0.25.1/prd.md`.
 The third SecondBrain feedback batch is fixed on the branch (pushed at `1a258cd3`); its record is the patch PRD
-`dartclaw-private/docs/specs/0.25.2/prd.md`. Seam-write approval (1d) and the model-free `type: shell` job (2) stay
-spec candidates in the private product backlog. 0.26 (database backend) waits behind this patch.
+`dartclaw-private/docs/specs/0.25.2/prd.md`. Seam-write approval (1d) and the model-free `type: shell` job (2)
+join the patch as two standalone FIS, both spec-ready on 2026-09-06 (§ Active Stories). 0.26 (database backend) waits
+behind this patch.
 
 ## Current Focus
 
-- 0.25.2 is release-ready as a bugfix patch: the third feedback batch is on the branch and recorded in the private
-  PRD. Whether 1d and 2 (backlog spec candidates) join this patch or the next is the owner's call; the AndThen
-  plan-skill background-subagent finding (§ Open follow-ups) is a candidate too.
+- 0.25.2: the third feedback batch is on the branch and recorded in the private PRD; 1d and 2 are specified (§ Active
+  Stories) and wait for execution – each from a fresh session with the `andthen:exec-spec` skill, in either order (the
+  shell job carries its own seam refusal). The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a
+  candidate for the patch too.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories
 
 <!-- Active stories derive from the governing plan. Store rows here only for ad-hoc work outside that plan. -->
+
+Standalone FIS for the two open SecondBrain feedback items (no plan bundle; a `.state.json` sidecar sits beside each):
+
+| FIS | Status | Scope |
+|---|---|---|
+| `dev/bundle/docs/specs/0.25.2/seam-write-approval.md` | spec-ready | `scheduling.mutation.approval: none \| operator` – under `operator` a `schedule_upsert` write is parked and settled on the Scheduling page; kernel config key + runtime seam, tool, page |
+| `dev/bundle/docs/specs/0.25.2/shell-scheduled-job.md` | spec-ready | `type: shell` job – argv command, `credentials.<name>` env injection, atomic output under `<data_dir>/feeds/`, file-only (seam, API, tool and page refuse it); kernel entry shape + runtime |
 
 ## Recently Completed
 

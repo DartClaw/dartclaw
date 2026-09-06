@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 void main() {
   late Directory tempDir;
@@ -375,6 +377,48 @@ port: 3000
       final result = File(configPath).readAsStringSync();
       expect(result, contains('tags:'));
       expect(result, contains('port: 3001'));
+    });
+
+    test('a scheduling job list read back and written unchanged survives flow-style nested values', () async {
+      File(configPath).writeAsStringSync('''
+scheduling:
+  jobs:
+    - id: shell-job
+      type: shell
+      command: ["echo", "hi"]
+      env: {GREETING: hello}
+    - id: task-job
+      type: task
+      task: {title: T, description: D}
+''');
+
+      final jobs = await writer.readSchedulingJobs();
+      jobs.add({
+        'id': 'added',
+        'type': 'shell',
+        'command': <String>['ls'],
+      });
+
+      await writer.updateFields({'scheduling.jobs': jobs});
+
+      final reloaded = loadYaml(File(configPath).readAsStringSync()) as YamlMap;
+      final reloadedJobs = (reloaded['scheduling'] as YamlMap)['jobs'] as YamlList;
+      expect(reloadedJobs, hasLength(3));
+
+      const equality = DeepCollectionEquality();
+      expect(
+        equality.equals(reloadedJobs[0]['command'], ['echo', 'hi']),
+        isTrue,
+        reason: 'flow command survives the round trip',
+      );
+      expect(equality.equals(reloadedJobs[0]['env'], {'GREETING': 'hello'}), isTrue);
+      expect(
+        equality.equals(reloadedJobs[1]['task'], {'title': 'T', 'description': 'D'}),
+        isTrue,
+        reason: 'flow task map survives the round trip',
+      );
+      expect(equality.equals(reloadedJobs[2]['command'], ['ls']), isTrue);
+      expect(reloadedJobs.map((job) => job['id']), ['shell-job', 'task-job', 'added']);
     });
   });
 }

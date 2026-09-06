@@ -567,6 +567,13 @@ For a deployment where those properties matter, keep delivering the secret from 
 `${VAR}` reference — which keeps working unchanged — and use `dartclaw secrets audit` to confirm nothing drifted back
 into the config file.
 
+**Reach of a credential named by a `type: shell` scheduled job.** A shell job's `env` map names `credentials.<name>`
+entries; the resolved value reaches only that command's child process, and neither `dartclaw.yaml` nor the job's logged
+result carries it. Only an `api_key` entry with a non-empty value is presented — an absent entry, a `github-token`, or
+an empty value skips the whole job with the reason in the log. The command itself is operator-declared configuration
+with the same trust as `credentials.*`: no guard evaluates it, which is why the kind is file-only and unreachable from
+chat and from every HTTP and tool write surface. See [Scheduling § Shell jobs](scheduling.md#shell-jobs).
+
 ### Security Properties
 
 - **Key isolation** – provider credentials never exist inside the container: not in environment variables, mounted or

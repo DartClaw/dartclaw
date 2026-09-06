@@ -660,4 +660,88 @@ scheduling:
       }
     });
   });
+
+  group('shell entries are file-only at the tool surface', () {
+    void writeShellAndPrompt() => File(configPath).writeAsStringSync('''
+port: 3000
+host: localhost
+scheduling:
+  jobs:
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - mail
+      env:
+        FEED_TOKEN: feed-secret
+      output: mail.json
+    - id: digest
+      type: prompt
+      schedule: "0 6 * * *"
+      delivery: none
+      prompt: Summarize
+''');
+
+    setUp(writeShellAndPrompt);
+
+    test('an upsert naming a shell id refuses through the one authority and writes nothing', () async {
+      final handler = passingHandler();
+      final before = configText();
+
+      final response = await _call(handler, 'schedule_upsert', {
+        'id': 'mail-feed',
+        'type': 'prompt',
+        'schedule': '*/5 * * * *',
+        'prompt': 'Take this job over',
+      });
+
+      final text = _text(_result(response));
+      expect(text, contains('invalid_request'));
+      expect(text, contains('Shell jobs are file-only: edit scheduling.jobs in dartclaw.yaml'));
+      expect(configText(), before, reason: 'a refused upsert must leave the config byte-identical');
+    });
+
+    test('type: shell fails argument validation before any read', () async {
+      final handler = passingHandler();
+      final before = configText();
+
+      final response = await _call(handler, 'schedule_upsert', {
+        'id': 'new-feed',
+        'type': 'shell',
+        'schedule': '0 * * * *',
+      });
+
+      expect(_text(_result(response)), contains('invalid_request'));
+      expect(configText(), before);
+    });
+
+    test('schedule_list reports the shell row as not editable while the prompt row stays editable', () async {
+      final handler = passingHandler(schedules: service);
+      await mutations.commitAndApply(await mutations.readJobs());
+
+      final rows = (jsonDecode(_text(_result(await _call(handler, 'schedule_list'))))['jobs'] as List)
+          .cast<Map<String, dynamic>>();
+
+      final shell = rows.firstWhere((row) => row['id'] == 'mail-feed');
+      expect(shell['type'], 'shell');
+      expect(shell['editable'], isFalse);
+      expect(rows.firstWhere((row) => row['id'] == 'digest')['editable'], isTrue);
+    });
+
+    test('a prompt upsert in the same file still writes', () async {
+      final handler = passingHandler();
+
+      final response = await _call(handler, 'schedule_upsert', {
+        'id': 'digest',
+        'type': 'prompt',
+        'schedule': '0 7 * * *',
+        'prompt': 'Summarize harder',
+      });
+
+      expect(jsonDecode(_text(_result(response)))['created'], isFalse);
+      expect(configText(), contains('Summarize harder'));
+      expect(configText(), contains('mail-feed'));
+    });
+  });
 }

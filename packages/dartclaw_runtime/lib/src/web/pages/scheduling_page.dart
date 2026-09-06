@@ -350,6 +350,9 @@ class SchedulingPage extends DashboardPage {
           jobs.add({
             ...entry,
             'name': job.id,
+            // The parsed kind, not the raw entry's: the row's controls follow
+            // what the loader made of the entry.
+            'jobType': job.jobType.name,
             // A one-time entry's stored schedule is a map; the row shows the
             // instant it fires at, never the map or a cron preview of it.
             'schedule': job.cronExpression?.expression ?? job.onceAt?.toIso8601String() ?? entry['schedule'],

@@ -130,6 +130,13 @@ class ScheduleUpsertTool implements McpTool {
 
     try {
       await _mutations.commitAndApply(jobs);
+    } on ShellJobWriteRefused catch (error) {
+      // The one authority already decided this: the tool encodes its refusal
+      // rather than re-checking `type: shell` itself. `type` is declared
+      // `prompt|task`, so a *new* shell entry never gets this far — argument
+      // validation refuses it — and this arm covers an upsert naming an id a
+      // shell entry already holds.
+      return toolError('invalid_request', error.message, {'id': id});
     } on StateError catch (error) {
       return toolError('write_failed', 'Config backup failed: ${error.message}', {'id': id});
     } on FileSystemException catch (error) {
@@ -195,7 +202,9 @@ class ScheduleListTool implements McpTool {
         'source': 'config',
         'loaded': entry != null,
         'paused': entry?.paused ?? false,
-        'editable': true,
+        // A shell entry is file-only: schedule_upsert refuses every write that
+        // would touch it, so reporting it editable would invite a refused call.
+        'editable': job['type'] != 'shell',
         // A written job is loaded before its write returns, so a configured
         // entry the scheduler does not hold is one it could not compose.
         if (entry == null && _schedules != null)

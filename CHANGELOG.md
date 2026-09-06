@@ -14,6 +14,22 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ## [Unreleased]
 
+### Added
+
+- **Model-free scheduled job (`type: shell`)** – a `scheduling.jobs` entry that runs a command instead of a model
+  turn, for a credentialed data feed the agent only reads. It uses the scheduler the deployment already runs: the same
+  cron and interval schedules, `enabled`, `retry.*`, failure alerting, on-demand run and Scheduling-page row as every
+  other job. A one-time (`at:`) schedule is refused for this kind alone: such a job removes its own entry, and a shell
+  entry is the operator's to write and remove. `command` is an argument vector with an absolute executable (no shell, no quoting, no `stdin`); each `env`
+  value names a `credentials.<name>` api-key entry whose value reaches only the child process and neither
+  `dartclaw.yaml` nor the logged result; stdout replaces `<data_dir>/feeds/<output>` atomically and owner-only.
+  A non-zero exit, a `timeout_seconds` overrun (default 300), stdout over 16 MiB or not valid UTF-8, an unwritable
+  output, an output pipe another process still holds open two seconds after exit, and an exit-0 run that wrote
+  nothing all fail the fire and leave the previous feed file intact. The kind is
+  file-only: the jobs API, the Scheduling page and `schedule_upsert` all refuse a write touching one, so it exists
+  only by editing `dartclaw.yaml`. A containerized agent lane does not see the host data directory and therefore
+  cannot read `feeds/`. See [Scheduling § Shell jobs](docs/guide/scheduling.md#shell-jobs).
+
 ### Changed
 
 - **`providers.<id>.pool_size` defaults to `2`** (was `1`). A scheduled or task turn that spawns a logical agent
@@ -23,6 +39,11 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Fixed
 
+- **A `scheduling.jobs` entry written with an inline collection no longer breaks the next job write** – `ConfigWriter`
+  handed `YamlEditor` the `YamlMap`/`YamlList` nodes it had read back, and the editor re-emitted any that were
+  flow-style (`task: {title: T, description: D}`, `command: ["a", "b"]`) at column 0, failing every later create,
+  update or delete through the API, the tool or the Scheduling page with `Failed to produce valid YAML`. The one write
+  seam now hands the editor plain collections, so such an entry is rewritten in block style and the file stays valid.
 - **`agent.disallowed_tools` and `agent.max_turns` reach the Claude process** – both were sent only as fields of
   the SDK `initialize` handshake, which the protocol has never carried, so Claude offered the withheld tools and
   ignored the turn cap on every lane; the guard skipped the primary lane too because it evaluates nothing without an

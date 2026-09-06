@@ -405,6 +405,112 @@ scheduling:
       expect((await mutations.readJobs()).map((job) => job['name']), ['digest']);
     });
   });
+
+  group('shell entries are file-only', () {
+    const shellBlock = '''
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - mail
+      env:
+        FEED_TOKEN: feed-secret
+      output: mail.json
+    - name: digest
+      schedule: "0 9 * * *"
+      type: prompt
+      delivery: none
+      prompt: Summarize''';
+
+    setUp(() => writeConfig('\n$shellBlock'));
+
+    void refusesFileOnly(ScheduleMutationResult result, String before) {
+      expect(result, isA<ScheduleMutationRefused>());
+      final refusal = (result as ScheduleMutationRefused).refusal;
+      expect(refusal.status, 400);
+      expect(refusal.code, 'INVALID_INPUT');
+      expect(refusal.message, contains('Shell jobs are file-only: edit scheduling.jobs in dartclaw.yaml'));
+      expect(refusal.message, contains('mail-feed'));
+      expect(configText(), before, reason: 'the refused write still changed the file');
+    }
+
+    test('refuses every write touching a shell entry', () async {
+      final before = configText();
+
+      // Update: any field of the shell entry, whether or not the entry declares it.
+      refusesFileOnly(await mutations.updateJob('mail-feed', {'schedule': '*/5 * * * *'}), before);
+      refusesFileOnly(await mutations.updateJob('mail-feed', {'output': 'other.json'}), before);
+      refusesFileOnly(await mutations.updateJob('mail-feed', {'enabled': false}), before);
+      // Delete.
+      refusesFileOnly(await mutations.deleteJob('mail-feed'), before);
+
+      // A create cannot reach the shell entry: the id is already taken, and the
+      // seam's own conflict check refuses that before any write is composed.
+      final create = await mutations.createJob({
+        'name': 'mail-feed',
+        'schedule': '0 * * * *',
+        'type': 'prompt',
+        'delivery': 'none',
+        'prompt': 'x',
+      });
+      expect((create as ScheduleMutationRefused).refusal.status, 409);
+      expect(configText(), before);
+    });
+
+    test('the refusal is decided against a fresh read, not the caller snapshot', () async {
+      // A list composed before a hand edit added the shell entry must still be
+      // refused: every mutation is a read-modify-write over the whole list.
+      final withoutShell = [
+        for (final job in await mutations.readJobs())
+          if (job['type'] != 'shell') Map<String, dynamic>.from(job),
+      ];
+      final before = configText();
+
+      await expectLater(mutations.commitAndApply(withoutShell), throwsA(isA<ShellJobWriteRefused>()));
+      expect(configText(), before);
+    });
+
+    test('a prompt write in the same file still succeeds and stays live', () async {
+      final created = applied(
+        await mutations.createJob({
+          'name': 'weekly',
+          'schedule': '0 9 * * 1',
+          'type': 'prompt',
+          'delivery': 'none',
+          'prompt': 'Weekly summary',
+        }),
+      );
+
+      expect(created['name'], 'weekly');
+      expect(configText(), contains('weekly'));
+      // The shell entry survived the read-modify-write untouched.
+      expect(configText(), contains('mail-feed'));
+      expect(service.entries.map((entry) => entry.id), contains('weekly'));
+      expect(
+        applied(await mutations.updateJob('digest', {'prompt': 'Summarize harder'}))['prompt'],
+        'Summarize harder',
+      );
+      expect((await mutations.deleteJob('digest')), isA<ScheduleMutationApplied>());
+    });
+
+    test('removeJobs still drops a spent one-time entry beside a shell entry', () async {
+      applied(
+        await mutations.createJob({
+          'name': 'once-off',
+          'at': clock.add(const Duration(hours: 1)).toIso8601String(),
+          'type': 'prompt',
+          'delivery': 'none',
+          'prompt': 'Once',
+        }),
+      );
+
+      await mutations.removeJobs(['once-off']);
+
+      expect(configText(), isNot(contains('once-off')));
+      expect(configText(), contains('mail-feed'));
+    });
+  });
 }
 
 class _ManualTimer implements Timer {

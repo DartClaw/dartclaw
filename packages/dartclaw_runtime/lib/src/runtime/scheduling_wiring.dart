@@ -140,7 +140,12 @@ class SchedulingWiring {
 
     // Config-declared jobs come from the one composer the live applier also
     // uses, so a boot load and a live application cannot answer differently.
-    final composed = composeConfigJobs(config.scheduling, taskService: taskService);
+    final composed = composeConfigJobs(
+      config.scheduling,
+      taskService: taskService,
+      credentials: config.credentials,
+      dataDir: config.server.dataDir,
+    );
     _missedOneTimeJobIds = composed.missedOnceIds;
     _scheduledJobs = [...composed.jobs];
 

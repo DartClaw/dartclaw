@@ -1982,10 +1982,20 @@
           ]
         },
         "jobs": {
-          "description": "Unattended jobs, each firing a prompt turn or creating a task. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required)",
+          "description": "Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required)",
           "items": {
             "additionalProperties": false,
             "properties": {
+              "command": {
+                "description": "Argument vector run when a shell job fires, executable first and by absolute path. Required for that kind; no shell is involved, so nothing is quoted or word-split. (restart required)",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "delivery": {
                 "description": "Where the result goes: nowhere, announced in chat, or posted to a webhook. (restart required)",
                 "enum": [
@@ -2006,6 +2016,13 @@
                 "description": "Whether the job is active. Defaults to true. (restart required)",
                 "type": "boolean"
               },
+              "env": {
+                "description": "Environment variables the shell command is given, each value naming a credentials entry rather than holding a secret. An entry naming something unpresentable is not loaded. (restart required)",
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
               "id": {
                 "description": "Stable identifier for this job. Required; name is accepted as a compatibility alias. (restart required)",
                 "type": "string"
@@ -2019,6 +2036,13 @@
               },
               "name": {
                 "description": "Compatibility alias for id. Prefer id in new configs. (restart required)",
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "output": {
+                "description": "Where a shell command's stdout is written, relative to the data directory's feeds/ folder. Required for that kind, and a path leaving feeds/ is refused. (restart required)",
                 "type": [
                   "null",
                   "string"
@@ -2155,10 +2179,19 @@
                   "object"
                 ]
               },
+              "timeout_seconds": {
+                "description": "Seconds a shell command may run before it is terminated and the firing fails. Defaults to 300. (restart required)",
+                "minimum": 1,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "type": {
-                "description": "What firing does: run a prompt turn, or create a task from the block below. Defaults to prompt. (restart required)",
+                "description": "What firing does: run a prompt turn, create a task from the block below, or run the shell command below with no model turn at all. Defaults to prompt. (restart required)",
                 "enum": [
                   "prompt",
+                  "shell",
                   "task"
                 ],
                 "type": "string"

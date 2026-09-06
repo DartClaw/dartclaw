@@ -1,7 +1,9 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
+import 'package:dartclaw_runtime/src/scheduling/scheduled_job.dart';
 import 'package:dartclaw_runtime/src/scheduling/scheduled_task_runner.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 
@@ -268,6 +270,108 @@ scheduling:
         expect(task.configJson.containsKey('effort'), isFalse);
         expect(task.configJson.containsKey('tokenBudget'), isFalse);
       });
+    });
+  });
+
+  group('composeConfigJobs shell credential resolution', () {
+    late InMemoryTaskRepository repo;
+    late TaskService taskService;
+
+    setUp(() {
+      repo = InMemoryTaskRepository();
+      taskService = TaskService(repo);
+    });
+
+    Map<String, dynamic> shellEntry(String id, Map<String, String> env) => <String, dynamic>{
+      'id': id,
+      'type': 'shell',
+      'schedule': '0 * * * *',
+      'command': ['/usr/local/bin/hey', 'mail'],
+      'env': env,
+      'output': '$id.json',
+    };
+
+    test('skips a shell job whose credential reference is unpresentable', () {
+      final warnings = <String>[];
+      final subscription = Logger.root.onRecord
+          .where((record) => record.level >= Level.WARNING)
+          .listen((record) => warnings.add(record.message));
+      addTearDown(subscription.cancel);
+
+      final composed = composeConfigJobs(
+        SchedulingConfig(
+          jobs: [
+            shellEntry('unknown-ref', {'FEED_TOKEN': 'absent'}),
+            shellEntry('wrong-type', {'FEED_TOKEN': 'gh'}),
+            shellEntry('empty-value', {'FEED_TOKEN': 'blank'}),
+            shellEntry('good', {'FEED_TOKEN': 'feed-secret'}),
+          ],
+        ),
+        taskService: taskService,
+        credentials: const CredentialsConfig(
+          entries: {
+            'gh': CredentialEntry.githubToken(token: 'ghp_live'),
+            'blank': CredentialEntry(apiKey: ''),
+            'feed-secret': CredentialEntry(apiKey: 'sk-live'),
+          },
+        ),
+        dataDir: '/tmp/dartclaw-data',
+      );
+
+      // The sibling valid entry is what proves one bad reference drops its own
+      // entry rather than the whole list.
+      expect(composed.jobs.map((job) => job.id), ['good']);
+      expect(composed.jobs.single.jobType, ScheduledJobType.shell);
+      expect(composed.jobs.single.onExecute, isNotNull);
+      expect(warnings, hasLength(3));
+      expect(warnings[0], allOf(contains('"unknown-ref"'), contains('is not a configured credentials entry')));
+      expect(warnings[1], allOf(contains('"wrong-type"'), contains('is not an api_key credential')));
+      expect(warnings[2], allOf(contains('"empty-value"'), contains('resolves to an empty value')));
+      expect(warnings.every((warning) => !warning.contains('sk-live') && !warning.contains('ghp_live')), isTrue);
+    });
+
+    test('a shell entry with enabled: false is not loaded and is not reported missed', () {
+      final composed = composeConfigJobs(
+        SchedulingConfig(jobs: [shellEntry('paused', const {})..['enabled'] = false]),
+        taskService: taskService,
+        credentials: const CredentialsConfig(),
+        dataDir: '/tmp/dartclaw-data',
+      );
+
+      expect(composed.jobs, isEmpty);
+      expect(composed.missedOnceIds, isEmpty);
+    });
+
+    test('a one-time shell entry is refused at parse, so it never reaches the self-removal path', () {
+      final composed = composeConfigJobs(
+        SchedulingConfig(
+          jobs: [
+            shellEntry('once-off', const {})..['schedule'] = {'type': 'once', 'at': '2099-01-01T00:00:00'},
+            shellEntry('recurring', const {}),
+          ],
+        ),
+        taskService: taskService,
+        credentials: const CredentialsConfig(),
+        dataDir: '/tmp/dartclaw-data',
+      );
+
+      // Refused as malformed, never as a *missed* one-time entry: `missedOnceIds`
+      // is what `SchedulingJobsApplier` hands to `removeJobs`, and a shell entry
+      // must never reach that write.
+      expect(composed.jobs.map((job) => job.id), ['recurring']);
+      expect(composed.missedOnceIds, isEmpty);
+    });
+
+    test('a shell entry needing no credential loads with its parsed definition', () {
+      final composed = composeConfigJobs(
+        SchedulingConfig(jobs: [shellEntry('plain', const {})]),
+        taskService: taskService,
+        credentials: const CredentialsConfig(),
+        dataDir: '/tmp/dartclaw-data',
+      );
+
+      expect(composed.jobs.single.shellDefinition?.output, 'plain.json');
+      expect(composed.jobs.single.onExecute, isNotNull);
     });
   });
 }

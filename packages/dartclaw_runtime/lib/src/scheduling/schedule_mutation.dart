@@ -1,8 +1,26 @@
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'cron_parser.dart';
+
+/// Thrown by [ScheduleMutationService.commitAndApply] when a write would add,
+/// remove or change a `type: shell` entry.
+///
+/// The kind is file-only by design: it runs an operator-declared command with
+/// no model turn and no guard over it, so a chat-, API- or tool-reachable write
+/// would be the command execution that rule exists to prevent. One authority
+/// refuses it — the point both the seam's own CRUD and the tool's merge path
+/// pass through — rather than two surfaces agreeing on a check.
+final class ShellJobWriteRefused implements Exception {
+  const new(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 final class ScheduleMutationRefusal {
   const new({required this.status, required this.code, required this.message, this.field});
@@ -324,6 +342,8 @@ class ScheduleMutationService {
     try {
       await commitAndApply(jobs);
       return ScheduleMutationApplied(value);
+    } on ShellJobWriteRefused catch (error) {
+      return _refused(400, 'INVALID_INPUT', error.message);
     } on StateError catch (error) {
       return _refused(500, 'BACKUP_FAILED', error.message);
     } on FileSystemException catch (error) {
@@ -373,8 +393,33 @@ class ScheduleMutationService {
   ///
   /// The order is what makes a "created" answer true: the applier has replaced
   /// the scheduler's config-declared jobs by the time the caller responds.
+  ///
+  /// Throws [ShellJobWriteRefused] before any file change when [jobs] would add,
+  /// remove or change a `type: shell` entry. The comparison is against a fresh
+  /// read, not the caller's snapshot, because every mutation here is a
+  /// read-modify-write over the whole list and a stale snapshot would let a
+  /// concurrent hand edit through.
   Future<void> commitAndApply(List<Map<String, dynamic>> jobs) async {
+    final refusal = _shellWriteRefusal(await readJobs(), jobs);
+    if (refusal != null) throw ShellJobWriteRefused(refusal);
     await commit(jobs);
     await _applyJobs?.call();
+  }
+
+  /// Why [proposed] may not be written, or `null` when it leaves every
+  /// `type: shell` entry exactly as [stored] has it.
+  static String? _shellWriteRefusal(List<Map<String, dynamic>> stored, List<Map<String, dynamic>> proposed) {
+    Map<String, Map<String, dynamic>> shellEntries(List<Map<String, dynamic>> jobs) => {
+      for (final job in jobs)
+        if (job['type'] == 'shell') ((job['id'] ?? job['name']) as String? ?? ''): job,
+    };
+    const equality = DeepCollectionEquality();
+    final before = shellEntries(stored);
+    final after = shellEntries(proposed);
+    for (final id in {...before.keys, ...after.keys}) {
+      if (equality.equals(before[id], after[id])) continue;
+      return 'Shell jobs are file-only: edit scheduling.jobs in dartclaw.yaml ("$id")';
+    }
+    return null;
   }
 }

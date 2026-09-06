@@ -1,9 +1,8 @@
 import 'dart:io';
 
-import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta, ConfigWriter;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
-import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 import 'setup_state.dart';
@@ -81,6 +80,9 @@ class SetupApply {
       created.add(configPath);
     }
 
+    // Edits go through the kernel's one path-edit seam, but not through
+    // `ConfigWriter.updateFields`: that refuses an absent file and always
+    // leaves a `.bak`, while init creates the file and leaves no backup.
     final editor = YamlEditor(configContent);
     if (state.workflowTrack) {
       _remove(editor, ['name']);
@@ -295,53 +297,16 @@ class SetupApply {
   /// root in one shot renders block style instead. Only safe for new files —
   /// it discards comments, so existing files keep the surgical editor output.
   static String _blockStyle(YamlEditor built) {
-    final value = _plainValue(built.parseAt([]));
-    if (value is! Map || value.isEmpty) return built.toString();
+    final root = built.parseAt([]).value;
+    if (root is! Map || root.isEmpty) return built.toString();
     final block = YamlEditor('');
-    block.update([], value);
+    ConfigWriter.applyEdit(block, const [], root);
     return block.toString();
   }
 
-  static Object? _plainValue(YamlNode node) {
-    if (node is YamlMap) {
-      return {
-        for (final entry in node.nodes.entries) (entry.key as YamlScalar).value as String: _plainValue(entry.value),
-      };
-    }
-    if (node is YamlList) {
-      return [for (final item in node.nodes) _plainValue(item)];
-    }
-    return node.value;
-  }
+  static void _set(YamlEditor editor, List<String> path, Object value) => ConfigWriter.applyEdit(editor, path, value);
 
-  static void _set(YamlEditor editor, List<String> path, Object value) {
-    try {
-      editor.update(path, value);
-    } on ArgumentError {
-      // Create intermediate maps as needed
-      final parsed = editor.parseAt([]);
-      if (parsed.value == null) {
-        editor.update([], {});
-      }
-      for (var i = 0; i < path.length - 1; i++) {
-        final subPath = path.sublist(0, i + 1);
-        try {
-          editor.parseAt(subPath);
-        } on ArgumentError {
-          editor.update(subPath, {});
-        }
-      }
-      editor.update(path, value);
-    }
-  }
-
-  static void _remove(YamlEditor editor, List<String> path) {
-    try {
-      editor.remove(path);
-    } on ArgumentError {
-      // Already absent.
-    }
-  }
+  static void _remove(YamlEditor editor, List<String> path) => ConfigWriter.applyEdit(editor, path, null);
 
   /// Re-seeds ONBOARDING.md for a personalization rerun without touching curated behavior files.
   static Future<List<String>> personalize(SetupState state) async {

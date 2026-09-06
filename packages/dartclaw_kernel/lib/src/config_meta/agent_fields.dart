@@ -842,7 +842,7 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'scheduling.jobs',
     type: ConfigFieldType.objectList,
     mutability: ConfigMutability.restart,
-    description: 'Unattended jobs, each firing a prompt turn or creating a task. Their prompt bodies are never validated here — an empty one only fails when the job runs.',
+    description: 'Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs.',
     entry: ObjectEntry(
       fields: {
         'id': EntryFieldMeta(
@@ -856,9 +856,8 @@ const Map<String, FieldMeta> _agentFields = {
         ),
         'type': EntryFieldMeta(
           type: ConfigFieldType.enum_,
-          description:
-              'What firing does: run a prompt turn, or create a task from the block below. Defaults to prompt.',
-          allowedValues: ['prompt', 'task'],
+          description: 'What firing does: run a prompt turn, create a task from the block below, or run the shell command below with no model turn at all. Defaults to prompt.',
+          allowedValues: ['prompt', 'task', 'shell'],
         ),
         'prompt': EntryFieldMeta(
           type: ConfigFieldType.string,
@@ -935,10 +934,42 @@ const Map<String, FieldMeta> _agentFields = {
           nullable: true,
           entry: _scheduledTaskEntry,
         ),
+        'command': EntryFieldMeta(
+          type: ConfigFieldType.stringList,
+          description: 'Argument vector run when a shell job fires, executable first and by absolute path. Required for that kind; no shell is involved, so nothing is quoted or word-split.',
+          nullable: true,
+        ),
+        'env': EntryFieldMeta(
+          type: ConfigFieldType.objectMap,
+          description: 'Environment variables the shell command is given, each value naming a credentials entry rather than holding a secret. An entry naming something unpresentable is not loaded.',
+          nullable: true,
+          entry: _shellJobEnvEntry,
+        ),
+        'output': EntryFieldMeta(
+          type: ConfigFieldType.string,
+          description: 'Where a shell command\'s stdout is written, relative to the data directory\'s feeds/ folder. Required for that kind, and a path leaving feeds/ is refused.',
+          nullable: true,
+        ),
+        'timeout_seconds': EntryFieldMeta(
+          type: ConfigFieldType.int_,
+          description: 'Seconds a shell command may run before it is terminated and the firing fails. Defaults to 300.',
+          nullable: true,
+          min: 1,
+        ),
       },
     ),
   ),
 };
+
+/// Shape of one `env:` value carried by a `scheduling.jobs` entry of type
+/// `shell`: the name of the `credentials.<name>` entry to inject under that
+/// variable, never the secret itself.
+const ValueEntry _shellJobEnvEntry = ValueEntry(
+  value: EntryFieldMeta(
+    type: ConfigFieldType.string,
+    description: 'Name of the credentials entry whose value is injected under this variable name.',
+  ),
+);
 
 /// Shape of one `task:` block carried by a `scheduling.jobs` entry of type
 /// `task`.

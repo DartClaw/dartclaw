@@ -3,8 +3,9 @@
 <!-- Traps only, one bullet each: `- **{title}** – …` under 200 chars, trap + pointer; postmortem
      depth lives in the spec archive or an ADR. Bar: "Would a competent developer with code and
      git access still get bitten?" Skills read this index whole – keep it lean. Maintain via the
-     `andthen:ops` skill (`update-learnings --ceiling 150`; the ceiling must be passed, and
-     an already-sharded topic is edited in its `learnings/` file by hand). Delete entries once
+     `andthen:ops` skill (`update-learnings`, no `--ceiling` – an append must never be refused
+     for want of room; an already-sharded topic is edited in its `learnings/` file by hand).
+     Over 200 lines, prune or graduate a topic to a shard as its own change. Delete entries once
      encoded as checks or stale. -->
 
 ## Dart Language
@@ -14,9 +15,9 @@
 - **`Stream` lacks `whereType<T>()`.** Use `.where((e) => e is T).cast<T>()`.
 - **`=> {` in `.map()` parses as a set literal, not a block body.** Use `.map((x) { return ...; })`.
 - **Zone context lost in `.listen()` callbacks.** Values set with `runZonedGuarded` / `LogContext.runWith()` aren't visible inside async stream callbacks once control returns to the event loop.
-- **Microtask starvation in async loops.** `(_) async {}` and `Future.value()` complete on the microtask queue; a `while` loop awaiting only those monopolizes the event loop, so timer callbacks (`Completer` resolutions, `stop()`, etc.) never fire → multi-GB OOM. Add `await Future<void>.delayed(Duration.zero)` as a yield point in every production async loop.
-- **DST-boundary date arithmetic flakes test fixtures.** `Duration(days: N)` subtracted from local-midnight `DateTime`s can roll to the previous calendar day. Use explicit year/month/day construction in date-sensitive fixtures.
-- **An arrow-body `Future.then` cleanup callback re-adopts the source future.** `probe.then((_) => _cache.remove(key), onError: (e,_) => _cache.remove(key))` returns the cached future itself; on rejection the continuation adopts that error as an *unhandled* async error. Use statement bodies (`{ _cache.remove(key); }`) so the callbacks return void.
+- **Microtask starvation in async loops.** A loop awaiting only microtask futures never lets timers fire (`stop()`, `Completer`s) → OOM. Yield via `await Future<void>.delayed(Duration.zero)`.
+- **DST-boundary date arithmetic flakes test fixtures.** `Duration(days: N)` from a local-midnight `DateTime` can land on the previous day; build date fixtures from explicit year/month/day.
+- **An arrow-body `Future.then` cleanup callback re-adopts the source future.** `.then((_) => _cache.remove(key))` returns the cached future; its rejection goes unhandled. Use `{ … }` bodies.
 
 ## Agent Harness Protocols
 
@@ -58,26 +59,13 @@
 - **Constant-time webhook signature comparison via XOR accumulation.** Prevents timing attacks.
 - **MCP `ToolResult.error` is application-level, not JSON-RPC.** Spec requires success response with `isError: true` in content, not protocol-level `-32000`.
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
-- **`includeParentEnvironment: false` is load-bearing whenever passing an explicit `environment:` map.** `Process.start` re-inherits parent env by default → sanitized overlays silently leak. `SafeProcess` exists to make this non-optional.
+- **`includeParentEnvironment: false` is load-bearing with an explicit `environment:` map.** `Process.start` otherwise re-inherits the parent env past the sanitized overlay; spawn via `SafeProcess`.
 - **Sanitize git subprocess env, not just the binary.** `.git/config` can route through `core.sshCommand`, hooks, filters, and credential helpers that spawn shell children.
 - **Collapse whitespace where a one-line report is assembled, not per text source.** A provider error, filename, or OS string the pipeline never authored can otherwise forge a report line.
 
 ## Package Architecture
 
-- **Equal timeout defaults are a tie, not a fix.** Delete duplicate budgets; aligned values still leave two enforcement owners and race-dependent outcomes.
-- **`ConfigNotifier` emits section-level keys (`security.*`), not sub-keys (`guards.*`).** `Reconfigurable.watchKeys` must use the section-level key or watches silently never fire — `ConfigDelta.hasChanged()` prefix-matches against section keys only.
-- **Channel config resolves through a switch in `dartclaw_runtime`, not the config package.** `resolveChannelConfig(config, channelType)` parses lazily per config instance; only `loadDartclawConfig()` primes all three, so a production load that bypasses it silently loses channel parse warnings.
-- **Provider factories must normalize provider-specific executable defaults.** `HarnessFactoryConfig.executable` can only represent one default; each provider factory must substitute its own binary when not overridden.
-- **Multi-provider UI/view-model code must derive the provider from `config.agent.provider`.** Hardcoded `'claude'` mislabels non-Claude deployments before usage data exists.
-- **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
-- **Auto-accept callbacks must translate non-success `ReviewResult`s into thrown errors.** `TaskReviewService.review()` reports merge conflicts as typed results, not exceptions; callers wiring `Future<void>` callbacks otherwise lose the warning path.
-- **A typedef-vs-class name collision across packages is a rename, not a `hide`.** Every importer of both has to carry the `hide`, and the one that forgets binds the wrong type silently; `dev/fitness/test/no_second_implementation_test.dart` fails the build on a new one.
-- **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in DartclawRuntime/ScheduleService — verify wiring via integration test + grep for non-test refs.
-- **`ScheduleService`'s job list is not user-prompt-jobs-only.** CLI wiring back-registers task definitions as `auto-task-<id>` callback jobs (`ScheduledTaskRunner.buildJobs()`), and system jobs are `onExecute`-based too — new consumers must decide explicitly how to treat `onExecute != null` entries.
-- **Resolved step config has multiple consumers.** New inherited step fields must flow through dispatch, follow-up prompts, extraction, and resolved-YAML export.
-- **Pub workspace build hooks honor the workspace ROOT pubspec's `hooks.user_defines`, not member pubspecs.** A root-level override wins; any per-platform override must neutralize the root block too.
-- **Share the verdict object, not its message.** `resolveFamily` aliases unknown providers onto `claude`/`codex`; re-deriving availability per surface isn't parity — gate on the configured identity.
-- **`CredentialRegistry.resolve()` without `family:` misfires on aliases.** Four sites, four failure modes. Pass `resolveFamily(providerId, executable:, options:)`, not `ProviderIdentity.family`.
+→ learnings/package-architecture.md – Equal timeout defaults are a tie, not a fix
 
 ## Channel Integration
 
@@ -89,18 +77,7 @@
 
 ## Storage / Data Model
 
-- **Durable knowledge graph facts belong in `tasks.db`, not `search.db`.** `search.db` is rebuildable from MEMORY.md and can be deleted/rebuilt; temporal KG facts are authoritative source-linked records and must use the durable task database connection.
-- **Task sessions have multi-layer protection from maintenance pruning.** `_isProtected()`, `_pruneStale()` skip, `protectedTypes` set, `deleteSession()` throws, `listSessions()` excludes by default.
-- **FTS5 MATCH has special operators.** Wrap user input in double quotes for literal matching.
-- **Task persistence is schema-backed, not generic-JSON-backed.** New `Task` fields require schema, migrations, insert/update, hydration — not just `toJson()`/`fromJson()`.
-- **Legacy task-table migrations must guard missing columns at every SQL touch point.** Branching only the backfill INSERT is insufficient; index creation and `INSERT ... SELECT` also need conditional column references.
-- **Validate untrusted-ingestion payloads before the first durable write, and never treat LLM text as a control boundary.** Order all checks before any sink (else retries re-run committed writes); parse structured output from a delimiter-safe channel, not free text that source-embedded fences can forge.
-- **Webhook pending-state TTL must move forward on successful commit.** Reclaiming an old pending row and then marking it processed without refreshing the TTL anchor lets the next purge delete the dedupe marker immediately.
-- **Parse-then-rewrite makes a lenient parser destructive.** The parse result is written back, so unknown shapes are deleted, not ignored; unparseable must refuse. `_readPage`: CRLF, flow YAML.
-- **A write that becomes read-modify-write needs `secureWriteFile`.** The file is the sole copy; truncating `writeAsString` turns any interruption into total loss. `storage/atomic_write.dart:13`.
-- **A reachability category must count inbound links, not the page's own.** Wiki `orphan` read each page's outbound links, so a leaf-only corpus flagged every page every run – no signal.
-- **A markdown link regex must split `#fragment`/`?query` off the path.** `](page.md#section)` matched `\]\(([^)]+\.md)\)` not at all: target never link-checked, page counted linkless.
-- **Fingerprint the corpus replacement at the current revision, bump only on commit.** `MEMORY.md` carries its revision in its bytes, so a post-bump identity guard never fires.
+→ learnings/storage-data-model.md – Durable knowledge graph facts belong in `tasks.db`, not `search.db`
 
 ## Container / Deployment
 
@@ -119,7 +96,7 @@
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** — it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** It can go unrun until the final checkbox pass — verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type declared, exported and caught whose only `throw` was a fake – grep the producer before done.
-- **A "why this cannot be fixed" analysis is scoped to the transport it was written against.** TD-122 recorded that attaching guards to a workflow step was "not a wiring change" because the one-shot spawn was output-only and `TurnGuardEvaluator` was "additionally session-shaped". The session-shaped half was an artefact of the output-only spawn: once the step runs on a leased `TurnRunner`, the message-received and before-send hook points are reachable. Re-derive the blocker against the current transport before inheriting it.
+- **Re-derive a recorded blocker against the current transport.** TD-122's "not a wiring change" held only for the output-only spawn; on a leased `TurnRunner` the guard hook points were reachable.
 - **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates) – 0.25 PRD review F1/F6: two false dead claims.
 - **A doc-task `Verify` must fail on the pre-change tree.** `rg -q` clauses matched a bare word or spanned two paths – dry-run each `cmd:` Verify for non-zero exit; one path per clause.
 

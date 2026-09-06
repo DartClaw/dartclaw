@@ -88,6 +88,10 @@ String schedulingJobsFragment({
     final name = (job['name'] ?? job['id'])?.toString() ?? '';
     final status = job['status']?.toString() ?? 'active';
     final system = systemJobNames.contains(name);
+    // A shell job is file-only: it runs on demand like any other row, but it is
+    // written and removed by editing dartclaw.yaml, so the seam would refuse an
+    // Edit or Delete posted from here.
+    final shell = job['jobType']?.toString() == 'shell';
     final canRun = !system || job['runnable'] == true;
     final running = status == 'running';
     final schedule = job['schedule']?.toString() ?? '';
@@ -111,6 +115,8 @@ String schedulingJobsFragment({
       },
       'rowClass': system ? 'row-system' : (status == 'error' || status == 'failed' ? 'row-error' : ''),
       'isSystem': system,
+      'isShell': shell,
+      'canEdit': !system && !shell,
       'canStart': canRun && !running,
       'runDisabled': canRun && running,
       'hasActions': !system || canRun,

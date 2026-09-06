@@ -215,4 +215,64 @@ file   | packages/dartclaw_runtime/test/scheduling/schedule_service_fixtures.dar
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-06 09:26 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+`ConfigWriter.updateFields({'scheduling.jobs': ...})` produces invalid YAML — `yaml_edit` raises `_YamlAssertionError` — whenever any surviving entry in the list carries a **flow** collection (`command: ["a","b"]`, `env: {K: v}`, or today's `task: {title: T, description: D}`). Reproduced on the pre-change tree with a `task:` flow map, so it is pre-existing and not introduced here: `YamlEditor.update` re-emits the flow collection at column 0. Consequence for this story: an operator who writes a shell entry's `command`/`env` in the natural inline argv style breaks the next prompt-job write through the seam. Mitigated only by documentation — the operator guide's shell example is block style, and the mutation suite's fixture says why. A fix (normalise flow collections before the write, or pin/patch `yaml_edit`) needs its own change and its own test.
+
+### Run: 2026-09-06 09:26 UTC – observations
+
+#### DRIFT
+
+- kind: spec-stale
+- item: S06 / TI06
+- what: S06's Then names `400 INVALID_INPUT` for "a create ... touching the shell entry". No `ScheduleMutationService.createJob` call can reach `commitAndApply` while touching a shell entry: `indexOfJob` finds the existing id and the seam's own conflict check refuses `409 CONFLICT` first, before any write is composed. Implemented as-is — reordering or removing that conflict check to reach the 400 would make a create colliding with any id stop reading as a conflict. Update and delete through the seam, and the `schedule_upsert` merge path, do return `400 INVALID_INPUT` with the file-only reason as specified. OC04 ("unreachable from every HTTP and tool write surface") is satisfied in full; only the status code on the create path differs.
+- Stale targets: –
+
+### Run: 2026-09-06 09:42 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Story-gate findings surfaced as `Routing: Note`, not fixed in this story:
+
+- **A one-time (`at:`) `type: shell` entry removes itself from `dartclaw.yaml`, and an HTTP Run triggers it.** Nothing refuses `at` / `schedule: once` on a shell entry, and `ScheduleService._completeOneTime` routes every terminal disposition — an on-demand run included — through `onOneTimeComplete` → `ScheduleMutationService.removeJobs` → `commit`, which deliberately bypasses `commitAndApply`'s file-only refusal (SC05 requires that bypass for spent one-time entries). OC01 ("same `schedule`/`at` forms") and OC04 ("exists only by editing `dartclaw.yaml`") collide for this one schedule form and the FIS resolves neither, so the choice is the owner's: either refuse `at` in `_parseShellDefinition` and drop it from the guide's shell section, or accept the self-removal as one-time semantics and state it in OC04 and the guide. Class: ambiguous-intent.
+- **The REST jobs API reference does not name the new refusal.** `docs/guide/web-ui-and-api.md`'s `schedule_upsert`/`schedule_list` rows were updated, but the `POST`/`PUT`/`DELETE /api/scheduling/jobs` entries still document only the `409` built-in refusal, and `POST /api/scheduling/jobs/:name/run` still reads "Starts a live **prompt** job immediately" though it now starts shell jobs too. SC07 is satisfied by the scheduling guide's File-only paragraph; this is completeness in a changed file.
+- **The drain after a timeout kill is unbounded.** `runShellJob`'s timeout path awaits both pipes closing with no ceiling. `killWithEscalation` reaps the direct child, but a grandchild inheriting the stdout/stderr fds holds the read ends open, so the fire would never complete and `ScheduleService._running` would keep the job marked running. Every other ceiling in that file is explicit. A fix (`draining.timeout(...)` on that path) needs its own scenario and a chosen grace value.
+- **The 16 MiB over-cap stdout arm has no scenario.** Every other failure arm — non-zero exit, empty stdout, timeout, non-UTF-8 — is covered in `schedule_service_shell_test.dart`; deleting the `overLimit` check leaves the suite green. `CHANGELOG.md` and `docs/guide/scheduling.md` both promise the behaviour, and TI03's own **Verify** clause does not list this arm, so it is a proof gap rather than a missed task.
+
+### Run: 2026-09-06 09:45 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+The Scheduling page's jobs table scrolls horizontally inside `.table-wrap` below ~480px: the responsive rule at `app.css:1600-1602` keeps `min-width: 460px` while the wrapper's client width at 375px is 349px, so the Actions column is clipped. Proved pre-existing during this story's visual validation by removing the SHELL badge, then the whole shell row, then every badge row from the DOM — `scrollWidth` stayed 468 in all four cases. The document itself never scrolls horizontally. Unrelated to the shell-job change and not fixed here.
+
+### Run: 2026-09-06 10:00 UTC – observations
+
+#### DRIFT
+
+- design-changed: OC01's "same `schedule`/`at` forms" is narrowed — the `at` / `schedule: {type: once}` form is now refused for `type: shell` alone, at parse, naming `"schedule"`. Cron and interval, `enabled`, `retry.*`, alerting, the on-demand run and the job row are unchanged. Owner decision after the story gate surfaced the collision as `ambiguous-intent`: a one-time job removes its own `scheduling.jobs` entry on every terminal disposition — an HTTP or page Run included — through `ScheduleService._completeOneTime` → `removeJobs` → `commit`, which bypasses `commitAndApply`'s file-only refusal because SC05 requires spent one-time entries to drop. That made OC04 false for one form, deleting an operator's hand-written block on a button click. OC04 was kept and OC01 narrowed: the file-only rule is why this kind exists, and the Intent describes a recurring feed. No ADR raised — a scope narrowing inside ground ADR-054 already settles, not a new architectural commitment. `composeConfigJobs` logs and skips such an entry like any other invalid one and never lists it in `missedOnceIds`, which is what feeds `removeJobs`. | Stale targets: –
+- spec-stale: S06's Then names `400 INVALID_INPUT` for a create touching a shell entry, but no `createJob` call can reach `commitAndApply` — `indexOfJob` finds the id and the seam's own conflict check answers `409 CONFLICT` first, before any write is composed. Implemented as-is; reordering that check would stop a create colliding with any id from reading as a conflict. Update, delete and the `schedule_upsert` merge path do return the specified 400. OC04 holds in full; only the create path's status code differs. | Stale targets: –
+
+### Run: 2026-09-06 10:33 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+Resolution of the items above, at the owner's direction after the story closed:
+
+- **`yaml_edit` flow-collection write failure — fixed at the root, in `dartclaw_kernel`.** The library was not at fault: `ConfigWriter._doUpdate` handed `YamlEditor.update` the `YamlMap`/`YamlList` nodes `readSchedulingJobs` had read back, and the editor re-emits its own flow-style nodes at column 0. The one write seam now deep-converts through the class's existing `_deepConvert` before the edit — one authority, no per-caller normalisation, no pin. `config_writer_test.dart` pins it in the seam's real shape (flow `command`/`env` and a flow `task:` map read back, appended to, written, reloaded); it failed on the old code with the column-0 dump and passes now. The Learnings entry, the guide's block-style paragraph and the three test comments that documented the trap are removed, since the trap is gone; `CHANGELOG.md` § Fixed records it as the pre-existing defect it was.
+- **REST jobs-API reference** — `docs/guide/web-ui-and-api.md` now names the `400 INVALID_INPUT` file-only refusal under Update and Delete, the conflict answer for a create naming a shell id, and "prompt or shell job" on the run route.
+- **Unbounded drain after exit** — measured before designing: on this platform `Process.exitCode` itself completes only when the pipes close (6.3 s for a grandchild holding them), so `timeout_seconds` already bounded that wait and `killWithEscalation`'s own waits are bounded (2 s + 1 s). The remaining hole was the drain, now bounded by `_pipeCloseGrace` (2 s — a close that follows an exit is kernel-synchronous, so anything past it is a holder) on both the kill path and the success path, cancelling the subscriptions on expiry; a success-path expiry fails the fire (`left its output open`), because what was captured cannot be called the whole document while another process holds the pipe. The proof runs a child whose grandchild inherits the pipes and holds them 12 s, with `timeout_seconds: 1`, and asserts settlement under 10 s, no feed file, a failure naming whichever bound fired, and — by `executeJobForTesting` returning — that the job was released. Removing the bound makes it wait the full 12 s and fail.
+- **16 MiB over-cap arm** — proved: a child arm writes the ceiling plus one byte; the fire fails naming the cap and the previous feed survives. Removing the `overLimit` throw fails it.
+- Found and fixed on the way: the suite's `runToCompletion` driver polled `runJobNow` to detect settlement, and the call that ended the poll *started a second fire*, racing every later assertion. It now drives through `executeJobForTesting`, and S01 settles on the one result line a fire logs.
+
+### Run: 2026-09-06 10:42 UTC – observations
+
+#### NOTICED BUT NOT TOUCHING
+
+From the independent review of the follow-ups (verdict PASS; its one Fix — the `left its output open` arm missing from the guide's and changelog's failure lists — is applied):
+
+- **`apps/dartclaw_cli/lib/src/commands/init/setup_apply.dart` carries private duplicates of both seams the writer fix consolidated** — `_plainValue` (a second `_deepConvert`) and `_set` (a second `_updateWithPathCreation`), in an app that already depends on `dartclaw_kernel`. It is *why* the CLI was never exposed to the node write-back defect, so it is not a bug today, but it is the second-implementation class and the place a future change to the kernel's version would have to be repeated. Pre-existing.
+- **`ConfigWriter`'s class dartdoc says it "preserves comments"** — false for comments *inside* a replaced subtree, in both the old and the fixed code (`editor.update` drops them identically). Pre-existing, and the claim now sits three lines above the fix's own comment.
+- **`_settle` cancels subscriptions on a timeout but not on a drain error** — the `output could not be read` exit leaves both live. An errored stream is effectively done, so the impact is nil; left as the one asymmetric exit rather than adding cleanup for no effect.
+- **`update-learnings` prints a `NOTICE: no ceiling stated … or pass --ceiling` on every append** now that the project deliberately omits `--ceiling`. The script's nudge contradicts the instruction above it, and nothing detects the 200-line prune trigger automatically; both are the plugin's to change, not this repo's.

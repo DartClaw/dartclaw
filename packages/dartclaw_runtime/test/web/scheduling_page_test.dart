@@ -498,6 +498,65 @@ scheduling:
       }
       expect(File(configPath).readAsBytesSync(), before);
     });
+
+    group('a shell job is a run-only row', () {
+      setUp(() {
+        File(configPath).writeAsStringSync('''
+scheduling:
+  jobs:
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - mail
+      env:
+        FEED_TOKEN: feed-secret
+      output: mail.json
+    - name: digest
+      schedule: "0 7 * * *"
+      type: prompt
+      delivery: webhook
+      prompt: Existing prompt
+''');
+      });
+
+      test('renders a shell job as a run-only row', () async {
+        final table = (await send('GET', '/scheduling')).body;
+
+        expect(table, contains('<span class="kind-badge">SHELL</span>'));
+        expect(table, contains('<span>mail-feed</span>'));
+        // Run stays; edit and delete do not, because the seam would refuse them.
+        expect(table, contains('hx-post="/scheduling/jobs/mail-feed/run"'));
+        expect(table, isNot(contains('hx-get="/scheduling/jobs/mail-feed/form"')));
+        expect(table, isNot(contains('data-delete-url="/scheduling/jobs/mail-feed/delete"')));
+        // The prompt row beside it keeps all three.
+        expect(table, contains('hx-post="/scheduling/jobs/digest/run"'));
+        expect(table, contains('hx-get="/scheduling/jobs/digest/form"'));
+        expect(table, contains('data-delete-url="/scheduling/jobs/digest/delete"'));
+      });
+
+      test('a delete posted for the shell id surfaces the seam refusal as an error toast', () async {
+        final before = File(configPath).readAsStringSync();
+
+        final response = await send('POST', '/scheduling/jobs/mail-feed/delete');
+
+        expect(response.status, 200);
+        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        expect(toast['type'], 'error');
+        expect(toast['message'], contains('Shell jobs are file-only'));
+        expect(File(configPath).readAsStringSync(), before);
+      });
+
+      test('an edit form requested for the shell id closes with a not-found toast', () async {
+        final response = await send('GET', '/scheduling/jobs/mail-feed/form');
+
+        expect(response.status, 200);
+        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        expect(toast['message'], 'Job not found');
+        expect(response.body, isNot(contains('mail-feed')));
+      });
+    });
   });
 }
 

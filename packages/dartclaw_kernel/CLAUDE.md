@@ -36,7 +36,11 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   against it. `runtimeBinary` rides the same object as resolution output, not as a YAML key. Parsing therefore
   **defers** `validateExecutionPolicySelections` while `declaredEnabled` is null — resolution re-runs it, and
   `execution: container` under a resolved-disabled posture is still startup-fatal ([ADR-055](../../dev/adrs/055-container-by-default-posture.md)).
-- All YAML mutations use `ConfigWriter`; it owns queued, backed-up, atomic writes.
+- All YAML mutations use `ConfigWriter`; it owns queued, backed-up, atomic writes. `ConfigWriter.applyEdit` is the one
+  path-edit seam (null removes, missing parents are created, collections are handed to `YamlEditor` as plain Dart
+  values — a `YamlNode` read back through `readSchedulingJobs` re-emits in its source style at the wrong indentation and
+  the write asserts). `dartclaw_cli`'s init writer drives its own editor through that seam because it creates the file
+  and leaves no `.bak`. Edits are surgical only outside the written paths: a subtree written whole loses its comments.
 - `HarnessConfig.sections` retains raw harness sections. The adapter package owns parsing its section.
 - Credential selection stays in `CredentialRegistry`; subscription credential files remain core-owned and are injected
   as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`.

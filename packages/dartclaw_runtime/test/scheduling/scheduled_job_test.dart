@@ -173,6 +173,8 @@ void main() {
           ],
         ),
         taskService: taskService(),
+        credentials: const CredentialsConfig(),
+        dataDir: '.dartclaw',
       );
 
       expect(composed.jobs.map((job) => job.id), ['digest', ScheduledTaskRunner.jobIdForDefinition('sweep')]);
@@ -195,6 +197,8 @@ void main() {
           ],
         ),
         taskService: taskService(),
+        credentials: const CredentialsConfig(),
+        dataDir: '.dartclaw',
       );
 
       expect(composed.jobs.map((job) => job.id), ['digest']);
@@ -219,6 +223,8 @@ void main() {
           ],
         ),
         taskService: taskService(),
+        credentials: const CredentialsConfig(),
+        dataDir: '.dartclaw',
         now: () => now,
       );
 
@@ -239,11 +245,138 @@ void main() {
           ],
         ),
         taskService: taskService(),
+        credentials: const CredentialsConfig(),
+        dataDir: '.dartclaw',
         now: () => now,
       );
 
       expect(composed.missedOnceIds, ['on-the-dot']);
       expect(composed.jobs, isEmpty);
+    });
+  });
+
+  group('ScheduledJob.fromConfig type: shell', () {
+    Map<String, dynamic> shellEntry([Map<String, dynamic> overrides = const {}]) => <String, dynamic>{
+      'id': 'mail-feed',
+      'type': 'shell',
+      'schedule': '*/15 * * * *',
+      'command': ['/usr/local/bin/hey', 'mail', '--json'],
+      'env': {'FEED_TOKEN': 'feed-secret'},
+      'output': 'mail.json',
+      ...overrides,
+    };
+
+    test('a valid entry yields the shell kind with its definition', () {
+      final job = ScheduledJob.fromConfig(
+        shellEntry({
+          'timeout_seconds': 45,
+          'retry': {'attempts': 2},
+        }),
+      );
+
+      expect(job.jobType, ScheduledJobType.shell);
+      expect(job.retryAttempts, 2);
+      final shell = job.shellDefinition!;
+      expect(shell.command, ['/usr/local/bin/hey', 'mail', '--json']);
+      expect(shell.env, {'FEED_TOKEN': 'feed-secret'});
+      expect(shell.output, 'mail.json');
+      expect(shell.timeout, const Duration(seconds: 45));
+      expect(shell.enabled, isTrue);
+    });
+
+    test('an omitted timeout_seconds takes the documented default, and enabled: false is carried', () {
+      final shell = ScheduledJob.fromConfig(shellEntry({'enabled': false})).shellDefinition!;
+
+      expect(shell.timeout, defaultShellJobTimeout);
+      expect(shell.timeout, const Duration(seconds: 300));
+      expect(shell.enabled, isFalse);
+    });
+
+    test('env is optional — a command needing no credential parses', () {
+      final entry = shellEntry()..remove('env');
+
+      expect(ScheduledJob.fromConfig(entry).shellDefinition!.env, isEmpty);
+    });
+
+    test('refuses a malformed shell entry', () {
+      // Each case names the field the operator has to fix; a shell entry that
+      // half-loads would run a command nobody wrote.
+      void refuses(Map<String, dynamic> entry, String namedField) => expect(
+        () => ScheduledJob.fromConfig(entry),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains(namedField))),
+        reason: 'entry $entry must be refused naming $namedField',
+      );
+
+      refuses(shellEntry({'command': <String>[]}), 'command');
+      refuses(shellEntry()..remove('command'), 'command');
+      refuses(
+        shellEntry({
+          'command': ['/bin/echo', 7],
+        }),
+        'command',
+      );
+      refuses(
+        shellEntry({
+          'command': ['hey', 'mail'],
+        }),
+        'command',
+      );
+      refuses(
+        shellEntry({
+          'env': {'feed token': 'feed-secret'},
+        }),
+        'env',
+      );
+      refuses(
+        shellEntry({
+          'env': {'FEED_TOKEN': 42},
+        }),
+        'env',
+      );
+      refuses(shellEntry({'env': 'feed-secret'}), 'env');
+      refuses(shellEntry()..remove('output'), 'output');
+      refuses(shellEntry({'output': '  '}), 'output');
+      refuses(shellEntry({'output': '/etc/passwd'}), 'output');
+      refuses(shellEntry({'output': '../../etc/passwd'}), 'output');
+      refuses(shellEntry({'timeout_seconds': 0}), 'timeout_seconds');
+      // A one-time entry would remove itself from dartclaw.yaml through the
+      // applier-less `commit` path, which no file-only refusal guards.
+      refuses(
+        shellEntry({
+          'schedule': {'type': 'once', 'at': '2099-01-01T00:00:00'},
+        }),
+        'schedule',
+      );
+      refuses(shellEntry({'timeout_seconds': 'soon'}), 'timeout_seconds');
+      for (final key in ['delivery', 'prompt', 'task', 'model', 'effort', 'webhook_url', 'allowed_tools']) {
+        refuses(shellEntry({key: 'anything'}), key);
+      }
+    });
+
+    test('a nested output path stays inside feeds/', () {
+      expect(
+        ScheduledJob.fromConfig(shellEntry({'output': 'mail/inbox.json'})).shellDefinition!.output,
+        'mail/inbox.json',
+      );
+    });
+
+    test('two entries declaring the same shell work are equal, and any changed field is not', () {
+      final base = ScheduledJob.fromConfig(shellEntry()).shellDefinition!;
+
+      expect(ScheduledJob.fromConfig(shellEntry()).shellDefinition, base);
+      for (final change in <Map<String, dynamic>>[
+        {
+          'command': ['/usr/local/bin/hey', 'mail'],
+        },
+        {
+          'env': {'FEED_TOKEN': 'other-secret'},
+        },
+        {'output': 'other.json'},
+        {'timeout_seconds': 45},
+        {'enabled': false},
+      ]) {
+        expect(ScheduledJob.fromConfig(shellEntry(change)).shellDefinition, isNot(base), reason: 'changed $change');
+      }
     });
   });
 }

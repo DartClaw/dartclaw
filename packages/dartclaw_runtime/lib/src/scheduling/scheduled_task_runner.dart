@@ -1,10 +1,13 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import 'cron_parser.dart';
 import 'scheduled_job.dart';
+import 'shell_job_runner.dart';
 import '../task/task_service.dart';
 
 final _log = Logger('ScheduledTaskRunner');
@@ -14,8 +17,8 @@ final _configJobsLog = Logger('ScheduledJobs');
 /// to load because their one-time instant had already passed.
 typedef ComposedConfigJobs = ({List<ScheduledJob> jobs, List<String> missedOnceIds});
 
-/// Composes every config-declared job — prompt entries and `type: task` entries
-/// alike — for [ScheduleService].
+/// Composes every config-declared job — prompt entries, `type: task` entries and
+/// `type: shell` entries alike — for [ScheduleService].
 ///
 /// The one composer boot wiring and the live applier share, so a job written
 /// through the mutation seam is loaded exactly as the next start would load it.
@@ -23,9 +26,17 @@ typedef ComposedConfigJobs = ({List<ScheduledJob> jobs, List<String> missedOnceI
 /// A one-time entry whose instant is not still ahead of [now] is not loaded and
 /// its id is reported in `missedOnceIds`, so the caller can drop the stale entry
 /// instead of warning about it at every start.
+///
+/// [credentials] and [dataDir] are what a `type: shell` entry needs and nothing
+/// else does: this is the single place a shell job's executor is built, so a
+/// boot load and a live application cannot present different secrets or write
+/// to different feed files. Both are required because a caller that omitted
+/// them would silently load no shell job at all.
 ComposedConfigJobs composeConfigJobs(
   SchedulingConfig scheduling, {
   required TaskService taskService,
+  required CredentialsConfig credentials,
+  required String dataDir,
   DateTime Function()? now,
 }) {
   final clock = now ?? DateTime.now;
@@ -42,9 +53,19 @@ ComposedConfigJobs composeConfigJobs(
     // Task entries reach the scheduler through the parsed definitions below,
     // which carry the dedup and creation behaviour a raw entry does not.
     if (job.jobType == ScheduledJobType.task) continue;
+    final shell = job.shellDefinition;
+    if (shell != null && !shell.enabled) {
+      _configJobsLog.info('Shell job "${job.id}": enabled is false — not loaded');
+      continue;
+    }
     if (job.scheduleType == ScheduleType.once && !(job.onceAt?.isAfter(clock()) ?? false)) {
       _configJobsLog.info('One-time job "${job.id}": instant ${job.onceAt} already passed — missed, removing entry');
       missedOnceIds.add(job.id);
+      continue;
+    }
+    if (shell != null) {
+      final composed = _composeShellJob(job, shell, credentials: credentials, dataDir: dataDir);
+      if (composed != null) jobs.add(composed);
       continue;
     }
     jobs.add(job);
@@ -53,6 +74,60 @@ ComposedConfigJobs composeConfigJobs(
   if (taskJobs.isNotEmpty) _configJobsLog.info('Registered ${taskJobs.length} automation scheduled task(s)');
   jobs.addAll(taskJobs);
   return (jobs: jobs, missedOnceIds: missedOnceIds);
+}
+
+/// The callback job [shell] declares, or `null` when a credential reference is
+/// not presentable and the entry is therefore not loaded.
+///
+/// Resolution mirrors the ACP `credential:` rule's first three refusals. The
+/// fourth — a literal value carrying no environment variable name — is
+/// deliberately not applied: the entry names the variable itself, and a
+/// credential written by `dartclaw secrets set` carries no `envVars` at all, so
+/// that check would refuse exactly the case this kind exists for.
+ScheduledJob? _composeShellJob(
+  ScheduledJob job,
+  ShellJobDefinition shell, {
+  required CredentialsConfig credentials,
+  required String dataDir,
+}) {
+  final resolved = <String, String>{};
+  for (final reference in shell.env.entries) {
+    final entry = credentials[reference.value];
+    final problem = switch (entry) {
+      null => 'is not a configured credentials entry',
+      CredentialEntry(isApiKeyCredential: false) => 'is not an api_key credential',
+      CredentialEntry(isPresent: false) => 'resolves to an empty value',
+      _ => null,
+    };
+    if (problem != null) {
+      _configJobsLog.warning(
+        'Shell job "${job.id}" env "${reference.key}": credential "${reference.value}" $problem — not loaded',
+      );
+      return null;
+    }
+    resolved[reference.key] = entry!.secret;
+  }
+
+  final outputFile = File(p.join(dataDir, 'feeds', shell.output));
+  return ScheduledJob(
+    id: job.id,
+    scheduleType: job.scheduleType,
+    cronExpression: job.cronExpression,
+    intervalMinutes: job.intervalMinutes,
+    onceAt: job.onceAt,
+    retryAttempts: job.retryAttempts,
+    retryDelaySeconds: job.retryDelaySeconds,
+    jobType: ScheduledJobType.shell,
+    shellDefinition: shell,
+    onExecute: () => runShellJob(
+      jobId: job.id,
+      definition: shell,
+      environment: resolved,
+      outputFile: outputFile,
+      workingDirectory: dataDir,
+    ),
+    isConfigDeclared: true,
+  );
 }
 
 /// Bridges [ScheduledTaskDefinition] entries into [ScheduledJob] instances

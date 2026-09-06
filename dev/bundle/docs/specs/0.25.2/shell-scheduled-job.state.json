@@ -1,5 +1,15 @@
 {
   "schemaVersion": "1",
-  "status": "spec-ready",
-  "completedTaskIds": []
+  "status": "done",
+  "completedTaskIds": [
+    "TI01",
+    "TI02",
+    "TI03",
+    "TI04",
+    "TI05",
+    "TI06",
+    "TI07",
+    "TI08",
+    "TI09"
+  ]
 }

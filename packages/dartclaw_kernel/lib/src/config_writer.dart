@@ -18,9 +18,11 @@ class _WriteOp {
 
 /// Non-destructive YAML config writer with backup and atomic writes.
 ///
-/// Preserves comments, blank lines, key ordering, and unknown keys. A
-/// symlinked [configPath] is written through to its target; the link survives.
-/// Thread-safe via internal write queue (serialized operations).
+/// Edits are surgical: comments, blank lines, key ordering, and unknown keys
+/// outside the edited paths survive. A value written over an existing subtree
+/// replaces it whole, comments inside it included. A symlinked [configPath] is
+/// written through to its target; the link survives. Thread-safe via internal
+/// write queue (serialized operations).
 class ConfigWriter {
   /// configPath.
   final String configPath;
@@ -75,20 +77,10 @@ class ConfigWriter {
     // Read current content (fresh read — no cache)
     final content = await file.readAsString();
 
-    // Apply edits via yaml_edit
     final editor = YamlEditor(content);
     for (final entry in updates.entries) {
-      final path = entry.key.split('.');
-      if (entry.value == null) {
-        // Remove the key — wrap in try/catch for non-existent paths
-        try {
-          editor.remove(path);
-        } on ArgumentError {
-          // Key doesn't exist — nothing to remove
-        }
-      } else {
-        _updateWithPathCreation(editor, path, _persistable(entry.key, entry.value as Object));
-      }
+      final value = entry.value;
+      applyEdit(editor, entry.key.split('.'), value == null ? null : _persistable(entry.key, value as Object));
     }
 
     // Backup: copy current file to .bak — abort on failure
@@ -121,32 +113,41 @@ class ConfigWriter {
     return value.toInt();
   }
 
-  /// Updates a YAML path, creating intermediate maps as needed.
+  /// Applies one edit to [editor]: a null [value] removes [path] (an absent
+  /// path is a no-op), any other value is written there, creating missing
+  /// intermediate maps first.
   ///
-  /// `yaml_edit`'s `update()` throws when intermediate path segments don't
-  /// exist. This helper ensures all parent maps are created first.
-  void _updateWithPathCreation(YamlEditor editor, List<String> path, Object value) {
+  /// Collections in [value] – including `YamlMap`/`YamlList` nodes read back
+  /// from a document – are handed to the editor as plain Dart maps and lists.
+  /// A `YamlNode` re-emits in its source style, so a flow collection read from
+  /// the file would land at column 0 and the edit would assert.
+  static void applyEdit(YamlEditor editor, List<String> path, Object? value) {
+    if (value == null) {
+      try {
+        editor.remove(path);
+      } on ArgumentError {
+        // Already absent.
+      }
+      return;
+    }
+    final plain = _deepConvert(value) as Object;
     try {
-      editor.update(path, value);
+      editor.update(path, plain);
     } on ArgumentError {
-      // Path traversal failed — create intermediate maps.
-      // If root document is null/empty, initialize as empty map first.
-      final parsed = editor.parseAt([]);
-      if (parsed.value == null) {
+      // Path traversal failed: seed an empty root document, then create each
+      // missing intermediate map.
+      if (editor.parseAt([]).value == null) {
         editor.update([], {});
       }
-      // Walk from root, creating empty maps for missing segments.
       for (var i = 0; i < path.length - 1; i++) {
         final subPath = path.sublist(0, i + 1);
         try {
-          // Check if segment exists — parseAt throws if not
           editor.parseAt(subPath);
         } on ArgumentError {
           editor.update(subPath, {});
         }
       }
-      // Retry the full update now that intermediates exist
-      editor.update(path, value);
+      editor.update(path, plain);
     }
   }
 

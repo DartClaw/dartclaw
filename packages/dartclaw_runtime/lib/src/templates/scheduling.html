@@ -110,20 +110,20 @@
       <thead><tr><th>Name</th><th>Schedule</th><th>Delivery</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         <tr tl:if="${hasJobs}" tl:each="job : ${jobs}" tl:classappend="${job.rowClass}">
-          <td><span tl:if="${job.isSystem}" class="system-badge">SYSTEM</span> <span tl:text="${job.name}">Job</span></td>
+          <td><span tl:if="${job.isSystem}" class="system-badge">SYSTEM</span><span tl:if="${job.isShell}" class="kind-badge">SHELL</span> <span tl:text="${job.name}">Job</span></td>
           <td><span class="cron-expr" tl:text="${job.schedule}"></span><span class="cron-human" tl:text="${job.cronHuman}"></span></td>
           <td><span tl:classappend="${job.deliveryBadgeClass}" class="delivery-badge" tl:text="${job.delivery}"></span></td>
           <td>
             <span tl:classappend="${job.statusDotClass}" class="status-dot" aria-hidden="true"></span>
             <span tl:text="${job.status}"></span>
           </td>
-          <td tl:if="${job.hasActions}"><div class="action-btns">
+          <td tl:if="${job.hasActions}"><div class="action-btns scheduling-action-btns">
             <button tl:if="${job.canStart}" class="btn btn-icon-sm" title="Run now" aria-label="Run now" data-icon="play"
                     hx-target="#scheduling-jobs-table" hx-swap="outerHTML" tl:attr="hx-post=${job.runUrl}"></button>
             <button tl:if="${job.runDisabled}" class="btn btn-icon-sm" disabled aria-disabled="true" title="Already running" aria-label="Already running" data-icon="play"></button>
-            <button tl:unless="${job.isSystem}" class="btn btn-icon-sm" title="Edit" aria-label="Edit" data-icon="pencil"
+            <button tl:if="${job.canEdit}" class="btn btn-icon-sm" title="Edit" aria-label="Edit" data-icon="pencil"
                     hx-target="#job-form" hx-swap="outerHTML" tl:attr="hx-get=${job.editUrl}"></button>
-            <button tl:unless="${job.isSystem}" class="btn btn-icon-sm" title="Delete" aria-label="Delete" data-icon="x"
+            <button tl:if="${job.canEdit}" class="btn btn-icon-sm" title="Delete" aria-label="Delete" data-icon="x"
                     data-action="click->dc-scheduling#confirmDelete"
                     tl:attr="data-delete-message=${job.deleteMessage},data-delete-url=${job.deleteUrl}"></button>
           </div></td>

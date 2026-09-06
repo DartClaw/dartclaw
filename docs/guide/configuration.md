@@ -488,7 +488,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **scheduling** |  |  |  |
 | `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
 | `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
-| `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn or creating a task. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
+| `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
 | **search** |  |  |  |
 | `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
 | `search.default_depth` | string |  | Effort a query spends when the caller names none: fast, standard or deep. (restart required) |

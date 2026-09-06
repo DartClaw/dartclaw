@@ -1,4 +1,6 @@
+import 'package:collection/collection.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:path/path.dart' as p;
 
 import 'cron_parser.dart';
 import 'delivery.dart';
@@ -7,7 +9,69 @@ import 'delivery.dart';
 enum ScheduleType { cron, interval, once }
 
 /// The execution mode for a scheduled job.
-enum ScheduledJobType { prompt, task }
+enum ScheduledJobType { prompt, task, shell }
+
+/// Default wall-clock ceiling for one `type: shell` firing.
+const Duration defaultShellJobTimeout = Duration(seconds: 300);
+
+/// Variable names a shell entry's `env` may declare.
+final _shellEnvVarName = RegExp(r'^[A-Z_][A-Z0-9_]*$');
+
+/// Keys a `type: shell` entry may not carry, each belonging to a kind that runs
+/// a model turn.
+const _shellForbiddenKeys = ['delivery', 'prompt', 'task', 'model', 'effort', 'webhook_url', 'allowed_tools'];
+
+/// The synthetic root a shell entry's `output` is checked for containment
+/// against, so the rule is decided once here and the composer only joins.
+const _feedsRoot = 'feeds';
+
+/// What a `type: shell` entry declares: the command to run, the credentials to
+/// present it, where its stdout lands, and how long it may take.
+///
+/// Parsed without any [CredentialsConfig]: `env` values name credentials
+/// entries and are resolved where the secrets are held, which is what lets the
+/// scheduling page parse an entry it must render but must never read a secret
+/// for.
+class ShellJobDefinition {
+  /// Argument vector, executable first and absolute.
+  final List<String> command;
+
+  /// Environment variable name → `credentials.<name>` entry name.
+  final Map<String, String> env;
+
+  /// Where stdout lands, relative to `<data_dir>/feeds/`.
+  final String output;
+
+  /// Wall-clock ceiling for one firing.
+  final Duration timeout;
+
+  /// Whether the entry is loaded at all.
+  final bool enabled;
+
+  const new({
+    required this.command,
+    required this.env,
+    required this.output,
+    required this.timeout,
+    required this.enabled,
+  });
+
+  static const _commandEquality = ListEquality<String>();
+  static const _envEquality = MapEquality<String, String>();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShellJobDefinition &&
+          _commandEquality.equals(command, other.command) &&
+          _envEquality.equals(env, other.env) &&
+          output == other.output &&
+          timeout == other.timeout &&
+          enabled == other.enabled;
+
+  @override
+  int get hashCode => Object.hash(_commandEquality.hash(command), _envEquality.hash(env), output, timeout, enabled);
+}
 
 /// Callback for built-in jobs that execute directly without an agent turn.
 typedef JobCallback = Future<String> Function();
@@ -66,6 +130,9 @@ class ScheduledJob {
   /// When [jobType] is [ScheduledJobType.task], the task definition to create.
   final ScheduledTaskDefinition? taskDefinition;
 
+  /// When [jobType] is [ScheduledJobType.shell], what the firing runs.
+  final ShellJobDefinition? shellDefinition;
+
   /// If non-null, the job runs this callback directly instead of dispatching
   /// through the agent turn system. The returned string is the job result.
   final JobCallback? onExecute;
@@ -103,6 +170,7 @@ class ScheduledJob {
     this.effort,
     this.allowedTools,
     this.taskDefinition,
+    this.shellDefinition,
     this.onExecute,
     this.composePrompt,
     this.promptResolver,
@@ -119,7 +187,11 @@ class ScheduledJob {
     if (id.isEmpty) throw FormatException('Job missing "id"');
 
     final jobTypeStr = config['type'] as String? ?? 'prompt';
-    final jobType = jobTypeStr == 'task' ? ScheduledJobType.task : ScheduledJobType.prompt;
+    final jobType = switch (jobTypeStr) {
+      'task' => ScheduledJobType.task,
+      'shell' => ScheduledJobType.shell,
+      _ => ScheduledJobType.prompt,
+    };
 
     final prompt = config['prompt'] as String? ?? '';
     if (jobType == ScheduledJobType.prompt && prompt.isEmpty) {
@@ -171,6 +243,8 @@ class ScheduledJob {
     final model = config['model'] as String?;
     final effort = config['effort'] as String?;
 
+    final shellDefinition = jobType == ScheduledJobType.shell ? _parseShellDefinition(id, config, scheduleType) : null;
+
     ScheduledTaskDefinition? taskDefinition;
     if (jobType == ScheduledJobType.task) {
       final taskRaw = config['task'];
@@ -207,7 +281,85 @@ class ScheduledJob {
       model: model,
       effort: effort,
       taskDefinition: taskDefinition,
+      shellDefinition: shellDefinition,
       isConfigDeclared: true,
+    );
+  }
+
+  /// Parses the `type: shell` half of [config], refusing every shape error.
+  ///
+  /// Throws a [FormatException] naming the offending field rather than
+  /// defaulting or repairing one: an entry that runs a different command than
+  /// the operator wrote is worse than one that does not load.
+  static ShellJobDefinition _parseShellDefinition(String id, Map<String, dynamic> config, ScheduleType scheduleType) {
+    // A one-time job removes its own entry once its instant is behind it, and
+    // that removal goes through `ScheduleMutationService.commit` rather than
+    // the file-only refusal in `commitAndApply`. A shell entry exists only by
+    // editing dartclaw.yaml, so a Run button deleting the operator's block is
+    // not a form this kind may take.
+    if (scheduleType == ScheduleType.once) {
+      throw FormatException('Job "$id" invalid "schedule": a shell job cannot be one-time');
+    }
+    for (final key in _shellForbiddenKeys) {
+      if (config.containsKey(key)) {
+        throw FormatException('Job "$id" (type: shell) must not carry "$key"');
+      }
+    }
+
+    final rawCommand = config['command'];
+    if (rawCommand is! List || rawCommand.isEmpty) {
+      throw FormatException('Job "$id" (type: shell) missing "command"');
+    }
+    final command = <String>[];
+    for (final argument in rawCommand) {
+      if (argument is! String) {
+        throw FormatException('Job "$id" invalid "command": every argument must be a string');
+      }
+      command.add(argument);
+    }
+    if (!p.isAbsolute(command.first)) {
+      throw FormatException('Job "$id" invalid "command": the executable "${command.first}" must be an absolute path');
+    }
+
+    final rawEnv = config['env'];
+    final env = <String, String>{};
+    if (rawEnv != null) {
+      if (rawEnv is! Map) throw FormatException('Job "$id" invalid "env": must be a map');
+      for (final entry in rawEnv.entries) {
+        final name = entry.key.toString();
+        if (!_shellEnvVarName.hasMatch(name)) {
+          throw FormatException('Job "$id" invalid "env" key "$name": must match ${_shellEnvVarName.pattern}');
+        }
+        final value = entry.value;
+        if (value is! String) {
+          throw FormatException('Job "$id" invalid "env" value for "$name": must name a credentials entry');
+        }
+        env[name] = value;
+      }
+    }
+
+    final output = config['output'];
+    if (output is! String || output.trim().isEmpty) {
+      throw FormatException('Job "$id" (type: shell) missing "output"');
+    }
+    if (p.isAbsolute(output)) {
+      throw FormatException('Job "$id" invalid "output": "$output" must be relative to $_feedsRoot/');
+    }
+    if (!p.posix.isWithin(_feedsRoot, p.posix.normalize(p.posix.join(_feedsRoot, output)))) {
+      throw FormatException('Job "$id" invalid "output": "$output" resolves outside $_feedsRoot/');
+    }
+
+    final timeoutSeconds = config['timeout_seconds'];
+    if (timeoutSeconds != null && (timeoutSeconds is! int || timeoutSeconds < 1)) {
+      throw FormatException('Job "$id" invalid "timeout_seconds": must be an integer of at least 1');
+    }
+
+    return ShellJobDefinition(
+      command: List<String>.unmodifiable(command),
+      env: Map<String, String>.unmodifiable(env),
+      output: output,
+      timeout: timeoutSeconds == null ? defaultShellJobTimeout : Duration(seconds: timeoutSeconds as int),
+      enabled: config['enabled'] as bool? ?? true,
     );
   }
 }

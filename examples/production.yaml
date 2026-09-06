@@ -34,7 +34,8 @@ container:
   enabled: true
   image: dartclaw-sandbox:latest
 
-# One worker for each enabled isolation profile (workspace + restricted).
+# Concurrent worker leases for tasks, scheduled jobs and logical agents (default 1).
+# A scheduled job that spawns a logical agent holds one lease and needs a second.
 providers:
   claude:
     executable: claude

@@ -234,6 +234,11 @@ class TurnRunner implements core.TurnRunner {
   /// Returns the new [turnId]. Throws [BusyTurnException] if global cap reached.
   /// Same-session requests queue behind the active turn.
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
+  ///
+  /// [outputSchemaWhenSupported] declares that the caller validates the result
+  /// host-side, so a harness that cannot enforce the schema gets none instead
+  /// of refusing the turn. Left false, [outputSchema] reaches the harness
+  /// unconditionally and an unsupporting one fails the turn.
   @override
   Future<String> reserveTurn(
     String sessionId, {
@@ -244,6 +249,7 @@ class TurnRunner implements core.TurnRunner {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,
@@ -266,6 +272,7 @@ class TurnRunner implements core.TurnRunner {
         systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         outputSchema: outputSchema,
+        outputSchemaWhenSupported: outputSchemaWhenSupported,
         providerSessionId: providerSessionId,
         requestProviderSessionResume: requestProviderSessionResume,
         taskId: taskId,
@@ -300,6 +307,10 @@ class TurnRunner implements core.TurnRunner {
   }
 
   /// Reserves turn-local state after the coordinator has admitted the session.
+  ///
+  /// [outputSchemaWhenSupported] carries the same contract as on [reserveTurn]:
+  /// the caller validates the result host-side, so a harness that cannot
+  /// enforce the schema gets none instead of refusing the turn.
   Future<String> reserveAdmittedTurn(
     String sessionId, {
     String agentName = 'main',
@@ -309,6 +320,7 @@ class TurnRunner implements core.TurnRunner {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,
@@ -328,6 +340,7 @@ class TurnRunner implements core.TurnRunner {
     systemPromptOverride: systemPromptOverride,
     maxTurns: maxTurns,
     outputSchema: outputSchema,
+    outputSchemaWhenSupported: outputSchemaWhenSupported,
     providerSessionId: providerSessionId,
     requestProviderSessionResume: requestProviderSessionResume,
     taskId: taskId,
@@ -341,6 +354,10 @@ class TurnRunner implements core.TurnRunner {
     externallyAdmitted: true,
   );
 
+  /// The single gate on provider-enforced schemas — no caller may keep its own.
+  Map<String, dynamic>? _harnessOutputSchema(Map<String, dynamic>? outputSchema, bool whenSupported) =>
+      whenSupported && !_worker.supportsStructuredOutput ? null : outputSchema;
+
   String _reserveTurnState(
     String sessionId, {
     required String agentName,
@@ -350,6 +367,7 @@ class TurnRunner implements core.TurnRunner {
     required String? systemPromptOverride,
     required int? maxTurns,
     required Map<String, dynamic>? outputSchema,
+    required bool outputSchemaWhenSupported,
     required String? providerSessionId,
     required bool requestProviderSessionResume,
     required String? taskId,
@@ -393,7 +411,7 @@ class TurnRunner implements core.TurnRunner {
       effort: effort,
       systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
-      outputSchema: outputSchema,
+      outputSchema: _harnessOutputSchema(outputSchema, outputSchemaWhenSupported),
       providerSessionId: providerSessionId,
       requestProviderSessionResume: requestProviderSessionResume,
       taskId: taskId,

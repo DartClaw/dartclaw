@@ -726,6 +726,8 @@ class HarnessWiring {
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
           systemPromptOverride: persona,
           workerPolicy: sessionPolicy,
+          outputSchema: definition.outputSchema,
+          outputSchemaWhenSupported: true,
           promptScope: PromptScope.task,
         );
         try {

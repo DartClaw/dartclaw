@@ -280,13 +280,14 @@ void main() {
 
     await turns.resetProviderSessionContinuity(targetSession.id);
 
-    // The busy worker's process is bound to the session it is running, so it is
-    // never asked to drop continuity for the session being reset.
-    expect(worker.resetSessionIds, isEmpty);
+    // The busy worker still owns its continuity model, so it is asked to drop
+    // the reset session — a Codex thread for it would otherwise survive.
+    expect(worker.resetSessionIds, [targetSession.id]);
     await expectLater(
       turns.resetProviderSessionContinuity(busySession.id),
       throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
     );
+    expect(worker.resetSessionIds, [targetSession.id], reason: 'the running session never reaches the harness');
 
     worker.completeSuccess();
     await turns.waitForOutcome(busySession.id, busyTurnId);
@@ -424,11 +425,38 @@ void main() {
   });
 }
 
+/// Holds the harness side of the contract: a reset for the session it is
+/// running is a caller error, any other session is recorded and cleared.
 final class _RecordingResetWorker extends FakeWorkerService {
   final List<String> resetSessionIds = [];
+  String? _runningSessionId;
+
+  @override
+  Future<TurnResult> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    String? agentId,
+    Map<String, dynamic>? mcpServers,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+  }) {
+    _runningSessionId = sessionId;
+    return super
+        .turn(sessionId: sessionId, messages: messages, systemPrompt: systemPrompt, agentId: agentId)
+        .whenComplete(() => _runningSessionId = null);
+  }
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
+    if (sessionId == _runningSessionId) {
+      throw StateError('Cannot reset session continuity while a turn is in progress');
+    }
     resetSessionIds.add(sessionId);
   }
 }

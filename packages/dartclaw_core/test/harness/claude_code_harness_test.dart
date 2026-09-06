@@ -627,33 +627,6 @@ void main() {
         await h.stop();
         expect(h.state, WorkerState.stopped);
       });
-
-      test('resetSessionContinuity stops the warm provider process', () async {
-        final processes = <FakeProcess>[];
-        final h = buildClaudeHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            final fake = FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
-            processes.add(fake);
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
-        expect(h.state, WorkerState.idle);
-
-        await h.resetSessionContinuity('sess-reset');
-
-        expect(h.state, WorkerState.stopped);
-        expect(processes.single.killCalled, isTrue);
-
-        await h.start();
-        expect(processes, hasLength(2));
-        expect(h.state, WorkerState.idle);
-      });
     });
 
     // ----- dispose() -----------------------------------------------------

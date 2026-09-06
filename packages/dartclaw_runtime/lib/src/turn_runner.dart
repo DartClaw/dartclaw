@@ -484,9 +484,7 @@ class TurnRunner implements core.TurnRunner {
     _turnProgressSnapshots.remove(sessionId);
     _forceClearTurnPolicy(sessionId);
     await _turnState?.delete(sessionId);
-    // A busy worker's process is bound to the session it serves, so it holds no
-    // continuity for this one; asking it to reset would only refuse.
-    if (_activeTurns.isEmpty) await _worker.resetSessionContinuity(sessionId);
+    await _worker.resetSessionContinuity(sessionId);
   }
 
   Future<String> startTurn(

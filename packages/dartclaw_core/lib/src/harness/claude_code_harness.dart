@@ -296,6 +296,11 @@ class ClaudeCodeHarness extends BaseHarness {
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
+    // `_conversationSessionId` — not `_sessionId`, which is the provider's own
+    // id — records whose conversation the running process carries: set on every
+    // turn (a `--resume` spawn happens inside that same turn) and cleared on
+    // start/restart, so a process that never ran a turn is bound to nothing.
+    if (_conversationSessionId != sessionId) return;
     if (currentState == WorkerState.busy) {
       throw StateError('Cannot reset session continuity while a turn is in progress');
     }

@@ -188,8 +188,8 @@ void main() {
     ]);
 
     await runner.resetSessionContinuity('other-session');
-
-    expect(worker.resetContinuitySessions, isEmpty);
+    // Always asked: only the harness knows what its process carries (Codex keeps a thread per session).
+    expect(worker.resetContinuitySessions, ['other-session']);
 
     scheduleTurnCompletion(worker, responseText: 'ok');
     await runner.waitForOutcome(session.id, turnId);

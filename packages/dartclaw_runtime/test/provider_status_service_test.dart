@@ -198,7 +198,7 @@ void main() {
 
       await service.probe(commandProbe: probeResults({'claude': probeOk('Claude CLI 1.0.0')}));
 
-      expect(service.all.single.poolSize, 1);
+      expect(service.all.single.poolSize, 2);
     });
 
     test('reports OAuth-authenticated provider as healthy with oauth credential status', () async {

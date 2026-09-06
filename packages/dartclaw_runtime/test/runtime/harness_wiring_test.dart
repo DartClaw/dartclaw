@@ -1068,7 +1068,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 3);
     expect(
       records.map((record) => record.message),
       contains(contains('Tool-restricted agent or job turns are configured for an ACP')),
@@ -1167,7 +1167,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 4);
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {

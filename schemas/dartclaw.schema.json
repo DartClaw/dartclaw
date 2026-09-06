@@ -1942,7 +1942,7 @@
             "type": "boolean"
           },
           "pool_size": {
-            "description": "Hard ceiling on concurrent worker leases for this provider. 0 means the default of one. (restart required)",
+            "description": "Hard ceiling on concurrent worker leases for this provider. 0 means the default of two, so a scheduled or task turn can spawn a logical agent while still holding its own lease. (restart required)",
             "minimum": 0,
             "type": "integer"
           },

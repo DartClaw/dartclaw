@@ -189,10 +189,10 @@ providers:
 ''');
 
       expect(config.providers['claude']?.poolSize, 0);
-      expect(config.providers['claude']?.effectivePoolSize, 1);
+      expect(config.providers['claude']?.effectivePoolSize, 2);
     });
 
-    test('warns and defaults negative pool size to effective one', () {
+    test('warns and defaults negative pool size to effective two', () {
       final config = loadYaml('''
 providers:
   claude:
@@ -201,7 +201,7 @@ providers:
 ''');
 
       expect(config.providers['claude']?.poolSize, 0);
-      expect(config.providers['claude']?.effectivePoolSize, 1);
+      expect(config.providers['claude']?.effectivePoolSize, 2);
       expect(config.warnings, anyElement(contains('Invalid value for providers.claude.pool_size')));
     });
 

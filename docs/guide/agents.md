@@ -133,7 +133,7 @@ The active turn's agent identity is threaded through each provider interception 
 
 ### Capacity Boundary
 
-The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
+The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller. A scheduled or task turn holds a lease for its whole turn, so a logical agent it spawns needs a second one — which is why the default capacity is two.
 
 Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle host worker may be retained and reused only when its provider and security profile match. A logical-agent container is retained only for that exact session/agent owner across its turns and destroyed on discard, eviction, or shutdown; it never crosses principals. The number of profiles or retained containers does not consume or enlarge active worker lease capacity.
 
@@ -174,7 +174,7 @@ The execution coordinator manages admission and optional reuse:
 - **Worker leases** – hard per-provider capacity shared by tasks, cron/system execution, and logical-agent sessions. Workers spawn lazily and never fall back to the busy primary lane.
 - **Workflow worker leases** – workflow steps consume provider capacity on the guarded harness path.
 
-Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `1`.
+Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `2`.
 
 ```yaml
 providers:

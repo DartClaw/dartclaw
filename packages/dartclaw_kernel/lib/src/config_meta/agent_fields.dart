@@ -640,7 +640,7 @@ const Map<String, FieldMeta> _agentFields = {
         ),
         'pool_size': EntryFieldMeta(
           type: ConfigFieldType.int_,
-          description: 'Hard ceiling on concurrent worker leases for this provider. 0 means the default of one.',
+          description: 'Hard ceiling on concurrent worker leases for this provider. 0 means the default of two, so a scheduled or task turn can spawn a logical agent while still holding its own lease.',
           min: 0,
         ),
         'auth': EntryFieldMeta(

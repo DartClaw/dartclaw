@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-06 07:02 CEST
+Last Updated: 2026-09-06 07:50 CEST
 
 ## Current Phase
 
@@ -18,9 +18,10 @@ candidates in the private product backlog – plus the next feedback batch; a PR
 
 ## Current Focus
 
-- 0.25.2 has no PRD or plan yet; start from `SecondBrain/system/dartclaw-feedback/open.md` (items 1d and 2, plus
-  any new batch) and the backlog entries under `PRODUCT-BACKLOG.md` § Scheduling: Seam-Write Approval and Model-Free
-  Feed Jobs. The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for this patch too.
+- 0.25.2 has no PRD or plan yet; start from `SecondBrain/system/dartclaw-feedback/open.md` (items 1d and 2 remain)
+  and the backlog entries under `PRODUCT-BACKLOG.md` § Scheduling: Seam-Write Approval and Model-Free Feed Jobs. The
+  AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for this patch too. The PRD should
+  absorb the third feedback batch below as shipped fix-now units (analysis: `.agent_temp/secondbrain-feedback-plan-20260906.md`, transient).
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories
@@ -29,6 +30,14 @@ candidates in the private product backlog – plus the next feedback batch; a PR
 
 ## Recently Completed
 
+- **Third SecondBrain feedback batch fixed on `feat/0.25.2`** (2026-09-06, items 5–8 of the deployment feedback file,
+  archived in its `resolved.md`): the Claude SDK `initialize` handshake never carried `disallowedTools`/`maxTurns`, so
+  `agent.disallowed_tools`, `agent.max_turns` and the native `WebFetch`/`WebSearch` suppression were no-ops – now spawn
+  flags, and the guard's global deny binds the main lane (`4b2210d7`, `152de7a3`); Claude's terminal `result` text is
+  the turn's final text, so stored messages and announces are the final assistant message (same commits); a logical
+  agent's `output_schema` reaches a harness that enforces it through one caller-declared gate (`708a7f2f`);
+  `pool_size` defaults to 2 and the continuity reset refuses only for the session being reset (`bc3a4d5a`,
+  `c7e1f120`). CHANGELOG § Unreleased carries the operator-facing record.
 - **0.25.1 released** (tagged 2026-09-05, `ccfd9fcf`): release-process hardening, two batches of SecondBrain deployment
   feedback (credential strip, no-op prune, curation log, live scheduling seam; then the primary-agent hardening recipe
   and warning, channel identity in the composed prompt, announce continuity, `reset_hour: -1`), five operator quick wins

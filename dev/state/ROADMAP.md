@@ -10,7 +10,9 @@
 open items from the deployment feedback file – an operator approval mode for chat-driven scheduling writes
 (`scheduling.mutation.approval`) and a model-free, file-only `type: shell` job kind – plus the next feedback batch.
 Both shapes are recorded in the private product backlog (§ Scheduling: Seam-Write Approval and Model-Free Feed Jobs).
-0.26 waits behind this patch.
+The third feedback batch (spawn-flag deny list and turn cap, final-text delivery, provider-enforced logical-agent
+schemas, `pool_size` default 2, narrowed continuity reset) is already on the branch (CHANGELOG § Unreleased). 0.26 waits
+behind this patch.
 
 ## Released
 

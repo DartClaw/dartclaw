@@ -9,7 +9,17 @@
 
 ### Claude
 - **`CLAUDECODE` env var causes nesting refusal.** Clear in subprocess environment.
-- **Model override goes via `--model` CLI flag, not the initialize field.**
+- **The SDK `initialize` handshake carries no policy, model, cap or effort field – those are CLI flags, and the CLI
+  ignores unknown handshake keys silently.** The SDK's own payload (grep the binary for `subtype:"initialize"`) is
+  `hooks`, `sdkMcpServers`, `systemPrompt`, `appendSystemPrompt`, `agents`, `jsonSchema`, `skills`, `toolAliases`, …
+  `disallowedTools` and `maxTurns` sent there were no-ops from 0.6 to 0.25.1 (`agent.disallowed_tools`,
+  `agent.max_turns`, the native `WebFetch`/`WebSearch` suppression), and every test asserted the field was *sent*,
+  never that the CLI acted on it. Spawn flags: `--model`, `--effort`, `--max-turns`, `--disallowedTools <names…>`
+  (variadic – keep it last). Verify a handshake field against the SDK payload in the binary before relying on it.
+- **The terminal `result` line's `result` string is the final assistant message only.** Verified 2026-09-06 on
+  2.1.261: a turn that wrote "I'll check the current year.", called Bash, then answered `DONE` reports
+  `result: "DONE"`; the delta stream carries all three. It is the `TurnResult.finalText` source; on an error line the
+  same field holds the failure detail, so it is dropped there.
 - **`sdkMcpServers` map must be spread, not double-wrapped.** Helpers already return the top-level shape; passing into another `sdkMcpServers:` field silently produces `sdkMcpServers.sdkMcpServers`.
 - **`--dangerously-skip-permissions` is only safe with hooks active.** Restricted-container simple mode disables hooks → fail-closed on `can_use_tool`.
 - **`file_edit` is granted separately from `file_write`.** Workflow tasks carry canonical `allowedTools` onto their leased harness worker, where `TaskToolFilterGuard` evaluates the exact grant before tool calls. Permission mode (prompt gating) and Claude's sandbox (`sandbox.enabled`, OS isolation) are orthogonal axes – never map sandbox→skip-permissions.
@@ -52,6 +62,12 @@
 - **Append-mode prompt exceptions follow conversational scope.** Onboarding may opt into a full static prompt for Web UI/channels; automation, logical-agent, and evaluator turns stay excluded.
 - **Claude PreToolUse must remain unfiltered.** Omitted matcher/if covers built-ins and dynamic MCP tools; a static name list silently bypasses host guards.
 - **Claude discovery is not capability grant.** Let exact `ToolSearch` load schemas under a closed allowlist; separately evaluate every selected tool, and keep toolless policies closed.
+- **Continuity is a per-harness fact; the runner cannot infer it from busyness.** A Claude process holds one
+  conversation and restarts on a session change; a Codex process keeps a `_threads` entry for every session it has
+  served; ACP opens a session per turn. So "a busy worker holds nothing for another session" is Claude-shaped and
+  false for Codex – a continuity reset for session B while A runs must reach the harness, and each harness answers for
+  its own process (Claude returns for a session it is not serving, Codex drops B's thread). Found in review of the
+  2026-09-06 narrowed reset.
 - **One turn per worker, not per session.** Admission keys on sessionId and `reserveAdmittedTurn` skips it, so parallel steps can double-drive one `TurnRunner`; `BusyTurnException` only backstops.
 - **A skill the harness activates by slash line must not declare `user-invocable: false`.** Claude Code 2.1.x refuses the `/skill` form for such skills ("Ask Claude to use the skill for you") and the step answers with no tool calls; `disable-model-invocation: true` keeps a host-invoked skill out of the menu and out of auto-invocation while the slash form still works.
 - **A headless step turn ends before background subagents report.** Under Claude Code 2.1.x the Agent tool runs subagents in the background by default; a skill a workflow step invokes must fan out synchronously (`run_in_background: false`) or the turn ends with the work unfinished (the AndThen `plan` skill's FIS authoring, 2026-09-05).

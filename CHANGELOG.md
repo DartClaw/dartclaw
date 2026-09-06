@@ -14,6 +14,13 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ## [Unreleased]
 
+### Changed
+
+- **`providers.<id>.pool_size` defaults to `2`** (was `1`). A scheduled or task turn that spawns a logical agent
+  holds one worker lease and its child needs a second; with one lease the child failed on every fire, and the built-in
+  `search` agent means every deployment has a logical agent. Two is a ceiling, not a target – workers still spawn
+  lazily. `pool_size: 1` remains an explicit choice.
+
 ### Fixed
 
 - **`agent.disallowed_tools` and `agent.max_turns` reach the Claude process** – both were sent only as fields of
@@ -22,10 +29,24 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
   agent identity. The deny list is now a `--disallowedTools` spawn flag (canonical names mapped to the native ones:
   `shell` → `Bash`, `file_edit` → `Edit` and `NotebookEdit`, …), the cap is `--max-turns`, and the guard's global
   layer binds the main agent as well. A workflow finalizer's `maxTurns: 2` is therefore enforced for the first time.
-- **A scheduled or task turn delivers the final assistant message, not the working notes** – Claude's terminal
-  `result` line carries the last assistant message, and the adapter dropped it, so the stored message and every
-  `delivery: announce` text was the concatenation of all text blocks the model wrote between tool calls. The Claude
-  harness now reports that final text, as Codex already did; the stream to the web UI is unchanged.
+- **A logical agent's `output_schema` is handed to a provider that can enforce it** – the schema was checked only
+  after the turn, on the assistant text, so a conforming object inside a ```` ```json ```` fence was rejected as
+  `parse` and the result discarded. The logical-agent turn now carries the schema when the leased harness supports
+  structured output (Claude, `--json-schema`) and the host validates the returned payload as before; the workflow
+  step runner uses the same single gate (`outputSchemaWhenSupported`). A provider without structured output (Codex)
+  still has to answer with one bare JSON value.
+- **A session's continuity can be reset while other sessions are busy** – the coordinator refused whenever *any*
+  worker was busy, so a logical agent spawned from a scheduled or task turn and then discarded always logged
+  `Cannot reset session continuity while a relevant runner is busy`, and an announce's continuity reset failed
+  while another job ran. The refusal now applies only when the session being reset is itself active or acquiring;
+  otherwise the runner clears its own state for that session and asks the harness, which answers for its process:
+  Claude's returns untouched for a session it is not serving, Codex's drops that session's thread while another
+  session's turn runs.
+- **A Claude turn's stored message is the final assistant message, not the working notes** – Claude's terminal
+  `result` line carries the last assistant message, and the adapter dropped it, so the stored message, the daily-log
+  record and every `delivery: announce` text was the concatenation of all text blocks the model wrote between tool
+  calls. The Claude harness now reports that final text, as Codex already did, on every lane; the live stream to the
+  web UI is unchanged, so a reloaded page shows the final message where the stream showed the interleaved blocks.
 
 ### Security
 

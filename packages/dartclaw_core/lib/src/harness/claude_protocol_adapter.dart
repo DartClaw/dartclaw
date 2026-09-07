@@ -68,6 +68,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         trigger: trigger,
         preTokens: preTokens,
       ),
+      claude_protocol.BackgroundTasksChanged(:final tasks) => BackgroundTasksChanged(tasks: tasks),
     };
   }
 

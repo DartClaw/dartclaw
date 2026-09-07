@@ -651,6 +651,7 @@ class CodexHarness extends BaseHarness {
         emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
 
       case proto.SessionMetadataUpdate():
+      case proto.BackgroundTasksChanged():
         break;
 
       case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):

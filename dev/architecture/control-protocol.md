@@ -526,6 +526,19 @@ Claude submits that payload through its native `StructuredOutput` protocol call.
 
 Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
 
+#### Background tasks at the turn boundary
+
+The CLI runs the `Agent` tool in the background by default (2.1.x) and may background a shell command. It re-lists its background tasks in full on every change:
+
+```json
+{"type": "system", "subtype": "background_tasks_changed",
+ "tasks": [{"task_id": "acaa9356", "task_type": "local_agent", "description": "probe marker"}]}
+```
+
+beside per-task `task_started` / `task_progress` / `task_updated` / `task_notification` system messages, which DartClaw ignores. The model's turn ends with an ordinary `result` while those tasks are still running; when a task reports, the CLI runs a notification turn on its own – a new `system`/`init`, the model's reaction, and a second `result` carrying `origin: {"kind": "task-notification"}` – with no stdin input.
+
+`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and, on a successful `result` while it lists a task whose `task_type` is not `local_bash`, does **not** complete the turn: it logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds that result's token usage into the result that finally completes the turn – the first `result` with nothing outstanding (its `total_cost_usd` is session-cumulative and already includes the subagents). The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
+
 ---
 
 ## 5. Dart-Side Type Hierarchy
@@ -541,6 +554,8 @@ ClaudeMessage (sealed)
 ├── ToolUseBlock        – name, id, input
 ├── ToolResultBlock     – toolId, output, isError
 ├── ControlRequest      – requestId, subtype, data
+├── CompactBoundary     – trigger, preTokens
+├── BackgroundTasksChanged – tasks (id, type)
 └── TerminalResult      – stopReason, subtype, structuredOutput, costUsd, durationMs,
                           inputTokens, outputTokens, cacheReadInputTokens,
                           cacheCreationInputTokens
@@ -932,7 +947,7 @@ DartClaw does not advertise `terminal.create` and rejects all ACP terminal lifec
 
 ### Per-turn execution changes
 
-The harness contract supports per-turn persona, working directory, model, effort, output-schema, and provider-session inputs. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes — the output schema and provider-session id included, since both are spawn flags. That cost is symmetric: adding or dropping either input is a change, and each restart re-injects the bounded history replay. Codex applies persona/model/effort to its session thread, uses `thread/resume` for an explicit durable provider session, and refuses an output schema. ACP prepends the persona to the prompt, ignores model/effort overrides, and refuses output-schema and provider-session inputs.
+The harness contract supports per-turn persona, working directory, model, effort, output-schema, and provider-session inputs. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes — the output schema and provider-session id included, since both are spawn flags. That cost is symmetric: adding or dropping either input is a change, and each restart re-injects the bounded history replay. A restart kills the process's background subagents, so the harness holds a turn open while the CLI still lists non-shell background tasks (Section 4.8); the restart the next turn triggers then finds none running. Codex applies persona/model/effort to its session thread, uses `thread/resume` for an explicit durable provider session, and refuses an output schema. ACP prepends the persona to the prompt, ignores model/effort overrides, and refuses output-schema and provider-session inputs.
 
 ```
 turn(directory: "/worktrees/task-42")

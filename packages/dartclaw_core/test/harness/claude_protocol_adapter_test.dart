@@ -30,6 +30,21 @@ void main() {
       expect(init.contextWindow, 1000);
     });
 
+    test('parses background_tasks_changed', () {
+      final msg = ClaudeProtocolAdapter().parseLine(
+        _j({
+          'type': 'system',
+          'subtype': 'background_tasks_changed',
+          'tasks': [
+            {'task_id': 'agent-1', 'task_type': 'local_agent', 'description': 'probe'},
+          ],
+        }),
+      );
+
+      expect(msg, isA<BackgroundTasksChanged>());
+      expect((msg! as BackgroundTasksChanged).tasks, [(id: 'agent-1', type: 'local_agent')]);
+    });
+
     test('parses content_block_delta text delta', () {
       final adapter = ClaudeProtocolAdapter();
       final msg = adapter.parseLine(

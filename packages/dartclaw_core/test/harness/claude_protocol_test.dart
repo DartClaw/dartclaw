@@ -22,6 +22,11 @@ void _expectCompactBoundary(ClaudeMessage? message, {required String trigger, in
   expect(boundary.preTokens, preTokens);
 }
 
+void _expectBackgroundTasks(ClaudeMessage? message, List<({String id, String? type})> tasks) {
+  expect(message, isA<BackgroundTasksChanged>());
+  expect((message as BackgroundTasksChanged).tasks, tasks);
+}
+
 void _expectToolUse(
   ClaudeMessage? message, {
   required String name,
@@ -105,6 +110,39 @@ void main() {
           name: 'minimal compact boundary',
           json: {'type': 'system', 'subtype': 'compact_boundary'},
           expectMessage: (message) => _expectCompactBoundary(message, trigger: 'auto'),
+        ),
+        (
+          name: 'background tasks changed lists agent and shell tasks with their types',
+          json: {
+            'type': 'system',
+            'subtype': 'background_tasks_changed',
+            'tasks': [
+              {'task_id': 'acaa9356', 'task_type': 'local_agent', 'description': 'probe'},
+              {'task_id': 'bcdhml0ux', 'task_type': 'local_bash', 'description': 'sleep'},
+            ],
+          },
+          expectMessage: (message) => _expectBackgroundTasks(message, [
+            (id: 'acaa9356', type: 'local_agent'),
+            (id: 'bcdhml0ux', type: 'local_bash'),
+          ]),
+        ),
+        (
+          name: 'background tasks changed with every task finished',
+          json: {'type': 'system', 'subtype': 'background_tasks_changed', 'tasks': <Object>[]},
+          expectMessage: (message) => _expectBackgroundTasks(message, const []),
+        ),
+        (
+          name: 'background tasks changed drops entries without a task id and tolerates a missing type',
+          json: {
+            'type': 'system',
+            'subtype': 'background_tasks_changed',
+            'tasks': [
+              {'task_type': 'local_agent'},
+              {'task_id': 'typeless'},
+              'not-a-map',
+            ],
+          },
+          expectMessage: (message) => _expectBackgroundTasks(message, [(id: 'typeless', type: null)]),
         ),
         (
           name: 'irrelevant system subtype',

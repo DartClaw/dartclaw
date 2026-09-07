@@ -3,7 +3,7 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-07 08:39 CEST
+Last Updated: 2026-09-07 13:08 CEST
 
 ## Current Phase
 
@@ -23,7 +23,9 @@ model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and 
 - 0.25.2: the third feedback batch and the three standalone FIS (§ Active Stories) are on the branch; the private PRD
   carries each outcome (§ As built). Before the squash: the bundle fold-back per `SPEC-LIFECYCLE.md`.
   The branch review added the `ChannelWiring.wire()` regression through the real binder and pause replay queue.
-  The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for the patch too.
+  The Claude background-subagent turn-boundary defect behind the plan-skill finding is fixed on the branch: the
+  harness holds the work turn while the CLI lists background subagents, so the finalizer restart no longer kills
+  them (CHANGELOG § Unreleased › Fixed; § Open follow-ups).
 - Workflow plugin and inline-output fixes are implemented and verified on `feat/0.25.2`: Claude user-plugin inheritance and
   native skill activation with declared tool filtering; projectless persisted-workspace output roots; Codex probe
   isolation matching workers; and dedicated capability mirroring from custom `CODEX_HOME` with containment. Full
@@ -106,10 +108,12 @@ None.
   ten archives plus `SHA256SUMS.txt` on the release, run the Scoop install/version/update/uninstall audit on Windows x64.
 - **Live-gate evidence at the 0.25.1 tag**: Claude half of `workflow-live --full --skip-e2e` green except the
   plan-and-implement `plan` step – the AndThen `plan` skill dispatches its FIS-authoring subagent in the background
-  under current Claude Code and the headless step turn ends before it reports, so no FIS is written (fix belongs in the
-  AndThen skill: `run_in_background: false` for that fan-out, or a host prompt line pinning synchronous subagents). The
-  Codex half was not re-run (host-side quarantine attribute on the Codex cask's bundled `rg`; clear with `xattr -d
-  com.apple.quarantine`). The suite itself was validating stale user-scope skill copies until `ae5a0b26`.
+  under current Claude Code and the headless step turn ended before it reported, so no FIS was written. That was the
+  Claude turn-boundary defect fixed on `feat/0.25.2` on 2026-09-07 (the harness holds the work turn while the CLI
+  lists background subagents; probe `workflow-live --canary background-subagent`, red on the unfixed tree, green
+  after); the Claude half has not been re-run since. The Codex half was not re-run (host-side quarantine attribute on
+  the Codex cask's bundled `rg`; clear with `xattr -d com.apple.quarantine`). The suite itself was validating stale
+  user-scope skill copies until `ae5a0b26`.
 
 ## Recent Decisions
 

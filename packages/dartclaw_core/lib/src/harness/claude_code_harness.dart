@@ -78,6 +78,8 @@ List<String> _buildClaudeArgs({
 /// the model puts here would hand it to an arbitrary child process.
 const _bashEnvCredentialNames = ['ANTHROPIC_API_KEY', claudeOauthTokenEnvVar];
 
+const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
+
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
 class ClaudeCodeHarness extends BaseHarness {
@@ -151,6 +153,15 @@ class ClaudeCodeHarness extends BaseHarness {
 
   /// Wire form, because that is exactly what a reused process keeps.
   String? _processOutputSchemaJson;
+
+  /// Background tasks the running process last listed; a new process starts
+  /// with none. The turn boundary waits for [_awaitedBackgroundTasks].
+  List<proto.BackgroundTaskRef> _backgroundTasks = const [];
+
+  /// Usage of the `result` lines the current turn held open, folded into the
+  /// result that finally completes it.
+  ({int input, int output, int cacheRead, int cacheWrite}) _heldUsage = _zeroUsage;
+  int _heldResultCount = 0;
 
   Completer<Map<String, dynamic>>? _initCompleter;
 
@@ -423,6 +434,8 @@ class ClaudeCodeHarness extends BaseHarness {
     _activeTurnSessionId = sessionId;
     _activeAgentId = agentId;
     _turnCompleter = Completer<TurnResult>();
+    _heldUsage = _zeroUsage;
+    _heldResultCount = 0;
 
     try {
       final messageContent = messages.last['content'];
@@ -487,6 +500,7 @@ class ClaudeCodeHarness extends BaseHarness {
   Future<void> _startInternal() async {
     _turnsSinceStart = 0;
     _conversationSessionId = null;
+    _backgroundTasks = const [];
     final cm = containerManager;
     if (cm == null) {
       ProcessResult? claudeResult;
@@ -723,6 +737,17 @@ class ClaudeCodeHarness extends BaseHarness {
   }
 
   int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
+
+  /// Background tasks the turn boundary waits for: every listed task except a
+  /// backgrounded shell command.
+  ///
+  /// Mirrors the CLI's own `--print` exit policy, which holds the process for
+  /// subagents and workflows – their results feed a notification turn – but
+  /// kills a background shell a few seconds after the final result. So a step
+  /// that leaves a dev server running still ends, while one that fanned out
+  /// subagents keeps them alive across the finalizer restart.
+  Iterable<proto.BackgroundTaskRef> get _awaitedBackgroundTasks =>
+      _backgroundTasks.where((task) => task.type != 'local_bash');
 
   bool get _nativePermissionsSkipped {
     final permissionMode = _nativePermissionMode;
@@ -1079,6 +1104,12 @@ class ClaudeCodeHarness extends BaseHarness {
       case proto.ProtocolDiagnostic():
         break;
 
+      case proto.BackgroundTasksChanged(:final tasks):
+        _backgroundTasks = tasks;
+        _log.info(
+          'Background tasks: ${tasks.length} listed, ${_awaitedBackgroundTasks.length} awaited at the turn boundary',
+        );
+
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         unawaited(_handleControlRequest(requestId, subtype, data));
 
@@ -1095,6 +1126,34 @@ class ClaudeCodeHarness extends BaseHarness {
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           final isError = stopReason == 'error';
+          final awaited = _awaitedBackgroundTasks.toList();
+          if (!isError && awaited.isNotEmpty) {
+            // The CLI ends the model's turn while its background subagents are
+            // still running and, once they report, runs a notification turn
+            // of its own that ends in a second `result`. Completing here would
+            // let the caller's next turn restart the process and kill them, so
+            // the turn stays open until a result arrives with nothing
+            // outstanding; the turn timeout still bounds the wait.
+            _heldUsage = (
+              input: _heldUsage.input + (inputTokens ?? 0),
+              output: _heldUsage.output + (outputTokens ?? 0),
+              cacheRead: _heldUsage.cacheRead + (cacheReadTokens ?? 0),
+              cacheWrite: _heldUsage.cacheWrite + (cacheWriteTokens ?? 0),
+            );
+            _heldResultCount++;
+            final ids = awaited.map((task) => task.id).join(', ');
+            _log.info(
+              'Turn boundary held: ${awaited.length} background task(s) still running ($ids); '
+              'the notification turn completes it',
+            );
+            emitEvent(
+              ProviderProgressBridgeEvent(
+                kind: 'background_tasks',
+                text: 'Waiting for ${awaited.length} background task(s): $ids',
+              ),
+            );
+            return;
+          }
           String? error;
           if (isError) {
             final decoded = decodeJsonObject(line);
@@ -1110,7 +1169,10 @@ class ClaudeCodeHarness extends BaseHarness {
           }
           // Not `is_error`: this is derived from the synthesized stopReason, so
           // on a retry-exhaustion event it disagrees with the provider's own line.
-          _log.info('Terminal result: stopReason=$stopReason subtype=$subtype');
+          _log.info(
+            'Terminal result: stopReason=$stopReason subtype=$subtype'
+            '${_heldResultCount == 0 ? '' : ' after $_heldResultCount held result(s)'}',
+          );
           _turnCompleter!.complete(
             TurnResult(
               stopReason: stopReason,
@@ -1119,10 +1181,10 @@ class ClaudeCodeHarness extends BaseHarness {
               costUsd: costUsd,
               providerSessionId: _processProviderSession.persists ? _sessionId : null,
               structuredOutput: structuredOutput,
-              inputTokens: inputTokens ?? 0,
-              outputTokens: outputTokens ?? 0,
-              cacheReadTokens: cacheReadTokens ?? 0,
-              cacheWriteTokens: cacheWriteTokens ?? 0,
+              inputTokens: _heldUsage.input + (inputTokens ?? 0),
+              outputTokens: _heldUsage.output + (outputTokens ?? 0),
+              cacheReadTokens: _heldUsage.cacheRead + (cacheReadTokens ?? 0),
+              cacheWriteTokens: _heldUsage.cacheWrite + (cacheWriteTokens ?? 0),
             ),
           );
         }

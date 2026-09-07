@@ -144,6 +144,21 @@ final class CompactBoundary extends ClaudeMessage {
   String toString() => 'CompactBoundary(trigger: $trigger, preTokens: $preTokens)';
 }
 
+/// The CLI's current set of background tasks – subagents and shell commands
+/// running beside the conversation – re-listed in full on every change.
+///
+/// Wire format: `{"type": "system", "subtype": "background_tasks_changed",
+///               "tasks": [{"task_id": "…", "task_type": "local_agent", "description": "…"}]}`.
+/// An entry without a string `task_id` cannot be tracked and is dropped.
+final class BackgroundTasksChanged extends ClaudeMessage {
+  final List<({String id, String? type})> tasks;
+
+  new({required this.tasks});
+
+  @override
+  String toString() => 'BackgroundTasksChanged(tasks: $tasks)';
+}
+
 /// Terminal-result `subtype` the CLI reports when structured-output retries ran
 /// out; the turn produced no schema-valid payload.
 const String claudeStructuredOutputRetriesExhaustedSubtype = 'error_max_structured_output_retries';
@@ -238,6 +253,18 @@ ClaudeMessage? _parseSystem(Map<String, dynamic> json) {
     final trigger = json['trigger'] as String? ?? 'auto';
     final preTokens = json['pre_tokens'] as int?;
     return CompactBoundary(trigger: trigger, preTokens: preTokens);
+  }
+
+  if (subtype == 'background_tasks_changed') {
+    final rawTasks = json['tasks'];
+    return BackgroundTasksChanged(
+      tasks: [
+        if (rawTasks is List)
+          for (final entry in rawTasks)
+            if (entry is Map<String, dynamic> && entry['task_id'] is String)
+              (id: entry['task_id'] as String, type: entry['task_type'] as String?),
+      ],
+    );
   }
 
   return null;

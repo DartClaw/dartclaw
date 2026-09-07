@@ -71,6 +71,15 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Fixed
 
+- Claude workflow steps no longer lose subagents left running in the background when the work turn ends. Claude
+  Code 2.1.x runs `Agent` in the background by default and ends the turn's `result` while they run; the finalizer
+  turn then restarted the process for its `--json-schema`, killing them, and the envelope reported the step's
+  reviewers or implementers as stopped. The harness now holds a turn open while the CLI's
+  `background_tasks_changed` inventory lists a task other than a background shell and completes it on the
+  notification turn the CLI runs once they report, bounded by the step's turn timeout; the held results' token
+  usage is charged to the turn. A backgrounded shell command is not waited for. The CLI has no flag, setting or
+  environment variable that makes `Agent` foreground by default (checked against 2.1.263), so skill prompts need
+  no `run_in_background: false` workaround. Live proof: `workflow-live/run.sh --canary background-subagent`.
 - Claude workflow steps honor `inherit_user_settings` even when they declare tools, restoring user-scope plugins
   under the default setting. Explicit empty workflow tool lists deny ordinary tool calls; omitted lists retain
   the inherited harness surface, and native denies and DartClaw guards remain in force.

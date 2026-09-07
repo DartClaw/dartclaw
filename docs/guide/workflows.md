@@ -186,6 +186,8 @@ The runtime also writes metadata keys automatically:
 
 Agent steps receive a workflow output contract automatically. A dedicated no-tools structured finalization turn after the main work turn emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }`. Declared model-derived keys appear under `outputs`; `step_outcome` is omitted when the step sets `emitsOwnOutcome: true`. The envelope is the only source for declared outputs: assistant prose, JSON fences and inline `<workflow-context>` blocks are inert text. A run persisted before the 0.25 envelope format must be re-run under 0.25.
 
+The finalization turn restarts the Claude process. A work turn that left subagents running in the background (Claude Code's `Agent` tool runs them that way by default) is held open until they report and the CLI's own notification turn ends, bounded by the step's turn timeout, so the restart cannot kill them; the step log then shows `Turn boundary held: N background task(s)` and the held turns' tokens count toward the step. A shell command left running in the background is not waited for. Skill prompts need no `run_in_background: false` workaround.
+
 Only steps that set `emitsOwnOutcome: true` use the inline step-outcome tag as their designed channel. End the final assistant message with:
 
 ```text

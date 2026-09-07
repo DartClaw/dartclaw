@@ -1036,6 +1036,50 @@ void main() {
       reason: 'Artifact: ${result.artifactPath}',
     );
   }, timeout: _defaultLiveTestTimeout);
+
+  test('a backgrounded subagent survives the finalizer restart', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
+    // Claude Code 2.1.263 runs `Agent` in the background by default and ends
+    // the parent turn at once, while the declared output below makes the
+    // runner restart the process for its finalizer turn. The marker exists
+    // only if the harness held the work turn open until the agent reported:
+    // a subagent killed by the restart never reaches the touch.
+    final marker = p.join(fixtureDir, 'background-agent.marker');
+    final definition = WorkflowDefinitionParser().parse('''
+name: background-subagent-probe
+description: Turn-boundary probe for a subagent left running in the background
+steps:
+  - id: probe
+    name: Background subagent probe
+    prompt: |
+      Call the Agent tool exactly once with run_in_background: true, subagent_type "general-purpose",
+      description "marker writer" and this prompt: "Run the shell command: sleep 10 && touch $marker
+      and then reply with the single word done." As soon as the Agent tool returns its launch
+      confirmation, end your turn immediately with the single word LAUNCHED. Do not wait for the
+      agent and do not call any other tool.
+    outputs:
+      launch_note:
+        format: text
+        description: The single word you ended your work turn with
+''');
+
+    final result = await executeStep(
+      step: _stepById(definition, 'probe'),
+      context: WorkflowContext(variables: const {'PROJECT': 'workflow-testing', 'BRANCH': 'main'}),
+      artifactLabel: 'background-subagent-probe',
+    );
+
+    expect(
+      File(marker).existsSync(),
+      isTrue,
+      reason: 'the background agent was killed at the finalizer restart. Artifact: ${result.artifactPath}',
+    );
+    expect(result.outputs['launch_note'], isA<String>(), reason: 'Artifact: ${result.artifactPath}');
+    expect((result.outputs['launch_note'] as String).trim(), isNotEmpty, reason: 'Artifact: ${result.artifactPath}');
+  }, timeout: _defaultLiveTestTimeout);
 }
 
 void _copyDirectorySync(Directory source, Directory target) {

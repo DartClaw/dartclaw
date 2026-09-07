@@ -261,3 +261,18 @@ Story-gate round 3 (verdict PASS) findings routed `Note`, for the owner:
 - **`_pendingSummary` renders an absent `type` as `prompt`.** Unreachable through the one writer (`schedule_upsert` requires an enum-validated `type`), so only a hand-edited store file reaches it; still a sentinel over a stored value on the approval surface. Either render the empty summary or guard `job.type` in `fromJson` beside `job.id`. Class: code-defect.
 - **The parked prompt renders whole with no height bound.** `schedule_upsert`'s `prompt` carries no `maxLength`, so a very long parked prompt makes a very tall row. Rendering it whole was round 2's requirement (the operator approves this text); a line clamp with the full text on `title` would keep the row actionable. Class: code-defect, owner call.
 - **The composition-root thread is unproven by test**: nothing drives `SchedulingWiring.pendingScheduleChanges` through `ServerObservabilityDeps` → `registerSystemDashboardPages` → `SchedulingPage.pendingChanges`, and every hop is nullable, so a dropped thread would degrade silently to an empty pending list. Restated from round 2 as the one silent failure mode.
+
+### Run: 2026-09-06 19:17 UTC – observations
+
+#### DRIFT
+
+- design-changed: The branch review resolves the previously recorded unbounded-queue question with fixed admission limits of 100 pending records and 1 MiB of serialized UTF-8 data. Excess requests receive `pending_queue_full`; no existing request is coalesced or discarded. Legacy over-limit files load with a warning and remain settleable. No TTL or configuration knob is added.
+- code-defect: Pending mutations and approval/rejection now share the store lock and publish memory only after persistence succeeds. Failed pending removal after a config commit compensates the scheduling list through the existing writer and reloads the resulting YAML. Failed compensation and failed runtime application return distinct, truthful refusals. Focused persistence/race/queue/UI/tool tests: 113 passed.
+- code-defect: The approval panel exposes the full task instructions and execution overrides, and keeps the schedule visible at 375px. Persisted records refuse a mismatched job identity or missing/invalid type. These replace the corresponding earlier review observations; the branch review report carries final closure evidence.
+
+### Run: 2026-09-06 19:39 UTC – observations
+
+#### DRIFT
+
+- code-defect: Closure review required config-path serialization across each complete scheduling mutation and compensation, with pending-store then config-lock ordering and reentrant one-time cleanup. Both concurrent direct-write/failed-settlement orderings are covered. The pending-store lock alone did not protect concurrent operator writes from rollback.
+- code-defect: Successful approval now refreshes both jobs and tasks tables from one live snapshot. Browser verification and both type-transition tests prove the previous table loses its row while the new table receives it. The final A1–A6 closure review reports no notable findings; whole-workspace gate evidence is recorded in the branch review report.

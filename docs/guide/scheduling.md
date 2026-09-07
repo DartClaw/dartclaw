@@ -104,6 +104,16 @@ discards it. Both need an admin session. A parked change survives a restart. App
 can have changed since parking — a one-time instant that has since passed, or a job id that has since become a
 built-in — and refuses with the reason while leaving the change pending for an explicit Reject.
 
+The pending list shows the full body being authorized: schedule, prompt or task title and description, task acceptance
+criteria and auto-start choice, delivery, model, and effort. Parking accepts at most 100 changes or 1 MiB of compact
+serialized UTF-8 JSON, whichever is reached first. A full queue refuses the new tool request and preserves every
+existing request. A legacy file already over either limit still loads with a warning and remains settleable; new
+requests stay refused until settlements bring it within both limits.
+
+Approval removes the pending record durably before reporting success. If that removal fails after the config write,
+DartClaw restores the previous `scheduling.jobs` value and reloads the resulting YAML. The error names any rollback or
+runtime reload failure instead of claiming that the approval was cleanly rejected.
+
 The mode gates the tool alone. The jobs API and the Scheduling page are authenticated operator surfaces and always
 commit directly, whatever the key says. The default `none` keeps every surface as it was.
 
@@ -217,8 +227,9 @@ result. The child sees only the named credentials plus a minimal environment (`P
 the server's own `*_TOKEN`, `*_API_KEY` and `*_SECRET` variables are stripped before the credential is overlaid.
 
 **The output.** `output` is a path under `<data_dir>/feeds/`; an absolute path, or one that escapes `feeds/`, is
-refused at parse. On a clean run the command's stdout replaces that file atomically, owner-only. The agent reads it as
-an ordinary file with `file_read` — no new permission is needed.
+refused at parse. On a clean run the command's stdout replaces that file atomically. On POSIX hosts the file is
+owner-only; on Windows it inherits the data directory's ACLs. The agent reads it as an ordinary file with `file_read`
+– no new permission is needed.
 
 **When a fire fails.** A non-zero exit, a timeout, stdout over 16 MiB, stdout that is not valid UTF-8, an unwritable
 output, an exit-0 run whose output pipe another process still holds open two seconds later (a backgrounded helper

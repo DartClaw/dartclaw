@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../scheduling/cron_parser.dart';
@@ -159,7 +161,7 @@ String schedulingPendingChangesFragment({required List<PendingScheduleChange> ch
         (change) => <String, dynamic>{
           'jobId': change.jobId,
           'summary': _pendingSummary(change.job),
-          'body': _pendingBody(change.job),
+          'details': _pendingDetails(change.job),
           'kind': change.kind.name,
           'schedule': _pendingScheduleText(change.job['schedule']),
           'requester': change.requester,
@@ -181,18 +183,37 @@ String schedulingPendingChangesFragment({required List<PendingScheduleChange> ch
 /// What kind of job the body declares and where it delivers — the two words
 /// that tell an operator whether approving it reaches a channel.
 String _pendingSummary(Map<String, dynamic> job) {
-  final type = job['type']?.toString() ?? 'prompt';
+  final type = job['type'] as String;
   final delivery = job['delivery'];
   return delivery == null ? type : '$type · $delivery';
 }
 
-/// The payload approval commits: the prompt a prompt job runs, or the title a
-/// task job creates. Rendered whole — the operator is approving this text.
-String _pendingBody(Map<String, dynamic> job) => switch (job) {
-  {'type': 'task', 'task': {'title': final Object title}} => 'Task: $title',
-  {'prompt': final Object prompt} => '$prompt',
-  _ => '',
-};
+/// Every model-supplied field the approved write can commit.
+List<Map<String, String>> _pendingDetails(Map<String, dynamic> job) {
+  final details = <Map<String, String>>[
+    {'label': 'Schedule', 'value': _pendingScheduleText(job['schedule'])},
+  ];
+  switch (job) {
+    case {'type': 'prompt', 'prompt': final Object prompt}:
+      details.add({'label': 'Prompt', 'value': '$prompt'});
+    case {'type': 'task', 'task': final Map<String, dynamic> task}:
+      const labels = {
+        'title': 'Task title',
+        'description': 'Description',
+        'acceptance_criteria': 'Acceptance criteria',
+        'auto_start': 'Auto-start',
+      };
+      for (final field in task.entries) {
+        details.add({'label': labels[field.key] ?? field.key, 'value': _pendingDetailValue(field.value)});
+      }
+  }
+  for (final field in const [('delivery', 'Delivery'), ('model', 'Model'), ('effort', 'Effort')]) {
+    if (job.containsKey(field.$1)) details.add({'label': field.$2, 'value': '${job[field.$1]}'});
+  }
+  return details;
+}
+
+String _pendingDetailValue(Object? value) => value is String ? value : jsonEncode(value);
 
 String _pendingScheduleText(Object? schedule) => switch (schedule) {
   {'type': 'once', 'at': final Object at} => 'once at $at',

@@ -104,7 +104,11 @@ abstract final class FieldConstraints {
     ConfigFieldType.string => _evaluateString(field, value),
     ConfigFieldType.bool_ => value is bool ? null : TypeMismatch(field: field, value: value),
     ConfigFieldType.enum_ => _evaluateEnum(field, value),
-    ConfigFieldType.stringList => _evaluateElements(field, value, (item) => item is String),
+    ConfigFieldType.stringList => _evaluateElements(
+      field,
+      value,
+      (item) => item is String || (field.entry != null && item is Map),
+    ),
     ConfigFieldType.objectList => _evaluateElements(field, value, (item) => item is Map),
     ConfigFieldType.objectMap => value is Map ? null : TypeMismatch(field: field, value: value),
   };

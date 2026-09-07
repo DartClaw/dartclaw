@@ -343,6 +343,9 @@ runnable on demand, and `404 NOT_AVAILABLE` when scheduling is not configured. T
 as the other scheduling APIs. A job written through the jobs API, the `schedule_upsert` tool or the Scheduling page is
 loaded before that write returns, so it is runnable immediately — except a tool write parked under
 `scheduling.mutation.approval: operator`, which is loaded when an operator approves it on the Scheduling page.
+The pending approval row displays every field the parked write can commit. The durable pending queue accepts at most
+100 changes or 1 MiB of compact serialized UTF-8 JSON; `schedule_upsert` reports `pending_queue_full` without changing
+the existing queue when either bound is reached.
 
 #### List jobs
 

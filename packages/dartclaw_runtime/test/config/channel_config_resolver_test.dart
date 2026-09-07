@@ -160,6 +160,33 @@ $boundRow''';
       expect(resolveChannelConfig<WhatsAppConfig>(loaded, ChannelType.whatsapp).dmAllowlist.single.agent, 'nope');
     });
 
+    test('a present agent must be a non-blank string', () {
+      const invalidValues = ['7', 'true', '[ana]', '{name: ana}', '""', '"   "'];
+      for (final field in ['dm_allowlist', 'group_allowlist']) {
+        for (final value in invalidValues) {
+          final yaml =
+              '''
+channels:
+  signal:
+    $field:
+      - id: "+46700000001"
+        agent: $value
+''';
+          expect(
+            () => loadDartclawConfig(configPath: 'dartclaw.yaml', fileReader: _yaml(yaml), env: const {'HOME': '/h'}),
+            throwsA(
+              isA<FormatException>().having(
+                (error) => error.message,
+                'message',
+                allOf(startsWith('channels.signal.$field'), contains('+46700000001'), contains('agent')),
+              ),
+            ),
+            reason: '$field agent: $value',
+          );
+        }
+      }
+    });
+
     test('plain-string DM rows load with no warning, and a malformed DM map now warns by field', () {
       final plain = loadDartclawConfig(
         configPath: 'dartclaw.yaml',

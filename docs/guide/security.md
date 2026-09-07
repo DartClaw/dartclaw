@@ -578,7 +578,8 @@ entries; the resolved value reaches only that command's child process, and neith
 result carries it. Only an `api_key` entry with a non-empty value is presented — an absent entry, a `github-token`, or
 an empty value skips the whole job with the reason in the log. The command itself is operator-declared configuration
 with the same trust as `credentials.*`: no guard evaluates it, which is why the kind is file-only and unreachable from
-chat and from every HTTP and tool write surface. See [Scheduling § Shell jobs](scheduling.md#shell-jobs).
+chat and from every HTTP and tool write surface. A successful output file is owner-only on POSIX; on Windows it
+inherits the data directory's ACLs. See [Scheduling § Shell jobs](scheduling.md#shell-jobs).
 
 ### Security Properties
 

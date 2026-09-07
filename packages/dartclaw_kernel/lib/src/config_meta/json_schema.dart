@@ -37,6 +37,8 @@ typedef _Declaration = ({
   int? min,
   int? max,
   List<String>? allowedValues,
+  int? minLength,
+  String? pattern,
   ConfigEntryShape? entry,
 });
 
@@ -60,6 +62,8 @@ _Declaration _declarationOf(FieldMeta field) => (
   min: field.min,
   max: field.max,
   allowedValues: field.allowedValues,
+  minLength: null,
+  pattern: null,
   entry: field.entry,
 );
 
@@ -73,6 +77,8 @@ _Declaration _entryDeclarationOf(EntryFieldMeta field, String tierSuffix) => (
   min: field.min,
   max: field.max,
   allowedValues: field.allowedValues,
+  minLength: field.minLength,
+  pattern: field.pattern,
   entry: field.entry,
 );
 
@@ -112,9 +118,19 @@ Map<String, Object?> _nodeSchema(_Declaration? leaf, Map<String, _Declaration>? 
     if (_enumOf(leaf) case final values?) node['enum'] = values;
     if (leaf.min case final min?) node['minimum'] = min;
     if (leaf.max case final max?) node['maximum'] = max;
+    if (leaf.minLength case final minLength?) node['minLength'] = minLength;
+    if (leaf.pattern case final pattern?) node['pattern'] = pattern;
     switch (leaf.type) {
       case ConfigFieldType.stringList:
-        node['items'] = {'type': 'string'};
+        final entry = leaf.entry;
+        node['items'] = entry == null
+            ? {'type': 'string'}
+            : {
+                'oneOf': [
+                  {'type': 'string'},
+                  _entrySchema(entry, leaf.tierSuffix),
+                ],
+              };
       case ConfigFieldType.objectList:
         node['items'] = _entrySchema(leaf.entry, leaf.tierSuffix);
       case ConfigFieldType.objectMap:
@@ -175,9 +191,10 @@ List<Object?>? _enumOf(_Declaration leaf) {
 }
 
 Map<String, Object?> _entrySchema(ConfigEntryShape? shape, String tierSuffix) => switch (shape) {
-  ObjectEntry(:final fields) => _objectSchema({
-    for (final field in fields.entries) field.key: _entryDeclarationOf(field.value, tierSuffix),
-  }),
+  ObjectEntry(:final fields, :final requiredFields) => {
+    ..._objectSchema({for (final field in fields.entries) field.key: _entryDeclarationOf(field.value, tierSuffix)}),
+    if (requiredFields.isNotEmpty) 'required': requiredFields,
+  },
   ValueEntry(:final value) => _nodeSchema(_entryDeclarationOf(value, tierSuffix), null),
   // Keys defined outside this registry: described as an object and nothing more.
   OpaqueEntry() || null => {'type': 'object'},

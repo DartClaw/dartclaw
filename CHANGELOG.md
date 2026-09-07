@@ -33,7 +33,8 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
   other job. A one-time (`at:`) schedule is refused for this kind alone: such a job removes its own entry, and a shell
   entry is the operator's to write and remove. `command` is an argument vector with an absolute executable (no shell, no quoting, no `stdin`); each `env`
   value names a `credentials.<name>` api-key entry whose value reaches only the child process and neither
-  `dartclaw.yaml` nor the logged result; stdout replaces `<data_dir>/feeds/<output>` atomically and owner-only.
+  `dartclaw.yaml` nor the logged result; stdout replaces `<data_dir>/feeds/<output>` atomically, with owner-only
+  permissions on POSIX and inherited directory ACLs on Windows.
   A non-zero exit, a `timeout_seconds` overrun (default 300), stdout over 16 MiB or not valid UTF-8, an unwritable
   output, an output pipe another process still holds open two seconds after exit, and an exit-0 run that wrote
   nothing all fail the fire and leave the previous feed file intact. The kind is
@@ -66,6 +67,15 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
   lazily. `pool_size: 1` remains an explicit choice.
 
 ### Fixed
+
+- Bound channel conversations retain their agent identity and execution policy through pause replay, Google Chat
+  feedback, and Signal alternate sender IDs. Invalid `agent` values fail config loading, and the generated schema
+  accepts structured allowlist rows.
+- Shell-job diagnostics redact injected credentials before reaching failure logs or alerts. File-only enforcement
+  preserves duplicate shell rows, and feed paths reject Windows-style traversal.
+- Schedule approvals serialize settlement and keep failed persistence consistent with config. The approval panel
+  exposes task instructions and execution overrides, including the schedule on mobile. Pending requests are bounded
+  to 100 entries or 1 MiB of serialized data; existing over-limit queues remain available for settlement.
 
 - **Allowlist writes keep structured rows** – adding or removing an entry through the config API or the settings
   page, and confirming a DM pairing, wrote back a plain id list and silently dropped every structured

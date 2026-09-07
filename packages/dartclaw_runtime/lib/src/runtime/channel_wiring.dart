@@ -77,6 +77,7 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
   TaskNotificationSubscriber? get taskNotificationSubscriber => _taskNotificationSubscriber;
   ThreadBindingStore? get threadBindingStore => _threadBindingStore;
+  PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig> get channelGroupConfigs => _channelGroupConfigs ?? const [];
@@ -156,7 +157,6 @@ class ChannelWiring {
         rows: rows,
         sessions: sessions,
         messages: messages,
-        serverRef: serverRefGetter,
         turnManagerGetter: turnManagerGetter,
         redactor: messageRedactor,
         pauseController: pauseController,
@@ -173,7 +173,8 @@ class ChannelWiring {
             eventBus: _eventBus,
             sseBroadcast: sseBroadcast,
             pauseController: pauseController,
-            sessions: sessions,
+            replayPausedTurns: (collapsed) =>
+                ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
             threadBindingStore: _threadBindingStore,
           ),
           perSenderRateLimiter: perSenderLimiter,
@@ -302,11 +303,8 @@ class ChannelWiring {
             sseBroadcast: sseBroadcast,
           ).execute(stoppedBy: stoppedBy),
           isAdmin: config.governance.isAdmin,
-          onDrain: (collapsed) => ReservedCommandHandler.drainPauseQueue(
-            collapsed: collapsed,
-            sessions: sessions,
-            turnManagerGetter: turnManagerGetter,
-          ),
+          onDrain: (collapsed) =>
+              ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: activeChannelManager.queue),
         );
 
         // Phase 1: Create dedup + subscription manager before webhook handler.
@@ -509,8 +507,8 @@ class ChannelWiring {
 
   /// Builds the shared [ChannelManager] used by all messaging channels.
   ///
-  /// The dispatcher closure captures [serverRef] (a lazy callback) so the
-  /// server reference is resolved at dispatch time, after it's been assigned.
+  /// The dispatcher resolves [turnManagerGetter] lazily because turns are
+  /// wired after channels and before inbound messages can arrive.
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
     required GoogleChatConfig googleChatConfig,
@@ -518,7 +516,6 @@ class ChannelWiring {
     required GroupConfigResolver rows,
     required SessionService sessions,
     required MessageService messages,
-    required DartclawServer Function() serverRef,
     required TurnManager Function() turnManagerGetter,
     MessageRedactor? redactor,
     ChannelTaskBridge? taskBridge,
@@ -552,7 +549,7 @@ class ChannelWiring {
             return dispatchChannelTurn(
               sessions: sessions,
               messages: messages,
-              turnManagerGetter: () => serverRef().turns,
+              turnManagerGetter: turnManagerGetter,
               sessionKey: sessionKey,
               message: message,
               channelType: channelType,

@@ -68,7 +68,17 @@ class GroupEntry {
         final project = item['project'] is String ? item['project'] as String : null;
         final model = item['model'] is String ? item['model'] as String : null;
         final effort = item['effort'] is String ? item['effort'] as String : null;
-        final agent = item['agent'] is String ? item['agent'] as String : null;
+        final Object? agentRaw = item['agent'];
+        final String? agent;
+        if (!item.containsKey('agent')) {
+          agent = null;
+        } else if (agentRaw is String && agentRaw.trim().isNotEmpty) {
+          agent = agentRaw;
+        } else {
+          throw FormatException(
+            'channels.$field: row "$id" has an invalid agent; expected a non-blank string, got $agentRaw.',
+          );
+        }
 
         if (seen.containsKey(id)) {
           onWarning?.call('$field: duplicate id "$id" — last entry wins');

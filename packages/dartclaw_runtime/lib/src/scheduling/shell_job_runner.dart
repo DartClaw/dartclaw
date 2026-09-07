@@ -69,8 +69,9 @@ Future<String> runShellJob({
     throw ShellJobFailure(_summary(jobId, 'could not start "${command.first}"', '$error'));
   }
 
+  final sensitiveValues = environment.values.where((value) => value.isNotEmpty).toSet().toList();
   final stdout = _BoundedCapture(limit: defaultProcessOutputLimitBytes);
-  final stderr = _TailCapture(limit: _stderrTailBytes);
+  final stderr = _TailCapture(limit: _stderrTailBytes, sensitiveValues: sensitiveValues);
   final subscriptions = [stdout.drain(process.stdout), stderr.drain(process.stderr)];
   final draining = Future.wait<void>(subscriptions.map((subscription) => subscription.asFuture<void>()));
 
@@ -165,20 +166,65 @@ class _BoundedCapture {
   });
 }
 
-/// Keeps the trailing [limit] bytes of a stream, decoded leniently.
+/// Keeps a redacted trailing [limit] bytes of a stream, decoded leniently.
 ///
 /// Lenient because a killed process can be cut mid-character and a diagnostic
-/// tail must not itself become the failure.
+/// tail must not itself become the failure. A credential fragment crossing the
+/// raw tail boundary is discarded before redaction so truncation cannot expose
+/// what the exact-value pattern no longer sees.
 class _TailCapture {
-  new({required this.limit});
+  new({required this.limit, required List<String> sensitiveValues})
+    : _sensitiveValues = sensitiveValues,
+      _sensitiveBytes = sensitiveValues.map(utf8.encode).toList();
 
   final int limit;
   final List<int> _tail = [];
+  final List<String> _sensitiveValues;
+  final List<List<int>> _sensitiveBytes;
+  final MessageRedactor _redactor = MessageRedactor();
+  bool _truncated = false;
 
-  String get text => utf8.decode(_tail, allowMalformed: true);
+  String get text {
+    var start = 0;
+    if (_truncated) {
+      for (final sensitive in _sensitiveBytes) {
+        final overlap = _leadingSuffixOverlap(_tail, sensitive);
+        if (overlap > start) start = overlap;
+      }
+    }
+    final redacted = _redactor.redact(
+      utf8.decode(_tail.sublist(start), allowMalformed: true),
+      sensitiveValues: _sensitiveValues,
+    );
+    return _utf8Tail(redacted, limit);
+  }
 
   StreamSubscription<List<int>> drain(Stream<List<int>> stream) => stream.listen((chunk) {
     _tail.addAll(chunk);
-    if (_tail.length > limit) _tail.removeRange(0, _tail.length - limit);
+    if (_tail.length > limit) {
+      _truncated = true;
+      _tail.removeRange(0, _tail.length - limit);
+    }
   });
+
+  static int _leadingSuffixOverlap(List<int> tail, List<int> sensitive) {
+    final maximum = sensitive.length - 1 < tail.length ? sensitive.length - 1 : tail.length;
+    for (var length = maximum; length > 0; length--) {
+      var matches = true;
+      for (var index = 0; index < length; index++) {
+        if (tail[index] != sensitive[sensitive.length - length + index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return length;
+    }
+    return 0;
+  }
+
+  static String _utf8Tail(String text, int maximumBytes) {
+    final reversed = String.fromCharCodes(text.runes.toList().reversed);
+    final bounded = truncateUtf8Bytes(reversed, maximumBytes);
+    return String.fromCharCodes(bounded.runes.toList().reversed);
+  }
 }

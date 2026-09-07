@@ -20,10 +20,9 @@ model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and 
 ## Current Focus
 
 - 0.25.2: the third feedback batch and the three standalone FIS (§ Active Stories) are on the branch; the private PRD
-  carries each outcome (§ As built). Before the squash: the bundle fold-back per `SPEC-LIFECYCLE.md`, and the
-  `wire()`-level proof the binding's story gate left as a Note (no test drives `ChannelAgentBinder` through the
-  composition root). The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for the
-  patch too.
+  carries each outcome (§ As built). Before the squash: the bundle fold-back per `SPEC-LIFECYCLE.md`.
+  The branch review added the `ChannelWiring.wire()` regression through the real binder and pause replay queue.
+  The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for the patch too.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories

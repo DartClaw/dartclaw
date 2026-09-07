@@ -20,7 +20,7 @@ const _childSource = r'''
 import 'dart:convert';
 import 'dart:io';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   switch (args.first) {
     case 'env':
       stdout.write(jsonEncode(Platform.environment));
@@ -29,6 +29,17 @@ void main(List<String> args) {
     case 'fail':
       stderr.write('boom\n  spread   over\nthree lines');
       exit(3);
+    case 'fail-secret':
+      final secret = Platform.environment['FEED_TOKEN']!;
+      const overlap = 7;
+      const separator = '::';
+      final fillerLength = 2000 - overlap - separator.length - utf8.encode(secret).length;
+      final bytes = utf8.encode('$secret${List.filled(fillerLength, 'x').join()}$separator$secret');
+      for (final byte in bytes) {
+        stderr.add([byte]);
+        await stderr.flush();
+      }
+      exit(4);
     case 'empty':
       break;
     case 'sleep':
@@ -91,12 +102,13 @@ void main() {
 
   const credentials = CredentialsConfig(entries: {'feed-secret': CredentialEntry(apiKey: 'sk-feed-live')});
 
-  List<ScheduledJob> compose(List<Map<String, dynamic>> entries) => composeConfigJobs(
-    SchedulingConfig(jobs: entries),
-    taskService: TaskService(InMemoryTaskRepository()),
-    credentials: credentials,
-    dataDir: dataDir.path,
-  ).jobs;
+  List<ScheduledJob> compose(List<Map<String, dynamic>> entries, {CredentialsConfig credentialConfig = credentials}) =>
+      composeConfigJobs(
+        SchedulingConfig(jobs: entries),
+        taskService: TaskService(InMemoryTaskRepository()),
+        credentials: credentialConfig,
+        dataDir: dataDir.path,
+      ).jobs;
 
   ({ScheduleService service, List<ScheduledJobFailedEvent> failures, EventBus bus}) serviceFor(
     List<ScheduledJob> jobs,
@@ -212,6 +224,36 @@ void main() {
         if (args.first == 'fail') expect(composed.failures.single.error, contains('boom spread over three lines'));
       }
     });
+
+    for (final secret in ['sk-feed-live', '雪😀sk-feed-live']) {
+      test('redacts injected credential $secret across stderr chunks and tail boundary', () async {
+        final logged = <String>[];
+        final subscription = Logger.root.onRecord
+            .where((record) => record.loggerName == 'ScheduleService')
+            .listen((record) => logged.add(record.message));
+        addTearDown(subscription.cancel);
+
+        final composed = serviceFor(
+          compose([
+            entry(args: ['fail-secret']),
+          ], credentialConfig: CredentialsConfig(entries: {'feed-secret': CredentialEntry(apiKey: secret)})),
+        );
+        composed.service.start();
+        await runToCompletion(composed.service, 'mail-feed');
+        await pumpEventQueue();
+
+        expect(composed.failures, hasLength(1), reason: logged.join('\n'));
+        final failure = composed.failures.single;
+        final alert = const AlertFormatter().format(classification: classifyAlert(failure)!, channelType: 'whatsapp');
+        for (final diagnostic in [failure.error, ...logged, alert.text]) {
+          expect(diagnostic, isNot(contains(secret)));
+          expect(diagnostic, isNot(contains('sk-fee')));
+          expect(diagnostic, isNot(contains('ed-live')));
+          expect(diagnostic, isNot(contains('雪')));
+          expect(diagnostic, isNot(contains('😀')));
+        }
+      });
+    }
 
     test('terminates a command that outruns its timeout and fails the fire', () async {
       final composed = serviceFor(

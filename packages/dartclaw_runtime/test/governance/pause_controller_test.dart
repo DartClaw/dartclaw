@@ -121,7 +121,7 @@ void main() {
       expect(controller.pausedAt, isNull);
     });
 
-    test('drain() returns empty map when queue is empty', () {
+    test('drain() returns an empty list when queue is empty', () {
       controller.pause('alice');
       final result = controller.drain();
       expect(result, isNotNull);
@@ -135,7 +135,9 @@ void main() {
       controller.enqueue(_msg(sender: 'bob@wa', text: 'msg2'), channel, 'sess:1');
       final result = controller.drain()!;
       expect(result.length, 1);
-      final text = result['sess:1']!;
+      final text = result.single.message.text;
+      expect(result.single.sessionKey, 'sess:1');
+      expect(result.single.channel, same(channel));
       expect(text, contains('1 participant'));
       expect(text, contains('- bob@wa: msg1, msg2'));
     });
@@ -143,10 +145,10 @@ void main() {
     test('drain() collapses multiple senders — multi-line', () {
       controller.pause('alice');
       final channel = _FakeChannel();
-      controller.enqueue(_msg(sender: 'alice@wa', text: 'hello'), channel, 'sess:1');
-      controller.enqueue(_msg(sender: 'bob@wa', text: 'world'), channel, 'sess:1');
+      controller.enqueue(_msg(sender: 'alice@wa', text: 'hello', group: 'team'), channel, 'sess:1');
+      controller.enqueue(_msg(sender: 'bob@wa', text: 'world', group: 'team'), channel, 'sess:1');
       final result = controller.drain()!;
-      final text = result['sess:1']!;
+      final text = result.single.message.text;
       expect(text, contains('2 participants'));
       expect(text, contains('- alice@wa: hello'));
       expect(text, contains('- bob@wa: world'));
@@ -158,18 +160,30 @@ void main() {
       controller.enqueue(_msg(sender: 'alice@wa', text: 'msg-a'), channel, 'sess:1');
       controller.enqueue(_msg(sender: 'bob@wa', text: 'msg-b'), channel, 'sess:2');
       final result = controller.drain()!;
-      expect(result.keys, containsAll(['sess:1', 'sess:2']));
-      expect(result['sess:1'], contains('alice@wa'));
-      expect(result['sess:2'], contains('bob@wa'));
+      expect(result.map((turn) => turn.sessionKey), containsAll(['sess:1', 'sess:2']));
+      expect(result.singleWhere((turn) => turn.sessionKey == 'sess:1').message.text, contains('alice@wa'));
+      expect(result.singleWhere((turn) => turn.sessionKey == 'sess:2').message.text, contains('bob@wa'));
+    });
+
+    test('drain() keeps different DM rows separate even when they share a session key', () {
+      controller.pause('admin');
+      final channel = _FakeChannel();
+      controller.enqueue(_msg(sender: 'alice@wa', text: 'first'), channel, 'shared');
+      controller.enqueue(_msg(sender: 'bob@wa', text: 'second'), channel, 'shared');
+
+      final result = controller.drain()!;
+
+      expect(result, hasLength(2));
+      expect(result.map((turn) => turn.message.senderJid), unorderedEquals(['alice@wa', 'bob@wa']));
     });
 
     test('drain() preserves chronological sender order', () {
       controller.pause('admin');
       final channel = _FakeChannel();
-      controller.enqueue(_msg(sender: 'charlie@wa', text: '1st'), channel, 's');
-      controller.enqueue(_msg(sender: 'alpha@wa', text: '2nd'), channel, 's');
-      controller.enqueue(_msg(sender: 'charlie@wa', text: '3rd'), channel, 's');
-      final text = controller.drain()!['s']!;
+      controller.enqueue(_msg(sender: 'charlie@wa', text: '1st', group: 'team'), channel, 's');
+      controller.enqueue(_msg(sender: 'alpha@wa', text: '2nd', group: 'team'), channel, 's');
+      controller.enqueue(_msg(sender: 'charlie@wa', text: '3rd', group: 'team'), channel, 's');
+      final text = controller.drain()!.single.message.text;
       final charliePos = text.indexOf('charlie@wa');
       final alphaPos = text.indexOf('alpha@wa');
       expect(charliePos, lessThan(alphaPos));
@@ -187,7 +201,7 @@ void main() {
         metadata: const {'senderDisplayName': 'Alice'},
       );
       controller.enqueue(msg, channel, 'sess');
-      final text = controller.drain()!['sess']!;
+      final text = controller.drain()!.single.message.text;
       expect(text, contains('Alice'));
       expect(text, isNot(contains('+1234567890')));
     });
@@ -202,7 +216,7 @@ void main() {
         metadata: const {'pushname': 'WA Bob'},
       );
       controller.enqueue(msg, channel, 'sess');
-      final text = controller.drain()!['sess']!;
+      final text = controller.drain()!.single.message.text;
       expect(text, contains('WA Bob'));
     });
 
@@ -211,7 +225,7 @@ void main() {
       final channel = _FakeChannel();
       final msg = ChannelMessage(channelType: ChannelType.whatsapp, senderJid: '+1234567890', text: 'hello');
       controller.enqueue(msg, channel, 'sess');
-      final text = controller.drain()!['sess']!;
+      final text = controller.drain()!.single.message.text;
       expect(text, contains('+1234567890'));
     });
 
@@ -241,8 +255,8 @@ void main() {
   });
 }
 
-ChannelMessage _msg({required String sender, required String text}) {
-  return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: sender, text: text);
+ChannelMessage _msg({required String sender, required String text, String? group}) {
+  return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: sender, groupJid: group, text: text);
 }
 
 class _FakeChannel extends Channel {

@@ -130,6 +130,7 @@ class ScheduleUpsertTool implements ContextualMcpTool {
         final reason = switch (refusal.code) {
           'CONFLICT' => 'conflict',
           'INVALID_INPUT' => 'invalid_request',
+          'PENDING_QUEUE_FULL' => 'pending_queue_full',
           _ => 'write_failed',
         };
         return toolError(reason, refusal.message, {'id': id});

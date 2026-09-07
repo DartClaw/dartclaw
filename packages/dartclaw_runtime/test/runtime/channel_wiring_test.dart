@@ -1,16 +1,24 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_runtime/src/config/config_load.dart';
 import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
+import 'package:dartclaw_runtime/src/governance/pause_controller.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
+import 'package:dartclaw_runtime/src/runtime/feedback_observer_factory.dart';
+import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
 import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
@@ -56,6 +64,7 @@ class _RecordingTurnManager extends TurnManager {
   final started = <_StartedTurn>[];
   final reserved = <_ReservedTurn>[];
   final executed = <_ExecutedTurn>[];
+  Completer<void>? reservation;
   var _nextTurn = 0;
 
   @override
@@ -127,6 +136,7 @@ class _RecordingTurnManager extends TurnManager {
       systemPromptOverride: systemPromptOverride,
       workerPolicy: workerPolicy,
     ));
+    reservation?.complete();
     return 'turn-${_nextTurn++}';
   }
 
@@ -344,6 +354,236 @@ void main() {
 
       expect(() => binder.bind(const GroupEntry(id: '+1', agent: 'nope')), throwsStateError);
     });
+
+    test('Google Chat feedback cannot clear a bound session policy before reservation', () async {
+      const agent = AgentDefinition(
+        id: 'ana',
+        description: 'Ana',
+        prompt: 'You are Ana.',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        profileIsOperatorConfigured: true,
+        execution: ExecutionMode.container,
+      );
+      final binding = binderFor(agent).bind(const GroupEntry(id: 'users/alice', agent: 'ana'));
+      final channel = GoogleChatChannel(
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.disabled,
+          feedback: GoogleChatFeedbackConfig(enabled: true, statusStyle: GoogleChatFeedbackStatusStyle.silent),
+        ),
+        restClient: GoogleChatRestClient(authClient: MockClient((_) async => http.Response('{}', 200))),
+      );
+      final observer = FeedbackObserverFactory.build(
+        googleChatConfig: channel.config,
+        sessions: sessions,
+        turnManagerGetter: () => turns,
+      )!;
+      final sessionKey = SessionKey.dmPerChannelContact(
+        agentId: 'ana',
+        channelType: 'googlechat',
+        peerId: 'users/alice',
+      );
+      final inbound = ChannelMessage(
+        id: 'spaces/AAA/messages/1',
+        channelType: ChannelType.googlechat,
+        senderJid: 'users/alice',
+        text: 'hello',
+      );
+
+      final response = await dispatchChannelTurn(
+        sessions: sessions,
+        messages: messages,
+        turnManagerGetter: () => turns,
+        sessionKey: sessionKey,
+        message: inbound.text,
+        channelType: ChannelType.googlechat,
+        senderJid: inbound.senderJid,
+        binding: binding,
+      );
+      await observer(sessionKey, inbound, channel, 'spaces/AAA', Future.value(response));
+
+      final session = await sessions.getByKey(sessionKey);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana');
+      expect(turns.reserved.single.promptScope, PromptScope.restricted);
+    });
+
+    test('pause replay does not reconstruct a bound session as a primary turn', () async {
+      final sessionKey = SessionKey.dmPerChannelContact(agentId: 'ana', channelType: 'signal', peerId: '+1');
+      const agent = AgentDefinition(
+        id: 'ana',
+        description: 'Ana',
+        prompt: 'You are Ana.',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        profileIsOperatorConfigured: true,
+        execution: ExecutionMode.container,
+      );
+      final binding = binderFor(agent)
+          .bind(const GroupEntry(id: '+1', model: 'row-model', effort: 'high', agent: 'ana'));
+      final completed = Completer<void>();
+      final queue = MessageQueue(
+        debounceWindow: Duration.zero,
+        dispatcher:
+            (queuedSessionKey, queuedMessage, {required channelType, senderJid, senderDisplayName, groupJid}) async {
+              try {
+                return await dispatchChannelTurn(
+                  sessions: sessions,
+                  messages: messages,
+                  turnManagerGetter: () => turns,
+                  sessionKey: queuedSessionKey,
+                  message: queuedMessage,
+                  channelType: channelType,
+                  senderJid: senderJid,
+                  senderDisplayName: senderDisplayName,
+                  groupJid: groupJid,
+                  model: 'row-model',
+                  effort: 'high',
+                  binding: binding,
+                );
+              } finally {
+                completed.complete();
+              }
+            },
+      );
+      addTearDown(queue.dispose);
+      final channel = FakeChannel(ownedJids: const {'+1'});
+      final pause = PauseController()..pause('admin');
+      pause.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.signal,
+          senderJid: '+1',
+          text: 'hello',
+          metadata: const {'sourceName': 'Alice'},
+        ),
+        channel,
+        sessionKey,
+      );
+
+      await ReservedCommandHandler.drainPauseQueue(collapsed: pause.drain()!, queue: queue);
+      await completed.future.timeout(const Duration(seconds: 2));
+
+      final session = await sessions.getByKey(sessionKey);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana');
+      expect(turns.reserved.single.promptScope, PromptScope.restricted);
+      expect(turns.reserved.single.model, 'row-model');
+      expect(turns.reserved.single.effort, 'high');
+      expect(turns.executed.single.source, 'channel');
+      expect(channel.sentMessages.single.$2.text, 'reply');
+    });
+  });
+
+  test('ChannelWiring pause replay retains the bound agent policy through the production queue', () async {
+    final config = loadDartclawConfig(
+      configPath: 'dartclaw.yaml',
+      fileReader: (path) => path == 'dartclaw.yaml'
+          ? '''
+data_dir: ${tempDir.path}
+container:
+  enabled: true
+channels:
+  debounce_window_ms: 0
+  signal:
+    enabled: true
+    dm_allowlist:
+      - id: "+46700000001"
+        agent: ana
+        model: row-model
+        effort: high
+agent:
+  agents:
+    ana:
+      description: Ana
+      prompt: You are Ana.
+      provider: codex
+      execution: container
+      security_profile: restricted
+'''
+          : null,
+      env: {'HOME': tempDir.path},
+    );
+    final eventBus = EventBus();
+    addTearDown(eventBus.dispose);
+    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+    final task = TaskWiring(
+      config: config,
+      dataDir: config.server.dataDir,
+      runtimeCwd: tempDir.path,
+      eventBus: eventBus,
+      storage: storage,
+    );
+    await task.wirePreServer();
+    final behavior = BehaviorFileService(workspaceDir: p.join(tempDir.path, 'workspace'));
+    final agent = config.agent.definitions.single;
+    final binder = ChannelAgentBinder(
+      agents: {agent.id: agent},
+      policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+      defaultProviderId: 'claude',
+      behavior: behavior,
+    );
+    final turns = _RecordingTurnManager()..reservation = Completer<void>();
+    addTearDown(turns.executions.dispose);
+    final channels = ChannelWiring(
+      config: config,
+      dataDir: config.server.dataDir,
+      port: 0,
+      eventBus: eventBus,
+      storage: storage,
+      task: task,
+      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
+      agentBinder: binder,
+    );
+    await channels.wire(
+      serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
+      turnManagerGetter: () => turns,
+      sseBroadcast: SseBroadcast(),
+      messageRedactor: null,
+      healthService: HealthService(
+        worker: FakeAgentHarness(),
+        searchDbPath: config.searchDbPath,
+        sessionsDir: config.sessionsDir,
+        tasksDir: p.join(config.server.dataDir, 'tasks'),
+      ),
+    );
+    final manager = channels.channelManager!;
+    expect(channels.signalChannel, isNotNull);
+    expect(manager.channels, isNotEmpty);
+    final pause = channels.pauseController!..pause('admin');
+    final inbound = ChannelMessage(
+      channelType: ChannelType.signal,
+      senderJid: '+46700000001',
+      text: 'hello while paused',
+      metadata: const {'sourceName': 'Alice'},
+    );
+    final sessionKey = manager.deriveSessionKey(inbound);
+    final replyChannel = FakeChannel(type: ChannelType.signal, ownedJids: const {'+46700000001'});
+    pause.enqueue(inbound, replyChannel, sessionKey);
+
+    manager.handleInboundMessage(
+      ChannelMessage(channelType: ChannelType.signal, senderJid: '+46700000999', text: '/resume'),
+    );
+    await turns.reservation!.future.timeout(const Duration(seconds: 2));
+    expect(pause.isPaused, isFalse);
+
+    final session = await storage.sessions.getByKey(sessionKey);
+    expect(session?.provider, 'codex');
+    expect(session?.securityProfile, 'restricted');
+    expect(session?.executionMode, ExecutionMode.container);
+    expect(turns.started, isEmpty);
+    expect(turns.reserved.single.agentName, 'ana');
+    expect(turns.reserved.single.model, 'row-model');
+    expect(turns.reserved.single.effort, 'high');
+    expect(turns.reserved.single.promptScope, PromptScope.restricted);
+    expect(turns.reserved.single.behaviorOverride, isNull);
+    expect(turns.executed.single.agentName, 'ana');
+    expect(turns.executed.single.source, 'channel');
   });
 
   test('parses each channel section through the shared channel config resolver', () async {

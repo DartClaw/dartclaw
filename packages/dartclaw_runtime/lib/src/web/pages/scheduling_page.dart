@@ -349,14 +349,16 @@ class SchedulingPage extends DashboardPage {
       ScheduleMutationParked() => ('error', _neverParks),
     };
     final pending = schedulingPendingChangesFragment(changes: mutation.pendingChanges);
-    // An approval put a job into the running scheduler, so the jobs table rides
-    // along out of band rather than waiting for a reload.
-    var jobs = '';
+    // An upsert can move an id between prompt and task ownership, so both
+    // tables ride along out of band and the old owner drops any stale row.
+    var table = '';
     if (approve && result is ScheduleMutationApplied) {
       final data = await _liveData(context);
-      jobs = schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, outOfBand: true);
+      table =
+          '${schedulingJobsFragment(jobs: data.jobs, systemJobNames: context.systemJobNames, outOfBand: true)}'
+          '${schedulingTasksFragment(tasks: data.tasks, outOfBand: true)}';
     }
-    return Response.ok('$pending$jobs', headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
+    return Response.ok('$pending$table', headers: {...htmlHeaders, ...toastTriggerHeader(type, message)});
   }
 
   ScheduleMutationService? _mutations(PageContext context) {

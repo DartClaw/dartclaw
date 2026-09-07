@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:uuid/uuid.dart';
 
 import 'cron_parser.dart';
 import 'pending_schedule_change.dart';
+
+final _scheduleMutationLock = RepoLock();
 
 /// Thrown by [ScheduleMutationService.commitAndApply] when a write would add,
 /// remove or change a `type: shell` entry.
@@ -22,6 +25,24 @@ final class ShellJobWriteRefused implements Exception {
 
   @override
   String toString() => message;
+}
+
+final class _ScheduleJobsApplyFailed implements Exception {
+  const new(this.cause);
+
+  final Object cause;
+}
+
+final class _PendingRemovalFailed implements Exception {
+  const new(this.cause);
+
+  final Object cause;
+}
+
+final class _SettlementRecoveryFailed implements Exception {
+  const new(this.message);
+
+  final String message;
 }
 
 final class ScheduleMutationRefusal {
@@ -90,6 +111,8 @@ class ScheduleMutationService {
   final DateTime Function() _now;
   final ScheduleMutationApproval _approval;
   final PendingScheduleChangeStore? _pendingChanges;
+
+  Future<T> _synchronized<T>(Future<T> Function() action) => _scheduleMutationLock.acquire(_writer.configPath, action);
 
   /// [applyJobs] loads the written jobs into the running scheduler and
   /// [reservedJobIds] answers which ids the runtime already owns. Both are
@@ -197,7 +220,9 @@ class ScheduleMutationService {
   /// and every mutation here is a read-modify-write over the whole list.
   Future<List<Map<String, dynamic>>> readJobs() => _writer.readSchedulingJobs();
 
-  Future<ScheduleMutationResult> createJob(Map<String, dynamic> body) async {
+  Future<ScheduleMutationResult> createJob(Map<String, dynamic> body) => _synchronized(() => _createJob(body));
+
+  Future<ScheduleMutationResult> _createJob(Map<String, dynamic> body) async {
     final name = body['name'];
     if (name is! String || name.trim().isEmpty) {
       return _refused(400, 'INVALID_INPUT', '"name" is required and must be a non-empty string', 'name');
@@ -238,7 +263,10 @@ class ScheduleMutationService {
     return _write([...jobs.map(Map<String, dynamic>.from), job], job);
   }
 
-  Future<ScheduleMutationResult> updateJob(String name, Map<String, dynamic> body) async {
+  Future<ScheduleMutationResult> updateJob(String name, Map<String, dynamic> body) =>
+      _synchronized(() => _updateJob(name, body));
+
+  Future<ScheduleMutationResult> _updateJob(String name, Map<String, dynamic> body) async {
     final jobs = await readJobs();
     final index = indexOfJob(jobs, name);
     if (index == -1) return _refused(404, 'NOT_FOUND', 'Job "$name" not found');
@@ -285,7 +313,7 @@ class ScheduleMutationService {
     return _write(updated, job);
   }
 
-  Future<ScheduleMutationResult> deleteJob(String name) async => _delete(name, taskScoped: false);
+  Future<ScheduleMutationResult> deleteJob(String name) => _synchronized(() => _delete(name, taskScoped: false));
 
   /// Creates or replaces the entry [job]'s `id` names, the `schedule_upsert`
   /// contract.
@@ -301,7 +329,14 @@ class ScheduleMutationService {
   /// every other write. A body that could never commit — one naming a
   /// file-only `type: shell` entry — is refused here under either mode, by the
   /// same predicate [commitAndApply] applies.
-  Future<ScheduleUpsertOutcome> upsertJob(Map<String, dynamic> job, {required String requester}) async {
+  Future<ScheduleUpsertOutcome> upsertJob(Map<String, dynamic> job, {required String requester}) {
+    if (_approval == ScheduleMutationApproval.operator) {
+      return _pendingChanges!.synchronized(() => _synchronized(() => _upsertJob(job, requester: requester)));
+    }
+    return _synchronized(() => _upsertJob(job, requester: requester));
+  }
+
+  Future<ScheduleUpsertOutcome> _upsertJob(Map<String, dynamic> job, {required String requester}) async {
     final id = job['id'] as String;
     final reserved = _reservedRefusal(id, noun: 'Job', field: 'id');
     if (reserved != null) return (result: reserved, created: false);
@@ -319,7 +354,16 @@ class ScheduleMutationService {
         requester: requester,
         requestedAt: _now().toUtc(),
       );
-      await _pendingChanges!.add(change);
+      try {
+        await _pendingChanges!.add(change);
+      } on PendingScheduleChangeCapacityExceeded catch (error) {
+        return (result: _refused(429, 'PENDING_QUEUE_FULL', error.toString()), created: created);
+      } on FileSystemException catch (error) {
+        return (
+          result: _refused(500, 'WRITE_FAILED', 'Pending change write failed: ${error.message}'),
+          created: created,
+        );
+      }
       return (result: ScheduleMutationParked(change.changeId), created: created);
     }
     return (result: await _write(merged.jobs, merged.job), created: created);
@@ -332,28 +376,78 @@ class ScheduleMutationService {
   /// Only the two conditions host state can have changed underneath are
   /// re-checked: the id becoming a built-in, and a one-time instant passing. A
   /// refusal before the commit leaves the change pending for an explicit
-  /// reject. The record is dropped the moment the commit lands, before the
-  /// applier runs: a job that is in `dartclaw.yaml` must not stay listed as
-  /// pending, or a later reject would claim to discard a write that shipped.
+  /// reject. Settlement is serialized by the store so exactly one operator
+  /// decision can act on a record. If pending removal fails after the config
+  /// commit, the previous `scheduling.jobs` value is restored before runtime
+  /// is reloaded; failures in that compensation are reported explicitly.
   Future<ScheduleMutationResult> approve(String changeId) async {
-    final change = _pendingChanges?.byId(changeId);
-    if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
-    final reserved = _reservedRefusal(change.jobId, noun: 'Job', field: 'id');
-    if (reserved != null) return reserved;
-    if (change.job['schedule'] case {'type': 'once', 'at': final String at}) {
-      final refusal = instantRefusal(at);
-      if (refusal != null) return _refused(400, 'INVALID_INPUT', refusal, 'at');
-    }
-    final merged = _mergeUpsert(await readJobs(), change.job);
-    return _write(merged.jobs, merged.job, afterCommit: () => _pendingChanges!.remove(changeId));
+    final store = _pendingChanges;
+    if (store == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+    return store.synchronized(() async {
+      final change = store.byId(changeId);
+      if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+      return _synchronized(() async {
+        final reserved = _reservedRefusal(change.jobId, noun: 'Job', field: 'id');
+        if (reserved != null) return reserved;
+        if (change.job['schedule'] case {'type': 'once', 'at': final String at}) {
+          final refusal = instantRefusal(at);
+          if (refusal != null) return _refused(400, 'INVALID_INPUT', refusal, 'at');
+        }
+        final merged = _mergeUpsert(await readJobs(), change.job);
+        return _write(
+          merged.jobs,
+          merged.job,
+          afterCommit: () => store.remove(changeId),
+          recoverAfterCommitFailure: _restoreAfterSettlementFailure,
+        );
+      });
+    });
   }
 
   /// Discards the parked change [changeId]; nothing is written to config.
   Future<ScheduleMutationResult> reject(String changeId) async {
-    final change = _pendingChanges?.byId(changeId);
-    if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
-    await _pendingChanges!.remove(changeId);
-    return ScheduleMutationApplied(change.job);
+    final store = _pendingChanges;
+    if (store == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+    return store.synchronized(() async {
+      final change = store.byId(changeId);
+      if (change == null) return _refused(404, 'NOT_FOUND', 'Pending change "$changeId" not found');
+      try {
+        await store.remove(changeId);
+      } on FileSystemException catch (error) {
+        return _refused(500, 'WRITE_FAILED', 'Pending change write failed: ${error.message}');
+      }
+      return ScheduleMutationApplied(change.job);
+    });
+  }
+
+  Future<void> _restoreAfterSettlementFailure(List<Map<String, dynamic>> previousJobs, Object removeError) async {
+    Object? recoveryError;
+    try {
+      await commitAndApply(previousJobs);
+    } catch (error) {
+      recoveryError = error;
+    }
+    if (recoveryError == null) throw _PendingRemovalFailed(removeError);
+
+    if (recoveryError case _ScheduleJobsApplyFailed(:final cause)) {
+      throw _SettlementRecoveryFailed(
+        'pending removal failed: $removeError; config was restored but runtime reload failed: $cause',
+      );
+    }
+
+    Object? reloadError;
+    try {
+      await _applyJobs?.call();
+    } catch (error) {
+      reloadError = error;
+    }
+    throw _SettlementRecoveryFailed(
+      [
+        'pending removal failed: $removeError',
+        'config rollback failed: $recoveryError',
+        if (reloadError != null) 'runtime reload failed: $reloadError',
+      ].join('; '),
+    );
   }
 
   /// The whole list with [job] merged over the entry its id names, or appended.
@@ -371,7 +465,9 @@ class ScheduleMutationService {
     return (jobs: jobs, job: jobs[index]);
   }
 
-  Future<ScheduleMutationResult> createTask(Map<String, dynamic> body) async {
+  Future<ScheduleMutationResult> createTask(Map<String, dynamic> body) => _synchronized(() => _createTask(body));
+
+  Future<ScheduleMutationResult> _createTask(Map<String, dynamic> body) async {
     final id = body['id'];
     final schedule = body['schedule'];
     final title = body['title'];
@@ -414,7 +510,10 @@ class ScheduleMutationService {
     return _write([...jobs.map(Map<String, dynamic>.from), job], job);
   }
 
-  Future<ScheduleMutationResult> updateTask(String id, Map<String, dynamic> body) async {
+  Future<ScheduleMutationResult> updateTask(String id, Map<String, dynamic> body) =>
+      _synchronized(() => _updateTask(id, body));
+
+  Future<ScheduleMutationResult> _updateTask(String id, Map<String, dynamic> body) async {
     final jobs = await readJobs();
     final index = indexOfJob(jobs, id, taskScoped: true);
     if (index == -1) return _refused(404, 'NOT_FOUND', 'Scheduled task "$id" not found');
@@ -441,14 +540,16 @@ class ScheduleMutationService {
     return _write(updated, job);
   }
 
-  Future<ScheduleMutationResult> deleteTask(String id) async => _delete(id, taskScoped: true);
+  Future<ScheduleMutationResult> deleteTask(String id) => _synchronized(() => _delete(id, taskScoped: true));
 
   /// Drops [ids] from `scheduling.jobs`, leaving every other entry untouched.
   ///
   /// The persistence half of an unload the runtime has already performed — the
   /// caller has composed the surviving job list itself — so this commits without
   /// re-applying.
-  Future<void> removeJobs(Iterable<String> ids) async {
+  Future<void> removeJobs(Iterable<String> ids) => _synchronized(() => _removeJobs(ids));
+
+  Future<void> _removeJobs(Iterable<String> ids) async {
     final drop = ids.toSet();
     final jobs = await readJobs();
     final remaining = [
@@ -474,10 +575,22 @@ class ScheduleMutationService {
     List<Map<String, dynamic>> jobs,
     Map<String, dynamic>? value, {
     Future<void> Function()? afterCommit,
+    Future<void> Function(List<Map<String, dynamic>> previousJobs, Object error)? recoverAfterCommitFailure,
   }) async {
     try {
-      await commitAndApply(jobs, afterCommit: afterCommit);
+      await commitAndApply(jobs, afterCommit: afterCommit, recoverAfterCommitFailure: recoverAfterCommitFailure);
       return ScheduleMutationApplied(value);
+    } on _PendingRemovalFailed catch (error) {
+      return _refused(
+        500,
+        'WRITE_FAILED',
+        'Approval was not applied because the pending change could not be removed; scheduling.jobs was restored: '
+            '${error.cause}',
+      );
+    } on _SettlementRecoveryFailed catch (error) {
+      return _refused(500, 'SETTLEMENT_FAILED', 'Approval settlement could not be recovered: ${error.message}');
+    } on _ScheduleJobsApplyFailed catch (error) {
+      return _refused(500, 'APPLY_FAILED', 'Scheduling jobs were written but could not be loaded: ${error.cause}');
     } on ShellJobWriteRefused catch (error) {
       return _refused(400, 'INVALID_INPUT', error.message);
     } on StateError catch (error) {
@@ -523,7 +636,9 @@ class ScheduleMutationService {
   /// failed backup, a `FileSystemException` for a failed write — so a caller
   /// keeps its own mapping of those two failures. Use [commitAndApply] unless
   /// the running scheduler already holds the list being written.
-  Future<void> commit(List<Map<String, dynamic>> jobs) => _writer.updateFields({'scheduling.jobs': jobs});
+  Future<void> commit(List<Map<String, dynamic>> jobs) => _synchronized(() => _commit(jobs));
+
+  Future<void> _commit(List<Map<String, dynamic>> jobs) => _writer.updateFields({'scheduling.jobs': jobs});
 
   /// Writes [jobs] and loads them into the running scheduler before returning.
   ///
@@ -537,29 +652,62 @@ class ScheduleMutationService {
   /// concurrent hand edit through.
   ///
   /// [afterCommit] runs once the file is written and before the applier, for
-  /// state that must agree with the file rather than with the load.
-  Future<void> commitAndApply(List<Map<String, dynamic>> jobs, {Future<void> Function()? afterCommit}) async {
-    final refusal = _shellWriteRefusal(await readJobs(), jobs);
+  /// state that must agree with the file rather than with the load. When it
+  /// fails, [recoverAfterCommitFailure] receives the pre-write job list and
+  /// original error so approval can compensate through this same write path.
+  /// An applier failure is surfaced separately from a config-write failure.
+  Future<void> commitAndApply(
+    List<Map<String, dynamic>> jobs, {
+    Future<void> Function()? afterCommit,
+    Future<void> Function(List<Map<String, dynamic>> previousJobs, Object error)? recoverAfterCommitFailure,
+  }) => _synchronized(
+    () => _commitAndApply(jobs, afterCommit: afterCommit, recoverAfterCommitFailure: recoverAfterCommitFailure),
+  );
+
+  Future<void> _commitAndApply(
+    List<Map<String, dynamic>> jobs, {
+    Future<void> Function()? afterCommit,
+    Future<void> Function(List<Map<String, dynamic>> previousJobs, Object error)? recoverAfterCommitFailure,
+  }) async {
+    final previousJobs = await readJobs();
+    final refusal = _shellWriteRefusal(previousJobs, jobs);
     if (refusal != null) throw ShellJobWriteRefused(refusal);
-    await commit(jobs);
-    await afterCommit?.call();
-    await _applyJobs?.call();
+    await _commit(jobs);
+    try {
+      await afterCommit?.call();
+    } catch (error, stackTrace) {
+      if (recoverAfterCommitFailure != null) {
+        await recoverAfterCommitFailure(previousJobs, error);
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    try {
+      await _applyJobs?.call();
+    } catch (error) {
+      throw _ScheduleJobsApplyFailed(error);
+    }
   }
 
   /// Why [proposed] may not be written, or `null` when it leaves every
   /// `type: shell` entry exactly as [stored] has it.
   static String? _shellWriteRefusal(List<Map<String, dynamic>> stored, List<Map<String, dynamic>> proposed) {
-    Map<String, Map<String, dynamic>> shellEntries(List<Map<String, dynamic>> jobs) => {
+    List<Map<String, dynamic>> shellEntries(List<Map<String, dynamic>> jobs) => [
       for (final job in jobs)
-        if (job['type'] == 'shell') ((job['id'] ?? job['name']) as String? ?? ''): job,
-    };
+        if (job['type'] == 'shell') job,
+    ];
     const equality = DeepCollectionEquality();
     final before = shellEntries(stored);
     final after = shellEntries(proposed);
-    for (final id in {...before.keys, ...after.keys}) {
-      if (equality.equals(before[id], after[id])) continue;
-      return 'Shell jobs are file-only: edit scheduling.jobs in dartclaw.yaml ("$id")';
+    if (equality.equals(before, after)) return null;
+
+    var changedIndex = 0;
+    while (changedIndex < before.length &&
+        changedIndex < after.length &&
+        equality.equals(before[changedIndex], after[changedIndex])) {
+      changedIndex++;
     }
-    return null;
+    final changed = after.length < before.length ? before[changedIndex] : after[changedIndex];
+    final id = (changed['id'] ?? changed['name']) as String? ?? '';
+    return 'Shell jobs are file-only: edit scheduling.jobs in dartclaw.yaml ("$id")';
   }
 }

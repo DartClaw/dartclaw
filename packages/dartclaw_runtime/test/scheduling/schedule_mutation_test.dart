@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show atomicWriteJson;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
@@ -357,6 +358,28 @@ scheduling:
 
       expect(configText(), before);
     });
+
+    test('an applier can remove a missed one-time job reentrantly under the config mutation lock', () async {
+      final missedAt = clock.subtract(const Duration(hours: 1)).toIso8601String();
+      writeConfig(
+        '\n'
+        '    - name: missed\n'
+        '      schedule:\n'
+        '        type: once\n'
+        '        at: "$missedAt"\n'
+        '      prompt: Missed\n'
+        '      delivery: none',
+      );
+
+      final result = await mutations
+          .createJob({'name': 'digest', 'schedule': '0 6 * * *', 'prompt': 'Run digest', 'delivery': 'none'})
+          .timeout(const Duration(seconds: 2));
+
+      expect(result, isA<ScheduleMutationApplied>());
+      expect((await mutations.readJobs()).map((job) => job['name']), ['digest']);
+      expect(service.hasJob('digest'), isTrue);
+      expect(service.hasJob('missed'), isFalse);
+    });
   });
 
   group('S04, S09 a one-time job leaves nothing behind', () {
@@ -472,6 +495,30 @@ scheduling:
       expect(configText(), before);
     });
 
+    test('duplicate shell ids cannot hide an update or delete of the first entry', () async {
+      const duplicateShellBlock = '''
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - first
+      output: first.json
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - second
+      output: second.json''';
+      writeConfig('\n$duplicateShellBlock');
+      final before = configText();
+      expect((await mutations.readJobs()).map((job) => job['id']), ['mail-feed', 'mail-feed']);
+
+      refusesFileOnly(await mutations.updateJob('mail-feed', {'output': 'changed.json'}), before);
+      refusesFileOnly(await mutations.deleteJob('mail-feed'), before);
+    });
+
     test('a prompt write in the same file still succeeds and stays live', () async {
       final created = applied(
         await mutations.createJob({
@@ -565,6 +612,27 @@ scheduling:
       expect(change.requestedAt.isUtc, isTrue);
     });
 
+    test('a park persistence failure is returned with config, runtime, and memory unchanged', () async {
+      final failingStore = PendingScheduleChangeStore(
+        File(p.join(dataDir, 'pending-add-failure.json')),
+        writeJson: (_, _) async => throw const FileSystemException('injected pending add failure'),
+      );
+      final before = configText();
+
+      final refusal = refused(
+        (await seam(
+          store: failingStore,
+          approval: ScheduleMutationApproval.operator,
+        ).upsertJob(body(), requester: 'mcp-client:ops')).result,
+      );
+
+      expect(refusal.code, 'WRITE_FAILED');
+      expect(refusal.message, contains('Pending change write failed'));
+      expect(configText(), before);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(failingStore.values, isEmpty);
+    });
+
     test('S01 an upsert over an existing id parks the tool body as a replacement', () async {
       applied(await mutations.createJob({...body(), 'name': 'weekly', 'delivery': 'webhook'}..remove('id')));
       await mutations.updateJob('weekly', {'webhook_url': 'https://example.test/hook'});
@@ -619,7 +687,7 @@ scheduling:
       expect(configText(), before);
     });
 
-    test('S02 the record is dropped once the commit lands, even when the applier then fails', () async {
+    test('S02 an applier failure reports that the committed job was not loaded', () async {
       final parked = (await parking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
       final settling = ScheduleMutationService(
         writer: writer,
@@ -631,11 +699,177 @@ scheduling:
 
       final refusal = refused(await settling.approve(parked.changeId));
 
-      expect(refusal.code, 'BACKUP_FAILED');
+      expect(refusal.code, 'APPLY_FAILED');
+      expect(refusal.message, contains('were written but could not be loaded'));
       // The file and the store agree: the job shipped, so nothing is pending
       // for a reject to claim it discarded.
       expect((await writer.readSchedulingJobs()).single['id'], 'weekly');
       expect(store.values, isEmpty);
+    });
+
+    test('a pending removal failure restores config and runtime and remains pending after restart', () async {
+      var failRemoval = false;
+      final storeFile = File(p.join(dataDir, 'pending-removal-failure.json'));
+      final failingStore = PendingScheduleChangeStore(
+        storeFile,
+        writeJson: (target, value) async {
+          if (failRemoval) throw const FileSystemException('injected pending removal failure');
+          await atomicWriteJson(target, value);
+        },
+      );
+      final parkingWithFailure = seam(store: failingStore, approval: ScheduleMutationApproval.operator);
+      final parked =
+          (await parkingWithFailure.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      final before = configText();
+      failRemoval = true;
+
+      final refusal = refused(await seam(store: failingStore).approve(parked.changeId));
+
+      expect(refusal.code, 'WRITE_FAILED');
+      expect(refusal.message, contains('scheduling.jobs was restored'));
+      expect(configText(), before);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(failingStore.values.single.changeId, parked.changeId);
+      final rebooted = PendingScheduleChangeStore(storeFile);
+      await rebooted.load();
+      expect(rebooted.values.single.changeId, parked.changeId);
+      expect(await writer.readSchedulingJobs(), isEmpty);
+    });
+
+    test('a direct mutation waits for failed approval rollback, then applies against the restored list', () async {
+      var failRemoval = false;
+      final removalStarted = Completer<void>();
+      final releaseRemoval = Completer<void>();
+      final storeFile = File(p.join(dataDir, 'pending-concurrent-rollback.json'));
+      final failingStore = PendingScheduleChangeStore(
+        storeFile,
+        writeJson: (target, value) async {
+          if (failRemoval) {
+            removalStarted.complete();
+            await releaseRemoval.future;
+            throw const FileSystemException('injected pending removal failure');
+          }
+          await atomicWriteJson(target, value);
+        },
+      );
+      final parkingWithFailure = seam(store: failingStore, approval: ScheduleMutationApproval.operator);
+      final parked =
+          (await parkingWithFailure.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      failRemoval = true;
+
+      final approval = seam(store: failingStore).approve(parked.changeId);
+      await removalStarted.future;
+      var directCompleted = false;
+      final direct = mutations
+          .createJob({'name': 'digest', 'schedule': '0 6 * * *', 'prompt': 'Run digest', 'delivery': 'none'})
+          .then((result) {
+            directCompleted = true;
+            return result;
+          });
+      await pumpEventQueue();
+
+      expect(directCompleted, isFalse, reason: 'the config mutation must wait until approval compensation finishes');
+      releaseRemoval.complete();
+      expect(refused(await approval).code, 'WRITE_FAILED');
+      expect(await direct, isA<ScheduleMutationApplied>());
+      expect((await writer.readSchedulingJobs()).map((job) => job['name'] ?? job['id']), ['digest']);
+      expect(service.hasJob('digest'), isTrue);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(failingStore.values.single.changeId, parked.changeId);
+    });
+
+    test('failed approval rollback preserves a direct mutation that completed first', () async {
+      final direct = await mutations.createJob({
+        'name': 'digest',
+        'schedule': '0 6 * * *',
+        'prompt': 'Run digest',
+        'delivery': 'none',
+      });
+      expect(direct, isA<ScheduleMutationApplied>());
+      var failRemoval = false;
+      final storeFile = File(p.join(dataDir, 'pending-after-direct.json'));
+      final failingStore = PendingScheduleChangeStore(
+        storeFile,
+        writeJson: (target, value) async {
+          if (failRemoval) throw const FileSystemException('injected pending removal failure');
+          await atomicWriteJson(target, value);
+        },
+      );
+      final parkingWithFailure = seam(store: failingStore, approval: ScheduleMutationApproval.operator);
+      final parked =
+          (await parkingWithFailure.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      failRemoval = true;
+
+      expect(refused(await seam(store: failingStore).approve(parked.changeId)).code, 'WRITE_FAILED');
+
+      expect((await writer.readSchedulingJobs()).map((job) => job['name'] ?? job['id']), ['digest']);
+      expect(service.hasJob('digest'), isTrue);
+      expect(service.hasJob('weekly'), isFalse);
+      expect(failingStore.values.single.changeId, parked.changeId);
+    });
+
+    test('a failed rollback is surfaced and runtime reloads the YAML that remains', () async {
+      var failRemoval = false;
+      final storeFile = File(p.join(dataDir, 'pending-rollback-failure.json'));
+      final failingStore = PendingScheduleChangeStore(
+        storeFile,
+        writeJson: (target, value) async {
+          if (failRemoval) {
+            File(configPath).deleteSync();
+            throw const FileSystemException('injected pending removal failure');
+          }
+          await atomicWriteJson(target, value);
+        },
+      );
+      final parkingWithFailure = seam(store: failingStore, approval: ScheduleMutationApproval.operator);
+      final parked =
+          (await parkingWithFailure.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+      failRemoval = true;
+
+      final refusal = refused(await seam(store: failingStore).approve(parked.changeId));
+
+      expect(refusal.code, 'SETTLEMENT_FAILED');
+      expect(refusal.message, allOf(contains('pending removal failed'), contains('config rollback failed')));
+      expect(service.hasJob('weekly'), isFalse, reason: 'the recovery reload reflects the now-absent config');
+      expect(failingStore.values.single.changeId, parked.changeId);
+    });
+
+    test('approve and reject settle exactly once in either ordering', () async {
+      for (final approveFirst in const [true, false]) {
+        writeConfig(' []');
+        service.replaceConfigJobs(const []);
+        final removalStarted = Completer<void>();
+        final releaseRemoval = Completer<void>();
+        var writes = 0;
+        final raceFile = File(p.join(dataDir, 'pending-race-$approveFirst.json'));
+        final raceStore = PendingScheduleChangeStore(
+          raceFile,
+          writeJson: (target, value) async {
+            writes++;
+            if (writes == 2) {
+              removalStarted.complete();
+              await releaseRemoval.future;
+            }
+            await atomicWriteJson(target, value);
+          },
+        );
+        final raceParking = seam(store: raceStore, approval: ScheduleMutationApproval.operator);
+        final parked =
+            (await raceParking.upsertJob(body(), requester: 'mcp-client:ops')).result as ScheduleMutationParked;
+        final settling = seam(store: raceStore);
+
+        final first = approveFirst ? settling.approve(parked.changeId) : settling.reject(parked.changeId);
+        await removalStarted.future;
+        final second = approveFirst ? settling.reject(parked.changeId) : settling.approve(parked.changeId);
+        await pumpEventQueue();
+        releaseRemoval.complete();
+        final results = await Future.wait([first, second]);
+
+        expect(results.whereType<ScheduleMutationApplied>(), hasLength(1));
+        expect(results.whereType<ScheduleMutationRefused>().single.refusal.code, 'NOT_FOUND');
+        expect(raceStore.values, isEmpty);
+        expect(service.hasJob('weekly'), approveFirst);
+      }
     });
 
     test('S02 approve writes the parked body and the running scheduler holds the job', () async {
@@ -789,6 +1023,13 @@ scheduling:
             soundEntry(),
             {...soundEntry(), 'changeId': 'unknown-kind', 'kind': 'teleported'},
             {...soundEntry(), 'changeId': 'no-job-id', 'job': body()..remove('id')},
+            {...soundEntry(), 'changeId': 'mismatched-id', 'jobId': 'other'},
+            {...soundEntry(), 'changeId': 'missing-type', 'job': body()..remove('type')},
+            {
+              ...soundEntry(),
+              'changeId': 'unknown-type',
+              'job': {...body(), 'type': 'shell'},
+            },
           ]),
         );
         final warnings = captureWarnings();
@@ -797,7 +1038,7 @@ scheduling:
         await loaded.load();
 
         expect(loaded.values.map((change) => change.changeId), ['sound']);
-        expect(warnings, hasLength(2));
+        expect(warnings, hasLength(5));
         expect(
           warnings[0],
           allOf(startsWith('Skipping malformed pending schedule change entry'), contains('unknown-kind')),
@@ -805,6 +1046,10 @@ scheduling:
         expect(
           warnings[1],
           allOf(startsWith('Skipping malformed pending schedule change entry'), contains('no-job-id')),
+        );
+        expect(
+          warnings.skip(2).join('\n'),
+          allOf(contains('mismatched-id'), contains('missing-type'), contains('unknown-type')),
         );
       });
 

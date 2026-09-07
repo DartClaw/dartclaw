@@ -150,7 +150,10 @@
             <td class="scheduling-pending-job">
               <span tl:text="${change.jobId}"></span>
               <span class="cron-human cron-human--sub-id" tl:text="${change.summary}"></span>
-              <span class="cron-human" tl:text="${change.body}"></span>
+              <span tl:each="detail : ${change.details}" class="scheduling-pending-detail">
+                <span class="scheduling-pending-detail-label" tl:text="${detail.label}"></span>
+                <span class="cron-human" tl:text="${detail.value}"></span>
+              </span>
             </td>
             <td><span class="card-badge badge-muted" tl:text="${change.kind}"></span></td>
             <td><span class="cron-expr" tl:text="${change.schedule}"></span></td>

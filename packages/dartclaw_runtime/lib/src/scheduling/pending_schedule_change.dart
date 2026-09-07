@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +8,17 @@ import 'package:logging/logging.dart';
 /// Whether a parked upsert would add a new `scheduling.jobs` entry or replace
 /// the one its id already names.
 enum PendingChangeKind { created, replaced }
+
+/// Raised when parking another change would exceed the durable queue bound.
+final class PendingScheduleChangeCapacityExceeded implements Exception {
+  const new();
+
+  @override
+  String toString() =>
+      'Pending schedule approval queue is full (${PendingScheduleChangeStore.maxEntries} entries or '
+      '${PendingScheduleChangeStore.maxBytes} serialized UTF-8 bytes); '
+      'settle an existing change before trying again.';
+}
 
 /// A `schedule_upsert` write the seam validated but did not commit.
 ///
@@ -45,11 +57,15 @@ final class PendingScheduleChange {
 
   factory fromJson(Map<String, dynamic> json) {
     final job = Map<String, dynamic>.from(json['job'] as Map);
-    // The one nested key every later read dereferences unguarded.
-    if (job['id'] is! String) throw const FormatException('job.id must be a string');
+    final jobId = job['id'];
+    if (jobId is! String || jobId.isEmpty) throw const FormatException('job.id must be a non-empty string');
+    if (json['jobId'] != jobId) throw const FormatException('jobId must match job.id');
+    if (!const {'prompt', 'task'}.contains(job['type'])) {
+      throw const FormatException('job.type must be prompt or task');
+    }
     return PendingScheduleChange(
       changeId: json['changeId'] as String,
-      jobId: json['jobId'] as String,
+      jobId: jobId,
       kind: PendingChangeKind.values.byName(json['kind'] as String),
       job: job,
       requester: json['requester'] as String,
@@ -67,10 +83,24 @@ final class PendingScheduleChange {
 class PendingScheduleChangeStore {
   static final _log = Logger('PendingScheduleChangeStore');
 
+  /// Maximum number of changes accepted into a queue.
+  static const maxEntries = 100;
+
+  /// Maximum compact JSON size accepted into a queue, in UTF-8 bytes.
+  static const maxBytes = 1024 * 1024;
+
   final File _file;
+  final Future<void> Function(File, Object) _writeJson;
+  final _lock = RepoLock();
   final Map<String, PendingScheduleChange> _changes = {};
 
-  new(File file) : _file = file;
+  /// Creates a store over [file].
+  ///
+  /// [writeJson] is injectable to exercise durability failures without
+  /// changing the production write authority.
+  new(File file, {Future<void> Function(File, Object)? writeJson})
+    : _file = file,
+      _writeJson = writeJson ?? atomicWriteJson;
 
   /// Loads the persisted records.
   ///
@@ -79,27 +109,39 @@ class PendingScheduleChangeStore {
   /// losing a parked change silently is what the warning prevents. A missing
   /// file is the normal first boot and is not warned about.
   Future<void> load() async {
-    if (!_file.existsSync()) {
-      _log.fine('Pending schedule changes file not found — starting empty');
-      return;
-    }
-    try {
-      final decoded = jsonDecode(await _file.readAsString());
-      if (decoded is! List) {
-        _log.warning('Pending schedule changes file is not a JSON array — starting empty');
+    await synchronized(() async {
+      if (!_file.existsSync()) {
+        _log.fine('Pending schedule changes file not found — starting empty');
         return;
       }
-      for (final entry in decoded) {
-        try {
-          final change = PendingScheduleChange.fromJson(Map<String, dynamic>.from(entry as Map));
-          _changes[change.changeId] = change;
-        } catch (e) {
-          _log.warning('Skipping malformed pending schedule change entry $entry: $e');
+      try {
+        final decoded = jsonDecode(await _file.readAsString());
+        if (decoded is! List) {
+          _log.warning('Pending schedule changes file is not a JSON array — starting empty');
+          return;
         }
+        final loaded = <String, PendingScheduleChange>{};
+        for (final entry in decoded) {
+          try {
+            final change = PendingScheduleChange.fromJson(Map<String, dynamic>.from(entry as Map));
+            loaded[change.changeId] = change;
+          } catch (e) {
+            _log.warning('Skipping malformed pending schedule change entry $entry: $e');
+          }
+        }
+        _changes
+          ..clear()
+          ..addAll(loaded);
+        if (_changes.length > maxEntries || _serializedBytes(_changes.values) > maxBytes) {
+          _log.warning(
+            'Loaded a legacy pending schedule queue over the current $maxEntries-entry or $maxBytes-byte limit; '
+            'existing changes remain available for settlement, but new changes are refused until it is within bounds',
+          );
+        }
+      } catch (e) {
+        _log.warning('Failed to load pending schedule changes — starting empty: $e');
       }
-    } catch (e) {
-      _log.warning('Failed to load pending schedule changes — starting empty: $e');
-    }
+    });
   }
 
   /// Every parked change, oldest request first.
@@ -109,14 +151,41 @@ class PendingScheduleChangeStore {
   PendingScheduleChange? byId(String changeId) => _changes[changeId];
 
   Future<void> add(PendingScheduleChange change) async {
-    _changes[change.changeId] = change;
-    await _persist();
+    await synchronized(() async {
+      final updated = {..._changes, change.changeId: change};
+      if (updated.length > maxEntries || _serializedBytes(updated.values) > maxBytes) {
+        throw const PendingScheduleChangeCapacityExceeded();
+      }
+      await _persist(updated.values);
+      _changes
+        ..clear()
+        ..addAll(updated);
+    });
   }
 
   Future<void> remove(String changeId) async {
-    if (_changes.remove(changeId) == null) return;
-    await _persist();
+    await synchronized(() async {
+      if (!_changes.containsKey(changeId)) return;
+      final updated = {..._changes}..remove(changeId);
+      await _persist(updated.values);
+      _changes
+        ..clear()
+        ..addAll(updated);
+    });
   }
 
-  Future<void> _persist() => atomicWriteJson(_file, [for (final change in values) change.toJson()]);
+  /// Runs a pending-state transition under this store's durable mutation lock.
+  ///
+  /// Settlement keeps its lookup, config write and pending removal in this
+  /// scope, so two operator decisions cannot both act on the same record.
+  Future<T> synchronized<T>(FutureOr<T> Function() action) => _lock.acquire(_file.path, action);
+
+  Future<void> _persist(Iterable<PendingScheduleChange> changes) =>
+      _writeJson(_file, [for (final change in _sorted(changes)) change.toJson()]);
+
+  static int _serializedBytes(Iterable<PendingScheduleChange> changes) =>
+      utf8.encode(jsonEncode([for (final change in _sorted(changes)) change.toJson()])).length;
+
+  static List<PendingScheduleChange> _sorted(Iterable<PendingScheduleChange> changes) =>
+      changes.toList()..sort((a, b) => a.requestedAt.compareTo(b.requestedAt));
 }

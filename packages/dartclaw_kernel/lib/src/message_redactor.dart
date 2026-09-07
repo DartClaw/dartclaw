@@ -15,8 +15,8 @@ import 'package:logging/logging.dart';
 /// Other matches use proportional reveal: `min(matchLength / 2, 8)` characters
 /// preserved + `***`. PEM blocks are fully replaced with `[REDACTED]`.
 ///
-/// The [redact] method never throws — errors are caught internally and the
-/// original text is returned unchanged.
+/// The [redact] method never throws. Calls supplying exact sensitive values
+/// fail closed; other calls return the original text on internal errors.
 class MessageRedactor {
   static final _log = Logger('MessageRedactor');
   static final _authorizationHeader = RegExp(
@@ -148,11 +148,21 @@ class MessageRedactor {
 
   /// Redacts sensitive content from [input].
   ///
-  /// Never throws. On internal error, returns [input] unchanged.
-  String redact(String input) {
+  /// Non-empty [sensitiveValues] are literal credentials, fully masked before
+  /// pattern redaction so neither proportional reveal nor overlapping patterns
+  /// can expose part of them. Longer values are masked first.
+  /// Never throws. On internal error, returns `[REDACTED]` when values were
+  /// supplied, otherwise [input] unchanged.
+  String redact(String input, {List<String> sensitiveValues = const []}) {
     if (input.isEmpty) return input;
     try {
-      var result = input.replaceAllMapped(_authorizationHeader, (match) => '${match.group(1)}***');
+      var result = input;
+      final literals = sensitiveValues.where((value) => value.isNotEmpty).toSet().toList()
+        ..sort((a, b) => b.length.compareTo(a.length));
+      for (final value in literals) {
+        result = result.replaceAll(value, '[REDACTED]');
+      }
+      result = result.replaceAllMapped(_authorizationHeader, (match) => '${match.group(1)}***');
       result = result.replaceAllMapped(
         _equalsAssignment,
         (match) => isSecretKey(match.group(2)!)
@@ -183,8 +193,8 @@ class MessageRedactor {
       }
       return result;
     } catch (e) {
-      _log.warning('Redaction failed, returning original text', e);
-      return input;
+      _log.warning('Redaction failed', e);
+      return sensitiveValues.isEmpty ? input : '[REDACTED]';
     }
   }
 

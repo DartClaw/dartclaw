@@ -21,9 +21,9 @@ final class _CountingRedactor extends MessageRedactor {
   var redactedCodeUnits = 0;
 
   @override
-  String redact(String input) {
+  String redact(String input, {List<String> sensitiveValues = const []}) {
     redactedCodeUnits += input.length;
-    return super.redact(input);
+    return super.redact(input, sensitiveValues: sensitiveValues);
   }
 }
 

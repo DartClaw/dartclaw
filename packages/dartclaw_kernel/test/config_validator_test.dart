@@ -72,6 +72,46 @@ void main() {
       }
     });
 
+    test('accepts mixed plain and structured channel allowlist rows', () {
+      for (final channel in ['google_chat', 'signal', 'whatsapp']) {
+        for (final list in ['dm_allowlist', 'group_allowlist']) {
+          final field = 'channels.$channel.$list';
+          expect(
+            validator.validate({
+              field: [
+                'plain-row',
+                {'id': 'structured-row', 'name': '   ', 'project': '', 'model': null, 'effort': '   ', 'agent': 'ana'},
+              ],
+            }),
+            isEmpty,
+            reason: field,
+          );
+        }
+      }
+    });
+
+    test('rejects incomplete or blank structured channel allowlist rows', () {
+      for (final channel in ['google_chat', 'signal', 'whatsapp']) {
+        for (final list in ['dm_allowlist', 'group_allowlist']) {
+          final field = 'channels.$channel.$list';
+          final cases = <({Map<String, dynamic> row, String suffix, String message})>[
+            (row: {'agent': 'ana'}, suffix: 'id', message: 'required'),
+            (row: {'id': '   '}, suffix: 'id', message: 'must not be empty'),
+            (row: {'id': 'peer', 'agent': '   '}, suffix: 'agent', message: 'must not be empty'),
+          ];
+          for (final (:row, :suffix, :message) in cases) {
+            _expectSingleError(
+              validator.validate({
+                field: [row],
+              }),
+              field: '$field[0].$suffix',
+              messageContains: [message],
+            );
+          }
+        }
+      }
+    });
+
     test('rejects invalid primitive, enum, and unknown field updates', () {
       final cases = <({Map<String, dynamic> updates, String field, List<String> messageContains})>[
         (updates: {'port': 0}, field: 'port', messageContains: ['between 1 and 65535']),

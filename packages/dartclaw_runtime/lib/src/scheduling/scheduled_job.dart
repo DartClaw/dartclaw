@@ -342,10 +342,11 @@ class ScheduledJob {
     if (output is! String || output.trim().isEmpty) {
       throw FormatException('Job "$id" (type: shell) missing "output"');
     }
-    if (p.isAbsolute(output)) {
+    if (p.posix.isAbsolute(output) || p.windows.isAbsolute(output)) {
       throw FormatException('Job "$id" invalid "output": "$output" must be relative to $_feedsRoot/');
     }
-    if (!p.posix.isWithin(_feedsRoot, p.posix.normalize(p.posix.join(_feedsRoot, output)))) {
+    if (!p.posix.isWithin(_feedsRoot, p.posix.normalize(p.posix.join(_feedsRoot, output))) ||
+        !p.windows.isWithin(_feedsRoot, p.windows.normalize(p.windows.join(_feedsRoot, output)))) {
       throw FormatException('Job "$id" invalid "output": "$output" resolves outside $_feedsRoot/');
     }
 

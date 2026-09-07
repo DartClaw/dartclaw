@@ -306,7 +306,60 @@
             "dm_allowlist": {
               "description": "Approved one-to-one Google Chat senders, used while direct access is allowlist-based. Plain user resource names, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": [
                 "array",
@@ -359,7 +412,60 @@
             "group_allowlist": {
               "description": "Approved Google Chat groups, used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": [
                 "array",
@@ -557,7 +663,60 @@
             "dm_allowlist": {
               "description": "Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. Plain numbers, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": "array"
             },
@@ -581,7 +740,60 @@
             "group_allowlist": {
               "description": "Approved Signal groups by base64 id, used while group access is allowlist-based. Maps carrying an id plus optional name, project, model, effort and agent are also accepted. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": "array"
             },
@@ -641,7 +853,60 @@
             "dm_allowlist": {
               "description": "Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": "array"
             },
@@ -682,7 +947,60 @@
             "group_allowlist": {
               "description": "Approved WhatsApp groups, used while group access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
               "items": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
               },
               "type": "array"
             },

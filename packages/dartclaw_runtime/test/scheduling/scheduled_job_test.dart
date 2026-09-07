@@ -338,6 +338,9 @@ void main() {
       refuses(shellEntry({'output': '  '}), 'output');
       refuses(shellEntry({'output': '/etc/passwd'}), 'output');
       refuses(shellEntry({'output': '../../etc/passwd'}), 'output');
+      refuses(shellEntry({'output': r'..\dartclaw.yaml'}), 'output');
+      refuses(shellEntry({'output': r'C:\dartclaw\feeds\mail.json'}), 'output');
+      refuses(shellEntry({'output': r'\\server\share\mail.json'}), 'output');
       refuses(shellEntry({'timeout_seconds': 0}), 'timeout_seconds');
       // A one-time entry would remove itself from dartclaw.yaml through the
       // applier-less `commit` path, which no file-only refusal guards.

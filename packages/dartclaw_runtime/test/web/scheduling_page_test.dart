@@ -519,7 +519,11 @@ scheduling:
 
       /// Parks one change the way the MCP tool site does: the seam carries the
       /// operator mode and the same store the page settles from.
-      Future<String> park({Object? schedule = '0 9 * * 1', String requester = 'mcp-client:ops'}) async {
+      Future<String> park({
+        Object? schedule = '0 9 * * 1',
+        String requester = 'mcp-client:ops',
+        Map<String, dynamic>? job,
+      }) async {
         final parking = ScheduleMutationService(
           writer: writer,
           applyJobs: applier.apply,
@@ -528,13 +532,17 @@ scheduling:
           approval: ScheduleMutationApproval.operator,
           pendingChanges: store,
         );
-        final outcome = await parking.upsertJob({
-          'id': 'weekly',
-          'schedule': schedule,
-          'type': 'prompt',
-          'prompt': 'Summarize <the> week',
-          'delivery': 'announce',
-        }, requester: requester);
+        final outcome = await parking.upsertJob(
+          job ??
+              {
+                'id': 'weekly',
+                'schedule': schedule,
+                'type': 'prompt',
+                'prompt': 'Summarize <the> week',
+                'delivery': 'announce',
+              },
+          requester: requester,
+        );
         return (outcome.result as ScheduleMutationParked).changeId;
       }
 
@@ -557,11 +565,46 @@ scheduling:
         // approving this prompt and this delivery, not just a job id.
         expect(html, contains('Summarize &lt;the&gt; week'));
         expect(html, contains('prompt · announce'));
+        expect(html, contains('Schedule'));
+        expect(html, contains('0 9 * * 1'));
         expect(html, contains('hx-post="/scheduling/pending/$changeId/approve"'));
         // Reject goes through the confirm bar the jobs table's Delete uses.
         expect(html, contains('data-delete-url="/scheduling/pending/$changeId/reject"'));
         expect(html, contains("data-delete-message=\"Reject the pending change to 'weekly'?\""));
         expect(html, isNot(contains('Summarize <the> week')));
+      });
+
+      test('the page shows and escapes every task field approval commits', () async {
+        await park(
+          job: {
+            'id': 'weekly',
+            'schedule': '15 8 * * 2',
+            'type': 'task',
+            'task': {
+              'title': 'Title <marker>',
+              'description': 'Description & marker',
+              'acceptance_criteria': 'Accept <marker> & condition',
+              'auto_start': false,
+              'custom_detail': {'marker': '<custom>'},
+            },
+            'model': 'model <marker>',
+            'effort': 'effort & marker',
+          },
+        );
+
+        final html = (await send('GET', '/scheduling')).body;
+
+        expect(html, contains('15 8 * * 2'));
+        expect(html, contains('Title &lt;marker&gt;'));
+        expect(html, contains('Description &amp; marker'));
+        expect(html, contains('Accept &lt;marker&gt; &amp; condition'));
+        expect(html, contains('>false</span>'));
+        expect(html, contains('custom_detail'));
+        expect(html, contains('&lt;custom&gt;'));
+        expect(html, contains('model &lt;marker&gt;'));
+        expect(html, contains('effort &amp; marker'));
+        expect(html, isNot(contains('Title <marker>')));
+        expect(html, isNot(contains('Description & marker')));
       });
 
       test('with nothing parked the section is hidden and the page is otherwise unchanged', () async {
@@ -587,6 +630,75 @@ scheduling:
         expect(stored['prompt'], 'Summarize <the> week');
         expect(service.hasJob('weekly'), isTrue);
         expect(store.values, isEmpty);
+      });
+
+      test('approving a task refreshes both ownership tables out of band', () async {
+        final changeId = await park(
+          job: {
+            'id': 'weekly-task',
+            'schedule': '0 9 * * 1',
+            'type': 'task',
+            'task': {'title': 'Weekly review', 'description': 'Review the week', 'auto_start': true},
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.status, 200);
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('Weekly review'));
+        expect(store.values, isEmpty);
+      });
+
+      test('approving prompt to task removes the old jobs row and adds the tasks row', () async {
+        final changeId = await park(
+          job: {
+            'id': 'digest',
+            'schedule': '0 8 * * *',
+            'type': 'task',
+            'task': {'title': 'Digest task replacement', 'description': 'Create the digest task'},
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('Digest task replacement'));
+        expect(response.body, isNot(contains('<span class="delivery-badge webhook">webhook</span>')));
+      });
+
+      test('approving task to prompt removes the old tasks row and adds the jobs row', () async {
+        final direct = ScheduleMutationService(
+          writer: writer,
+          applyJobs: applier.apply,
+          reservedJobIds: () => service.builtInJobIds,
+        );
+        final created = await direct.createTask({
+          'id': 'weekly-task',
+          'schedule': '0 9 * * 1',
+          'title': 'Old task title',
+          'description': 'Old task description',
+        });
+        expect(created, isA<ScheduleMutationApplied>());
+        final changeId = await park(
+          job: {
+            'id': 'weekly-task',
+            'schedule': '0 10 * * 1',
+            'type': 'prompt',
+            'prompt': 'Prompt replacement',
+            'delivery': 'announce',
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('<span>weekly-task</span>'));
+        expect(response.body, contains('<span class="delivery-badge announce">announce</span>'));
+        expect(response.body, isNot(contains('Old task title')));
       });
 
       test('S03 reject writes nothing and empties the list', () async {

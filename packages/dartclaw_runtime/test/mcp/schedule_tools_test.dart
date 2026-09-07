@@ -883,6 +883,39 @@ scheduling:
       expect(configText(), before);
     });
 
+    test('a full pending queue returns its distinct refusal and preserves existing requests', () async {
+      final storeFile = File(p.join(dataDir, 'pending-schedule-changes.json'));
+      storeFile.writeAsStringSync(
+        jsonEncode([
+          for (var index = 0; index < PendingScheduleChangeStore.maxEntries; index++)
+            PendingScheduleChange(
+              changeId: 'change-$index',
+              jobId: 'queued-$index',
+              kind: PendingChangeKind.created,
+              job: {'id': 'queued-$index', 'type': 'prompt', 'schedule': '0 9 * * *', 'prompt': 'queued'},
+              requester: 'schedule_upsert',
+              requestedAt: clock.toUtc(),
+            ).toJson(),
+        ]),
+      );
+      await store.load();
+      final beforeQueue = storeFile.readAsBytesSync();
+      final beforeConfig = configText();
+      final handler = McpProtocolHandler(
+        guardChain: GuardChain(guards: [FakeGuard.pass()]),
+        auditLogger: audit,
+      )..registerTool(ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service));
+
+      final result = _result(await _call(handler, 'schedule_upsert', upsertArguments));
+
+      expect(result['isError'], isTrue);
+      expect(_payload(result)['reason'], 'pending_queue_full');
+      expect(_payload(result)['message'], contains('100 entries or 1048576 serialized UTF-8 bytes'));
+      expect(store.values, hasLength(PendingScheduleChangeStore.maxEntries));
+      expect(storeFile.readAsBytesSync(), beforeQueue);
+      expect(configText(), beforeConfig);
+    });
+
     test('the tool surface receives the configured approval mode', () async {
       // Built the way `_registerMcpTools` builds it: mode from config, store
       // from the wiring. Built the way the jobs API builds it: neither.

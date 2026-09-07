@@ -23,7 +23,7 @@ class SlashCommandHandler implements SlashCommandExecutor {
   final PauseController? _pauseController;
   final Future<EmergencyStopResult> Function(String stoppedBy)? _onEmergencyStop;
   final bool Function(String senderId)? _isAdmin;
-  final Future<void> Function(Map<String, String>)? _onDrain;
+  final Future<void> Function(List<PausedChannelTurn>)? _onDrain;
   final ChatCardBuilder _cardBuilder;
   final HtmlEscape _htmlEscape;
 
@@ -36,8 +36,8 @@ class SlashCommandHandler implements SlashCommandExecutor {
     Future<EmergencyStopResult> Function(String stoppedBy)? onEmergencyStop,
     bool Function(String senderId)? isAdmin,
 
-    /// Called with `sessionKey → collapsedText` map when /resume drains the queue.
-    Future<void> Function(Map<String, String>)? onDrain,
+    /// Replays collapsed channel turns when `/resume` drains the queue.
+    Future<void> Function(List<PausedChannelTurn>)? onDrain,
     ChatCardBuilder? cardBuilder,
   }) : _taskService = taskService,
        _sessionService = sessionService,

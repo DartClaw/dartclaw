@@ -90,6 +90,17 @@ void main() {
       expect(result[0].name, isNull);
     });
 
+    test('optional blank and null routing overrides retain loader semantics', () {
+      final result = GroupEntry.parseList([
+        {'id': 'grp-1', 'name': '   ', 'project': '', 'model': null, 'effort': '   '},
+      ], field: 'x.group_allowlist');
+
+      expect(result.single.name, isNull);
+      expect(result.single.project, '');
+      expect(result.single.model, isNull);
+      expect(result.single.effort, '   ');
+    });
+
     test('unknown keys in map are ignored and warning emitted', () {
       final warns = <String>[];
       final result = GroupEntry.parseList(

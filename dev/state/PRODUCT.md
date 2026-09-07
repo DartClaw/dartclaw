@@ -33,3 +33,9 @@ An AOT-compiled Dart host owns state, APIs, security enforcement, and execution 
 ## Development Stage
 
 DartClaw remains early, experimental software. Breaking changes to APIs, configuration, protocols, and storage are acceptable. Correctness, security, and simple design take priority over backward compatibility.
+
+## Proportionality
+
+- **Stage:** prototype. Experimental, soft-published; breaking changes to APIs, configuration, protocols and storage are acceptable.
+- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; SQLite per instance with data in the megabytes; one maintainer.
+- **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers.

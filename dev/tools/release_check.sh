@@ -78,7 +78,7 @@ for exported_dir in dev/bundle dev/specs dev/research dev/wireframes dev/diagram
     fi
   fi
 done
-for legacy_root_alias in dev/STATE.md dev/LEARNINGS.md dev/STACK.md dev/UBIQUITOUS_LANGUAGE.md dev/TECH-DEBT-BACKLOG.md dev/SPEC-LIFECYCLE.md dev/ROADMAP.md dev/PRODUCT.md dev/PRODUCT-BACKLOG.md dev/INSPIRATION-BACKLOG.md; do
+for legacy_root_alias in dev/LEARNINGS.md dev/STACK.md dev/UBIQUITOUS_LANGUAGE.md dev/TECH-DEBT-BACKLOG.md dev/SPEC-LIFECYCLE.md dev/ROADMAP.md dev/PRODUCT.md dev/PRODUCT-BACKLOG.md dev/INSPIRATION-BACKLOG.md; do
   if [[ -f "$legacy_root_alias" ]]; then
     leaked_bundle+="${legacy_root_alias}"$'\n'
   fi

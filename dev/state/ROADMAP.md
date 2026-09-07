@@ -20,6 +20,16 @@ filtering, projectless inline output roots, Codex probe/worker isolation parity,
 custom `CODEX_HOME`. The full workspace/build gate and targeted live plugin checks passed; CHANGELOG § 0.25.2
 records the fixes and the SDK probe-environment callback change.
 
+**Follow-ups** (in-flight items with no story of their own; drop each line when it lands):
+- Before the squash: fold the `dev/bundle/` standalone FIS back into the patch PRD per `SPEC-LIFECYCLE.md`.
+- Post-tag audits for v0.25.1.
+- 0.25 residuals: containerized workflow-step composition is unit-tested only; `gpt-5.6-sol` ends the `plan` turn
+  when its first Codex subagent answers (`andthen:plan` fan-out); the historical workflow profile's Codex
+  rollout-location anomaly has not been rerun end to end.
+- Four diagrams 0.25 invalidated are unedited: crowd coding, the crowd-coding recipe, the inbound message pipeline
+  and the package DAG. Redo them through the excalidraw skill from a main conversation, never from a story executor.
+- Two 0.25 open items stay recorded only in the 0.25 PRD § Open items.
+
 ## Released
 
 ### 0.25.1 — Release-process hardening
@@ -50,7 +60,7 @@ harness path as interactive ones.
 reduction (lib fell 1,996 against a 12,000 target and the test surface grew 7,520), the CLI's ≤ 8K lib LOC bar
 (10,491, down from 20,769), and the ≥ 40 dead-config-key removal (~29 plus 2 uncounted — several keys turned out to
 be live and were preserved under the no-regression constraint). Measured figures and the per-clause verdicts are in
-[`STATE.md`](STATE.md).
+the 0.25 PRD.
 
 **Deferred at close-out, re-homed to 0.26 as S16/S17 on 2026-09-03**: S63 and S64, the workflow schema-emitting validator. They stayed `spec-ready`; the preserved
 work is parked on `parked/s64-workflow-schema`.

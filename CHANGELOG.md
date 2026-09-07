@@ -5,14 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Every section is a released version. An `[Unreleased]` heading is transitional only — it exists between a tag and the
-moment the next version number is pinned, and the release cut renames it. Nothing rolls forward from release to
-release: a deprecation is recorded once, under the version that deprecated the key. What the loader *currently*
-tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `docs/guide/configuration.md`.
+Every section is a version. The top section is named in the same commit that pins the version – `## [<version>] -
+Unreleased` – and the release cut only replaces `Unreleased` with the date; a bare `[Unreleased]` heading exists only
+between a tag and that pin, and `dev/tools/check_versions.sh` holds the heading to the pinned version. Nothing rolls
+forward from release to release: a deprecation is recorded once, under the version that deprecated the key. What the
+loader *currently* tolerates is a live inventory, not history, and lives in *Deprecated Keys* in
+`docs/guide/configuration.md`.
 
 ---
 
-## [Unreleased]
+## [0.25.2] - Unreleased
 
 ### Added
 

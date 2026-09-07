@@ -9,7 +9,7 @@
 **Status: initial feedback batch fixed on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06), unreleased; pins at 0.25.2;
 record in the private patch PRD `docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch: spawn-flag deny
 list and turn cap with the global deny binding the main lane, final-text delivery, provider-enforced logical-agent
-schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § Unreleased). The two open feedback items – an
+schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § 0.25.2). The two open feedback items – an
 operator approval mode for chat-driven scheduling writes (`scheduling.mutation.approval`) and a model-free, file-only
 `type: shell` job kind – and the channel → agent binding (`agent:` on allowlist rows, PRD D13–D16) landed as
 standalone FIS under `dev/bundle/docs/specs/0.25.2/` (2026-09-06; `16917bc8`, `c2057657`, `75afa358`). 0.26 waits
@@ -17,7 +17,7 @@ behind this patch.
 
 The workflow follow-up is implemented and verified on `feat/0.25.2`: Claude user-plugin inheritance with declared tool
 filtering, projectless inline output roots, Codex probe/worker isolation parity, and safe capability mirroring from
-custom `CODEX_HOME`. The full workspace/build gate and targeted live plugin checks passed; CHANGELOG § Unreleased
+custom `CODEX_HOME`. The full workspace/build gate and targeted live plugin checks passed; CHANGELOG § 0.25.2
 records the fixes and the SDK probe-environment callback change.
 
 ## Released

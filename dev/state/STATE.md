@@ -25,11 +25,11 @@ model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and 
   The branch review added the `ChannelWiring.wire()` regression through the real binder and pause replay queue.
   The Claude background-subagent turn-boundary defect behind the plan-skill finding is fixed on the branch: the
   harness holds the work turn while the CLI lists background subagents, so the finalizer restart no longer kills
-  them (CHANGELOG § Unreleased › Fixed; § Open follow-ups).
+  them (CHANGELOG § 0.25.2 › Fixed; § Open follow-ups).
 - Workflow plugin and inline-output fixes are implemented and verified on `feat/0.25.2`: Claude user-plugin inheritance and
   native skill activation with declared tool filtering; projectless persisted-workspace output roots; Codex probe
   isolation matching workers; and dedicated capability mirroring from custom `CODEX_HOME` with containment. Full
-  workspace/build gate and five live plugin cases passed; CHANGELOG § Unreleased carries the public record.
+  workspace/build gate and five live plugin cases passed; CHANGELOG § 0.25.2 carries the public record.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories
@@ -59,7 +59,7 @@ Standalone FIS for the open SecondBrain feedback items (no plan bundle; a `.stat
   the turn's final text, so stored messages and announces are the final assistant message (same commits); a logical
   agent's `output_schema` reaches a harness that enforces it through one caller-declared gate (`708a7f2f`);
   `pool_size` defaults to 2 and the continuity reset refuses only for the session being reset (`bc3a4d5a`,
-  `c7e1f120`). CHANGELOG § Unreleased carries the operator-facing record.
+  `c7e1f120`). CHANGELOG § 0.25.2 carries the operator-facing record.
 - **0.25.1 released** (tagged 2026-09-05, `ccfd9fcf`): release-process hardening, two batches of SecondBrain deployment
   feedback (credential strip, no-op prune, curation log, live scheduling seam; then the primary-agent hardening recipe
   and warning, channel identity in the composed prompt, announce continuity, `reset_hour: -1`), five operator quick wins

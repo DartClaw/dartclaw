@@ -46,6 +46,9 @@ dart run dev/tools/fitness/check_task_executor_workflow_refs.dart \
 echo "==> fitness: config schema drift"
 dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check
 
+echo "==> fitness: version lockstep"
+bash dev/tools/check_versions.sh
+
 echo "==> fitness: config reference drift"
 bash dev/tools/fitness/test_render_config_reference.sh
 bash dev/tools/fitness/check_config_reference_drift.sh

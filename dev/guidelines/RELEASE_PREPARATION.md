@@ -34,12 +34,16 @@ Then bump in a single commit:
 - CHANGELOG, `dev/state/STATE.md`, `dev/state/ROADMAP.md`, "Current through" markers in docs. Only the section being
   released changes: a shipped release's section is a record, never edited to match the new code (0.25.0 rewrote a
   0.24.0 bullet and so recorded a breaking config change under the release that documented the old form)
+- The CHANGELOG's top heading: `## [Unreleased]` becomes `## [<version>] - Unreleased` in the same commit as the pins
+  above – whenever that pin lands, usually when `feat/<version>` opens, not at the cut. The cut then only replaces
+  `Unreleased` with the date. State and roadmap notes cite the section as `CHANGELOG § <version>` from the pin on.
 
 `dev/tools/check_versions.sh` enforces every pin above except the schema `$id` — the pubspecs, `version.dart`, both
-Homebrew formulas, and both Scoop manifests including each manifest's concrete install-time URL. Release check gate 2
-and the tag workflow's *Verify release version lockstep* step both run it, so a drifted packaging pin fails the build
-instead of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the
-schema generator's `--check`, which the fitness suite runs.
+Homebrew formulas, both Scoop manifests including each manifest's concrete install-time URL, and the CHANGELOG's top
+heading. The per-push fitness runner, release check gate 2 and the tag workflow's *Verify release version lockstep*
+step all run it, so a drifted packaging pin or a heading left at `[Unreleased]` past the pin fails the build instead
+of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the schema
+generator's `--check`, which the fitness suite runs.
 
 ## Release sequence (squash-merge pattern)
 

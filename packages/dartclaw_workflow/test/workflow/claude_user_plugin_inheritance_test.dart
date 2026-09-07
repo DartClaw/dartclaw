@@ -12,6 +12,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         HarnessLaunchOptions,
         ProcessFactory,
         SubscriptionCredentialStore,
+        ToolUseEvent,
         ToolApprovalWaitEvent;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardChain, GuardVerdict, TaskToolFilterGuard;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard;
@@ -125,12 +126,13 @@ void main() {
       guardChain: GuardChain(guards: [guard, toolFilter]),
     );
     final response = StringBuffer();
+    final toolUses = <ToolUseEvent>[];
     String? finalText;
     String? turnError;
-    final subscription = harness.events
-        .where((event) => event is DeltaEvent)
-        .cast<DeltaEvent>()
-        .listen((event) => response.write(event.text));
+    final subscription = harness.events.listen((event) {
+      if (event is DeltaEvent) response.write(event.text);
+      if (event is ToolUseEvent) toolUses.add(event);
+    });
     try {
       await harness.start();
       final result = await harness.turn(
@@ -173,8 +175,11 @@ void main() {
       contains(containsPair('command', contains(guardMarker))),
       reason: 'the model must actually attempt the forbidden operation through DartClaw',
     );
+    final nativeReadUses = toolUses.where((event) => event.toolName == 'Read').toList();
+    expect(nativeReadUses, hasLength(1), reason: 'Claude must attempt exactly one native Read');
+    expect(nativeReadUses.single.input, containsPair('file_path', nativeDeniedFile.path));
     final transcript = '$finalText\n$response';
-    expect(transcript.toLowerCase(), allOf(contains('native_denied_path'), contains('denied'), contains('permission')));
+    expect(transcript.toLowerCase(), allOf(contains('denied'), contains('permission')));
     expect(transcript, isNot(contains(nativeDeniedFile.readAsStringSync())));
   }, timeout: const Timeout(Duration(minutes: 5)));
 

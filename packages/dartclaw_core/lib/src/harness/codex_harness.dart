@@ -103,6 +103,16 @@ class CodexHarness extends BaseHarness {
   final Set<String> _agentMessageDeltaIds = <String>{};
   CodexEnvironment? _environment;
   String? _activeProviderSessionId;
+  String? _activeThreadId;
+  String? _activeTurnId;
+
+  static const _turnResponseNotificationMethods = <String>{
+    'turn/started',
+    'turn/completed',
+    'turn/failed',
+    'item/agentMessage/delta',
+    'thread/tokenUsage/updated',
+  };
 
   /// Grace period after SIGTERM before escalating to SIGKILL.
   final Duration _killGracePeriod;
@@ -325,6 +335,8 @@ class CodexHarness extends BaseHarness {
     _activeSessionId = sessionId;
     _activeAgentId = agentId;
     _turnCompleter = Completer<TurnResult>();
+    _activeThreadId = null;
+    _activeTurnId = null;
     final stopwatch = Stopwatch();
     final effectiveTimeout = effectiveTurnTimeout;
     final deadline = effectiveTimeout > Duration.zero ? DateTime.now().add(effectiveTimeout) : null;
@@ -344,6 +356,7 @@ class CodexHarness extends BaseHarness {
             deadline,
             onTimeout: () => _stopAfterTurnTimeout<String>(effectiveTimeout),
           );
+      _activeThreadId = threadId;
       if (providerSessionId != null || requestProviderSessionResume) _activeProviderSessionId = threadId;
 
       final previousMessages = messages.length > 1
@@ -405,6 +418,8 @@ class CodexHarness extends BaseHarness {
       _activeSessionId = null;
       _activeAgentId = null;
       _activeProviderSessionId = null;
+      _activeThreadId = null;
+      _activeTurnId = null;
     }
   }
 
@@ -622,6 +637,10 @@ class CodexHarness extends BaseHarness {
 
   @override
   void handleProcessStdoutLine(String line) {
+    final decoded = decodeJsonObject(line);
+    if (_isUnrelatedTurnNotification(decoded)) {
+      return;
+    }
     _emitCompletedAgentMessageFallback(line);
     _handlePendingResponse(line);
 
@@ -724,6 +743,42 @@ class CodexHarness extends BaseHarness {
         // shared DartclawEvents stream for observers and alerts.
         emitEvent(CompactionCompletedBridgeEvent());
     }
+  }
+
+  bool _isUnrelatedTurnNotification(Map<String, dynamic>? decoded) {
+    final method = stringValue(decoded?['method']);
+    final params = mapValue(decoded?['params']);
+    final itemType = stringValue(mapValue(params?['item'])?['type']);
+    final isAgentMessageItem =
+        (method == 'item/started' || method == 'item/completed') &&
+        (itemType == 'agentMessage' || itemType == 'agent_message');
+    if (method == null || (!_turnResponseNotificationMethods.contains(method) && !isAgentMessageItem)) {
+      return false;
+    }
+
+    final completer = _turnCompleter;
+    final activeThreadId = _activeThreadId;
+    if (completer == null) {
+      return false;
+    }
+    if (completer.isCompleted || activeThreadId == null) {
+      return true;
+    }
+
+    final threadId = stringValue(params?['threadId']);
+    if (threadId != null && threadId != activeThreadId) {
+      return true;
+    }
+
+    final turnId = stringValue(params?['turnId']) ?? stringValue(mapValue(params?['turn'])?['id']);
+    final activeTurnId = _activeTurnId;
+    if (activeTurnId != null && turnId != null && turnId != activeTurnId) {
+      return true;
+    }
+    if (method == 'turn/started' && turnId != null) {
+      _activeTurnId = turnId;
+    }
+    return false;
   }
 
   @override

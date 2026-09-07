@@ -212,6 +212,7 @@ export 'src/workflow/workflow_view_helpers.dart'
         workflowCanReject,
         workflowCanResume,
         workflowCanRetry,
+        workflowContextValue,
         workflowStatusBadgeClass,
         workflowStatusLabel;
 

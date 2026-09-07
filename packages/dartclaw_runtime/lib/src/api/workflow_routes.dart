@@ -29,7 +29,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTaskType,
         missingRequiredWorkflowVariables,
         missingRequiredWorkflowVariablesMessage,
-        stepStatusFromTask;
+        stepStatusFromTask,
+        workflowContextValue;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -504,14 +505,14 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
       'id': step.id,
       'name': step.name,
       'type': step.taskType.toJson(),
-      'status': _stepStatusWithApproval(run, i, step.id, step.taskType, task),
+      'status': stepStatusFromTask(run, i, task, stepId: step.id),
       'taskId': task?.id,
     };
     // Attach approval metadata for approval-type steps.
     if (step.taskType == WorkflowTaskType.approval) {
-      final approvalStatus = run.contextJson['${step.id}.approval.status'];
+      final approvalStatus = workflowContextValue(run, '${step.id}.approval.status');
       if (approvalStatus != null) {
-        stepEntry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
+        stepEntry['approval'] = workflowApprovalMetadata(run, step.id, approvalStatus);
       }
     }
     steps.add(stepEntry);
@@ -524,21 +525,6 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
     ..['childTaskIds'] = childTaskIds
     ..['isApprovalPaused'] = pendingApprovalStepId != null
     ..['pendingApprovalStepId'] = pendingApprovalStepId;
-}
-
-/// Returns step status, handling approval-type steps which have no child task.
-String _stepStatusWithApproval(WorkflowRun run, int index, String stepId, WorkflowTaskType stepType, Task? task) {
-  if (stepType == WorkflowTaskType.approval) {
-    final approvalStatus = run.contextJson['$stepId.approval.status'];
-    return switch (approvalStatus) {
-      'pending' => 'awaiting_approval',
-      'approved' => 'completed',
-      'rejected' => 'rejected',
-      'timed_out' => 'timed_out',
-      _ => index < run.currentStepIndex ? 'pending' : 'pending',
-    };
-  }
-  return stepStatusFromTask(run, index, task, stepId: stepId);
 }
 
 Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {
@@ -674,13 +660,7 @@ Future<Response> _workflowRunSseHandler(
         'index': i,
         'id': definition.steps[i].id,
         'name': definition.steps[i].name,
-        'status': _stepStatusWithApproval(
-          snapshotRun,
-          i,
-          definition.steps[i].id,
-          definition.steps[i].taskType,
-          tasksByStepIndex[i],
-        ),
+        'status': stepStatusFromTask(snapshotRun, i, tasksByStepIndex[i], stepId: definition.steps[i].id),
         'taskId': tasksByStepIndex[i]?.id,
       },
   ];

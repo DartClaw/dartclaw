@@ -128,6 +128,11 @@ claude --print \
 | `--mcp-config` | Path to ephemeral MCP config file pointing at DartClaw's internal MCP server |
 | `--json-schema` | Inline JSON Schema the CLI enforces on the turn's final output, emitted only when `turn(outputSchema: ...)` supplies one. Process-level, so a changed schema joins the desired-state comparison and restarts the process – **dropping** the schema restarts too, and every restart re-injects the bounded `<conversation_history>` replay, so alternating schema-bearing and schema-free turns pays two restarts and two replays per pair |
 
+Workflow write grants use Claude's POSIX permission-pattern syntax. Native Windows drive roots are normalized from
+`C:\path` to `//c/path/**`; UNC roots are omitted because Claude does not support most UNC working directories and
+directs operators to map the share to a drive letter. POSIX roots retain their path bytes, including a backslash that
+is part of a filename.
+
 #### Permission-flag selection
 
 Claude's native permission UX assumes an interactive TTY, so DartClaw normally disables it and relies on its own defense-in-depth (PreToolUse hook → `GuardChain`, the `disallowedTools` blocklist, and container isolation) as the real enforcement boundary. The exact permission flags are chosen by `_buildClaudeArgs()` / the spawn site in `claude_code_harness.dart` from the configured `providers.claude.options.permissionMode` and the security profile:
@@ -1069,6 +1074,11 @@ Only after that does DartClaw create a thread with `thread/start`, or load an ex
 Each turn is issued with `turn/start` on the active thread. By default DartClaw passes the current user message plus its
 own replayed history. An explicit provider-session id instead loads the rollout from a durable system or dedicated
 `CODEX_HOME`; a missing rollout fails the turn and never falls back to `thread/start`.
+
+The harness correlates response notifications with the active thread and, once `turn/started` identifies it, the active
+turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit
+parent-response text, contribute usage, or settle the pending parent turn. Child tool lifecycle notifications continue
+through the approval and guard path.
 
 When the app-server exits unexpectedly, DartClaw clears the cached thread IDs, restarts the process with backoff, re-runs the handshake, creates a fresh thread, and replays the saved history into the next `turn/start` request.
 

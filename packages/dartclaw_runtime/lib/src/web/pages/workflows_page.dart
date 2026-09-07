@@ -8,7 +8,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTaskType,
         buildLoopInfo,
         formatContextForDisplay,
-        stepStatusFromTask;
+        stepStatusFromTask,
+        workflowContextValue;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -27,17 +28,6 @@ final _log = Logger('WorkflowsPage');
 /// Handles the run detail, lazy step detail, and live step-card routes under `/workflows/<runId>`.
 class WorkflowsPage extends DashboardPage {
   static String _stepStatusForRunDetail(WorkflowRun run, int index, WorkflowStep step, Task? task) {
-    if (step.taskType == WorkflowTaskType.approval) {
-      final approvalStatus = run.contextJson['${step.id}.approval.status'] as String?;
-      return switch (normalizeWorkflowState(approvalStatus)) {
-        'pending' || 'waiting' || 'awaiting_approval' => 'awaiting_approval',
-        'approved' || 'completed' => 'completed',
-        'rejected' => 'rejected',
-        'expired' || 'timed_out' => 'timed_out',
-        '' => 'pending',
-        _ => approvalStatus!,
-      };
-    }
     return stepStatusFromTask(run, index, task, stepId: step.id);
   }
 
@@ -262,7 +252,7 @@ class WorkflowsPage extends DashboardPage {
 
   static Map<String, dynamic> _stepEntry(WorkflowRun run, int index, WorkflowStep step, Task? task) {
     final isApproval = step.taskType == WorkflowTaskType.approval;
-    final approvalStatus = isApproval ? run.contextJson['${step.id}.approval.status'] as String? : null;
+    final approvalStatus = isApproval ? workflowContextValue(run, '${step.id}.approval.status') : null;
     final entry = <String, dynamic>{
       'index': index,
       'id': step.id,
@@ -273,7 +263,7 @@ class WorkflowsPage extends DashboardPage {
       'taskId': task?.id,
     };
     if (isApproval && approvalStatus != null) {
-      entry['approval'] = workflowApprovalMetadata(run.contextJson, step.id, approvalStatus);
+      entry['approval'] = workflowApprovalMetadata(run, step.id, approvalStatus);
     }
     return entry;
   }

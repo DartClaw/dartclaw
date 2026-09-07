@@ -1,12 +1,14 @@
-Map<String, dynamic> workflowApprovalMetadata(Map<String, dynamic> context, String stepId, Object? status) {
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, workflowContextValue;
+
+Map<String, dynamic> workflowApprovalMetadata(WorkflowRun run, String stepId, Object? status) {
   final prefix = '$stepId.approval.';
   return {
     'status': status,
-    'message': context['${prefix}message'],
-    'requestedAt': context['${prefix}requested_at'],
-    if (context['${prefix}resolved_at'] != null) 'resolvedAt': context['${prefix}resolved_at'],
-    if (context['${prefix}feedback'] != null) 'feedback': context['${prefix}feedback'],
-    if (context['${prefix}timeout_deadline'] != null) 'timeoutDeadline': context['${prefix}timeout_deadline'],
-    if (context['${prefix}cancel_reason'] != null) 'cancelReason': context['${prefix}cancel_reason'],
+    'message': workflowContextValue(run, '${prefix}message'),
+    'requestedAt': workflowContextValue(run, '${prefix}requested_at'),
+    'resolvedAt': ?workflowContextValue(run, '${prefix}resolved_at'),
+    'feedback': ?workflowContextValue(run, '${prefix}feedback'),
+    'timeoutDeadline': ?workflowContextValue(run, '${prefix}timeout_deadline'),
+    'cancelReason': ?workflowContextValue(run, '${prefix}cancel_reason'),
   };
 }

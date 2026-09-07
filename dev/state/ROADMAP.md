@@ -6,26 +6,31 @@
 
 ### 0.25.2 – Deployment feedback and workflow fixes
 
-**Status: initial feedback batch fixed on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06), unreleased; pins at 0.25.2;
-record in the private patch PRD `docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch: spawn-flag deny
-list and turn cap with the global deny binding the main lane, final-text delivery, provider-enforced logical-agent
-schemas, `pool_size` default 2, harness-owned continuity reset (CHANGELOG § 0.25.2). The two open feedback items – an
-operator approval mode for chat-driven scheduling writes (`scheduling.mutation.approval`) and a model-free, file-only
-`type: shell` job kind – and the channel → agent binding (`agent:` on allowlist rows, PRD D13–D16) landed as
-standalone FIS under `dev/bundle/docs/specs/0.25.2/` (2026-09-06; `16917bc8`, `c2057657`, `75afa358`). 0.26 waits
-behind this patch.
+**Status: release preparation in progress on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06),
+unreleased; pins at 0.25.2; release-preparation gates in progress; record in the private patch PRD
+`docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch delivered spawn-flag deny/turn limits, global deny
+on the main lane, final-text delivery, provider-enforced logical-agent schemas, `pool_size` default 2 and
+harness-owned continuity reset. Three follow-on features shipped on the branch and are consolidated in the PRD:
+operator approval for chat-driven scheduling writes (`c2057657`), model-free file-only shell jobs (`16917bc8`) and
+channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`. 0.26 waits behind this patch.
 
-The workflow follow-up is implemented and verified on `feat/0.25.2`: Claude user-plugin inheritance with declared tool
-filtering, projectless inline output roots, Codex probe/worker isolation parity, and safe capability mirroring from
-custom `CODEX_HOME`. The full workspace/build gate and targeted live plugin checks passed; CHANGELOG § 0.25.2
-records the fixes and the SDK probe-environment callback change.
+The workflow follow-up restores Claude user-plugin inheritance with declared tool filtering, projectless inline
+output roots, Codex probe/worker isolation parity and safe capability mirroring from custom `CODEX_HOME`
+(`08a3ef2b`). Claude now holds a turn while background subagents remain (`71b1e3fa`); finalizers receive the complete
+root-envelope schema plus a derived skeleton and four-turn ceiling, and thread-binding writes drain before shutdown
+(`f0c453a0`, `03e5a911`); built-in workflows no longer invoke AndThen 1.0's retired review-council flag
+(`63bc6429`). Targeted live checks and intermediate full workspace gates passed; final pinned-commit gates remain the
+release authority. Release smoke also corrected persisted taskless workflow progress and task controls after
+live refresh; their focused regressions and browser reproductions passed. Codex now correlates response notifications
+with the active thread and turn, and the happy-path E2Es reject failed or cancelled final child tasks even when the
+run completes. Focused regressions and independent review passed; final live and whole-workspace gates remain pending.
 
 **Follow-ups** (in-flight items with no story of their own; drop each line when it lands):
-- Before the squash: fold the `dev/bundle/` standalone FIS back into the patch PRD per `SPEC-LIFECYCLE.md`.
+- Complete the final pinned-commit release gates and record their exact results before marking the patch release-ready.
 - Post-tag audits for v0.25.1.
-- 0.25 residuals: containerized workflow-step composition is unit-tested only; `gpt-5.6-sol` ends the `plan` turn
-  when its first Codex subagent answers (`andthen:plan` fan-out); the historical workflow profile's Codex
-  rollout-location anomaly has not been rerun end to end.
+- 0.25 residuals: containerized workflow-step composition is unit-tested only; the historical workflow profile's
+  Codex rollout-location anomaly has not been rerun end to end. The background-subagent termination finding is
+  closed by `71b1e3fa` and its live canary.
 - Four diagrams 0.25 invalidated are unedited: crowd coding, the crowd-coding recipe, the inbound message pipeline
   and the package DAG. Redo them through the excalidraw skill from a main conversation, never from a story executor.
 - Two 0.25 open items stay recorded only in the 0.25 PRD § Open items.

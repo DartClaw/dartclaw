@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show LogService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show TaskStatus;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -147,6 +148,39 @@ void main() {
           }),
         ),
       );
+    });
+  });
+
+  group('final child trace gate', () {
+    test('completed run rejects failed or cancelled final child traces with actionable identity', () {
+      expectWorkflowFinalStatus(
+        finalStatus: WorkflowRunStatus.completed,
+        requireCompleted: true,
+        runId: 'run-failed-child',
+      );
+
+      for (final status in [TaskStatus.failed, TaskStatus.cancelled]) {
+        expect(
+          () => expectNoFailedFinalChildTraces([
+            _trace(stepKey: 'review-story', taskId: 'task-review-1', terminalStatus: status),
+          ], runId: 'run-failed-child'),
+          throwsA(
+            predicate<TestFailure>(
+              (failure) =>
+                  '$failure'.contains('step=review-story') &&
+                  '$failure'.contains('task=task-review-1') &&
+                  '$failure'.contains('status=${status.name}'),
+            ),
+          ),
+        );
+      }
+    });
+
+    test('accepted final traces pass after a transient retry', () {
+      expectNoFailedFinalChildTraces([
+        _trace(stepKey: 'implement', taskId: 'task-implement', terminalStatus: TaskStatus.accepted),
+        _trace(stepKey: 'review-story', taskId: 'task-review-2', terminalStatus: TaskStatus.accepted, occurrence: 2),
+      ], runId: 'run-retried');
     });
   });
 
@@ -439,6 +473,29 @@ void main() {
     });
   });
 }
+
+WorkflowStepTrace _trace({
+  required String stepKey,
+  required String taskId,
+  required TaskStatus terminalStatus,
+  int occurrence = 1,
+}) => WorkflowStepTrace(
+  runId: 'run-test',
+  stepKey: stepKey,
+  occurrence: occurrence,
+  taskId: taskId,
+  title: stepKey,
+  description: 'test trace',
+  terminalStatus: terminalStatus,
+  tokenCount: 0,
+  sessionTotalTokens: 0,
+  stepDeltaTokens: 0,
+  inputTokensNew: 0,
+  cacheReadTokens: 0,
+  outputTokens: 0,
+  configJson: const {},
+  queuedAt: DateTime.parse('2026-09-07T00:00:00Z'),
+);
 
 WorkflowE2eProcessRunner _fakeProcessRunner(Map<(String, String), ProcessResult> responses) {
   return (executable, arguments, {workingDirectory, environment}) async {

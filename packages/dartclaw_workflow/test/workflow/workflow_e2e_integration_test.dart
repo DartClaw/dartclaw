@@ -809,6 +809,7 @@ void main() {
       await recorder.dispose();
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
+      expectNoFailedFinalChildTraces(recorder.traces, runId: run.id);
 
       // The reuse path skips `spec` (its gate is false) but still implements
       // and reviews against the reused spec.
@@ -1003,6 +1004,7 @@ void main() {
       await recorder.dispose();
 
       expectWorkflowFinalStatus(finalStatus: finalStatus, requireCompleted: requireCompleted, runId: run.id);
+      expectNoFailedFinalChildTraces(recorder.traces, runId: run.id);
 
       final coreSteps = ['discover-plan-state', 'implement', 'review-story'];
       expectStepOrderSubsequence(recorder.stepOrder, coreSteps);

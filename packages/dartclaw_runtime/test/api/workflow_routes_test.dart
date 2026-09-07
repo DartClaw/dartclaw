@@ -926,6 +926,39 @@ void main() {
       expect(approval['cancelReason'], equals('timeout'));
     });
 
+    test('GET run detail projects taskless steps from persisted context data', () async {
+      final definition = WorkflowDefinition(
+        name: 'release-ui-smoke',
+        description: 'Taskless workflow state projection.',
+        steps: const [
+          WorkflowStep(id: 'prepare', name: 'Prepare', taskType: WorkflowTaskType.bash, prompts: ['prepare']),
+          WorkflowStep(id: 'approve', name: 'Approve', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'finish', name: 'Finish', taskType: WorkflowTaskType.bash, prompts: ['finish']),
+        ],
+      );
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        currentStepIndex: 3,
+        definitionJson: definition.toJson(),
+        contextJson: const {
+          'data': {
+            'prepare.status': 'success',
+            'approve.approval.status': 'approved',
+            'approve.approval.message': 'Approve?',
+            'finish.status': 'success',
+          },
+        },
+      );
+
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      final body = decodeObject(await response.readAsString());
+      final steps = body['steps'] as List<dynamic>;
+
+      expect(response.statusCode, 200);
+      expect(steps.map((step) => (step as Map<String, dynamic>)['status']), everyElement('completed'));
+      expect((steps[1] as Map<String, dynamic>)['approval'], containsPair('message', 'Approve?'));
+    });
+
     test('GET run detail — non-approval run has isApprovalPaused=false', () async {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.running);
 

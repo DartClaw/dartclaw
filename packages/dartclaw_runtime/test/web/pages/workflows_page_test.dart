@@ -392,6 +392,47 @@ void main() {
       expect(body, contains('timed_out'));
       expect(body, contains('timeout'));
     });
+
+    test('renders completed taskless steps from persisted context data', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      final definition = WorkflowDefinition(
+        name: 'release-ui-smoke',
+        description: 'Taskless workflow state projection.',
+        steps: const [
+          WorkflowStep(id: 'prepare', name: 'Prepare', taskType: WorkflowTaskType.bash, prompts: ['prepare']),
+          WorkflowStep(id: 'approve', name: 'Approve', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'finish', name: 'Finish', taskType: WorkflowTaskType.bash, prompts: ['finish']),
+        ],
+      );
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-taskless',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 3,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {
+              'prepare.status': 'success',
+              'approve.approval.status': 'approved',
+              'approve.approval.message': 'Approve?',
+              'finish.status': 'success',
+            },
+          },
+        ),
+      );
+
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final response = await page.handler(_get('/workflows/run-taskless'), context);
+      final body = await response.readAsString();
+
+      expect(response.statusCode, 200);
+      expect(RegExp('data-step-status="completed"').allMatches(body), hasLength(3));
+      expect(body, contains('<span>3</span> / <span>3</span> steps complete'));
+      expect(body, contains('Approve?'));
+    });
   });
 
   group('WorkflowsPage /workflows/<runId>/steps/<stepIndex>', () {

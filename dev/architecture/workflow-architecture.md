@@ -575,6 +575,8 @@ The engine is intentionally simple. It does not attempt to be a general-purpose 
 
 Context is persisted atomically after each step, so a crash can resume from the last committed state instead of replaying from scratch.
 
+`stepStatusFromTask` is the single run-presentation projection shared by the workflow API, web detail page, SSE snapshot, and sidebar. Task-backed steps use their task lifecycle; taskless bash, aggregate, and approval steps use the step-owned status values inside the persisted `WorkflowContext.data` map. It also reads older flat run snapshots for compatibility.
+
 ## 10. Budgets and Defaults
 
 Budgeting exists at two levels:

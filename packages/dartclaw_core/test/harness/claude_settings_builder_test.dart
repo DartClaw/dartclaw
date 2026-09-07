@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:test/test.dart';
@@ -127,6 +128,21 @@ void main() {
     test('blank roots are dropped rather than producing a rule rooted at ""', () {
       expect(rulesFor(['file_write'], roots: ['/work', '  ']), ['Edit(//work/**)']);
     });
+
+    test('native Windows drive roots use Claude POSIX permission syntax', () {
+      expect(rulesFor(['file_write'], roots: [r'C:\work', r'D:\artifacts\steps']), [
+        'Edit(//c/work/**)',
+        'Edit(//d/artifacts/steps/**)',
+      ]);
+    }, skip: !Platform.isWindows);
+
+    test('native Windows UNC roots add no wildcard grant', () {
+      expect(rulesFor(['file_write'], roots: [r'\\server\share\work', r'C:\work']), ['Edit(//c/work/**)']);
+    }, skip: !Platform.isWindows);
+
+    test('POSIX filenames containing backslashes are preserved', () {
+      expect(rulesFor(['file_write'], roots: [r'/work/name\with-backslash']), [r'Edit(//work/name\with-backslash/**)']);
+    }, skip: Platform.isWindows);
 
     test('derived rules merge with operator-supplied allow rules instead of replacing them', () {
       final raw = ClaudeSettingsBuilder.buildSettings(

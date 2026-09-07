@@ -18,10 +18,6 @@
 //    the skill input and automation flags, not long instruction blocks.
 //  * Variable passthrough: authored input variables (FEATURE/TARGET) leak
 //    into at most the steps that need them.
-//
-// Tests that assert behavior the current YAML does NOT yet satisfy are marked
-// with a `skip:` and an explicit open-issue reference. They fire the moment
-// the YAML is tightened, preventing silent regressions.
 library;
 
 import 'dart:convert';

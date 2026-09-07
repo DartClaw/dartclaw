@@ -15,6 +15,7 @@ import 'package:test/test.dart';
 import 'harness_test_support.dart';
 
 part 'codex_provider_session_resume_cases.dart';
+part 'codex_notification_correlation_cases.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -365,6 +366,7 @@ void main() {
 
     group('turn()', () {
       registerCodexProviderSessionResumeTests();
+      registerCodexNotificationCorrelationTests();
 
       test(
         'lazily creates a thread on first turn, streams events, auto-approves requests, and returns usage',

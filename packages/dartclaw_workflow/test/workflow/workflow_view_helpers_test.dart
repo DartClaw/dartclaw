@@ -51,14 +51,54 @@ void main() {
       expect(stepStatusFromTask(run, 2, null), 'pending');
     });
 
-    test('null task when workflow is not running returns pending', () {
+    test('null task without producer status remains pending for non-running workflows', () {
       final pausedRun = _makeRun(status: WorkflowRunStatus.paused, currentStepIndex: 1);
       expect(stepStatusFromTask(pausedRun, 1, null), 'pending');
+      expect(stepStatusFromTask(_makeRun(status: WorkflowRunStatus.completed), 0, null), 'pending');
     });
 
     test('skipped outcome in context wins when no task exists', () {
       final skippedRun = _makeRun(currentStepIndex: 1, contextJson: const {'step.spec.outcome': 'skipped'});
       expect(stepStatusFromTask(skippedRun, 1, null, stepId: 'spec'), 'skipped');
+    });
+
+    test('taskless step status comes from persisted context data', () {
+      final completedRun = _makeRun(
+        status: WorkflowRunStatus.completed,
+        currentStepIndex: 3,
+        contextJson: const {
+          'data': {'prepare.status': 'success', 'approve.approval.status': 'approved', 'finish.status': 'success'},
+        },
+      );
+
+      expect(stepStatusFromTask(completedRun, 0, null, stepId: 'prepare'), 'completed');
+      expect(stepStatusFromTask(completedRun, 1, null, stepId: 'approve'), 'completed');
+      expect(stepStatusFromTask(completedRun, 2, null, stepId: 'finish'), 'completed');
+    });
+
+    test('taskless failed and cancelled producer statuses remain terminal', () {
+      final terminalRun = _makeRun(
+        status: WorkflowRunStatus.cancelled,
+        contextJson: const {
+          'data': {'prepare.status': 'failed', 'approve.status': 'cancelled'},
+        },
+      );
+
+      expect(stepStatusFromTask(terminalRun, 0, null, stepId: 'prepare'), 'failed');
+      expect(stepStatusFromTask(terminalRun, 1, null, stepId: 'approve'), 'cancelled');
+    });
+
+    test('child task lifecycle wins over a persisted producer status', () {
+      final acceptedRun = _makeRun(
+        contextJson: const {
+          'data': {'implement.status': 'failed'},
+        },
+      );
+
+      expect(
+        stepStatusFromTask(acceptedRun, 0, _makeTask(status: TaskStatus.accepted), stepId: 'implement'),
+        'completed',
+      );
     });
 
     test('draft/queued task -> queued', () {

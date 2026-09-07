@@ -1,7 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowService, WorkflowTaskType, stepStatusFromTask;
+    show WorkflowDefinition, WorkflowRun, WorkflowService, stepStatusFromTask;
 
 import 'task/task_service.dart';
 import 'templates/sidebar.dart' show SidebarActiveTask, SidebarActiveWorkflow;
@@ -38,12 +38,7 @@ Future<List<SidebarActiveWorkflow>> buildActiveSidebarWorkflows(WorkflowService 
         : definition.steps.indexed
               .where((entry) {
                 final (index, step) = entry;
-                final status = step.taskType == WorkflowTaskType.approval
-                    ? switch (run.contextJson['${step.id}.approval.status']) {
-                        'approved' => 'completed',
-                        _ => 'pending',
-                      }
-                    : stepStatusFromTask(run, index, tasksByStepIndex[index], stepId: step.id);
+                final status = stepStatusFromTask(run, index, tasksByStepIndex[index], stepId: step.id);
                 return status == 'completed' || status == 'skipped';
               })
               .length

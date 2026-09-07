@@ -79,6 +79,18 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- **Claude write grants on Windows** – native drive roots use Claude's POSIX permission-pattern syntax, while
+  unsupported UNC roots add no wildcard grant.
+- **Codex parent-turn correlation** – background subagent answers and turn completions no longer replace or
+  prematurely finish the parent response. The harness filters response notifications by the active thread and turn
+  before accumulating text or settling the result. Live workflow tests now reject failed or cancelled child tasks
+  even when the enclosing run reaches `completed`.
+- Task controls remain active after live refreshes. Cancelling a running task uses the page's HTMX action instead of
+  a native form submission that fails the origin check.
+- **Taskless workflow step progress** – the workflow detail page, run API, SSE snapshot, and sidebar now read bash,
+  aggregate, and approval status from persisted workflow context data through one shared projection. Taskless steps no
+  longer remain `Pending` after completion, failure, or cancellation, and successful runs report the correct
+  completed-step count.
 - **Workflow finalization** – finalizer prompts carry a skeleton of the root envelope (both `outputs` and
   `step_outcome`) plus the complete persisted JSON schema, and explicitly require the envelope at the response root,
   using the provider's structured-output tool when supplied. The finalizer turn ceiling rises from 2 to 4: Claude Code

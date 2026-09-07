@@ -749,8 +749,13 @@ sudo useradd --create-home --uid "$CONFORMANCE_UID" --shell /bin/bash "$CONFORMA
 sudo usermod -aG docker "$CONFORMANCE_USER"
 ```
 
-Clone or copy the test checkout into that user's home, start a login shell with `sudo -iu "$CONFORMANCE_USER"`, and
-confirm both conditions before running the Linux conformance suite:
+Clone or copy the test checkout into that user's home. With rootful Docker, this unprivileged user is an
+expected-negative ownership check, not the full release conformance runner. The integration fixtures create
+uid-1000-owned workspaces and the runtime aligns generated state with `chown`; run the full release integration
+suite as root with an isolated test HOME. A non-1000 service user needs `CAP_CHOWN` or rootless/userns-remapped
+Docker, as documented in `docs/guide/security.md` § File Ownership on Native Linux.
+
+For the unprivileged posture check, start a login shell with `sudo -iu "$CONFORMANCE_USER"` and confirm:
 
 ```bash
 set -euo pipefail

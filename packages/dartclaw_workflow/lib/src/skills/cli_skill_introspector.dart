@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../workflow/skill_introspector.dart';
+import 'provider_probe_environment.dart';
 
 typedef SkillProbeRunner = Future<ProcessResult> Function(
   String executable,
@@ -17,8 +18,9 @@ typedef SkillProbeRunner = Future<ProcessResult> Function(
 /// Asynchronous because presenting a subscription credential can require
 /// preparing a dedicated provider home before the probe runs; a builder that
 /// cannot present the selected credential throws rather than answering an
-/// environment the probe would spawn uncredentialed on.
-typedef SkillProbeEnvironmentBuilder = Future<Map<String, String>> Function(String provider);
+/// environment the probe would spawn uncredentialed on. The consumer must
+/// call [ProviderProbeEnvironment.dispose] after either success or failure.
+typedef SkillProbeEnvironmentBuilder = Future<ProviderProbeEnvironment> Function(String provider);
 
 /// CLI-backed [SkillIntrospector] with per-provider/executable in-flight caching.
 final class CliSkillIntrospector implements SkillIntrospector {
@@ -50,7 +52,8 @@ final class CliSkillIntrospector implements SkillIntrospector {
     final inheritUserSettings = ClaudeProviderOptions.inheritUserSettings(providerOptions);
     final probeProvider = _probeProvider(provider, resolvedExecutable, providerOptions);
     final key = _SkillProbeKey(
-      provider: probeProvider,
+      providerId: provider,
+      probeProvider: probeProvider,
       executable: resolvedExecutable,
       inheritUserSettings: inheritUserSettings,
     );
@@ -108,27 +111,32 @@ final class CliSkillIntrospector implements SkillIntrospector {
       ],
       _ => throw StateError('No skill introspection command is configured for provider "$provider".'),
     };
-    final environment = await _environmentForProvider?.call(providerId) ?? _environment;
-    final result = await _runner(executable, args, environment: environment.isEmpty ? null : environment);
-    if (result.exitCode != 0) {
-      // The real failure (e.g. an auth error) is reported on stdout; stderr
-      // often carries only the benign CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
-      // hardening notice. Surface stdout first so a harmless warning never
-      // masks the actual cause.
-      final raw = (result.stdout ?? '').toString().trim();
-      final stdoutText = _extractPlainText(raw).trim();
-      // _extractPlainText can blank a JSON envelope whose `result` is empty;
-      // never let a non-empty stdout cause vanish behind the benign env-scrub
-      // stderr warning.
-      final cause = stdoutText.isNotEmpty ? stdoutText : raw;
-      final stderr = (result.stderr ?? '').toString().trim();
-      final detail = <String>[if (cause.isNotEmpty) cause, if (stderr.isNotEmpty) 'stderr: $stderr'].join('; ');
-      throw StateError(
-        'Skill introspection failed for provider "$provider" with exit code ${result.exitCode}'
-        '${detail.isEmpty ? '' : ': $detail'}',
-      );
+    final scopedEnvironment = await _environmentForProvider?.call(providerId);
+    final environment = scopedEnvironment?.environment ?? _environment;
+    try {
+      final result = await _runner(executable, args, environment: environment.isEmpty ? null : environment);
+      if (result.exitCode != 0) {
+        // The real failure (e.g. an auth error) is reported on stdout; stderr
+        // often carries only the benign CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+        // hardening notice. Surface stdout first so a harmless warning never
+        // masks the actual cause.
+        final raw = (result.stdout ?? '').toString().trim();
+        final stdoutText = _extractPlainText(raw).trim();
+        // _extractPlainText can blank a JSON envelope whose `result` is empty;
+        // never let a non-empty stdout cause vanish behind the benign env-scrub
+        // stderr warning.
+        final cause = stdoutText.isNotEmpty ? stdoutText : raw;
+        final stderr = (result.stderr ?? '').toString().trim();
+        final detail = <String>[if (cause.isNotEmpty) cause, if (stderr.isNotEmpty) 'stderr: $stderr'].join('; ');
+        throw StateError(
+          'Skill introspection failed for provider "$provider" with exit code ${result.exitCode}'
+          '${detail.isEmpty ? '' : ': $detail'}',
+        );
+      }
+      return {..._parseSkillNames((result.stdout ?? '').toString()), ..._provisionedSkills};
+    } finally {
+      await scopedEnvironment?.dispose();
     }
-    return {..._parseSkillNames((result.stdout ?? '').toString()), ..._provisionedSkills};
   }
 
   static Set<String> _parseSkillNames(String stdout) {
@@ -176,20 +184,27 @@ final class CliSkillIntrospector implements SkillIntrospector {
 }
 
 final class _SkillProbeKey {
-  final String provider;
+  final String providerId;
+  final String probeProvider;
   final String executable;
   final bool inheritUserSettings;
 
-  const new({required this.provider, required this.executable, required this.inheritUserSettings});
+  const new({
+    required this.providerId,
+    required this.probeProvider,
+    required this.executable,
+    required this.inheritUserSettings,
+  });
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is _SkillProbeKey &&
-          other.provider == provider &&
+          other.providerId == providerId &&
+          other.probeProvider == probeProvider &&
           other.executable == executable &&
           other.inheritUserSettings == inheritUserSettings;
 
   @override
-  int get hashCode => Object.hash(provider, executable, inheritUserSettings);
+  int get hashCode => Object.hash(providerId, probeProvider, executable, inheritUserSettings);
 }

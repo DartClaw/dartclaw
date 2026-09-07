@@ -4,11 +4,21 @@ import 'guard_verdict.dart';
 
 /// Guard that restricts tool usage to a task-specific allowlist.
 ///
-/// When [allowedTools] is null or empty, all tools are permitted.
-/// When set, any capability not in the list is blocked. Claude's exact
-/// schema-discovery helper may pass; the selected capability remains filtered.
+/// When [allowedTools] is null, all tools are permitted. An empty list is also
+/// unrestricted unless [denyEmptyAllowlist] is enabled. When set, any
+/// capability not in the list is blocked. Claude's exact schema-discovery and
+/// skill-loading helpers may pass; ordinary tool calls remain filtered.
 class TaskToolFilterGuard extends Guard {
+  /// Creates a task tool filter.
+  ///
+  /// [denyEmptyAllowlist] distinguishes an explicit no-tools policy from the
+  /// legacy unrestricted empty-list behavior.
+  new({this.denyEmptyAllowlist = false});
+
   static const _noToolsPolicy = '__knowledge_inbox_no_tools__';
+
+  /// Whether an empty [allowedTools] list represents a closed policy.
+  final bool denyEmptyAllowlist;
 
   @override
   String get name => 'task_tool_filter';
@@ -17,7 +27,7 @@ class TaskToolFilterGuard extends Guard {
   String get category => 'tool';
 
   /// Mutable allowlist — set before each turn via [TaskExecutor].
-  /// Null/empty means unrestricted.
+  /// Null means unrestricted. Empty follows [denyEmptyAllowlist].
   List<String>? allowedTools;
 
   /// When true, blocks mutating file tools and every shell command that is not
@@ -31,17 +41,26 @@ class TaskToolFilterGuard extends Guard {
 
   final Map<String, List<String>?> _allowedToolsBySession = {};
   final Set<String> _readOnlySessionIds = {};
+  final Set<String> _claudeStructuredOutputSessionIds = {};
 
   /// Sets a session-local tool allowlist that overrides [allowedTools].
   ///
   /// Passing null clears the session override. The policy applies only when the
-  /// guard context carries the same session ID.
-  void setSessionToolFilter(String sessionId, List<String>? allowedTools) {
+  /// guard context carries the same session ID. [allowClaudeStructuredOutput]
+  /// admits Claude's exact schema-submission protocol while that turn has an
+  /// active output schema; it does not admit any executable tool.
+  void setSessionToolFilter(String sessionId, List<String>? allowedTools, {bool allowClaudeStructuredOutput = false}) {
     if (allowedTools == null) {
       _allowedToolsBySession.remove(sessionId);
+      _claudeStructuredOutputSessionIds.remove(sessionId);
       return;
     }
     _allowedToolsBySession[sessionId] = List.unmodifiable(allowedTools);
+    if (allowClaudeStructuredOutput) {
+      _claudeStructuredOutputSessionIds.add(sessionId);
+    } else {
+      _claudeStructuredOutputSessionIds.remove(sessionId);
+    }
   }
 
   /// Enables or disables read-only enforcement for one session.
@@ -67,16 +86,30 @@ class TaskToolFilterGuard extends Guard {
 
     final hasSessionPolicy = sessionId != null && _allowedToolsBySession.containsKey(sessionId);
     final tools = hasSessionPolicy ? _allowedToolsBySession[sessionId] : allowedTools;
-    if (tools == null || tools.isEmpty) return GuardVerdict.pass();
+    if (tools == null) return GuardVerdict.pass();
     if (tools.contains(_noToolsPolicy)) {
       return GuardVerdict.block(
         'Tool "${context.toolName ?? 'unknown'}" is not in this task\'s allowed tools: ${tools.join(', ')}',
       );
     }
+    if (sessionId != null &&
+        _claudeStructuredOutputSessionIds.contains(sessionId) &&
+        context.toolName == 'claude:StructuredOutput' &&
+        context.rawProviderToolName == 'StructuredOutput') {
+      return GuardVerdict.pass();
+    }
+    if (tools.isEmpty) {
+      if (!denyEmptyAllowlist) return GuardVerdict.pass();
+      return GuardVerdict.block('Tool "${context.toolName ?? 'unknown'}" is not in this task\'s allowed tools: none');
+    }
     final toolName = context.toolName;
     if (toolName == null) return GuardVerdict.pass();
     if (tools.contains(toolName)) return GuardVerdict.pass();
-    // Discovery exposes schemas only; the selected tool is evaluated separately.
+    // Native skill activation and schema discovery remain available; ordinary
+    // tool calls are evaluated separately against the allowlist.
+    if (toolName == 'claude:Skill' && context.rawProviderToolName == 'Skill') {
+      return GuardVerdict.pass();
+    }
     if (toolName == 'claude:ToolSearch' && context.rawProviderToolName == 'ToolSearch') {
       return GuardVerdict.pass();
     }

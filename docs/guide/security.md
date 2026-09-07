@@ -30,6 +30,11 @@ call passes the host `PreToolUse` gate. On Codex it is bounded to the approval h
 `approval: on-request`, partial under a granular approval mode, and inactive under `approval: never`, because the
 upstream approval flow deadlocks otherwise ([codex#11816](https://github.com/openai/codex/issues/11816)).
 
+Provider-native plugins are trusted code. Claude may activate a skill through native hooks or inline preprocessing
+outside an ordinary tool callback; the tool filter governs the ordinary callbacks that follow, not the plugin code
+itself. Install only plugins you trust, and use `providers.claude.inherit_user_settings: false` when a host turn must
+exclude user-scoped settings and plugins.
+
 What this does **not** cover, named rather than omitted: the content classifier's own provider spawn, which passes no
 guard chain at all. Two neighbouring surfaces are bounded rather than excluded — inbound MCP `tools/call` dispatch **is**
 guard-evaluated against the same base chain and audited, but it is not a runner turn, so per-task tool policy and
@@ -444,17 +449,23 @@ were stored – the refusal names the directory it searched, so compare that aga
 | Codex | `<data_dir>/credentials/codex/` – used as `CODEX_HOME`, holding the vendor's own `auth.json` | The `codex` CLI |
 
 **What the dedicated Codex home carries.** It isolates the *credential*, not your Codex capabilities. Alongside the
-vendor's `auth.json` and DartClaw's generated `config.toml`, the host lane mirrors the `[plugins.*]` tables from your
-`~/.codex/config.toml` plus your `plugins/cache` and `skills` directories into that home. A Codex plugin is enabled by
-the home it runs in, so without this a stored subscription would resolve none of your plugins and any workflow step
-referencing a provider-side skill – every built-in workflow references `andthen:*` – would fail its preflight. Your
-`auth.json` is never copied across, in either direction.
+vendor's `auth.json` and DartClaw's generated `config.toml`, the host lane mirrors the `[plugins.*]` tables,
+`plugins/cache`, and `skills` from the operator Codex home selected by `CODEX_HOME`, falling back to `~/.codex` when
+that variable is unset. A Codex plugin is enabled by the home it runs in, so without this a stored subscription would
+resolve none of your plugins and any workflow step referencing a provider-side skill – every built-in workflow
+references `andthen:*` – would fail its preflight.
 
-The mirror is kept current, not merely seeded: every spawn and every probe re-derives it from your `~/.codex`, so a
-plugin you uninstall there loses both its table and its mirrored files on the next run. DartClaw prunes only what it
-mirrored – recorded in `.dartclaw-mirror.json` in the store – so anything you install into the dedicated home directly
-(`CODEX_HOME=<store> codex …`) stays. If your `~/.codex/config.toml` uses TOML that DartClaw cannot split with
-certainty, it mirrors nothing that run and logs a warning rather than splicing a half-read config.
+This capability mirror never copies `auth.json` from the source home. The dedicated destination keeps the credential
+created and refreshed there by `dartclaw auth codex`; this is separate from the explicit
+`providers.codex.use_system_codex_home: false` lifecycle, which can seed a temporary isolated home from the operator
+login. The mirror is refreshed whenever a worker or CLI probe prepares the dedicated home, so an uninstalled plugin
+loses both its table and mirrored files on the next run. DartClaw skips symlinks inside mirrored payloads and requires
+canonical source, destination, staging, swap, retirement, and pruning paths to stay within their expected homes.
+
+DartClaw prunes only what it mirrored – recorded in `.dartclaw-mirror.json` in the store – so anything you install
+into the dedicated home directly (`CODEX_HOME=<store> codex …`) stays. If the source `config.toml` uses TOML that
+DartClaw cannot split with certainty, it mirrors nothing that run and logs a warning rather than splicing a half-read
+config.
 
 Containerized execution is deliberately excluded: its home is never seeded and carries only generated client
 configuration, which is the boundary container mode exists to keep.

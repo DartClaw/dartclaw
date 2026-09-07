@@ -569,9 +569,19 @@ class TurnRunner implements core.TurnRunner {
     throw ArgumentError('Unknown turnId: $turnId');
   }
 
-  void _installTurnPolicy(String sessionId, String turnId, List<String>? allowedTools, bool readOnly) {
+  void _installTurnPolicy(
+    String sessionId,
+    String turnId,
+    List<String>? allowedTools,
+    bool readOnly, {
+    required bool allowClaudeStructuredOutput,
+  }) {
     _turnPolicyOwners[sessionId] = turnId;
-    _taskToolFilterGuard?.setSessionToolFilter(sessionId, allowedTools);
+    _taskToolFilterGuard?.setSessionToolFilter(
+      sessionId,
+      allowedTools,
+      allowClaudeStructuredOutput: allowClaudeStructuredOutput,
+    );
     _taskToolFilterGuard?.setSessionReadOnly(sessionId, readOnly);
   }
 

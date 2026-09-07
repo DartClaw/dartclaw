@@ -54,6 +54,38 @@ void main() {
     expect(calls, 1);
   });
 
+  test('does not coalesce concurrent Codex aliases with different home policies', () async {
+    final calls = <Map<String, String>?>[];
+    final completers = [Completer<ProcessResult>(), Completer<ProcessResult>()];
+    final introspector = CliSkillIntrospector(
+      environmentForProvider: (provider) async => ProviderProbeEnvironment({'PROVIDER_ID': provider}),
+      runner: (executable, arguments, {environment}) {
+        calls.add(environment);
+        return completers[calls.length - 1].future;
+      },
+    );
+
+    final systemProbe = introspector.listAvailable(
+      provider: 'codex-system',
+      executable: '/bin/codex',
+      providerOptions: const {'family': 'codex', 'use_system_codex_home': true},
+    );
+    final isolatedProbe = introspector.listAvailable(
+      provider: 'codex-isolated',
+      executable: '/bin/codex',
+      providerOptions: const {'family': 'codex', 'use_system_codex_home': false},
+    );
+    completers[0].complete(ProcessResult(1, 0, 'system-skill\n', ''));
+    completers[1].complete(ProcessResult(2, 0, 'isolated-skill\n', ''));
+
+    expect(await systemProbe, {'system-skill'});
+    expect(await isolatedProbe, {'isolated-skill'});
+    expect(calls, [
+      {'PROVIDER_ID': 'codex-system'},
+      {'PROVIDER_ID': 'codex-isolated'},
+    ]);
+  });
+
   test('parses claude json result output when present', () async {
     final introspector = CliSkillIntrospector(
       runner: (executable, arguments, {environment}) async {
@@ -149,7 +181,7 @@ void main() {
   test('passes provider-specific probe environment to runner', () async {
     late Map<String, String>? capturedEnvironment;
     final introspector = CliSkillIntrospector(
-      environmentForProvider: (provider) async => {'PROVIDER': provider, 'PATH': '/bin'},
+      environmentForProvider: (provider) async => ProviderProbeEnvironment({'PROVIDER': provider, 'PATH': '/bin'}),
       runner: (executable, arguments, {environment}) async {
         capturedEnvironment = environment;
         return ProcessResult(1, 0, 'dartclaw-discover-andthen-spec\n', '');
@@ -162,11 +194,41 @@ void main() {
     expect(capturedEnvironment, {'PROVIDER': 'codex', 'PATH': '/bin'});
   });
 
+  test('disposes a scoped provider environment after a successful probe', () async {
+    var disposed = false;
+    final introspector = CliSkillIntrospector(
+      environmentForProvider: (provider) async =>
+          ProviderProbeEnvironment({'PROVIDER': provider}, dispose: () async => disposed = true),
+      runner: (executable, arguments, {environment}) async {
+        expect(disposed, isFalse);
+        expect(environment, {'PROVIDER': 'codex'});
+        return ProcessResult(1, 0, 'andthen:review\n', '');
+      },
+    );
+
+    await introspector.listAvailable(provider: 'codex');
+
+    expect(disposed, isTrue);
+  });
+
+  test('disposes a scoped provider environment when the probe fails', () async {
+    var disposed = false;
+    final introspector = CliSkillIntrospector(
+      environmentForProvider: (provider) async =>
+          ProviderProbeEnvironment({'PROVIDER': provider}, dispose: () async => disposed = true),
+      runner: (executable, arguments, {environment}) async => ProcessResult(1, 1, '', 'probe failed'),
+    );
+
+    await expectLater(introspector.listAvailable(provider: 'codex'), throwsA(isA<StateError>()));
+
+    expect(disposed, isTrue);
+  });
+
   test('probes noncanonical provider IDs by configured family', () async {
     late List<String> capturedArguments;
     late Map<String, String>? capturedEnvironment;
     final introspector = CliSkillIntrospector(
-      environmentForProvider: (provider) async => {'PROVIDER_ID': provider},
+      environmentForProvider: (provider) async => ProviderProbeEnvironment({'PROVIDER_ID': provider}),
       runner: (executable, arguments, {environment}) async {
         capturedArguments = arguments;
         capturedEnvironment = environment;

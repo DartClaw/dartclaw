@@ -56,7 +56,7 @@ The default therefore had to be reconsidered, and it is security-relevant: loadi
 
 - FIS provenance: 0.17 maintainer workflow, claude-harness-setting-sources.
 - Config surface: `claude_provider_options.dart` (`inheritUserSettingsKey`, `inheritUserSettings`, `useProjectSettingSources`).
-- Emission sites: `claude_code_harness.dart` `_buildClaudeArgs`; `claude_cli_provider.dart` arg construction; workflow skill-preflight probe — all gated on the same option; no `--setting-sources project` token remains hardcoded in production code.
+- Active emission sites: `claude_code_harness.dart` `_buildClaudeArgs` and the workflow skill-preflight probe, both gated on the same option.
 - Operators wanting project-only isolation on the direct (non-container) path must set `providers.claude.inherit_user_settings: false`.
 
 ## Project Compliance

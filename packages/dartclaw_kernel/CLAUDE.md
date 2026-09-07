@@ -94,6 +94,12 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `ProviderEntry.auth == null` means inherit the family selection; explicit `auto` is different. Rebuild entries with
   `copyWith`.
 - `GuardChain.layered` reads the base list live while retaining layer-owned guards.
+- `TaskToolFilterGuard.denyEmptyAllowlist` opts into explicit empty-list denial. Null remains unrestricted; the default
+  preserves legacy empty-list behavior. Runtime enables strict empty lists for workflow workers and their finalizers.
+  A schema-active session may admit only the exact Claude `StructuredOutput` protocol identity; the knowledge-inbox
+  no-tools sentinel still wins, and clearing the session policy also clears this exception.
+  Nonempty policies admit exact native Claude Skill/ToolSearch helpers; empty policies and the sentinel deny them.
+  Skill activation loads trusted plugin code, while ordinary tool callbacks remain filtered.
 - `FileGuard` resolves relative paths against the tool cwd and resolves symlinks before matching.
 - `SearchBackend.search` accepts natural language and optional layer constraints; adapters own backend syntax and
   degradation labels.

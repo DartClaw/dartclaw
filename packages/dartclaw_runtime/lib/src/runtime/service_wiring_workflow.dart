@@ -5,7 +5,7 @@ part of 'service_wiring.dart';
 /// outside one never lists it.
 SkillIntrospector _buildSkillIntrospector(
   _WiringContext ctx,
-  Future<Map<String, String>> Function(String providerId) environmentForProvider,
+  Future<ProviderProbeEnvironment> Function(String providerId) environmentForProvider,
 ) => CliSkillIntrospector(
   environmentForProvider: environmentForProvider,
   provisionedSkills: WorkspaceSkillInventory.fromDataDir(ctx.dataDir).skillNames.toSet(),

@@ -1029,7 +1029,7 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 - `andthen:remediate-findings` – remediation loop driver
 - `andthen:triage` – failure investigation
 
-Install AndThen for the provider you run — the built-in workflows reference only core `andthen` plugin skills. DartClaw resolves `<plugin>:<name>` to `<plugin>-<name>` for Codex and leaves it unchanged for Claude Code. See [AndThen Skills](andthen-skills.md).
+Install AndThen for the provider you run – the built-in workflows reference only core `andthen` plugin skills. DartClaw uses the exact authored name when visible, with a `<plugin>-<name>` fallback for legacy Codex skill installations. User-scope plugins are supported on host execution; see [AndThen Skills](andthen-skills.md#user-scope-plugins) for settings inheritance and isolation.
 
 ## Reference
 

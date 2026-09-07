@@ -8,10 +8,22 @@ DartClaw does not clone AndThen, run AndThen's installer, or create DartClaw-bra
 
 | Provider | Canonical reference | Provider-native name |
 |---|---|---|
-| Codex | `andthen:spec` | `andthen-spec` |
+| Codex | `andthen:spec` | `andthen:spec` for a native plugin; `andthen-spec` for a legacy skill installation |
 | Claude Code | `andthen:spec` | `andthen:spec` |
 
 Unknown providers use the authored skill name exactly.
+
+## User-Scope Plugins
+
+Project-scope installation is optional. On the direct host path, Claude Code inherits user settings and enabled plugins by default, including workflow steps with declared tools. `providers.claude.inherit_user_settings: false` opts into project-only settings. An omitted `allowedTools` policy inherits the harness tool surface; an explicit list restricts it, and `allowedTools: []` permits no ordinary tool calls. Native skill activation remains available for nonempty lists, and inherited native deny rules can further restrict permitted tools. User settings and plugin code are trusted: the allowlist filters ordinary tool callbacks; it does not sandbox plugin hooks or activation-time [skill shell preprocessing](https://code.claude.com/docs/en/skills#inject-dynamic-context).
+
+Codex uses the operator's `CODEX_HOME` (default `~/.codex`) unless a dedicated subscription home or explicit isolation applies:
+
+- A stored Codex subscription uses DartClaw's dedicated credential home and mirrors the operator home's enabled-plugin settings, plugin cache, and skills. It never copies the operator's authentication into that home. Payload symlinks are skipped, and destination paths must stay inside the dedicated home.
+- Without a dedicated subscription, `providers.codex.use_system_codex_home: false` selects a temporary home with authentication but without user plugins. Skill preflight uses the same isolation and removes its temporary home after the probe.
+- Containers retain their separate settings and credential boundary; host plugin inheritance applies to host execution.
+
+Skill preflight checks the effective provider environment before dispatch. Codex uses the exact authored name when it is visible, then the legacy hyphenated name when available.
 
 ## DartClaw-Native Skills
 
@@ -31,6 +43,6 @@ Configured project workspaces receive links or managed fallback copies for those
 
 ## Diagnostics
 
-When a workflow references an AndThen skill that is not installed for the effective provider, validation names the canonical reference, the provider, and the concrete provider-native name that was searched. For example, a Codex workflow step using `andthen:exec-spec` searches for `andthen-exec-spec`.
+When a workflow references an AndThen skill that is not installed for the effective provider, validation names the canonical reference, the provider, and the provider-native name. Check that the plugin is enabled in the settings scope used by that provider; an explicit isolation option can hide an otherwise installed user plugin.
 
 Legacy `andthen:` configuration keys in `dartclaw.yaml` are ignored with warnings. They no longer control any active clone, cache, network, or source-management behavior.

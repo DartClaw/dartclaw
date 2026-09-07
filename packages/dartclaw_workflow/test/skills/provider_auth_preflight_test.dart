@@ -211,6 +211,25 @@ void main() {
   });
 
   group('CliProviderAuthPreflight codex', () {
+    test('disposes a scoped provider environment after the auth probe', () async {
+      var disposed = false;
+      final preflight = CliProviderAuthPreflight(
+        credentials: () => _registry(),
+        environmentForProvider: (provider) async =>
+            ProviderProbeEnvironment({'PROVIDER': provider}, dispose: () async => disposed = true),
+        runner: (executable, arguments, {environment}) async {
+          expect(disposed, isFalse);
+          expect(environment, {'PROVIDER': 'codex'});
+          return ProcessResult(1, 1, '', 'Not logged in');
+        },
+      );
+
+      final result = await preflight.evaluate(provider: 'codex');
+
+      expect(result.authenticated, isFalse);
+      expect(disposed, isTrue);
+    });
+
     test('logged-out codex (exit 1, message on stderr) is unauthenticated with remediation', () async {
       final calls = <List<String>>[];
       final preflight = CliProviderAuthPreflight(

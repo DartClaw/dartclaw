@@ -36,6 +36,8 @@ Modes:
 
 Canaries:
   core                 Real core bridge protocol smoke.
+  user-plugins         User-only plugin consumption in Claude and Codex,
+                       including Claude tool denials and Codex dedicated homes.
   step-isolation       Live workflow step/output contract probes. Two files,
                        two providers by design: the env-export canary pins
                        codex, the step/declared-output suite pins claude
@@ -68,6 +70,8 @@ EOF
 FULL_FILES=(
   "packages/dartclaw_core/test/integration/direct_bridge_test.dart"
   "packages/dartclaw_workflow/test/workflow/step_artifacts_env_live_canary_test.dart"
+  "packages/dartclaw_workflow/test/workflow/claude_user_plugin_inheritance_test.dart"
+  "packages/dartclaw_workflow/test/workflow/codex_user_plugin_inheritance_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart"
   "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
@@ -163,6 +167,13 @@ case "${MODE}:${CANARY:-}" in
       "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
     )
     LOG_LABEL="canary-step-isolation"
+    ;;
+  canary:user-plugins)
+    FILES=(
+      "packages/dartclaw_workflow/test/workflow/claude_user_plugin_inheritance_test.dart"
+      "packages/dartclaw_workflow/test/workflow/codex_user_plugin_inheritance_test.dart"
+    )
+    LOG_LABEL="canary-user-plugins"
     ;;
   canary:spec-and-implement)
     FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")

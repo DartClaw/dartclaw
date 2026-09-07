@@ -324,12 +324,8 @@ void main() {
     permissionMode = 'bypassPermissions';
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
 
-    // The harness runs Claude Code against `fixtureDir` with
-    // `--setting-sources project`, so it only sees `dartclaw-*` skills staged
-    // under the fixture itself — never the operator's own `~/.claude/skills`.
-    // Reproduce the production seam (`SkillProvisioner` copy +
-    // `WorkspaceSkillLinker` link) here instead of relying on whatever the
-    // developer's box happens to have cached.
+    // Stage the DartClaw-native skills through the production provision/link
+    // seam so the fixture does not depend on a previous local DartClaw run.
     skillsCacheDir = Directory.systemTemp.createTempSync('dartclaw_workflow_step_isolation_skills_');
     await SkillProvisioner(
       dataDir: skillsCacheDir.path,
@@ -488,6 +484,8 @@ void main() {
 
     // Pin the model: an unpinned harness falls back to the operator's own
     // configured default, which breaks hermeticity.
+    final taskToolFilter = TaskToolFilterGuard(denyEmptyAllowlist: true);
+    final guardChain = GuardChain(guards: [taskToolFilter]);
     final harness = HarnessFactory().create(
       'claude',
       HarnessFactoryConfig(
@@ -496,6 +494,7 @@ void main() {
         turnTimeout: stepTimeout,
         providerOptions: {'permissionMode': permissionMode},
         environment: {...inheritedEnv, stepArtifactsDirEnvVar: stepArtifactsDir},
+        guardChain: guardChain,
       ),
     );
     final turnStopwatch = Stopwatch()..start();
@@ -511,6 +510,8 @@ void main() {
           behavior: BehaviorFileService(workspaceDir: fixtureDir),
           sessions: sessionService,
           providerId: 'claude',
+          guardChain: guardChain,
+          taskToolFilterGuard: taskToolFilter,
         ),
         sessionId: session.id,
         pendingMessage: prompt,

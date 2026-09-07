@@ -25,7 +25,13 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
     final buffer = StringBuffer();
     final stopwatch = Stopwatch()..start();
     final turnPolicy = _activeTurns[sessionId];
-    _installTurnPolicy(sessionId, turnId, turnPolicy?.allowedTools, turnPolicy?.readOnly ?? false);
+    _installTurnPolicy(
+      sessionId,
+      turnId,
+      turnPolicy?.allowedTools,
+      turnPolicy?.readOnly ?? false,
+      allowClaudeStructuredOutput: turnPolicy?.outputSchema != null,
+    );
     var progressTextLength = 0;
     TurnLivenessTracker? runtimeWait;
     final pendingApprovalIds = <String>{};

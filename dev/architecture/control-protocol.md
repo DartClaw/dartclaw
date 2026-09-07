@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.25.2 Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -158,6 +158,8 @@ These are stripped before spawning. The parent environment is otherwise inherite
 ### Claude settings sources
 
 Direct host-side Claude harness spawns omit `--setting-sources` by default. Claude's default is to load user, project, and local settings, which makes user-scope plugins, skills, agents, commands, and MCP configuration visible to interactive and workflow workers. Set `providers.claude.inherit_user_settings: false` to restore the previous project-only posture; DartClaw then passes `--setting-sources project` before `--model` on every direct harness spawn. Containerized Claude spawns do not use this flag because the container provides the isolation boundary.
+
+For a nonempty workflow tool policy, the exact native `Skill` and `ToolSearch` identities remain available so Claude can load trusted skill instructions and tool schemas. Empty policies and the knowledge-inbox no-tools sentinel deny those helpers. Ordinary tool calls reported through the provider hook path remain filtered. Skill activation can run trusted plugin hooks and shell preprocessing; this tool allowlist is not a sandbox for that native plugin code. Claude documents [dynamic context](https://code.claude.com/docs/en/skills#inject-dynamic-context) separately from [tool-hook events](https://code.claude.com/docs/en/hooks#pretooluse), without promising that preprocessing emits a Bash hook.
 
 ### Containerized spawning
 
@@ -519,6 +521,8 @@ Signals the end of a turn with cost and token metadata.
 
 A turn spawned with `--json-schema` additionally carries `structured_output` (the payload the CLI validated against the
 schema) and, when validation never succeeded, `subtype: "error_max_structured_output_retries"`.
+
+Claude submits that payload through its native `StructuredOutput` protocol call. For a turn with an active provider-enforced schema, `TurnRunner` enables a session-local `TaskToolFilterGuard` exception requiring both raw `StructuredOutput` and canonical `claude:StructuredOutput`. This keeps an explicit empty workflow tool policy compatible with finalization; ordinary tools and the knowledge-inbox no-tools sentinel remain denied, and the exception is cleared after the turn.
 
 Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
 

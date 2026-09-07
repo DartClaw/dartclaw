@@ -43,6 +43,7 @@ class HarnessWiring {
     Set<String>? workflowProviderScope,
     List<HarnessRegistrar> harnessRegistrars = const [],
     Map<String, String>? environment,
+    PlatformCapabilities? platformCapabilities,
     SessionLockTimerFactory? turnTimerFactory,
     SessionLockNow? turnNow,
   }) : _headless = headless,
@@ -61,7 +62,9 @@ class HarnessWiring {
        _configNotifier = configNotifier,
        _turnTimerFactory = turnTimerFactory,
        _turnNow = turnNow,
-       _environment = environment ?? Platform.environment;
+       _environment = environment ?? Platform.environment,
+       _platformCapabilities =
+           platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment);
 
   final DartclawConfig config;
   final String _dataDir;
@@ -78,6 +81,7 @@ class HarnessWiring {
 
   /// Process environment credential resolution and provider spawns read.
   final Map<String, String> _environment;
+  final PlatformCapabilities _platformCapabilities;
 
   /// Snapshot of the dedicated subscription stores, read when a spawn
   /// environment is built rather than cached at wiring time.
@@ -885,6 +889,12 @@ class HarnessWiring {
           }
           throw WorkerCreationException(verdict.message);
         }
+        final workflowAllowedTools = request.surface == ExecutionSurface.workflow && request.allowedTools != null
+            ? List<String>.unmodifiable(request.allowedTools!)
+            : null;
+        final workflowNativeGrants = request.surface == ExecutionSurface.workflow
+            ? (workflowAllowedTools ?? _undeclaredStepNativeGrants)
+            : null;
         final bridgedMcpTools = _bridgedMcpToolsFor(
           agentId: request.logicalAgentId,
           allowedTools: request.allowedTools,
@@ -912,7 +922,8 @@ class HarnessWiring {
           }
         }
         final containerManager = lease?.container;
-        final workerFilter = TaskToolFilterGuard();
+        final workerFilter = TaskToolFilterGuard(denyEmptyAllowlist: request.surface == ExecutionSurface.workflow)
+          ..allowedTools = workflowAllowedTools;
         final workerGuardChain = _buildRunnerGuardChain(
           _security.guardChain,
           workerFilter,
@@ -943,12 +954,8 @@ class HarnessWiring {
               executable: entry.executable,
               harnessConfig: workerHarnessConfig,
               providerOptions: entry.options,
-              // A workflow step's declared tools become the provider's allow
-              // list too, and its spawn stops reading user-scope settings.
-              // Other surfaces keep today's behaviour.
-              declaredCanonicalTools: request.surface == ExecutionSurface.workflow
-                  ? (request.allowedTools ?? _undeclaredStepTools)
-                  : null,
+              // Native allow rules supplement the task's guard policy.
+              declaredCanonicalTools: workflowNativeGrants,
               declaredWritableRoots: [?request.artifactsDir],
               containerManager: containerManager,
               guardChain: workerGuardChain,
@@ -1164,17 +1171,15 @@ class HarnessWiring {
       family: family,
       credentialsDir: config.credentialsDir,
       onCredentialHealth: _reportHostCredentialHealth,
+      platformCapabilities: _platformCapabilities,
     );
   }
 
-  /// What a workflow step that declares no `allowedTools` may call.
+  /// Provider-native grants for a workflow step with no explicit tool policy.
   ///
-  /// Leaving it undeclared used to mean inheriting the host operator's personal
-  /// Claude settings, so the same step behaved differently on two machines —
-  /// on 2026-08-28 a step's shell calls ran only because the developer's own
-  /// file allowed them. A fixed set scoped to the step's own roots is
-  /// deterministic; a step needing less declares less.
-  static const _undeclaredStepTools = <String>[
+  /// These make standard tools available without turning omission into a host
+  /// allowlist; trusted user settings, plugins, and MCP tools remain inherited.
+  static const _undeclaredStepNativeGrants = <String>[
     'shell',
     'file_read',
     'file_write',
@@ -1223,6 +1228,7 @@ class HarnessWiring {
     environment: environment,
     containerEnvironment: containerEnvironment,
     prepareSubscriptionHome: prepareSubscriptionHome,
+    platformCapabilities: _platformCapabilities,
   );
 
   MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {

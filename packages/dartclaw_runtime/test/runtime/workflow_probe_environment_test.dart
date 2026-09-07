@@ -6,6 +6,7 @@ import 'package:dartclaw_runtime/src/runtime/provider_resolution.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show SubscriptionCredentialStore;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show CodexRefreshAuthority;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ProviderProbeEnvironment;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -79,17 +80,19 @@ void main() {
     entries: {'codex': ProviderEntry(executable: 'codex', auth: ProviderAuth.subscription)},
   );
 
-  Future<Map<String, String>> probeEnvironment({
+  Future<ProviderProbeEnvironment> probeEnvironment({
     String providerId = 'codex',
     String providerFamily = ProviderIdentity.codex,
     AcpAgentConfig? acpAgent,
     CredentialsConfig configuredCredentials = const CredentialsConfig(),
+    Map<String, dynamic> providerOptions = const {},
+    Map<String, String> baseEnvironment = const {'PATH': '/usr/bin', 'USER': 'tobias'},
     required CredentialRegistry credentials,
   }) => buildProviderProbeEnvironment(
     target: ResolvedProviderTarget(
       providerId: providerId,
       executable: providerFamily,
-      options: const {},
+      options: providerOptions,
       family: providerFamily,
       registeredEntry: acpAgent == null ? null : ProviderEntry(executable: acpAgent.binary),
     ),
@@ -98,7 +101,7 @@ void main() {
         ? null
         : (id, Map<String, String> environment) =>
               overlayAcpCredential(environment: environment, credentials: configuredCredentials, agent: acpAgent),
-    baseEnvironment: const {'PATH': '/usr/bin', 'USER': 'tobias'},
+    baseEnvironment: baseEnvironment,
     codexRefresh: authority(),
     credentialsDir: credentialsDir,
   );
@@ -106,7 +109,9 @@ void main() {
   test('a stored Codex subscription points the probe at the dedicated store', () async {
     storeCodexSubscription();
 
-    final environment = await probeEnvironment(credentials: registry(providers: forcedCodexSubscription));
+    final probe = await probeEnvironment(credentials: registry(providers: forcedCodexSubscription));
+    addTearDown(probe.dispose);
+    final environment = probe.environment;
 
     expect(
       environment['CODEX_HOME'],
@@ -124,13 +129,17 @@ void main() {
     // `providers.codex.auth` written by hand. The stored token still decides.
     storeCodexSubscription();
 
-    final environment = await probeEnvironment(credentials: registry());
+    final probe = await probeEnvironment(credentials: registry());
+    addTearDown(probe.dispose);
+    final environment = probe.environment;
 
     expect(environment['CODEX_HOME'], store.codexHome);
   });
 
   test('an API-key Codex deployment overlays no dedicated home', () async {
-    final environment = await probeEnvironment(credentials: registry(env: const {'OPENAI_API_KEY': 'sk-openai-test'}));
+    final probe = await probeEnvironment(credentials: registry(env: const {'OPENAI_API_KEY': 'sk-openai-test'}));
+    addTearDown(probe.dispose);
+    final environment = probe.environment;
 
     expect(environment.containsKey('CODEX_HOME'), isFalse);
     expect(environment['OPENAI_API_KEY'], 'sk-openai-test');
@@ -160,7 +169,7 @@ void main() {
     // `credential:` names — so refusing here would block a probe over a
     // credential decision that was never made for it, and admitting it with a
     // `CODEX_HOME` would hand a third-party client the dedicated store.
-    final environment = await probeEnvironment(
+    final probe = await probeEnvironment(
       acpAgent: AcpAgentConfig(binary: '/opt/goose', credential: 'vendor'),
       configuredCredentials: const CredentialsConfig(
         entries: {
@@ -169,6 +178,8 @@ void main() {
       ),
       credentials: registry(env: const {'OPENAI_API_KEY': 'sk-openai-test'}, providers: forcedCodexSubscription),
     );
+    addTearDown(probe.dispose);
+    final environment = probe.environment;
 
     expect(environment.containsKey('CODEX_HOME'), isFalse);
     expect(environment.containsKey('OPENAI_API_KEY'), isFalse);
@@ -178,14 +189,79 @@ void main() {
   test('a Claude probe is untouched by the Codex subscription lane', () async {
     storeCodexSubscription();
 
-    final environment = await probeEnvironment(
+    final probe = await probeEnvironment(
       providerId: 'claude',
       providerFamily: ProviderIdentity.claude,
       credentials: registry(env: const {'ANTHROPIC_API_KEY': 'sk-ant-test'}),
     );
+    addTearDown(probe.dispose);
+    final environment = probe.environment;
 
     expect(environment.containsKey('CODEX_HOME'), isFalse);
     expect(environment['ANTHROPIC_API_KEY'], 'sk-ant-test');
     expect(environment['USER'], 'tobias', reason: 'the keychain-OAuth invariant must survive the probe overlay');
+  });
+
+  test('an isolated Codex probe uses the worker home lifecycle and cleans it up', () async {
+    final operatorHome = Directory(p.join(tempDir.path, 'isolated-operator'))..createSync();
+    final defaultCodexHome = Directory(p.join(operatorHome.path, '.codex'))..createSync();
+    File(p.join(defaultCodexHome.path, 'auth.json')).writeAsStringSync('{"source":"default"}');
+    final customCodexHome = Directory(p.join(tempDir.path, 'isolated-custom'))..createSync();
+    File(p.join(customCodexHome.path, 'auth.json')).writeAsStringSync('{"source":"custom"}');
+
+    final probe = await probeEnvironment(
+      credentials: registry(),
+      providerOptions: const {'use_system_codex_home': false},
+      baseEnvironment: {
+        'HOME': operatorHome.path,
+        'CODEX_HOME': customCodexHome.path,
+        'PATH': '/usr/bin',
+        'USER': 'tobias',
+      },
+    );
+    final probeHome = probe.environment['CODEX_HOME']!;
+
+    expect(probeHome, isNot(customCodexHome.path));
+    expect(File(p.join(probeHome, 'auth.json')).readAsStringSync(), '{"source":"custom"}');
+
+    await probe.dispose();
+
+    expect(Directory(probeHome).existsSync(), isFalse);
+    expect(customCodexHome.existsSync(), isTrue);
+  });
+
+  test('a system-home Codex probe retains the operator custom home without owning it', () async {
+    final customCodexHome = Directory(p.join(tempDir.path, 'system-custom'))..createSync();
+
+    final probe = await probeEnvironment(
+      credentials: registry(),
+      baseEnvironment: {
+        'HOME': p.join(tempDir.path, 'system-operator'),
+        'CODEX_HOME': customCodexHome.path,
+        'PATH': '/usr/bin',
+      },
+    );
+
+    expect(probe.environment['CODEX_HOME'], customCodexHome.path);
+    await probe.dispose();
+    expect(customCodexHome.existsSync(), isTrue);
+  });
+
+  test('a dedicated subscription home wins over isolated-home configuration', () async {
+    storeCodexSubscription();
+
+    final probe = await probeEnvironment(
+      credentials: registry(providers: forcedCodexSubscription),
+      providerOptions: const {'use_system_codex_home': false},
+      baseEnvironment: {
+        'HOME': p.join(tempDir.path, 'dedicated-operator'),
+        'CODEX_HOME': p.join(tempDir.path, 'operator-custom'),
+        'PATH': '/usr/bin',
+      },
+    );
+
+    expect(probe.environment['CODEX_HOME'], store.codexHome);
+    await probe.dispose();
+    expect(Directory(store.codexHome).existsSync(), isTrue);
   });
 }

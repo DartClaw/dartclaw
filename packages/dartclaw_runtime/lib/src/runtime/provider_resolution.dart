@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
+        CodexEnvironment,
         CredentialHealthState,
         claudeContainerHardeningEnvVars,
         claudeHardeningEnvVars,
@@ -13,6 +14,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         CodexReauthRequired,
         CodexRefreshAuthority,
         CodexRefreshFailed;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show ProviderProbeEnvironment;
 
 /// Which binary a provider ID spawns, with which options, in which family, and
 /// whether a harness registrar owns it.
@@ -199,7 +201,7 @@ Map<String, String> buildProviderSpawnEnvironment({
 /// `completeForExecution` binds a monitor the sink logs the refusal, and after
 /// completion it reports through the wired `ProviderStatusService` monitor.
 /// `workflow validate` supplies no health sink.
-Future<Map<String, String>> buildProviderProbeEnvironment({
+Future<ProviderProbeEnvironment> buildProviderProbeEnvironment({
   required ResolvedProviderTarget target,
   required CredentialRegistry registry,
   required Map<String, String> baseEnvironment,
@@ -218,15 +220,38 @@ Future<Map<String, String>> buildProviderProbeEnvironment({
           family: target.family,
           credentialsDir: credentialsDir,
           onCredentialHealth: onCredentialHealth,
+          platformCapabilities: PlatformCapabilities(environment: baseEnvironment),
         )
       : null;
-  return buildProviderSpawnEnvironment(
+  final environment = buildProviderSpawnEnvironment(
     target: target,
     registry: registry,
     baseEnvironment: baseEnvironment,
     subscriptionHome: subscriptionHome,
     registrarOverlay: registrarOverlay,
   );
+  if (target.family != ProviderIdentity.codex || target.isRegistered || subscriptionHome != null) {
+    return ProviderProbeEnvironment(environment);
+  }
+  if (CodexEnvironment.useSystemHome(target.options)) {
+    return ProviderProbeEnvironment(environment);
+  }
+
+  final codexEnvironment = CodexEnvironment(
+    developerInstructions: '',
+    useSystemCodexHome: false,
+    platformCapabilities: PlatformCapabilities(environment: baseEnvironment),
+  );
+  try {
+    await codexEnvironment.setup();
+    return ProviderProbeEnvironment({
+      ...environment,
+      ...codexEnvironment.environmentOverrides(),
+    }, dispose: codexEnvironment.cleanup);
+  } catch (_) {
+    await codexEnvironment.cleanup();
+    rethrow;
+  }
 }
 
 Map<String, String> _overlayProviderCredential({
@@ -303,8 +328,8 @@ const _refusedDetail = 'The host Codex spawn was refused because the selected cr
 /// [credentialsDir] is the dedicated store the refusal searched, and
 /// [onCredentialHealth] the sink a refusal is announced through — the host
 /// boundary reaches no gateway, so this is where its health signal originates.
-String? _completedCodexHome(String? home) {
-  if (home != null) completeDedicatedCodexHome(home);
+String? _completedCodexHome(String? home, PlatformCapabilities? platformCapabilities) {
+  if (home != null) completeDedicatedCodexHome(home, platformCapabilities: platformCapabilities);
   return home;
 }
 
@@ -315,6 +340,7 @@ Future<String?> prepareCodexSubscriptionHome({
   String? family,
   String? credentialsDir,
   CodexCredentialHealthSink? onCredentialHealth,
+  PlatformCapabilities? platformCapabilities,
 }) async {
   Never refuse({required CredentialHealthState state, required String detail, String? remediation}) {
     onCredentialHealth?.call(providerId: providerId, state: state, detail: detail, remediation: remediation);
@@ -341,7 +367,8 @@ Future<String?> prepareCodexSubscriptionHome({
       // Both lanes resolve the home here, and a probe reaches it before any
       // worker has built one — so the operator's plugin capabilities are
       // completed at the point the home is handed over, not at worker setup.
-      CodexCredentialPresented() || CodexCredentialRotatedAway() => _completedCodexHome(authority.codexHome),
+      CodexCredentialPresented() ||
+      CodexCredentialRotatedAway() => _completedCodexHome(authority.codexHome, platformCapabilities),
       CodexReauthRequired(:final detail, :final remediation) => refuse(
         state: CredentialHealthState.reauthRequired,
         detail: detail,

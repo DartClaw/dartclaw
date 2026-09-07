@@ -38,11 +38,8 @@ class HarnessFactoryConfig {
   /// Canonical tool names this spawn's step declared, and the roots its
   /// file-mutating tools may write.
   ///
-  /// Set only for a workflow-step spawn. When present, the derived Claude
-  /// permission rules become the spawn's total policy: the operator's
-  /// user-scope settings are excluded, so a step runs on what it declared
-  /// rather than on whatever the host's `~/.claude/settings.json` happens to
-  /// allow. Null leaves today's behaviour, inheritance included.
+  /// Set only for a workflow-step spawn. Claude derives native permission
+  /// rules from this list while the guard chain enforces the step's policy.
   final List<String>? declaredCanonicalTools;
   final List<String> declaredWritableRoots;
 

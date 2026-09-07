@@ -383,13 +383,17 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
-    expect(recordedConfigs.last.declaredCanonicalTools, ['shell', 'file_write']);
-    expect(recordedConfigs.last.declaredWritableRoots, ['/tmp/workflow-declared']);
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
+    expect(factoryConfig.declaredCanonicalTools, ['shell', 'file_write']);
+    expect(factoryConfig.declaredWritableRoots, ['/tmp/workflow-declared']);
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, ['shell', 'file_write']);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('shell', const {})).isPass, isTrue);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isBlock, isTrue);
   });
 
-  test('a workflow step declaring no tools gets the fixed set, never the operator user settings', () async {
-    // Undeclared used to mean "inherit whatever is on this host", so the same
-    // step behaved differently on two machines.
+  test('an omitted workflow policy keeps provider-native user tools unrestricted', () async {
     await wireStorageAndSecurity();
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
     await wireHarness(factory);
@@ -406,10 +410,40 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
     expect(
-      recordedConfigs.last.declaredCanonicalTools,
+      factoryConfig.declaredCanonicalTools,
       containsAll(<String>['shell', 'file_read', 'file_write', 'file_edit', 'web_fetch', 'web_search', 'mcp_call']),
     );
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, isNull);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isPass, isTrue);
+  });
+
+  test('an explicit empty workflow policy blocks ordinary and provider-native tools', () async {
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final lease = await harnessWiring!.executions.acquire(
+      const ExecutionRequest(
+        surface: ExecutionSurface.workflow,
+        providerId: 'claude',
+        policy: ExecutionPolicy.host(),
+        sessionId: 'workflow-empty',
+        allowedTools: [],
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
+    expect(factoryConfig.declaredCanonicalTools, isEmpty);
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, isEmpty);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('file_read', const {})).isBlock, isTrue);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isBlock, isTrue);
   });
 
   test('a non-workflow surface derives no step policy and keeps inheritance', () async {

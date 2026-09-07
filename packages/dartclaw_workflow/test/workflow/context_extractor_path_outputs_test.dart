@@ -49,6 +49,116 @@ void main() {
     );
   });
 
+  test('resolves a relative path from a standalone inline task execution workspace', () async {
+    final executionWorkspace = Directory(p.join(tempDir.path, 'inline-execution-workspace'))..createSync();
+    const reportPath = 'docs/architecture-report.md';
+    File(p.join(executionWorkspace.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Architecture report\n');
+
+    final task = await harness.buildTaskWithContext('task-inline-workspace-path', const {
+      'report': reportPath,
+    }, workflowWorkspaceDir: executionWorkspace.path);
+
+    final outputs = await extractor.extract(harness.pathOutputStep('report'), task);
+
+    expect(outputs['report'], reportPath);
+  });
+
+  test('keeps the step artifacts dir ahead of a standalone inline task execution workspace', () async {
+    const runId = 'run-inline-workspace-collision';
+    const reportPath = 'architecture-report.md';
+    final stepCopy = harness.writeStepReview(runId, 'step1', reportPath, content: '# Captured report\n');
+    final executionWorkspace = Directory(p.join(tempDir.path, 'inline-workspace-collision'))..createSync();
+    File(p.join(executionWorkspace.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Workspace report\n');
+
+    final task = await harness.buildTaskWithContext(
+      'task-inline-workspace-collision',
+      const {'report': reportPath},
+      workflowRunId: runId,
+      workflowWorkspaceDir: executionWorkspace.path,
+    );
+
+    final outputs = await extractor.extract(harness.pathOutputStep('report'), task);
+
+    expect(outputs['report'], stepCopy);
+    expect(p.isAbsolute(outputs['report'] as String), isTrue);
+  });
+
+  test('does not resolve from the execution workspace when a worktree governs the task', () async {
+    final executionWorkspace = Directory(p.join(tempDir.path, 'worktree-task-workspace'))..createSync();
+    final worktree = harness.createWorktree('governing-worktree');
+    const reportPath = 'docs/architecture-report.md';
+    File(p.join(executionWorkspace.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Unrelated workspace report\n');
+
+    final task = await harness.buildTaskWithContext(
+      'task-worktree-over-workspace',
+      const {'report': reportPath},
+      worktreePath: worktree.path,
+      workflowWorkspaceDir: executionWorkspace.path,
+    );
+
+    await expectLater(
+      extractor.extract(harness.pathOutputStep('report'), task),
+      throwsA(isA<MissingArtifactFailure>().having((failure) => failure.missingPaths, 'missingPaths', [reportPath])),
+    );
+  });
+
+  test('does not resolve from the execution workspace when the local project governs the task', () async {
+    final executionWorkspace = Directory(p.join(tempDir.path, 'local-project-task-workspace'))..createSync();
+    const reportPath = 'docs/architecture-report.md';
+    File(p.join(executionWorkspace.path, reportPath))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Unrelated workspace report\n');
+
+    final task = await harness.buildTaskWithContext(
+      'task-local-project-over-workspace',
+      const {'report': reportPath},
+      projectId: '_local',
+      workflowWorkspaceDir: executionWorkspace.path,
+    );
+
+    await expectLater(
+      extractor.extract(harness.pathOutputStep('report'), task),
+      throwsA(isA<MissingArtifactFailure>().having((failure) => failure.missingPaths, 'missingPaths', [reportPath])),
+    );
+  });
+
+  test('rejects a relative path outside a standalone inline task execution workspace', () async {
+    final executionWorkspace = Directory(p.join(tempDir.path, 'inline-workspace-traversal'))..createSync();
+    File(p.join(tempDir.path, 'outside.md')).writeAsStringSync('# Outside\n');
+    const outsidePath = '../outside.md';
+
+    final task = await harness.buildTaskWithContext('task-inline-workspace-traversal', const {
+      'report': outsidePath,
+    }, workflowWorkspaceDir: executionWorkspace.path);
+
+    await expectLater(
+      extractor.extract(harness.pathOutputStep('report'), task),
+      throwsA(isA<MissingArtifactFailure>().having((failure) => failure.missingPaths, 'missingPaths', [outsidePath])),
+    );
+  });
+
+  test('rejects a symlink path escaping a standalone inline task execution workspace', () async {
+    final executionWorkspace = Directory(p.join(tempDir.path, 'inline-workspace-symlink'))..createSync();
+    final outsideReport = File(p.join(tempDir.path, 'outside-report.md'))..writeAsStringSync('# Outside\n');
+    const linkedPath = 'docs/architecture-report.md';
+    Link(p.join(executionWorkspace.path, linkedPath)).createSync(outsideReport.path, recursive: true);
+
+    final task = await harness.buildTaskWithContext('task-inline-workspace-symlink', const {
+      'report': linkedPath,
+    }, workflowWorkspaceDir: executionWorkspace.path);
+
+    await expectLater(
+      extractor.extract(harness.pathOutputStep('report'), task),
+      throwsA(isA<MissingArtifactFailure>().having((failure) => failure.missingPaths, 'missingPaths', [linkedPath])),
+    );
+  });
+
   test('rejects flag-shaped relative path outputs that would inject into command args', () async {
     // ADR-041 format:path trust boundary: a resolved single-value relative path
     // output (e.g. spec_path) is interpolated straight into skill command args

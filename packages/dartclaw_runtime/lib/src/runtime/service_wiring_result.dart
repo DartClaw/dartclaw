@@ -17,7 +17,7 @@ extension DartclawRuntimeExecutionStack on DartclawRuntime {
 
 DartclawRuntime _assembleRuntime(
   _WiringContext ctx,
-  Future<Map<String, String>> Function(String providerId) providerProbeEnvironment,
+  Future<ProviderProbeEnvironment> Function(String providerId) providerProbeEnvironment,
   DartclawServer? server,
   StorageWiring storage,
   HarnessWiring? harness,

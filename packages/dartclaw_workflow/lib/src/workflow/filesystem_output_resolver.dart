@@ -35,30 +35,41 @@ List<FileSystemOutputRoot> worktreeFileSystemOutputRoots(Map<String, dynamic>? w
       : <FileSystemOutputRoot>[(path: worktreePath, absoluteValues: false)];
 }
 
+List<FileSystemOutputRoot> _executionWorkspaceFileSystemOutputRoots(Task task, {required bool hasWorktree}) {
+  if (hasWorktree) return const [];
+  final projectId = task.projectId?.trim();
+  if (projectId != null && projectId.isNotEmpty) return const [];
+  final workspacePath = task.agentExecution?.workspaceDir?.trim();
+  return workspacePath == null || workspacePath.isEmpty
+      ? <FileSystemOutputRoot>[]
+      : <FileSystemOutputRoot>[(path: workspacePath, absoluteValues: false)];
+}
+
 /// Collects the containment roots that are valid for a task's output claims,
 /// in resolution order.
 ///
 /// The host-owned step artifacts dir comes first (empty [stepArtifactsDir] =
 /// the task has no workflow run), so a relative claim that collides with a
 /// worktree file resolves to the copy the host controls (TD-093) without any
-/// name-keyed special case. Worktree, runtime-artifacts and project-data roots
-/// follow.
+/// name-keyed special case. The task's worktree, or its persisted execution
+/// workspace when no worktree or project governs it, follows. Runtime-artifacts
+/// and project-data roots come last.
 List<FileSystemOutputRoot> fileSystemOutputRoots({
   required String stepArtifactsDir,
-  required Map<String, dynamic>? worktreeJson,
-  required String? workflowRunId,
-  required String? projectId,
+  required Task task,
   required String dataDir,
 }) {
+  final worktreeRoots = worktreeFileSystemOutputRoots(task.worktreeJson);
   final roots = <FileSystemOutputRoot>[
     ...stepArtifactsFileSystemOutputRoots(stepArtifactsDir),
-    ...worktreeFileSystemOutputRoots(worktreeJson),
+    ...worktreeRoots,
+    ..._executionWorkspaceFileSystemOutputRoots(task, hasWorktree: worktreeRoots.isNotEmpty),
   ];
-  final runId = workflowRunId?.trim();
+  final runId = task.workflowRunId?.trim();
   if (runId != null && runId.isNotEmpty) {
     roots.add((path: workflowRuntimeArtifactsDir(dataDir: dataDir, runId: runId), absoluteValues: true));
   }
-  final pid = projectId?.trim();
+  final pid = task.projectId?.trim();
   if (pid != null && pid.isNotEmpty && pid != '_local') {
     roots.add((path: p.join(dataDir, 'projects', pid), absoluteValues: false));
   }

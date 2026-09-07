@@ -393,7 +393,7 @@ DartClaw therefore uses Codex's native skill loading directly. Runtime-provision
 Which Codex home a host turn runs against depends on the credential the host presents:
 
 - **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Host harness workers use the normal Codex profile and OAuth state unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
-- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; DartClaw never reads, copies, or writes your own `~/.codex` login, and `use_system_codex_home` does not apply.
+- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; its capability mirror reads plugins and skills from the operator `CODEX_HOME` (or `~/.codex`) without copying source authentication, and `use_system_codex_home` does not apply.
 
 This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage while keeping DartClaw-managed skill payloads scoped to the configured data directory.
 

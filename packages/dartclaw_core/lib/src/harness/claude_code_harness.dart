@@ -89,9 +89,8 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Canonical tools this spawn's workflow step declared, or null for a spawn
   /// that is not a workflow step.
   ///
-  /// When set, the derived Claude permission rules are the spawn's *total*
-  /// policy: user-scope settings are excluded so the step runs on what it
-  /// declared, not on the host operator's personal allow list.
+  /// When set, the harness derives matching Claude permission rules while the
+  /// guard chain continues to enforce the step's tool policy.
   final List<String>? declaredCanonicalTools;
 
   /// Roots the step's file-mutating tools may write — its worktree and its
@@ -577,14 +576,12 @@ class ClaudeCodeHarness extends BaseHarness {
         'profile, which mounts no workspace – a permission bypass there would run without any containment.',
       );
     }
-    // A workflow step runs on the policy it declared. Deriving the CLI's allow
-    // rules from the same canonical list the guard chain enforces is what stops
-    // the provider layer from falling back to its own — which is empty for a
-    // step, and the operator's personal one when it is not.
+    // Deriving the CLI's allow rules from the same canonical list the guard
+    // chain enforces lets declared tools pass Claude's native permission layer.
     final declaredTools = declaredCanonicalTools;
-    // A spawn whose execution directory is not yet known holds nothing: the
-    // alternative is deriving the worktree root from the server's own cwd,
-    // which would grant a step write access to the DartClaw checkout.
+    // A spawn whose execution directory is not yet known derives no declared
+    // grants: using the server's own cwd would grant a step write access to the
+    // DartClaw checkout.
     final declaredToolRules = declaredTools == null
         ? null
         : !_executionDirectoryIsExplicit
@@ -606,8 +603,8 @@ class ClaudeCodeHarness extends BaseHarness {
       // transcript, which is what this defect cost the first time.
       _log.info(
         declaredToolRules.isEmpty
-            ? 'Step tool policy: none — this spawn has no execution directory yet, so it may call nothing'
-            : 'Step tool policy: ${declaredToolRules.join(', ')}',
+            ? 'Step native grants: none – this spawn has no execution directory yet'
+            : 'Step native grants: ${declaredToolRules.join(', ')}',
       );
     }
     final nativeSettings = ClaudeSettingsBuilder.buildSettings(
@@ -628,13 +625,7 @@ class ClaudeCodeHarness extends BaseHarness {
       maxTurns: _processMaxTurns,
       disallowedTools: _spawnDisallowedTools,
       persistSession: _processProviderSession.persists,
-      // A step's declared rules are its total policy, so its spawn never reads
-      // the host operator's user-scope settings: a server lane whose tool
-      // policy varies with whoever's `~/.claude/settings.json` is on the box is
-      // nondeterministic by construction. `inherit_user_settings` governs the
-      // interactive lane only.
-      settingSourcesProject:
-          cm == null && (declaredTools != null || ClaudeProviderOptions.useProjectSettingSources(providerOptions)),
+      settingSourcesProject: cm == null && ClaudeProviderOptions.useProjectSettingSources(providerOptions),
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',

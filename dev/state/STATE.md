@@ -3,11 +3,11 @@
 > **In-flight state only.** Shipped history lives in `CHANGELOG.md`. Session journals belong in git commit messages,
 > not here. Keep this file lean – when in doubt, cut.
 
-Last Updated: 2026-09-06 20:43 CEST
+Last Updated: 2026-09-07 08:39 CEST
 
 ## Current Phase
 
-**P1: 0.25.2 – SecondBrain deployment feedback, continued**
+**P1: 0.25.2 – Deployment feedback and workflow fixes**
 
 **Status**: Opened on `feat/0.25.2` from the 0.25.1 squash (`ccfd9fcf`) on 2026-09-06; pins at 0.25.2 across
 `version.dart`, every publishable pubspec, both Homebrew formulas, both Scoop manifests and the schema `$id`. 0.25.1 is
@@ -15,7 +15,8 @@ tagged (`v0.25.1`, 2026-09-05); its record is `CHANGELOG.md` § 0.25.1 and `dart
 The third SecondBrain feedback batch is fixed on the branch (pushed at `1a258cd3`); its record is the patch PRD
 `dartclaw-private/docs/specs/0.25.2/prd.md`. Three standalone FIS joined the patch and are on the branch: the
 model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and the channel agent binding
-(`75afa358`, 2026-09-06; § Active Stories). 0.26 (database backend) waits behind this patch.
+(`75afa358`, 2026-09-06; § Active Stories). The locally verified workflow corrections below also join the patch.
+0.26 (database backend) waits behind it.
 
 ## Current Focus
 
@@ -23,6 +24,10 @@ model-free `type: shell` job (`16917bc8`), seam-write approval (`c2057657`) and 
   carries each outcome (§ As built). Before the squash: the bundle fold-back per `SPEC-LIFECYCLE.md`.
   The branch review added the `ChannelWiring.wire()` regression through the real binder and pause replay queue.
   The AndThen plan-skill background-subagent finding (§ Open follow-ups) is a candidate for the patch too.
+- Workflow plugin and inline-output fixes are implemented and verified on `feat/0.25.2`: Claude user-plugin inheritance and
+  native skill activation with declared tool filtering; projectless persisted-workspace output roots; Codex probe
+  isolation matching workers; and dedicated capability mirroring from custom `CODEX_HOME` with containment. Full
+  workspace/build gate and five live plugin cases passed; CHANGELOG § Unreleased carries the public record.
 - Post-tag audits for v0.25.1 are still open (see § Open follow-ups).
 
 ## Active Stories
@@ -72,10 +77,10 @@ None.
 
 ## Open follow-ups
 
-- **Residuals carried out of 0.25**: `d7e60dc6` (dedicated Codex home hardening, 792 lines) had no second-reader review;
-  containerized workflow-step composition is unit-tested only; `gpt-5.6-sol` ends the `plan` turn when its first Codex
-  sub-agent answers (`andthen:plan` fan-out); the workflows profile's Codex rollouts were seen under `~/.codex/sessions/`
-  despite the dedicated home – unverified whether the mirror or the host home served that run.
+- **Residuals carried out of 0.25**: containerized workflow-step composition is unit-tested only; `gpt-5.6-sol` ends
+  the `plan` turn when its first Codex sub-agent answers (`andthen:plan` fan-out); the historical workflow profile's
+  Codex rollout-location anomaly has not been rerun end to end. The current capability mirror has now had independent
+  code/security review and live system/dedicated-home user-plugin proof with the 0.25.2 fixes.
 - **Four diagrams this milestone invalidated are unedited and must be redone through the excalidraw skill from a
   main conversation** — repo rules require it, and a story executor cannot honour that, so attempting them would
   corrupt the format and the element bindings. They live in `dartclaw-private/docs/diagrams/`:

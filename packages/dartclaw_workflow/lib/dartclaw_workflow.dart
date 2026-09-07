@@ -98,6 +98,7 @@ export 'src/workflow/schema_presets.dart'
 export 'src/workflow/schema_validator.dart' show SchemaValidator;
 export 'src/skills/cli_skill_introspector.dart'
     show CliSkillIntrospector, SkillProbeEnvironmentBuilder, SkillProbeRunner;
+export 'src/skills/provider_probe_environment.dart' show ProviderProbeEnvironment;
 export 'src/skills/provider_auth_preflight.dart'
     show
         AuthProbeEnvironmentBuilder,

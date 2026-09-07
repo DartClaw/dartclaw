@@ -167,8 +167,8 @@ void main() {
     });
 
     test('an empty declared rule list still produces a permissions block', () {
-      // Fail-closed: a step that declared no tools must reach the CLI as "allow
-      // nothing", never as "no opinion", which would restore inherited rules.
+      // The native projection must never widen an empty declaration to a
+      // wildcard; the guard chain remains the enforcing authority.
       final raw = ClaudeSettingsBuilder.buildSettings(
         const {},
         declaredToolRules: const [],

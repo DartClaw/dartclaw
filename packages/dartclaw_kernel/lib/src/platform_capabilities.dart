@@ -33,7 +33,7 @@ final class PlatformCapabilities {
   /// Resolves the first nonblank `HOME` or `USERPROFILE` value.
   String? get homeDirectory {
     for (final name in const ['HOME', 'USERPROFILE']) {
-      final value = _environmentValue(name);
+      final value = environmentValue(name);
       if (value != null && value.trim().isNotEmpty) {
         return value;
       }
@@ -48,12 +48,12 @@ final class PlatformCapabilities {
     final hasPath = normalizedExecutable.contains('/') || normalizedExecutable.contains('\\');
     final directories = hasPath
         ? const ['']
-        : (_environmentValue('PATH') ?? '')
+        : (environmentValue('PATH') ?? '')
               .split(_isWindows ? ';' : ':')
               .map((entry) => entry.trim().replaceAll('"', ''))
               .where((entry) => entry.isNotEmpty);
     final extensions = _isWindows && !RegExp(r'\.[^\\/]+$').hasMatch(normalizedExecutable)
-        ? (_environmentValue('PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+        ? (environmentValue('PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
               .split(';')
               .map((extension) => extension.trim())
               .where((extension) => extension.isNotEmpty)
@@ -80,7 +80,7 @@ final class PlatformCapabilities {
 
   /// Validated Windows directory used for trusted system helper execution.
   String get windowsSystemRoot {
-    final configured = (_environmentValue('SystemRoot') ?? _environmentValue('WINDIR') ?? r'C:\Windows')
+    final configured = (environmentValue('SystemRoot') ?? environmentValue('WINDIR') ?? r'C:\Windows')
         .trim()
         .replaceAll('/', '\\')
         .replaceAll(RegExp(r'\\+$'), '');
@@ -90,7 +90,8 @@ final class PlatformCapabilities {
   /// Minimal environment for trusted Windows system helper execution.
   Map<String, String> get windowsSystemEnvironment => {'SystemRoot': windowsSystemRoot, 'WINDIR': windowsSystemRoot};
 
-  String? _environmentValue(String name) {
+  /// Reads one environment variable using the platform's name semantics.
+  String? environmentValue(String name) {
     if (!_isWindows) return _environment[name];
     for (final entry in _environment.entries) {
       if (entry.key.toUpperCase() == name.toUpperCase()) return entry.value;

@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         CliProviderAuthPreflight,
         CliSkillIntrospector,
         ProviderAuthPreflight,
+        ProviderProbeEnvironment,
         SkillIntrospector,
         WorkflowAssetSourceResolver,
         WorkflowPreflightException,
@@ -34,7 +35,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         workflowBlockedOutcomeSummary,
         WorkflowServiceOptions,
-        WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -164,7 +164,7 @@ class DartclawRuntime {
   /// Both probes spawn through `SafeProcess.run` with no injectable starter, so
   /// there is no process seam downstream to observe what they were handed.
   @visibleForTesting
-  final Future<Map<String, String>> Function(String providerId) providerProbeEnvironment;
+  final Future<ProviderProbeEnvironment> Function(String providerId) providerProbeEnvironment;
 
   static final _log = Logger('DartclawRuntime');
 
@@ -679,7 +679,8 @@ class _RuntimeAssembly {
     PrCreator? prCreator,
     @visibleForTesting Map<String, String>? environment,
   }) : serverFactory = serverFactory,
-       platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       platformCapabilities =
+           platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
        runtimeCwd = runtimeCwd ?? Directory.current.path,
        localFallbackDir = localRepositoryPosture ? (runtimeCwd ?? Directory.current.path) : null,
@@ -1014,6 +1015,8 @@ class _RuntimeAssembly {
       headless: headless,
       workflowProviderScope: workflowProviderScope,
       harnessRegistrars: harnessRegistrars,
+      environment: _environment,
+      platformCapabilities: platformCapabilities,
     );
     await harness.wire(turnManagerGetter: () => headless ? null : ctx._serverTurns);
     ctx.registeredProviderEntries = harness.registeredProviderEntries;
@@ -1124,7 +1127,7 @@ class _RuntimeAssembly {
   config_tools.CredentialRegistry _credentialRegistry(_WiringContext ctx, {config_tools.ProvidersConfig? providers}) =>
       config_tools.CredentialRegistry(
         credentials: config.credentials,
-        env: Platform.environment,
+        env: _environment,
         providers: providers ?? config.providers,
         subscriptions: ctx.subscriptions.readAll(),
       );
@@ -1152,18 +1155,14 @@ class _RuntimeAssembly {
     );
   }
 
-  WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
-    return buildWorkflowSkillPreflightConfig(config);
-  }
-
   /// The environment the skill-introspection and auth probes spawn the vendor
   /// CLI with. The registry is built here rather than passed in, so a credential
   /// stored or rotated after wiring is the one the probe presents.
-  Future<Map<String, String>> _providerProbeEnvironment(_WiringContext ctx, String providerId) {
+  Future<ProviderProbeEnvironment> _providerProbeEnvironment(_WiringContext ctx, String providerId) {
     return buildProviderProbeEnvironment(
       target: resolveProviderTarget(config, providerId, registeredProviders: ctx.registeredProviderEntries),
       registry: _credentialRegistry(ctx),
-      baseEnvironment: Platform.environment,
+      baseEnvironment: _environment,
       codexRefresh: ctx.codexRefresh,
       credentialsDir: config.credentialsDir,
       onCredentialHealth: _reportProbeCredentialHealth,
@@ -1239,7 +1238,7 @@ class _RuntimeAssembly {
         // creation behind this gate: a boot-time snapshot would refuse a step
         // whose newly stored credential the coordinator worker would use.
         providerAuthPreflight: _resolveProviderAuthPreflight(ctx),
-        skillPreflightConfig: _buildSkillPreflightConfig(),
+        skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
       ),
       turnAdapter: _buildWorkflowTurnAdapter(
         config,

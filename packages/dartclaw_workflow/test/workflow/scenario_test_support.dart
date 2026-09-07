@@ -93,7 +93,7 @@ final class ScenarioTaskHarness {
         createWorker: (request) async => TurnRunner(
           turnLimits: const TurnLimitsConfig.defaults(),
           messages: harness.messages,
-          harness: harness._worker,
+          harness: harness._worker.freshHarness(),
           behavior: BehaviorFileService(workspaceDir: harness.workspaceDir),
           sessions: harness.sessions,
           guardChain: harness.guardChain,
@@ -475,26 +475,58 @@ final class ScriptedResponse {
 ///     legacy fields (useful for "first attempt crashes, everything after
 ///     succeeds" patterns).
 class ScriptedAgentWorker implements AgentHarness {
+  new() : _shared = _ScriptedAgentWorkerState();
+
+  new _(this._shared);
+
+  final _ScriptedAgentWorkerState _shared;
+
   @override
   String skillActivationLine(String skill) => "Use the '$skill' skill.";
 
   final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
 
-  String responseText = '';
-  String? lastModel;
-  String? lastDirectory;
-  int inputTokens = 0;
-  int outputTokens = 0;
-  bool shouldFail = false;
-  void Function(String sessionId)? onTurn;
-  void Function(String sessionId, String? directory)? onTurnWithDirectory;
-  Future<void> Function(String sessionId)? beforeComplete;
+  String get responseText => _shared.responseText;
+
+  set responseText(String value) => _shared.responseText = value;
+
+  String? get lastModel => _shared.lastModel;
+
+  String? get lastDirectory => _shared.lastDirectory;
+
+  int get inputTokens => _shared.inputTokens;
+
+  set inputTokens(int value) => _shared.inputTokens = value;
+
+  int get outputTokens => _shared.outputTokens;
+
+  set outputTokens(int value) => _shared.outputTokens = value;
+
+  bool get shouldFail => _shared.shouldFail;
+
+  set shouldFail(bool value) => _shared.shouldFail = value;
+
+  void Function(String sessionId)? get onTurn => _shared.onTurn;
+
+  set onTurn(void Function(String sessionId)? value) => _shared.onTurn = value;
+
+  void Function(String sessionId, String? directory)? get onTurnWithDirectory => _shared.onTurnWithDirectory;
+
+  set onTurnWithDirectory(void Function(String sessionId, String? directory)? value) =>
+      _shared.onTurnWithDirectory = value;
+
+  Future<void> Function(String sessionId)? get beforeComplete => _shared.beforeComplete;
+
+  set beforeComplete(Future<void> Function(String sessionId)? value) => _shared.beforeComplete = value;
 
   /// Number of times `turn()` has been invoked — useful for retry assertions.
-  int turnCount = 0;
+  int get turnCount => _shared.turnCount;
 
   /// FIFO queue of scripted responses. Consumed left-to-right per `turn()`.
-  final List<ScriptedResponse> _queue = [];
+  List<ScriptedResponse> get _queue => _shared.queue;
+
+  /// Creates a fresh harness event surface over this fixture's shared script.
+  ScriptedAgentWorker freshHarness() => ScriptedAgentWorker._(_shared);
 
   /// Add a response to the end of the queue.
   void enqueue(ScriptedResponse response) => _queue.add(response);
@@ -575,11 +607,11 @@ class ScriptedAgentWorker implements AgentHarness {
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
   }) async {
-    turnCount++;
+    _shared.turnCount++;
     onTurn?.call(sessionId);
     onTurnWithDirectory?.call(sessionId, directory);
-    lastModel = model;
-    lastDirectory = directory;
+    _shared.lastModel = model;
+    _shared.lastDirectory = directory;
     final waitFor = beforeComplete;
     if (waitFor != null) {
       await waitFor(sessionId);
@@ -642,4 +674,18 @@ class ScriptedAgentWorker implements AgentHarness {
       await _eventsCtrl.close();
     }
   }
+}
+
+final class _ScriptedAgentWorkerState {
+  String responseText = '';
+  String? lastModel;
+  String? lastDirectory;
+  int inputTokens = 0;
+  int outputTokens = 0;
+  bool shouldFail = false;
+  void Function(String sessionId)? onTurn;
+  void Function(String sessionId, String? directory)? onTurnWithDirectory;
+  Future<void> Function(String sessionId)? beforeComplete;
+  int turnCount = 0;
+  final List<ScriptedResponse> queue = [];
 }

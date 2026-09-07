@@ -29,9 +29,23 @@ class LoginStoreCollisionError implements Exception {
 /// still hold a login, so both are guarded. The macOS Keychain item is
 /// unreachable by path and is protected by never being touched instead.
 List<String> operatorLoginPaths(Map<String, String> environment) => [
-  ..._loginPaths(environment, 'CODEX_HOME', '.codex', 'auth.json'),
+  ...operatorCodexHomes(PlatformCapabilities(environment: environment))
+      .expand((directory) => [directory, p.join(directory, 'auth.json')]),
   ..._loginPaths(environment, 'CLAUDE_CONFIG_DIR', '.claude', '.credentials.json'),
 ].map(resolveThroughSymlinks).toList();
+
+/// Operator Codex homes in precedence order: an exported relocation, then the default.
+List<String> operatorCodexHomes(PlatformCapabilities platformCapabilities) {
+  final relocated = platformCapabilities.environmentValue('CODEX_HOME')?.trim();
+  final home = platformCapabilities.homeDirectory;
+  return [if (relocated != null && relocated.isNotEmpty) relocated, if (home != null) _codexHomeUnder(home)];
+}
+
+/// The Codex home the operator selected for CLI capabilities and authentication.
+String? operatorCodexHome(PlatformCapabilities platformCapabilities) {
+  final homes = operatorCodexHomes(platformCapabilities);
+  return homes.isEmpty ? null : homes.first;
+}
 
 List<String> _loginPaths(
   Map<String, String> environment,
@@ -45,6 +59,11 @@ List<String> _loginPaths(
     if (relocated != null && relocated.isNotEmpty) relocated,
     if (home != null) p.join(home, homeDirName),
   ].expand((directory) => [directory, p.join(directory, credentialFile)]).toList();
+}
+
+String _codexHomeUnder(String home) {
+  final isWindowsPath = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(home) || home.startsWith(r'\\');
+  return isWindowsPath ? p.windows.join(home, '.codex') : p.join(home, '.codex');
 }
 
 /// Throws [LoginStoreCollisionError] when any of [dedicated] resolves onto one

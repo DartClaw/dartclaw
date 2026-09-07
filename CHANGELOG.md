@@ -54,6 +54,9 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Changed
 
+- **Probe environment ownership (breaking, SDK)** – `buildProviderProbeEnvironment`, `SkillProbeEnvironmentBuilder`,
+  and `AuthProbeEnvironmentBuilder` return `ProviderProbeEnvironment` with an environment map and `dispose()`.
+  CLI skill and auth probes release temporary provider homes in `finally`.
 - **Runtime LOC ceiling raised for the channel agent binding** – `dartclaw_runtime/lib` measures 65,871 Dart lines
   after the bound dispatch, the SOUL stand-in, the load-time refusal, the row-preserving allowlist writes and the
   worker-lane reservation landed; the ceiling is re-cut to `_maxCeilingFor(measured)`, 67,371, and the necessity is
@@ -68,6 +71,16 @@ tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `d
 
 ### Fixed
 
+- Claude workflow steps honor `inherit_user_settings` even when they declare tools, restoring user-scope plugins
+  under the default setting. Explicit empty workflow tool lists deny ordinary tool calls; omitted lists retain
+  the inherited harness surface, and native denies and DartClaw guards remain in force.
+- Projectless inline tasks resolve relative `format: path` claims against their persisted execution workspace.
+  Worktrees retain precedence, and path traversal and symlink escapes remain rejected.
+- Codex skill and auth probes honor explicit `use_system_codex_home: false` without a stored subscription,
+  matching worker isolation instead of preflighting against ambient user plugins.
+- Dedicated Codex subscription homes mirror capabilities from the operator's custom `CODEX_HOME`, falling back to
+  `~/.codex`. Authentication remains separate; payload links are skipped, copy/prune destinations stay within
+  the dedicated home, and a source/destination collision cannot mirror onto itself.
 - Bound channel conversations retain their agent identity and execution policy through pause replay, Google Chat
   feedback, and Signal alternate sender IDs. Invalid `agent` values fail config loading, and the generated schema
   accepts structured allowlist rows.

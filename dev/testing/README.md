@@ -33,6 +33,7 @@ The `workflow-contract` and `workflow-live` profiles are command profiles rather
 ```bash
 bash dev/testing/profiles/workflow-contract/run.sh
 bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
+bash dev/testing/profiles/workflow-live/run.sh --canary user-plugins
 bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
 bash dev/testing/profiles/workflow-live/run.sh --full
 ```

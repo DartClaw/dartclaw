@@ -148,9 +148,14 @@ Map<String, dynamic> _withFinalizerDescription(Map<String, dynamic> schema, Outp
   return {...schema, 'description': parts.join('\n\n')};
 }
 
-/// Renders the finalizer instructions and the complete persisted envelope schema.
-/// The same root shape, descriptions and constraints reach providers that cannot
-/// enforce structured output themselves.
+/// Renders the finalizer instructions, a skeleton of the envelope's root shape,
+/// and the complete persisted envelope schema. The same root shape, descriptions
+/// and constraints reach providers that cannot enforce structured output themselves.
+///
+/// The skeleton exists because the schema block alone was read as if the
+/// `outputs` object were the whole payload: live Claude runs submitted the
+/// declared outputs and dropped `step_outcome`, burning the finalizer's turns
+/// on schema rejections.
 String buildFinalizerPrompt(Map<String, dynamic> schema) =>
     'Serialize the work already completed in this conversation into one execution envelope.\n'
     'Return the envelope itself as the root JSON object. Do not wrap it in another object or return the schema.\n'
@@ -158,8 +163,35 @@ String buildFinalizerPrompt(Map<String, dynamic> schema) =>
     'through that tool; otherwise return only JSON, without markdown fences.\n'
     'If a previous attempt failed, correct that failure before returning.\n'
     'Name a path only for a file you already wrote – this turn records work, it does not perform it.\n\n'
+    'Shape of the entire response (every top-level key is required; `$executionEnvelopeOutputsKey` is an object, '
+    'never a JSON string):\n'
+    '```\n${_envelopeSkeleton(schema)}\n```\n\n'
     'JSON Schema for the entire response:\n'
     '```json\n${const JsonEncoder.withIndent('  ').convert(schema)}\n```';
+
+/// One-line skeleton of the root envelope derived from [schema]: the declared
+/// output keys with a type placeholder each, and `step_outcome` when required.
+String _envelopeSkeleton(Map<String, dynamic> schema) {
+  final properties = schema['properties'];
+  final outputs = properties is Map ? properties[executionEnvelopeOutputsKey] : null;
+  final outputProperties = outputs is Map ? outputs['properties'] : null;
+  final fields = <String>[
+    if (outputProperties is Map)
+      for (final entry in outputProperties.entries) '"${entry.key}": <${_typePlaceholder(entry.value)}>',
+  ];
+  final parts = <String>['"$executionEnvelopeOutputsKey": {${fields.join(', ')}}'];
+  if (properties is Map && properties.containsKey(executionEnvelopeStepOutcomeKey)) {
+    parts.add('"$executionEnvelopeStepOutcomeKey": {"outcome": "succeeded|failed|needsInput", "reason": "<string>"}');
+  }
+  return '{${parts.join(', ')}}';
+}
+
+String _typePlaceholder(Object? propSchema) {
+  final type = propSchema is Map ? propSchema['type'] : null;
+  if (type is List) return type.join('|');
+  if (type is String) return type;
+  return 'value';
+}
 
 Map<String, dynamic>? _envelopeOutputSchema(String key, OutputConfig config) {
   final resolver = outputResolverFor(key, config);

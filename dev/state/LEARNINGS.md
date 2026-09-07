@@ -148,6 +148,8 @@
 ## Workflow Engine
 
 - **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor requires task-persistence ports; tests that only exercise pause/resume/cancel/list use the explicit lifecycle-only constructor, not fabricated ports.
+- **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable; rule-group moves need the original call sequence in the composer or golden coverage for ordering.
+- **Multi-flag idempotency persists are crash-windows.** Two booleans persisted in sequence reopen the work if a crash lands between them; use a single atomically-persisted phase-string field.
 - **Shared worktree caches need both persisted bindings and per-key mutexes.** In-memory map alone fails on retry/restart; same-key fanout needs a `finally`-released waiter/completer guard.
 - **Every `format: path` output resolves under one rule, and the worktree diff is not part of it.** `resolveFileSystemOutput` probes an existing claim against the roots in order (step artifacts dir, worktree, runtime-artifacts, project data), else captures from the step artifacts dir by the output's own pattern. Contract-locked in `built_in_workflow_contracts_test.dart`.
 - **Merge inside the integration worktree when the integration branch is checked out there.** Reusing the main checkout fails with `branch is already used by worktree`.

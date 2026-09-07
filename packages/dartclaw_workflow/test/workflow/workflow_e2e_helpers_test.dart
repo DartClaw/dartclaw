@@ -404,9 +404,9 @@ void main() {
   });
 
   group('forced remediation transformer', () {
-    test('targets plan review, council review, or both', () {
+    test('targets the plan review only when it is named', () {
       final cleanPlan = {'findings_count': 0, 'plan-review.findings_count': 0};
-      final cleanCouncil = {'findings_count': 0, 'plan-review-council.findings_count': 0};
+      final cleanOther = {'findings_count': 0, 'review-story.findings_count': 0};
 
       final planOnly = forcedReviewRemediationOutputs(
         stepId: 'plan-review',
@@ -418,43 +418,23 @@ void main() {
       expect(planOnly['plan-review.findings_count'], 1);
       expect(
         forcedReviewRemediationOutputs(
-          stepId: 'plan-review-council',
-          outputs: cleanCouncil,
+          stepId: 'review-story',
+          outputs: cleanOther,
           targetReviews: const {'plan-review'},
           remediationPlan: 'remediate',
           implementationSummary: 'summary',
         ),
-        same(cleanCouncil),
+        same(cleanOther),
       );
-
-      final councilOnly = forcedReviewRemediationOutputs(
-        stepId: 'plan-review-council',
-        outputs: cleanCouncil,
-        targetReviews: const {'plan-review-council'},
-        remediationPlan: 'remediate',
-        implementationSummary: 'summary',
-      );
-      expect(councilOnly['plan-review-council.findings_count'], 1);
-
       expect(
         forcedReviewRemediationOutputs(
           stepId: 'plan-review',
           outputs: cleanPlan,
-          targetReviews: const {'plan-review', 'plan-review-council'},
+          targetReviews: const <String>{},
           remediationPlan: 'remediate',
           implementationSummary: 'summary',
-        )['plan-review.findings_count'],
-        1,
-      );
-      expect(
-        forcedReviewRemediationOutputs(
-          stepId: 'plan-review-council',
-          outputs: cleanCouncil,
-          targetReviews: const {'plan-review', 'plan-review-council'},
-          remediationPlan: 'remediate',
-          implementationSummary: 'summary',
-        )['plan-review-council.findings_count'],
-        1,
+        ),
+        same(cleanPlan),
       );
     });
   });

@@ -67,7 +67,6 @@ void main() {
     // Downstream pipeline must still execute after the revise-spec detour.
     expect(trace.tasksForStep('implement'), hasLength(1));
     expect(trace.tasksForStep('integrated-review'), hasLength(1));
-    expect(trace.tasksForStep('integrated-review-council'), hasLength(1));
     // Step order: revise-spec runs after spec and before implement.
     final order = trace.queuedStepOrder;
     expect(order.indexOf('spec'), lessThan(order.indexOf('revise-spec')));
@@ -139,7 +138,6 @@ void main() {
               findingsCount: 0,
             ),
           ),
-          'integrated-review-council' => integratedReviewCouncilStub(),
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -156,7 +154,7 @@ void main() {
   });
 
   test(
-    'spec-and-implement narrows to the re-review report after the first remediation pass clears council inputs',
+    'spec-and-implement narrows to the re-review report after the first remediation pass clears the aggregate',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
         workflowFileName: 'spec-and-implement.yaml',
@@ -170,15 +168,8 @@ void main() {
                 'spec_confidence': 9,
               },
             ),
-            'implement' => StubResponse(outputs: {'diff_summary': 'COUNCIL_ONLY_DIFF'}),
+            'implement' => StubResponse(outputs: {'diff_summary': 'FIRST_PASS_DIFF'}),
             'integrated-review' => StubResponse(
-              outputs: reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 0,
-              ),
-            ),
-            'integrated-review-council' => StubResponse(
               outputs: reviewReportContext(
                 queued.stepKey,
                 stepArtifactsDir: stepArtifactsDirForTask(queued.task),
@@ -188,9 +179,7 @@ void main() {
             'remediate' => StubResponse(
               outputs: {
                 'remediation_summary': 'Fixed the findings',
-                'diff_summary': queued.occurrence == 0
-                    ? 'COUNCIL_ONLY_DIFF_AFTER_FIRST_FIX'
-                    : 'COUNCIL_ONLY_DIFF_AFTER_REREVIEW_FIX',
+                'diff_summary': queued.occurrence == 0 ? 'DIFF_AFTER_FIRST_FIX' : 'DIFF_AFTER_REREVIEW_FIX',
               },
             ),
             're-review' => StubResponse(
@@ -208,15 +197,15 @@ void main() {
       expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
       expect(trace.count('remediate'), 2);
       expect(trace.count('re-review'), 2);
-      // Iteration 1: the aggregator collapses integrated + council reports
-      // into a single file path for remediation.
+      // Iteration 1: remediation reads the aggregator's report, not the
+      // review step's own file.
       final firstRemediate = trace.descriptionsByStep['remediate']![0];
       expect(firstRemediate, contains('/runtime-artifacts/reviews/aggregated-review-aggregate.md'));
       // Iteration 2: the loop consumes only the fresh re-review report, captured
       // from the re-review step's host-owned artifacts dir.
       final secondRemediate = trace.descriptionsByStep['remediate']![1];
       expect(secondRemediate, contains('/runtime-artifacts/steps/re-review/re-review-codex-2026-04-29.md'));
-      expect(secondRemediate, isNot(contains('integrated-review-council-codex')));
+      expect(secondRemediate, isNot(contains('aggregated-review-aggregate.md')));
     },
   );
 

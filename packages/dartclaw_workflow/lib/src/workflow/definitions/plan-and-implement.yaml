@@ -209,16 +209,11 @@ steps:
               findings_count: findings_count
               gating_findings_count: gating_findings_count
 
-  # plan-review and plan-review-council form a parallel group: consecutive
-  # `parallel: true` steps execute concurrently via Future.wait and merge
-  # outputs back into context before the workflow continues serially. Each
-  # writes to distinct context keys so the merge is conflict-free.
   - id: plan-review
     name: Review Full Implementation
     skill: andthen:review
-    parallel: true
-    # Retry so one transient reviewer failure does not abort the whole
-    # parallel review block (and with it the remediation + verify tail).
+    # Retry so one transient reviewer failure does not abort the remediation
+    # + verify tail.
     onFailure: retry
     maxRetries: 1
     inputs: [story_specs, story_results]
@@ -236,32 +231,14 @@ steps:
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
-  # Multi-perspective code/security council over the whole-plan diff. Stays
-  # provider-agnostic (@reviewer via the *review* stepDefault) – the inline
-  # custom workflows keep the opus[1m]/xhigh pin. Crash-tolerant: a council
-  # flake must not abort the parallel barrier, so continue past its failure;
-  # its real findings still gate via the aggregator.
-  - id: plan-review-council
-    name: Review Full Implementation with Council
-    skill: andthen:review
-    parallel: true
-    onFailure: continue
-    maxRetries: 1
-    inputs: [story_specs, story_results]
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode code,security --council --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      {{context.plan}}
-    outputs:
-      plan-review-council.review_report_path: review_report_path
-      plan-review-council.findings_count: findings_count
-      plan-review-council.gating_findings_count: gating_findings_count
-
+  # The aggregator normalizes the prefixed review keys to the bare keys the
+  # remediation loop reads and writes the report the remediate step consumes.
+  # A multi-perspective council pass is the optional `andthen-some:council`
+  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [plan-review, plan-review-council]
+    aggregateReviews: [plan-review]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

@@ -218,7 +218,7 @@ steps:
 
   - id: plan-review-council
     name: Review Full Implementation with Council
-    skill: andthen:review
+    skill: andthen-some:council
     parallel: true
     # Advisory extra-perspective pass: the codex plan-review carries the gating
     # signal, and the council writes its report to the reviews
@@ -233,7 +233,7 @@ steps:
     inputs: [story_specs, story_results]
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode code,security --council --auto
+      --mode code,security --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.plan}}. Scope by the plan and
       per-story FIS – assess only the working-tree state implementing this

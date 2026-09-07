@@ -3,7 +3,7 @@ description: >-
   Inline review + remediate for an already-implemented milestone, version, or
   feature. Reviews all changes on the current branch (diffed against
   BASE_BRANCH) with the same multi-lens depth as plan-and-implement (gap review
-  + Claude code/security council pass + architecture review), runs a bounded
+  + Claude `andthen-some:council` code/security pass), runs a bounded
   remediation loop, then closes with the deterministic CI-equivalent
   verification gate. Unlike the built-in single-methodology code-review, nothing
   is implemented here – it only reviews existing changes and fixes what the
@@ -74,7 +74,7 @@ steps:
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     # Requirements-vs-implementation fit (the gating PASS/FAIL lens the council
-    # cannot run – --council rejects a single gap/doc lens). The gap lens
+    # cannot run – it refuses a single gap/doc lens). The gap lens
     # discovers the milestone's requirements baseline from the repo specs;
     # TARGET directs scope. Runs on the @reviewer role (no provider pin).
     prompt: >-
@@ -90,7 +90,7 @@ steps:
 
   - id: review-council
     name: Code & Security Council Review
-    skill: andthen:review
+    skill: andthen-some:council
     parallel: true
     # Advisory extra-perspective pass: the gap-review carries the gating
     # signal, and the council writes its report to the reviews
@@ -107,7 +107,7 @@ steps:
     effort: xhigh
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode code,security --council --auto
+      --mode code,security --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review the implementation of: {{TARGET}}. Scope the review to all changes
       on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and

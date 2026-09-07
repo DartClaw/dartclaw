@@ -10,7 +10,7 @@ Consolidated live acceptance scenario for `plan-and-implement`. It validates the
 
 The engine mechanics — per-story worktree creation, branch push, GitHub PR creation and PR diff contents — are covered by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI04), which runs the same workflow against the same `workflow-test-todo-app` repository with a real harness, distinct per-story worktrees, real `gh pr create`, and automatic PR cleanup. This scenario does **not** re-assert those mechanics; it confirms only that the run reaches a clean `completed` state and that the operator-facing surface reflects it. The run still publishes, so it closes the published PR as cleanup.
 
-**Workflow structure**: `discover-plan-state → plan → story-pipeline (foreach: revise-story-spec → implement → review-story → story-remediation per story) → plan-review ∥ plan-review-council → review-aggregate → remediation-loop`. The `plan-and-implement` workflow requires a pre-existing PRD (discovery fails fast if missing) — it does not synthesize one. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
+**Workflow structure**: `discover-plan-state → plan → story-pipeline (foreach: revise-story-spec → implement → review-story → story-remediation per story) → plan-review → review-aggregate → remediation-loop`. The `plan-and-implement` workflow requires a pre-existing PRD (discovery fails fast if missing) — it does not synthesize one. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 Server should be running: `bash dev/testing/profiles/workflows/run.sh`
 
@@ -143,7 +143,7 @@ workflow_cli() {
 ### Expected
 
 - The final workflow status is `completed`
-- The detail page shows semantically complete progress: every authored top-level step (`discover-plan-state`, `plan`, `story-pipeline`, `plan-review`, `plan-review-council`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
+- The detail page shows semantically complete progress: every authored top-level step (`discover-plan-state`, `plan`, `story-pipeline`, `plan-review`, `review-aggregate`, `remediation-loop`) is finished and no step is left pending or running
 - `publish.status` is `success` and `publish.pr_url` is a non-empty GitHub pull request URL (the run reached and passed the publish step)
 - No generic server error banner is visible on the page
 - The workflow detail page remains usable after completion

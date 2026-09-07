@@ -1014,7 +1014,7 @@ void main() {
       // the context key's value once the loop has exited.
       //
       // Reading the exit state to judge the entry decision passed here for a
-      // milestone only because this branch never ran: the council step was
+      // milestone only because this branch never ran: a review step was
       // broken, every review reported zero, remediation never happened, and the
       // clean-aggregate branch was true for the wrong reason.
       // Two remediation loops run here and each is judged by its own counters.
@@ -1023,7 +1023,7 @@ void main() {
       // across both makes a story's findings demand a plan-level `remediate`
       // that its own loop already handled — which is how this assertion failed
       // on a run where the product behaved correctly.
-      const planLevelReviews = {'plan-review', 'plan-review-council'};
+      const planLevelReviews = {'plan-review'};
       int gatingReportedBy(Set<String> steps) {
         var total = 0;
         for (final trace in recorder.traces) {

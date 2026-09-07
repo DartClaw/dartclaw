@@ -1259,7 +1259,7 @@ implement.status == accepted
 review.verdict == pass
 analysis.tokenCount < 50000
 plan.status == accepted && plan.tokenCount < 12000
-plan-review.gating_findings_count > 0 || plan-review-council.gating_findings_count > 0
+plan-review.gating_findings_count > 0 || re-review.gating_findings_count > 0
 review_report_path isNotEmpty && findings_count < 5
 story_specs.items isEmpty || story_specs == null
 ```

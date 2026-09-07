@@ -135,7 +135,7 @@ The workflow no longer relies on a manual spec approval checkpoint. Spec review/
 
 ### Execute a plan (`plan-and-implement`)
 
-The `plan-and-implement` workflow is for implementing a multi-story scope in the fixture repository. It runs: discover project → plan stories → spec-plan (refine story set and produce per-story specs) → per-story foreach pipeline (implement → refactor-validate → quick-review for each story) → plan-level review → remediation loop → update state, with deterministic publish handled by `gitStrategy`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
+The `plan-and-implement` workflow is for implementing a multi-story scope in the fixture repository. It runs: discover project → plan stories → spec-plan (refine story set and produce per-story specs) → per-story foreach pipeline (revise-story-spec → implement → review-story → story-remediation for each story) → plan-level review → remediation loop, with deterministic publish handled by `gitStrategy`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 ```bash
 workflow_cli run plan-and-implement \

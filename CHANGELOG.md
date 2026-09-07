@@ -56,6 +56,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Built-in workflows no longer pass `--council` to `andthen:review`.** AndThen 1.0 retired the flag, so the
+  `integrated-review-council` and `plan-review-council` steps in `spec-and-implement` and `plan-and-implement` are
+  gone; each pipeline's gap review feeds the aggregator alone. A multi-perspective pass is the optional
+  `andthen-some:council` skill, which a custom workflow may add as a second aggregate source (the maintainer inline
+  variants do); the built-ins never require the satellite.
+
 - **Probe environment ownership (breaking, SDK)** – `buildProviderProbeEnvironment`, `SkillProbeEnvironmentBuilder`,
   and `AuthProbeEnvironmentBuilder` return `ProviderProbeEnvironment` with an environment map and `dispose()`.
   CLI skill and auth probes release temporary provider homes in `finally`.
@@ -73,9 +79,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
-- **Workflow finalization** – finalizer prompts carry the complete persisted JSON schema and explicitly require the
-  envelope at the response root, using the provider's structured-output tool when supplied. Validation and retry
-  limits are unchanged.
+- **Workflow finalization** – finalizer prompts carry a skeleton of the root envelope (both `outputs` and
+  `step_outcome`) plus the complete persisted JSON schema, and explicitly require the envelope at the response root,
+  using the provider's structured-output tool when supplied. The finalizer turn ceiling rises from 2 to 4: Claude Code
+  submits the envelope as a `StructuredOutput` tool call and each schema rejection costs a turn, so one slip exhausted
+  the old ceiling with `error_max_turns` before the host's re-ask could run.
 - **Thread-binding persistence at shutdown** – lifecycle cleanup is serialized and drained before shutdown
   completes; `ThreadBindingLifecycleManager.dispose()` now returns a future that callers must await. Bound-message
   routing also awaits its activity-timestamp write.

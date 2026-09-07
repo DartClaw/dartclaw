@@ -262,7 +262,7 @@ steps:
     name: Review Full Implementation
     skill: andthen:review
     parallel: true
-    prompt: '--mode mixed --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
+    prompt: '--mode gap --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
     outputs:
       plan-review.review_report_path: review_report_path
       plan-review.findings_count: findings_count
@@ -270,9 +270,9 @@ steps:
 
   - id: plan-review-council
     name: Review Full Implementation with Council
-    skill: andthen:review
+    skill: andthen-some:council
     parallel: true
-    prompt: '--mode code,security --council --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
+    prompt: '--mode code,security --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
     outputs:
       plan-review-council.review_report_path: review_report_path
       plan-review-council.findings_count: findings_count
@@ -950,7 +950,7 @@ Notable patterns:
 
 Role usage:
 - `@planner`: `spec`
-- `@reviewer`: `revise-spec`, `integrated-review`, `integrated-review-council`, `re-review`
+- `@reviewer`: `revise-spec`, `integrated-review`, `re-review`
 - `@executor`: `implement`, `remediate`
 
 ### `plan-and-implement` – Story Fan-Out
@@ -973,7 +973,7 @@ Role usage:
 - `@workflow`: `discover-plan-state`
 - `@planner`: `plan`
 - `@executor`: `implement`, `remediate-story`, `remediate`
-- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `plan-review-council`, `re-review`
+- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `re-review`
 
 ### `code-review` – Review And Remediate Loop
 

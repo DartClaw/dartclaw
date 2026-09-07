@@ -129,9 +129,8 @@ steps:
   - id: integrated-review
     name: Integrated Review
     skill: andthen:review
-    parallel: true
-    # Retry so one transient reviewer failure does not abort the whole
-    # parallel review block (and with it the remediation + verify tail).
+    # Retry so one transient reviewer failure does not abort the remediation
+    # + verify tail.
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
@@ -145,31 +144,14 @@ steps:
       integrated-review.findings_count: findings_count
       integrated-review.gating_findings_count: gating_findings_count
 
-  # Multi-perspective code/security council. Stays provider-agnostic
-  # (@reviewer via the *review* stepDefault) – the inline custom workflows keep
-  # the opus[1m]/xhigh pin. Crash-tolerant: a council flake must not abort the
-  # parallel barrier, so continue past its failure; its findings still gate via
-  # the aggregator.
-  - id: integrated-review-council
-    name: Integrated Review with Council
-    skill: andthen:review
-    parallel: true
-    onFailure: continue
-    maxRetries: 1
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode code,security --council --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      {{context.spec_path}}
-    outputs:
-      integrated-review-council.review_report_path: review_report_path
-      integrated-review-council.findings_count: findings_count
-      integrated-review-council.gating_findings_count: gating_findings_count
-
+  # The aggregator normalizes the prefixed review keys to the bare keys the
+  # remediation loop reads and writes the report the remediate step consumes.
+  # A multi-perspective council pass is the optional `andthen-some:council`
+  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [integrated-review, integrated-review-council]
+    aggregateReviews: [integrated-review]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

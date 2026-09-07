@@ -499,9 +499,6 @@ void main() {
                 'needs_remediation': true,
               },
             ),
-            'plan-review-council' => StubResponse(
-              outputs: {'plan-review-council.findings_count': 0, 'plan-review-council.gating_findings_count': 0},
-            ),
             'remediate' => StubResponse(
               outputs: {'remediation_summary': 'Remediated batch findings', 'diff_summary': 'REMEDIATED_DIFF'},
             ),

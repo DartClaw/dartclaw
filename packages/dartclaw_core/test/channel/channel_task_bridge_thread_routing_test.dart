@@ -43,9 +43,6 @@ void main() {
     });
 
     tearDown(() async {
-      // Wait briefly for any unawaited file I/O (e.g., updateLastActivity persists)
-      // to complete before deleting the temp directory.
-      await Future<void>.delayed(const Duration(milliseconds: 20));
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
@@ -177,9 +174,6 @@ void main() {
 
       final msg = makeGchatMessage(threadName: 'spaces/AAAA/threads/CCCC');
       await bridge.tryHandle(msg, channel, sessionKey: 'default-session', enqueue: (msg, ch, sk) {});
-
-      // Give the unawaited updateLastActivity time to complete.
-      await Future<void>.delayed(const Duration(milliseconds: 10));
 
       final after = store.lookupByThread('googlechat', 'spaces/AAAA/threads/CCCC')!.lastActivity;
       expect(after.isAfter(before), isTrue);

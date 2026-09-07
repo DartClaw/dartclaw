@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -569,7 +571,9 @@ void main() {
       final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
       final finalizerPrompt = buildFinalizerPrompt(schema);
 
-      expect(finalizerPrompt, contains('## Declared Outputs'));
+      final schemaBlock = RegExp(r'```json\n([\s\S]*?)\n```').firstMatch(finalizerPrompt);
+      expect(schemaBlock, isNotNull);
+      expect(jsonDecode(schemaBlock!.group(1)!), schema);
       expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
       expect(finalizerPrompt, contains('Review Finding Scoring'));
       expect(finalizerPrompt, contains('at or above `high`'));

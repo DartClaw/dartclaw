@@ -1,10 +1,11 @@
+import 'dart:convert';
+
 import 'package:logging/logging.dart';
 
 import 'output_resolver.dart';
 import 'prompt_augmenter.dart' show PromptAugmenter;
 import 'review_scoring_fragment.dart';
 import 'schema_presets.dart' show outputResolverFor, schemaPresets;
-import 'schema_prompt_fragment.dart' show describeSchemaForPrompt;
 import 'workflow_definition.dart' show OutputConfig, OutputFormat, WorkflowStep, WorkflowTaskType;
 import 'workflow_output_contract.dart';
 
@@ -147,61 +148,18 @@ Map<String, dynamic> _withFinalizerDescription(Map<String, dynamic> schema, Outp
   return {...schema, 'description': parts.join('\n\n')};
 }
 
-/// Renders the no-tools finalizer turn prompt from a persisted execution-envelope
-/// [schema]. Surfaces each declared output key with its description and the
-/// step-outcome semantics so the model serializes its completed work into the
-/// strict envelope. Returns a generic instruction when [schema] is not an
-/// envelope (legacy/opt-out steps never reach this path).
-String buildFinalizerPrompt(Map<String, dynamic> schema) {
-  final buf = StringBuffer();
-  buf.writeln('Based on your work above, produce the structured execution envelope for this step.');
-  buf.writeln('Output ONLY the JSON object matching the provided schema. Do NOT use any tools.');
-  buf.writeln('If a previous attempt failed, correct that failure before returning.');
-  buf.writeln('Name a path only for a file you already wrote — this turn records work, it does not perform it.');
-
-  final properties = schema['properties'];
-  final outputs = properties is Map ? properties[executionEnvelopeOutputsKey] : null;
-  final outputProperties = outputs is Map ? outputs['properties'] : null;
-  if (outputProperties is Map && outputProperties.isNotEmpty) {
-    buf.writeln();
-    buf.writeln('## Declared Outputs');
-    buf.writeln();
-    buf.writeln('Populate `$executionEnvelopeOutputsKey` with exactly these keys:');
-    for (final entry in outputProperties.entries) {
-      final prop = entry.value;
-      final desc = prop is Map ? (prop['description'] as String?)?.trim() : null;
-      buf.writeln(desc == null || desc.isEmpty ? '- "${entry.key}"' : '- "${entry.key}" – $desc');
-      // "matching the provided schema" is not a statement a provider that
-      // cannot enforce a schema ever sees — it receives this prompt and nothing
-      // else. Render the schema as prose through the one renderer, so the model
-      // learns the types, enums and required fields host validation applies.
-      if (prop is Map && (prop['properties'] != null || prop['items'] != null)) {
-        final described = describeSchemaForPrompt(Map<String, dynamic>.from(prop), entry.key.toString());
-        for (final line in described.split('\n')) {
-          buf.writeln('  $line');
-        }
-      }
-    }
-  }
-
-  final stepOutcome = properties is Map ? properties[executionEnvelopeStepOutcomeKey] : null;
-  if (stepOutcome is Map) {
-    final outcomeProp = stepOutcome['properties'];
-    final outcomeDesc = outcomeProp is Map && outcomeProp['outcome'] is Map
-        ? (outcomeProp['outcome']['description'] as String?)?.trim()
-        : null;
-    buf.writeln();
-    buf.writeln('## Step Outcome');
-    buf.writeln();
-    buf.writeln(
-      'Populate `$executionEnvelopeStepOutcomeKey` with `outcome` '
-      '(one of `succeeded`, `failed`, `needsInput`) and a short `reason`.',
-    );
-    if (outcomeDesc != null && outcomeDesc.isNotEmpty) buf.writeln(outcomeDesc);
-  }
-
-  return buf.toString().trimRight();
-}
+/// Renders the finalizer instructions and the complete persisted envelope schema.
+/// The same root shape, descriptions and constraints reach providers that cannot
+/// enforce structured output themselves.
+String buildFinalizerPrompt(Map<String, dynamic> schema) =>
+    'Serialize the work already completed in this conversation into one execution envelope.\n'
+    'Return the envelope itself as the root JSON object. Do not wrap it in another object or return the schema.\n'
+    'Do not perform more work or use work tools. If a structured-output tool is supplied, submit the envelope '
+    'through that tool; otherwise return only JSON, without markdown fences.\n'
+    'If a previous attempt failed, correct that failure before returning.\n'
+    'Name a path only for a file you already wrote – this turn records work, it does not perform it.\n\n'
+    'JSON Schema for the entire response:\n'
+    '```json\n${const JsonEncoder.withIndent('  ').convert(schema)}\n```';
 
 Map<String, dynamic>? _envelopeOutputSchema(String key, OutputConfig config) {
   final resolver = outputResolverFor(key, config);

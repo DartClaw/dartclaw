@@ -73,6 +73,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- **Workflow finalization** – finalizer prompts carry the complete persisted JSON schema and explicitly require the
+  envelope at the response root, using the provider's structured-output tool when supplied. Validation and retry
+  limits are unchanged.
+- **Thread-binding persistence at shutdown** – lifecycle cleanup is serialized and drained before shutdown
+  completes; `ThreadBindingLifecycleManager.dispose()` now returns a future that callers must await. Bound-message
+  routing also awaits its activity-timestamp write.
 - Claude workflow steps no longer lose subagents left running in the background when the work turn ends. Claude
   Code 2.1.x runs `Agent` in the background by default and ends the turn's `result` while they run; the finalizer
   turn then restarted the process for its `--json-schema`, killing them, and the envelope reported the step's

@@ -700,7 +700,8 @@ void main() {
           'prd': prdPath,
         },
       ),
-      stepTimeout: const Duration(minutes: 14),
+      // Planning waits for authoring, review, correction and validation subagent turns.
+      stepTimeout: const Duration(minutes: 20),
     );
 
     // The plan step declares `story_specs` (story_specs schema) and `plan`
@@ -731,7 +732,7 @@ void main() {
     expect(resolvedStorySpec.trim(), contains('"spec_path"'));
     // AC is resolved from the FIS body at spec_path, not carried inline.
     expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
-  }, timeout: const Timeout(Duration(minutes: 15)));
+  }, timeout: const Timeout(Duration(minutes: 22)));
 
   // Live authoring probe for spec-and-implement. The heavy spec-and-implement
   // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live

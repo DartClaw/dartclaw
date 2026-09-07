@@ -278,9 +278,13 @@ In-memory `Map<String, ThreadBinding>` backed by `thread-bindings.json` with ato
 
 Stateless routing helper used by `ChannelTaskBridge`. Extracts `threadId` from `message.metadata['threadName']` via `extractThreadId`, looks up the binding in the store, and routes the message to the bound session key if found. `extractThreadId` is also what `/bind` and `/unbind` key on, so the read and write sides cannot disagree about what a binding is keyed by.
 
+Bound-message routing awaits the activity-timestamp write before enqueuing the message.
+
 ### 4.4 ThreadBindingLifecycleManager
 
 Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes to `TaskStatusChangedEvent` on EventBus, removes binding when task reaches a terminal state (accepted, rejected, cancelled, failed). (2) **Idle timeout** -- periodic timer (default 5min interval) removes bindings with `lastActivity` older than `idleTimeout` (default 1hr).
+
+The manager serializes its cleanup operations. Runtime shutdown awaits `dispose()`, which cancels new event/timer work and drains pending persistence. Persistence exceptions are logged without blocking later cleanup.
 
 ### 4.5 Thread Binding Flow
 

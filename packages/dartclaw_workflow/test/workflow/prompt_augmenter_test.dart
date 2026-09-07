@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart' show buildExecutionEnvelopeSchema;
 import 'package:dartclaw_workflow/src/workflow/review_scoring_fragment.dart';
@@ -295,14 +297,13 @@ void main() {
       final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
       final finalizerPrompt = buildFinalizerPrompt(schema);
 
-      expect(finalizerPrompt, contains('## Declared Outputs'));
-      // A provider that enforces no schema sees this prompt and nothing else,
-      // so the schema reaches it as prose through the one renderer.
-      expect(finalizerPrompt, contains('as JSON with this structure'));
+      final schemaBlock = RegExp(r'```json\n([\s\S]*?)\n```').firstMatch(finalizerPrompt);
+      expect(schemaBlock, isNotNull);
+      expect(jsonDecode(schemaBlock!.group(1)!), schema);
       expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
       expect(finalizerPrompt, contains('Review Finding Scoring'));
       expect(finalizerPrompt, contains('at or above `high`'));
-      expect(finalizerPrompt, contains('## Step Outcome'));
+      expect(schema['required'], unorderedEquals(['outputs', 'step_outcome']));
     });
   });
 }

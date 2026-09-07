@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'channel.dart';
 import 'thread_binding.dart';
 
@@ -24,13 +22,14 @@ class ThreadBindingRouter {
     return threadBindings.lookupByThread(message.channelType.name, threadId);
   }
 
-  /// Routes [message] to the bound task session when [threadBinding] exists.
-  bool routeBoundMessage(
+  /// Routes [message] to the bound task session when [threadBinding] exists,
+  /// waiting for its activity timestamp to be persisted before returning.
+  Future<bool> routeBoundMessage(
     ChannelMessage message,
     Channel channel,
     ThreadBinding? threadBinding, {
     void Function(ChannelMessage, Channel, String)? enqueue,
-  }) {
+  }) async {
     if (threadBinding == null || enqueue == null) {
       return false;
     }
@@ -38,7 +37,7 @@ class ThreadBindingRouter {
     final threadBindings = _threadBindings;
     final threadId = extractThreadId(message);
     if (threadBindings != null && threadId != null) {
-      unawaited(threadBindings.updateLastActivity(message.channelType.name, threadId, DateTime.now()));
+      await threadBindings.updateLastActivity(message.channelType.name, threadId, DateTime.now());
     }
 
     enqueue(message, channel, threadBinding.sessionKey);

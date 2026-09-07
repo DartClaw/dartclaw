@@ -67,7 +67,7 @@ DartclawRuntime _assembleRuntime(
     prepareExecutionShutdown: task.prepareExecutionShutdown,
     shutdownExtras: () async {
       try {
-        lifecycleManager?.dispose();
+        await lifecycleManager?.dispose();
         // The zero-server lane owns the invocation repository for the life of
         // the process, so its worktrees and branches are swept here — after the
         // in-flight one-shots are cancelled and the executor has drained, and

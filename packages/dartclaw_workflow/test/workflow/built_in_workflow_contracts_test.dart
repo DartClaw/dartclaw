@@ -24,6 +24,7 @@
 // the YAML is tightened, preventing silent regressions.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
@@ -1180,13 +1181,19 @@ void main() {
     // nothing else, so every field host validation requires has to be named in
     // it — including the required fields of an array element, which is what
     // rejected a live run's envelope on `parallel` / `wave` / `phase`.
-    test('the finalizer prompt names the required fields of a story-spec item', () {
+    test('the finalizer prompt carries the complete root schema and required story fields', () {
       final def = _load('plan-and-implement.yaml');
       final discover = _flattenedSteps(def).firstWhere((s) => s.id == 'discover-plan-state');
       final schema = buildExecutionEnvelopeSchema(discover, discover.outputs)!;
       final prompt = buildFinalizerPrompt(schema);
 
-      expect(prompt, contains('Each item has:'));
+      expect(prompt, contains('Return the envelope itself as the root JSON object'));
+      expect(prompt, contains('If a structured-output tool is supplied, submit the envelope through that tool'));
+      final schemaBlock = RegExp(r'```json\n([\s\S]*?)\n```').firstMatch(prompt);
+      expect(schemaBlock, isNotNull, reason: 'the finalizer must receive the root envelope schema as data');
+      final supplied = jsonDecode(schemaBlock!.group(1)!) as Map<String, dynamic>;
+      expect(supplied, schema, reason: 'prompt and provider validation must describe the same envelope');
+      expect(supplied['required'], unorderedEquals(['outputs', 'step_outcome']));
       for (final field in const ['id', 'title', 'phase', 'wave', 'parallel']) {
         expect(prompt, contains(field), reason: 'a required story-spec field the model is never shown otherwise');
       }

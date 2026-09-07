@@ -53,7 +53,7 @@ void main() {
 
   tearDown(() async {
     await alertRouter.cancel();
-    lifecycleManager.dispose();
+    await lifecycleManager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
     if (tempDir.existsSync()) {

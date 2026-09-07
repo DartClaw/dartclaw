@@ -44,15 +44,6 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Target**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`).
 
-## TD-118 – Inline remediation loop halts on `maxIterations` before the verify-fix gate
-
-**Status**: Open – deferred as the deterministic floor under ADR-044 (orchestration agent); needs loop-control integration decision
-**Severity**: Medium (remediation can stop with unverified fixes and report loop exhaustion as completion)
-**Found**: during 0.19 workflow hardening; recorded 2026-08-07 (memory graduation)
-**Affects**: built-in review-and-remediate inline loop YAMLs, workflow loop control
-
-**Context**: The inline review/remediate loop keys its exit on `gating_findings_count == 0` and halts on `maxIterations` without consuming AndThen's `Auto-Remediation`/convergence signal, so it can terminate before the deterministic verify-fix gate runs. Engine-side gap, not an AndThen bug.
-
 ## TD-117 – Working-directory / project-template resolution re-derived at ≥4 sites
 
 **Status**: Open – needs an architecture decision (consolidate into one resolved-once value)
@@ -62,16 +53,16 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Context**: Effective working directory / project-template resolution is derived independently at four-plus sites with subtly different fallback logic (unset `{{PROJECT}}` null-resolution was fixed site-by-site). Structural consolidation is needed to stop whack-a-mole fixes.
 
-## TD-116 – One-shot workflow agents inherit the operator's global MCP set unfiltered
+## TD-116 – One-shot workflow agents lack project/server-specific MCP curation
 
 **Status**: Open – needs a requirements decision on a project-config MCP curation surface
 **Severity**: Medium (security/attack-surface gap)
 **Found**: during 0.19 one-shot review runs; recorded 2026-08-07 (memory graduation)
 **Affects**: one-shot codex/claude spawn paths (workflow one-shot runner, provider CLIs)
 
-**Context**: One-shot review/implement agents spawn with no MCP config of their own, so they inherit the operator's full `~/.codex` / `~/.claude` global MCP server set (context7, fetch, etc.). No DartClaw config surface exists to curate or trim MCP servers per project for these spawns.
+**Context**: One-shot review/implement agents lack a DartClaw config surface for project/server-specific MCP curation. Provider-wide isolation controls already exist: Claude's `inherit_user_settings: false` and Codex's `use_system_codex_home: false` can exclude the operator's global configuration. The remaining gap is selecting which inherited MCP servers a project may use.
 
-**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). The guarded-MCP theme it shared with TD-110 is now half-shipped: 0.25's dispatch seam guards the *inbound* host surface, and this item is the untouched *outbound* half — a one-shot agent's inherited provider-global MCP servers never reach that seam. Decide at its PRD re-scoping whether the per-project MCP curation surface rides that milestone.
+**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). Decide at its PRD re-scoping whether the per-project/server MCP curation surface rides that milestone.
 
 ## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
 
@@ -82,25 +73,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
 
-**Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the existing 0.25 rider story S14 (keeping the plan at 14 stories) rather than a new story: filesystem stores with fault-injection parity against the current suites, Windows rename coverage, tightened sqlite3-import fitness check, and an ADR-045 #3/Q4 mechanism amendment (locality rationale unchanged).
-
-## TD-110 (resolved) – MCP guard/audit was wired per tool, not at dispatch
-
-**Status**: Resolved 2026-08-20 – 0.25 story S19 "Guarded MCP dispatch seam". Kept here only until the next backlog cleanup.
-
-**Resolution**: The dispatch-level enforcement the 2026-07-29 decision called for shipped in 0.25, not in a later milestone:
-`McpProtocolHandler` guard-evaluates and audits every inbound `tools/call` at one seam, for every registered tool, and
-`McpTool` carries a required read/write classification. See [ADR-009](../adrs/009-internal-mcp-server.md) § Amendment
-(0.25) and `dev/architecture/security-architecture.md`.
-
-**Correction to this entry's original text**: two of its three claims were already stale when re-read. `kg_add` and
-`kg_invalidate` had guard evaluation and audit wired per-tool, and `kg_invalidate` already scoped by fact ownership
-(`kg.ownerForFact`). The real residue — and what S19 closed — was that enforcement was *per-tool*, covering 2 of 13
-registered tools, so any tool added without that plumbing was silently unguarded.
-
-**References**: `dev/bundle/docs/specs/0.17/0.17-mixed-review-claude-2026-05-30-9.md` (S-1, MEDIUM).
-
-Last reviewed: 2026-08-20
+**Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the Pluggable Database Backend milestone (0.26) and split into story S15, “Filesystem-backed instance-local state” (`dartclaw-private/docs/specs/0.26/s15-filesystem-backed-instance-local-state.md`, PRD FR13). Close when S15 ships; the planned scope retains fault-injection parity, Windows rename coverage, the tightened sqlite3-import fitness check, and the ADR-045 #3/Q4 mechanism amendment.
 
 ---
 
@@ -310,46 +283,6 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-065 – CLOSED 2026-08-23 – Polymorphic `TaskExecutionStrategy`
-
-**Severity**: Low (maintainability, testability)
-**Found**: 2026-04-21 workflow↔task boundary review (pre-ADR-023 drafting)
-**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/workflow_cli_runner.dart`
-
-**Context**: `TaskExecutor._executeCore` branches on `_isWorkflowOrchestrated(task)` to route workflow-orchestrated tasks through `_executeWorkflowOneShotTask()` (via `WorkflowCliRunner`) under a capacity-only lease instead of the normal reusable-worker turn path. After 0.16.5 S16 decomposes `task_executor.dart`, the branch becomes two methods on `_TaskTurnRunner` (`runWorkflowOneShot` / `runNormal`) – a structural improvement, but the `if (_isWorkflowOrchestrated(task))` dispatch still lives in `_executeCore` as an imperative statement, and the two execution strategies sit on the same concrete class rather than behind a polymorphic interface.
-
-**Current state**: Acceptable. One branch with two clear destinations is not a maintenance burden today. ADR-023 names the branch as intentional; S28's fitness test guards the package boundary below it.
-
-**Resolution**: Workflow steps now acquire the same coordinator-managed worker shape as other background tasks and run their bounded prompt chain through its guarded `TurnRunner`. The provider-specific strategy split and `WorkflowCliRunner` named by this proposal no longer exist, so the proposed abstraction has no remaining subject.
-
-**Fix**: Introduce an abstract `TaskExecutionStrategy` interface with `WorkflowOneShotStrategy` and `InteractiveStrategy` implementations. `TaskExecutor._selectStrategy(task)` picks once at the start of `_executeCore`, and the hot path becomes `await strategy.execute(...)` with no conditional. Estimated ~80 LOC, low risk (pure delegation, no behaviour change), covered by existing task-execution tests.
-
-**Trigger**: Any of the following – (a) a third execution mode lands (new harness pattern that is neither interactive nor one-shot, e.g. scheduled agent tasks with a fixed prompt set); (b) testing `_executeCore` requires mocking both paths separately and the dual-method shape makes fakes awkward; (c) per-strategy configuration (observability, budget, cancellation policy) diverges enough that method-level branching loses ergonomics.
-
-**References**: ADR-023 (workflow↔task boundary) · 0.16.5 S16 (task_executor decomposition) · S-BOUND-3 proposal in 2026-04-21 conversation.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-070 – CLOSED 2026-08-23 – `WorkflowCliRunner` placement
-
-**Severity**: Medium (maintainability)
-**Found**: 0.16.4 final baseline review remediation (2026-04-30 05:20 CEST); narrowed 2026-05-16 (LOC/race/resume closed in S15) and 2026-05-28 (S34-tracked typed-config surface closed; only the S31-tracked runner location remains)
-**Affects**: `packages/dartclaw_runtime/lib/src/task/workflow_cli_runner.dart`
-
-**Context**: Of the original carry-overs, three closed in S15 (executor LOC decomposition, `_waitForTaskCompletion` race, map/foreach resume cursor) and the typed `_workflow*` task-config surface closed in S34 (`WorkflowTaskConfig` constants + `readMergeResolveEnv`, with the two server-side reads now routing through it). The remaining residual is structural: `WorkflowCliRunner` still lives in `dartclaw_runtime` despite acting as workflow/task boundary infrastructure. The seam decision is owned by S31.
-
-**Decision (2026-06-27, [ADR-043](../adrs/043-cli-task-execution-provider-placement.md))**: **defer — keep status quo.** The unit is a self-contained cluster (`workflow_cli_runner` + `cli_provider` + `claude_cli_provider` + `codex_cli_provider` + `cli_process_supervisor`) importing only core/config/security, so relocation is dependency-feasible but unjustified at the current low severity: the cleanest home (a dedicated `dartclaw_task` package) trips the `arch_check` package-count ceiling (14→15), and moving into `dartclaw_workflow` conflates the control plane with CLI execution. No code change. This entry stays open, pinned to the ADR.
-
-**Resolution**: The ADR-043 reopen trigger fired during the guarded-harness workflow refactor. The one-shot provider cluster was deleted rather than relocated, so no dedicated package or ceiling change was required. See ADR-043's 2026-08-23 amendment.
-
-**Trigger**: a second production consumer of the cluster; a dependency-cycle pressure that forces the seam; or a broader task-execution/harness-layer refactor that makes the relocation incidental rather than standalone churn.
-
-**References**: [ADR-043](../adrs/043-cli-task-execution-provider-placement.md) (placement decision) · `dartclaw-private/docs/specs/0.16.4/workflow-requirements-baseline.md` §"Open Requirement Mismatches In Latest Review Material" · `workflow-requirements-baseline-gap-review-claude-2026-04-29.md` LOW advisory-carry-over finding.
-
-Last reviewed: 2026-06-27
-
 ## TD-124 – Webhook HTTP helpers have two package owners
 
 **Severity**: Low (the copies are behaviorally identical, but changes can drift)
@@ -457,9 +390,7 @@ call site), `task_budget_policy_failure.dart` (the dedup compare)
 **Observed**: retry dedup compares `TaskFailureKind.key` – two consecutive failures under one key stop the retry loop –
 and the executor maps every non-completed turn outcome to `turnFailure`, so a timeout followed by an unrelated stream
 failure dedupe as one reason. The 0.25 typed-failure work moved the key write to where it is read; it did not split the
-kind. Related, routed as a quick fix with the proposed semantic "a manual start resets retry state":
-`TaskActionService.start` is a bare `failed → queued` transition that keeps `retryCount`, `configJson['lastError']` and
-`configJson['_lastFailureKind']`, so the restarted run dedupes its first failure against the previous run's key.
+kind.
 
 **Needs decision**: which turn outcomes are distinct retry reasons (a taxonomy over `TurnOutcome.status`).
 

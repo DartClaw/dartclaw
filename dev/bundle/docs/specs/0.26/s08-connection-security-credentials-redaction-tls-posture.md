@@ -214,12 +214,12 @@ url    | https://pub.dev/packages/postgres/versions/3.5.12                      
 
 - **TI07** Connection lifecycle is audited as trusted host-side egress through one shared audit logger
   - Technical Overview #5: `PostgresBackend.open({dsn, poolSize, auditLogger})` additive parameter; `databaseBackendFactoryFor` threads it; the logger is constructed in `DartclawRuntime.build`/`stageHeadless` before `_wireStorage` and injected into `SecurityWiring`; CLI open sites construct one over the data dir. Depends on TI06.
-  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && test -n "$DARTCLAW_TEST_POSTGRES_URL" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` – the wiring suites prove one logger instance reaches both storage and security and that security no longer constructs its own; the live suites prove scenarios S03 and S06: `open`/`close`/`auth_failure` entries with `guard: DatabaseEgress`, safe identity, and `credentialRef`, none of the distinctive fixture values anywhere in the partition, the log output, or the exception rendering, and a failing audit write aborts the open
+  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` – the wiring suites prove one logger instance reaches both storage and security and that security no longer constructs its own; the live suites prove scenarios S03 and S06: `open`/`close`/`auth_failure` entries with `guard: DatabaseEgress`, safe identity, and `credentialRef`, none of the distinctive fixture values anywhere in the partition, the log output, or the exception rendering, and a failing audit write aborts the open
   - **SATISFIES**: S03, S06, SC03, SC06
 
 - **TI08** Startup warns once when the runtime role is a superuser
   - Technical Overview #6 on S07's version-probe connection; the warning names the two-role model and the security doc section. Depends on TI07.
-  - **Verify**: `cmd: test -n "$DARTCLAW_TEST_POSTGRES_URL" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart` – the live suite's role cases prove scenario S06: a superuser connection logs exactly one warning, a least-privilege role created by the test logs none, and the open succeeds in both cases with no additional query after the probe
+  - **Verify**: `cmd: dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart` – the live suite's role cases prove scenario S06: a superuser connection logs exactly one warning, a least-privilege role created by the test logs none, and the open succeeds in both cases with no additional query after the probe
   - **SATISFIES**: S06
 
 - **TI09** The security architecture documents the database egress posture and the two-role model
@@ -275,3 +275,19 @@ Evidence: plan decision 2026-09-02 recorded in `docs/specs/0.26/plan.json` share
 ### Run: 2026-09-08 14:19 UTC – observations
 
 2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.
+
+### Run: 2026-09-08 17:06 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI07 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && test -n "$DARTCLAW_TEST_POSTGRES_URL" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` → `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart`
+
+### Run: 2026-09-08 17:06 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI08 Verify target repaired | Stale targets: – | `cmd: test -n "$DARTCLAW_TEST_POSTGRES_URL" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart` → `cmd: dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart`
+
+### Run: 2026-09-08 17:06 UTC – observations
+
+Owner scheduling override: the updated Verify commands prove local implementation and compilation only. Live integration and Windows/platform acceptance remain PENDING at the final combined A+B gate. Original postponed commands are retained by the repair-proof observations and deferred-live-platform-proofs.json. Do not report those postponed behaviors or milestone release acceptance as passed from a local receipt. Named targeted scenario proofs, the driver feasibility spike and missing-DSN refusal checks remain runnable. Final full-suite evidence may cover duplicate/subset invocations only with explicit owner-to-result mapping; platform and contract-report variants remain distinct.

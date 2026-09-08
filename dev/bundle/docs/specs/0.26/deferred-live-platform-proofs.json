@@ -1,0 +1,134 @@
+[
+  {
+    "owners": [
+      "S07/TI05",
+      "S08/TI08"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S07/TI06",
+      "S09/TI03",
+      "S13/TI02"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_schema_gate_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S07/TI07"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S08/TI07"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI02"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart --name \"language validation\"",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI04"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI05"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI06"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI07"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S09/TI08"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S10/TI01",
+      "S10/TI02"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_interlock_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S10/TI03",
+      "S10/TI05"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_interlock_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S10/TI04",
+      "S15/TI03"
+    ],
+    "command": "dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S10/TI06"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/integration/postgres_serve_run_probe_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S11/TI06"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && (cd packages/dartclaw_core && dart test --run-skipped -t integration --reporter=failures-only --file-reporter=json:../../build/postgres-contract/verify.json test/storage/contract/postgres_backend_contract_test.dart) && dart run dev/tools/contract_groups_check.dart --manifest packages/dartclaw_core/test/storage/contract/contract_groups.json --expect shared,postgres --report build/postgres-contract/verify.json",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S11/TI08"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && bash dev/tools/postgres_contract.sh",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S13/TI03"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/conversation_index_postgres_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S15/TI05"
+    ],
+    "command": "bash dev/tools/parallels_windows.sh powershell dev/tools/run_windows_tests.ps1 packages/dartclaw_core/test/storage/turn_state_store_test.dart packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart",
+    "status": "pending-final-combined-gate"
+  }
+]

@@ -9,8 +9,18 @@ The owner clarified that heavy verification must **not** run for every story. Th
 - Run one focused independent review, relevant implementation tests and the standard fast-tier completion gate per story. Batch confirmed fixes and recheck only affected findings.
 - Defer full workspace, full fitness, broad integration, platform packaging, repeated reviews and release verification to the final combined A+B gate. Run a targeted live probe during implementation only when needed to establish the new backend or diagnose a failure; do not replay the whole live suite per story.
 - At the Phase A boundary, verify focused story receipts, settle interface gaps and preserve its checkpoint. Continue Phase B without another broad review/full-suite campaign. This is an implementation checkpoint, not final release acceptance.
-- Final combined verification must execute every deferred obligation, including live PostgreSQL/pgvector contracts, Windows/native builds, security/failure paths and UI smoke screenshots. Do not claim milestone completion before those results pass.
+- Final combined verification must execute every deferred obligation, including live PostgreSQL/pgvector contracts, Windows/native builds, security/failure paths and UI smoke screenshots. Do not claim milestone completion before those results pass. The specific postponed live/platform commands and their story/task owners are recorded in [deferred-live-platform-proofs.json](deferred-live-platform-proofs.json). Local story receipts do not satisfy these pending obligations; record final coverage for each entry, reusing a full-suite result for duplicates/subsets only when its coverage is explicit.
 - Phase B planning, export, implementation and release preparation remain automatic. Keep independent/disjoint work parallel; shared storage APIs remain dependency ordered.
+
+## Parallel worktree execution after S06
+
+This scheduling correction supersedes the cross-worktree storage serialization below. Keep one writer per worktree and retain every declared dependency and story gate.
+
+- After S06 is accepted, launch three implementations from that accepted SHA: S14 in the existing `feat/0.26` integration checkout, S15 in `.agent_temp/0.26-local-state` on `codex/0.26-local-state`, and S07 in `.agent_temp/0.26-postgres` on `codex/0.26-postgres`.
+- All three depend on S06, not on one another. Integrate and complete them centrally in the order S14 → S15 → S07. This preserves S14's three-entry SQLite import check before S15 tightens it and keeps the PostgreSQL integration on the renamed, filesystem-state baseline.
+- Each lane owns its complete FIS implementation and focused checks. Shared wiring, barrels, dependency files, ceilings and documentation are lane-local proposals; root reconciles them during integration. Never replace the integration plan with a lane-local plan.
+- Root owns integration commits, main-plan transitions and completion receipts. Review frozen changes once, with only targeted closure for integration changes or confirmed findings. Run completion evidence against the actual integrated tree; broad live/platform/full campaigns remain at the final combined A+B gate.
+- Use the three implementation slots while work is independent; a completed lane frees the slot for its reviewer. Keep `feat/0.26` checked out in the main workspace. Preserve unrelated work and do not push, merge to main, publish, or commit private changes.
 
 ## Delivery contract
 

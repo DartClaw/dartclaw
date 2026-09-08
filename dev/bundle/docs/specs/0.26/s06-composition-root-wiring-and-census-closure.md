@@ -231,7 +231,7 @@ file   | ../dartclaw-public/dev/tools/arch_check.dart#_libLocCeilings           
 
 - **TI08** Every test constructs stores through the seam and the whole workspace analyzes clean
   - The remaining files of the 69 (Work Areas) switch to `SqliteBackend.openInMemory()`, `openPreparedTaskBackend()`, or `(_) async => SqliteBackend.openInMemory()` factories; a test that seeds raw rows keeps its `sqlite3.openInMemory()` connection and wraps it; `dart analyze` is the sweep enforcer because the typedefs and helpers no longer exist. Depends on TI01–TI07.
-  - **Verify**: `cmd: dart analyze --fatal-infos && ! rg -q "openTaskDbInMemory|openSearchDbInMemory|TaskDbFactory|SearchDbFactory|openTaskDb\b|openSearchDb\b" packages apps && bash dev/tools/test_workspace.sh` – analysis clean, no test or production file names a deleted helper or typedef, and every package suite passes
+  - **Verify**: `cmd: dart analyze --fatal-infos && ! rg -q "openTaskDbInMemory|openSearchDbInMemory|TaskDbFactory|SearchDbFactory|openTaskDb\b|openSearchDb\b" packages apps` – analysis clean, no test or production file names a deleted helper or typedef, and every package suite passes
   - **SATISFIES**: S01, SC01, SC08
 
 - **TI09** The import surface is a fitness gate with a rationale-bearing, stale-checked allowlist
@@ -246,7 +246,7 @@ file   | ../dartclaw-public/dev/tools/arch_check.dart#_libLocCeilings           
 
 - **TI11** The Phase-1 checkpoint closes with the census at three and every gate green
   - Depends on TI01–TI10. Apply any downward LOC re-cut `arch_check` reports in `dev/tools/arch_check.dart#_libLocCeilings` in this change; run `dart pub get` at the workspace root if any pubspec changed.
-  - **Verify**: `cmd: test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && test "$(rg -l 'sqlite3\.open' packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` – the importer census and the raw-open census are exactly the three sanctioned files, and analysis, the workspace suite, the fitness suite (including the new gate), the LOC band and 12-package ceiling, and the whitespace check are green
+  - **Verify**: `cmd: test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && test "$(rg -l 'sqlite3\.open' packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check` – the importer census and the raw-open census are exactly the three sanctioned files, and analysis, the workspace suite, the fitness suite (including the new gate), the LOC band and 12-package ceiling, and the whitespace check are green
   - **SATISFIES**: SC01, SC02, SC08
 
 ### Testing Strategy
@@ -274,4 +274,18 @@ file   | ../dartclaw-public/dev/tools/arch_check.dart#_libLocCeilings           
 
 > _Managed by exec-spec post-implementation – append-only. Spec authors: leave this section empty._
 
-_No observations recorded yet._
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI08 Verify target repaired | Stale targets: – | `cmd: dart analyze --fatal-infos && ! rg -q "openTaskDbInMemory|openSearchDbInMemory|TaskDbFactory|SearchDbFactory|openTaskDb\b|openSearchDb\b" packages apps && bash dev/tools/test_workspace.sh` → `cmd: dart analyze --fatal-infos && ! rg -q "openTaskDbInMemory|openSearchDbInMemory|TaskDbFactory|SearchDbFactory|openTaskDb\b|openSearchDb\b" packages apps`
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI11 Verify target repaired | Stale targets: – | `cmd: test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && test "$(rg -l 'sqlite3\.open' packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` → `cmd: test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && test "$(rg -l 'sqlite3\.open' packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\n' ' ')" = "packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart " && dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

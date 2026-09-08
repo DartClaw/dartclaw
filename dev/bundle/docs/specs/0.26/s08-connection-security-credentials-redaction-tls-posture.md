@@ -184,7 +184,7 @@ url    | https://pub.dev/packages/postgres/versions/3.5.12                      
 
 - **TI01** `database.*` validates the persisted reference form and marks the two secret-bearing fields read-only
   - Technical Overview #1 in S07's `database_config.dart` and parser; `config_meta/database_fields.dart` sets `url`/`credential` to `ConfigMutability.readonly` with descriptions naming env substitution and named credentials; regenerate with `generate_config_schema.dart` and `render_config_reference.dart`.
-  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_kernel/test/database_config_test.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && bash dev/tools/fitness/check_config_reference_drift.sh && bash dev/tools/fitness/run_all.sh` – the kernel suite proves scenario S01 (c), (d), (h) refuse at load naming the field and the reference model, (a)/(b) parse with `urlEnvVars` populated from the raw template, (i) loads silently; the schema shows `url` and `credential` as file-only; no drift; all five config gates green
+  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_kernel/test/database_config_test.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && bash dev/tools/fitness/check_config_reference_drift.sh` – the kernel suite proves scenario S01 (c), (d), (h) refuse at load naming the field and the reference model, (a)/(b) parse with `urlEnvVars` populated from the raw template, (i) loads silently; the schema shows `url` and `credential` as file-only; no drift; all five config gates green
   - **SATISFIES**: S01, SC01, SC05
 
 - **TI02** `resolveDatabaseDsn` resolves one reference synchronously through the registry and refuses by name
@@ -265,3 +265,13 @@ Affected surface: `HttpMcpTransport._verifyTls` (TI05); scenario S05; `dev/archi
 Decision: retire `HttpMcpTransport`'s private `InternetAddress.isLoopback` duplicate in favour of the kernel `isLoopbackHost`, accepting that the outbound-MCP plain-HTTP exemption narrows from every `127.0.0.0/8` address (plus `localhost`, `::1`) to exactly `localhost`, `127.0.0.1`, `::1`; a `127.0.0.2` MCP endpoint under `requireTls` is refused after this story.
 Rationale: the plan forbids a second loopback implementation, and the kernel predicate's literal-only contract is the posture ADR-045 #1 asks for; the narrowing is a behavior change to a shipped MCP feature, so it is recorded as a decision rather than inferred from a CHANGELOG line.
 Evidence: plan decision 2026-09-02 recorded in `docs/specs/0.26/plan.json` sharedDecisions "Redaction-safe typed storage exceptions, kernel loopback predicate, audit sink"; the owner may veto, in which case TI05 keeps a `/8` branch in the transport and this note is amended.
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI01 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_kernel/test/database_config_test.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && bash dev/tools/fitness/check_config_reference_drift.sh && bash dev/tools/fitness/run_all.sh` → `cmd: dart test --reporter=failures-only packages/dartclaw_kernel/test/database_config_test.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && bash dev/tools/fitness/check_config_reference_drift.sh`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

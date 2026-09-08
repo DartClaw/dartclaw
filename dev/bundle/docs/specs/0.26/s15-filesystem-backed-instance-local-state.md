@@ -204,7 +204,7 @@ file   | ../dartclaw-public/dev/tools/parallels_windows.sh#usage                
 
 - **TI07** Test data and the workspace gates are clean
   - `git rm dev/testing/profiles/visual/data/state.db` and drop its `!profiles/visual/data/state.db` re-include; add `turn_state.json*` and `webhook_deliveries/` to `dev/testing/.gitignore` beside `state.db*` (in-place profiles write to the tracked tree). Apply any `arch_check` downward re-cut. Depends on TI01–TI06.
-  - **Verify**: `cmd: ! git ls-files --error-unmatch dev/testing/profiles/visual/data/state.db 2>/dev/null && rg -q "^turn_state\.json\*$" dev/testing/.gitignore && rg -q "^webhook_deliveries/$" dev/testing/.gitignore && dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` – fixture gone, ignores present, and analysis, the workspace suite, the fitness suite (including the tightened gate and the 1300-line cap), the LOC band, and the whitespace check are green
+  - **Verify**: `cmd: ! git ls-files --error-unmatch dev/testing/profiles/visual/data/state.db 2>/dev/null && rg -q "^turn_state\.json\*$" dev/testing/.gitignore && rg -q "^webhook_deliveries/$" dev/testing/.gitignore && dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check` – fixture gone, ignores present, and analysis, the workspace suite, the fitness suite (including the tightened gate and the 1300-line cap), the LOC band, and the whitespace check are green
   - **SATISFIES**: SC07
 
 ### Testing Strategy
@@ -245,3 +245,13 @@ Affected surface: this story's FR13 proofs (the SQLite-free serve-run probe, the
 Decision: the rider story stays ahead of the PostgreSQL stories; every proof requiring S07's `database.*` config or PostgresBackend executes in S10.
 Rationale: at this story's position `database.backend: postgres` does not parse and PostgresBackend does not exist; S10 depends on this story and owns the boot-flow, abandoned-store, and unreachable-boot integration tests.
 Evidence: owner ratified 2026-08-07 (preflight interview, `docs/specs/0.26/preflight-2026-08-07.md`); carried over from the former S14 FIS at the 2026-09-02 split with the key unchanged so S10's matching note still resolves.
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI07 Verify target repaired | Stale targets: – | `cmd: ! git ls-files --error-unmatch dev/testing/profiles/visual/data/state.db 2>/dev/null && rg -q "^turn_state\.json\*$" dev/testing/.gitignore && rg -q "^webhook_deliveries/$" dev/testing/.gitignore && dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` → `cmd: ! git ls-files --error-unmatch dev/testing/profiles/visual/data/state.db 2>/dev/null && rg -q "^turn_state\.json\*$" dev/testing/.gitignore && rg -q "^webhook_deliveries/$" dev/testing/.gitignore && dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

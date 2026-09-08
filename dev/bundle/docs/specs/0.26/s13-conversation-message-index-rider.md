@@ -235,7 +235,7 @@ file   | ../dartclaw-public/packages/dartclaw_core/test/storage/postgres_live_su
 
 - **TI09** Governance gates hold and the default run needs no PostgreSQL
   - Depends on TI01–TI08. Apply the LOC rebaseline protocol if `arch_check` reports a crossed `dartclaw_core` ceiling.
-  - **Verify**: `cmd: ! rg -q "dartclaw_storage|dartclaw_server|dartclaw_models|dartclaw_config" packages/dartclaw_core/lib/src/search/conversation_index_projection.dart packages/dartclaw_core/lib/src/search/conversation_indexer.dart packages/dartclaw_core/lib/src/search/conversation_search_service.dart && rg -qU "conversation_search_service\.dart'\s*show" packages/dartclaw_core/lib/dartclaw_core.dart && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos && bash dev/tools/test_workspace.sh) && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` – no retired name in the new files, the new exports carry `show`, analysis and the whole workspace suite pass with no PostgreSQL reachable, the fitness suite and `arch_check` are green, the diff is whitespace-clean
+  - **Verify**: `cmd: ! rg -q "dartclaw_storage|dartclaw_server|dartclaw_models|dartclaw_config" packages/dartclaw_core/lib/src/search/conversation_index_projection.dart packages/dartclaw_core/lib/src/search/conversation_indexer.dart packages/dartclaw_core/lib/src/search/conversation_search_service.dart && rg -qU "conversation_search_service\.dart'\s*show" packages/dartclaw_core/lib/dartclaw_core.dart && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos) && dart run dev/tools/arch_check.dart && git diff --check` – no retired name in the new files, the new exports carry `show`, analysis and the whole workspace suite pass with no PostgreSQL reachable, the fitness suite and `arch_check` are green, the diff is whitespace-clean
   - **SATISFIES**: SC01, SC07
 
 ### Testing Strategy
@@ -263,4 +263,12 @@ file   | ../dartclaw-public/packages/dartclaw_core/test/storage/postgres_live_su
 
 > _Managed by exec-spec post-implementation – append-only. Spec authors: leave this section empty._
 
-_No observations recorded yet._
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI09 Verify target repaired | Stale targets: – | `cmd: ! rg -q "dartclaw_storage|dartclaw_server|dartclaw_models|dartclaw_config" packages/dartclaw_core/lib/src/search/conversation_index_projection.dart packages/dartclaw_core/lib/src/search/conversation_indexer.dart packages/dartclaw_core/lib/src/search/conversation_search_service.dart && rg -qU "conversation_search_service\.dart'\s*show" packages/dartclaw_core/lib/dartclaw_core.dart && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos && bash dev/tools/test_workspace.sh) && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` → `cmd: ! rg -q "dartclaw_storage|dartclaw_server|dartclaw_models|dartclaw_config" packages/dartclaw_core/lib/src/search/conversation_index_projection.dart packages/dartclaw_core/lib/src/search/conversation_indexer.dart packages/dartclaw_core/lib/src/search/conversation_search_service.dart && rg -qU "conversation_search_service\.dart'\s*show" packages/dartclaw_core/lib/dartclaw_core.dart && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos) && dart run dev/tools/arch_check.dart && git diff --check`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

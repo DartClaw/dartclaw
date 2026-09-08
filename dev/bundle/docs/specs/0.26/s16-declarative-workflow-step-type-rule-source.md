@@ -342,7 +342,7 @@ file   | ../dartclaw-public/packages/dartclaw_workflow/tool/regenerate_fitness_b
   - Consumes TI02-TI06. Regenerate `test/fitness_baseline.json` via `tool/regenerate_fitness_baseline.dart` so it
     records the rule source and the reduced rule-file ceilings; confirm the file is inside
     `dev/tools/fitness/check_no_framework_coupling.sh`'s scan scope and is **not** added to its exemption list.
-  - **Verify**: `cmd: dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && git diff --exit-code -- dev/tools/fitness/check_no_framework_coupling.sh dev/fitness/test/allowlist/barrel_show_clauses.txt packages/dartclaw_workflow/lib/dartclaw_workflow.dart` – the CI-equivalent gate passes, the baseline records only existing files at actual ceilings, the new source remains inside the unchanged framework scan, and neither the barrel nor its allowlist changes
+  - **Verify**: `cmd: dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && git diff --exit-code -- dev/tools/fitness/check_no_framework_coupling.sh dev/fitness/test/allowlist/barrel_show_clauses.txt packages/dartclaw_workflow/lib/dartclaw_workflow.dart` – the CI-equivalent gate passes, the baseline records only existing files at actual ceilings, the new source remains inside the unchanged framework scan, and neither the barrel nor its allowlist changes
   - **SATISFIES**: SC05, SC06, SC08
 
 - [ ] **TI08** The workflow documentation says where the DSL is declared and describes the rules that exist.
@@ -364,4 +364,12 @@ file   | ../dartclaw-public/packages/dartclaw_workflow/tool/regenerate_fitness_b
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI07 Verify target repaired | Stale targets: – | `cmd: dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && git diff --exit-code -- dev/tools/fitness/check_no_framework_coupling.sh dev/fitness/test/allowlist/barrel_show_clauses.txt packages/dartclaw_workflow/lib/dartclaw_workflow.dart` → `cmd: dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && git diff --exit-code -- dev/tools/fitness/check_no_framework_coupling.sh dev/fitness/test/allowlist/barrel_show_clauses.txt packages/dartclaw_workflow/lib/dartclaw_workflow.dart`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

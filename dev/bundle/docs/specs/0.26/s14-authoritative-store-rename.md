@@ -191,7 +191,7 @@ file   | ../dartclaw-public/dev/state/UBIQUITOUS_LANGUAGE.md#conversation--sessi
 
 - **TI06** The story closes with every gate green and one profile smoke from a fresh build
   - Depends on TI01–TI05. Run the visual profile from source (`bash dev/testing/profiles/visual/run.sh`, not the `DARTCLAW_TEST_USE_SNAPSHOT` path) and confirm the Tasks page renders the seeded tasks with no adoption logged; then with `DARTCLAW_VISUAL_DATA_DIR` pointing at a directory seeded from `git show HEAD:dev/testing/profiles/visual/data/tasks.db` (the pre-rename revision) confirm one adoption, the seeded tasks rendered, and `dartclaw.db` with no `tasks.db*` in that directory afterwards.
-  - **Verify**: `cmd: dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check && test "$(grep -cv '^\s*#\|^\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)" = 3` – analysis, the workspace suite, the fitness suite, the LOC band and package ceiling, and the whitespace check are green, and the import allowlist still has three entries
+  - **Verify**: `cmd: dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check && test "$(grep -cv '^\s*#\|^\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)" = 3` – analysis, the workspace suite, the fitness suite, the LOC band and package ceiling, and the whitespace check are green, and the import allowlist still has three entries
   - **SATISFIES**: SC01, SC03, SC06
 
 ### Testing Strategy
@@ -226,3 +226,13 @@ Affected surface: S14 scenario S07 (startup-level no-adoption-under-postgres for
 Decision: every proof requiring S07's `database.*` config or PostgresBackend (the startup-level no-adoption-under-postgres form, the FR8 abandoned-store notice, the SQLite-free serve-run probe) executes in S10.
 Rationale: S14 does not depend on S07, so `database.backend: postgres` does not parse and PostgresBackend does not exist when S14 executes; S10 depends on S14 and owns the boot-flow, abandoned-store, and unreachable-boot integration tests, mirroring the settled either-name-helper split ("end-to-end consumer proof remains in S10").
 Evidence: Owner ratified 2026-08-07 (preflight interview, `docs/specs/0.26/preflight-2026-08-07.md`); `plan.json` S10 `dependsOn` includes S14 and S15 and S10's `sequencing` names the presence helper as consumed.
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI06 Verify target repaired | Stale targets: – | `cmd: dart analyze --fatal-infos && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check && test "$(grep -cv '^\s*#\|^\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)" = 3` → `cmd: dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check && test "$(grep -cv '^\s*#\|^\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)" = 3`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

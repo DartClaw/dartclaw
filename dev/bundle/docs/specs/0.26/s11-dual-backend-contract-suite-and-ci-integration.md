@@ -209,7 +209,7 @@ url    | https://docs.github.com/en/actions/using-containerized-services/creatin
 
 - **TI05** Every repository family round-trips on both backends through the landed production classes
   - `repository_contract.dart` per Technical Overview #5; `dartclaw_workflow` added to `packages/dartclaw_core/pubspec.yaml` `dev_dependencies:` followed by `dart pub get` at the workspace root. Depends on TI01.
-  - **Verify**: `cmd: rg -q "^  dartclaw_workflow:" <(sed -n '/^dev_dependencies:/,$p' packages/dartclaw_core/pubspec.yaml) && ! rg -q "dartclaw_workflow" packages/dartclaw_core/lib && test "$(rg -o "\[contract:repository\.[a-z_]+\]" packages/dartclaw_core/test/storage/contract/repository_contract.dart | sort -u | wc -l | tr -d ' ')" = 8 && dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart && bash dev/tools/fitness/run_all.sh` – the dev edge exists and `lib/` never imports the workflow package; all eight family ids are declared; the SQLite entry passes end to end (scenario S01); the fitness suite accepts the dev edge
+  - **Verify**: `cmd: rg -q "^  dartclaw_workflow:" <(sed -n '/^dev_dependencies:/,$p' packages/dartclaw_core/pubspec.yaml) && ! rg -q "dartclaw_workflow" packages/dartclaw_core/lib && test "$(rg -o "\[contract:repository\.[a-z_]+\]" packages/dartclaw_core/test/storage/contract/repository_contract.dart | sort -u | wc -l | tr -d ' ')" = 8 && dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart` – the dev edge exists and `lib/` never imports the workflow package; all eight family ids are declared; the SQLite entry passes end to end (scenario S01); the fitness suite accepts the dev edge
   - **SATISFIES**: S01, S05, SC06
 
 - **TI06** [runtime] The PostgreSQL entry passes its complete set against live PostgreSQL 14 and never skips
@@ -329,3 +329,13 @@ url    | https://docs.github.com/en/actions/using-containerized-services/creatin
 #### DRIFT
 
 - spec-stale: TI04 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart --plain-name "[contract:fts."` → `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart --plain-name "[contract:fts." && test "$(tr -d '[:space:]' < packages/dartclaw_core/test/storage/contract/fts_divergence_whitelist.json)" = "[]"`
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI05 Verify target repaired | Stale targets: – | `cmd: rg -q "^  dartclaw_workflow:" <(sed -n '/^dev_dependencies:/,$p' packages/dartclaw_core/pubspec.yaml) && ! rg -q "dartclaw_workflow" packages/dartclaw_core/lib && test "$(rg -o "\[contract:repository\.[a-z_]+\]" packages/dartclaw_core/test/storage/contract/repository_contract.dart | sort -u | wc -l | tr -d ' ')" = 8 && dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart && bash dev/tools/fitness/run_all.sh` → `cmd: rg -q "^  dartclaw_workflow:" <(sed -n '/^dev_dependencies:/,$p' packages/dartclaw_core/pubspec.yaml) && ! rg -q "dartclaw_workflow" packages/dartclaw_core/lib && test "$(rg -o "\[contract:repository\.[a-z_]+\]" packages/dartclaw_core/test/storage/contract/repository_contract.dart | sort -u | wc -l | tr -d ' ')" = 8 && dart test --reporter=failures-only packages/dartclaw_core/test/storage/contract/sqlite_backend_contract_test.dart`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

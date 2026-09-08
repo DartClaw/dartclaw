@@ -231,7 +231,7 @@ url    | https://www.postgresql.org/docs/14/textsearch-dictionaries.html        
 
 - **TI10** Governance gates hold and the default run needs no PostgreSQL
   - Depends on TI01–TI09. Apply the LOC rebaseline protocol if `arch_check` reports a crossed `dartclaw_core` ceiling.
-  - **Verify**: `cmd: test "$(rg -l "@Tags\(\['integration'\]\)" packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart | wc -l | tr -d ' ')" = 5 && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos && bash dev/tools/test_workspace.sh) && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` – all five live suites are tagged, analysis and the whole workspace suite pass with no PostgreSQL reachable, the fitness suite and `arch_check` are green, and the diff is whitespace-clean
+  - **Verify**: `cmd: test "$(rg -l "@Tags\(\['integration'\]\)" packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart | wc -l | tr -d ' ')" = 5 && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos) && dart run dev/tools/arch_check.dart && git diff --check` – all five live suites are tagged, analysis and the whole workspace suite pass with no PostgreSQL reachable, the fitness suite and `arch_check` are green, and the diff is whitespace-clean
   - **SATISFIES**: SC04, SC05, SC06
 
 ### Testing Strategy
@@ -264,4 +264,12 @@ url    | https://www.postgresql.org/docs/14/textsearch-dictionaries.html        
 
 > _Managed by exec-spec post-implementation – append-only. Spec authors: leave this section empty._
 
-_No observations recorded yet._
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI10 Verify target repaired | Stale targets: – | `cmd: test "$(rg -l "@Tags\(\['integration'\]\)" packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart | wc -l | tr -d ' ')" = 5 && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos && bash dev/tools/test_workspace.sh) && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check` → `cmd: test "$(rg -l "@Tags\(\['integration'\]\)" packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart | wc -l | tr -d ' ')" = 5 && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos) && dart run dev/tools/arch_check.dart && git diff --check`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

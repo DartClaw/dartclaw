@@ -163,7 +163,7 @@ url    | https://json-schema.org/draft/2020-12/schema                           
 
 - [ ] **TI04** The drift check runs in the existing fitness harness
   - One new step in `dev/tools/fitness/run_all.sh` invoking the generator's `--check`, placed beside the existing `dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check` step and ahead of the trailing `bash dev/tools/run-fitness.sh` line. No `.github/workflows/ci.yml` edit, no new runner script, no allowlist. Depends on TI03.
-  - **Verify**: `cmd: bash dev/tools/fitness/test_run_all_prerequisites.sh && bash dev/tools/fitness/run_all.sh && test -z "$(git diff --name-only -- dev/tools .github/workflows | rg -v '^dev/tools/fitness/run_all.sh$')"` – the existing harness passes with the drift check registered beside the config-schema check, and no other runner or CI workflow changes
+  - **Verify**: `cmd: bash dev/tools/fitness/test_run_all_prerequisites.sh && test -z "$(git diff --name-only -- dev/tools .github/workflows | rg -v '^dev/tools/fitness/run_all.sh$')"` – the existing harness passes with the drift check registered beside the config-schema check, and no other runner or CI workflow changes
   - **SATISFIES**: S05, SC07
 
 - [ ] **TI05** The corpus validates against the artifact, invalid documents do not, and the emitted vocabulary is closed
@@ -178,7 +178,7 @@ url    | https://json-schema.org/draft/2020-12/schema                           
 
 - [ ] **TI07** The artifact and its gate are discoverable in the docs
   - `dev/architecture/workflow-architecture.md` § 18 gains the emitted-artifact subsection (generation-only rule, the union-then-narrow step shape, what the schema deliberately does not cover) with its "Current through" marker bumped; `dev/fitness/README.md` gains the gate's what/why/how-to-resolve entry; `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` gains the regeneration command beside the fitness-baseline one; `docs/guide/workflows.md` points authors at the artifact and how to attach it in an editor; CHANGELOG records the new published artifact.
-  - **Verify**: `cmd: rg -q 'workflow.schema.json' dev/architecture/workflow-architecture.md dev/fitness/README.md docs/guide/workflows.md CHANGELOG.md && rg -q 'generate_workflow_schema.dart' dev/fitness/README.md dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md && rg -qi 'validator.only' dev/architecture/workflow-architecture.md && rg -qi 'editor|attach' docs/guide/workflows.md && ! rg -q 'https?://[^ )]*workflow.schema.json' docs/guide/workflows.md && dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh` – the architecture explains generation-only and validator-only scope, contributor docs give regeneration and resolution steps, the guide gives a local editor attachment without a false published URL, CHANGELOG records the artifact, and the CI-equivalent gate passes
+  - **Verify**: `cmd: rg -q 'workflow.schema.json' dev/architecture/workflow-architecture.md dev/fitness/README.md docs/guide/workflows.md CHANGELOG.md && rg -q 'generate_workflow_schema.dart' dev/fitness/README.md dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md && rg -qi 'validator.only' dev/architecture/workflow-architecture.md && rg -qi 'editor|attach' docs/guide/workflows.md && ! rg -q 'https?://[^ )]*workflow.schema.json' docs/guide/workflows.md && dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed .` – the architecture explains generation-only and validator-only scope, contributor docs give regeneration and resolution steps, the guide gives a local editor attachment without a false published URL, CHANGELOG records the artifact, and the CI-equivalent gate passes
   - **SATISFIES**: SC08, SC09
 
 ### Execution Contract
@@ -191,4 +191,18 @@ url    | https://json-schema.org/draft/2020-12/schema                           
 
 > _Managed by exec-spec post-implementation – append-only._
 
-_No observations recorded yet._
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI04 Verify target repaired | Stale targets: – | `cmd: bash dev/tools/fitness/test_run_all_prerequisites.sh && bash dev/tools/fitness/run_all.sh && test -z "$(git diff --name-only -- dev/tools .github/workflows | rg -v '^dev/tools/fitness/run_all.sh$')"` → `cmd: bash dev/tools/fitness/test_run_all_prerequisites.sh && test -z "$(git diff --name-only -- dev/tools .github/workflows | rg -v '^dev/tools/fitness/run_all.sh$')"`
+
+### Run: 2026-09-08 14:19 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI07 Verify target repaired | Stale targets: – | `cmd: rg -q 'workflow.schema.json' dev/architecture/workflow-architecture.md dev/fitness/README.md docs/guide/workflows.md CHANGELOG.md && rg -q 'generate_workflow_schema.dart' dev/fitness/README.md dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md && rg -qi 'validator.only' dev/architecture/workflow-architecture.md && rg -qi 'editor|attach' docs/guide/workflows.md && ! rg -q 'https?://[^ )]*workflow.schema.json' docs/guide/workflows.md && dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && bash dev/tools/test_workspace.sh && bash dev/tools/fitness/run_all.sh` → `cmd: rg -q 'workflow.schema.json' dev/architecture/workflow-architecture.md dev/fitness/README.md docs/guide/workflows.md CHANGELOG.md && rg -q 'generate_workflow_schema.dart' dev/fitness/README.md dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md && rg -qi 'validator.only' dev/architecture/workflow-architecture.md && rg -qi 'editor|attach' docs/guide/workflows.md && ! rg -q 'https?://[^ )]*workflow.schema.json' docs/guide/workflows.md && dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed .`
+
+### Run: 2026-09-08 14:19 UTC – observations
+
+2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.

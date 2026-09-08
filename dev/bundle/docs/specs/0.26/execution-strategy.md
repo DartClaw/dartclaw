@@ -2,6 +2,16 @@
 
 Prepared: 2026-09-05 09:49 CEST. End-to-end launch update: 2026-09-05 10:44 CEST.
 
+## Owner scheduling override – 2026-09-08 16:14 CEST
+
+The owner clarified that heavy verification must **not** run for every story. This overrides conflicting scheduling instructions below and in the FIS; acceptance behavior remains binding.
+
+- Run one focused independent review, relevant implementation tests and the standard fast-tier completion gate per story. Batch confirmed fixes and recheck only affected findings.
+- Defer full workspace, full fitness, broad integration, platform packaging, repeated reviews and release verification to the final combined A+B gate. Run a targeted live probe during implementation only when needed to establish the new backend or diagnose a failure; do not replay the whole live suite per story.
+- At the Phase A boundary, verify focused story receipts, settle interface gaps and preserve its checkpoint. Continue Phase B without another broad review/full-suite campaign. This is an implementation checkpoint, not final release acceptance.
+- Final combined verification must execute every deferred obligation, including live PostgreSQL/pgvector contracts, Windows/native builds, security/failure paths and UI smoke screenshots. Do not claim milestone completion before those results pass.
+- Phase B planning, export, implementation and release preparation remain automatic. Keep independent/disjoint work parallel; shared storage APIs remain dependency ordered.
+
 ## Delivery contract
 
 Execute [plan.json](plan.json) and its 17 FIS through direct orchestration. Keep their scope, acceptance scenarios, task proofs, dependency constraints and independent story gates. This document supplies the operating sequence, ownership and launch procedure; it does not regenerate the bundle or change product requirements.

@@ -1,0 +1,525 @@
+{
+  "schemaVersion": "2",
+  "prd": "dev/bundle/docs/specs/0.26/prd.md",
+  "overview": {
+    "summary": "0.26 Phase A (the PRD still carries its pre-renumber label \"0.25 Phase A\"; in this plan 0.26 is this milestone, released 0.25 is the compatibility baseline, and 0.27 is the Chat milestone that consumes the conversation index) lands one storage abstraction with two backends against the released 0.25 tree: storage lives in dartclaw_core, ports and config in dartclaw_kernel, the composition root in dartclaw_runtime (DartclawRuntime.build -> StorageWiring.wire()), and a thin dartclaw_cli. Phase 1 is a SQLite-only refactor with zero behavior change and an independently shippable checkpoint: the DatabaseBackend seam and SqliteBackend, current-schema bootstrap plus the compatibility gate rebased to the exact released 0.25 shape, the tenancy-carrying FullTextIndex for the memory corpus, the task-domain and execution/workflow repositories moved onto the seam, composition-root wiring with a sqlite3-import fitness check, the tasks.db -> dartclaw.db rename, and the filesystem-backed instance-local stores. Phase 2 adds the opt-in PostgreSQL backend in dartclaw_core (driver core, database.* config clearing the 0.25 config gates, credential/TLS posture, language-aware tsvector search over memory documents and authoritative KG facts, startup interlock and backend-switch semantics) plus the conversation-message index. Phase 3 wires the dual-backend contract suite into a new CI PostgreSQL job registered in release_check.sh gate 10 and ships operator/developer documentation. ADR-045's posture and runtime contracts and its 2026-07-30 schema-compatibility amendment are binding; the 2026-08-14 baseline rebase the PRD attributes to ADR-045 was never written into the ADR and is recorded there by S02 together with the 0.25 rebase. The live drift and baseline facts this plan rests on are recorded in docs/specs/0.26/launch-context.md."
+  },
+  "sharedDecisions": [
+    {
+      "title": "DatabaseBackend seam shape and placement under the 0.25 topology",
+      "description": "S01 realizes ADR-045 decision #7 (thin portable-subset CRUD, literal-aware placeholder rewriting, result-type marshalling, prepared-statement handles) as the concrete contract every later story consumes. Placement follows ADR-056 tiers: port types (DatabaseBackend, DatabaseStatement, the StorageException family, NestedTransactionError, FullTextIndex/SearchDocument/SearchResult, DatabaseConfig) live in dartclaw_kernel, which depends on nothing; implementations live in dartclaw_core: SqliteBackend, PostgresBackend, and the schema identity/gates in packages/dartclaw_core/lib/src/storage/, and the FullTextIndex implementations (SqliteFtsIndex, PostgresFtsIndex and their table descriptors) in packages/dartclaw_core/lib/src/search/ beside the existing search layer; the only package that may carry the sqlite3 and postgres drivers (dartclaw_bridge stays dependency-free, dartclaw_testing may not take a driver, the 12-package ceiling in dev/tools/arch_check.dart is saturated). The composition root is DartclawRuntime.build -> StorageWiring.wire() in dartclaw_runtime; CLI commands reach stores only through injected factories. Growth past a lib LOC ceiling (dartclaw_core 27705, dartclaw_kernel 19920) is a recorded rebaseline in arch_check.dart with a CHANGELOG note, owned by the story that crosses it; no file may exceed 1500 lib lines or 1300 test lines; new exports carry explicit show clauses. Ceiling changes have one owner per package so a downward re-cut and a raise cannot race: S05 owns the dartclaw_workflow re-cut, S07 owns the dartclaw_core raise (S03/S09/S13 report their measured deltas to S07's figure instead of editing the constant), S01 owns any dartclaw_kernel change.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S09",
+        "S11",
+        "S13"
+      ]
+    },
+    {
+      "title": "Async transaction and nested-transaction contract",
+      "description": "S01 pins the transaction() contract consumed by S05/S07/S11: atomicity/rollback; nested or reentrant transaction() rejects with NestedTransactionError on both backends; a statement prepared through a transaction handle is transaction-bound, throws StateError after completion, and remains idempotently closeable. SQLite alone serializes concurrent seam operations for the awaited body's duration (single-slot queue holding BEGIN..COMMIT, the SqliteExecutionRepositoryTransactor pattern); PostgreSQL may run them on other pool connections. The existing repositories and the transactor are already Future-returning at 0.25, so S04/S05 port implementations onto the seam without a caller-signature contagion. The PostgreSQL transaction-integrity spike (S07 TI01) runs after S01/S05/S06 have committed to this contract; the SQLite realization is independently valid (serialized single connection, proven by S01's tests), so the spike's blast radius is the PostgreSQL realization only: if the driver cannot honour nested rejection or transaction-bound statements, S07 adapts PostgresBackend, not the port or the SQLite stories.",
+      "stories": [
+        "S01",
+        "S04",
+        "S05",
+        "S07",
+        "S11"
+      ]
+    },
+    {
+      "title": "FullTextIndex contract: corpus-agnostic, tenancy-carrying, two instances",
+      "description": "S03 pins the generic lexical-document FullTextIndex port in dartclaw_kernel so Phase B's dartclaw_search reaches FullTextIndex/VectorIndex without a storage edge. user_id scopes search, upsert, and delete. Canonical memory identity (role, provenance, locator, entry_id, entry_revision) travels as metadata owned by a memory-side mapper enforcing the canonical-role invariant (owner 2026-08-14); the 0.25 error role stays outside the searchable role set. S03 moves CanonicalIndexReconciler onto the seam (it opens search.db through SearchDbFactory today) so canonical rebuild works on PostgreSQL under S09. Index health is the JSON file IndexHealthStore writes, not a SQLite table. S13 instantiates the port a second time for the conversation corpus; KG facts stay authoritative in kg_facts with S09's direct query path.",
+      "stories": [
+        "S03",
+        "S09",
+        "S11",
+        "S13"
+      ]
+    },
+    {
+      "title": "Schema compatibility: exact released 0.25 baseline, required-object manifests, ADR-045 amendment",
+      "description": "The PRD's release-baseline gate fired on the 0.25 baseline: 0.25 dropped workflow_step_executions.external_artifact_mount with no migration, so a fresh 0.25 store and a store upgraded from 0.24 carry different column sets while both are valid to the running code; every other SQLite DDL is byte-identical 0.24 -> 0.25 -> HEAD. Per the gate's own rule the contract is refreshed, not widened: S02's bounded transition targets the exact released 0.25 required structure; the compatibility identity is one epoch plus backend-owned manifests of required tables, columns, and indexes, so a documented orphan column (external_artifact_mount, and the additive-repair posture of memory_chunks) is tolerated by construction rather than fingerprinted. No second adoption path. S02 writes the ADR-045 § Schema Bootstrap amendment that records the 0.24 rebase the PRD already claims and this 0.25 rebase. S07 implements the same identity for PostgreSQL; S10 orders the gate after local recovery and interlock acquisition; S11 proves every outcome; S13's conversation index and S14's renamed store consume the identity. Recorded deferral (2026-09-02, holds no story): after S05 nothing reads or writes workflow_run_migrations, yet the exact-0.25 manifest still requires it; dropping the table is a schema change with its own epoch and is deferred past 0.26 rather than widening the transition.",
+      "stories": [
+        "S02",
+        "S07",
+        "S10",
+        "S11",
+        "S13",
+        "S14"
+      ]
+    },
+    {
+      "title": "database.* typed config section and the 0.25 config gates",
+      "description": "S07 produces DatabaseConfig in dartclaw_kernel (backend, url, credential, pool_size; S09 adds fts_language) with SQLite-default-when-omitted semantics, exactly one of env-substituted url or a named generic credential, and ConfigReloadTier.restart declared in ConfigNotifier._sections. Every story adding a key clears the five 0.25 gates in dev/tools/fitness/run_all.sh: regenerated schemas/dartclaw.schema.json (generate_config_schema.dart), regenerated docs/guide/configuration.md (render_config_reference.dart, core-key list at 58/90), config_section_tier_coverage_test, config_key_consumers_test (a real production consumer per leaf), and the loadDartclawConfig seam. S08 adds reference validation and masking (url and credential are readonly in the schema), S10 relies on a lingering inactive url being legal for the abandoned-store probe, S12 regenerates the reference rather than editing it.",
+      "stories": [
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S12"
+      ]
+    },
+    {
+      "title": "Redaction-safe typed storage exceptions, kernel loopback predicate, audit sink",
+      "description": "S07 maps driver/connect/auth errors to typed storage exceptions that never embed the raw DSN. S08 extends dartclaw_kernel's key-side MessageRedactor to DSN userinfo shapes, adopts the existing kernel predicate isLoopbackHost (network_guard.dart) as the single MCP+DB loopback seam and retires HttpMcpTransport's private duplicate, and audits connection lifecycle through GuardAuditLogger/AuditEntry (not DartclawEvent, whose sealed library ADR-057 closes). CredentialRegistry.resolve is synchronous and runs before any async connect. S10's abandoned-store probe reuses the S08 posture and quarantines the whole seam during interlock recovery. Recorded consequence (plan decision 2026-09-02, owner may veto): the kernel predicate accepts localhost, 127.0.0.1 and ::1 only, so retiring HttpMcpTransport's private InternetAddress.isLoopback duplicate narrows the outbound-MCP TLS exemption from 127.0.0.0/8 to those literals; S08 records it as a CHANGELOG line and a security-doc correction. An explicit sslmode=require is accepted as an operator choice although the driver treats it as certificate-issues-ignored; the guide says so.",
+      "stories": [
+        "S07",
+        "S08",
+        "S10"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "FR1",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer"
+    },
+    {
+      "featureId": "FR2",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr2-current-schema-bootstrap--compatibility-gate"
+    },
+    {
+      "featureId": "FR3",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr3-full-text-index-abstraction-with-tenancy"
+    },
+    {
+      "featureId": "FR4",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr4-opt-in-postgresql-backend"
+    },
+    {
+      "featureId": "FR5",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr5-language-aware-search-on-postgresql"
+    },
+    {
+      "featureId": "FR6",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr6-credential-reference-database-configuration"
+    },
+    {
+      "featureId": "FR7",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr7-connection-security-posture"
+    },
+    {
+      "featureId": "FR8",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr8-startup--backend-switch-semantics"
+    },
+    {
+      "featureId": "FR9",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr9-dual-backend-contract-test-suite"
+    },
+    {
+      "featureId": "FR10",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr10-operator--developer-documentation"
+    },
+    {
+      "featureId": "FR11",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr11-conversation-message-index-rider-2026-08-07"
+    },
+    {
+      "featureId": "FR12",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr12-authoritative-store-rename--tasksdb--dartclawdb-rider-2026-08-07"
+    },
+    {
+      "featureId": "FR13",
+      "anchor": "dev/bundle/docs/specs/0.26/prd.md#fr13-filesystem-backed-instance-local-state-rider-2026-08-07--td-115"
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "DatabaseBackend seam and SQLite backend",
+      "dependsOn": [],
+      "status": "spec-ready",
+      "fis": "s01-databasebackend-seam-and-sqlite-backend.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Define the DatabaseBackend port in dartclaw_kernel per the ratified ADR-045 hybrid shape and implement SqliteBackend in dartclaw_core. Pin the lean transaction contract (nested rejection, transaction-bound statements). Refactor sqlite_goal_repository plus its callers as the tracer slice proving rewriting, marshalling, statement lifetime, and serialized SQLite transactions with zero behavior change. Re-run the FR1 census with both instruments against the 0.25 tree (18 sqlite3 importers: 15 dartclaw_core, 1 dartclaw_workflow, 2 dartclaw_runtime; 5 dartclaw_cli typedef consumers) and record it for S06. Excludes remaining repository refactors (S04/S05), schema bootstrap (S02), FTS (S03), and PostgreSQL code.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer",
+        "dev/bundle/docs/specs/0.26/prd.md#constraints"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/adrs/045-pluggable-database-backend.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S02",
+      "name": "SQLite schema bootstrap and compatibility gate",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "spec-ready",
+      "fis": "s02-sqlite-schema-bootstrap-and-compatibility-gate.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Define the smallest compatibility contract and implement it for SQLite: one current schema epoch plus backend-owned required table/column/index manifests, transactional fresh bootstrap of the current tasks.db/search.db schemas, compatible reopen only when marker and required structure agree, and the one bounded transition from the exact released 0.25 shape (tolerating the documented orphan column workflow_step_executions.external_artifact_mount left by 0.24-upgraded stores). Refuse missing/older/newer/malformed epochs, marker/structure mismatches, and other authoritative shapes before repository use with backup/reset/recreate guidance. Rebuild an incompatible derived search.db only when the corpus manifest plus IndexHealthStore's JSON health file prove complete supported inputs, otherwise refuse. Retire the temporal-KG owner repair and the memory_chunks additive repair as separate mechanisms. Fault-test rollback after each DDL step. Write the dated ADR-045 § Schema Bootstrap amendment recording both the 0.24 and the 0.25 rebase. No migration history, version stream, generator, directives, hooks, or general upgrade framework.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr2-current-schema-bootstrap--compatibility-gate",
+        "dev/bundle/docs/specs/0.26/prd.md#edge-cases"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/adrs/045-pluggable-database-backend.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md",
+        "dev/bundle/docs/specs/0.26/intent.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S03",
+      "name": "FullTextIndex abstraction and FTS5 implementation",
+      "dependsOn": [
+        "S01",
+        "S02"
+      ],
+      "status": "spec-ready",
+      "fis": "s03-fulltextindex-abstraction-and-fts5-implementation.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Introduce the tenancy-carrying generic FullTextIndex port in dartclaw_kernel (search/upsert/delete with user_id required; SearchDocument/SearchResult fields and metadata semantics pinned) and the FTS5 implementation in dartclaw_core preserving current search behavior (tokenization, bm25 ranking, filters, the searchable canonical-role set that excludes the 0.25 error role). Prove user A cannot search, overwrite, or delete user B's content. Refactor the search.db memory-document query surface and CanonicalIndexReconciler onto the seam with rebuild flows unchanged and zero user-visible SQLite change; the canonical-identity metadata round trip is the gate. Phase A's memory instance excludes KG facts, wiki pages, and tasks. Excludes PostgreSQL FTS and direct KG search (S09), the conversation corpus (S13), and VectorIndex (Phase B).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr3-full-text-index-abstraction-with-tenancy"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/hybrid-search-prd-brief.md",
+        "dev/bundle/docs/research/dart-native-hybrid-search/research.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": "Runs before S04/S05: it owns the search.db surface and the reconciler that S06's wiring and S10's startup order consume."
+    },
+    {
+      "id": "S04",
+      "name": "Task-domain storage seam refactor",
+      "dependsOn": [
+        "S01",
+        "S02"
+      ],
+      "status": "spec-ready",
+      "fis": "s04-task-domain-storage-seam-refactor.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Move the task-domain repositories in dartclaw_core onto the backend seam: sqlite_task_repository (Task.type is retired in 0.25; TaskLegacyRefusal hydration and the tasks.type placeholder column are preserved as-is), task_event_service, turn_trace_service, and temporal_knowledge_graph_service (ISO-8601 parsing now delegates to tryParseIsoInstant). The repositories and their dartclaw_runtime, dartclaw_workflow, and dartclaw_cli callers are already Future-returning, so the change is seam adoption with unchanged signatures, rows, ordering, data formats, and error behavior; the full workspace suite stays green. Consume S02's ready current schema without adding schema logic to services. Excludes the execution/workflow cluster (S05) and composition-root construction (S06).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": "Sequential before S05: the two clusters share the StorageWiring construction site and the execution row mappers."
+    },
+    {
+      "id": "S05",
+      "name": "Execution and workflow storage seam refactor",
+      "dependsOn": [
+        "S01",
+        "S02",
+        "S04"
+      ],
+      "status": "spec-ready",
+      "fis": "s05-execution-and-workflow-storage-seam-refactor.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Move the execution/workflow repositories onto the backend seam: sqlite_agent_execution_repository, sqlite_workflow_step_execution_repository, sqlite_execution_row_mappers, and sqlite_execution_repository_transactor in dartclaw_core (rebuilt over S01's pinned transaction contract, preserving its multi-repository guarantees), plus sqlite_workflow_run_repository in dartclaw_workflow. Callers in the workflow engine, dartclaw_runtime's service_wiring_workflow, and the CLI workflow commands keep their already-async signatures. Behavior, transaction guarantees, and the workspace suite are preserved; no bootstrap or compatibility logic enters repositories. Excludes the task-domain cluster (S04) and composition-root construction (S06).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S06",
+      "name": "Composition-root wiring and census closure",
+      "dependsOn": [
+        "S02",
+        "S03",
+        "S04",
+        "S05"
+      ],
+      "status": "spec-ready",
+      "fis": "s06-composition-root-wiring-and-census-closure.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Refactor the dartclaw_runtime composition root (StorageWiring.wire() inside DartclawRuntime.build, and service_wiring_workflow) to construct the backend seam and the S02 bootstrap/compatibility gate for tasks.db/search.db instead of raw Database instances, slotting the gate into the existing preflight -> manifest -> reconcile -> search-open -> tasks-open order. Remove task_db.dart/search_db.dart and the TaskDbFactory/SearchDbFactory typedefs; Retire S01's transitional SqliteGoalRepository.open DDL and its max_tokens PRAGMA repair, dead once S02's gate is the sole precondition; sweep the five CLI typedef consumers (serve, cleanup, workflow run/status, standalone lifecycle support) onto seam factories. Keep state.db (opened directly in wiring today) and the self-opening webhook ledger on sanctioned direct SQLite until S15. Add the repo-level fitness check in dev/fitness/test proving no package:sqlite3 import outside SqliteBackend and the two instance-local stores. Close the independently shippable SQLite checkpoint with zero behavior change for the supported 0.25 state.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer",
+        "dev/bundle/docs/specs/0.26/prd.md#mvp-boundary"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S07",
+      "name": "Opt-in PostgresBackend core",
+      "dependsOn": [
+        "S02",
+        "S06"
+      ],
+      "status": "spec-ready",
+      "fis": "s07-opt-in-postgresbackend-core.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Implement PostgresBackend in dartclaw_core on the seam via postgres ^3.5.12 (recording the dartclaw_core lib LOC ceiling raise in arch_check.dart with its CHANGELOG note; no file over 1500 lines; constructors under 12 parameters): DatabaseConfig in dartclaw_kernel with backend selection (SQLite default; exactly one backend; restart reload tier; all five 0.25 config gates green), single-database/one-pool layout, configurable pool_size (provisional default 5), typed redaction-safe storage exceptions, bounded pool exhaustion, full lifecycle. Retry connection failures only when proven before dispatch; never replay after dispatch or on ambiguous commit outcome, surfacing StorageUnknownOutcomeException. Implement transactional PostgreSQL current-schema bootstrap plus epoch/manifest validation with S02's identity; incompatible or partially initialized schemas refuse before repository use. Include the runTx integrity spike and pin the minimum PostgreSQL version. Excludes TLS/credential enforcement (S08), interlock/switch semantics (S10), and PostgreSQL FTS (S09).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr4-opt-in-postgresql-backend",
+        "dev/bundle/docs/specs/0.26/prd.md#data-requirements"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/adrs/045-pluggable-database-backend.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S08",
+      "name": "Connection security: credentials, redaction, TLS posture",
+      "dependsOn": [
+        "S07"
+      ],
+      "status": "spec-ready",
+      "fis": "s08-connection-security-credentials-redaction-tls-posture.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Encode FR6/FR7 on the dartclaw_kernel surfaces. database.url accepts an env-substituted DSN and database.credential references an existing generic credentials entry through CredentialRegistry; the fields are mutually exclusive, unresolved references fail by name, inline persisted passwords are rejected, both are readonly in the published schema. Extend the key-side MessageRedactor to DSN userinfo shapes across log, exception, audit, CLI (config serializer masking), malformed-DSN, and schema-bootstrap failure paths. Treat database.* as boot-time config. For non-loopback hosts omitted sslmode resolves to verify-full and explicit cleartext/disable refuses, distinguishing verification and untrusted-CA failures; loopback classification reuses the kernel isLoopbackHost predicate and retires HttpMcpTransport's private duplicate. Audit connection lifecycle through GuardAuditLogger as trusted host-side egress; warn on a superuser runtime role. Document administrator provisioning plus one runtime role.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr6-credential-reference-database-configuration",
+        "dev/bundle/docs/specs/0.26/prd.md#fr7-connection-security-posture"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S09",
+      "name": "Language-aware PostgreSQL memory and KG search",
+      "dependsOn": [
+        "S03",
+        "S04",
+        "S07",
+        "S08"
+      ],
+      "status": "spec-ready",
+      "fis": "s09-language-aware-postgresql-memory-and-kg-search.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Implement configurable core-PG tsvector/tsquery search (fts_language default english, validated at startup against PG-shipped configuration names with the valid list in the error, added to DatabaseConfig under the config gates) across two separate paths: PostgresFtsIndex for memory documents (app-populated stored tsvector, language-neutral GIN schema, language change via dartclaw rebuild-index, error role excluded from the projection) and direct query-time fact search over authoritative kg_facts (vector computed at query time with bound language, no stored vector or index, new language after restart). Swedish fixtures require regular inflection matching on both paths; irregular/ablaut forms stay outside acceptance. Never copy KG facts into FullTextIndex; add no task search. One deployment language; mixed-language limitation documented; core PG only.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr5-language-aware-search-on-postgresql",
+        "dev/bundle/docs/specs/0.26/prd.md#edge-cases"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md",
+        "dev/bundle/docs/specs/0.26/intent.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S10",
+      "name": "Startup interlock and backend-switch semantics",
+      "dependsOn": [
+        "S07",
+        "S08",
+        "S09",
+        "S14",
+        "S15"
+      ],
+      "status": "spec-ready",
+      "fis": "s10-startup-interlock-and-backend-switch-semantics.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Encode FR8 against the 0.25 startup order (memory preflight fatal before any store opens, corpus manifest, non-fatal index reconciliation and search open, fatal tasks open, then turn-state recovery): a session-scoped advisory lock on a dedicated non-recycled PostgreSQL connection with loud dual-attach refusal, process-lifetime ownership, graceful release, no lease subsystem. On lock loss quarantine every seam operation with StorageConnectionException until reacquisition, PostgreSQL-version validation, and schema validation succeed, else the existing fail-stop path. No-data-transfer backend switching with a best-effort abandoned-store notice under S08 posture, using S14's either-name SQLite presence helper. Run local orphan-turn scanning (S15's filesystem turn-state store) before the backend/schema gate; defer destructive acknowledgement until the gate succeeds. Fail closed when PostgreSQL is unreachable at boot; bounded mid-session retry with surfaced errors. Integration-test dual attach, quarantine/reopen, switch notice, unreachable boot, and the FR13 zero-runtime-SQLite serve-run probe relocated from the rider stories (owner 2026-08-07).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr8-startup--backend-switch-semantics",
+        "dev/bundle/docs/specs/0.26/prd.md#user-flows",
+        "dev/bundle/docs/specs/0.26/prd.md#edge-cases"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md",
+        "dev/bundle/docs/specs/0.26/intent.md"
+      ],
+      "sequencing": "S07 owns mid-session retry constants; S10 owns recovery-before-gate ordering and the interlock reacquire budget. Consumes S14's presence helper and S15's filesystem turn state. One-shot maintenance commands remain sanctioned concurrent clients."
+    },
+    {
+      "id": "S11",
+      "name": "Dual-backend contract suite and CI integration",
+      "dependsOn": [
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S07",
+        "S09"
+      ],
+      "status": "spec-ready",
+      "fis": "s11-dual-backend-contract-suite-and-ci-integration.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Build the shared databaseBackendContractTests suite in dartclaw_core's test tree (dartclaw_testing may not take a driver dependency; files under 1300 lines): portable CRUD; transaction atomicity/rollback, no interleaving, nested rejection, transaction-bound statement lifetime, SQLite-only completion ordering, no replay after ambiguous dispatch; fresh bootstrap, compatible reopen, orphan-column tolerance, mismatch refusal, injected-failure rollback, SQLite derived-search rebuild/refusal; FTS set-membership parity with an explicit reviewed divergence whitelist; read/write/delete tenancy isolation; one live PostgreSQL round trip per repository family. SQLite runs in the default suite; the PostgreSQL-live path runs under the integration tag and is invoked explicitly (test_workspace.sh runs no tags) by a new ci.yml job id postgres_contract, name PostgreSQL contract, with a postgres service container (none exists today); unavailable infrastructure fails. Prove execution by comparing the JSON report's passing group IDs with a checked-in required-group manifest. Register the job name in release_check.sh gate 10's required list with a test, and document the operator step of requiring the check on GitHub main (unprotected today) as the recorded external gate.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr9-dual-backend-contract-test-suite"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/guidelines/TESTING-STRATEGY.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S12",
+      "name": "Operator and developer documentation",
+      "dependsOn": [
+        "S02",
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S11",
+        "S13",
+        "S14",
+        "S15"
+      ],
+      "status": "spec-ready",
+      "fis": "s12-operator-and-developer-documentation.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Ship Phase A documentation: a public PostgreSQL deployment guide covering env/named credential references, TLS, administrator provisioning plus runtime-role SQL, pool sizing, backup/restore, third-party data processing, backend switching and decommissioning, search/reindex behavior, schema compatibility/reset guidance, and the storage-tiers-at-a-glance table (dartclaw.db, search.db, filesystem turn-state and webhook-dedup stores, file-based authoritative stores). Regenerate docs/guide/configuration.md from the schema (adding the database.* keys to the curated core list within the 90-key budget) rather than editing it. Synchronize data-model.md, security-architecture.md, configuration-architecture.md, and the Database Backend / Full-Text Index (two instances) / Schema Compatibility Gate glossary entries against the 0.25 package names. At Phase A completion update private ROADMAP and canonical STATE to mark 0.26 Phase A delivered with Phase B pending.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr10-operator--developer-documentation",
+        "dev/bundle/docs/specs/0.26/prd.md#fr5-language-aware-search-on-postgresql"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S13",
+      "name": "Conversation-message index rider",
+      "dependsOn": [
+        "S03",
+        "S09",
+        "S10",
+        "S14",
+        "S15"
+      ],
+      "status": "spec-ready",
+      "fis": "s13-conversation-message-index-rider.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Rider (owner, 2026-08-07). Index session messages into a dedicated second FullTextIndex instance (own table, never mixed with the memory corpus) on both backends. sessions/<id>/messages.ndjson written by MessageService.insertMessage remains the sole authoritative store; the index is a derived, rebuildable projection. Define the one shared chat-facing predicate over SessionType (user, main, channel; task, cron, logicalAgent, archive excluded). Write-through indexing at append; full rebuild from NDJSON via dartclaw rebuild-index under FR2's derived-store policy; cleanup on both session deletion (SessionMaintenanceService) and archive-reset (SessionResetService); user_id tenancy populated with the instance-owner identity. PostgreSQL applies fts_language (Swedish acceptance on regular inflections); SQLite keeps unicode61 sanitized-term matching without stemming or prefix queries. Expose a service-layer search path returning scored hits with session/message provenance, sized for the 0.27 Chat milestone's Cmd+K conversation search; no UI, endpoint, or agent tool. Includes doc sync: data-model.md, user-guide search/workspace sections, glossary. Excludes Cross-Session Recall.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr11-conversation-message-index-rider-2026-08-07"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md",
+        "dev/bundle/docs/specs/0.next-chat-and-sessions/prd-brief.md",
+        "dev/bundle/docs/specs/0.next-ui-ux-improvements/cross-surface-ux-plan-2026-06.md"
+      ],
+      "sequencing": "Artifact edges: S10 rewrites StorageWiring.wire()'s postgres branch (interlock, pre-gate turn-state scan, probe step), S14 inserts the adoption step and S15 changes the turn-state open in the same method, so S13's second-index insertion points are defined against the post-S10 wire() shape. The canonical Chat & Session Experience brief already names the conversation-message FullTextIndex as a Cmd+K input; S13 remains the producer half only."
+    },
+    {
+      "id": "S14",
+      "name": "Authoritative store rename",
+      "dependsOn": [
+        "S02",
+        "S06"
+      ],
+      "status": "spec-ready",
+      "fis": "s14-authoritative-store-rename.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Rider (owner, 2026-08-07). Rename the authoritative SQLite store file tasks.db to dartclaw.db: fresh bootstrap creates dartclaw.db; every open path (StorageWiring, the five CLI commands) resolves it through one DartclawConfig accessor with internal identifiers renamed. Supported 0.25 transition: when dartclaw.db is absent and tasks.db exists, adopt automatically before any open for use, checkpoint-first (WAL checkpointed, then one atomic rename; spent sidecars deleted); both present refuses startup loudly naming both with keep/remove guidance; a failed rename aborts before open. Store-naming refusal and notice messages (S02 gate, S10 notice) derive from the actual file name. Provide the either-name presence helper S10 consumes. search.db keeps its name; PostgreSQL is unaffected. Tests: fresh naming, adoption with and without sidecars, both-present refusal, failed-rename abort. Doc sync: data-model.md, user-guide storage/backup references, glossary.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr12-authoritative-store-rename--tasksdb--dartclawdb-rider-2026-08-07"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": "Runs after S06 so S01-S06 stay a pure zero-behavior-change surface; the prior FIS covered this story and S15 together and exceeded the single-session size threshold (6289 words), hence the split."
+    },
+    {
+      "id": "S15",
+      "name": "Filesystem-backed instance-local state",
+      "dependsOn": [
+        "S06"
+      ],
+      "status": "spec-ready",
+      "fis": "s15-filesystem-backed-instance-local-state.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Rider (owner, 2026-08-07, TD-115). Replace the two instance-local SQLite stores, unchanged since 0.24, with plain filesystem stores in dartclaw_core: turn state via atomic write-temp-rename JSON using the existing atomic_write.dart pattern with synchronous durable-at-return writes (owner decision D1), and webhook dedup via file-per-event-id with atomic create and TTL purge preserving the TTL-anchor-moves-forward-on-commit behavior. TurnStateStore's five already-async methods keep their signatures; orphan recovery in turn_runner_cancellation is unchanged. Byte-for-byte crash-recovery and dedup parity is proven by the existing fixtures plus fault-injection and Windows rename tests (TD-135: the unit suite cannot run on Windows hosts today). state.db and the ledger file are no longer created; leftovers are ignored. Tighten the S06 fitness check to SqliteBackend only. Doc sync: ADR-045 decisions #3/Q4 mechanism amendment, data-model.md, TD-115 closure with its stale 0.25 pointer corrected. The PostgreSQL zero-runtime-SQLite serve-run probe executes in S10.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#fr13-filesystem-backed-instance-local-state-rider-2026-08-07--td-115"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/adrs/045-pluggable-database-backend.md",
+        "dev/bundle/docs/specs/0.26/launch-context.md"
+      ],
+      "sequencing": "Split out of the former S14 rider story; PostgreSQL-dependent proofs stay relocated in S10 (owner, 2026-08-07)."
+    },
+    {
+      "id": "S16",
+      "name": "Declarative workflow step-type rule source",
+      "dependsOn": [],
+      "status": "spec-ready",
+      "fis": "s16-declarative-workflow-step-type-rule-source.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Rider (owner, 2026-09-03; deferred from 0.25 S63). Consolidate what a workflow author may write into one const rule source read by both the parser and the validator, replacing ten hand-maintained key sets, the per-step-type if-branches inline in the parser, and thirty imperative validator rule methods. The declaration carries, per DSL block, the accepted keys with their snake/camel aliases, value kinds, enum member sets, required keys, per-WorkflowTaskType applicability and mutual exclusions, as const data with no closures so a generator can walk it. Behaviour-preserving: every diagnostic keeps its message text, ValidationErrorType, step and loop attribution and emission position, proven against a golden capture of the pre-refactor output. The declaration must include onError / on_error, which survived the 0.25 S38 key retirement contrary to the original FIS's assumption; enumerate the surviving surface against the parser on main, not against the FIS prose. Modelled on dartclaw_kernel's ConfigMeta/FieldMeta and structured so the S17 emitter's job matches config_meta/json_schema.dart. Touches nothing in the storage seam S01-S15 rebuild.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#rider-owner-2026-09-03--workflow-schema-stories-s16s17"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.25/prd.md"
+      ],
+      "sequencing": "Rider outside the storage track; no dependency on S01-S15 and none of them depend on it, so it can run at any point in the milestone. Salvage source parked/s64-workflow-schema at a1e1bd95 (2,256 files off main): cherry-pick, do not rebase."
+    },
+    {
+      "id": "S17",
+      "name": "Published workflow JSON schema and drift gate",
+      "dependsOn": [
+        "S16"
+      ],
+      "status": "spec-ready",
+      "fis": "s17-published-workflow-json-schema-and-drift-gate.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Rider (owner, 2026-09-03; deferred from 0.25 S64). Project S16's rule source into a committed schemas/workflow.schema.json (draft-2020-12, strict, generation-only, no $id while hosting and versioning stay undecided), add packages/dartclaw_workflow/tool/generate_workflow_schema.dart with a --check mode, and register that check in dev/tools/fitness/run_all.sh beside the shipped config-schema drift gate. Per-step-type variation emits as a union-then-narrow shape (the step object declares the union of all step keys and closes once; if/then branches narrow) because additionalProperties:false does not compose across allOf. Proofs: all seven corpus files (three built-in definitions plus the four git-tracked maintainer *-inline.yaml definitions) validate clean; mutations for an unknown key, a wrong-typed value, an invalid enum member and a key on the wrong step type are each flagged; artifact-to-rule-source parity asserted by enumeration in both directions. Copies the shipped 0.25 S54 config-side twin (config_meta/json_schema.dart, generate_config_schema.dart, schemas/dartclaw.schema.json). Distribution and versioning are out of scope and sit in 0.25.1. Touches nothing in the storage seam.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/prd.md#rider-owner-2026-09-03--workflow-schema-stories-s16s17"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/plan.json",
+      "assetRefs": [
+        "dev/bundle/docs/specs/0.25/prd.md",
+        "dev/bundle/docs/specs/0.next-config-workflow-schemas/prd-draft.md"
+      ],
+      "sequencing": "Hard-depends on S16's rule source and on nothing else in the milestone. The published artifact is the trust boundary the dynamic-workflows slice (../0.next-workflow-track/, slice 1) is planned against, which is why it lands here rather than inside that slice."
+    }
+  ]
+}

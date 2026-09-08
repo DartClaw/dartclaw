@@ -88,3 +88,8 @@ The exact 29-file export resolves all structured inputs. Initial exported plan
 validation and all 17 FIS parses exited 0 with no nonrunnable, unbound or invalid
 proof rows. The exporter regression suite passed 7/7. Revalidation after the
 operative ceiling correction is required before committing the launch bundle.
+
+Windows SDK follow-up: the signed-in VM initially had Dart 3.12.1, below the
+workspace requirement `^3.13.0`. Its existing WinGet `Google.DartSDK` installation
+was upgraded to pinned 3.13.2 with installer hash verification; a fresh signed-in
+`dart --version` invocation confirmed 3.13.2 on Windows arm64 (exit 0).

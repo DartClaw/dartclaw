@@ -578,9 +578,17 @@
       "dependsOn": [
         "S16"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s17-published-workflow-json-schema-and-drift-gate.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
       "owner": null,
       "scope": "Rider (owner, 2026-09-03; deferred from 0.25 S64). Project S16's rule source into a committed schemas/workflow.schema.json (draft-2020-12, strict, generation-only, no $id while hosting and versioning stay undecided), add packages/dartclaw_workflow/tool/generate_workflow_schema.dart with a --check mode, and register that check in dev/tools/fitness/run_all.sh beside the shipped config-schema drift gate. Per-step-type variation emits as a union-then-narrow shape (the step object declares the union of all step keys and closes once; if/then branches narrow) because additionalProperties:false does not compose across allOf. Proofs: all seven corpus files (three built-in definitions plus the four git-tracked maintainer *-inline.yaml definitions) validate clean; mutations for an unknown key, a wrong-typed value, an invalid enum member and a key on the wrong step type are each flagged; artifact-to-rule-source parity asserted by enumeration in both directions. Copies the shipped 0.25 S54 config-side twin (config_meta/json_schema.dart, generate_config_schema.dart, schemas/dartclaw.schema.json). Distribution and versioning are out of scope and sit in 0.25.1. Touches nothing in the storage seam.",
       "sourceRefs": [

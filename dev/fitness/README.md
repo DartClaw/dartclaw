@@ -56,6 +56,10 @@ The shell-side config-reference checks live in `dev/tools/fitness/`: `test_rende
 idempotence, invalid core lists and both drift directions; `check_config_reference_drift.sh` runs the renderer's
 `--check` mode against the committed guide. Both run from `dev/tools/fitness/run_all.sh`, outside `dart test`.
 
+The same shell harness checks `schemas/workflow.schema.json` by running
+`dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart --check`. Regenerate after changing
+`WorkflowDslRules` with the command shown without `--check`; the failure reports both the artifact and that command.
+
 ---
 
 ## `barrel_show_clauses_test.dart`

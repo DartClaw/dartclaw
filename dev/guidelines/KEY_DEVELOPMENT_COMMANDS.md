@@ -154,12 +154,18 @@ into the server's static assets, so canonical CSS edits need no separate sync st
 # Published config JSON Schema — rerun after any ConfigMeta change or a version bump
 dart run packages/dartclaw_kernel/tool/generate_config_schema.dart
 
+# Published workflow JSON Schema — rerun after any WorkflowDslRules change
+dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart
+
 # Operator config reference — rerun after the schema or curated core list changes
 dart run dev/tools/render_config_reference.dart
 ```
 
 `schemas/dartclaw.schema.json` is generated only. `bash dev/tools/fitness/run_all.sh` runs the same script with
 `--check` and fails when the committed artifact has drifted from `ConfigMeta` or the workspace version, or is missing, naming this command.
+
+`schemas/workflow.schema.json` is also generated only. The fitness harness checks it against `WorkflowDslRules` and
+names the regeneration command when the artifact is missing or stale.
 
 The generated region in `docs/guide/configuration.md` is projected from the committed schema. Its core table is
 curated in `dev/tools/config_reference_core_keys.txt` and capped at 90 resolvable keys. The fitness run checks both

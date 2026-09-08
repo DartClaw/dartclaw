@@ -6,6 +6,14 @@ Every workflow step runs as an `AgentExecution`, DartClaw's shared runtime recor
 
 This guide walks through a progressive refinement process – from a single rough step to a production-ready pipeline. The built-in workflows (`spec-and-implement`, `plan-and-implement`, and `code-review`) are worked examples of the fully matured end state.
 
+## Schema-Aware Editing
+
+The repository publishes `schemas/workflow.schema.json` for schema-aware editors and YAML language servers. Configure
+the editor's YAML schema mapping for workflow files to use that repository-relative path. It flags unknown keys, wrong
+value types, invalid enum members and fields used on the wrong step type before a run starts. The schema accepts the
+same aliases and shorthand forms as the workflow parser. Rules that depend on a whole definition, including unique
+IDs, reference resolution and gate expressions, are checked by `dartclaw workflow validate <path>`.
+
 ---
 
 ## The "Handwave" Philosophy

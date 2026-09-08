@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.26 workflow storage backend seam and declarative DSL rules
+**Current through**: 0.26 workflow storage backend seam, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -967,6 +967,18 @@ It normalizes where that improves compatibility:
 | omitted `type` | defaults to `agent` |
 | `timeout: "30s"` | normalized to integer seconds |
 | `outputs.key: json` | shorthand converted to `OutputConfig` |
+
+### 18.1 Published Authoring Schema
+
+`schemas/workflow.schema.json` is the draft 2020-12 schema for authored workflow YAML. It is generated from
+`WorkflowDslRules`, including aliases, enum values, polymorphic authoring forms and per-step-type applicability. The
+step schema declares the union of step keys once with `additionalProperties: false`, then narrows each task type with
+conditional branches. Validator-only semantic rules such as reference resolution, gate grammar and unique IDs remain
+outside the artifact.
+
+Regenerate the artifact with
+`dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart`. The fitness harness runs the same command
+with `--check` and fails when the committed bytes no longer match the rule source.
 
 The parser is also where hybrid-step compatibility starts.
 

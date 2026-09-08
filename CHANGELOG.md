@@ -14,6 +14,16 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Published workflow JSON Schema** – `schemas/workflow.schema.json` describes the strict workflow authoring surface,
+  including aliases, shorthand forms and per-step-type fields. It is generated from the parser and validator's shared
+  rule source, and the fitness harness rejects drift.
+
+---
+
 ## [0.25.2] - 2026-09-08
 
 ### Added

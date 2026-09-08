@@ -52,7 +52,7 @@ void main() {
   late TurnTraceService service;
 
   setUp(() async {
-    db = openTaskDbInMemory();
+    db = sqlite3.openInMemory();
     backend = SqliteBackend(db);
     await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
     service = TurnTraceService(backend);

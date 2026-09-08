@@ -5,31 +5,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 class SqliteGoalRepository implements GoalRepository {
   final DatabaseBackend _backend;
 
-  new _(this._backend);
-
-  /// Opens the repository against [backend] and initializes its schema.
-  static Future<SqliteGoalRepository> open(DatabaseBackend backend) async {
-    final repository = SqliteGoalRepository._(backend);
-    await repository._initSchema();
-    return repository;
-  }
-
-  Future<void> _initSchema() async {
-    await _backend.execute('''
-      CREATE TABLE IF NOT EXISTS goals (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        parent_goal_id TEXT,
-        mission TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )
-    ''');
-    await _backend.execute('CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_goal_id)');
-    final columns = (await _backend.query('PRAGMA table_info(goals)')).map((row) => row['name'] as String).toSet();
-    if (!columns.contains('max_tokens')) {
-      await _backend.execute('ALTER TABLE goals ADD COLUMN max_tokens INTEGER');
-    }
-  }
+  new(this._backend);
 
   @override
   Future<void> insert(Goal goal) async {

@@ -21,8 +21,8 @@ typedef ProcessSignalWatch = Stream<ProcessSignal> Function();
 /// Starts the DartClaw HTTP server with web UI.
 class ServeCommand extends Command<void> {
   final DartclawConfig? _config;
-  final SearchDbFactory _searchDbFactory;
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory _searchBackendFactory;
+  final DatabaseBackendFactory _taskBackendFactory;
   final HarnessFactory _harnessFactory;
   final ServerFactory? _serverFactory;
   final ServeFn _serveFn;
@@ -44,8 +44,8 @@ class ServeCommand extends Command<void> {
 
   new({
     DartclawConfig? config,
-    SearchDbFactory? searchDbFactory,
-    TaskDbFactory? taskDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     HarnessFactory? harnessFactory,
     ServerFactory? serverFactory,
     ServeFn? serveFn,
@@ -58,8 +58,8 @@ class ServeCommand extends Command<void> {
     bool runWorkflowSkillsBootstrap = true,
     bool connectChannels = true,
   }) : _config = config,
-       _searchDbFactory = searchDbFactory ?? openSearchDb,
-       _taskDbFactory = taskDbFactory ?? openTaskDb,
+       _searchBackendFactory = searchBackendFactory ?? SqliteBackend.open,
+       _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open,
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _serverFactory = serverFactory,
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
@@ -262,8 +262,8 @@ class ServeCommand extends Command<void> {
         port: port,
         harnessFactory: _harnessFactory,
         serverFactory: _serverFactory,
-        searchDbFactory: _searchDbFactory,
-        taskDbFactory: _taskDbFactory,
+        searchBackendFactory: _searchBackendFactory,
+        taskBackendFactory: _taskBackendFactory,
         stderrLine: _stderrLine,
         exitFn: _exitFn,
         resolvedConfigPath: resolvedConfigPath,

@@ -859,7 +859,7 @@ void main() {
     setUp(() async {
       taskBackend = await openPreparedTaskBackend();
       taskRepository = SqliteTaskRepository(taskBackend);
-      goalService = GoalService(await SqliteGoalRepository.open(taskBackend));
+      goalService = GoalService(SqliteGoalRepository(taskBackend));
       server = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,

@@ -130,15 +130,15 @@ StorageWiring _wiring(DartclawConfig config, EventBus eventBus) {
   return StorageWiring(
     config: config,
     eventBus: eventBus,
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: openTaskDb,
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: SqliteBackend.open,
     exitFn: (code) => throw _Exit(code),
     personalMemoryEnabled: false,
   );
 }
 
 Future<void> _prepareCurrentStore(String path) async {
-  final backend = SqliteBackend(openTaskDb(path));
+  final backend = await SqliteBackend.open(path);
   await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
   await backend.execute(
     '''
@@ -152,7 +152,7 @@ Future<void> _prepareCurrentStore(String path) async {
 
 Future<void> _prepareReleasedStore(String path, {required bool withOrphanColumn}) async {
   await _prepareCurrentStore(path);
-  final database = openTaskDb(path);
+  final database = sqlite3.open(path);
   database.execute('DROP TABLE dartclaw_schema');
   if (withOrphanColumn) {
     database.execute('ALTER TABLE workflow_step_executions ADD COLUMN external_artifact_mount TEXT');

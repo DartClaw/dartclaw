@@ -3,14 +3,13 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
-  late Database db;
   late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
@@ -19,9 +18,7 @@ void main() {
   late ThreadBindingStore bindings;
 
   setUp(() async {
-    db = openTaskDbInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
     tasks = TaskService(
       SqliteTaskRepository(backend),

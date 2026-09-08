@@ -10,11 +10,11 @@ void main() {
     late SqliteGoalRepository repository;
 
     setUp(() async {
-      db = openTaskDbInMemory();
+      db = sqlite3.openInMemory();
       backend = SqliteBackend(db);
       await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
       taskRepository = SqliteTaskRepository(backend);
-      repository = await SqliteGoalRepository.open(backend);
+      repository = SqliteGoalRepository(backend);
     });
 
     tearDown(() async {
@@ -105,7 +105,7 @@ void main() {
           ],
         );
         final releasedBackend = SqliteBackend(releasedDb);
-        final releasedRepository = await SqliteGoalRepository.open(releasedBackend);
+        final releasedRepository = SqliteGoalRepository(releasedBackend);
 
         try {
           final loaded = await releasedRepository.getById('released-child');

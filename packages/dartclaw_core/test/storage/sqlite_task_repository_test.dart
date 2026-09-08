@@ -13,7 +13,7 @@ void main() {
     late SqliteTaskRepository repository;
 
     setUp(() async {
-      db = openTaskDbInMemory();
+      db = sqlite3.openInMemory();
       backend = SqliteBackend(db);
       await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
       repository = SqliteTaskRepository(backend);
@@ -33,7 +33,7 @@ void main() {
       test('enables WAL mode for file databases', () async {
         final tempDir = await Directory.systemTemp.createTemp('sqlite-task-repo-');
         try {
-          final fileDb = openTaskDb(p.join(tempDir.path, 'tasks.db'));
+          final fileDb = sqlite3.open(p.join(tempDir.path, 'tasks.db'));
           final fileBackend = SqliteBackend(fileDb);
           try {
             await SqliteSchemaGate.prepareTasks(fileBackend, storeName: 'tasks.db');

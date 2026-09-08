@@ -10,7 +10,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 // Resolved via package URI in setUpAll. Avoids depending on Directory.current
@@ -74,7 +73,7 @@ Future<void> _disposeRuntime(DartclawRuntime runtime, LogService logService) asy
   await runtime.taskService.dispose();
   await runtime.eventBus.dispose();
   await runtime.qmdManager?.stop();
-  runtime.searchDb!.close();
+  await runtime.closeStorage();
   await logService.dispose();
 }
 
@@ -134,14 +133,14 @@ void main() {
     void Function(HarnessFactoryConfig)? onHarnessCreate,
     DartclawServer Function(DartclawServer)? serverFactory,
     HarnessFactory? harnessFactory,
-    TaskDbFactory? taskDbFactory,
+    DatabaseBackendFactory? taskBackendFactory,
   }) => DartclawRuntime.build(
     config,
     dataDir: tempDir.path,
     port: 3000,
     harnessFactory: harnessFactory ?? _harnessFactoryFor(worker, onCreate: onHarnessCreate),
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: taskDbFactory ?? (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: taskBackendFactory ?? (_) async => SqliteBackend.openInMemory(),
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     resolvedConfigPath: configFile.path,
@@ -177,7 +176,7 @@ void main() {
 
   test('queued workers wait for startup and discover the complete MCP registry', () async {
     final taskDbPath = p.join(tempDir.path, 'queued-workers.db');
-    final seedBackend = SqliteBackend(openTaskDb(taskDbPath));
+    final seedBackend = await SqliteBackend.open(taskDbPath);
     await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
     final repository = SqliteTaskRepository(seedBackend);
     await repository.insert(
@@ -226,7 +225,7 @@ void main() {
     final building = buildRuntime(
       config,
       harnessFactory: factory,
-      taskDbFactory: (_) => openTaskDb(taskDbPath),
+      taskBackendFactory: (_) => SqliteBackend.open(taskDbPath),
       serverFactory: (composed) => server = composed,
     );
     await Future.any([primaryStarting.future, building.then<void>((_) {})]).timeout(const Duration(seconds: 10));

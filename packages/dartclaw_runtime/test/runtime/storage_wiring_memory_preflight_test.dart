@@ -35,14 +35,14 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         searchOpened = true;
         final index = const MemoryMarkdownCodec().parse(memory.readAsStringSync());
         expect(index, isA<MemoryIndexDocument>());
         expect((index as MemoryIndexDocument).entries, hasLength(1));
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
@@ -75,18 +75,18 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         events.add('fts5');
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       qmdManagerFactory: () => qmd,
       exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
 
-    expect(events, ['report', 'fts5', 'qmd']);
+    expect(events, ['report', 'fts5', 'fts5', 'qmd']);
     await wiring.dispose();
   });
 
@@ -104,11 +104,11 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         searchOpened = true;
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       qmdManagerFactory: () {
         qmdConstructed = true;
         return _SentinelQmdManager(() {});
@@ -146,11 +146,11 @@ void main() {
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
-        searchDbFactory: (_) {
+        searchBackendFactory: (_) async {
           searchOpened = true;
-          return sqlite3.openInMemory();
+          return SqliteBackend.openInMemory();
         },
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         qmdManagerFactory: () {
           qmdConstructed = true;
           return _SentinelQmdManager(() {});
@@ -189,8 +189,8 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
@@ -210,7 +210,7 @@ void main() {
     await wiring.dispose();
   });
 
-  test('random corrupt index is replaced from canonical memory', () async {
+  test('random corrupt index boots degraded without mutating the target', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
     Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
@@ -219,20 +219,22 @@ void main() {
         'general': ['Corrupt index recovery fact'],
       },
     );
-    File(config.searchDbPath)
+    final corrupt = File(config.searchDbPath)
       ..parent.createSync(recursive: true)
       ..writeAsBytesSync([0xff, 0, 0xfe, 1]);
+    final before = corrupt.readAsBytesSync();
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
 
-    expect((await wiring.memoryIndex.search('Corrupt index', userId: 'owner')).single.chunk, contains('recovery fact'));
+    expect(await wiring.memoryIndex.search('Corrupt index', userId: 'owner'), isEmpty);
+    expect(corrupt.readAsBytesSync(), before);
     await wiring.dispose();
   });
 
@@ -248,8 +250,8 @@ void main() {
     final first = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await first.wire();
@@ -263,8 +265,8 @@ void main() {
     final second = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await second.wire();
@@ -302,8 +304,8 @@ void main() {
     final first = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await first.wire();
@@ -315,8 +317,8 @@ void main() {
     final second = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await second.wire();
@@ -351,8 +353,8 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       indexReconciler: CanonicalIndexReconciler(
         targetPath: config.searchDbPath,
         healthStore: health,
@@ -400,7 +402,7 @@ void main() {
         List<int>? priorBytes;
         if (targetInitiallyExists) {
           target.parent.createSync(recursive: true);
-          final database = openSearchDb(target.path);
+          final database = sqlite3.open(target.path);
           await SqliteSchemaGate.prepareSearch(SqliteBackend(database), storeName: 'search.db');
           database.close();
           priorBytes = target.readAsBytesSync();
@@ -410,11 +412,11 @@ void main() {
         final wiring = StorageWiring(
           config: config,
           eventBus: EventBus(),
-          searchDbFactory: (path) {
+          searchBackendFactory: (path) async {
             targetOpenCalls++;
-            return openSearchDb(path);
+            return SqliteBackend.open(path);
           },
-          taskDbFactory: (_) => sqlite3.openInMemory(),
+          taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
           indexReconciler: CanonicalIndexReconciler(
             targetPath: config.searchDbPath,
             healthStore: health,
@@ -427,11 +429,11 @@ void main() {
 
         await wiring.wire();
 
-        expect(targetOpenCalls, 0);
+        expect(targetOpenCalls, 1);
         if (targetInitiallyExists) {
           expect(target.readAsBytesSync(), priorBytes);
         } else {
-          expect(target.existsSync(), isFalse);
+          expect(target.existsSync(), isTrue);
         }
         expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
         await wiring.dispose();

@@ -292,10 +292,22 @@
         "S04",
         "S05"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s06-composition-root-wiring-and-census-closure.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "owner": "implementer_storage_s06",
       "scope": "Refactor the dartclaw_runtime composition root (StorageWiring.wire() inside DartclawRuntime.build, and service_wiring_workflow) to construct the backend seam and the S02 bootstrap/compatibility gate for tasks.db/search.db instead of raw Database instances, slotting the gate into the existing preflight -> manifest -> reconcile -> search-open -> tasks-open order. Remove task_db.dart/search_db.dart and the TaskDbFactory/SearchDbFactory typedefs; Retire S01's transitional SqliteGoalRepository.open DDL and its max_tokens PRAGMA repair, dead once S02's gate is the sole precondition; sweep the five CLI typedef consumers (serve, cleanup, workflow run/status, standalone lifecycle support) onto seam factories. Keep state.db (opened directly in wiring today) and the self-opening webhook ledger on sanctioned direct SQLite until S15. Add the repo-level fitness check in dev/fitness/test proving no package:sqlite3 import outside SqliteBackend and the two instance-local stores. Close the independently shippable SQLite checkpoint with zero behavior change for the supported 0.25 state.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer",

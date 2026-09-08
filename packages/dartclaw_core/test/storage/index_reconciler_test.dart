@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_core/src/storage/index_reconciler.dart' show IndexReconcileTransition;
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -29,7 +30,7 @@ void main() {
     expect(result.rowCount, 0);
     expect(result.health.state, IndexHealthState.healthy);
     expect(result.health.indexRevision, 7);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
     db.close();
   });
@@ -43,7 +44,7 @@ void main() {
     ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
     expect(result.rowCount, 1);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     final row = db.select('SELECT * FROM memory_chunks').single;
     expect(
       (row['role'], row['locator'], row['entry_id'], row['entry_revision'], row['provenance']),
@@ -57,7 +58,7 @@ void main() {
     final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
     await reconciler.reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
-    final corruptDb = openSearchDb(targetPath);
+    final corruptDb = sqlite3.open(targetPath);
     final corruptBackend = SqliteBackend(corruptDb);
     try {
       corruptDb.execute('DELETE FROM memory_chunks_fts_data WHERE id > 10');
@@ -77,7 +78,7 @@ void main() {
       canonicalFingerprint: 'fingerprint-7',
     );
     expect((repaired.rowCount, repaired.health.state), (1, IndexHealthState.healthy));
-    final repairedBackend = SqliteBackend(openSearchDb(targetPath));
+    final repairedBackend = SqliteBackend(sqlite3.open(targetPath));
     try {
       final index = SqliteFtsIndex(repairedBackend, table: SqliteFtsTable.memoryChunks);
       await index.verifyIntegrity();
@@ -105,7 +106,7 @@ void main() {
     );
     expect((current.rowCount, authenticated), (1, 1));
 
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     db.execute("UPDATE memory_chunks SET text = 'tampered'");
     db.close();
     authenticated = 0;
@@ -116,7 +117,7 @@ void main() {
       authenticateComplete: () async => authenticated++,
     );
     expect((repaired.rowCount, authenticated), (1, 1));
-    final repairedDb = openSearchDb(targetPath);
+    final repairedDb = sqlite3.open(targetPath);
     expect(repairedDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
     repairedDb.close();
   });
@@ -148,7 +149,7 @@ void main() {
     ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'audit-fingerprint-7');
 
     expect(result.rowCount, 0);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
     db.close();
   });

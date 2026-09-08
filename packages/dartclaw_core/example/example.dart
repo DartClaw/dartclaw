@@ -33,8 +33,7 @@ void main() async {
     print('Message allowed');
   }
 
-  final db = openSearchDbInMemory();
-  final databaseBackend = SqliteBackend(db);
+  final databaseBackend = SqliteBackend.openInMemory();
   await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'example search.db');
   final index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
   final backend = Fts5SearchBackend(index: index);
@@ -48,5 +47,5 @@ void main() async {
   ], userId: 'owner');
   final hits = await backend.search('agent orchestration');
   print('Memory hits: ${hits.length}');
-  db.close();
+  await databaseBackend.close();
 }

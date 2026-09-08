@@ -548,7 +548,7 @@ TurnTrace (turns table)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
-**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. Connection PRAGMAs belong to the task-database open helpers, and wiring owns connection closure.
+**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. SqliteSchemaGate.prepareTasks applies WAL and foreign-key connection settings before classification. Wiring opens through DatabaseBackendFactory and owns closure; repositories do not close shared backends.
 
 ### Task Event
 
@@ -745,6 +745,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 
 ```
 dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBackend,
+                                        DatabaseBackendFactory,
                                         shared enums,
                                         DartclawConfig, ConfigMeta, ConfigWriter,
                                         GuardChain, GuardAuditLogger, Project,
@@ -760,7 +761,7 @@ dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvServic
      │                                  SqliteGoalRepository (via DatabaseBackend),
      │                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
-     │                                  SqliteFtsIndex, SearchDb, TaskDb,
+     │                                  SqliteFtsIndex, SqliteSchemaGate,
      │                                  TurnStateStore, TurnTraceService,
      │                                  TaskEventService
      │

@@ -8,8 +8,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository, openTaskDb, TaskDbFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
@@ -18,7 +17,7 @@ import '../connected_command_support.dart' hide truncate;
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory _taskBackendFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
@@ -27,13 +26,13 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
   new({
     this.standaloneOnly = false,
     super.config,
-    TaskDbFactory? taskDbFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     String? currentDirectory,
     Map<String, String>? environment,
     super.connection,
     super.writeLine,
     super.exitFn,
-  }) : _taskDbFactory = taskDbFactory ?? openTaskDb,
+  }) : _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open,
        _currentDirectory = currentDirectory,
        _environment = environment {
     argParser
@@ -91,8 +90,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    final taskDb = _taskDbFactory(config.tasksDbPath);
-    final backend = SqliteBackend(taskDb);
+    final backend = await _taskBackendFactory(config.tasksDbPath);
     try {
       WorkflowRun? run;
       try {

@@ -155,6 +155,8 @@ abstract final class SqliteSchemaGate {
 
   /// Prepares the authoritative task store or refuses it without mutation.
   static Future<void> prepareTasks(DatabaseBackend backend, {required String storeName}) async {
+    await backend.execute('PRAGMA journal_mode=WAL');
+    await backend.execute('PRAGMA foreign_keys=ON');
     final inspection = await inspect(backend, SchemaIdentity.tasks, storeName: storeName);
     switch (inspection.state) {
       case SqliteSchemaState.empty:

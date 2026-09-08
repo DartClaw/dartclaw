@@ -16,7 +16,7 @@ void main() {
   setUp(() async {
     backend = await openPreparedTaskBackend();
     taskRepository = SqliteTaskRepository(backend);
-    goals = GoalService(await SqliteGoalRepository.open(backend));
+    goals = GoalService(SqliteGoalRepository(backend));
     handler = goalRoutes(goals).call;
     api = ApiRouteTestClient(handler);
   });

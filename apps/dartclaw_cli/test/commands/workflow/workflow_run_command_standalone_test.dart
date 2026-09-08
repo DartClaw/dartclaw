@@ -12,7 +12,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show MergeResolveConfig, WorkflowDefinition, WorkflowGitStrategy, WorkflowStep, WorkflowTaskType;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
@@ -99,8 +98,8 @@ WorkflowRunCommand _standaloneCommand({
   reachabilityProbe: reachabilityProbe ?? (_) async => false,
   environment: environment,
   harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
-  searchDbFactory: (_) => sqlite3.openInMemory(),
-  taskDbFactory: (_) => sqlite3.openInMemory(),
+  searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+  taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
   stdoutLine: stdoutOutput?.add ?? (_) {},
   stderrLine: stderrOutput?.add ?? (_) {},
   exitFn: fakeExit,
@@ -699,8 +698,8 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );
@@ -735,8 +734,8 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );

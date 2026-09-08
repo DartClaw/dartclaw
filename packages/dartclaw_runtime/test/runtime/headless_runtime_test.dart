@@ -143,7 +143,7 @@ steps:
 
     final staging = await fixture.stage(
       config,
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) {
         searchFactoryCalls++;
         throw StateError('standalone opened the personal-memory search database');
       },
@@ -153,7 +153,6 @@ steps:
     addTearDown(runtime.shutdown);
 
     expect(searchFactoryCalls, 0);
-    expect(runtime.searchDb, isNull);
     expect(runtime.selfImprovement, isNull);
     expect(runtime.qmdManager, isNull);
     expect(memory.readAsBytesSync(), before);
@@ -181,7 +180,7 @@ steps:
     final runtime = await fixture.runtime(
       config,
       harnessFactory: factory,
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) {
         searchFactoryCalls++;
         throw StateError('standalone opened the personal-memory search database');
       },
@@ -233,7 +232,6 @@ steps:
     expect(factoryConfig.onMemorySearch, isNull);
     expect(factoryConfig.onMemoryRead, isNull);
     expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
-    expect(runtime.searchDb, isNull);
     expect(runtime.selfImprovement, isNull);
     expect(runtime.qmdManager, isNull);
 

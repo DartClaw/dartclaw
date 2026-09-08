@@ -568,7 +568,7 @@ final class CanonicalIndexReconciler {
   }) async {
     final injected = _storeOpener;
     if (injected != null) return injected(path);
-    final backend = SqliteBackend(openSearchDb(path));
+    final backend = await SqliteBackend.open(path);
     try {
       await SqliteSchemaGate.prepareSearch(
         backend,

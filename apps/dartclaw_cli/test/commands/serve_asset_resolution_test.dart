@@ -10,7 +10,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver, LogS
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf.dart' show Handler, Request;
 import 'package:test/test.dart';
 
@@ -82,7 +81,7 @@ Future<({Handler handler, List<LogRecord> logs})> _startUntilBindFailure(
   late Handler handler;
   final command = ServeCommand(
     config: config,
-    searchDbFactory: (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
     harnessFactory: _harnessFactory(),
     serverFactory: (server) => server,
     serveFn: (candidate, address, port) async {

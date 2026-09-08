@@ -8,7 +8,7 @@ void main() {
   late TemporalKnowledgeGraphService kg;
 
   setUp(() async {
-    db = openTaskDbInMemory();
+    db = sqlite3.openInMemory();
     backend = SqliteBackend(db);
     await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
     kg = TemporalKnowledgeGraphService(backend);

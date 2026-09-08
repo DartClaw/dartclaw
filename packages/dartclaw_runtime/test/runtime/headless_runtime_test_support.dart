@@ -16,7 +16,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Never unexpectedExit(int code) {
@@ -115,7 +114,7 @@ final class HeadlessRuntimeFixture {
   Future<HeadlessRuntimeStaging> stage(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
-    SearchDbFactory? searchDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -133,8 +132,8 @@ final class HeadlessRuntimeFixture {
       skillProvisionerEnvironment: resolvedEnvironment,
       runtimeCwd: runtimeCwd,
       harnessFactory: harnessFactory ?? harnessFactoryFor(() => FakeAgentHarness()),
-      searchDbFactory: searchDbFactory ?? (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: searchBackendFactory ?? (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       stderrLine: (_) {},
       exitFn: unexpectedExit,
       skillIntrospector: skillIntrospector,
@@ -154,7 +153,7 @@ final class HeadlessRuntimeFixture {
   Future<DartclawRuntime> runtime(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
-    SearchDbFactory? searchDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -167,7 +166,7 @@ final class HeadlessRuntimeFixture {
     final staging = await stage(
       config,
       harnessFactory: harnessFactory,
-      searchDbFactory: searchDbFactory,
+      searchBackendFactory: searchBackendFactory,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
       runtimeCwd: runtimeCwd,

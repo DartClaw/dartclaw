@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+/// Opens a database backend at [path].
+typedef DatabaseBackendFactory = Future<DatabaseBackend> Function(String path);
+
 /// Portable database operations shared by storage repositories.
 ///
 /// SQL uses positional `?` placeholders. Values and result rows use SQLite's

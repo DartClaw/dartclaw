@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "1",
+  "story": "S06",
+  "fis": "s06-composition-root-wiring-and-census-closure.md",
+  "plan": "plan.json",
+  "snapshot": "038020202172+728b8000f598",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 038020202172+728b8000f598",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 86.741,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S01 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart --name \"missing index is reconstructed before the production search database opens\"",
+      "exit": 0,
+      "duration": 1.088,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S03 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart --name \"derived recovery failure boots degraded with canonical memory available\"",
+      "exit": 0,
+      "duration": 0.916,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S05 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/workflow/workflow_status_command_test.dart --name \"standalone mode discovers cwd-local .dartclaw config\"",
+      "exit": 0,
+      "duration": 0.927,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S06 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/dartclaw_runtime_test.dart --name \"shutdown stops the scheduled lane and closes the search database last\"",
+      "exit": 0,
+      "duration": 1.198,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "rg -qU \"database_backend\\.dart'\\s*show[^;]*\\bDatabaseBackendFactory\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && rg -q \"static Future<SqliteBackend> open\\(String path\\)\" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && rg -q \"static SqliteBackend openInMemory\\(\\)\" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && ! rg -q \"PRAGMA\" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && dart analyze --fatal-infos packages/dartclaw_kernel packages/dartclaw_core",
+      "exit": 0,
+      "duration": 1.125,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "! test -e packages/dartclaw_core/lib/src/storage/task_db.dart && ! test -e packages/dartclaw_core/lib/src/storage/search_db.dart && ! rg -q \"task_db\\.dart|search_db\\.dart|TaskDbFactory|SearchDbFactory|openTaskDb|openSearchDb\" packages/dartclaw_core/lib packages/dartclaw_core/CLAUDE.md packages/dartclaw_core/example packages/dartclaw_testing/lib && rg -q \"foreign_keys=ON\" packages/dartclaw_core/lib/src/storage/sqlite_schema_gate.dart && rg -q \"SqliteBackend\\.open\" packages/dartclaw_core/lib/src/storage/index_reconciler.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_test.dart packages/dartclaw_core/test/storage/index_reconciler_test.dart packages/dartclaw_core/test/storage/sqlite_task_repository_test.dart",
+      "exit": 0,
+      "duration": 1.037,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "! rg -q \"CREATE TABLE|ALTER TABLE|PRAGMA|Future<SqliteGoalRepository> open\" packages/dartclaw_core/lib/src/storage/sqlite_goal_repository.dart && ! rg -q \"SqliteGoalRepository\\.open\\(\" packages apps --glob '*.dart' && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_goal_repository_test.dart packages/dartclaw_runtime/test/api/goal_routes_test.dart packages/dartclaw_runtime/test/task/budget_enforcement_test.dart && dart test --reporter=failures-only packages/dartclaw_runtime/test/server_test.dart --name \"goal route wiring\"",
+      "exit": 0,
+      "duration": 8.186,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "test \"$(rg -n 'prepareSearch' packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart | head -1 | cut -d: -f1)\" -lt \"$(rg -n 'ensureCurrentBatched' packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart | head -1 | cut -d: -f1)\" && dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_search_gate_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart",
+      "exit": 0,
+      "duration": 2.168,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|sqlite3\\.open|Database get searchDb|DbFactory\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && rg -q \"openTurnStateStore\\(\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && rg -q \"TurnStateStore openTurnStateStore\\(String path\\)\" packages/dartclaw_core/lib/src/storage/turn_state_store.dart && rg -q \"final DatabaseBackend _backend;\" packages/dartclaw_core/lib/src/storage/sqlite_task_repository.dart && ! rg -q \"_backend[[:space:]]*\\.[[:space:]]*close[[:space:]]*\\(\" packages/dartclaw_core/lib/src/storage/sqlite_task_repository.dart && dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_search_gate_test.dart --name \"closes\"",
+      "exit": 0,
+      "duration": 1.096,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|searchDb|DbFactory\" packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart packages/dartclaw_runtime/lib/src/runtime/service_wiring_result.dart && test \"$(wc -l < packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart)\" -le 1500 && dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/dartclaw_runtime_test.dart packages/dartclaw_runtime/test/runtime/headless_runtime_test.dart packages/dartclaw_runtime/test/runtime/service_wiring_local_path_bootstrap_test.dart packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart",
+      "exit": 0,
+      "duration": 15.689,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "! rg -q \"DbFactory|openTaskDb|openSearchDb|\\bDatabase\\b\" apps/dartclaw_cli/lib && test \"$(rg -l 'DatabaseBackendFactory' apps/dartclaw_cli/lib | wc -l | tr -d ' ')\" = 5 && dart test --reporter=failures-only apps/dartclaw_cli/test/commands/serve_command_test.dart apps/dartclaw_cli/test/commands/cleanup_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_status_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_lifecycle_standalone_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_run_command_standalone_test.dart",
+      "exit": 0,
+      "duration": 6.251,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI08 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && ! rg -q \"openTaskDbInMemory|openSearchDbInMemory|TaskDbFactory|SearchDbFactory|openTaskDb\\b|openSearchDb\\b\" packages apps",
+      "exit": 0,
+      "duration": 3.228,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI09 Verify",
+      "kind": "run",
+      "command": "test \"$(grep -cv '^\\s*#\\|^\\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)\" = 3 && ! rg -q \"package:dartclaw\" dev/fitness/test/sqlite3_import_surface_test.dart && rg -q \"sqlite3_import_surface\" dev/fitness/README.md && dart test --reporter=failures-only dev/fitness/test/sqlite3_import_surface_test.dart",
+      "exit": 0,
+      "duration": 0.971,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI10 Verify",
+      "kind": "run",
+      "command": "! rg -q \"search_db\\.dart|task_db\\.dart|SearchDbFactory|TaskDbFactory|openSearchDb|openTaskDb|sqlite3\\.openInMemory\\(\\)\" dev/architecture/system-architecture.md dev/architecture/data-model.md packages/dartclaw_runtime/CLAUDE.md packages/dartclaw_core/CLAUDE.md && rg -q \"SqliteBackend\" dev/architecture/system-architecture.md dev/architecture/data-model.md",
+      "exit": 0,
+      "duration": 0.015,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI11 Verify",
+      "kind": "run",
+      "command": "test \"$(rg -l \"import 'package:sqlite3\" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\\n' ' ')\" = \"packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart \" && test \"$(rg -l 'sqlite3\\.open' packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | sort | tr '\\n' ' ')\" = \"packages/dartclaw_core/lib/src/storage/sqlite_backend.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart \" && dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check",
+      "exit": 0,
+      "duration": 2.555,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

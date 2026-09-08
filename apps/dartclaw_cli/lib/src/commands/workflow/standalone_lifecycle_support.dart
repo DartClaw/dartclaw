@@ -6,7 +6,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
-import 'package:dartclaw_core/dartclaw_core.dart' show SearchDbFactory, TaskDbFactory, openSearchDb, openTaskDb;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProviderAuthPreflight,
@@ -74,8 +74,8 @@ class StandaloneLifecycleSession {
 /// mapping so engine guard violations (and stale-`running` resumes) never
 /// surface a stack trace.
 abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedCommand {
-  final SearchDbFactory? searchDbFactory;
-  final TaskDbFactory? taskDbFactory;
+  final DatabaseBackendFactory? searchBackendFactory;
+  final DatabaseBackendFactory? taskBackendFactory;
   final HarnessFactory? harnessFactory;
   final Map<String, String>? environment;
   final Stream<void> Function() interrupts;
@@ -93,8 +93,8 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
     super.connection,
     super.writeLine,
     super.exitFn,
-    this.searchDbFactory,
-    this.taskDbFactory,
+    this.searchBackendFactory,
+    this.taskBackendFactory,
     this.harnessFactory,
     this.environment,
     super.stderrLine,
@@ -187,8 +187,8 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
       environment: env,
       skillProvisionerEnvironment: env,
       harnessFactory: harnessFactory ?? HarnessFactory(),
-      searchDbFactory: searchDbFactory ?? openSearchDb,
-      taskDbFactory: taskDbFactory ?? openTaskDb,
+      searchBackendFactory: searchBackendFactory ?? SqliteBackend.open,
+      taskBackendFactory: taskBackendFactory ?? SqliteBackend.open,
       stderrLine: stderrLine,
       exitFn: exitFn,
       runWorkflowSkillsBootstrap: bootstrapSkills,

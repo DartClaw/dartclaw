@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SqliteWorkflowRunRepository,
@@ -18,7 +19,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTaskType;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3}) {
@@ -31,7 +31,6 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
 }
 
 void main() {
-  late Database taskDb;
   late SqliteBackend taskBackend;
   late TaskService tasks;
   late EventBus eventBus;
@@ -40,9 +39,7 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
-    taskBackend = SqliteBackend(taskDb);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
+    taskBackend = await openPreparedTaskBackend();
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
     eventBus = EventBus();
     final taskRepository = SqliteTaskRepository(taskBackend);

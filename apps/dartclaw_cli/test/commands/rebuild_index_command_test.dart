@@ -5,7 +5,9 @@ import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/storage/index_reconciler.dart' show IndexReconcileTransition;
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
@@ -61,7 +63,7 @@ void main() {
     Directory(p.join(tempDir.path, 'workspace')).createSync();
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
-    final seededDb = openSearchDb(dbPath);
+    final seededDb = sqlite3.open(dbPath);
     await SqliteSchemaGate.prepareSearch(SqliteBackend(seededDb), storeName: 'search.db');
     seededDb.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
       'stale searchable row',
@@ -74,7 +76,7 @@ void main() {
 
     await runner.run(['rebuild-index']);
 
-    final db = openSearchDb(dbPath);
+    final db = sqlite3.open(dbPath);
     final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
     expect(await index.search('stale', userId: 'owner'), isEmpty);
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
@@ -100,12 +102,80 @@ void main() {
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
     expect(output.last, contains('Rebuilt index: 3 entries at collection revision 2'));
 
-    final db = openSearchDb(dbPath);
+    final db = sqlite3.open(dbPath);
     final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
     final results = await index.search('Dart', userId: 'owner');
     expect(results, isNotEmpty);
     expect(results.first.chunk, contains('Dart'));
     db.close();
+  });
+
+  test('rebuild repairs an incompatible search store and leaves the next reconciliation current', () async {
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+    workspaceOf(config);
+    await seedCanonicalMemory(
+      config.workspaceDir,
+      topics: const {
+        'project': ['Canonical recovery fact'],
+      },
+    );
+    final legacy = sqlite3.open(config.searchDbPath);
+    try {
+      legacy.execute('''
+        CREATE TABLE memory_chunks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          text TEXT NOT NULL,
+          source TEXT NOT NULL,
+          category TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          user_id TEXT NOT NULL DEFAULT 'owner'
+        )
+      ''');
+      legacy.execute("INSERT INTO memory_chunks(text, source) VALUES ('Obsolete row', 'legacy')");
+    } finally {
+      legacy.close();
+    }
+
+    await runCommand(config);
+
+    expect(output.last, 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
+    final backend = await SqliteBackend.open(config.searchDbPath);
+    try {
+      expect(await backend.query('SELECT id, epoch FROM dartclaw_schema'), [
+        {'id': 1, 'epoch': 1},
+      ]);
+      expect(
+        (await SqliteSchemaGate.inspect(backend, SchemaIdentity.search, storeName: 'search.db')).state,
+        SqliteSchemaState.current,
+      );
+      await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
+      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
+      expect((await index.search('Canonical recovery', userId: 'owner')).single.chunk, 'Canonical recovery fact');
+      expect(await index.search('Obsolete', userId: 'owner'), isEmpty);
+    } finally {
+      await backend.close();
+    }
+
+    final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
+    try {
+      final manifest = await corpusService.manifest();
+      final transitions = <IndexReconcileTransition>[];
+      final result =
+          await CanonicalIndexReconciler(
+            targetPath: config.searchDbPath,
+            healthStore: IndexHealthStore(workspaceDir: config.workspaceDir),
+            transitionHook: (transition) async => transitions.add(transition),
+          ).ensureCurrent(
+            corpus: await corpusService.readCorpus(),
+            canonicalRevision: manifest.collectionRevision,
+            canonicalFingerprint: manifest.fingerprint,
+          );
+      expect(result.rowCount, 1);
+      expect(result.health.isCurrent(manifest.collectionRevision, manifest.fingerprint), isTrue);
+      expect(transitions, isEmpty);
+    } finally {
+      await corpusService.close();
+    }
   });
 
   test('rebuild uses the live Markdown normalization and chunk boundaries', () async {
@@ -130,7 +200,7 @@ void main() {
 
     await runner.run(['rebuild-index']);
 
-    final db = openSearchDb(dbPath);
+    final db = sqlite3.open(dbPath);
     final rows = db.select('SELECT text, source, category, created_at, locator FROM memory_chunks ORDER BY id');
     expect(rows.map((row) => row['text']), expectedTexts);
     expect(rows.every((row) => row['source'] == row['locator'] && row['category'] == 'project'), isTrue);
@@ -157,7 +227,7 @@ void main() {
 
     await runner.run(['rebuild-index']);
 
-    final db = openSearchDb(dbPath);
+    final db = sqlite3.open(dbPath);
     final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
     final current = MemoryIndexProjection.toSearchResult(
       (await index.search('Current searchable', userId: 'owner')).single,
@@ -187,13 +257,13 @@ void main() {
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 
     await runner.run(['rebuild-index']);
-    final firstDb = openSearchDb(dbPath);
+    final firstDb = sqlite3.open(dbPath);
     final first = firstDb.select('SELECT created_at FROM memory_chunks').single['created_at'];
     firstDb.close();
 
     output.clear();
     await runner.run(['rebuild-index']);
-    final secondDb = openSearchDb(dbPath);
+    final secondDb = sqlite3.open(dbPath);
     final second = secondDb.select('SELECT created_at FROM memory_chunks').single['created_at'];
     secondDb.close();
 

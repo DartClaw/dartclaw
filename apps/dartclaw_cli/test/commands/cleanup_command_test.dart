@@ -28,9 +28,18 @@ void main() {
   });
 
   /// Runs the cleanup command via a CommandRunner with the given [args].
-  Future<void> runCleanup(List<String> args, {DartclawConfig? config}) async {
+  Future<void> runCleanup(
+    List<String> args, {
+    DartclawConfig? config,
+    DatabaseBackendFactory? taskBackendFactory,
+  }) async {
     final cfg = config ?? DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
-    final command = CleanupCommand(config: cfg, writeLine: output.add, exitFn: (code) => exitCode = code);
+    final command = CleanupCommand(
+      config: cfg,
+      taskBackendFactory: taskBackendFactory,
+      writeLine: output.add,
+      exitFn: (code) => exitCode = code,
+    );
 
     final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(_TestSessionsCommand(command));
 
@@ -160,8 +169,7 @@ void main() {
     }
 
     Future<void> seedCompletedRun(DartclawConfig config, String runId, {required Duration age}) async {
-      final db = openTaskDb(config.tasksDbPath);
-      final backend = SqliteBackend(db);
+      final backend = await SqliteBackend.open(config.tasksDbPath);
       try {
         await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
         final repo = SqliteWorkflowRunRepository(backend);
@@ -188,8 +196,17 @@ void main() {
       final artifacts = seedRunArtifacts('run-old');
       await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
 
-      await runCleanup([], config: config);
+      late DatabaseBackend openedBackend;
+      await runCleanup(
+        [],
+        config: config,
+        taskBackendFactory: (path) async {
+          openedBackend = await SqliteBackend.open(path);
+          return openedBackend;
+        },
+      );
 
+      await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
       expect(artifacts.existsSync(), isFalse);
       expect(File(p.join(tempDir.path, 'workflows', 'runs', 'run-old', 'context.json')).existsSync(), isTrue);
       expect(output, anyElement(contains('Workflow Runtime-Artifacts Retention')));
@@ -240,37 +257,39 @@ void main() {
       final config = configWith(
         const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
       );
-      final db = openTaskDb(config.tasksDbPath);
+      final backend = await SqliteBackend.open(config.tasksDbPath);
       late final List<Map<String, Object?>> schemaBefore;
       late final List<Map<String, Object?>> rowsBefore;
       try {
-        db.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)');
-        db.execute("INSERT INTO tasks (id, title) VALUES ('legacy-task', 'Legacy task')");
-        schemaBefore = db
-            .select('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name')
-            .map((row) => Map<String, Object?>.from(row))
-            .toList();
-        rowsBefore = db.select('SELECT * FROM tasks ORDER BY id').map((row) => Map<String, Object?>.from(row)).toList();
+        await backend.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)');
+        await backend.execute("INSERT INTO tasks (id, title) VALUES ('legacy-task', 'Legacy task')");
+        schemaBefore = await backend.query('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name');
+        rowsBefore = await backend.query('SELECT * FROM tasks ORDER BY id');
       } finally {
-        db.close();
+        await backend.close();
       }
 
-      await runCleanup([], config: config);
+      late DatabaseBackend openedBackend;
+      await runCleanup(
+        [],
+        config: config,
+        taskBackendFactory: (path) async {
+          openedBackend = await SqliteBackend.open(path);
+          return openedBackend;
+        },
+      );
+      await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
 
-      final reopened = openTaskDb(config.tasksDbPath);
+      final reopened = await SqliteBackend.open(config.tasksDbPath);
       try {
-        final schemaAfter = reopened
-            .select('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name')
-            .map((row) => Map<String, Object?>.from(row))
-            .toList();
-        final rowsAfter = reopened
-            .select('SELECT * FROM tasks ORDER BY id')
-            .map((row) => Map<String, Object?>.from(row))
-            .toList();
+        final schemaAfter = await reopened.query(
+          'SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name',
+        );
+        final rowsAfter = await reopened.query('SELECT * FROM tasks ORDER BY id');
         expect(schemaAfter, schemaBefore);
         expect(rowsAfter, rowsBefore);
       } finally {
-        reopened.close();
+        await reopened.close();
       }
       expect(output, anyElement(startsWith('WARNING: workflow artifact retention skipped (database read failed):')));
       expect(exitCode, 1);

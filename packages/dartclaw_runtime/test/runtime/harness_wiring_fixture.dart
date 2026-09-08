@@ -9,7 +9,6 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
 
@@ -41,8 +40,8 @@ Future<StorageWiring> wireTestStorage({
   final storage = StorageWiring(
     config: config,
     eventBus: eventBus,
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
     exitFn: exitFn,
   );
   await storage.wire();

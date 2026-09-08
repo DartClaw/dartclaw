@@ -8,7 +8,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show SqliteWorkflowRunRepository, WorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 /// Constructs and exposes storage-layer services.
 ///
@@ -19,23 +18,23 @@ class StorageWiring {
   new({
     required this.config,
     required EventBus eventBus,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    required DatabaseBackendFactory searchBackendFactory,
+    required DatabaseBackendFactory taskBackendFactory,
     required ExitFn exitFn,
     this.personalMemoryEnabled = true,
     QmdManager Function()? qmdManagerFactory,
     CanonicalIndexReconciler? indexReconciler,
   }) : _eventBus = eventBus,
-       _searchDbFactory = searchDbFactory,
-       _taskDbFactory = taskDbFactory,
+       _searchBackendFactory = searchBackendFactory,
+       _taskBackendFactory = taskBackendFactory,
        _exitFn = exitFn,
        _qmdManagerFactory = qmdManagerFactory,
        _injectedIndexReconciler = indexReconciler;
 
   final DartclawConfig config;
   final EventBus _eventBus;
-  final SearchDbFactory _searchDbFactory;
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory _searchBackendFactory;
+  final DatabaseBackendFactory _taskBackendFactory;
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
   final QmdManager Function()? _qmdManagerFactory;
@@ -45,8 +44,8 @@ class StorageWiring {
 
   late SessionService _sessions;
   late MessageService _messages;
-  Database? _searchDb;
-  Database? _taskDb;
+  DatabaseBackend? _searchBackend;
+  DatabaseBackend? _taskBackend;
   late TaskRepository _taskRepository;
   late AgentExecutionRepository _agentExecutionRepository;
   late WorkflowStepExecutionRepository _workflowStepExecutionRepository;
@@ -61,17 +60,15 @@ class StorageWiring {
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
   FullTextIndex? _memoryIndex;
-  DatabaseBackend? _searchDatabaseBackend;
   TemporalKnowledgeGraphService? _kg;
   late KvService _kvService;
   late SqliteWorkflowRunRepository _workflowRunRepository;
   QmdManager? _qmdManager;
-  SearchBackend? _searchBackend;
+  SearchBackend? _searchService;
   var _searchUnavailable = false;
 
   SessionService get sessions => _sessions;
   MessageService get messages => _messages;
-  Database? get searchDb => _searchDb;
   TaskRepository get taskRepository => _taskRepository;
   AgentExecutionRepository get agentExecutionRepository => _agentExecutionRepository;
   WorkflowStepExecutionRepository get workflowStepExecutionRepository => _workflowStepExecutionRepository;
@@ -92,7 +89,7 @@ class StorageWiring {
   KvService get kvService => _kvService;
   SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   QmdManager? get qmdManager => _qmdManager;
-  SearchBackend get searchBackend => _searchBackend ?? _missingPersonalMemory('searchBackend');
+  SearchBackend get searchBackend => _searchService ?? _missingPersonalMemory('searchBackend');
 
   Never _missingPersonalMemory(String service) =>
       throw StateError('StorageWiring.$service is not composed without personal memory');
@@ -109,8 +106,7 @@ class StorageWiring {
     }
 
     try {
-      final taskDb = _taskDb = _taskDbFactory(config.tasksDbPath);
-      final backend = SqliteBackend(taskDb);
+      final backend = _taskBackend = await _taskBackendFactory(config.tasksDbPath);
       await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
       _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
@@ -119,7 +115,7 @@ class StorageWiring {
       if (personalMemoryEnabled) {
         _kg = TemporalKnowledgeGraphService(backend);
       }
-      final goalRepository = await SqliteGoalRepository.open(backend);
+      final goalRepository = SqliteGoalRepository(backend);
       _goalService = GoalService(goalRepository);
       _traceService = TurnTraceService(backend);
       _taskEventService = TaskEventService(backend);
@@ -134,12 +130,12 @@ class StorageWiring {
       _workflowRunRepository = SqliteWorkflowRunRepository(backend);
     } catch (e, st) {
       try {
-        _searchDb?.close();
+        await _searchBackend?.close();
       } catch (closeErr) {
         _log.fine('Error closing search DB during taskDb failure cleanup', closeErr);
       }
       try {
-        _taskDb?.close();
+        await _taskBackend?.close();
       } catch (closeErr) {
         _log.fine('Error closing task DB during taskDb failure cleanup', closeErr);
       }
@@ -150,17 +146,10 @@ class StorageWiring {
     final stateDbPath = p.join(config.server.dataDir, 'state.db');
     try {
       Directory(config.server.dataDir).createSync(recursive: true);
-      final stateDb = sqlite3.open(stateDbPath);
-      try {
-        _turnStateStore = TurnStateStore(stateDb);
-      } catch (e, st) {
-        stateDb.close();
-        Error.throwWithStackTrace(e, st);
-      }
+      _turnStateStore = openTurnStateStore(stateDbPath);
     } catch (e, st) {
       await _taskService.dispose();
-      _taskDb?.close();
-      _searchDb?.close();
+      await closeBackends();
       _log.severe('Cannot open turn state database at $stateDbPath', e, st);
       _exitFn(1);
     }
@@ -211,70 +200,93 @@ class StorageWiring {
     final indexReconciler =
         _injectedIndexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: indexHealth);
     final manifest = currentManifest;
+    DatabaseBackend? gateBackend;
     try {
-      final recovery = await indexReconciler.ensureCurrentBatched(
-        rowBatches: () => _canonicalRowBatches(manifest),
-        canonicalRevision: manifest.collectionRevision,
-        canonicalFingerprint: manifest.fingerprint,
-        authenticateComplete: () => memoryCorpus.authenticate(manifest),
-      );
-      _log.info(
-        'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
-        '(${recovery.rowCount} rows)',
-      );
-    } on Object catch (e, st) {
-      _searchUnavailable = true;
-      _log.severe('Memory index recovery failed; canonical memory remains available', e, st);
-    }
-
-    if (_searchUnavailable) {
-      _searchDb = openSearchDbInMemory();
-      final backend = _searchDatabaseBackend = SqliteBackend(_searchDb!);
+      gateBackend = await _searchBackendFactory(config.searchDbPath);
       await SqliteSchemaGate.prepareSearch(
-        backend,
-        storeName: 'in-memory search.db',
+        gateBackend,
+        storeName: 'search.db',
         rebuild: SqliteSearchRebuild(
           manifestRevision: manifest.collectionRevision,
           manifestFingerprint: manifest.fingerprint,
           healthStore: indexHealth,
+          populate: (tx) async {
+            final index = SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks);
+            var firstBatch = true;
+            await for (final batch in _canonicalRowBatches(manifest)) {
+              if (firstBatch) {
+                await index.replaceAll(batch, userId: 'owner');
+                firstBatch = false;
+              } else {
+                await index.upsert(batch, userId: 'owner');
+              }
+            }
+            if (firstBatch) await index.replaceAll(const <SearchDocument>[], userId: 'owner');
+          },
+          authenticateComplete: () async {
+            await memoryCorpus.authenticate(manifest);
+            return true;
+          },
         ),
       );
-    } else {
+    } on SchemaIncompatibleException catch (e, st) {
+      _searchUnavailable = true;
+      _log.severe(e.toString(), e, st);
+    } on Object catch (e, st) {
+      _searchUnavailable = true;
+      _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
+    } finally {
+      await gateBackend?.close();
+    }
+
+    if (!_searchUnavailable) {
       try {
-        _searchDb = _searchDbFactory(config.searchDbPath);
-      } catch (e, st) {
-        _searchUnavailable = true;
-        try {
-          await indexHealth.recordDegraded(
-            canonicalRevision: manifest.collectionRevision,
-            canonicalFingerprint: manifest.fingerprint,
-            stage: 'open',
-            reason: e,
-          );
-        } catch (_) {}
-        _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
-        _searchDb = openSearchDbInMemory();
-        final backend = _searchDatabaseBackend = SqliteBackend(_searchDb!);
-        await SqliteSchemaGate.prepareSearch(
-          backend,
-          storeName: 'in-memory search.db',
-          rebuild: SqliteSearchRebuild(
-            manifestRevision: manifest.collectionRevision,
-            manifestFingerprint: manifest.fingerprint,
-            healthStore: indexHealth,
-          ),
+        final recovery = await indexReconciler.ensureCurrentBatched(
+          rowBatches: () => _canonicalRowBatches(manifest),
+          canonicalRevision: manifest.collectionRevision,
+          canonicalFingerprint: manifest.fingerprint,
+          authenticateComplete: () => memoryCorpus.authenticate(manifest),
         );
+        _log.info(
+          'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
+          '(${recovery.rowCount} rows)',
+        );
+      } on Object catch (e, st) {
+        _searchUnavailable = true;
+        _log.severe('Memory index recovery failed; canonical memory remains available', e, st);
       }
+    }
+
+    try {
+      _searchBackend = _searchUnavailable
+          ? SqliteBackend.openInMemory()
+          : await _searchBackendFactory(config.searchDbPath);
+      await SqliteSchemaGate.prepareSearch(
+        _searchBackend!,
+        storeName: _searchUnavailable ? 'in-memory search.db' : 'search.db',
+      );
+    } on Object catch (e, st) {
+      await _searchBackend?.close();
+      _searchUnavailable = true;
+      try {
+        await indexHealth.recordDegraded(
+          canonicalRevision: manifest.collectionRevision,
+          canonicalFingerprint: manifest.fingerprint,
+          stage: 'open',
+          reason: e,
+        );
+      } catch (_) {}
+      _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
+      _searchBackend = SqliteBackend.openInMemory();
+      await SqliteSchemaGate.prepareSearch(_searchBackend!, storeName: 'in-memory search.db');
     }
   }
 
   Future<void> _wirePersonalMemoryAfterTaskStorage() async {
     final memoryCorpus = _memoryCorpus!;
-    final searchDb = _searchDb!;
     final indexHealth = _indexHealth!;
     _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus);
-    final backend = _searchDatabaseBackend ??= SqliteBackend(searchDb);
-    final memoryIndex = _memoryIndex = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
+    final memoryIndex = _memoryIndex = SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -293,7 +305,7 @@ class StorageWiring {
       }
     }
 
-    final searchBackend = _searchBackend = createSearchBackend(
+    final searchBackend = _searchService = createSearchBackend(
       backend: config.search.backend,
       index: memoryIndex,
       qmdManager: _qmdManager,
@@ -351,12 +363,15 @@ class StorageWiring {
 
   Future<void> dispose() async {
     await _taskService.dispose();
-    final taskDb = _taskDb;
-    if (taskDb != null) taskDb.close();
     await _turnStateStore.dispose();
-    _searchDb?.close();
     await _memoryFile?.dispose();
     await _memoryCorpus?.close();
+    await closeBackends();
+  }
+
+  Future<void> closeBackends() async {
+    await _taskBackend?.close();
+    await _searchBackend?.close();
   }
 
   Stream<List<SearchDocument>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {

@@ -1,5 +1,6 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
@@ -10,9 +11,7 @@ void main() {
   late ApiRouteTestClient client;
 
   setUp(() async {
-    final db = openTaskDbInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    backend = await openPreparedTaskBackend();
     tasks = TaskService(
       SqliteTaskRepository(backend),
       agentExecutionRepository: SqliteAgentExecutionRepository(backend),

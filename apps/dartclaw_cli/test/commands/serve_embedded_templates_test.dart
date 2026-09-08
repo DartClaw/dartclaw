@@ -8,7 +8,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../helpers/log_service_capture.dart';
@@ -48,7 +47,7 @@ void main() {
 
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (server) => server,
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),

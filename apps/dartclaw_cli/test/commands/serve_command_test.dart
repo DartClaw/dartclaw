@@ -12,7 +12,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show AssetResolver, LogS
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf.dart' show Handler, Request;
 import 'package:test/test.dart';
 
@@ -102,7 +101,7 @@ ServeCommand _bindingFailureCommand({
   void Function(String)? stderrLine,
 }) => ServeCommand(
   config: config,
-  searchDbFactory: (_) => sqlite3.openInMemory(),
+  searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
   harnessFactory: _harnessFactoryFor(worker),
   serverFactory: (server) => server,
   serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -276,8 +275,8 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(_FakeWorkerService()),
         serveFn: (handler, address, port) async {
           serveCalled = true;
@@ -316,8 +315,8 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(_FakeWorkerService()),
         serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
         stderrLine: (_) {},
@@ -361,8 +360,8 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async {
           pairingBody = await (await handler(Request('GET', Uri.parse('http://localhost/whatsapp/pairing'))))
@@ -407,8 +406,8 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
         stderrLine: (_) {},
@@ -529,7 +528,7 @@ channels:
       late Handler capturedHandler;
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (server) => server,
         serveFn: (handler, address, port) async {
@@ -685,7 +684,7 @@ channels:
 
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => throw FileSystemException('open failed'),
+        searchBackendFactory: (_) async => throw FileSystemException('open failed'),
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async => throw SocketException('stop after degraded boot'),
         stderrLine: (_) {},
@@ -722,8 +721,8 @@ channels:
 
       final command = ServeCommand(
         config: config,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => throw FileSystemException('open failed'),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => throw FileSystemException('open failed'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),
         assetResolver: _assetResolverFor(tempDir),

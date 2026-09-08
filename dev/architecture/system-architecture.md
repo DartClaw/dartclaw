@@ -409,7 +409,9 @@ The dependency-free `DatabaseBackend` port defines portable CRUD, prepared state
 semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
 an open awaited transaction unless they originate from that transaction body. Goal, task-domain, execution and
 workflow-run persistence share this seam. `SqliteExecutionRepositoryTransactor` delegates to the backend rather than
-owning another queue or issuing transaction SQL.
+owning another queue or issuing transaction SQL. Runtime and CLI open stores through `DatabaseBackendFactory`,
+with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
+WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
 
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 
@@ -597,7 +599,7 @@ union that `dartclaw rebuild-index` restores.
 | `FullTextIndex` | `packages/dartclaw_kernel/lib/src/full_text_index.dart` | Corpus-agnostic, user-scoped full-text document port |
 | `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
 | `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
-| `SearchDb` | `packages/dartclaw_core/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
+| `SqliteBackend` / `SqliteSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and derived-index rebuild gate |
 | `Fts5SearchBackend` | `packages/dartclaw_core/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
 | `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
 
@@ -985,7 +987,11 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 
 `DartclawRuntime.build(config, {headless, harnessRegistrars, …})` (in `dartclaw_runtime`, `lib/src/runtime/`) is the dependency injection root. It constructs all services, wires them together, and returns a `DartclawRuntime` carrying everything `ServeCommand.run` needs plus the `shutdown()` that tears them down. `headless: true` composes the same guarded execution, task and workflow stacks while constructing none of the inbound or scheduled surfaces — no `DartclawServer`, channel manager, heartbeat, schedule service or token service — so a caller that is not `serve` boots a runtime without copying application code. `harnessRegistrars` lets the composer contribute provider families `dartclaw_runtime` does not name.
 
-Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `DartclawRuntime.searchDb` and `selfImprovement` are absent. The construction order below describes the connected runtime.
+Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `selfImprovement` is absent and storage connections remain private to wiring. The construction order below describes the connected runtime.
+
+The search gate uses a short-lived connection that closes before reconciliation can swap index files. A refusal logs
+the store and rebuild remedy, preserves the original store and health evidence, skips reconciliation, and boots with
+search unavailable. Runtime disposal and shutdown close the owned task and search backends after their consumers.
 
 ### Construction Order (simplified)
 
@@ -993,7 +999,7 @@ Headless workflow composition also omits the personal-memory corpus, preflight, 
 1.  Config parsing (DartclawConfig from YAML)
 2.  Config notifier (`ConfigNotifier`) for reloadable sections
 3.  File services (SessionService, MessageService, KvService)
-4.  SQLite databases (SearchDb, TaskDb, TurnStateStore/state.db)
+4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/state.db)
 5.  Search backends (FTS5, optional QMD)
 6.  Memory services (MemoryFileService, FullTextIndex, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)

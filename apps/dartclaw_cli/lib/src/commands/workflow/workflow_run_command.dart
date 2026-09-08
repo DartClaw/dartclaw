@@ -7,8 +7,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
-import 'package:dartclaw_core/dartclaw_core.dart' show SearchDbFactory, TaskDbFactory, openSearchDb, openTaskDb;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show ProviderAuthPreflight, WorkflowExclusion, WorkflowPreflightException, SkillIntrospector;
 import 'package:path/path.dart' as p;
@@ -26,8 +25,8 @@ import 'standalone_run_harness.dart';
 /// Runs a workflow either against a live server or in standalone mode.
 class WorkflowRunCommand extends Command<void> {
   final DartclawConfig? _config;
-  final SearchDbFactory? _searchDbFactory;
-  final TaskDbFactory? _taskDbFactory;
+  final DatabaseBackendFactory? _searchBackendFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
   final HarnessFactory? _harnessFactory;
   final WorkflowConnection? connection;
   final Map<String, String>? _environment;
@@ -46,8 +45,8 @@ class WorkflowRunCommand extends Command<void> {
     this.standaloneOnly = false,
     this.reachabilityProbe = serverReachable,
     DartclawConfig? config,
-    SearchDbFactory? searchDbFactory,
-    TaskDbFactory? taskDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     HarnessFactory? harnessFactory,
     this.connection,
     Map<String, String>? environment,
@@ -59,8 +58,8 @@ class WorkflowRunCommand extends Command<void> {
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
   }) : _config = config,
-       _searchDbFactory = searchDbFactory,
-       _taskDbFactory = taskDbFactory,
+       _searchBackendFactory = searchBackendFactory,
+       _taskBackendFactory = taskBackendFactory,
        _harnessFactory = harnessFactory,
        _environment = environment,
        _stdoutLine = stdoutLine ?? stdout.writeln,
@@ -239,8 +238,8 @@ class WorkflowRunCommand extends Command<void> {
       environment: environment,
       skillProvisionerEnvironment: environment,
       harnessFactory: _harnessFactory ?? HarnessFactory(),
-      searchDbFactory: _searchDbFactory ?? openSearchDb,
-      taskDbFactory: _taskDbFactory ?? openTaskDb,
+      searchBackendFactory: _searchBackendFactory ?? SqliteBackend.open,
+      taskBackendFactory: _taskBackendFactory ?? SqliteBackend.open,
       stderrLine: _stderrLine,
       exitFn: _exitFn,
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,

@@ -293,6 +293,19 @@ Use the target package barrel. If the symbol is not public, add a narrow explici
 
 ---
 
+## `sqlite3_import_surface_test.dart`
+
+**What it enforces**: Production libraries import `package:sqlite3` only in `SqliteBackend` and the two
+instance-local stores. The path-keyed allowlist requires rationales and fails on stale entries.
+
+### How to resolve a failure
+
+Use `DatabaseBackend` for relational persistence. Keep driver operations inside `SqliteBackend`; remove the two
+instance-local store entries when those stores move to the filesystem. Remove an allowlist entry when its import
+or file disappears, rather than retaining an exception that no longer guards anything.
+
+---
+
 ## `fitness_suite_deps_test.dart`
 
 **What it enforces**: The suite's own pubspec carries an exact set of top-level keys - which admits

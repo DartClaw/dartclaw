@@ -43,7 +43,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 import '../server.dart'
     show ServerChannelDeps, ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
@@ -87,17 +86,13 @@ Map<String, String> credentialedProviderFamilies(Map<String, ProviderEntry> entr
       ),
 };
 
-/// The assembled DartClaw runtime: every service `serve` needs, plus the
-/// teardown that stops them.
+/// The assembled services and teardown for a connected or headless runtime.
 ///
-/// Built by [build], which is the one entry point that assembles a runtime —
-/// a caller outside the CLI app boots one without copying application code.
+/// Use [build] as the application-independent composition entry point.
 class DartclawRuntime {
   /// The HTTP/web/MCP surface, or `null` for a headless build.
   final DartclawServer? server;
-
-  /// The personal-memory search database, absent from standalone workflow runtimes.
-  final Database? searchDb;
+  final Future<void> Function() closeStorage;
   final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
 
@@ -171,7 +166,7 @@ class DartclawRuntime {
 
   const new({
     required this.server,
-    required this.searchDb,
+    required this.closeStorage,
     required this.agentExecutionRepository,
     required this.taskService,
     required this.harness,
@@ -204,18 +199,10 @@ class DartclawRuntime {
 
   /// Assembles the whole runtime from [config].
   ///
-  /// This is the connected build shape: every field below is non-null except
-  /// the ones documented as surface-conditional. Headless staging produces a
-  /// workflow-only runtime without personal-memory services; lifecycle-only
-  /// completion also omits execution capacity, provider continuity, and task
-  /// dispatch.
-  ///
-  /// With [headless] left `false` this composes exactly what `serve` runs.
-  /// With `headless: true` it constructs none of the inbound or scheduled
-  /// surfaces — no [DartclawServer], channel manager, heartbeat, schedule
-  /// service, token service, personal-memory service, or knowledge service.
-  /// The guarded execution, task and workflow stacks remain available.
-  /// [server] is non-null exactly when [headless] is false.
+  /// With [headless] false this composes what `serve` runs. A headless build
+  /// omits inbound, scheduled, and personal-memory services while retaining
+  /// the guarded execution, task, and workflow stacks. [server] is non-null
+  /// exactly when [headless] is false.
   ///
   /// [harnessRegistrars] contribute provider families this package does not
   /// name; the empty default composes exactly what a build with no registrar
@@ -225,8 +212,8 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    required DatabaseBackendFactory searchBackendFactory,
+    required DatabaseBackendFactory taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required int port,
@@ -254,8 +241,8 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchDbFactory: searchDbFactory,
-    taskDbFactory: taskDbFactory,
+    searchBackendFactory: searchBackendFactory,
+    taskBackendFactory: taskBackendFactory,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -294,8 +281,8 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    required DatabaseBackendFactory searchBackendFactory,
+    required DatabaseBackendFactory taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     String? runtimeCwd,
@@ -323,8 +310,8 @@ class DartclawRuntime {
       dataDir: dataDir,
       port: 0,
       harnessFactory: harnessFactory,
-      searchDbFactory: searchDbFactory,
-      taskDbFactory: taskDbFactory,
+      searchBackendFactory: searchBackendFactory,
+      taskBackendFactory: taskBackendFactory,
       stderrLine: stderrLine,
       exitFn: exitFn,
       resolvedConfigPath: '',
@@ -354,8 +341,8 @@ class DartclawRuntime {
     required String dataDir,
     required int port,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    required DatabaseBackendFactory searchBackendFactory,
+    required DatabaseBackendFactory taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required String resolvedConfigPath,
@@ -383,8 +370,8 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchDbFactory: searchDbFactory,
-    taskDbFactory: taskDbFactory,
+    searchBackendFactory: searchBackendFactory,
+    taskBackendFactory: taskBackendFactory,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -409,8 +396,7 @@ class DartclawRuntime {
     environment: environment,
   );
 
-  /// Stops every service this runtime assembled, in dependency order, ending
-  /// with the search database.
+  /// Stops every assembled service in dependency order, ending with storage.
   ///
   /// Disposal of the services after the server is best-effort — each failure is
   /// logged and the remaining steps still run. A failure in the execution
@@ -424,7 +410,7 @@ class DartclawRuntime {
       await server?.shutdown();
       await _disposeExtras();
     } finally {
-      searchDb?.close();
+      await closeStorage();
     }
   }
 
@@ -568,8 +554,8 @@ class _RuntimeAssembly {
   final ServerFactory? serverFactory;
   final bool headless;
   final List<HarnessRegistrar> harnessRegistrars;
-  final SearchDbFactory searchDbFactory;
-  final TaskDbFactory taskDbFactory;
+  final DatabaseBackendFactory searchBackendFactory;
+  final DatabaseBackendFactory taskBackendFactory;
   final WriteLine stderrLine;
   final ExitFn exitFn;
   final String resolvedConfigPath;
@@ -652,8 +638,8 @@ class _RuntimeAssembly {
     required this.dataDir,
     required this.port,
     required this.harnessFactory,
-    required this.searchDbFactory,
-    required this.taskDbFactory,
+    required this.searchBackendFactory,
+    required this.taskBackendFactory,
     required this.stderrLine,
     required this.exitFn,
     required this.resolvedConfigPath,
@@ -953,8 +939,8 @@ class _RuntimeAssembly {
     final storage = StorageWiring(
       config: config,
       eventBus: ctx.eventBus,
-      searchDbFactory: searchDbFactory,
-      taskDbFactory: taskDbFactory,
+      searchBackendFactory: searchBackendFactory,
+      taskBackendFactory: taskBackendFactory,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
     );

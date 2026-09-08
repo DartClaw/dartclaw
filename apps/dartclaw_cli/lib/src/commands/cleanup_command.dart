@@ -18,13 +18,17 @@ class CleanupCommand extends Command<void> {
   final DartclawConfig? _config;
   final CleanupWriteLine _writeLine;
   final CleanupExitFn _exitFn;
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory _taskBackendFactory;
 
-  new({DartclawConfig? config, CleanupWriteLine? writeLine, CleanupExitFn? exitFn, TaskDbFactory? taskDbFactory})
-    : _config = config,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit,
-      _taskDbFactory = taskDbFactory ?? openTaskDb {
+  new({
+    DartclawConfig? config,
+    CleanupWriteLine? writeLine,
+    CleanupExitFn? exitFn,
+    DatabaseBackendFactory? taskBackendFactory,
+  }) : _config = config,
+       _writeLine = writeLine ?? stdout.writeln,
+       _exitFn = exitFn ?? exit,
+       _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }
@@ -101,16 +105,15 @@ class CleanupCommand extends Command<void> {
 
     final List<WorkflowRun> completedRuns;
     try {
-      final db = _taskDbFactory(config.tasksDbPath);
+      final backend = await _taskBackendFactory(config.tasksDbPath);
       try {
-        final backend = SqliteBackend(db);
         await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
         final repository = SqliteWorkflowRunRepository(backend);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
       } finally {
         // Best-effort close: a close error must not mask the original outcome.
         try {
-          db.close();
+          await backend.close();
         } catch (_) {}
       }
     } catch (e) {

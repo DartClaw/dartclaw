@@ -1,5 +1,8 @@
 import 'package:sqlite3/sqlite3.dart';
 
+/// Opens a turn-state store at [path].
+TurnStateStore openTurnStateStore(String path) => TurnStateStore(sqlite3.open(path));
+
 /// SQLite-backed storage for active turn state keyed by session ID.
 class TurnStateStore {
   final Database _db;

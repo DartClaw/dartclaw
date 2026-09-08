@@ -44,14 +44,12 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskCancellationSub
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
-        SqliteBackend,
         SqliteExecutionRepositoryTransactor,
-        SqliteSchemaGate,
         SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository,
-        openTaskDbInMemory;
+        SqliteWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show BashProcessOwner, WorkflowService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, FakeTurnManager, flushAsync;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeProcess, FakeTurnManager, flushAsync, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -835,9 +833,7 @@ void main() {
       ['run-A'],
     ]);
 
-    final disposeDb = openTaskDbInMemory();
-    final disposeBackend = SqliteBackend(disposeDb);
-    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
     final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
@@ -885,9 +881,7 @@ void main() {
   });
 
   test('dispose() snapshots active run ids before task lookup awaits', () async {
-    final disposeDb = openTaskDbInMemory();
-    final disposeBackend = SqliteBackend(disposeDb);
-    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
     final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
@@ -967,9 +961,7 @@ void main() {
       'retry-running-version-conflict',
       'retry-queued-version-conflict',
     ]) {
-      final disposeDb = openTaskDbInMemory();
-      final disposeBackend = SqliteBackend(disposeDb);
-      await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
+      final disposeBackend = await openPreparedTaskBackend();
       final disposeEventBus = EventBus();
       final taskEvents = <TaskStatusChangedEvent>[];
       final taskEventSub = disposeEventBus.on<TaskStatusChangedEvent>().listen(taskEvents.add);
@@ -1080,9 +1072,7 @@ void main() {
   });
 
   test('dispose() bounds queued promotion and falls back to direct cancellation under persistent conflicts', () async {
-    final disposeDb = openTaskDbInMemory();
-    final disposeBackend = SqliteBackend(disposeDb);
-    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
     final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);

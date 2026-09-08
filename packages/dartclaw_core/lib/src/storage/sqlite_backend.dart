@@ -14,6 +14,12 @@ final class SqliteBackend implements DatabaseBackend {
   /// Wraps an existing open SQLite [sqlite.Database].
   new(this._database);
 
+  /// Opens a SQLite backend at [path].
+  static Future<SqliteBackend> open(String path) async => SqliteBackend(sqlite.sqlite3.open(path));
+
+  /// Opens an in-memory SQLite backend.
+  static SqliteBackend openInMemory() => SqliteBackend(sqlite.sqlite3.openInMemory());
+
   @override
   Future<int> execute(String sql, [List<Object?> parameters = const <Object?>[]]) {
     return _run(() => _executeDirect(sql, parameters));

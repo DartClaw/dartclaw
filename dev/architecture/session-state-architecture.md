@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.25.2 channel agent binding.
+**Current through**: 0.26 filesystem-backed instance-local state; channel agent binding.
 
 ---
 
@@ -61,7 +61,7 @@ The session subsystem spans the kernel, core, and server packages:
                           | dartclaw_core     |     | dartclaw_runtime   |
                           |                   |     |                   |
                           | TurnStateStore    |     | SessionLockManager|
-                          | (SQLite state.db) |     | SessionResetSvc   |
+                          | (turn_state.json) |     | SessionResetSvc   |
                           +-------------------+     | SessionMaint-     |
                                                     |   enanceService   |
                                                     | GroupSession-     |
@@ -909,34 +909,22 @@ the cursor. On crash:
 
 ### TurnStateStore
 
-SQLite-backed store in `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`
-that tracks active turns:
+`openTurnStateStore(path)` in `packages/dartclaw_core/lib/src/storage/turn_state_store.dart` opens `turn_state.json`, a JSON object keyed by session ID. Each value contains `turnId` and ISO-8601 `startedAt`.
 
-```sql
-CREATE TABLE IF NOT EXISTS turn_state (
-  session_id TEXT PRIMARY KEY,
-  turn_id TEXT NOT NULL,
-  started_at TEXT NOT NULL
-)
-```
+| Method | Behavior |
+|--------|----------|
+| `set()` | Synchronously read, update and atomically persist the active turn |
+| `delete()` | Synchronously remove and persist the session's turn record |
+| `getAll()` | Re-read disk and return active turns in ascending session-ID order |
+| `dispose()` | No-op; the filesystem store holds no open database connection |
 
-| Method      | Behavior                                           |
-|-------------|----------------------------------------------------|
-| `set()`     | Upsert active turn for a session                   |
-| `delete()`  | Remove turn record on completion                    |
-| `getAll()`  | List all active turns (used on startup recovery)    |
+Mutations use `secureWriteFileSync` and are durable before returning their completed future, preserving unawaited turn-boundary calls. Open creates an empty object if absent, clears temporary siblings, and quarantines malformed JSON with a warning. Post-open I/O failures propagate.
 
-**Recovery flow on restart**:
-1. `TurnStateStore.getAll()` returns orphaned turn records
-2. For each orphaned entry: clean the row (the process that was running is gone)
-3. Surface a recovery notice (log or UI) indicating which sessions had
-   interrupted turns
-
-Uses WAL journal mode for crash safety.
-
-The automated proof path is `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`. It exercises a real server restart boundary, not only the in-process `TurnManager` seam: start a turn, kill the process, restart with the same data directory, clean `TurnStateStore`, consume the one-time recovery notice, and render the `.msg-turn-failed` path.
+On restart, orphan recovery reads the active records, removes them, and emits a one-time recovery notice for each affected session. The automated proof path is `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`: it starts a turn, kills the process, restarts with the same directory, consumes the recovery notice and renders the `.msg-turn-failed` path.
 
 ### Atomic Writes
+
+Turn state and webhook delivery markers use the synchronous `secureWriteFileSync` variant of the temp-file/rename pattern. Other JSON services may await their writer.
 
 All JSON state files (`meta.json`, `.session_keys.json`, `thread-bindings.json`,
 KvService) use atomic writes:

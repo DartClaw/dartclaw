@@ -8,7 +8,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -18,7 +17,6 @@ void main() {
   late MessageService messages;
   late FakeAgentHarness worker;
   late TurnRunner runner;
-  late Database turnStateDb;
   late TurnStateStore turnState;
   late KvService kvService;
 
@@ -32,8 +30,7 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     worker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
-    turnStateDb = sqlite3.openInMemory();
-    turnState = TurnStateStore(turnStateDb);
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     runner = TurnRunner(
       turnLimits: const TurnLimitsConfig.defaults(),

@@ -18,6 +18,8 @@ usage.jsonl
 tasks.db*
 dartclaw.db*
 state.db*
+turn_state.json*
+webhook_deliveries/
 *.runtime.yaml
 
 audit.ndjson
@@ -39,7 +41,6 @@ scenarios/results/
 # Re-include its seeded corpus so scenario-critical pages render meaningful data.
 !profiles/visual/data/kv.json
 !profiles/visual/data/search.db
-!profiles/visual/data/state.db
 !profiles/visual/data/dartclaw.db
 !profiles/visual/data/usage.jsonl
 !profiles/visual/data/sessions/

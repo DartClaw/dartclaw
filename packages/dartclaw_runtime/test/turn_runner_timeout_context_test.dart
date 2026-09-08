@@ -8,7 +8,6 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:fake_async/fake_async.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'turn_runner_test_support.dart';
@@ -53,7 +52,7 @@ void main() {
     Directory(workspaceDir).createSync(recursive: true);
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    turnState = TurnStateStore(sqlite3.openInMemory());
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     time = _FakeTime();
     workers = [];

@@ -1,8 +1,14 @@
-import 'package:sqlite3/sqlite3.dart';
+import 'dart:convert';
+import 'dart:io';
 
-/// How long a seen delivery ID is retained before TTL purge.
-const _ttlDays = 7;
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
+
+import 'atomic_write.dart';
+
+const _ttl = Duration(days: 7);
 const _pendingTimeout = Duration(minutes: 15);
+const _purgeInterval = Duration(hours: 1);
 const _statePending = 'pending';
 const _stateProcessed = 'processed';
 
@@ -18,169 +24,125 @@ enum WebhookDeliveryReservation {
   duplicate,
 }
 
-/// Opens a file-backed [WebhookDeliveryStore] at [path].
-WebhookDeliveryStore openWebhookDeliveryStore(String path) => WebhookDeliveryStore(sqlite3.open(path));
+/// Opens a file-backed [WebhookDeliveryStore] in [path].
+WebhookDeliveryStore openWebhookDeliveryStore(String path, {DateTime Function()? now}) {
+  final directory = Directory(path)..createSync(recursive: true);
+  _sweepTempFiles(directory);
+  return WebhookDeliveryStore(directory, now: now);
+}
 
-/// Opens an in-memory [WebhookDeliveryStore] (for tests).
-WebhookDeliveryStore openWebhookDeliveryStoreInMemory() => WebhookDeliveryStore(sqlite3.openInMemory());
-
-/// SQLite-backed idempotency store for GitHub webhook delivery IDs.
-///
-/// Delivery IDs move from pending to processed after the workflow start accepts
-/// the request. Existing two-column rows migrate as processed so previously
-/// handled deliveries remain deduped.
+/// File-backed idempotency store for GitHub webhook delivery IDs.
 class WebhookDeliveryStore {
-  final Database _db;
+  new(this.directory, {DateTime Function()? now}) : _now = now ?? DateTime.now;
 
-  /// Creates a store backed by [db] and initializes the required schema.
-  new(this._db) {
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS webhook_delivery_ids (
-        delivery_id TEXT PRIMARY KEY,
-        inserted_at TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'processed',
-        updated_at TEXT NOT NULL
-      )
-    ''');
-    final columns = _columnNames();
-    if (!columns.contains('state')) {
-      _db.execute("ALTER TABLE webhook_delivery_ids ADD COLUMN state TEXT NOT NULL DEFAULT 'processed'");
-    }
-    if (!columns.contains('updated_at')) {
-      _db.execute('ALTER TABLE webhook_delivery_ids ADD COLUMN updated_at TEXT');
-      _db.execute('UPDATE webhook_delivery_ids SET updated_at = inserted_at WHERE updated_at IS NULL');
-    }
-  }
-
-  /// Returns `true` and records [deliveryId] if it has not been seen before.
-  /// Returns `false` without writing if [deliveryId] is already present.
-  ///
-  /// Stale entries older than [_ttlDays] days are purged on each call.
-  bool registerIfNew(String deliveryId) {
-    if (reservePending(deliveryId) == WebhookDeliveryReservation.duplicate) return false;
-    commitProcessed(deliveryId);
-    return true;
-  }
+  final Directory directory;
+  final DateTime Function() _now;
+  DateTime? _lastPurgeAt;
 
   /// Reserves [deliveryId] for processing.
-  ///
-  /// Returns whether [deliveryId] was newly reserved, reclaimed, or duplicated.
   WebhookDeliveryReservation reservePending(String deliveryId, {Duration stalePendingAfter = _pendingTimeout}) {
-    final now = DateTime.now().toUtc();
-    _purgeStaleBefore(now.subtract(const Duration(days: _ttlDays)));
-    _db.execute('BEGIN IMMEDIATE');
+    final now = _now().toUtc();
+    _purgeIfDue(now);
+    final marker = _marker(deliveryId);
     try {
-      final row = _deliveryRow(deliveryId);
-      if (row == null) {
-        _insert(deliveryId, state: _statePending, now: now);
-        _db.execute('COMMIT');
-        return WebhookDeliveryReservation.reservedNew;
-      }
-
-      final state = row['state'] as String;
-      if (state == _stateProcessed) {
-        _db.execute('COMMIT');
-        return WebhookDeliveryReservation.duplicate;
-      }
-
-      final updatedAt = DateTime.tryParse(row['updated_at'] as String? ?? row['inserted_at'] as String);
-      final isStale = updatedAt == null || !updatedAt.isAfter(now.subtract(stalePendingAfter));
-      if (!isStale) {
-        _db.execute('COMMIT');
-        return WebhookDeliveryReservation.duplicate;
-      }
-
-      _updateState(deliveryId, state: _statePending, now: now);
-      _db.execute('COMMIT');
-      return WebhookDeliveryReservation.reservedReclaimed;
-    } catch (_) {
-      _db.execute('ROLLBACK');
-      rethrow;
+      marker.createSync(exclusive: true);
+      _writeClaimed(marker, _body(_statePending, now));
+      return WebhookDeliveryReservation.reservedNew;
+    } on FileSystemException {
+      if (!marker.existsSync()) rethrow;
     }
+
+    final body = _readBody(marker);
+    if (body?['state'] == _stateProcessed) return WebhookDeliveryReservation.duplicate;
+    final updatedAt = DateTime.tryParse(body?['updated_at'] as String? ?? '');
+    if (updatedAt != null && updatedAt.isAfter(now.subtract(stalePendingAfter))) {
+      return WebhookDeliveryReservation.duplicate;
+    }
+    secureWriteFileSync(marker, jsonEncode(_body(_statePending, now)), restrictPermissions: false);
+    return WebhookDeliveryReservation.reservedReclaimed;
   }
 
   /// Marks [deliveryId] as processed after workflow start succeeds.
   void commitProcessed(String deliveryId) {
-    final now = DateTime.now().toUtc();
-    final stmt = _db.prepare('''
-      INSERT INTO webhook_delivery_ids (delivery_id, inserted_at, state, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(delivery_id) DO UPDATE SET
-        inserted_at = excluded.inserted_at,
-        state = excluded.state,
-        updated_at = excluded.updated_at
-    ''');
-    try {
-      stmt.execute([deliveryId, now.toIso8601String(), _stateProcessed, now.toIso8601String()]);
-    } finally {
-      stmt.close();
+    final now = _now().toUtc();
+    final marker = _marker(deliveryId);
+    final contents = _body(_stateProcessed, now);
+    if (!marker.existsSync()) {
+      try {
+        marker.createSync(exclusive: true);
+        _writeClaimed(marker, contents);
+        return;
+      } on FileSystemException {
+        if (!marker.existsSync()) rethrow;
+      }
     }
+    secureWriteFileSync(marker, jsonEncode(contents), restrictPermissions: false);
   }
 
   /// Releases a pending [deliveryId] after workflow start fails.
   void releasePending(String deliveryId) {
-    final stmt = _db.prepare('DELETE FROM webhook_delivery_ids WHERE delivery_id = ? AND state = ?');
-    try {
-      stmt.execute([deliveryId, _statePending]);
-    } finally {
-      stmt.close();
+    final marker = _marker(deliveryId);
+    if (!marker.existsSync()) return;
+    final body = _readBody(marker);
+    if (body?['state'] == _stateProcessed) return;
+    marker.deleteSync();
+  }
+
+  File _marker(String deliveryId) => File(p.join(directory.path, sha256.convert(utf8.encode(deliveryId)).toString()));
+
+  void _purgeIfDue(DateTime now) {
+    final lastPurgeAt = _lastPurgeAt;
+    if (lastPurgeAt != null && now.difference(lastPurgeAt) < _purgeInterval) return;
+    _lastPurgeAt = now;
+    final cutoff = now.subtract(_ttl);
+    for (final entity in directory.listSync()) {
+      if (entity is! File || entity.path.endsWith('.tmp')) continue;
+      final body = _readBody(entity);
+      if (body?['state'] != _stateProcessed) continue;
+      final insertedAt = DateTime.tryParse(body?['inserted_at'] as String? ?? '');
+      if (insertedAt == null || !insertedAt.isBefore(cutoff)) continue;
+      try {
+        entity.deleteSync();
+      } on FileSystemException {
+        // A marker held by another process remains eligible for a later purge.
+      }
     }
   }
+}
 
-  Set<String> _columnNames() {
-    final rows = _db.select('PRAGMA table_info(webhook_delivery_ids)');
-    return rows.map((row) => row['name'] as String).toSet();
+Map<String, String> _body(String state, DateTime now) {
+  final timestamp = now.toIso8601String();
+  return {'state': state, 'inserted_at': timestamp, 'updated_at': timestamp};
+}
+
+Map<String, dynamic>? _readBody(File marker) {
+  try {
+    final decoded = jsonDecode(marker.readAsStringSync());
+    if (decoded is! Map<String, dynamic>) return null;
+    return decoded;
+  } on Object {
+    return null;
   }
+}
 
-  Row? _deliveryRow(String deliveryId) {
-    final stmt = _db.prepare('''
-      SELECT delivery_id, inserted_at, state, updated_at
-      FROM webhook_delivery_ids
-      WHERE delivery_id = ?
-    ''');
-    try {
-      final result = stmt.select([deliveryId]);
-      return result.isEmpty ? null : result.first;
-    } finally {
-      stmt.close();
-    }
+void _writeClaimed(File marker, Map<String, String> body) {
+  final handle = marker.openSync(mode: FileMode.writeOnly);
+  try {
+    handle.writeStringSync(jsonEncode(body));
+    handle.flushSync();
+  } finally {
+    handle.closeSync();
   }
+}
 
-  void _insert(String deliveryId, {required String state, required DateTime now}) {
-    final stmt = _db.prepare('''
-      INSERT INTO webhook_delivery_ids (delivery_id, inserted_at, state, updated_at)
-      VALUES (?, ?, ?, ?)
-    ''');
-    try {
-      stmt.execute([deliveryId, now.toIso8601String(), state, now.toIso8601String()]);
-    } finally {
-      stmt.close();
-    }
-  }
-
-  void _updateState(String deliveryId, {required String state, required DateTime now}) {
-    final stmt = _db.prepare('''
-      UPDATE webhook_delivery_ids
-      SET state = ?, updated_at = ?
-      WHERE delivery_id = ?
-    ''');
-    try {
-      stmt.execute([state, now.toIso8601String(), deliveryId]);
-    } finally {
-      stmt.close();
-    }
-  }
-
-  void _purgeStaleBefore(DateTime cutoff) {
-    final stmt = _db.prepare('DELETE FROM webhook_delivery_ids WHERE state = ? AND inserted_at < ?');
-    try {
-      stmt.execute([_stateProcessed, cutoff.toIso8601String()]);
-    } finally {
-      stmt.close();
+void _sweepTempFiles(Directory directory) {
+  for (final entity in directory.listSync()) {
+    if (entity is File && entity.path.endsWith('.tmp')) {
+      try {
+        entity.deleteSync();
+      } on FileSystemException {
+        // A concurrently held temp file is harmless and will be retried next open.
+      }
     }
   }
 }

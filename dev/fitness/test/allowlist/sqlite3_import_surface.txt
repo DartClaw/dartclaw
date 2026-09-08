@@ -1,3 +1,1 @@
 packages/dartclaw_core/lib/src/storage/sqlite_backend.dart  # Owns the SQLite driver implementation of DatabaseBackend.
-packages/dartclaw_core/lib/src/storage/turn_state_store.dart  # Instance-local turn recovery store until filesystem persistence replaces SQLite.
-packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart  # Instance-local webhook deduplication ledger until filesystem persistence replaces SQLite.

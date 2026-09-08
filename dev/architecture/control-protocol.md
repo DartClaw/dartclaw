@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.25.2 Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.26 filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -610,7 +610,7 @@ ExecutionCoordinator.acquire(request)
   ▼
 TurnRunner.reserveAdmittedTurn(sessionId) on the leased runner
   │ ② Generate turnId (UUID v4)
-  │ ③ Persist turn state to TurnStateStore (`state.db`) for crash recovery
+  │ ③ Persist turn state synchronously to TurnStateStore (`turn_state.json`) for crash recovery
   ▼
 TurnRunner.executeTurn(sessionId, turnId, messages)
   │ launches _runTurn() as unawaited async
@@ -678,7 +678,7 @@ Back in _runTurn()
 Finally block
   │ ㉑ Remove active turn from _activeTurns
   │ ㉒ Release session lock
-  │ ㉓ Delete turn-state row from TurnStateStore
+  │ ㉓ Delete turn-state record from TurnStateStore (`turn_state.json`)
   │ ㉔ Cache TurnOutcome (TTL: 30s)
   │ ㉕ Complete _outcomePending completer
   │ ㉖ Release the execution lease; cache, dispose, or quarantine the worker
@@ -1339,19 +1339,11 @@ Attempt 6: throws StateError('Harness unavailable: max retries exceeded')
 
 An in-place restart and a coordinator replacement both require confirmed exit of the managed root process. If exit cannot be confirmed, the harness is not reusable and the coordinator quarantines its provider capacity slot instead of starting a second root process against the same logical capacity.
 
-### Turn-level recovery (`state.db`)
+### Turn-level recovery (`turn_state.json`)
 
-Turn state is persisted to `TurnStateStore` in `state.db` at reservation time. The schema is intentionally tiny:
+`TurnStateStore` records each session's `turnId` and `startedAt` in `turn_state.json` at reservation time. Its read-update-write mutation runs synchronously through `secureWriteFileSync`, so the existing unawaited call has persisted the reservation before turn execution continues. Completion and cancellation synchronously remove the record.
 
-```sql
-CREATE TABLE turn_state (
-  session_id TEXT PRIMARY KEY,
-  turn_id TEXT NOT NULL,
-  started_at TEXT NOT NULL
-);
-```
-
-On server restart, `detectAndCleanOrphanedTurns()` reads all rows from `turn_state`, logs each orphaned turn, deletes the rows, and records the affected session IDs. `consumeRecoveryNotice(sessionId)` returns `true` once for each recovered session – the web UI uses this to show a "Session recovered from crash" banner.
+On restart, `detectAndCleanOrphanedTurns()` reads the records, logs each orphaned turn, removes it, and records the affected session IDs. `consumeRecoveryNotice(sessionId)` returns `true` once per recovered session; the web UI renders the recovery banner. Opening the store clears temporary siblings and quarantines malformed content before starting empty. Recovery remains local and independent of database availability.
 
 ### Message-level recovery (NDJSON cursors)
 

@@ -12,8 +12,8 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunn
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'turn_runner_test_support.dart';
@@ -95,7 +95,6 @@ void main() {
   late MessageService messages;
   late FakeAgentHarness worker;
   late TurnRunner runner;
-  late Database turnStateDb;
   late TurnStateStore turnState;
   late KvService kvService;
   late _TurnMonitorFakeTime turnMonitorTime;
@@ -110,8 +109,7 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     worker = FakeAgentHarness();
-    turnStateDb = sqlite3.openInMemory();
-    turnState = TurnStateStore(turnStateDb);
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     turnMonitorTime = _TurnMonitorFakeTime();
     runner = _buildRunner(
@@ -1138,6 +1136,47 @@ void main() {
     expect(runner.isActive(session.id), isFalse);
     expect(await turnState.getAll(), isNot(contains(session.id)));
     await outcomeExpectation;
+  });
+
+  test('turn-state filesystem failures warn without blocking reserve or release bookkeeping', () async {
+    final warnings = <LogRecord>[];
+    final subscription = Logger.root.onRecord
+        .where((record) => record.loggerName == 'TurnRunner' && record.level >= Level.WARNING)
+        .listen(warnings.add);
+    addTearDown(subscription.cancel);
+
+    final statePath = p.join(tempDir.path, 'turn_state.json');
+    File(statePath).deleteSync();
+    Directory(statePath).createSync();
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.reserveTurn(session.id);
+    final outcomeExpectation = expectLater(
+      runner.waitForOutcome(session.id, turnId),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('released without execution'))),
+    );
+    runner.releaseTurn(session.id, turnId);
+    await pumpEventQueue();
+
+    expect(runner.isActive(session.id), isFalse);
+    await outcomeExpectation;
+    expect(
+      warnings.map((record) => record.message),
+      containsAllInOrder([
+        'Failed to persist turn state for crash recovery',
+        'Failed to clean up turn state during release',
+      ]),
+    );
+
+    Directory(statePath).deleteSync();
+    File(statePath).writeAsStringSync('{}');
+    final nextTurnId = await runner.reserveTurn(session.id);
+    final nextOutcomeExpectation = expectLater(
+      runner.waitForOutcome(session.id, nextTurnId),
+      throwsA(isA<StateError>()),
+    );
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcomeExpectation;
   });
 
   test('turnStatus reports waiting and stuck for queued same-session lock wait', () async {

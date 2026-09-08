@@ -659,7 +659,7 @@ channels:
         expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
       );
 
-      expect(File(p.join(tempDir.path, 'state.db')).existsSync(), isTrue);
+      expect(File(p.join(tempDir.path, 'turn_state.json')).existsSync(), isTrue);
 
       final kvContents = jsonDecode(kvFile.readAsStringSync()) as Map<String, dynamic>;
       expect(kvContents.keys.where((key) => key.startsWith('turn:')), isEmpty);

@@ -178,7 +178,7 @@ void main() {
 
   test('a state-open failure closes both persistent backends before exit', () async {
     final config = await _seedConfig(tempDir);
-    Directory(p.join(config.server.dataDir, 'state.db')).createSync();
+    Directory(p.join(config.server.dataDir, 'turn_state.json')).createSync();
     final searchBackends = <DatabaseBackend>[];
     final taskBackends = <DatabaseBackend>[];
     final wiring = StorageWiring(

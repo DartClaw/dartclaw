@@ -64,16 +64,13 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). Decide at its PRD re-scoping whether the per-project/server MCP curation surface rides that milestone.
 
-## TD-115 – Residual SQLite on PostgreSQL deployments (`state.db` + webhook ledger)
+## TD-115 – CLOSED 2026-09-08 – Filesystem-backed instance-local state
 
-**Status**: Scheduled 2026-08-07 (owner) – folded into the Pluggable Database Backend milestone (0.26 since the 2026-08-18 renumbering); split 2026-09-02 into its own story S15 "Filesystem-backed instance-local state" (`dartclaw-private/docs/specs/0.26/s15-filesystem-backed-instance-local-state.md`, PRD FR13); close when S15 ships
-**Severity**: Low (conceptual cleanliness; zero operational impact today)
-**Found**: 2026-08-07, owner design discussion during 0.25 rider planning
+**Status**: Implemented for 0.26 in `docs/specs/0.26/s15-filesystem-backed-instance-local-state.md` (PRD FR13). Required Windows and crash-process verification remains tracked by the final combined milestone gate.
+**Found**: 2026-08-07, owner design discussion during the milestone rider planning
 **Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
 
-**Context**: A `database.backend: postgres` deployment still runs embedded SQLite for two instance-local stores – `state.db` (active-turn crash-recovery state, transient) and the webhook delivery ledger (per-instance dedup markers, TTL-purged). The owner flags this three-datastore shape (Postgres + SQLite + files) as an architectural smell. Both stores are touched only by the `serve` process (turn runner/cancellation; webhook routes) – no maintenance-command consumers – so the cross-process-locking argument for SQLite does not actually apply. Both are small, transient, and single-writer, making filesystem alternatives plausible: atomic write-temp-rename JSON for turn state (the `meta.json` pattern), file-per-event-id with `O_CREAT|O_EXCL` plus mtime-based purge for the ledger. That would make PostgreSQL deployments touch SQLite zero times at runtime (the library still ships in the one binary per ADR-045 OQ3 – one binary, no build flavors, a settled decision this item does not reopen; a separate-install SQLite would break the zero-ops default story).
-
-**Resolution (owner, 2026-08-07)**: decided – conceptual cleanliness wins while pre-release. Folded into the Pluggable Database Backend milestone (0.26) and split into story S15, “Filesystem-backed instance-local state” (`dartclaw-private/docs/specs/0.26/s15-filesystem-backed-instance-local-state.md`, PRD FR13). Close when S15 ships; the planned scope retains fault-injection parity, Windows rename coverage, the tightened sqlite3-import fitness check, and the ADR-045 #3/Q4 mechanism amendment.
+**Resolution**: Turn recovery uses synchronous atomic writes to `turn_state.json`; webhook dedup uses exclusive per-ID marker files in `webhook_deliveries/`, preserving pending/processed transitions and the commit-time retention anchor. Both stores remain local to one instance and no longer open SQLite. ADR-045 #3/Q4 records the mechanism amendment; the import gate permits only the database backend implementation. The one-binary packaging decision is unchanged.
 
 ---
 

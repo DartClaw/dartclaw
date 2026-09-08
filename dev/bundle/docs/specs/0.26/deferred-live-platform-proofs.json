@@ -91,7 +91,8 @@
   {
     "owners": [
       "S10/TI04",
-      "S15/TI03"
+      "S15/TI03",
+      "S15/S02"
     ],
     "command": "dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart",
     "status": "pending-final-combined-gate"

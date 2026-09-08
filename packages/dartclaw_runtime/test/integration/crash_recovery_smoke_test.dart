@@ -6,22 +6,22 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'container_integration_support.dart' show repoRoot;
 
 void main() {
   late Directory tempDir;
-  late Database db;
   late TurnStateStore turnState;
   late KvService kv;
+  late File staleStateDb;
+  final staleStateBytes = <int>[0x53, 0x51, 0x4c, 0x69, 0x74, 0x65];
   Process? activeProcess;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_crash_recovery_smoke_');
-    db = sqlite3.open('${tempDir.path}/state.db');
-    turnState = TurnStateStore(db);
+    staleStateDb = File(p.join(tempDir.path, 'state${'.db'}'))..writeAsBytesSync(staleStateBytes);
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kv = KvService(filePath: '${tempDir.path}/kv.json');
   });
 
@@ -90,6 +90,10 @@ void main() {
 
       expect(recovered, [sessionId]);
       expect(await turnState.getAll(), isEmpty);
+      expect(File(p.join(tempDir.path, 'turn_state.json')).existsSync(), isTrue);
+      expect(staleStateDb.readAsBytesSync(), staleStateBytes);
+      expect(File('${staleStateDb.path}-wal').existsSync(), isFalse);
+      expect(File('${staleStateDb.path}-shm').existsSync(), isFalse);
 
       final messages = MessageService(baseDir: tempDir.path);
       await messages.insertMessage(

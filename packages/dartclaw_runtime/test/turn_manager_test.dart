@@ -10,7 +10,6 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart' hide Session;
 import 'package:test/test.dart';
 
 import 'execution_coordinator_test_support.dart';
@@ -1111,14 +1110,12 @@ void main() {
   // -------------------------------------------------------------------------
   group('crash recovery', () {
     late KvService kvService;
-    late Database turnStateDb;
     late TurnStateStore turnState;
     late TurnManager Function({TurnStateStore? turnStateStore, KvService? kv}) buildTurns;
 
     setUp(() {
       kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-      turnStateDb = sqlite3.openInMemory();
-      turnState = TurnStateStore(turnStateDb);
+      turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
       buildTurns = ({TurnStateStore? turnStateStore, KvService? kv}) {
         return turnManagerForRunners([
           TurnRunner(

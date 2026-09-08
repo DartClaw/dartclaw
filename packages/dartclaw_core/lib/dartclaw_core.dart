@@ -41,7 +41,7 @@ export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
 export 'src/storage/sqlite_workflow_step_execution_repository.dart' show SqliteWorkflowStepExecutionRepository;
 export 'src/storage/turn_state_store.dart' show TurnStateStore, openTurnStateStore;
 export 'src/storage/webhook_delivery_store.dart'
-    show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore, openWebhookDeliveryStoreInMemory;
+    show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore;
 export 'src/storage/task_event_service.dart' show TaskEventService;
 export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
 export 'src/storage/session_service.dart' show SessionService;

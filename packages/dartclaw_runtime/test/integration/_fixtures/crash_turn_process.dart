@@ -9,7 +9,6 @@ import 'package:path/path.dart' as p;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:dartclaw_runtime/src/server.dart' show ServerCoreDeps, ServerTurnDeps;
 import 'package:dartclaw_runtime/src/server_composition.dart';
@@ -26,8 +25,7 @@ Future<void> main(List<String> args) async {
   // server-side warnings (e.g. the exception behind a generic 500) must land there.
   Logger.root.level = Level.WARNING;
   Logger.root.onRecord.listen((record) => stderr.writeln('[${record.loggerName}] ${record.message}'));
-  final db = sqlite3.open('$dataDir/state.db');
-  final turnState = TurnStateStore(db);
+  final turnState = openTurnStateStore(p.join(dataDir, 'turn_state.json'));
   final kv = KvService(filePath: '$dataDir/kv.json');
   final messages = MessageService(baseDir: dataDir);
   final sessions = SessionService(baseDir: dataDir);

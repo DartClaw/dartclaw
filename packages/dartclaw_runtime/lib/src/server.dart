@@ -466,7 +466,7 @@ class DartclawServer {
     WebhookDeliveryStore? deliveryStore;
     final dataDir = _core.dataDir;
     if (dataDir != null) {
-      deliveryStore = openWebhookDeliveryStore(p.join(dataDir, 'webhook_deliveries.db'));
+      deliveryStore = openWebhookDeliveryStore(p.join(dataDir, 'webhook_deliveries'));
     }
     return GitHubWebhookHandler(
       config: githubConfig,

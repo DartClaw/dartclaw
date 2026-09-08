@@ -53,11 +53,11 @@ _Authored 2026-09-02 against released 0.25 (public HEAD `daf5125a`) as the FR13 
   - **Then** `getAll()` returns the surviving record with the newer turn id and start time, keys in ascending session-id order, read from the file on every call (a record written by a second store instance on the same path is visible without reopening), and a `set` whose future is not awaited is already in the file when the call returns
   - **Proof**: `packages/dartclaw_core/test/storage/turn_state_store_test.dart#set and getAll round-trip` – green – parity/regression (the suite's three SQLite-schema and dispose cases are replaced by TI01's filesystem cases)
 
-- **S02 [OC01] [TI03] Orphan recovery across a real process crash is unchanged, and no SQLite file appears**
+- **S02 [OC01] [TI03] [runtime] Orphan recovery across a real process crash is unchanged, and no SQLite file appears**
   - **Given** the crash fixture pair (`crash_turn_process.dart`, `crash_recovery_smoke_test.dart`) with their store construction changed to the filesystem path and nothing else, and a stale `state.db` copied into the data dir beforehand
   - **When** the child serves a turn, is killed, and is restarted against the same data dir
   - **Then** the restart reports exactly the one orphaned session, the test process's own store instance observes the child's write and then the empty store, the one-time recovery banner renders once, the stale `state.db` is byte-identical afterwards, and the data dir holds `turn_state.json` and no `state.db-wal`/`-shm` or new `state.db`
-  - **Proof**: `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart#reserve/start crash leaves one orphan that restart cleanup clears with one recovery notice` – green – parity/regression (run with `--run-skipped -t integration`; 8 s at HEAD)
+  - **Final verification**: `dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart --name "reserve/start crash leaves one orphan that restart cleanup clears with one recovery notice"` – pending the final combined gate under the owner scheduling override; recorded as S15/S02 in `deferred-live-platform-proofs.json`.
 
 - **S03 [OC03] [TI01] An interrupted or corrupted turn-state file never breaks recovery**
   - **Given** a directory holding a leftover `turn_state.json.<suffix>.tmp` from a killed write, and separately a `turn_state.json` whose bytes are not a JSON object (raw literal fixture)
@@ -68,7 +68,7 @@ _Authored 2026-09-02 against released 0.25 (public HEAD `daf5125a`) as the FR13 
   - **Given** a store opened on `<dir>/webhook_deliveries/` with an injected clock, a stale `webhook_deliveries.db` beside the directory, and a marker in `pending` state older than `stalePendingAfter`
   - **When** the same id is reserved again, committed, the clock advances past the purge interval, and another id is reserved
   - **Then** the reservation reports `reservedReclaimed` (not `duplicate`), the commit resets both `inserted_at` and `updated_at`, the purge after commit leaves the marker in place, a further reservation of the id reports `duplicate`; a fresh `pending` marker reports `duplicate`; a released pending marker leaves no file so a retry is `reservedNew`; a `processed` marker older than the 7-day TTL is deleted by the next purge; the leftover `.db` file is untouched and never opened
-  - **Proof**: `packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart#committing reclaimed pending rows refreshes the dedupe TTL` – green – parity/regression (its SQL `UPDATE` aging becomes clock injection; the handler-level parity case `github_webhook_test.dart#accepted run stays deduped after processed-state commit failure and pending reclaim`, green at HEAD, is bound by TI03's Verify)
+  - **Proof**: `packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart#stale pending is reclaimed and commit refreshes the TTL anchor` – green – parity/regression (its SQL `UPDATE` aging becomes clock injection; the handler-level parity case `github_webhook_test.dart#accepted run stays deduped after processed-state commit failure and pending reclaim`, green at HEAD, is bound by TI03's Verify)
 
 - **S05 [OC03] [TI02] A torn or bodyless marker is reclaimable, never delivered**
   - **Given** a marker file for an id whose body is empty, and another whose body is truncated JSON (both raw literal fixtures, as a crash between claim and body write leaves them), and a leftover `<name>.<suffix>.tmp` in the directory
@@ -271,3 +271,11 @@ Evidence: owner ratified 2026-08-07 (preflight interview, `docs/specs/0.26/prefl
 ### Run: 2026-09-08 17:06 UTC – observations
 
 Owner scheduling override: the updated Verify commands prove local implementation and compilation only. Live integration and Windows/platform acceptance remain PENDING at the final combined A+B gate. Original postponed commands are retained by the repair-proof observations and deferred-live-platform-proofs.json. Do not report those postponed behaviors or milestone release acceptance as passed from a local receipt. Named targeted scenario proofs, the driver feasibility spike and missing-DSN refusal checks remain runnable. Final full-suite evidence may cover duplicate/subset invocations only with explicit owner-to-result mapping; platform and contract-report variants remain distinct.
+
+### Run: 2026-09-08 19:09 UTC – observations
+
+spec-stale: S04 scenario Proof targets `stale pending is reclaimed and commit refreshes the TTL anchor` in webhook_delivery_store_test.dart. The filesystem rewrite replaced the old SQL-aging test named `committing reclaimed pending rows refreshes the dedupe TTL`; the new test retains stale pending reclaim, commit and dedup after purge, and directly verifies both refreshed timestamps. This is a selector correction, not an acceptance change. Installed ops repair-proof handles task Verify targets only; the scenario selector was changed exactly and is included in the focused review closure.
+
+### Run: 2026-09-08 19:53 UTC – observations
+
+2026-09-08 owner scheduling override reconciliation: S02 repeats TI03's real-process crash proof, already deferred to the final combined A+B gate. Its stale ordinary Proof selector ran without the required integration flags and found no tests. Mark S02 runtime and explicitly map it to the existing final crash-suite command (owners S10/TI04, S15/TI03, S15/S02). Acceptance assertions and the executable scenario remain unchanged; no runtime pass is claimed by local completion.

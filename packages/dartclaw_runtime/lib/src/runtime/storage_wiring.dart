@@ -144,14 +144,14 @@ class StorageWiring {
       _exitFn(1);
     }
 
-    final stateDbPath = p.join(config.server.dataDir, 'state.db');
+    final turnStatePath = p.join(config.server.dataDir, 'turn_state.json');
     try {
       Directory(config.server.dataDir).createSync(recursive: true);
-      _turnStateStore = openTurnStateStore(stateDbPath);
+      _turnStateStore = openTurnStateStore(turnStatePath);
     } catch (e, st) {
       await _taskService.dispose();
       await closeBackends();
-      _log.severe('Cannot open turn state database at $stateDbPath', e, st);
+      _log.severe('Cannot open turn state store at $turnStatePath', e, st);
       _exitFn(1);
     }
 

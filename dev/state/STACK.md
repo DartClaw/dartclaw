@@ -41,7 +41,7 @@
 
 | Package | Purpose |
 |---------|---------|
-| `sqlite3` | Raw SQLite3 bindings – search index (FTS5), tasks, state. No ORM |
+| `sqlite3` | Raw SQLite3 bindings – search index (FTS5), tasks. No ORM |
 
 ### Google Chat
 
@@ -98,7 +98,8 @@ DartClaw built-in workflows reference AndThen-owned skills by canonical names su
 | Service | Purpose | Notes |
 |---------|---------|-------|
 | Docker | Agent container isolation | `debian:bookworm-slim`, `network:none`, `cap-drop=ALL`, non-root user |
-| SQLite3 | Embedded database | `search.db` (FTS5, derived), `dartclaw.db` (authoritative), `state.db` (transient) |
+| SQLite3 | Embedded database | `search.db` (FTS5, derived), `dartclaw.db` (authoritative) |
+| Instance-local files | Turn recovery and webhook dedup | `turn_state.json` (synchronous atomic JSON), `webhook_deliveries/` (exclusive delivery markers) |
 
 ## Analyzer Configuration
 

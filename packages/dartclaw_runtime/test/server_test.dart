@@ -494,8 +494,8 @@ void main() {
       );
 
       expect(response.statusCode, equals(403));
-      expect(File(p.join(coreDataDir.path, 'webhook_deliveries.db')).existsSync(), isTrue);
-      expect(File(p.join(configDataDir.path, 'webhook_deliveries.db')).existsSync(), isFalse);
+      expect(Directory(p.join(coreDataDir.path, 'webhook_deliveries')).existsSync(), isTrue);
+      expect(Directory(p.join(configDataDir.path, 'webhook_deliveries')).existsSync(), isFalse);
     });
   });
 

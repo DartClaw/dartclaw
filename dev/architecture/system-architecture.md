@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 filesystem-backed instance-local state; database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -131,8 +131,8 @@ and context-specific remediation text.
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
 │  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
-│  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db│ │
-│  │          │  │ Docker (per authority)        │  │         state.db   │ │
+│  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db   │ │
+│  │          │  │ Docker (per authority)        │  │ turn_state.json    │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
 │                                                                          │
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
@@ -403,7 +403,8 @@ Two storage mechanisms, each for distinct access patterns:
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **SQLite** (`search.db`, `dartclaw.db`, `state.db`) | FTS5 search index, tasks/goals/artifacts, transient turn recovery state | Relational queries, full-text search | `search.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. `state.db`: transient operational state |
+| **SQLite** (`search.db`, `dartclaw.db`) | FTS5 search index, tasks/goals/artifacts | Relational queries, full-text search | `search.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
+| **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
 
 The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
 semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
@@ -999,7 +1000,7 @@ search unavailable. Runtime disposal and shutdown close the owned task and searc
 1.  Config parsing (DartclawConfig from YAML)
 2.  Config notifier (`ConfigNotifier`) for reloadable sections
 3.  File services (SessionService, MessageService, KvService)
-4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/state.db)
+4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/turn_state.json)
 5.  Search backends (FTS5, optional QMD)
 6.  Memory services (MemoryFileService, FullTextIndex, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)

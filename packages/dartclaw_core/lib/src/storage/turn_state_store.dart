@@ -1,73 +1,101 @@
-import 'package:sqlite3/sqlite3.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:logging/logging.dart';
+
+import 'atomic_write.dart';
+
+final _log = Logger('TurnStateStore');
 
 /// Opens a turn-state store at [path].
-TurnStateStore openTurnStateStore(String path) => TurnStateStore(sqlite3.open(path));
+TurnStateStore openTurnStateStore(String path) {
+  final file = File(path);
+  file.parent.createSync(recursive: true);
+  _sweepTempFiles(file);
+  if (!file.existsSync()) {
+    secureWriteFileSync(file, '{}', restrictPermissions: false);
+  } else {
+    try {
+      _readStates(file);
+    } on Object {
+      final quarantine = File('$path.corrupt-${_utcFileTimestamp()}');
+      file.renameSync(quarantine.path);
+      _log.warning('Quarantined invalid turn state file at ${quarantine.path}');
+      secureWriteFileSync(file, '{}', restrictPermissions: false);
+    }
+  }
+  return TurnStateStore._(file);
+}
 
-/// SQLite-backed storage for active turn state keyed by session ID.
+/// File-backed storage for active turn state keyed by session ID.
 class TurnStateStore {
-  final Database _db;
+  new _(this._file);
 
-  /// Creates a store backed by [db] and initializes the required schema.
-  new(this._db) {
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('PRAGMA journal_mode=WAL');
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS turn_state (
-        session_id TEXT PRIMARY KEY,
-        turn_id TEXT NOT NULL,
-        started_at TEXT NOT NULL
-      )
-    ''');
-  }
+  final File _file;
 
   /// Stores or updates the active turn state for [sessionId].
   Future<void> set(String sessionId, String turnId, DateTime startedAt) async {
-    final stmt = _db.prepare('''
-      INSERT INTO turn_state (session_id, turn_id, started_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET
-        turn_id = excluded.turn_id,
-        started_at = excluded.started_at
-    ''');
-    try {
-      stmt.execute([sessionId, turnId, startedAt.toIso8601String()]);
-    } finally {
-      stmt.close();
-    }
+    final states = _readStates(_file);
+    states[sessionId] = {'turnId': turnId, 'startedAt': startedAt.toIso8601String()};
+    _writeStates(_file, states);
   }
 
   /// Deletes the active turn state for [sessionId] if it exists.
   Future<void> delete(String sessionId) async {
-    final stmt = _db.prepare('DELETE FROM turn_state WHERE session_id = ?');
-    try {
-      stmt.execute([sessionId]);
-    } finally {
-      stmt.close();
-    }
+    final states = _readStates(_file);
+    states.remove(sessionId);
+    _writeStates(_file, states);
   }
 
-  /// Returns all active turn states keyed by session ID.
+  /// Returns all active turn states keyed by session ID in ascending key order.
   Future<Map<String, ({String turnId, DateTime startedAt})>> getAll() async {
-    final stmt = _db.prepare('SELECT session_id, turn_id, started_at FROM turn_state ORDER BY session_id ASC');
-    try {
-      final states = <String, ({String turnId, DateTime startedAt})>{};
-      for (final row in stmt.select()) {
-        states[row['session_id'] as String] = (
-          turnId: row['turn_id'] as String,
-          startedAt: DateTime.parse(row['started_at'] as String),
-        );
-      }
-      return states;
-    } finally {
-      stmt.close();
+    final encoded = _readStates(_file);
+    final result = <String, ({String turnId, DateTime startedAt})>{};
+    for (final sessionId in encoded.keys.toList()..sort()) {
+      final state = encoded[sessionId]!;
+      result[sessionId] = (turnId: state['turnId'] as String, startedAt: DateTime.parse(state['startedAt'] as String));
     }
+    return result;
   }
 
-  /// Closes the underlying sqlite database owned by this store.
-  Future<void> dispose() async {
-    _db.close();
+  /// Releases this store. File-backed stores hold no open resources.
+  Future<void> dispose() => Future.value();
+}
+
+Map<String, Map<String, Object?>> _readStates(File file) {
+  final decoded = jsonDecode(file.readAsStringSync());
+  if (decoded is! Map<String, dynamic>) throw const FormatException('Turn state must be a JSON object');
+  final states = <String, Map<String, Object?>>{};
+  for (final entry in decoded.entries) {
+    final value = entry.value;
+    if (value is! Map<String, dynamic> || value['turnId'] is! String || value['startedAt'] is! String) {
+      throw const FormatException('Invalid turn state entry');
+    }
+    DateTime.parse(value['startedAt'] as String);
+    states[entry.key] = {'turnId': value['turnId'], 'startedAt': value['startedAt']};
+  }
+  return states;
+}
+
+void _writeStates(File file, Map<String, Map<String, Object?>> states) {
+  final ordered = <String, Map<String, Object?>>{};
+  for (final key in states.keys.toList()..sort()) {
+    ordered[key] = states[key]!;
+  }
+  secureWriteFileSync(file, jsonEncode(ordered), restrictPermissions: false);
+}
+
+void _sweepTempFiles(File target) {
+  final prefix = '${target.path}.';
+  for (final entity in target.parent.listSync()) {
+    if (entity is File && entity.path.startsWith(prefix) && entity.path.endsWith('.tmp')) {
+      try {
+        entity.deleteSync();
+      } on FileSystemException {
+        // A concurrently held temp file is harmless and will be retried next open.
+      }
+    }
   }
 }
+
+String _utcFileTimestamp() => DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');

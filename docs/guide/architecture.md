@@ -165,7 +165,8 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ├── kv.json                           # Global key-value store
 ├── audit-YYYY-MM-DD.ndjson           # Guard audit log partitions with retention cleanup
 ├── usage.jsonl                       # Token tracking (append + rotate)
-├── state.db                          # Active turn recovery state
+├── turn_state.json                   # Active turn recovery state
+├── webhook_deliveries/               # Webhook reservation and dedup markers
 ├── projects.json                     # Project registry (multi-project support)
 ├── sessions/
 │   ├── .session_keys.json            # Deterministic key → UUID index
@@ -201,7 +202,6 @@ DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fai
 |----------|----------|----------------|
 | `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
 | `dartclaw.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
-| `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
 
 Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
 
@@ -209,7 +209,7 @@ Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: 
 
 Messages in NDJSON files use their line number as a cursor. After a crash or restart, the client requests "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery because line numbers are monotonic and gap-free.
 
-Separately, active turn reservations are persisted in `state.db` via `TurnStateStore`. On restart, the server scans that table for orphaned turns, cleans the rows, and surfaces a one-time recovery notice for the affected sessions.
+Separately, active turn reservations are persisted synchronously in `turn_state.json`. On restart, the server removes orphaned records and surfaces a one-time recovery notice for the affected sessions. Webhook dedup uses per-delivery marker files in `webhook_deliveries/`; processed markers expire after seven days from commit. Leftover `state.db` and `webhook_deliveries.db` files are ignored and may be deleted.
 
 The restart path is covered by the integration-tagged crash-recovery smoke test in `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`. It starts a server, reserves an active turn, kills the process, restarts against the same data directory, verifies orphan cleanup, and checks that the recovered session still renders the user-visible recovery banner and turn-failed message styling.
 

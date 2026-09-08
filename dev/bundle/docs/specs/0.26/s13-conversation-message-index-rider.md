@@ -230,7 +230,7 @@ file   | ../dartclaw-public/packages/dartclaw_core/test/storage/postgres_live_su
 
 - **TI08** Documentation describes two `FullTextIndex` instances and the conversation rebuild
   - `dev/architecture/data-model.md`: a `### Derived Conversation Index Row` block beside the memory one (table, source `messages.ndjson`, predicate, write-through and rebuild, cleanup on delete/clear/archive), the `### Message` storage line noting the derived index, bump "Current through"; `docs/guide/search.md`: a `## Conversation Search` section after Memory Search (what is indexed, that `rebuild-index` rebuilds both, SQLite exact-term vs PostgreSQL stemming); `docs/guide/workspace.md#directory-layout`: the `search.db` comment names both indexes; `dev/state/UBIQUITOUS_LANGUAGE.md`: `Full-Text Index` row names the two instances, `Search Index` row names both corpora. No story IDs.
-  - **Verify**: `cmd: rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md` – each doc names the conversation corpus and no story reference leaked
+  - **Verify**: `cmd: bash -c 'rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md'` – each doc names the conversation corpus and no story reference leaked
   - **SATISFIES**: SC06
 
 - **TI09** Governance gates hold and the default run needs no PostgreSQL
@@ -288,3 +288,9 @@ file   | ../dartclaw-public/packages/dartclaw_core/test/storage/postgres_live_su
 ### Run: 2026-09-08 17:06 UTC – observations
 
 Owner scheduling override: the updated Verify commands prove local implementation and compilation only. Live integration and Windows/platform acceptance remain PENDING at the final combined A+B gate. Original postponed commands are retained by the repair-proof observations and deferred-live-platform-proofs.json. Do not report those postponed behaviors or milestone release acceptance as passed from a local receipt. Named targeted scenario proofs, the driver feasibility spike and missing-DSN refusal checks remain runnable. Final full-suite evidence may cover duplicate/subset invocations only with explicit owner-to-result mapping; platform and contract-report variants remain distinct.
+
+### Run: 2026-09-08 22:35 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI08 Verify target repaired | Stale targets: – | `cmd: rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md` → `cmd: bash -c 'rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md'`

@@ -19,17 +19,21 @@ abstract final class PostgresSchemaGate {
 
   /// Creates an empty schema or validates an exact current schema.
   static Future<void> prepare(DatabaseBackend backend, {required String databaseIdentity}) async {
-    final relations = await backend.query('''
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = current_schema()
-    ''');
-    final found = relations.map((row) => row['table_name']).whereType<String>().toSet();
+    final found = await _relations(backend);
     if (found.isEmpty) {
       await _bootstrap(backend);
       return;
     }
 
+    await _validate(backend, found, databaseIdentity);
+  }
+
+  /// Validates an exact current schema without bootstrapping an empty namespace.
+  static Future<void> validateCurrent(DatabaseBackend backend, {required String databaseIdentity}) async {
+    await _validate(backend, await _relations(backend), databaseIdentity);
+  }
+
+  static Future<void> _validate(DatabaseBackend backend, Set<String> found, String databaseIdentity) async {
     final differences = await _differences(backend, found);
     final epoch = await _epoch(backend, found);
     if (epoch.isCurrent && differences.isEmpty) return;
@@ -39,6 +43,15 @@ abstract final class PostgresSchemaGate {
       differences: [...differences, ...epoch.differences],
       action: 'Back up $databaseIdentity, then reset/recreate it for this release or restore a compatible database.',
     );
+  }
+
+  static Future<Set<String>> _relations(DatabaseBackend backend) async {
+    final relations = await backend.query('''
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+    ''');
+    return relations.map((row) => row['table_name']).whereType<String>().toSet();
   }
 
   static Future<void> _bootstrap(DatabaseBackend backend) {

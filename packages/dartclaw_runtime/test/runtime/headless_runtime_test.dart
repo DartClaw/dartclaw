@@ -57,6 +57,14 @@ void main() {
     }
   });
 
+  test('headless execution preserves serving orphan records', () async {
+    final statePath = p.join(tempDir.path, 'turn_state.json');
+    await openTurnStateStore(statePath).set('serving-session', 'serving-turn', DateTime.utc(2026, 9, 1));
+    final before = File(statePath).readAsBytesSync();
+    await fixture.runtime(fixture.config());
+    expect(File(statePath).readAsBytesSync(), before);
+  });
+
   test('loads built-in skills from source tree without materializing project copies', () async {
     final cfg = fixture.config(
       projects: const ProjectConfig(

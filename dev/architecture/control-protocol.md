@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.26 filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -1343,7 +1343,7 @@ An in-place restart and a coordinator replacement both require confirmed exit of
 
 `TurnStateStore` records each session's `turnId` and `startedAt` in `turn_state.json` at reservation time. Its read-update-write mutation runs synchronously through `secureWriteFileSync`, so the existing unawaited call has persisted the reservation before turn execution continues. Completion and cancellation synchronously remove the record.
 
-On restart, `detectAndCleanOrphanedTurns()` reads the records, logs each orphaned turn, removes it, and records the affected session IDs. `consumeRecoveryNotice(sessionId)` returns `true` once per recovered session; the web UI renders the recovery banner. Opening the store clears temporary siblings and quarantines malformed content before starting empty. Recovery remains local and independent of database availability.
+On serving startup, storage wiring opens and scans the local records before the active-store gate and before any active-backend connection. It warns once per orphan without deleting or seeding recovery state. A failed scan warns and continues to the gate; a failed active-store start preserves the records. After `wire()` succeeds, `detectAndCleanOrphanedTurns()` removes the records, stores the affected session IDs, and emits one summary. `consumeRecoveryNotice(sessionId)` returns `true` once per recovered session; the web UI renders the recovery banner. Opening the store clears temporary siblings and quarantines malformed content before starting empty. Headless workflows do not scan or acknowledge serving orphans.
 
 ### Message-level recovery (NDJSON cursors)
 

@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 language-aware PostgreSQL memory and knowledge-graph search, PostgreSQL backend, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL serving interlock, backend-switch notices, language-aware search, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -25,6 +25,17 @@ transactor delegates transaction ownership to the backend shared by its particip
 `database.backend: postgres` selects `PostgresBackend` in `dartclaw_core` on PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
 
 `PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when the namespace contains no tables. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN index; the configured deployment language is bound at query and projection time.
+
+A serving PostgreSQL runtime acquires one database-wide session advisory lock on a dedicated connection before
+schema preparation. Headless workflows and one-shot maintenance commands do not acquire it. Losing ownership
+quarantines every backend and prepared-statement operation before dispatch; access resumes only after lock
+reacquisition, PostgreSQL version validation, and a current-schema check. A competing owner or terminal recovery
+failure stops the process. Shutdown disables recovery, closes the pool, then releases the dedicated connection.
+
+Backend switches transfer no data. After the active gate succeeds, a read-only probe reports an abandoned inactive
+store with backup/import/decommission guidance, an in-use PostgreSQL store, or a safe could-not-verify reason.
+Only tasks, goals, workflow runs, and knowledge facts count as authoritative content. Probe failures never abort
+startup, and SQLite files are neither adopted nor changed by PostgreSQL selection.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -885,6 +896,7 @@ Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: 
 |----------|---------|
 | Derived memory index stale or missing | `dartclaw rebuild-index` rebuilds SQLite `search.db` or the PostgreSQL memory projection from the validated canonical corpus. An incompatible PostgreSQL schema is refused before rebuild and must be repaired first. |
 | `dartclaw.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
+| PostgreSQL interlock lost | Storage calls refuse during recovery. Reacquire the lock and revalidate the server version and current schema before access resumes; terminal failure requires correcting the reported condition and restarting. |
 | `turn_state.json` corrupted/deleted | Invalid content is quarantined at open and recovery starts empty; a missing file starts empty. In-flight sessions may miss a recovery notice. Leftover `state.db` is ignored. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
 | `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |

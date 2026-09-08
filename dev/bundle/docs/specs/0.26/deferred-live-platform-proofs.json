@@ -92,7 +92,8 @@
     "owners": [
       "S10/TI04",
       "S15/TI03",
-      "S15/S02"
+      "S15/S02",
+      "S10/S07"
     ],
     "command": "dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart",
     "status": "pending-final-combined-gate"
@@ -130,6 +131,13 @@
       "S15/TI05"
     ],
     "command": "bash dev/tools/parallels_windows.sh powershell dev/tools/run_windows_tests.ps1 packages/dartclaw_core/test/storage/turn_state_store_test.dart packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "S10/TI03"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/postgres_sanctioned_clients_live_test.dart",
     "status": "pending-final-combined-gate"
   }
 ]

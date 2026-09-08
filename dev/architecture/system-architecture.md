@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 PostgreSQL backend and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL serving interlock, backend-switch notices, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -398,12 +398,13 @@ Design rationale: [ADR-001](../adrs/001-sdk-integration-and-security-architectur
 
 #### Storage
 
-Two storage mechanisms, each for distinct access patterns:
+Storage mechanisms follow the selected backend and each access pattern:
 
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
 | **SQLite** (`search.db`, `dartclaw.db`) | FTS5 search index, tasks/goals/artifacts | Relational queries, full-text search | `search.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
+| **PostgreSQL** (configured database) | Authoritative relational data and derived memory full-text vectors | Pooled transactions and language-aware full-text search | Relational rows: **authoritative**. Memory search: derived. |
 | **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
 
 The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
@@ -414,7 +415,13 @@ owning another queue or issuing transaction SQL. Runtime and CLI open stores thr
 with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
 WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
 
-`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The PostgreSQL search path currently reports degraded availability and creates no local search database or health-evidence files.
+`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The PostgreSQL search path uses persistent full-text vectors; canonical memory and index-health evidence stay in local files.
+
+Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens the active backend.
+PostgreSQL acquires its dedicated session interlock before the schema gate. Language validation and derived-index
+reconciliation follow the gate. An inactive-store probe reports leftover data without transferring it or blocking
+startup. Only after storage wiring returns do the serving runners acknowledge orphan records. Headless and
+one-shot clients omit the serving interlock and orphan scan. Shutdown closes the pool before releasing ownership.
 
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 

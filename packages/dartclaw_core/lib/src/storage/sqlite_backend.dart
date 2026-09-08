@@ -2,9 +2,14 @@ import 'dart:async';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
+import 'package:meta/meta.dart';
 
 /// SQLite implementation of the portable [DatabaseBackend] contract.
 final class SqliteBackend implements DatabaseBackend {
+  /// Observes raw opens without changing their behavior.
+  @visibleForTesting
+  static void Function(String? path)? openObserver;
+
   final sqlite.Database _database;
   final Object _transactionZoneKey = Object();
   Future<void> _tail = Future<void>.value();
@@ -15,14 +20,22 @@ final class SqliteBackend implements DatabaseBackend {
   new(this._database);
 
   /// Opens a SQLite backend at [path].
-  static Future<SqliteBackend> open(String path) async => SqliteBackend(sqlite.sqlite3.open(path));
+  static Future<SqliteBackend> open(String path) async {
+    openObserver?.call(path);
+    return SqliteBackend(sqlite.sqlite3.open(path));
+  }
 
   /// Opens a SQLite backend at [path] without write access.
-  static Future<SqliteBackend> openReadOnly(String path) async =>
-      SqliteBackend(sqlite.sqlite3.open(path, mode: sqlite.OpenMode.readOnly));
+  static Future<SqliteBackend> openReadOnly(String path) async {
+    openObserver?.call(path);
+    return SqliteBackend(sqlite.sqlite3.open(path, mode: sqlite.OpenMode.readOnly));
+  }
 
   /// Opens an in-memory SQLite backend.
-  static SqliteBackend openInMemory() => SqliteBackend(sqlite.sqlite3.openInMemory());
+  static SqliteBackend openInMemory() {
+    openObserver?.call(null);
+    return SqliteBackend(sqlite.sqlite3.openInMemory());
+  }
 
   @override
   Future<int> execute(String sql, [List<Object?> parameters = const <Object?>[]]) {

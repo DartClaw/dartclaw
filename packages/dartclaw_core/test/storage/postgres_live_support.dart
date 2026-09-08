@@ -35,3 +35,14 @@ Future<T> withPostgresBackend<T>(
     await admin.close();
   }
 }
+
+Future<Connection> openPostgresTestConnection(PostgresConnectionPosture posture, {required String namespace}) async {
+  final connection = await Connection.open(posture.endpoint, settings: ConnectionSettings(sslMode: posture.sslMode));
+  try {
+    await connection.execute('SET search_path TO "$namespace"');
+    return connection;
+  } catch (_) {
+    await connection.close();
+    rethrow;
+  }
+}

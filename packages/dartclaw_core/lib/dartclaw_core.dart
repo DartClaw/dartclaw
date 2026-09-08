@@ -35,7 +35,9 @@ export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExec
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
 export 'src/storage/sqlite_backend.dart' show SqliteBackend;
 export 'src/storage/database_backend_selection.dart' show databaseBackendFactoryFor, prepareAuthoritativeStore;
-export 'src/storage/postgres_backend.dart' show PostgresBackend;
+export 'src/storage/postgres_backend.dart' show PostgresBackend, PostgresInterlock, PostgresStorageMessages;
+export 'src/storage/abandoned_store_probe.dart'
+    show InactivePostgresStoreState, InactivePostgresStoreProbe, probeInactivePostgresStore;
 export 'src/storage/postgres_connection_posture.dart' show PostgresConnectionPosture, evaluatePostgresConnectionPosture;
 export 'src/storage/postgres_schema_gate.dart' show PostgresSchemaGate;
 export 'src/storage/postgres_dispatch_policy.dart'

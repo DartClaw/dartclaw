@@ -428,9 +428,18 @@
         "S14",
         "S15"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s10-startup-interlock-and-backend-switch-semantics.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
       "owner": null,
       "scope": "Encode FR8 against the 0.25 startup order (memory preflight fatal before any store opens, corpus manifest, non-fatal index reconciliation and search open, fatal tasks open, then turn-state recovery): a session-scoped advisory lock on a dedicated non-recycled PostgreSQL connection with loud dual-attach refusal, process-lifetime ownership, graceful release, no lease subsystem. On lock loss quarantine every seam operation with StorageConnectionException until reacquisition, PostgreSQL-version validation, and schema validation succeed, else the existing fail-stop path. No-data-transfer backend switching with a best-effort abandoned-store notice under S08 posture, using S14's either-name SQLite presence helper. Run local orphan-turn scanning (S15's filesystem turn-state store) before the backend/schema gate; defer destructive acknowledgement until the gate succeeds. Fail closed when PostgreSQL is unreachable at boot; bounded mid-session retry with surfaced errors. Integration-test dual attach, quarantine/reopen, switch notice, unreachable boot, and the FR13 zero-runtime-SQLite serve-run probe relocated from the rider stories (owner 2026-08-07).",
       "sourceRefs": [
@@ -456,7 +465,7 @@
         "S07",
         "S09"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s11-dual-backend-contract-suite-and-ci-integration.md",
       "completedTaskIds": [],
       "owner": null,

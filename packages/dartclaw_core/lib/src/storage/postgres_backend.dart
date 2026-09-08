@@ -3,16 +3,36 @@ import 'dart:typed_data';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:postgres/postgres.dart' as pg;
 
 import 'postgres_connection_posture.dart';
 import 'postgres_dispatch_policy.dart';
+import 'postgres_schema_gate.dart';
 import 'sql_placeholder_rewriter.dart';
+
+part 'postgres_interlock.dart';
 
 /// PostgreSQL implementation of the portable database contract.
 final class PostgresBackend implements DatabaseBackend {
-  new _(this._pool, this.databaseIdentity, this._credentialRef, this._auditLogger)
-    : _policy = PostgresDispatchPolicy(databaseIdentity);
+  new _(this._pool, this.connectionPosture, this._auditLogger)
+    : databaseIdentity = connectionPosture.databaseIdentity,
+      _credentialRef = connectionPosture.credentialRef,
+      _recoverySchemaValidationForTesting = null,
+      _policy = PostgresDispatchPolicy(connectionPosture.databaseIdentity);
+
+  /// Creates a backend around a recording pool for pre-dispatch tests.
+  @visibleForTesting
+  new forTesting({
+    required pg.Pool<void> pool,
+    required this.connectionPosture,
+    Future<void> Function(PostgresBackend backend)? recoverySchemaValidationForTesting,
+  }) : _pool = pool,
+       databaseIdentity = connectionPosture.databaseIdentity,
+       _credentialRef = connectionPosture.credentialRef,
+       _auditLogger = null,
+       _recoverySchemaValidationForTesting = recoverySchemaValidationForTesting,
+       _policy = PostgresDispatchPolicy(connectionPosture.databaseIdentity);
 
   static final _log = Logger('PostgresBackend');
   final pg.Pool<void> _pool;
@@ -20,11 +40,16 @@ final class PostgresBackend implements DatabaseBackend {
   final PostgresDispatchPolicy _policy;
   final String _credentialRef;
   final GuardAuditLogger? _auditLogger;
+  final Future<void> Function(PostgresBackend backend)? _recoverySchemaValidationForTesting;
+
+  /// Checked settings retained for the dedicated serving interlock session.
+  final PostgresConnectionPosture connectionPosture;
 
   /// Safe host, port, and database label.
   final String databaseIdentity;
 
   bool _closed = false;
+  StorageConnectionException? _quarantineError;
 
   /// Opens one bounded pool and verifies PostgreSQL 14 or newer.
   static Future<PostgresBackend> open({
@@ -84,7 +109,7 @@ final class PostgresBackend implements DatabaseBackend {
       }
       await _writeAudit(auditLogger, posture, verdict: 'allow', decision: 'open');
       opened = true;
-      return PostgresBackend._(pool, posture.databaseIdentity, posture.credentialRef, auditLogger);
+      return PostgresBackend._(pool, posture, auditLogger);
     } on pg.ServerException catch (error) {
       if (!_isAuthenticationFailure(error.code)) rethrow;
       await _writeAudit(auditLogger, posture, verdict: 'deny', decision: 'auth_failure');
@@ -182,6 +207,23 @@ final class PostgresBackend implements DatabaseBackend {
     );
   }
 
+  void _quarantine(StorageConnectionException error) {
+    _quarantineError = error;
+  }
+
+  void _releaseQuarantine() {
+    _quarantineError = null;
+  }
+
+  Future<void> _validateRecoverySchema() {
+    final testingValidation = _recoverySchemaValidationForTesting;
+    if (testingValidation != null) return testingValidation(this);
+    return runZoned(
+      () => PostgresSchemaGate.validateCurrent(this, databaseIdentity: databaseIdentity),
+      zoneValues: {_interlockRecoveryZoneKey: true},
+    );
+  }
+
   Future<pg.Result> _run(String operation, String sql, List<Object?> parameters) {
     _ensureOpen();
     final transaction = _matchingTransaction;
@@ -207,8 +249,14 @@ final class PostgresBackend implements DatabaseBackend {
 
   void _ensureOpen() {
     if (_closed) throw StateError('Database backend is closed');
+    final quarantineError = _quarantineError;
+    if (quarantineError != null && Zone.current[_interlockRecoveryZoneKey] != true) {
+      throw quarantineError;
+    }
   }
 }
+
+final Object _interlockRecoveryZoneKey = Object();
 
 bool _isAuthenticationFailure(String? sqlState) => sqlState?.startsWith('28') ?? false;
 
@@ -307,6 +355,7 @@ final class _PostgresTransaction implements DatabaseBackend {
 
   void _ensureActive() {
     if (!_active) throw StateError('Transaction is no longer active');
+    _owner._ensureOpen();
   }
 
   Future<void> _deactivate() async {

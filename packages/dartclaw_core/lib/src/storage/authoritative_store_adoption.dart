@@ -5,7 +5,8 @@ import 'package:path/path.dart' as p;
 import 'sqlite_backend.dart';
 
 const _legacyStoreName = 'tasks.db';
-const _contentTables = <String>['tasks', 'goals', 'workflow_runs', 'kg_facts'];
+// Derived indexes do not make an inactive store authoritative.
+const authoritativeStoreContentTables = <String>['tasks', 'goals', 'workflow_runs', 'kg_facts'];
 
 /// Refuses a legacy-store adoption that cannot complete safely.
 final class AuthoritativeStoreAdoptionException implements Exception {
@@ -159,7 +160,7 @@ Future<AuthoritativeStoreProbe> probeAuthoritativeStore(String dartclawDbPath) a
     backend = await SqliteBackend.openReadOnly(store.path);
     final tableRows = await backend.query("SELECT name FROM sqlite_master WHERE type = 'table'");
     final tables = tableRows.map((row) => row['name']).whereType<String>().toSet();
-    for (final table in _contentTables) {
+    for (final table in authoritativeStoreContentTables) {
       if (!tables.contains(table)) continue;
       if ((await backend.query('SELECT 1 FROM $table LIMIT 1')).isNotEmpty) {
         content = AuthoritativeStoreContentState.nonEmpty;

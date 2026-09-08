@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Added
 
+- **PostgreSQL serving interlock** – one serving process owns each database. Lost ownership blocks storage until
+  reacquisition and revalidation; startup preserves orphan-turn evidence until the active-store gate succeeds.
+  Backend switches transfer no data and report inactive stores through a read-only, best-effort probe.
+
 - **Published workflow JSON Schema** – `schemas/workflow.schema.json` describes the strict workflow authoring surface,
   including aliases, shorthand forms and per-step-type fields. It is generated from the parser and validator's shared
   rule source, and the fitness harness rejects drift.
@@ -33,9 +37,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - **Outbound MCP plain-HTTP loopback exemption narrowed** – the shared literal rule now accepts only `localhost`,
   `127.0.0.1`, and `::1`; other `127.0.0.0/8` addresses such as `127.0.0.2` require HTTPS when TLS is required.
 
-- **Core LOC ceiling rebaseline for PostgreSQL storage** – `dartclaw_core/lib` measures 28,475 Dart lines after
-  integrating the bounded PostgreSQL pool backend, dispatch-boundary classifier and exact schema compatibility gate. The
-  ceiling is re-cut to 29,759 under the existing 1,500-line headroom band.
+- **Core LOC ceiling rebaseline for PostgreSQL storage** – `dartclaw_core/lib` measures 29,862 Dart lines after
+  integrating the pool backend, schema gate, full-text search, serving interlock and inactive-store probe.
+  The ceiling is 29,862 with no added headroom.
 - Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
 
 ---

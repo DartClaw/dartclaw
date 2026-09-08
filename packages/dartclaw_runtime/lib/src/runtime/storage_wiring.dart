@@ -22,6 +22,9 @@ class StorageWiring {
     DatabaseBackendFactory? taskBackendFactory,
     required ExitFn exitFn,
     this.personalMemoryEnabled = true,
+    this.serving = false,
+    this.postgresInterlockFactory,
+    this.inactivePostgresProbe,
     QmdManager Function()? qmdManagerFactory,
     CanonicalIndexReconciler? indexReconciler,
     CredentialRegistry? credentialRegistry,
@@ -41,6 +44,10 @@ class StorageWiring {
   final DatabaseBackendFactory? _taskBackendFactory;
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
+  final bool serving;
+  final PostgresInterlock Function()? postgresInterlockFactory;
+  final Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe;
+  PostgresInterlock? _interlock;
   final QmdManager Function()? _qmdManagerFactory;
   final CanonicalIndexReconciler? _injectedIndexReconciler;
   final CredentialRegistry _credentialRegistry;
@@ -112,6 +119,30 @@ class StorageWiring {
       await _wirePersonalMemoryBeforeTaskStorage();
     }
 
+    final turnStatePath = p.join(config.server.dataDir, 'turn_state.json');
+    try {
+      Directory(config.server.dataDir).createSync(recursive: true);
+      _turnStateStore = openTurnStateStore(turnStatePath);
+    } catch (e, st) {
+      await closeBackends();
+      _log.severe('Cannot open turn state store at $turnStatePath', e, st);
+      _exitFn(1);
+    }
+
+    if (serving) {
+      try {
+        final orphans = await _turnStateStore.getAll();
+        for (final entry in orphans.entries) {
+          _log.warning(
+            'Orphaned turn detected: session=${entry.key}, turn=${entry.value.turnId}, '
+            'started=${entry.value.startedAt.toIso8601String()}',
+          );
+        }
+      } on Object catch (error) {
+        _log.warning('Could not scan orphaned turns before the active-store gate', error);
+      }
+    }
+
     try {
       if (config.database.backend == DatabaseBackendKind.sqlite) {
         await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
@@ -124,6 +155,16 @@ class StorageWiring {
             auditLogger: _auditLogger,
           );
       final backend = _taskBackend = await factory(config.dartclawDbPath);
+      if (serving && _usesPostgres && backend is PostgresBackend) {
+        final interlock = _interlock = postgresInterlockFactory?.call() ?? PostgresInterlock();
+        await interlock.acquire(
+          backend: backend,
+          onFatalLoss: (error) {
+            _log.severe(error.message);
+            _exitFn(1);
+          },
+        );
+      }
       await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
       if (personalMemoryEnabled && _usesPostgres) {
         await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
@@ -136,9 +177,7 @@ class StorageWiring {
       if (personalMemoryEnabled) {
         _kg = TemporalKnowledgeGraphService(
           backend,
-          factSearch: _usesPostgres
-              ? PostgresFactSearch(config.database.ftsLanguage)
-              : const SubstringFactSearch(),
+          factSearch: _usesPostgres ? PostgresFactSearch(config.database.ftsLanguage) : const SubstringFactSearch(),
         );
       }
       final goalRepository = SqliteGoalRepository(backend);
@@ -155,6 +194,7 @@ class StorageWiring {
       );
       _workflowRunRepository = SqliteWorkflowRunRepository(backend);
     } catch (e, st) {
+      await _interlock?.release();
       try {
         await _searchBackend?.close();
       } catch (closeErr) {
@@ -165,20 +205,12 @@ class StorageWiring {
       } catch (closeErr) {
         _log.fine('Error closing task DB during taskDb failure cleanup', closeErr);
       }
+      await _turnStateStore.dispose();
       _log.severe('Cannot open task database at ${config.dartclawDbPath}', e, st);
       _exitFn(1);
     }
 
-    final turnStatePath = p.join(config.server.dataDir, 'turn_state.json');
-    try {
-      Directory(config.server.dataDir).createSync(recursive: true);
-      _turnStateStore = openTurnStateStore(turnStatePath);
-    } catch (e, st) {
-      await _taskService.dispose();
-      await closeBackends();
-      _log.severe('Cannot open turn state store at $turnStatePath', e, st);
-      _exitFn(1);
-    }
+    if (serving) await _noticeInactiveStore();
 
     if (personalMemoryEnabled) {
       await _wirePersonalMemoryAfterTaskStorage();
@@ -433,8 +465,42 @@ class StorageWiring {
   }
 
   Future<void> closeBackends() async {
+    _interlock?.beginShutdown();
     await _taskBackend?.close();
+    await _interlock?.release();
     await _searchBackend?.close();
+  }
+
+  Future<void> _noticeInactiveStore() async {
+    try {
+      final String? notice;
+      if (_usesPostgres) {
+        final probe = await probeAuthoritativeStore(config.dartclawDbPath);
+        notice = switch (probe) {
+          AuthoritativeStoreAbsent() => null,
+          AuthoritativeStoreAmbiguous(:final currentPath, :final legacyPath) => PostgresStorageMessages.abandoned(
+            '$currentPath and $legacyPath (ambiguous)',
+          ),
+          AuthoritativeStorePresent(content: AuthoritativeStoreContentState.empty) => null,
+          AuthoritativeStorePresent(content: AuthoritativeStoreContentState.couldNotVerify) =>
+            PostgresStorageMessages.couldNotVerify('unreadable local store'),
+          AuthoritativeStorePresent(:final path) => PostgresStorageMessages.abandoned(path),
+        };
+      } else {
+        if (config.database.url == null && config.database.credential == null) return;
+        final probe =
+            await (inactivePostgresProbe?.call() ??
+                probeInactivePostgresStore(
+                  config.database,
+                  resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
+                  auditLogger: _auditLogger,
+                ));
+        notice = probe.notice;
+      }
+      if (notice != null) _log.warning(notice);
+    } on Object {
+      _log.warning(PostgresStorageMessages.couldNotVerify('inactive store'));
+    }
   }
 
   Stream<List<SearchDocument>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {

@@ -11,6 +11,11 @@ abstract final class PostgresSchemaGate {
     )
   ''';
   static const _markerRowSql = 'INSERT INTO dartclaw_schema (id, epoch) VALUES (1, 1)';
+  static final _memoryTable = SchemaTable('memory_chunks', [
+    ...SchemaIdentity.search.tables.single.columns,
+    const SchemaColumn('content_tsv', 'TSVECTOR', notNull: true),
+  ]);
+  static const _memoryIndex = SchemaIndex('memory_chunks_content_tsv_idx', 'memory_chunks', ['content_tsv']);
 
   /// Creates an empty schema or validates an exact current schema.
   static Future<void> prepare(DatabaseBackend backend, {required String databaseIdentity}) async {
@@ -48,6 +53,8 @@ abstract final class PostgresSchemaGate {
         await tx.execute(_postgresSql(sql));
       }
       await tx.execute(_postgresSql(SchemaIdentity.search.bootstrapStatements.first));
+      await tx.execute('ALTER TABLE memory_chunks ADD COLUMN content_tsv tsvector NOT NULL');
+      await tx.execute('CREATE INDEX memory_chunks_content_tsv_idx ON memory_chunks USING gin (content_tsv)');
       await tx.execute(_markerTableSql);
       await tx.execute(_markerRowSql);
     });
@@ -57,7 +64,7 @@ abstract final class PostgresSchemaGate {
     final differences = <String>[];
     final tables = [
       ...SchemaIdentity.tasks.tables,
-      ...SchemaIdentity.search.tables,
+      _memoryTable,
       const SchemaTable('dartclaw_schema', [
         SchemaColumn('id', 'BIGINT', primaryKey: true),
         SchemaColumn('epoch', 'BIGINT', notNull: true),
@@ -112,14 +119,17 @@ abstract final class PostgresSchemaGate {
       WHERE schemaname = current_schema()
     ''');
     final byName = {for (final row in indexes) row['indexname'] as String: row};
-    for (final index in SchemaIdentity.tasks.indexes) {
+    for (final index in [...SchemaIdentity.tasks.indexes, _memoryIndex]) {
       final actual = byName[index.name];
       final definition = actual?['indexdef'] as String?;
       final columns = definition == null ? const <String>[] : _indexColumns(definition);
       if (actual == null ||
           actual['tablename'] != index.table ||
           definition!.toUpperCase().contains(' UNIQUE ') != index.unique ||
-          !_sameList(columns, index.columns)) {
+          !_sameList(columns, index.columns) ||
+          index == _memoryIndex &&
+              (!RegExp(r'\bUSING gin\s*\(', caseSensitive: false).hasMatch(definition) ||
+                  RegExp(r'\bWHERE\b', caseSensitive: false).hasMatch(definition))) {
         differences.add('missing or mismatched index ${index.name}');
       }
     }

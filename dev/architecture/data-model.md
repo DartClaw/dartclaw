@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 PostgreSQL backend and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 language-aware PostgreSQL memory and knowledge-graph search, PostgreSQL backend, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -11,7 +11,7 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 **Files hold canonical documents; the selected database holds authoritative relational data and derived indexes.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search index → SQLite FTS5 (derived from validated searchable canonical roles, rebuildable via `dartclaw rebuild-index`)
+- Search index → SQLite FTS5 or PostgreSQL `content_tsv` with a language-neutral GIN index (derived from validated searchable canonical roles, rebuildable via `dartclaw rebuild-index`)
 - Tasks, goals, artifacts, turn traces, task events → SQLite by default or PostgreSQL (authoritative; relational queries on status/type/goal)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
@@ -24,7 +24,7 @@ transactor delegates transaction ownership to the backend shared by its particip
 
 `database.backend: postgres` selects `PostgresBackend` in `dartclaw_core` on PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
 
-`PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when no required relation exists. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL full-text search is not yet wired at this checkpoint: runtime marks search unavailable, uses an in-memory fallback and leaves local search files untouched; `rebuild-index` refuses.
+`PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when the namespace contains no tables. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN index; the configured deployment language is bound at query and projection time.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -80,9 +80,9 @@ transactor delegates transaction ownership to the backend shared by its particip
 
 ### By Access Pattern
 
-| Pattern | Files | Write Method | Concurrency |
+| Pattern | Storage | Write Method | Concurrency |
 |---------|-------|-------------|-------------|
-| **Relational queries** | `search.db`, `dartclaw.db` | SQLite prepared statements | WAL (`dartclaw.db`), single-thread (`search.db`) |
+| **Relational queries** | SQLite `search.db` and `dartclaw.db`, or the configured PostgreSQL database | Backend prepared statements; PostgreSQL memory search uses `memory_chunks.content_tsv` | SQLite WAL (`dartclaw.db`) or single-thread (`search.db`); PostgreSQL pooled connections and transactions |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `turn_state.json`, `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (turn state, meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Delivery markers** | `webhook_deliveries/<sha256-id>` | Exclusive claim, synchronous atomic commit, TTL purge | Instance-local pending/processed reservation |
@@ -361,14 +361,19 @@ SearchDocument
 └── timestamp: DateTime
 ```
 
-**Storage**: `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table)
+**Storage**: SQLite `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table); PostgreSQL database → `memory_chunks.content_tsv` with a language-neutral GIN index
 **Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
-and deletion audit. Only searchable topic, archive, observation, and learning entries project into `search.db`;
-`errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
-`SqliteFtsIndex` stores their chunks in `memory_chunks`.
-**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically recreates the projection while preserving stable
-entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild reads authenticated
-corpus selections in bounded batches and publishes a healthy sibling index only after complete-union validation.
+and deletion audit. Only searchable topic, archive, observation, and learning entries project into the selected memory
+index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
+`SqliteFtsIndex` stores their chunks in `memory_chunks`; `PostgresFtsIndex` stores the PostgreSQL projection rows and
+binds the configured language as data. One deployment language drives both memory and KG search. KG facts remain in
+`kg_facts` and use a query-time vector; they have no stored vector or search index beyond `kg_facts_lookup`.
+**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically recreates memory projection data while preserving
+stable entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild authenticates
+bounded corpus batches and validates the complete projection before publication. SQLite publishes a validated sibling file; PostgreSQL
+publishes through one transaction. A failure preserves the prior index on both backends. KG search uses the new language
+after restart; stored memory vectors keep their previous language until rebuild. Mixed-language corpora can mis-stem,
+ablaut forms are not conflated, and PostgreSQL does not fold diacritics where SQLite FTS5 does.
 
 ### Thread Binding
 
@@ -721,7 +726,7 @@ durable seam that connects workflow execution to task/worktree persistence.
                                                    └──────────────┘
 
 ┌──────────────────────────────┐  derived from  ┌───────────────────┐
-│ Canonical searchable roles   │──────────────►│ SearchDocument (FTS5)│
+│ Canonical searchable roles   │──────────────►│ SearchDocument       │
 └──────────────────────────────┘  (rebuildable) └───────────────────┘
 ```
 
@@ -748,7 +753,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Goal deleted** | Tasks referencing the goal retain `goalId` but goal lookup returns null. |
 | **Session archived** | Type changes to `archive`. Messages preserved. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
-| **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in `search.db`. |
+| **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
 | **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
 
 ---
@@ -850,7 +855,7 @@ Append-only logs that must not block the caller:
 | `learnings.md` | Keep newest N records (default: 50) | On write (canonical learning role, shared corpus lock) |
 | Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
-| `search.db` | Full rebuild from searchable canonical roles | Manual (`dartclaw rebuild-index`) |
+| SQLite `search.db` or PostgreSQL `memory_chunks.content_tsv` | Rebuild from searchable canonical roles; SQLite sibling-file publication or one PostgreSQL transaction | Manual (`dartclaw rebuild-index`) and startup reconciliation |
 
 ---
 
@@ -858,7 +863,7 @@ Append-only logs that must not block the caller:
 
 ### Backup
 
-All state lives under `dataDir` (default `~/.dartclaw/`). A filesystem-level backup captures everything:
+With SQLite, all state lives under `dataDir` (default `~/.dartclaw/`). PostgreSQL deployments also require a backup of the configured database. A filesystem-level backup captures the local files:
 
 ```bash
 # Simple backup (sufficient for single-user)
@@ -870,7 +875,7 @@ For consistent SQLite snapshots, flush WAL first:
 sqlite3 ~/.dartclaw/dartclaw.db "PRAGMA wal_checkpoint(TRUNCATE);"
 ```
 
-`search.db` does not need WAL flush (no WAL mode) and is rebuildable anyway.
+`search.db` does not need WAL flush (no WAL mode). Both it and the PostgreSQL memory search projection are rebuildable from the canonical corpus.
 
 ### Recovery
 
@@ -878,7 +883,7 @@ Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: 
 
 | Scenario | Recovery |
 |----------|---------|
-| `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from the validated canonical corpus |
+| Derived memory index stale or missing | `dartclaw rebuild-index` rebuilds SQLite `search.db` or the PostgreSQL memory projection from the validated canonical corpus. An incompatible PostgreSQL schema is refused before rebuild and must be repaired first. |
 | `dartclaw.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | `turn_state.json` corrupted/deleted | Invalid content is quarantined at open and recovery starts empty; a missing file starts empty. In-flight sessions may miss a recovery notice. Leftover `state.db` is ignored. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |

@@ -24,6 +24,28 @@ void main() {
         expect(names, contains(table.name));
       }
       expect((await backend.query('SELECT id, epoch FROM dartclaw_schema')).single, {'id': 1, 'epoch': 1});
+      final vector = await backend.query('''
+        SELECT column_name, data_type, is_nullable FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'memory_chunks' AND column_name = 'content_tsv'
+      ''');
+      expect(vector.single, {'column_name': 'content_tsv', 'data_type': 'tsvector', 'is_nullable': 'NO'});
+      final gin = await backend.query('''
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = current_schema() AND indexname = 'memory_chunks_content_tsv_idx'
+      ''');
+      expect(gin.single['indexdef'], contains('USING gin (content_tsv)'));
+      expect(
+        await backend.query('''
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'kg_facts' AND data_type = 'tsvector'
+      '''),
+        isEmpty,
+      );
+      final kgIndexes = await backend.query('''
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = current_schema() AND tablename = 'kg_facts' ORDER BY indexname
+      ''');
+      expect(kgIndexes.map((row) => row['indexname']), ['kg_facts_lookup', 'kg_facts_pkey']);
 
       final refusingWrites = FailingDatabaseBackend(backend, failAt: 1);
       await PostgresSchemaGate.prepare(refusingWrites, databaseIdentity: backend.databaseIdentity);
@@ -54,6 +76,32 @@ void main() {
         expect(owned, isEmpty, reason: 'failure at statement $failAt');
         failing.disableFailure();
         await PostgresSchemaGate.prepare(failing, databaseIdentity: backend.databaseIdentity);
+      });
+    }
+  });
+
+  test('missing or incompatible memory vector objects refuse without repair', () async {
+    for (final statements in [
+      ['ALTER TABLE memory_chunks DROP COLUMN content_tsv CASCADE'],
+      ['ALTER TABLE memory_chunks ALTER COLUMN content_tsv DROP NOT NULL'],
+      ['DROP INDEX memory_chunks_content_tsv_idx'],
+      [
+        'DROP INDEX memory_chunks_content_tsv_idx',
+        'CREATE INDEX memory_chunks_content_tsv_idx ON memory_chunks (content_tsv)',
+      ],
+      [
+        'DROP INDEX memory_chunks_content_tsv_idx',
+        "CREATE INDEX memory_chunks_content_tsv_idx ON memory_chunks USING gin (content_tsv) WHERE user_id = 'owner'",
+      ],
+    ]) {
+      await withPostgresBackend((backend, _) async {
+        await PostgresSchemaGate.prepare(backend, databaseIdentity: backend.databaseIdentity);
+        for (final sql in statements) {
+          await backend.execute(sql);
+        }
+        final before = await _searchCatalog(backend);
+        expect(await _refusal(backend), isA<SchemaIncompatibleException>());
+        expect(await _searchCatalog(backend), before);
       });
     }
   });
@@ -106,4 +154,13 @@ Future<List<Map<String, Object?>>> _catalog(PostgresBackend backend) => backend.
   SELECT table_name FROM information_schema.tables
   WHERE table_schema = current_schema()
   ORDER BY table_name
+''');
+
+Future<List<Map<String, Object?>>> _searchCatalog(PostgresBackend backend) => backend.query('''
+  SELECT 'column' AS kind, column_name AS name, data_type || ':' || is_nullable AS definition
+  FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'memory_chunks'
+  UNION ALL
+  SELECT 'index', indexname, indexdef FROM pg_indexes
+  WHERE schemaname = current_schema() AND tablename = 'memory_chunks'
+  ORDER BY kind, name
 ''');

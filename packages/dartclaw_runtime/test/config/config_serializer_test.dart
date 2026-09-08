@@ -243,7 +243,13 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final encoded = jsonEncode(json);
 
-      expect(json['database'], {'backend': 'postgres', 'url': '***', 'credential': null, 'poolSize': 7});
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': '***',
+        'credential': null,
+        'poolSize': 7,
+        'ftsLanguage': 'english',
+      });
       expect(encoded, isNot(contains('ConfigSurfacePasswordX9')));
       expect(encoded, isNot(contains(databaseUrl)));
     });
@@ -256,7 +262,13 @@ void main() {
 
       final json = serializer.toJson(config, runtime: runtime);
 
-      expect(json['database'], {'backend': 'postgres', 'url': null, 'credential': 'database-main', 'poolSize': 11});
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': null,
+        'credential': 'database-main',
+        'poolSize': 11,
+        'ftsLanguage': 'english',
+      });
     });
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {

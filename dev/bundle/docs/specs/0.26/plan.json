@@ -391,10 +391,21 @@
         "S07",
         "S08"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s09-language-aware-postgresql-memory-and-kg-search.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10"
+      ],
+      "owner": "implementer-s09-wiring",
       "scope": "Implement configurable core-PG tsvector/tsquery search (fts_language default english, validated at startup against PG-shipped configuration names with the valid list in the error, added to DatabaseConfig under the config gates) across two separate paths: PostgresFtsIndex for memory documents (app-populated stored tsvector, language-neutral GIN schema, language change via dartclaw rebuild-index, error role excluded from the projection) and direct query-time fact search over authoritative kg_facts (vector computed at query time with bound language, no stored vector or index, new language after restart). Swedish fixtures require regular inflection matching on both paths; irregular/ablaut forms stay outside acceptance. Never copy KG facts into FullTextIndex; add no task search. One deployment language; mixed-language limitation documented; core PG only.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr5-language-aware-search-on-postgresql",

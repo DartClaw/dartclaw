@@ -33,4 +33,11 @@ const Map<String, FieldMeta> _databaseFields = {
     description: 'Maximum PostgreSQL connections. Defaults to 5.',
     min: 1,
   ),
+  'database.fts_language': FieldMeta(
+    yamlPath: 'database.fts_language',
+    jsonKey: 'database.ftsLanguage',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'PostgreSQL text-search configuration name. Defaults to english; changing it requires restart and rebuild-index.',
+  ),
 };

@@ -358,6 +358,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **database** |  |  |  |
 | `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
+| `database.fts_language` | string |  | PostgreSQL text-search configuration name. Defaults to english; changing it requires restart and rebuild-index. (restart required) |
 | `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
 | `database.url` | null or string |  | PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI) |
 | **dev_mode** |  |  |  |

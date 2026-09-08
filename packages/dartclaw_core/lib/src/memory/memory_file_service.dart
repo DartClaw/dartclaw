@@ -40,7 +40,8 @@ class MemoryFileService {
     final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final path = 'memory/$dateStr.md';
     if (!_ownsCorpusService) {
-      return _appendCanonicalDailyLog(entry: entry, now: now, date: dateStr, path: path);
+      final canonicalDate = now.toUtc().toIso8601String().substring(0, 10);
+      return _appendCanonicalDailyLog(entry: entry, now: now, date: canonicalDate, path: 'memory/$canonicalDate.md');
     }
     return _corpusService
         .updateFiles<int>(

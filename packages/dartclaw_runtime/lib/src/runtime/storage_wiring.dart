@@ -63,6 +63,7 @@ class StorageWiring {
   late TaskEventRecorder _taskEventRecorder;
   late TurnStateStore _turnStateStore;
   MemoryCorpusService? _memoryCorpus;
+  MemoryCorpusManifest? _memoryManifest;
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
   FullTextIndex? _memoryIndex;
@@ -124,12 +125,21 @@ class StorageWiring {
           );
       final backend = _taskBackend = await factory(config.dartclawDbPath);
       await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
+      if (personalMemoryEnabled && _usesPostgres) {
+        await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
+        await _wirePostgresIndex(backend);
+      }
       _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
       _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(backend);
       _taskRepository = SqliteTaskRepository(backend);
       if (personalMemoryEnabled) {
-        _kg = TemporalKnowledgeGraphService(backend);
+        _kg = TemporalKnowledgeGraphService(
+          backend,
+          factSearch: _usesPostgres
+              ? PostgresFactSearch(config.database.ftsLanguage)
+              : const SubstringFactSearch(),
+        );
       }
       final goalRepository = SqliteGoalRepository(backend);
       _goalService = GoalService(goalRepository);
@@ -196,6 +206,7 @@ class StorageWiring {
       final result = await MemoryPreflight(workspaceDir: config.workspaceDir, corpusService: memoryCorpus).preflight();
       _log.info(result.render());
       currentManifest = await memoryCorpus.manifest();
+      _memoryManifest = currentManifest;
     } on MemoryPreflightException catch (e, st) {
       await memoryCorpus.close();
       _log.severe(
@@ -212,15 +223,8 @@ class StorageWiring {
       _exitFn(1);
     }
 
-    if (config.database.backend == DatabaseBackendKind.postgres) {
-      _searchUnavailable = true;
-      _log.warning('Persistent memory search is unavailable with PostgreSQL; using an in-process index');
-      _searchBackend = SqliteBackend.openInMemory();
-      await SqliteSchemaGate.prepareSearch(_searchBackend!, storeName: 'in-memory search.db');
-      return;
-    }
-
     final indexHealth = _indexHealth = IndexHealthStore(workspaceDir: config.workspaceDir);
+    if (config.database.backend != DatabaseBackendKind.sqlite) return;
     final indexReconciler =
         _injectedIndexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: indexHealth);
     final manifest = currentManifest;
@@ -306,11 +310,46 @@ class StorageWiring {
     }
   }
 
+  Future<void> _wirePostgresIndex(DatabaseBackend backend) async {
+    final manifest = _memoryManifest!;
+    final health = _indexHealth!;
+    final target = TransactionalRebuildTarget(
+      backend,
+      indexFactory: (tx) => PostgresFtsIndex.withinTransaction(
+        tx,
+        table: PostgresFtsTable.memoryChunks,
+        language: config.database.ftsLanguage,
+      ),
+    );
+    final reconciler = _injectedIndexReconciler ?? CanonicalIndexReconciler(healthStore: health, target: target);
+    try {
+      final recovery = await reconciler.ensureCurrentBatched(
+        rowBatches: () => _canonicalRowBatches(manifest),
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        authenticateComplete: () => _memoryCorpus!.authenticate(manifest),
+      );
+      _log.info(
+        'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
+        '(${recovery.rowCount} rows)',
+      );
+    } on Object catch (error, stackTrace) {
+      _log.severe('Memory index recovery failed; canonical memory remains available', error, stackTrace);
+    }
+    _memoryIndex = PostgresFtsIndex(
+      backend,
+      table: PostgresFtsTable.memoryChunks,
+      language: config.database.ftsLanguage,
+    );
+  }
+
   Future<void> _wirePersonalMemoryAfterTaskStorage() async {
     final memoryCorpus = _memoryCorpus!;
     final indexHealth = _indexHealth;
     _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus);
-    final memoryIndex = _memoryIndex = SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
+    final memoryIndex = _memoryIndex ??= _usesPostgres
+        ? PostgresFtsIndex(_taskBackend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
+        : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -458,8 +497,8 @@ class StorageWiring {
         state: IndexHealthState.unknown,
         canonicalRevision: manifest.collectionRevision,
         canonicalFingerprint: manifest.fingerprint,
-        reason: 'Persistent search is unavailable for the configured database backend.',
-        action: 'Use the in-process search available for this runtime.',
+        reason: 'Index health evidence is unavailable.',
+        action: 'Run dartclaw rebuild-index.',
       );
     }
     try {
@@ -477,6 +516,8 @@ class StorageWiring {
       );
     }
   }
+
+  bool get _usesPostgres => config.database.backend == DatabaseBackendKind.postgres;
 }
 
 /// Resolves one configured database reference without opening a connection.

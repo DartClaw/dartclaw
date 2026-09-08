@@ -29,6 +29,8 @@ export 'src/storage/authoritative_store_adoption.dart'
         AuthoritativeStoreContentState;
 export 'src/storage/index_reconciler.dart'
     show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
+export 'src/storage/index_rebuild_target.dart'
+    show IndexRebuildTarget, SiblingFileRebuildTarget, TransactionalRebuildTarget, IndexReconcileTransition;
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
 export 'src/storage/sqlite_backend.dart' show SqliteBackend;
@@ -67,6 +69,7 @@ export 'src/storage/subscription_credential_store.dart' show SubscriptionCredent
 
 // Search backends
 export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
+export 'src/search/postgres_fts_index.dart' show PostgresFtsIndex, PostgresFtsTable, validatePostgresFtsLanguage;
 export 'src/search/sqlite_fts_index.dart' show SqliteFtsIndex, SqliteFtsTable;
 export 'src/search/search_backend_factory.dart' show createSearchBackend;
 export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
@@ -76,6 +79,7 @@ export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, Sea
 
 // Knowledge persistence
 export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;
+export 'src/knowledge/knowledge_fact_search.dart' show KnowledgeFactSearch, SubstringFactSearch, PostgresFactSearch;
 export 'src/knowledge/temporal_knowledge_graph_service.dart'
     show TemporalKnowledgeGraphService, KnowledgeFact, KnowledgeContradiction;
 

@@ -143,6 +143,7 @@ export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
 export 'src/storage_exceptions.dart'
     show
         SchemaIncompatibleException,
+        StorageConfigurationException,
         StorageConnectionException,
         StorageException,
         StoragePoolExhaustedException,

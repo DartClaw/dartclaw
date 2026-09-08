@@ -248,6 +248,32 @@ void main() {
     expect(facts.single.value, 'sqlite');
   });
 
+  test('default fact search preserves substring terms and quote handling', () async {
+    final match = await kg.addFact(
+      entity: 'Architecture',
+      predicate: 'database',
+      value: 'sqlite-wal',
+      validFrom: '2026-01-01',
+      source: 'wiki/database.md',
+    );
+    final other = await kg.addFact(
+      entity: 'Project',
+      predicate: 'phase',
+      value: 'alpha',
+      validFrom: '2026-01-01',
+      source: 'wiki/project.md',
+    );
+    final explicit = TemporalKnowledgeGraphService(backend, factSearch: const SubstringFactSearch());
+    for (final entry in {
+      '"ARCH"  lite': [match],
+      'architecture alpha': <int>[],
+      '  ""  ': [match, other],
+    }.entries) {
+      expect((await kg.allFacts(search: entry.key)).map((fact) => fact.id), entry.value);
+      expect((await explicit.allFacts(search: entry.key)).map((fact) => fact.id), entry.value);
+    }
+  });
+
   test('allFacts keeps invalidated history visible', () async {
     final id = await kg.addFact(
       entity: 'Project Status',

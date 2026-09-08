@@ -107,6 +107,7 @@ class ConfigSerializer {
         'url': config.database.url == null ? null : '***',
         'credential': config.database.credential,
         'poolSize': config.database.poolSize,
+        'ftsLanguage': config.database.ftsLanguage,
       },
       'guards': {
         'content': {

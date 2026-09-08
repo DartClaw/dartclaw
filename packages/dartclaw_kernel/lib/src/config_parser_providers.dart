@@ -23,6 +23,12 @@ DatabaseConfig _parseDatabase(
   final url = rawUrl == null ? null : envSubstitute(rawUrl, env: env);
   final credential = readString('credential', map, warns);
   final poolSize = readInt('pool_size', map, warns, defaultValue: defaults.poolSize) ?? defaults.poolSize;
+  final rawFtsLanguage = readString('fts_language', map, warns, defaultValue: defaults.ftsLanguage);
+  final normalizedFtsLanguage = rawFtsLanguage?.trim().toLowerCase() ?? defaults.ftsLanguage;
+  final ftsLanguage = normalizedFtsLanguage.isEmpty ? defaults.ftsLanguage : normalizedFtsLanguage;
+  if (normalizedFtsLanguage.isEmpty) {
+    warns.add('Invalid database.fts_language: must not be blank — using default');
+  }
   if (FieldConstraints.evaluate(ConfigMeta.fields['database.pool_size']!, poolSize) != null) {
     warns.add('Invalid database.pool_size: must be positive');
   }
@@ -41,7 +47,14 @@ DatabaseConfig _parseDatabase(
       warns.add('Invalid database.url/database.credential: postgres accepts exactly one connection reference');
     }
   }
-  return DatabaseConfig(backend: backend, url: url, credential: credential, urlEnvVars: urlEnvVars, poolSize: poolSize);
+  return DatabaseConfig(
+    backend: backend,
+    url: url,
+    credential: credential,
+    urlEnvVars: urlEnvVars,
+    poolSize: poolSize,
+    ftsLanguage: ftsLanguage,
+  );
 }
 
 String? _persistedDatabaseSecretShape(String rawUrl) {

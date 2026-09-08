@@ -18,6 +18,7 @@ final class DatabaseConfig {
     this.credential,
     this.urlEnvVars = const [],
     this.poolSize = 5,
+    this.ftsLanguage = 'english',
   });
 
   /// Default SQLite configuration.
@@ -38,6 +39,9 @@ final class DatabaseConfig {
   /// Maximum PostgreSQL pool size.
   final int poolSize;
 
+  /// PostgreSQL text-search configuration shared by derived search paths.
+  final String ftsLanguage;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -46,8 +50,10 @@ final class DatabaseConfig {
           url == other.url &&
           credential == other.credential &&
           const ListEquality<String>().equals(urlEnvVars, other.urlEnvVars) &&
-          poolSize == other.poolSize;
+          poolSize == other.poolSize &&
+          ftsLanguage == other.ftsLanguage;
 
   @override
-  int get hashCode => Object.hash(backend, url, credential, const ListEquality<String>().hash(urlEnvVars), poolSize);
+  int get hashCode =>
+      Object.hash(backend, url, credential, const ListEquality<String>().hash(urlEnvVars), poolSize, ftsLanguage);
 }

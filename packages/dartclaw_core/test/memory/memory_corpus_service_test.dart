@@ -1009,6 +1009,8 @@ void main() {
     final document = const MemoryMarkdownCodec().parse(observationFile.readAsStringSync()) as MemoryObservationDocument;
     final recorded = document.observations.single.recorded;
     expect(recorded.isUtc, isTrue);
+    expect(document.date, recorded.toIso8601String().substring(0, 10));
+    expect(p.basename(observationFile.path), '${document.date}.md');
     expect(recorded.isBefore(before), isFalse);
     expect(recorded.isAfter(DateTime.now().toUtc().add(const Duration(seconds: 1))), isFalse);
     await authority.close();

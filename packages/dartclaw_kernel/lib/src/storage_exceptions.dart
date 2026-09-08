@@ -47,6 +47,29 @@ final class StorageUnknownOutcomeException extends StorageException {
     : super(message: _message(operation, databaseIdentity, guidance));
 }
 
+/// A configured storage value is unavailable on the selected backend.
+final class StorageConfigurationException extends StorageException {
+  /// Creates a configuration refusal from safe configuration fields.
+  new({required this.key, required this.value, required List<String> validValues})
+    : validValues = List.unmodifiable(validValues),
+      super(
+        operation: 'configuration',
+        message:
+            '$key "$value" is unavailable on this PostgreSQL server. '
+            'Valid values: ${validValues.join(', ')}. '
+            'Choose a listed value, restart DartClaw, and rebuild the memory search index.',
+      );
+
+  /// Configuration key that was refused.
+  final String key;
+
+  /// Configured value that was unavailable.
+  final String value;
+
+  /// Values reported by the selected backend.
+  final List<String> validValues;
+}
+
 /// Refuses a store whose marker or required structure is unsupported.
 final class SchemaIncompatibleException extends StorageException {
   /// Creates a typed compatibility refusal.

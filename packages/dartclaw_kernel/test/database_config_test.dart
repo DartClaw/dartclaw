@@ -12,6 +12,22 @@ void main() {
     expect(explicit.database, const DatabaseConfig.defaults());
   });
 
+  test('database text-search language is normalized and defaults to english', () {
+    final omitted = loadYaml('database:\n  backend: sqlite\n');
+    final configured = loadYaml('database:\n  backend: sqlite\n  fts_language: " Swedish "\n');
+
+    expect(omitted.database.ftsLanguage, 'english');
+    expect(configured.database.ftsLanguage, 'swedish');
+    expect(configured.reloadBlockingWarnings, isEmpty);
+  });
+
+  test('blank database text-search language is refused by key', () {
+    final config = loadYaml('database:\n  backend: sqlite\n  fts_language: "  "\n');
+
+    expect(config.database.ftsLanguage, 'english');
+    expect(config.reloadBlockingWarnings.join('\n'), contains('database.fts_language'));
+  });
+
   test('postgres accepts one environment-substituted URL and the default pool size', () {
     final config = loadYaml(
       'database:\n  backend: postgres\n  url: postgresql://\${PG_HOST}/db\n',

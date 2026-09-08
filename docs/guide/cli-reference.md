@@ -497,12 +497,12 @@ dartclaw rebuild-index
 dartclaw rebuild-index --json
 ```
 
-Rebuilds the FTS5 memory index from the canonical memory corpus. Active topics, archive, observations, and learnings
-retain stable role-aware locators and canonical entry identities. Source entry timestamps determine recent ordering;
-undated entries sort oldest. The command builds and completely validates a fresh sibling before replacing `search.db`;
-failure preserves the prior index and records degraded health with a retry action. Its result reports the canonical
-revision, row count, and health. Stop DartClaw before running the command and leave it stopped until rebuilding completes;
-the command does not coordinate with a live server.
+Rebuilds the backend memory index from the canonical memory corpus. On SQLite, the command builds and completely
+validates a fresh sibling index before replacing `search.db`; on PostgreSQL, it publishes the rebuilt projection in one
+transaction. Active topics, archive, observations, and learnings retain stable role-aware locators and canonical entry identities. Source entry timestamps determine recent ordering;
+undated entries sort oldest. Its result reports the canonical revision, row count, and health. A failure preserves the
+prior index on either backend and records degraded health with a retry action. Stop DartClaw before running the command and leave it stopped until rebuilding completes; the command does
+not coordinate with a live server.
 
 ## Traces
 

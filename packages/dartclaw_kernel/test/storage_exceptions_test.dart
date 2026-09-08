@@ -73,4 +73,26 @@ void main() {
     expect(error.sqlState, '42P01');
     expect(error.toString(), contains('SQLSTATE 42P01'));
   });
+
+  test('configuration refusals expose only the key, value, valid list, and guidance', () {
+    final error = StorageConfigurationException(
+      key: 'database.fts_language',
+      value: 'klingon',
+      validValues: const ['english', 'swedish'],
+    );
+
+    expect(error.operation, 'configuration');
+    expect(error.databaseIdentity, isNull);
+    expect(error.key, 'database.fts_language');
+    expect(error.value, 'klingon');
+    expect(error.validValues, ['english', 'swedish']);
+    expect(
+      error.toString(),
+      'StorageConfigurationException: database.fts_language "klingon" is unavailable on this PostgreSQL server. '
+      'Valid values: english, swedish. Choose a listed value, restart DartClaw, and rebuild the memory search index.',
+    );
+    for (final secret in ['postgres://private', 'raw driver detail', 'password=hidden']) {
+      expect(error.toString(), isNot(contains(secret)));
+    }
+  });
 }

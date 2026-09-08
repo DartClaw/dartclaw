@@ -1,14 +1,16 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show tryParseIsoInstant;
 
+import 'knowledge_fact_search.dart';
 import 'known_systems.dart';
 
-/// SQLite-backed service for time-bounded operational facts.
+/// Stores and queries time-bounded operational facts.
 class TemporalKnowledgeGraphService {
   final DatabaseBackend _backend;
+  final KnowledgeFactSearch _factSearch;
 
   /// Creates the service against a prepared task [backend].
-  new(this._backend);
+  new(this._backend, {KnowledgeFactSearch factSearch = const SubstringFactSearch()}) : _factSearch = factSearch;
 
   /// Stores a source-linked temporal fact and returns its row id.
   Future<int> addFact({
@@ -83,9 +85,10 @@ class TemporalKnowledgeGraphService {
     final instant = asOf == null || asOf.trim().isEmpty ? null : parseAsOf(asOf);
     final where = <String>[];
     final args = <Object?>[];
-    for (final term in _searchTerms(search ?? '')) {
-      where.add("instr(lower(entity || ' ' || predicate || ' ' || value || ' ' || source), ?) > 0");
-      args.add(term);
+    final searchPredicate = _factSearch.predicate(search ?? '');
+    if (searchPredicate != null) {
+      where.add(searchPredicate.sql);
+      args.addAll(searchPredicate.args);
     }
     final sqlLimit = instant == null ? limit : null;
     if (sqlLimit != null) {
@@ -235,13 +238,6 @@ class TemporalKnowledgeGraphService {
 
   static String _isoUtc(DateTime value) => value.toUtc().toIso8601String();
 
-  static List<String> _searchTerms(String search) => search
-      .replaceAll('"', ' ')
-      .split(RegExp(r'\s+'))
-      .map((term) => term.trim().toLowerCase())
-      .where((term) => term.isNotEmpty)
-      .toList();
-
   static bool _isValidAt(KnowledgeFact fact, DateTime instant, {required bool includeInvalidated}) {
     final asOf = instant.toUtc();
     if (_parseIso(fact.validFrom, 'valid_from').isAfter(asOf)) {
@@ -267,7 +263,7 @@ class TemporalKnowledgeGraphService {
 
 /// A time-bounded fact returned by the temporal knowledge graph.
 class KnowledgeFact {
-  /// Stable SQLite row id.
+  /// Stable database row id.
   final int id;
 
   /// Normalized entity name.
@@ -311,7 +307,7 @@ class KnowledgeFact {
     this.invalidationReason,
   });
 
-  /// Hydrates a fact from a SQLite result row.
+  /// Hydrates a fact from a database result row.
   factory fromRow(Map<String, Object?> row) => KnowledgeFact(
     id: row['id'] as int,
     entity: row['entity'] as String,

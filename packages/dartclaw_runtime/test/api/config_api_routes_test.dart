@@ -208,11 +208,18 @@ gateway:
 database:
   backend: postgres
   url: $databaseUrl
-  pool_size: 7''');
+  pool_size: 7
+  fts_language: swedish''');
 
       final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
 
-      expect(json['database'], {'backend': 'postgres', 'url': '***', 'credential': null, 'poolSize': 7});
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': '***',
+        'credential': null,
+        'poolSize': 7,
+        'ftsLanguage': 'swedish',
+      });
       expect(jsonEncode(json), isNot(contains(databaseUrl)));
     });
 
@@ -225,7 +232,13 @@ database:
 
       final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
 
-      expect(json['database'], {'backend': 'postgres', 'url': null, 'credential': 'database-main', 'poolSize': 7});
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': null,
+        'credential': 'database-main',
+        'poolSize': 7,
+        'ftsLanguage': 'english',
+      });
     });
 
     test('google chat inline service account is redacted in API response', () async {

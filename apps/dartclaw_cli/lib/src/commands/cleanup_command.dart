@@ -103,7 +103,9 @@ class CleanupCommand extends Command<void> {
     try {
       final db = _taskDbFactory(config.tasksDbPath);
       try {
-        final repository = SqliteWorkflowRunRepository(db);
+        final backend = SqliteBackend(db);
+        await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+        final repository = SqliteWorkflowRunRepository(backend);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
       } finally {
         // Best-effort close: a close error must not mask the original outcome.

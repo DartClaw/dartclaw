@@ -68,11 +68,11 @@ final class ContextExtractorTestHarness {
     final db = sqlite3.openInMemory();
     taskBackend = SqliteBackend(db);
     await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    agentExecutions = SqliteAgentExecutionRepository(db);
+    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
     taskService = TaskService(
       SqliteTaskRepository(taskBackend),
       agentExecutionRepository: agentExecutions,
-      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      executionTransactor: SqliteExecutionRepositoryTransactor(taskBackend),
     );
     workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     sessionService = SessionService(baseDir: sessionsDir);

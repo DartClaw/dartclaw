@@ -58,9 +58,9 @@ void main() {
       await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
       eventBus = EventBus();
       taskRepository = SqliteTaskRepository(taskBackend);
-      agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-      executionTransactor = SqliteExecutionRepositoryTransactor(db);
+      agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+      executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
       taskService = TaskService(
         taskRepository,
         agentExecutionRepository: agentExecutionRepository,
@@ -72,7 +72,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: ContextExtractor(
           taskService: taskService,
@@ -98,7 +98,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-copy.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         defaultWorkspaceRoot: '/repo',
@@ -284,7 +284,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-fail.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         dataDir: tempDir.path,

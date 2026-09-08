@@ -15,8 +15,8 @@ void main() {
     await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
     tasks = TaskService(
       SqliteTaskRepository(backend),
-      agentExecutionRepository: SqliteAgentExecutionRepository(db),
-      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      agentExecutionRepository: SqliteAgentExecutionRepository(backend),
+      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
     );
     client = ApiRouteTestClient(taskRoutes(tasks).call);
   });

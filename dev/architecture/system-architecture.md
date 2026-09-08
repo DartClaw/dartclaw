@@ -407,8 +407,9 @@ Two storage mechanisms, each for distinct access patterns:
 
 The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
 semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
-an open awaited transaction unless they originate from that transaction body. `SqliteGoalRepository` is the initial
-consumer; other repositories retain direct SQLite access until their scheduled 0.26 migrations.
+an open awaited transaction unless they originate from that transaction body. Goal, task-domain, execution and
+workflow-run persistence share this seam. `SqliteExecutionRepositoryTransactor` delegates to the backend rather than
+owning another queue or issuing transaction SQL.
 
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 
@@ -736,7 +737,7 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 | `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
 | `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, `SqliteBackend` and SQLite repositories, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
-| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns its workflow-run SQLite adapter and the fakes of its ports |
+| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on kernel + core – Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on kernel + core – Google auth + HTTP isolated from core. Owns `FakeGoogleChatRestClient` behind `lib/testing.dart` |

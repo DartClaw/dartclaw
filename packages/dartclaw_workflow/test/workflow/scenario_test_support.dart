@@ -66,10 +66,10 @@ final class ScenarioTaskHarness {
     await SqliteSchemaGate.prepareTasks(harness.taskBackend, storeName: 'tasks.db');
     harness.eventBus = EventBus();
     harness.taskRepository = SqliteTaskRepository(harness.taskBackend);
-    harness.agentExecutions = SqliteAgentExecutionRepository(harness.taskDb);
-    harness.workflowRuns = SqliteWorkflowRunRepository(harness.taskDb);
-    harness.workflowStepExecutions = SqliteWorkflowStepExecutionRepository(harness.taskDb);
-    harness.executionTransactor = SqliteExecutionRepositoryTransactor(harness.taskDb);
+    harness.agentExecutions = SqliteAgentExecutionRepository(harness.taskBackend);
+    harness.workflowRuns = SqliteWorkflowRunRepository(harness.taskBackend);
+    harness.workflowStepExecutions = SqliteWorkflowStepExecutionRepository(harness.taskBackend);
+    harness.executionTransactor = SqliteExecutionRepositoryTransactor(harness.taskBackend);
     harness.tasks = TaskService(
       harness.taskRepository,
       agentExecutionRepository: harness.agentExecutions,

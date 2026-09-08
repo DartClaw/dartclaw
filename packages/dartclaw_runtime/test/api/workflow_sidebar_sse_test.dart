@@ -33,7 +33,6 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
 void main() {
   late Database taskDb;
   late SqliteBackend taskBackend;
-  late Database workflowDb;
   late TaskService tasks;
   late EventBus eventBus;
   late WorkflowService workflows;
@@ -44,13 +43,12 @@ void main() {
     taskDb = openTaskDbInMemory();
     taskBackend = SqliteBackend(taskDb);
     await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
     eventBus = EventBus();
     final taskRepository = SqliteTaskRepository(taskBackend);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: eventBus);
-    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
     tasks = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
@@ -58,7 +56,7 @@ void main() {
       eventBus: eventBus,
     );
 
-    workflowRepo = SqliteWorkflowRunRepository(workflowDb);
+    workflowRepo = SqliteWorkflowRunRepository(taskBackend);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService(
@@ -82,7 +80,6 @@ void main() {
     await tasks.dispose();
     await eventBus.dispose();
     await taskBackend.close();
-    workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

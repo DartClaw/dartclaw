@@ -201,7 +201,7 @@ agent:
         final seedDb = openTaskDb(taskDbPath);
         final seedBackend = SqliteBackend(seedDb);
         await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
-        final repo = SqliteWorkflowRunRepository(seedDb);
+        final repo = SqliteWorkflowRunRepository(seedBackend);
         await repo.insert(run);
         await seedBackend.close();
 
@@ -328,7 +328,7 @@ agent:
         final seedDb = openTaskDb(taskDbPath);
         final seedBackend = SqliteBackend(seedDb);
         await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
-        await SqliteWorkflowRunRepository(seedDb).insert(run);
+        await SqliteWorkflowRunRepository(seedBackend).insert(run);
         await SqliteTaskRepository(seedBackend).insert(
           Task(
             id: 't1',

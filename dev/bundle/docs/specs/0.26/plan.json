@@ -261,10 +261,18 @@
         "S02",
         "S04"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s05-execution-and-workflow-storage-seam-refactor.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
+      "owner": "implementer_storage_s05",
       "scope": "Move the execution/workflow repositories onto the backend seam: sqlite_agent_execution_repository, sqlite_workflow_step_execution_repository, sqlite_execution_row_mappers, and sqlite_execution_repository_transactor in dartclaw_core (rebuilt over S01's pinned transaction contract, preserving its multi-repository guarantees), plus sqlite_workflow_run_repository in dartclaw_workflow. Callers in the workflow engine, dartclaw_runtime's service_wiring_workflow, and the CLI workflow commands keep their already-async signatures. Behavior, transaction guarantees, and the workspace suite are preserved; no bootstrap or compatibility logic enters repositories. Excludes the task-domain cluster (S04) and composition-root construction (S06).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer"

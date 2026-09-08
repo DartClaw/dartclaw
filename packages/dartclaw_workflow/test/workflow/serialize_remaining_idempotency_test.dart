@@ -136,10 +136,10 @@ void main() {
       await SqliteSchemaGate.prepareTasks(resumedBackend, storeName: 'tasks.db');
       eventBus = EventBus();
       taskRepository = SqliteTaskRepository(resumedBackend);
-      agentExecutionRepository = SqliteAgentExecutionRepository(resumedDb, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(resumedDb);
-      executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(resumedDb);
-      repository = SqliteWorkflowRunRepository(resumedDb);
+      agentExecutionRepository = SqliteAgentExecutionRepository(resumedBackend, eventBus: eventBus);
+      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(resumedBackend);
+      executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(resumedBackend);
+      repository = SqliteWorkflowRunRepository(resumedBackend);
       taskService = TaskService(
         taskRepository,
         agentExecutionRepository: agentExecutionRepository,

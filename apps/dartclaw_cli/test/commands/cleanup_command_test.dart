@@ -161,8 +161,10 @@ void main() {
 
     Future<void> seedCompletedRun(DartclawConfig config, String runId, {required Duration age}) async {
       final db = openTaskDb(config.tasksDbPath);
+      final backend = SqliteBackend(db);
       try {
-        final repo = SqliteWorkflowRunRepository(db);
+        await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+        final repo = SqliteWorkflowRunRepository(backend);
         final completedAt = DateTime.now().subtract(age);
         await repo.insert(
           WorkflowRun(
@@ -175,7 +177,7 @@ void main() {
           ),
         );
       } finally {
-        db.close();
+        await backend.close();
       }
     }
 
@@ -224,14 +226,53 @@ void main() {
       final config = configWith(
         const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
       );
-      // Write a non-SQLite garbage file at the tasks DB path so the repository's
-      // schema-init DDL throws from its constructor.
+      // Write a non-SQLite file so opening or inspecting the store fails.
       File(config.tasksDbPath).writeAsStringSync('not a sqlite database at all');
 
       // Must not throw — the command degrades to a warning + exit 1.
       await runCleanup([], config: config);
 
       expect(output, anyElement(contains('workflow artifact retention skipped')));
+      expect(exitCode, 1);
+    });
+
+    test('retention skips an incompatible tasks.db with the warning and leaves the file unchanged', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final db = openTaskDb(config.tasksDbPath);
+      late final List<Map<String, Object?>> schemaBefore;
+      late final List<Map<String, Object?>> rowsBefore;
+      try {
+        db.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)');
+        db.execute("INSERT INTO tasks (id, title) VALUES ('legacy-task', 'Legacy task')");
+        schemaBefore = db
+            .select('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name')
+            .map((row) => Map<String, Object?>.from(row))
+            .toList();
+        rowsBefore = db.select('SELECT * FROM tasks ORDER BY id').map((row) => Map<String, Object?>.from(row)).toList();
+      } finally {
+        db.close();
+      }
+
+      await runCleanup([], config: config);
+
+      final reopened = openTaskDb(config.tasksDbPath);
+      try {
+        final schemaAfter = reopened
+            .select('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name')
+            .map((row) => Map<String, Object?>.from(row))
+            .toList();
+        final rowsAfter = reopened
+            .select('SELECT * FROM tasks ORDER BY id')
+            .map((row) => Map<String, Object?>.from(row))
+            .toList();
+        expect(schemaAfter, schemaBefore);
+        expect(rowsAfter, rowsBefore);
+      } finally {
+        reopened.close();
+      }
+      expect(output, anyElement(startsWith('WARNING: workflow artifact retention skipped (database read failed):')));
       expect(exitCode, 1);
     });
 

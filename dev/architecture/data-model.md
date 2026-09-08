@@ -19,8 +19,8 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 
 Relational repositories target the dependency-free `DatabaseBackend` port in `dartclaw_kernel`. `SqliteBackend` in
 `dartclaw_core` preserves SQLite's scalar and row formats while serializing seam-issued operations across awaited
-transactions. `SqliteGoalRepository` is the first repository on this seam; the remaining SQLite services still use
-their shared raw connection until their 0.26 migrations land.
+transactions. Goal, task, execution, workflow-run, trace, event and KG persistence use this seam. The execution
+transactor delegates transaction ownership to the backend shared by its participating repositories.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -548,7 +548,7 @@ TurnTrace (turns table)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
-**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring and standalone workflow status call `SqliteSchemaGate.prepareTasks` before constructing any repository. `SqliteTaskRepository`, `TurnTraceService`, `TaskEventService` and `TemporalKnowledgeGraphService` share one `DatabaseBackend`; their constructors do not create or repair schema. Connection PRAGMAs belong to the task-database open helpers, and wiring owns connection closure.
+**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. Connection PRAGMAs belong to the task-database open helpers, and wiring owns connection closure.
 
 ### Task Event
 
@@ -748,7 +748,8 @@ dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBa
                                         shared enums,
                                         DartclawConfig, ConfigMeta, ConfigWriter,
                                         GuardChain, GuardAuditLogger, Project,
-                                        AgentExecution, deterministic utilities
+                                        AgentExecution, WorkflowStepExecution,
+                                        execution repository ports, deterministic utilities
      ▲
      │
 dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvService,
@@ -759,7 +760,6 @@ dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvServic
      │                                  SqliteGoalRepository (via DatabaseBackend),
      │                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
-     │                                  SqliteWorkflowRunRepository,
      │                                  SqliteFtsIndex, SearchDb, TaskDb,
      │                                  TurnStateStore, TurnTraceService,
      │                                  TaskEventService
@@ -767,9 +767,8 @@ dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvServic
 dartclaw_workflow   (core)              WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
      │                                  WorkflowContext, schema presets, built-in skills,
-     │                                  WorkflowRunRepository + WorkflowStepExecutionRepository
-     │                                  (ports; SQLite impls in dartclaw_core, which
-     │                                  depends on this package), WorkflowMaterializer
+     │                                  WorkflowRunRepository + SqliteWorkflowRunRepository,
+     │                                  WorkflowMaterializer
      │
 dartclaw_runtime     (shelf, http)       TaskService (wraps repository),
      ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,

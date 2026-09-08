@@ -162,7 +162,7 @@ void main() {
         );
 
         await repository.insert(task);
-        await SqliteWorkflowStepExecutionRepository(db).create(stepExecution);
+        await SqliteWorkflowStepExecutionRepository(backend).create(stepExecution);
         await repository.insert(_task(id: 'task-without-executions'));
 
         final loaded = await repository.getById(task.id);
@@ -201,7 +201,7 @@ void main() {
           mapIterationTotal: 3,
           stepTokenBreakdownJson: '{"input":10,"output":2}',
         );
-        final stepExecutions = SqliteWorkflowStepExecutionRepository(db);
+        final stepExecutions = SqliteWorkflowStepExecutionRepository(backend);
 
         await repository.insert(task);
         await stepExecutions.create(stepExecution);
@@ -226,6 +226,53 @@ void main() {
           'mapIterationTotal',
           'stepTokenBreakdownJson',
         ]);
+      });
+
+      test('step execution CRUD preserves ordering, missing-update errors, and task-delete cascade', () async {
+        final agentExecutions = SqliteAgentExecutionRepository(backend);
+        final stepExecutions = SqliteWorkflowStepExecutionRepository(backend);
+        await repository.insert(_task(id: 'task-a'));
+        await repository.insert(_task(id: 'task-b'));
+        await agentExecutions.create(const AgentExecution(id: 'ae-a'));
+        await agentExecutions.create(const AgentExecution(id: 'ae-b'));
+        const stepA = WorkflowStepExecution(
+          taskId: 'task-a',
+          agentExecutionId: 'ae-a',
+          workflowRunId: 'run-1',
+          stepIndex: 1,
+          stepId: 'step-a',
+        );
+        const stepB = WorkflowStepExecution(
+          taskId: 'task-b',
+          agentExecutionId: 'ae-b',
+          workflowRunId: 'run-1',
+          stepIndex: 1,
+          stepId: 'step-b',
+        );
+        await stepExecutions.create(stepB);
+        await stepExecutions.create(stepA);
+
+        expect((await stepExecutions.listByRunId('run-1')).map((step) => step.taskId), ['task-a', 'task-b']);
+        expect(await stepExecutions.getByTaskId('missing'), isNull);
+
+        final updated = stepA.copyWith(stepIndex: 2, stepId: 'step-a-updated', structuredOutputJson: '{"ok":true}');
+        await stepExecutions.update(updated);
+        expect(await stepExecutions.getByTaskId('task-a'), updated);
+        await expectLater(
+          stepExecutions.update(stepA.copyWith(taskId: 'missing')),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.message,
+              'message',
+              'WorkflowStepExecution not found: missing',
+            ),
+          ),
+        );
+
+        await stepExecutions.delete('task-a');
+        expect(await stepExecutions.getByTaskId('task-a'), isNull);
+        await repository.delete('task-b');
+        expect(await stepExecutions.getByTaskId('task-b'), isNull);
       });
 
       test('returns null for missing task', () async {

@@ -363,8 +363,8 @@ void main() {
     taskBackend = SqliteBackend(database);
     await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     taskService = TaskService(SqliteTaskRepository(taskBackend));
-    agentExecutions = SqliteAgentExecutionRepository(database);
-    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(database);
+    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
+    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskBackend);
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     extractor = ContextExtractor(

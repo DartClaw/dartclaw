@@ -1,48 +1,26 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show AgentExecutionStatusChangedEvent, EventBus;
-import 'package:sqlite3/sqlite3.dart';
 
 import 'sqlite_execution_row_mappers.dart';
 
 /// SQLite-backed persistence for [AgentExecution].
 class SqliteAgentExecutionRepository implements AgentExecutionRepository {
-  final Database _db;
+  final DatabaseBackend _backend;
   final EventBus? _eventBus;
 
-  /// Creates the repository against [_db] and initializes its schema.
-  new(this._db, {EventBus? eventBus}) : _eventBus = eventBus {
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS agent_executions (
-        id TEXT PRIMARY KEY NOT NULL,
-        session_id TEXT,
-        provider TEXT,
-        model TEXT,
-        workspace_dir TEXT,
-        container_json TEXT,
-        budget_tokens INTEGER,
-        harness_meta_json TEXT,
-        started_at TEXT,
-        completed_at TEXT
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_agent_executions_session_id ON agent_executions(session_id)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_agent_executions_provider ON agent_executions(provider)');
-  }
+  /// Creates the repository against a prepared [backend].
+  new(this._backend, {EventBus? eventBus}) : _eventBus = eventBus;
 
   @override
   Future<void> create(AgentExecution execution) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO agent_executions (
         id, session_id, provider, model, workspace_dir, container_json,
         budget_tokens, harness_meta_json, started_at, completed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         execution.id,
         execution.sessionId,
         execution.provider,
@@ -55,18 +33,18 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
         execution.completedAt?.toIso8601String(),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<AgentExecution?> get(String id) async {
-    final stmt = _db.prepare('SELECT * FROM agent_executions WHERE id = ?');
+    final stmt = await _backend.prepare('SELECT * FROM agent_executions WHERE id = ?');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       return rows.isEmpty ? null : agentExecutionFromRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -89,18 +67,18 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
     }
     buffer.write(' ORDER BY started_at DESC, id DESC');
 
-    final stmt = _db.prepare(buffer.toString());
+    final stmt = await _backend.prepare(buffer.toString());
     try {
-      return stmt.select(params).map(agentExecutionFromRow).toList(growable: false);
+      return (await stmt.query(params)).map(agentExecutionFromRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> update(AgentExecution execution, {String trigger = 'system', DateTime? timestamp}) async {
     final previous = await get(execution.id);
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE agent_executions
       SET
         session_id = ?,
@@ -115,7 +93,7 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
       WHERE id = ?
     ''');
     try {
-      stmt.execute([
+      final changed = await stmt.execute([
         execution.sessionId,
         execution.provider,
         execution.model,
@@ -127,7 +105,7 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
         execution.completedAt?.toIso8601String(),
         execution.id,
       ]);
-      if (_db.updatedRows == 0) {
+      if (changed == 0) {
         throw ArgumentError('AgentExecution not found: ${execution.id}');
       }
       final oldStatus = _statusOf(previous);
@@ -144,17 +122,17 @@ class SqliteAgentExecutionRepository implements AgentExecutionRepository {
         );
       }
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> delete(String id) async {
-    final stmt = _db.prepare('DELETE FROM agent_executions WHERE id = ?');
+    final stmt = await _backend.prepare('DELETE FROM agent_executions WHERE id = ?');
     try {
-      stmt.execute([id]);
+      await stmt.execute([id]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 

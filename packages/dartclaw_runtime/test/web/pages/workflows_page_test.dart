@@ -21,7 +21,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
@@ -86,7 +85,6 @@ Request _get(String path) => Request('GET', Uri.parse('http://localhost$path'));
 void main() {
   late WorkflowsPage page;
   late SqliteBackend taskBackend;
-  late Database workflowDb;
   late SqliteWorkflowRunRepository workflowRepo;
   late TaskService tasks;
   late WorkflowService workflows;
@@ -98,14 +96,13 @@ void main() {
   setUp(() async {
     page = WorkflowsPage();
     taskBackend = await openPreparedTaskBackend();
-    workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('wf_page_test_');
 
     final taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
 
-    workflowRepo = SqliteWorkflowRunRepository(workflowDb);
+    workflowRepo = SqliteWorkflowRunRepository(taskBackend);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService.lifecycleOnly(
@@ -122,7 +119,6 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await taskBackend.close();
-    workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1",
+  "story": "S05",
+  "fis": "s05-execution-and-workflow-storage-seam-refactor.md",
+  "plan": "plan.json",
+  "snapshot": "0519fa171848+ec3deed22e89",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 0519fa171848+ec3deed22e89",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 95.586,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S01 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_agent_execution_repository_test.dart --name \"SqliteAgentExecutionRepository\"",
+      "exit": 0,
+      "duration": 0.969,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S02 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/storage/sqlite_workflow_run_repository_test.dart --name \"SqliteWorkflowRunRepository\"",
+      "exit": 0,
+      "duration": 0.952,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S03 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_task_factory_test.dart --name \"rolls back task and agent execution when step execution insert fails\"",
+      "exit": 0,
+      "duration": 1.993,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S05 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/cleanup_command_test.dart --name \"CleanupCommand workflow runtime-artifacts retention\"",
+      "exit": 0,
+      "duration": 1.165,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|_tail|BEGIN|COMMIT|ROLLBACK|Completer\" packages/dartclaw_core/lib/src/storage/sqlite_execution_repository_transactor.dart && rg -q \"implements ExecutionRepositoryTransactor\" packages/dartclaw_core/lib/src/storage/sqlite_execution_repository_transactor.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_execution_repository_transactor_test.dart",
+      "exit": 0,
+      "duration": 0.914,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|CREATE TABLE|CREATE INDEX|_initSchema|updatedRows\" packages/dartclaw_core/lib/src/storage/sqlite_agent_execution_repository.dart && rg -q \"AgentExecutionStatusChangedEvent\" packages/dartclaw_core/lib/src/storage/sqlite_agent_execution_repository.dart && ! rg -q \"creates table and indexes\" packages/dartclaw_core/test/storage/sqlite_agent_execution_repository_test.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_agent_execution_repository_test.dart",
+      "exit": 0,
+      "duration": 0.712,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|CREATE TABLE|CREATE INDEX|PRAGMA|_initSchema|updatedRows\" packages/dartclaw_core/lib/src/storage/sqlite_workflow_step_execution_repository.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_task_repository_test.dart packages/dartclaw_workflow/test/workflow/workflow_task_factory_test.dart",
+      "exit": 0,
+      "duration": 2.179,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|CREATE TABLE|ALTER TABLE|PRAGMA|_migrateLegacyPausedStatuses|workflow_run_migrations|updatedRows|BEGIN|COMMIT|ROLLBACK|Logger\" packages/dartclaw_workflow/lib/src/storage/sqlite_workflow_run_repository.dart && ! rg -q \"package:sqlite3\" packages/dartclaw_workflow/lib && ! sed -n '/^dependencies:/,/^dev_dependencies:/p' packages/dartclaw_workflow/pubspec.yaml | rg -q \"sqlite3\" && rg -q \"show SqliteWorkflowRunRepository\" packages/dartclaw_workflow/lib/dartclaw_workflow.dart && ! rg -q \"creates workflow_runs table|legacy paused\" packages/dartclaw_workflow/test/storage/sqlite_workflow_run_repository_test.dart && dart test --reporter=failures-only packages/dartclaw_workflow/test/storage/sqlite_workflow_run_repository_test.dart",
+      "exit": 0,
+      "duration": 0.955,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "! rg -q \"SqliteAgentExecutionRepository\\(taskDb|SqliteWorkflowStepExecutionRepository\\(taskDb|SqliteExecutionRepositoryTransactor\\(taskDb|SqliteWorkflowRunRepository\\(taskDb\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart apps/dartclaw_cli/lib/src/commands/workflow/workflow_status_command.dart && ! rg -q \"SqliteAgentExecutionRepository\\(\" apps/dartclaw_cli/lib/src/commands/workflow/workflow_status_command.dart && test \"$(rg -n 'prepareTasks' apps/dartclaw_cli/lib/src/commands/cleanup_command.dart | head -1 | cut -d: -f1)\" -lt \"$(rg -n 'SqliteWorkflowRunRepository\\(' apps/dartclaw_cli/lib/src/commands/cleanup_command.dart | head -1 | cut -d: -f1)\" && dart analyze --fatal-infos && dart test --reporter=failures-only apps/dartclaw_cli/test/commands/cleanup_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_status_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_lifecycle_standalone_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_run_command_standalone_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_tasks_gate_test.dart packages/dartclaw_runtime/test/runtime/dartclaw_runtime_test.dart packages/dartclaw_runtime/test/server_test.dart packages/dartclaw_runtime/test/api/task_routes_test.dart packages/dartclaw_runtime/test/api/workflow_routes_test.dart packages/dartclaw_runtime/test/task/task_service_locking_test.dart packages/dartclaw_runtime/test/task/task_service_events_test.dart packages/dartclaw_runtime/test/runtime/service_wiring_workflow_preflight_test.dart",
+      "exit": 0,
+      "duration": 13.085,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && test \"$(wc -l < packages/dartclaw_workflow/test/workflow/workflow_service_test.dart)\" -le 2198 && dart test --reporter=failures-only packages/dartclaw_workflow packages/dartclaw_core/test/storage packages/dartclaw_runtime/test/api/workflow_sidebar_sse_test.dart packages/dartclaw_runtime/test/api/task_bindings_routes_test.dart packages/dartclaw_runtime/test/api/task_routes_provider_test.dart packages/dartclaw_runtime/test/web/pages/workflows_page_test.dart packages/dartclaw_runtime/test/helpers/in_memory_agent_execution_repository_test.dart",
+      "exit": 0,
+      "duration": 23.852,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && ! rg -q \"import 'package:sqlite3\" packages/dartclaw_core/lib/src/storage/sqlite_agent_execution_repository.dart packages/dartclaw_core/lib/src/storage/sqlite_workflow_step_execution_repository.dart packages/dartclaw_core/lib/src/storage/sqlite_execution_repository_transactor.dart packages/dartclaw_workflow/lib/src/storage/sqlite_workflow_run_repository.dart && for f in packages/dartclaw_core/lib/src/storage/task_db.dart packages/dartclaw_core/lib/src/storage/search_db.dart packages/dartclaw_core/lib/src/storage/turn_state_store.dart packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart; do rg -q \"import 'package:sqlite3\" \"$f\" || exit 1; done && ! rg -l \"import 'package:sqlite3\" apps --glob '!**/test/**' | rg -q . && dart run dev/tools/arch_check.dart && git diff --check",
+      "exit": 0,
+      "duration": 4.153,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

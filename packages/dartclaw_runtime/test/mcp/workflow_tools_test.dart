@@ -63,6 +63,7 @@ void main() {
   late Directory tempDir;
   late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late RecordingGuardAuditLogger audit;
@@ -71,9 +72,16 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_tools_');
     taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     final eventBus = EventBus();
     tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     // The required-variable rule lives in WorkflowService.start, so the fake has
     // to keep it for the tool's refusal path to exist at all.
     workflows.validateRequiredVars = true;

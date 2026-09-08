@@ -245,3 +245,13 @@ file   | ../dartclaw-public/dev/tools/arch_check.dart#_libLocCeilings           
 ### Run: 2026-09-08 14:19 UTC – observations
 
 2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.
+
+### Run: 2026-09-08 16:21 UTC – discovered-requirements
+
+#### DISCOVERED REQUIREMENTS
+
+- The shared FakeWorkflowService test factory also constructs SqliteWorkflowRunRepository. Keep the factory synchronous, replace its raw Database parameter with DatabaseBackend, and propagate that parameter through its nine call sites in seven runtime test files (server_test.dart, mcp_schema_compliance_test.dart, workflow_tools_test.dart, workflow_run_form_route_test.dart, github_webhook_test.dart, workflow_routes_test.dart, workflow_sse_test.dart). Each caller supplies the same prepared backend for its connection. Preserve assertions and connection ownership. These indirect fixture consumers extend the captured 22-file direct-constructor census without changing production scope or behavior.
+
+### Run: 2026-09-08 17:01 UTC – observations
+
+Focused gate closure: retained fake_async and restored virtual-time timeout assertions by constructing the prepared backend inside the fakeAsync zone. Awaiting the initial insert outside the zone alone did not fix the queued work; the real backend queue and timer now share one virtual-time zone. All 11 approval-step tests pass, focused analyze and format checks pass, and the direct fake_async dependency has a current consumer. Updated workflow package guidance to describe DatabaseBackend production ownership and dev-only sqlite3 fixtures. No timer-policy exception or real-time wait remains in the repaired test.

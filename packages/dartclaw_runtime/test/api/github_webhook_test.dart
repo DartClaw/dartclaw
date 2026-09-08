@@ -20,6 +20,7 @@ import 'workflow_test_support.dart';
 void main() {
   late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late Directory tempDir;
@@ -45,12 +46,19 @@ void main() {
   setUp(() async {
     taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     tempDir = Directory.systemTemp.createTempSync('github-webhook-test_');
 
     final taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',

@@ -25,8 +25,8 @@ void main() {
     eventBus = EventBus();
     tasks = TaskService(
       SqliteTaskRepository(backend),
-      agentExecutionRepository: SqliteAgentExecutionRepository(db, eventBus: eventBus),
-      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      agentExecutionRepository: SqliteAgentExecutionRepository(backend, eventBus: eventBus),
+      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
       eventBus: eventBus,
     );
     tempDir = Directory.systemTemp.createTempSync('task_bindings_routes_test_');

@@ -9,7 +9,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowVariable;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'workflow_test_support.dart';
@@ -27,7 +26,7 @@ void main() {
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
     workflows = FakeWorkflowService(
-      db: sqlite3.openInMemory(),
+      backend: taskBackend,
       taskService: tasks,
       eventBus: eventBus,
       dataDir: '/tmp/workflow-run-form-data',

@@ -165,6 +165,7 @@ Future<List<Map<String, dynamic>>> collectSseFramesWithAction(
 void main() {
   late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late SqliteTaskRepository taskRepo;
   late _SubscriptionTrackingEventBus eventBus;
   late _ControllableListTaskService tasks;
@@ -176,12 +177,19 @@ void main() {
   setUp(() async {
     taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = _SubscriptionTrackingEventBus();
     taskRepo = SqliteTaskRepository(taskBackend);
     tasks = _ControllableListTaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);

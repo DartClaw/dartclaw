@@ -9,13 +9,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        SqliteAgentExecutionRepository,
-        SqliteBackend,
-        SqliteSchemaGate,
-        SqliteTaskRepository,
-        openTaskDb,
-        TaskDbFactory;
+    show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository, openTaskDb, TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
@@ -103,8 +97,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       WorkflowRun? run;
       try {
         await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-        SqliteAgentExecutionRepository(taskDb);
-        final repository = SqliteWorkflowRunRepository(taskDb);
+        final repository = SqliteWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.

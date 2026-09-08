@@ -55,16 +55,16 @@ final class WorkflowServiceTestHarness {
     await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     eventBus = EventBus();
     final taskRepository = SqliteTaskRepository(taskBackend);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
     taskService = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       executionTransactor: executionTransactor,
       eventBus: eventBus,
     );
-    repository = SqliteWorkflowRunRepository(db);
+    repository = SqliteWorkflowRunRepository(taskBackend);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 

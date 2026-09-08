@@ -112,9 +112,9 @@ class StorageWiring {
       final taskDb = _taskDb = _taskDbFactory(config.tasksDbPath);
       final backend = SqliteBackend(taskDb);
       await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-      _agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: _eventBus);
-      _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
-      _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+      _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
+      _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
+      _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(backend);
       _taskRepository = SqliteTaskRepository(backend);
       if (personalMemoryEnabled) {
         _kg = TemporalKnowledgeGraphService(backend);
@@ -131,7 +131,7 @@ class StorageWiring {
         eventBus: _eventBus,
         eventRecorder: _taskEventRecorder,
       );
-      _workflowRunRepository = SqliteWorkflowRunRepository(taskDb);
+      _workflowRunRepository = SqliteWorkflowRunRepository(backend);
     } catch (e, st) {
       try {
         _searchDb?.close();

@@ -230,9 +230,11 @@ Business logic layer at `dartclaw_runtime/lib/src/task/task_service.dart`. Imple
 
 `TaskService.create()` creates or links an `AgentExecution` row in the same transaction as the task write when an execution row is required. `TaskService.get()` / `list()` hydrate the linked `AgentExecution` and `WorkflowStepExecution` rows through the joined storage query so dashboard/API consumers do not incur N+1 lookups for provider, session, or workflow-step metadata.
 
+`SqliteExecutionRepositoryTransactor` delegates to `DatabaseBackend.transaction`. Participating repositories share the same backend, so an action commits all its writes or rolls them back while preserving the original error. Unrelated seam operations wait until the action finishes; nested transactions reject with `NestedTransactionError`.
+
 Core operations:
-- **`create()`** — inserts task; when `autoStart=true`, transitions draft->queued and fires `TaskStatusChangedEvent`
-- **`transition()`** — applies lifecycle transition with optimistic locking, fires events, records to `TaskEventRecorder`
+- **`create()`** – inserts task; when `autoStart=true`, records the draft-to-queued event before publishing `TaskStatusChangedEvent`
+- **`transition()`** – applies the lifecycle transition with optimistic locking, awaits durable event recording, then publishes the status change
 - **`updateFields()`** — updates mutable fields on non-terminal tasks (sessionId, worktreeJson, configJson, etc.)
 - **`addArtifact()`** — attaches artifact row to a task
 

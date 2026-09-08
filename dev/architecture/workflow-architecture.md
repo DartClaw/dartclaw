@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.25.2 provider-probe parity and inline workspace output roots
+**Current through**: 0.26 workflow storage backend seam
 
 ---
 
@@ -574,6 +574,10 @@ The engine is intentionally simple. It does not attempt to be a general-purpose 
 ### Persistence
 
 Context is persisted atomically after each step, so a crash can resume from the last committed state instead of replaying from scratch.
+
+`SqliteWorkflowRunRepository` takes a prepared `DatabaseBackend`; it performs no schema initialization or legacy status repair. Wiring prepares the store before construction, and the workflow package has no production `sqlite3` dependency. Cursor JSON, worktree bindings and list ordering retain their stored contracts.
+
+Task, agent-execution and workflow-step writes share the same backend through `SqliteExecutionRepositoryTransactor`. The backend owns transaction serialization and rollback; the transactor adds no queue or transaction SQL.
 
 `stepStatusFromTask` is the single run-presentation projection shared by the workflow API, web detail page, SSE snapshot, and sidebar. Task-backed steps use their task lifecycle; taskless bash, aggregate, and approval steps use the step-owned status values inside the persisted `WorkflowContext.data` map. It also reads older flat run snapshots for compatibility.
 

@@ -89,6 +89,7 @@ Task _makeTask({
 void main() {
   late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late SqliteTaskRepository taskRepo;
   late EventBus eventBus;
   late TaskService tasks;
@@ -101,6 +102,8 @@ void main() {
   setUp(() async {
     taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = EventBus();
     taskRepo = SqliteTaskRepository(taskBackend);
     tasks = TaskService(taskRepo, eventBus: eventBus);
@@ -109,7 +112,12 @@ void main() {
     final def = _makeDefinition();
     definitions = InMemoryDefinitionSource([def]);
 
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.recordListCalls = true;
     workflows.startResult = _makeRun();
     workflows.getResult = _makeRun();

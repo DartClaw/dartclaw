@@ -352,10 +352,10 @@ final class WorkflowTaskExecutorTestContext {
     taskDb = sqlite3.openInMemory();
     taskBackend = SqliteBackend(taskDb);
     await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    agentExecutions = SqliteAgentExecutionRepository(taskDb);
-    workflowRuns = SqliteWorkflowRunRepository(taskDb);
-    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskDb);
-    executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
+    workflowRuns = SqliteWorkflowRunRepository(taskBackend);
+    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskBackend);
+    executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
     // Replace the harness's simple TaskService with one backed by the shared DB
     // (needed for workflow repo joins). tasksDispose in tearDown handles lifecycle.
     _harness.tasks = TaskService(

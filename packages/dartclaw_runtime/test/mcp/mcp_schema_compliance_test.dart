@@ -27,7 +27,6 @@ import 'package:dartclaw_runtime/src/workspace/workspace_path_guard.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show InMemorySessionService, InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../api/workflow_test_support.dart';
@@ -98,7 +97,7 @@ void main() {
         WorkflowRunTool(
           definitions: definitions,
           workflows: FakeWorkflowService(
-            db: sqlite3.openInMemory(),
+            backend: kgBackend,
             taskService: TaskService(InMemoryTaskRepository()),
             eventBus: EventBus(),
             dataDir: tempDir.path,

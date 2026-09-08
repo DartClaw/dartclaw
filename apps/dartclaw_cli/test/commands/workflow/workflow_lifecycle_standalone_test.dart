@@ -466,7 +466,9 @@ Future<WorkflowRunStatus?> statusOf(DartclawConfig config, String runId) async =
 Future<WorkflowRun?> runOf(DartclawConfig config, String runId) async {
   final db = openTaskDb(config.tasksDbPath);
   try {
-    return await SqliteWorkflowRunRepository(db).getById(runId);
+    final backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    return await SqliteWorkflowRunRepository(backend).getById(runId);
   } finally {
     db.close();
   }
@@ -520,7 +522,7 @@ Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {Workflo
     definitionJson: effectiveDefinition.toJson(),
     contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
   );
-  await SqliteWorkflowRunRepository(db).insert(run);
+  await SqliteWorkflowRunRepository(backend).insert(run);
   return (db: db, runId: run.id);
 }
 
@@ -547,7 +549,7 @@ Future<({Database db, String runId})> seedApprovalPaused() async {
       '_approval.pending.stepIndex': 0,
     },
   );
-  await SqliteWorkflowRunRepository(db).insert(run);
+  await SqliteWorkflowRunRepository(backend).insert(run);
   return (db: db, runId: run.id);
 }
 

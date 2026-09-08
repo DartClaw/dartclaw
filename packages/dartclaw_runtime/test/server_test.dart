@@ -214,9 +214,11 @@ void main() {
     final eventBus = EventBus();
     final taskBackend = await openPreparedTaskBackend();
     final workflowDb = sqlite3.openInMemory();
+    final workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     final tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
     final workflows = FakeWorkflowService(
-      db: workflowDb,
+      backend: workflowBackend,
       taskService: tasks,
       eventBus: eventBus,
       dataDir: tempDir.path,
@@ -444,10 +446,12 @@ void main() {
       );
       final taskBackend = await openPreparedTaskBackend();
       final workflowDb = sqlite3.openInMemory();
+      final workflowBackend = SqliteBackend(workflowDb);
+      await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
       final workflowEvents = EventBus();
       final workflowTasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: workflowEvents);
       final workflows = FakeWorkflowService(
-        db: workflowDb,
+        backend: workflowBackend,
         taskService: workflowTasks,
         eventBus: workflowEvents,
         dataDir: coreDataDir.path,

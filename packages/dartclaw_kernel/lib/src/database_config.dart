@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 /// Supported authoritative database engines.
 enum DatabaseBackendKind {
   /// Local SQLite files.
@@ -10,7 +12,13 @@ enum DatabaseBackendKind {
 /// Boot-time configuration for authoritative storage.
 final class DatabaseConfig {
   /// Creates database configuration.
-  const new({this.backend = DatabaseBackendKind.sqlite, this.url, this.credential, this.poolSize = 5});
+  const new({
+    this.backend = DatabaseBackendKind.sqlite,
+    this.url,
+    this.credential,
+    this.urlEnvVars = const [],
+    this.poolSize = 5,
+  });
 
   /// Default SQLite configuration.
   const new defaults() : this();
@@ -24,6 +32,9 @@ final class DatabaseConfig {
   /// Named credential containing a PostgreSQL connection URL.
   final String? credential;
 
+  /// Environment variables referenced by the persisted URL template.
+  final List<String> urlEnvVars;
+
   /// Maximum PostgreSQL pool size.
   final int poolSize;
 
@@ -34,8 +45,9 @@ final class DatabaseConfig {
           backend == other.backend &&
           url == other.url &&
           credential == other.credential &&
+          const ListEquality<String>().equals(urlEnvVars, other.urlEnvVars) &&
           poolSize == other.poolSize;
 
   @override
-  int get hashCode => Object.hash(backend, url, credential, poolSize);
+  int get hashCode => Object.hash(backend, url, credential, const ListEquality<String>().hash(urlEnvVars), poolSize);
 }

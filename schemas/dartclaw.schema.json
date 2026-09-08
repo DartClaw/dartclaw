@@ -1174,7 +1174,7 @@
           "type": "string"
         },
         "credential": {
-          "description": "Named credential containing the PostgreSQL connection URL. (restart required)",
+          "description": "Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI)",
           "type": [
             "null",
             "string"
@@ -1186,7 +1186,7 @@
           "type": "integer"
         },
         "url": {
-          "description": "PostgreSQL connection URL. Environment references are resolved when configuration loads. (restart required)",
+          "description": "PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI)",
           "type": [
             "null",
             "string"

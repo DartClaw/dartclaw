@@ -109,7 +109,14 @@ class CleanupCommand extends Command<void> {
         await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
         if (!File(config.dartclawDbPath).existsSync()) return false;
       }
-      final factory = _taskBackendFactory ?? databaseBackendFactoryFor(config.database, resolveDsn: resolveDatabaseDsn);
+      final factory =
+          _taskBackendFactory ??
+          databaseBackendFactoryFor(
+            config.database,
+            resolveDsn: (database) =>
+                resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
+            auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
+          );
       final backend = await factory(config.dartclawDbPath);
       try {
         await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));

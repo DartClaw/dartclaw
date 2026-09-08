@@ -24,12 +24,16 @@ class StorageWiring {
     this.personalMemoryEnabled = true,
     QmdManager Function()? qmdManagerFactory,
     CanonicalIndexReconciler? indexReconciler,
+    CredentialRegistry? credentialRegistry,
+    GuardAuditLogger? auditLogger,
   }) : _eventBus = eventBus,
        _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
        _exitFn = exitFn,
        _qmdManagerFactory = qmdManagerFactory,
-       _injectedIndexReconciler = indexReconciler;
+       _injectedIndexReconciler = indexReconciler,
+       _credentialRegistry = credentialRegistry ?? CredentialRegistry(credentials: config.credentials),
+       _auditLogger = auditLogger;
 
   final DartclawConfig config;
   final EventBus _eventBus;
@@ -39,6 +43,8 @@ class StorageWiring {
   final bool personalMemoryEnabled;
   final QmdManager Function()? _qmdManagerFactory;
   final CanonicalIndexReconciler? _injectedIndexReconciler;
+  final CredentialRegistry _credentialRegistry;
+  final GuardAuditLogger? _auditLogger;
 
   static final _log = Logger('StorageWiring');
 
@@ -109,7 +115,13 @@ class StorageWiring {
       if (config.database.backend == DatabaseBackendKind.sqlite) {
         await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
       }
-      final factory = _taskBackendFactory ?? databaseBackendFactoryFor(config.database, resolveDsn: resolveDatabaseDsn);
+      final factory =
+          _taskBackendFactory ??
+          databaseBackendFactoryFor(
+            config.database,
+            resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
+            auditLogger: _auditLogger,
+          );
       final backend = _taskBackend = await factory(config.dartclawDbPath);
       await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
       _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
@@ -467,13 +479,55 @@ class StorageWiring {
   }
 }
 
-/// Resolves a database URL or refuses the not-yet-wired credential reference.
-String resolveDatabaseDsn(DatabaseConfig database) {
+/// Resolves one configured database reference without opening a connection.
+({String dsn, String credentialRef}) resolveDatabaseDsn(DatabaseConfig database, {CredentialRegistry? credentials}) {
   final url = database.url;
-  if (url != null) return url;
+  final credential = database.credential;
+  if (url != null && credential != null) {
+    throw StorageConnectionException(
+      operation: 'resolve database credential',
+      guidance: 'Configure exactly one of database.url or database.credential.',
+    );
+  }
+  if (url != null) {
+    final reference = database.urlEnvVars.isEmpty ? 'database.url' : database.urlEnvVars.join(', ');
+    if (url.trim().isEmpty) {
+      throw StorageConnectionException(
+        operation: 'resolve database credential',
+        databaseIdentity: reference,
+        guidance: 'Set the referenced environment variable before starting DartClaw.',
+      );
+    }
+    return (dsn: url, credentialRef: reference);
+  }
+  if (credential != null) {
+    final entry = credentials?.namedEntry(credential);
+    if (entry == null) {
+      throw StorageConnectionException(
+        operation: 'resolve database credential',
+        databaseIdentity: credential,
+        guidance: 'Configure the named credential as a generic api_key entry.',
+      );
+    }
+    if (!entry.isApiKeyCredential) {
+      throw StorageConnectionException(
+        operation: 'resolve database credential',
+        databaseIdentity: credential,
+        guidance: 'Use a generic api_key credential for the PostgreSQL connection URL.',
+      );
+    }
+    if (entry.secret.trim().isEmpty) {
+      final variables = entry.envVars.isEmpty ? '' : ' Set ${entry.envVars.join(' or ')}.';
+      throw StorageConnectionException(
+        operation: 'resolve database credential',
+        databaseIdentity: credential,
+        guidance: 'The named credential resolves to an empty value.$variables',
+      );
+    }
+    return (dsn: entry.secret, credentialRef: credential);
+  }
   throw StorageConnectionException(
     operation: 'resolve database credential',
-    databaseIdentity: database.credential,
-    guidance: 'Named database credential resolution is not wired.',
+    guidance: 'Configure exactly one of database.url or database.credential.',
   );
 }

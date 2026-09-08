@@ -79,6 +79,34 @@ void main() {
     lease.complete();
     await expectLater(released, completes);
   });
+
+  test('TLS failures produce distinct safe connection guidance', () async {
+    const identity = 'db.example.com:5432/app';
+    const secret = 'DistinctiveP4ssword';
+    final cases = <({Object failure, String expected})>[
+      (
+        failure: Exception(
+          'HandshakeException: CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate $secret',
+        ),
+        expected: 'certificate authority is not trusted',
+      ),
+      (
+        failure: Exception('HandshakeException: CERTIFICATE_VERIFY_FAILED: hostname mismatch $secret'),
+        expected: 'certificate verification failed',
+      ),
+    ];
+
+    for (final (:failure, :expected) in cases) {
+      final policy = PostgresDispatchPolicy(identity, attemptLimit: 1);
+      final mapped = await _capture(
+        () => policy.run<void>('connect', (_) async => throw failure, timeoutMeansPoolExhausted: false),
+      );
+      expect(mapped, isA<StorageConnectionException>());
+      expect('$mapped', contains(expected));
+      expect('$mapped', isNot(contains(secret)));
+      expect('$mapped', isNot(contains('CERTIFICATE_VERIFY_FAILED')));
+    }
+  });
 }
 
 Future<Object> _capture(Future<void> Function() operation) async {

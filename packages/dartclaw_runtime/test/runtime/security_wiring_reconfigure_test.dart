@@ -35,6 +35,7 @@ void main() {
       eventBus: eventBus,
       exitFn: (code) => throw Exception('exitFn called with $code'),
       configNotifier: configNotifier,
+      auditLogger: GuardAuditLogger(dataDir: dataDir),
     );
   }
 

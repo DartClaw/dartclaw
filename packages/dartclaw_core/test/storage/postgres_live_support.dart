@@ -2,9 +2,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:postgres/postgres.dart';
 
-Future<T> withPostgresBackend<T>(Future<T> Function(PostgresBackend backend, String namespace) body) async {
+Future<T> withPostgresBackend<T>(
+  Future<T> Function(PostgresBackend backend, String namespace) body, {
+  GuardAuditLogger? auditLogger,
+  String credentialRef = 'DARTCLAW_TEST_POSTGRES_URL',
+}) async {
   final configured = Platform.environment['DARTCLAW_TEST_POSTGRES_URL'];
   if (configured == null || configured.isEmpty) {
     throw StateError('DARTCLAW_TEST_POSTGRES_URL is required');
@@ -16,7 +21,13 @@ Future<T> withPostgresBackend<T>(Future<T> Function(PostgresBackend backend, Str
   await admin.execute('CREATE SCHEMA "$namespace"');
   PostgresBackend? backend;
   try {
-    backend = await PostgresBackend.open(dsn: dsn, poolSize: 3, namespace: namespace);
+    backend = await PostgresBackend.open(
+      dsn: dsn,
+      poolSize: 3,
+      namespace: namespace,
+      auditLogger: auditLogger,
+      credentialRef: credentialRef,
+    );
     return await body(backend, namespace);
   } finally {
     await backend?.close();

@@ -8,10 +8,19 @@ import 'sqlite_schema_gate.dart';
 /// Selects the configured relational backend factory.
 DatabaseBackendFactory databaseBackendFactoryFor(
   DatabaseConfig database, {
-  required String Function(DatabaseConfig database) resolveDsn,
+  required ({String dsn, String credentialRef}) Function(DatabaseConfig database) resolveDsn,
+  GuardAuditLogger? auditLogger,
 }) => switch (database.backend) {
   DatabaseBackendKind.sqlite => SqliteBackend.open,
-  DatabaseBackendKind.postgres => (_) => PostgresBackend.open(dsn: resolveDsn(database), poolSize: database.poolSize),
+  DatabaseBackendKind.postgres => (_) {
+    final resolved = resolveDsn(database);
+    return PostgresBackend.open(
+      dsn: resolved.dsn,
+      credentialRef: resolved.credentialRef,
+      poolSize: database.poolSize,
+      auditLogger: auditLogger,
+    );
+  },
 };
 
 /// Prepares the authoritative schema on the selected backend.

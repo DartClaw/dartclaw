@@ -202,6 +202,32 @@ gateway:
       expect(gateway['token'], '***');
     });
 
+    test('database URL is masked while safe settings remain visible', () async {
+      const databaseUrl = 'postgresql://db.example.com/app';
+      writeConfigYaml('''
+database:
+  backend: postgres
+  url: $databaseUrl
+  pool_size: 7''');
+
+      final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
+
+      expect(json['database'], {'backend': 'postgres', 'url': '***', 'credential': null, 'poolSize': 7});
+      expect(jsonEncode(json), isNot(contains(databaseUrl)));
+    });
+
+    test('database credential reference remains visible', () async {
+      writeConfigYaml('''
+database:
+  backend: postgres
+  credential: database-main
+  pool_size: 7''');
+
+      final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
+
+      expect(json['database'], {'backend': 'postgres', 'url': null, 'credential': 'database-main', 'poolSize': 7});
+    });
+
     test('google chat inline service account is redacted in API response', () async {
       writeConfigYaml('''
 channels:

@@ -102,6 +102,12 @@ class ConfigSerializer {
         'identifierInstructions': config.context.identifierInstructions,
       },
       'search': {'backend': config.search.backend},
+      'database': {
+        'backend': config.database.backend.name,
+        'url': config.database.url == null ? null : '***',
+        'credential': config.database.credential,
+        'poolSize': config.database.poolSize,
+      },
       'guards': {
         'content': {
           'enabled': config.security.contentGuardEnabled,

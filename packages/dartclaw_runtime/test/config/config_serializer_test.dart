@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -229,6 +231,32 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], isNull);
+    });
+
+    test('database URL is masked while safe connection settings remain visible', () {
+      const databaseUrl = 'postgresql://runtime:ConfigSurfacePasswordX9@database.internal/dartclaw';
+      final config = const DartclawConfig(
+        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, url: databaseUrl, poolSize: 7),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final encoded = jsonEncode(json);
+
+      expect(json['database'], {'backend': 'postgres', 'url': '***', 'credential': null, 'poolSize': 7});
+      expect(encoded, isNot(contains('ConfigSurfacePasswordX9')));
+      expect(encoded, isNot(contains(databaseUrl)));
+    });
+
+    test('database credential exposes only its reference name', () {
+      final config = const DartclawConfig(
+        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'database-main', poolSize: 11),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+
+      expect(json['database'], {'backend': 'postgres', 'url': null, 'credential': 'database-main', 'poolSize': 11});
     });
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {

@@ -54,7 +54,13 @@ Future<SecurityWiring> wireTestSecurity({
   required EventBus eventBus,
   required Never Function(int) exitFn,
 }) async {
-  final security = SecurityWiring(config: config, dataDir: dataDir, eventBus: eventBus, exitFn: exitFn);
+  final security = SecurityWiring(
+    config: config,
+    dataDir: dataDir,
+    eventBus: eventBus,
+    exitFn: exitFn,
+    auditLogger: GuardAuditLogger(dataDir: dataDir),
+  );
   await security.wire(
     agentDefs: config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()],
   );

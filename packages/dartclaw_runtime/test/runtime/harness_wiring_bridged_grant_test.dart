@@ -65,7 +65,13 @@ const _unbridgedOwnMcpTools = {
 /// Authority acquisition is the only seam that sees the grant, and the real one
 /// needs Docker, so the grants are read here instead.
 class _GrantRecordingSecurityWiring extends SecurityWiring {
-  new({required super.config, required super.dataDir, required super.eventBus, required super.exitFn});
+  new({
+    required super.config,
+    required super.dataDir,
+    required super.eventBus,
+    required super.exitFn,
+    required super.auditLogger,
+  });
 
   final grants = <({String sessionId, String? taskId, Set<String> allowedMcpTools, String? artifactsDir})>[];
 
@@ -145,6 +151,7 @@ void main() {
       dataDir: tempDir.path,
       eventBus: eventBus,
       exitFn: _unexpectedExit,
+      auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
     final records = <LogRecord>[];
     final subscription = Logger('HarnessWiring').onRecord.listen(records.add);

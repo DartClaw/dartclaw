@@ -49,6 +49,7 @@ void main() {
     eventBus: eventBus,
     exitFn: _unexpectedExit,
     subscriptionCredentials: subscriptions,
+    auditLogger: GuardAuditLogger(dataDir: tempDir.path),
   );
 
   Map<String, CredentialEntry> storedClaudeToken([String token = _storedSetupToken]) => {

@@ -43,6 +43,39 @@ void main() {
       expect(registry.getApiKey('claude'), isNull);
     });
 
+    group('namedEntry', () {
+      test('returns the exact configured entry by name, including type and provenance', () {
+        const databaseEntry = CredentialEntry(
+          apiKey: 'postgresql://database.internal/dartclaw',
+          envVars: ['DARTCLAW_DATABASE_URL'],
+        );
+        const githubEntry = CredentialEntry.githubToken(token: 'github-token', repository: 'acme/repo');
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig(
+            entries: {'database-main': databaseEntry, 'database-github': githubEntry},
+          ),
+        );
+
+        expect(registry.namedEntry('database-main'), databaseEntry);
+        expect(registry.namedEntry('database-github'), githubEntry);
+      });
+
+      test('does not normalize names or use provider, environment, or subscription fallbacks', () {
+        final registry = CredentialRegistry(
+          credentials: const CredentialsConfig(
+            entries: {'anthropic': CredentialEntry(apiKey: 'configured-provider-key')},
+          ),
+          env: const {'CODEX_API_KEY': 'environment-provider-key'},
+          subscriptions: const {'claude': CredentialEntry.subscription(token: 'subscription-token')},
+        );
+
+        expect(
+          [registry.namedEntry('claude'), registry.namedEntry('codex'), registry.namedEntry('ANTHROPIC')],
+          [null, null, null],
+        );
+      });
+    });
+
     test('hasCredential returns true when API key available', () {
       final registry = CredentialRegistry(
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),

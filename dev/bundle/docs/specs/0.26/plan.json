@@ -357,10 +357,20 @@
       "dependsOn": [
         "S07"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s08-connection-security-credentials-redaction-tls-posture.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
+      "owner": "implementer_s08_security",
       "scope": "Encode FR6/FR7 on the dartclaw_kernel surfaces. database.url accepts an env-substituted DSN and database.credential references an existing generic credentials entry through CredentialRegistry; the fields are mutually exclusive, unresolved references fail by name, inline persisted passwords are rejected, both are readonly in the published schema. Extend the key-side MessageRedactor to DSN userinfo shapes across log, exception, audit, CLI (config serializer masking), malformed-DSN, and schema-bootstrap failure paths. Treat database.* as boot-time config. For non-loopback hosts omitted sslmode resolves to verify-full and explicit cleartext/disable refuses, distinguishing verification and untrusted-CA failures; loopback classification reuses the kernel isLoopbackHost predicate and retires HttpMcpTransport's private duplicate. Audit connection lifecycle through GuardAuditLogger as trusted host-side egress; warn on a superuser runtime role. Document administrator provisioning plus one runtime role.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr6-credential-reference-database-configuration",

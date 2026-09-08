@@ -2,18 +2,24 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:logging/logging.dart';
 import 'package:postgres/postgres.dart' as pg;
 
+import 'postgres_connection_posture.dart';
 import 'postgres_dispatch_policy.dart';
 import 'sql_placeholder_rewriter.dart';
 
 /// PostgreSQL implementation of the portable database contract.
 final class PostgresBackend implements DatabaseBackend {
-  new _(this._pool, this.databaseIdentity) : _policy = PostgresDispatchPolicy(databaseIdentity);
+  new _(this._pool, this.databaseIdentity, this._credentialRef, this._auditLogger)
+    : _policy = PostgresDispatchPolicy(databaseIdentity);
 
+  static final _log = Logger('PostgresBackend');
   final pg.Pool<void> _pool;
   final Object _transactionZoneKey = Object();
   final PostgresDispatchPolicy _policy;
+  final String _credentialRef;
+  final GuardAuditLogger? _auditLogger;
 
   /// Safe host, port, and database label.
   final String databaseIdentity;
@@ -21,65 +27,82 @@ final class PostgresBackend implements DatabaseBackend {
   bool _closed = false;
 
   /// Opens one bounded pool and verifies PostgreSQL 14 or newer.
-  static Future<PostgresBackend> open({required String dsn, required int poolSize, String? namespace}) async {
-    final uri = Uri.parse(dsn);
-    if (uri.host.isEmpty || poolSize <= 0) {
-      throw StorageConnectionException(
-        operation: 'connect',
-        guidance: 'Provide a valid PostgreSQL URL and positive pool size.',
-      );
+  static Future<PostgresBackend> open({
+    required String dsn,
+    required int poolSize,
+    String credentialRef = 'database.url',
+    String? namespace,
+    GuardAuditLogger? auditLogger,
+  }) async {
+    if (poolSize <= 0) {
+      throw StorageConnectionException(operation: 'connect', guidance: 'Provide a positive PostgreSQL pool size.');
     }
-    final database = uri.pathSegments.isEmpty || uri.pathSegments.first.isEmpty ? 'postgres' : uri.pathSegments.first;
-    if (namespace != null && !RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(namespace)) {
-      throw StorageConnectionException(operation: 'connect', guidance: 'Provide a valid PostgreSQL namespace.');
-    }
-    final identity = '${uri.host}:${uri.hasPort ? uri.port : 5432}/$database${namespace == null ? '' : '/$namespace'}';
-    final userInfo = uri.userInfo;
-    final separator = userInfo.indexOf(':');
-    final endpoint = pg.Endpoint(
-      host: uri.host,
-      port: uri.hasPort ? uri.port : 5432,
-      database: database,
-      username: userInfo.isEmpty
-          ? null
-          : Uri.decodeComponent(separator < 0 ? userInfo : userInfo.substring(0, separator)),
-      password: separator < 0 ? null : Uri.decodeComponent(userInfo.substring(separator + 1)),
-    );
-    final policy = PostgresDispatchPolicy(identity);
+    final posture = evaluatePostgresConnectionPosture(dsn, credentialRef: credentialRef, namespace: namespace);
+    final policy = PostgresDispatchPolicy(posture.databaseIdentity);
     final pool = pg.Pool<void>.withEndpoints(
-      [endpoint],
+      [posture.endpoint],
       settings: pg.PoolSettings(
         maxConnectionCount: poolSize,
         connectTimeout: policy.poolWaitCeiling,
         onOpen: namespace == null
             ? null
             : (connection) => connection.execute('SET search_path TO "$namespace"', queryMode: pg.QueryMode.simple),
-        sslMode: switch (uri.queryParameters['sslmode']) {
-          'disable' => pg.SslMode.disable,
-          'verify-ca' || 'verify-full' => pg.SslMode.verifyFull,
-          _ => pg.SslMode.require,
-        },
+        sslMode: posture.sslMode,
       ),
     );
+    var opened = false;
     try {
-      final version = await policy.run<int>('server version', (markDispatched) {
-        return _withBoundedLease(pool, policy.poolWaitCeiling, (connection) async {
-          markDispatched();
-          final result = await _driverExecute(connection, 'SHOW server_version_num');
-          return int.parse(result.single.single.toString());
-        });
-      }, timeoutMeansPoolExhausted: false);
+      final probe = await policy.run<pg.Result>(
+        'server version',
+        (markDispatched) {
+          return _withBoundedLease(pool, policy.poolWaitCeiling, (connection) async {
+            markDispatched();
+            return _driverExecute(
+              connection,
+              'SELECT current_setting(\'server_version_num\')::integer AS version, '
+              'rolsuper FROM pg_roles WHERE rolname = current_user',
+            );
+          });
+        },
+        timeoutMeansPoolExhausted: false,
+        passThrough: (error) => error is pg.ServerException,
+      );
+      final row = probe.single.toColumnMap();
+      final version = row['version'] as int;
       if (version < 140000) {
         throw StorageConnectionException(
           operation: 'server version',
-          databaseIdentity: identity,
+          databaseIdentity: posture.databaseIdentity,
           guidance: 'PostgreSQL 14 or newer is required.',
         );
       }
-      return PostgresBackend._(pool, identity);
-    } on Object {
-      await pool.close(force: true);
-      rethrow;
+      if (row['rolsuper'] == true) {
+        _log.warning(
+          'The PostgreSQL runtime role is a superuser. Use an administrator role for provisioning and one '
+          'least-privilege runtime role for DartClaw.',
+        );
+      }
+      await _writeAudit(auditLogger, posture, verdict: 'allow', decision: 'open');
+      opened = true;
+      return PostgresBackend._(pool, posture.databaseIdentity, posture.credentialRef, auditLogger);
+    } on pg.ServerException catch (error) {
+      if (!_isAuthenticationFailure(error.code)) rethrow;
+      await _writeAudit(auditLogger, posture, verdict: 'deny', decision: 'auth_failure');
+      throw StorageConnectionException(
+        operation: 'authenticate',
+        databaseIdentity: posture.databaseIdentity,
+        guidance: 'Check the configured PostgreSQL credential reference and role access.',
+      );
+    } on StorageQueryException catch (error) {
+      if (!_isAuthenticationFailure(error.sqlState)) rethrow;
+      await _writeAudit(auditLogger, posture, verdict: 'deny', decision: 'auth_failure');
+      throw StorageConnectionException(
+        operation: 'authenticate',
+        databaseIdentity: posture.databaseIdentity,
+        guidance: 'Check the configured PostgreSQL credential reference and role access.',
+      );
+    } finally {
+      if (!opened) await pool.close(force: true);
     }
   }
 
@@ -146,6 +169,17 @@ final class PostgresBackend implements DatabaseBackend {
     }
     _closed = true;
     await _pool.close();
+    await _auditLogger?.writeEntry(
+      AuditEntry(
+        timestamp: DateTime.now(),
+        guard: 'DatabaseEgress',
+        hook: 'connection',
+        verdict: 'allow',
+        server: databaseIdentity,
+        decision: 'close',
+        credentialRef: _credentialRef,
+      ),
+    );
   }
 
   Future<pg.Result> _run(String operation, String sql, List<Object?> parameters) {
@@ -174,6 +208,27 @@ final class PostgresBackend implements DatabaseBackend {
   void _ensureOpen() {
     if (_closed) throw StateError('Database backend is closed');
   }
+}
+
+bool _isAuthenticationFailure(String? sqlState) => sqlState?.startsWith('28') ?? false;
+
+Future<void> _writeAudit(
+  GuardAuditLogger? logger,
+  PostgresConnectionPosture posture, {
+  required String verdict,
+  required String decision,
+}) async {
+  await logger?.writeEntry(
+    AuditEntry(
+      timestamp: DateTime.now(),
+      guard: 'DatabaseEgress',
+      hook: 'connection',
+      verdict: verdict,
+      server: posture.databaseIdentity,
+      decision: decision,
+      credentialRef: posture.credentialRef,
+    ),
+  );
 }
 
 final class _PostgresTransaction implements DatabaseBackend {

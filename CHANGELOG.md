@@ -22,7 +22,16 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   including aliases, shorthand forms and per-step-type fields. It is generated from the parser and validator's shared
   rule source, and the fitness harness rejects drift.
 
+- **PostgreSQL connection security posture** – an opt-in PostgreSQL URL resolves from one environment-substituted
+  `database.url` or named generic credential, stays masked on configuration surfaces, and is redacted from text.
+  Non-loopback connections with no `sslmode` use `verify-full`, explicit cleartext is refused, and connection lifecycle
+  audits carry only safe server identity and the credential reference. Startup warns when the runtime role is a
+  superuser and points operators to the two-role least-privilege model.
+
 ### Changed
+
+- **Outbound MCP plain-HTTP loopback exemption narrowed** – the shared literal rule now accepts only `localhost`,
+  `127.0.0.1`, and `::1`; other `127.0.0.0/8` addresses such as `127.0.0.2` require HTTPS when TLS is required.
 
 - **Core LOC ceiling rebaseline for PostgreSQL storage** – `dartclaw_core/lib` measures 28,475 Dart lines after
   integrating the bounded PostgreSQL pool backend, dispatch-boundary classifier and exact schema compatibility gate. The

@@ -19,6 +19,7 @@ DatabaseConfig _parseDatabase(
     },
   );
   final rawUrl = readString('url', map, warns);
+  final urlEnvVars = rawUrl == null ? const <String>[] : envReferences(rawUrl);
   final url = rawUrl == null ? null : envSubstitute(rawUrl, env: env);
   final credential = readString('credential', map, warns);
   final poolSize = readInt('pool_size', map, warns, defaultValue: defaults.poolSize) ?? defaults.poolSize;
@@ -26,14 +27,61 @@ DatabaseConfig _parseDatabase(
     warns.add('Invalid database.pool_size: must be positive');
   }
   if (backend == DatabaseBackendKind.postgres) {
-    if ((url == null || url.isEmpty) && (credential == null || credential.isEmpty)) {
+    final hasUrlReference = rawUrl != null && rawUrl.isNotEmpty;
+    final hasCredentialReference = credential != null && credential.isNotEmpty;
+    final persistedSecret = rawUrl == null ? null : _persistedDatabaseSecretShape(rawUrl);
+    if (persistedSecret != null) {
+      warns.add(
+        'Invalid database.url: persisted $persistedSecret is not allowed; use environment substitution or '
+        'database.credential',
+      );
+    } else if (!hasUrlReference && !hasCredentialReference) {
       warns.add('Invalid database.url/database.credential: postgres requires exactly one connection reference');
-    } else if (url != null && url.isNotEmpty && credential != null && credential.isNotEmpty) {
+    } else if (hasUrlReference && hasCredentialReference) {
       warns.add('Invalid database.url/database.credential: postgres accepts exactly one connection reference');
     }
   }
-  return DatabaseConfig(backend: backend, url: url, credential: credential, poolSize: poolSize);
+  return DatabaseConfig(backend: backend, url: url, credential: credential, urlEnvVars: urlEnvVars, poolSize: poolSize);
 }
+
+String? _persistedDatabaseSecretShape(String rawUrl) {
+  final authority = RegExp(
+    r'^postgres(?:ql)?://([^/?#]*)',
+    caseSensitive: false,
+  ).firstMatch(rawUrl.trimLeft())?.group(1);
+  if (authority != null) {
+    final at = authority.lastIndexOf('@');
+    final userInfo = at < 0 ? '' : authority.substring(0, at);
+    final separator = userInfo.indexOf(':');
+    if (separator >= 0 && _containsLiteralTemplateText(userInfo.substring(separator + 1))) {
+      return 'userinfo password';
+    }
+  }
+  final query = rawUrl.indexOf('?');
+  if (query >= 0) {
+    final fragment = rawUrl.indexOf('#', query);
+    final rawQuery = rawUrl.substring(query + 1, fragment < 0 ? rawUrl.length : fragment);
+    for (final pair in rawQuery.split('&')) {
+      final separator = pair.indexOf('=');
+      final rawKey = separator < 0 ? pair : pair.substring(0, separator);
+      final String key;
+      try {
+        key = Uri.decodeQueryComponent(rawKey);
+      } on FormatException {
+        return 'malformed query parameter';
+      } on ArgumentError {
+        return 'malformed query parameter';
+      }
+      if (key.toLowerCase() != 'password') continue;
+      final value = separator < 0 ? '' : pair.substring(separator + 1);
+      if (_containsLiteralTemplateText(value)) return 'password query parameter';
+    }
+  }
+  return null;
+}
+
+bool _containsLiteralTemplateText(String value) =>
+    value.replaceAll(RegExp(r'\$\{[A-Za-z_][A-Za-z0-9_]*\}'), '').isNotEmpty;
 
 SearchConfig _parseSearch(
   Map<String, dynamic> yaml,

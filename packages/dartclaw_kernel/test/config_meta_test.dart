@@ -324,6 +324,8 @@ void main() {
           // Secret material.
           'credentials',
           'search.providers',
+          'database.url',
+          'database.credential',
           // Guard enforcement, and the rule extensions the guard-editor
           // endpoints own writes to.
           'guards.enabled',
@@ -721,6 +723,7 @@ void main() {
           'providers.<id>.pool_size',
           'mcp_servers.<name>.<section>.<key>',
           'mcp_servers.<name>.url IPv4 octets',
+          'database.url delimiter positions',
           'governance.turn_limits duration and ordering checks',
           'agent.history.max_total_chars < max_message_chars',
         ]),
@@ -1102,6 +1105,17 @@ const _numericBoundResiduals = <String, _NumericBoundResidual>{
     reason: 'The 0..255 range validates segments inside a URL string and is not a numeric config field.',
     literalSites: [
       'config_parser_providers.dart|return value != null && value >= 0 && value <= 255 && value.toString() == octet;',
+    ],
+  ),
+  'database.url delimiter positions': (
+    reason: 'String delimiter positions detect persisted URL secrets; they are not numeric config-field bounds.',
+    literalSites: [
+      "config_parser_providers.dart|final userInfo = at < 0 ? '' : authority.substring(0, at);",
+      'config_parser_providers.dart|if (separator >= 0 && _containsLiteralTemplateText(userInfo.substring(separator + 1))) {',
+      'config_parser_providers.dart|if (query >= 0) {',
+      'config_parser_providers.dart|final rawQuery = rawUrl.substring(query + 1, fragment < 0 ? rawUrl.length : fragment);',
+      'config_parser_providers.dart|final rawKey = separator < 0 ? pair : pair.substring(0, separator);',
+      "config_parser_providers.dart|final value = separator < 0 ? '' : pair.substring(separator + 1);",
     ],
   ),
   'governance.turn_limits duration and ordering checks': (

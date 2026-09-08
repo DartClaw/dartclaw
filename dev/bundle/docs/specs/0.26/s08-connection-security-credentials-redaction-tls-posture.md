@@ -66,7 +66,7 @@ _Refreshed 2026-09-02 against released 0.25 (public HEAD `daf5125a`), after the 
 - **S03 [OC02,OC04] [TI02,TI06,TI07] [runtime] Failed PostgreSQL starts remain secret-free and are audited**
   - **Given** a DSN with a distinctive high-entropy user, password, host, and database name that (a) fails authentication, and (b) authenticates against a database whose schema the S07 gate refuses
   - **When** `dartclaw serve` starts through `DartclawRuntime.build`
-  - **Then** each start aborts before serving; captured stdout, stderr, the log formatter's output, the thrown exception's rendering, and the audit partition contain none of the distinctive values; (a) writes one `AuditEntry` with `decision: auth_failure`, the safe server identity (host, port, database), and `credentialRef` equal to the variable or credential name; (b) writes `open` then `close` and no `auth_failure`
+  - **Then** each start aborts before serving; captured stdout, stderr, the log formatter's output, the thrown exception's rendering, and the audit partition contain no userinfo, password, raw DSN, or unfiltered driver text; the host, port, and database remain permitted safe server identity; (a) writes one `AuditEntry` with `decision: auth_failure`, the safe server identity (host, port, database), and `credentialRef` equal to the variable or credential name; (b) writes `open` then `close` and no `auth_failure`
 
 - **S04 [OC03] [TI06] TLS posture is fail-closed outside literal loopback, before pool construction**
   - **Given** DSNs for `localhost`, `127.0.0.1`, `[::1]`, `db.example.com` with `sslmode` omitted; `db.example.com?sslmode=disable`; `localhost?sslmode=disable`; `db.example.com?sslmode=require`; `db.example.com?sslmode=verify-ca`; `db.example.com?sslmode=prefer`; `127.0.0.2` with `sslmode` omitted; a keyword/value string; and a missing-scheme string
@@ -88,7 +88,7 @@ _Refreshed 2026-09-02 against released 0.25 (public HEAD `daf5125a`), after the 
   - **Given** a loaded config with `database.url` set, and separately with `database.credential: database-main`
   - **When** `/api/config` is served and `dartclaw config show` renders it
   - **Then** `database.url` renders as `***` when set and `null` when unset, `database.credential` renders its name, `database.backend` and `database.poolSize` render their values, and the published schema marks `url` and `credential` read-only
-  - **Proof**: `packages/dartclaw_runtime/test/config/config_serializer_test.dart#gateway.token masked as "***" when non-null` – green – parity/regression (run 2026-09-02; the masking convention this story extends)
+  - **Proof**: `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/config/config_serializer_test.dart --plain-name 'gateway.token masked as "***" when non-null'` – green – parity/regression (run 2026-09-02; the masking convention this story extends)
 
 
 ## Structural Criteria
@@ -214,7 +214,7 @@ url    | https://pub.dev/packages/postgres/versions/3.5.12                      
 
 - **TI07** Connection lifecycle is audited as trusted host-side egress through one shared audit logger
   - Technical Overview #5: `PostgresBackend.open({dsn, poolSize, auditLogger})` additive parameter; `databaseBackendFactoryFor` threads it; the logger is constructed in `DartclawRuntime.build`/`stageHeadless` before `_wireStorage` and injected into `SecurityWiring`; CLI open sites construct one over the data dir. Depends on TI06.
-  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` – the wiring suites prove one logger instance reaches both storage and security and that security no longer constructs its own; the live suites prove scenarios S03 and S06: `open`/`close`/`auth_failure` entries with `guard: DatabaseEgress`, safe identity, and `credentialRef`, none of the distinctive fixture values anywhere in the partition, the log output, or the exception rendering, and a failing audit write aborts the open
+  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && ! rg -q "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` – the wiring suites prove one logger instance reaches both storage and security and that security no longer constructs its own; the live suites prove scenarios S03 and S06: `open`/`close`/`auth_failure` entries with `guard: DatabaseEgress`, safe identity, and `credentialRef`, none of the distinctive fixture values anywhere in the partition, the log output, or the exception rendering, and a failing audit write aborts the open
   - **SATISFIES**: S03, S06, SC03, SC06
 
 - **TI08** Startup warns once when the runtime role is a superuser
@@ -224,7 +224,7 @@ url    | https://pub.dev/packages/postgres/versions/3.5.12                      
 
 - **TI09** The security architecture documents the database egress posture and the two-role model
   - A "Database Connection Egress" subsection under `#credential-security` (or beside `#outbound-mcp-egress-boundary`): trusted host-side egress in the git-operations category, outside the agent guard chain; TLS posture per Technical Overview #3 including the loopback default and `verify-ca` upgrade, stating plainly that an explicit `sslmode=require` encrypts the connection but skips certificate verification (the driver's `SslMode.require` is `ignoreCertificateIssues`) and is accepted as an operator choice, with `verify-full` the recommendation; the outbound-MCP statement rewritten to say that the shared kernel predicate narrowed the plain-HTTP loopback exemption from `127.0.0.0/8` to `localhost`, `127.0.0.1`, `::1` (plan decision 2026-09-02, DECISION NOTE below); credential reference model and masking; lifecycle audit fields; administrator provisioning plus one least-privilege runtime role confined to the DartClaw schema, superuser warning, not enforced; "Current through" bumped. CHANGELOG `### Added` line for the posture and `### Changed` line from TI05. Depends on TI05–TI08 for accuracy.
-  - **Verify**: `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! rg -q "S0[0-9]|TI0[0-9]" dev/architecture/security-architecture.md CHANGELOG.md && git diff --check` – the section exists with the TLS default, the role model, and the audit description; the CHANGELOG carries both lines; no story or task IDs leaked; whitespace clean
+  - **Verify**: `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! git diff --unified=0 -- dev/architecture/security-architecture.md CHANGELOG.md | rg "^\+[^+]" | rg -q "S0[0-9]|TI0[0-9]" && git diff --check` – the section exists with the TLS default, the role model, and the audit description; the CHANGELOG carries both lines; no story or task IDs leaked; whitespace clean
   - **SATISFIES**: S06, SC04
 
 ### Testing Strategy
@@ -291,3 +291,35 @@ Evidence: plan decision 2026-09-02 recorded in `docs/specs/0.26/plan.json` share
 ### Run: 2026-09-08 17:06 UTC – observations
 
 Owner scheduling override: the updated Verify commands prove local implementation and compilation only. Live integration and Windows/platform acceptance remain PENDING at the final combined A+B gate. Original postponed commands are retained by the repair-proof observations and deferred-live-platform-proofs.json. Do not report those postponed behaviors or milestone release acceptance as passed from a local receipt. Named targeted scenario proofs, the driver feasibility spike and missing-DSN refusal checks remain runnable. Final full-suite evidence may cover duplicate/subset invocations only with explicit owner-to-result mapping; platform and contract-report variants remain distinct.
+
+### Run: 2026-09-08 20:22 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+
+S03’s prohibition on every distinctive value contradicted its required safe server identity and Technical Overview #5. Reconciled the assertion to forbid userinfo, passwords, raw DSNs, and unfiltered driver text while permitting the explicitly required host, port, and database identity. No additional diagnostic data is permitted.
+
+### Run: 2026-09-08 20:58 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI07 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && test "$(rg -c "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart | tr -d ' ')" = 0 && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart` → `cmd: dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/security_wiring_seam_integration_test.dart && ! rg -q "GuardAuditLogger\(" packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart && dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart`
+
+### Run: 2026-09-08 21:03 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI09 Verify target repaired | Stale targets: – | `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! rg -q "S0[0-9]|TI0[0-9]" dev/architecture/security-architecture.md CHANGELOG.md && git diff --check` → `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! git diff --unified=0 -- dev/architecture/security-architecture.md CHANGELOG.md | rg -q "^\\+[^+].*(S0[0-9]|TI0[0-9])" && git diff --check`
+
+### Run: 2026-09-08 21:03 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI09 Verify target repaired | Stale targets: – | `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! git diff --unified=0 -- dev/architecture/security-architecture.md CHANGELOG.md | rg -q "^\\+[^+].*(S0[0-9]|TI0[0-9])" && git diff --check` → `cmd: rg -q "Database Connection Egress" dev/architecture/security-architecture.md && rg -q "verify-full" dev/architecture/security-architecture.md && rg -q "superuser" dev/architecture/security-architecture.md && rg -q "loopback" CHANGELOG.md && ! git diff --unified=0 -- dev/architecture/security-architecture.md CHANGELOG.md | rg "^\+[^+]" | rg -q "S0[0-9]|TI0[0-9]" && git diff --check`
+
+### Run: 2026-09-08 21:27 UTC – observations
+
+#### DRIFT
+
+The S07 scenario selector contained literal quotes and asterisks that the legacy path#pattern runner converted into an invalid regular expression. It now runs the same exact test via an explicit --plain-name command. No test or assertion was removed.
+
+The fast tier required the two new readonly database fields in the exact registry inventory. Its numeric and enum text scans also detect URL delimiter indexes and the password query-key discriminator. These intrinsic string-syntax sites now carry explicit, exact residual rulings beside the existing IPv4/loopback syntax rulings; numeric config bounds still use FieldConstraints and the consumer allowlist is unchanged.

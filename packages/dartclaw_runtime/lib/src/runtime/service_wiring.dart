@@ -483,7 +483,7 @@ final class _WiringContext {
   final ResolvedAssets resolvedAssets;
   final String? builtInSkillsSourceDir;
   final MessageRedactor messageRedactor;
-
+  final GuardAuditLogger auditLogger;
   /// Dedicated subscription credential stores, read per use so a re-issued
   /// token reaches the next spawn or mediated request without a restart.
   final SubscriptionCredentialStore subscriptions;
@@ -513,7 +513,6 @@ final class _WiringContext {
 
   /// The credential overlay those registrations present, bound with them.
   Map<String, String>? Function(String, Map<String, String>)? registrarCredentialOverlay;
-
   new({
     required this.eventBus,
     required this.configNotifier,
@@ -524,7 +523,7 @@ final class _WiringContext {
     required this.messageRedactor,
     required this.subscriptions,
     required this.codexRefresh,
-  });
+  }) : auditLogger = GuardAuditLogger(dataDir: dataDir);
 
   void bindServer(DartclawServer server) => _serverRef = server;
   void bindTurns(TurnManager turns) => _serverTurns = turns;
@@ -941,6 +940,8 @@ class _RuntimeAssembly {
       eventBus: ctx.eventBus,
       searchBackendFactory: searchBackendFactory,
       taskBackendFactory: taskBackendFactory,
+      credentialRegistry: _credentialRegistry(ctx),
+      auditLogger: ctx.auditLogger,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
     );
@@ -967,6 +968,7 @@ class _RuntimeAssembly {
       platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
+      auditLogger: ctx.auditLogger,
       subscriptionCredentials: ctx.subscriptions.readAll,
       codexRefresh: ctx.codexRefresh,
       // Primary authority acquisition precedes composition; harness startup

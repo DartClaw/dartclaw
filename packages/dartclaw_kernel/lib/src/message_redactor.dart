@@ -5,13 +5,14 @@ import 'package:logging/logging.dart';
 /// Regex-based redaction for outbound text across all output paths.
 ///
 /// Built-in patterns cover common secret types (API keys, AWS credentials,
-/// Bearer tokens, PEM blocks, generic secrets). Custom patterns can be added
-/// via [extraPatterns].
+/// Bearer tokens, PEM blocks, PostgreSQL userinfo, generic secrets). Custom
+/// patterns can be added via [extraPatterns].
 ///
 /// Secret assignments preserve their label and replace the value with `***`.
 /// A secret-shaped key redacts its value unconditionally — prose that follows
 /// such a key on the same line is over-redacted by design, because deciding
 /// where the secret ends and the prose begins cannot be done safely.
+/// PostgreSQL userinfo is fully masked while retaining its scheme and host.
 /// Other matches use proportional reveal: `min(matchLength / 2, 8)` characters
 /// preserved + `***`. PEM blocks are fully replaced with `[REDACTED]`.
 ///
@@ -72,7 +73,7 @@ class MessageRedactor {
     'tokens',
   };
 
-  List<({RegExp pattern, bool isPem})> _compiled;
+  List<({RegExp pattern, bool isDsnUserinfo, bool isPem})> _compiled;
 
   /// Creates a redactor with built-in patterns plus optional [extraPatterns].
   ///
@@ -89,6 +90,15 @@ class MessageRedactor {
       return words.length == 1 || !_tokenMeasurementPrefixes.contains(words[words.length - 2]);
     }
     if (_secretNouns.contains(last)) return true;
+    if ((last == 'url' || last == 'dsn') && words.length > 1 && words[words.length - 2] == 'database') {
+      return true;
+    }
+    if (last == 'string' &&
+        words.length > 2 &&
+        words[words.length - 2] == 'connection' &&
+        words[words.length - 3] == 'database') {
+      return true;
+    }
     return (last == 'key' || last == 'keys') &&
         words.length > 1 &&
         (words.contains('api') ||
@@ -104,8 +114,8 @@ class MessageRedactor {
     _log.info('MessageRedactor patterns recompiled (${extraPatterns.length} extra patterns)');
   }
 
-  static List<({RegExp pattern, bool isPem})> _compilePatterns(List<String> extra) {
-    final result = <({RegExp pattern, bool isPem})>[];
+  static List<({RegExp pattern, bool isDsnUserinfo, bool isPem})> _compilePatterns(List<String> extra) {
+    final result = <({RegExp pattern, bool isDsnUserinfo, bool isPem})>[];
 
     // Built-in patterns (order: PEM first for multi-line, then specific, then generic).
     const builtins = <({String pattern, bool isPem, bool caseSensitive, bool dotAll})>[
@@ -131,13 +141,25 @@ class MessageRedactor {
     ];
 
     for (final b in builtins) {
-      result.add((pattern: RegExp(b.pattern, caseSensitive: b.caseSensitive, dotAll: b.dotAll), isPem: b.isPem));
+      result.add((
+        pattern: RegExp(b.pattern, caseSensitive: b.caseSensitive, dotAll: b.dotAll),
+        isDsnUserinfo: false,
+        isPem: b.isPem,
+      ));
+    }
+
+    for (final pattern in [
+      // Group 1 is the safe scheme or boundary prefix retained by redact().
+      r'(postgres(?:ql)?://)[^\s/@:]+:[^\s/]*@(?=[^@/\s?#]+(?:[/\s?#]|$))',
+      r'(^|[^A-Za-z0-9._%+-])(?:[A-Za-z0-9._%+-]+):[^\s/]*@(?=(?:localhost|127\.0\.0\.1|\[?::1\]?|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?::[0-9]+)?(?:[/\s?#]|$))',
+    ]) {
+      result.add((pattern: RegExp(pattern, caseSensitive: false, multiLine: true), isDsnUserinfo: true, isPem: false));
     }
 
     // Extra patterns from config.
     for (final raw in extra) {
       try {
-        result.add((pattern: RegExp(raw), isPem: false));
+        result.add((pattern: RegExp(raw), isDsnUserinfo: false, isPem: false));
       } on FormatException catch (e) {
         _log.warning('Invalid extra redact pattern "$raw": $e');
       }
@@ -187,6 +209,8 @@ class MessageRedactor {
       for (final entry in _compiled) {
         if (entry.isPem) {
           result = result.replaceAll(entry.pattern, '[REDACTED]');
+        } else if (entry.isDsnUserinfo) {
+          result = result.replaceAllMapped(entry.pattern, (match) => '${match.group(1)}***@');
         } else {
           result = result.replaceAllMapped(entry.pattern, _proportionalReveal);
         }

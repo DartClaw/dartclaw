@@ -39,6 +39,7 @@ void main() {
       dataDir: tempDir.path,
       eventBus: eventBus,
       exitFn: (code) => throw Exception('exitFn called with $code'),
+      auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
     await wiring.wire(agentDefs: const []);
     return wiring;

@@ -83,17 +83,17 @@ final class PostgresDispatchPolicy {
           await Future<void>.delayed(_retryDelay);
           continue;
         }
-        if (!dispatched) throw _connection(operation);
+        if (!dispatched) throw _connection(operation, error);
         throw _unknown(operation);
       }
     }
     throw _connection(operation);
   }
 
-  StorageConnectionException _connection(String operation) => StorageConnectionException(
+  StorageConnectionException _connection(String operation, [Object? error]) => StorageConnectionException(
     operation: operation,
     databaseIdentity: databaseIdentity,
-    guidance: 'Check database availability and configuration before retrying.',
+    guidance: _tlsFailureGuidance(error) ?? 'Check database availability and configuration before retrying.',
   );
 
   StorageUnknownOutcomeException _unknown(String operation) => StorageUnknownOutcomeException(
@@ -101,4 +101,17 @@ final class PostgresDispatchPolicy {
     databaseIdentity: databaseIdentity,
     guidance: 'Verify database state before retrying this operation.',
   );
+}
+
+String? _tlsFailureGuidance(Object? error) {
+  if (error == null) return null;
+  final text = error.toString().toLowerCase();
+  if (!text.contains('certificate') && !text.contains('handshake')) return null;
+  if (text.contains('unknown ca') ||
+      text.contains('self signed') ||
+      text.contains('unable to get local issuer') ||
+      text.contains('unable to verify the first certificate')) {
+    return 'The PostgreSQL certificate authority is not trusted. Install a certificate issued by the platform trust store.';
+  }
+  return 'PostgreSQL TLS certificate verification failed. Check the certificate hostname and validity period.';
 }

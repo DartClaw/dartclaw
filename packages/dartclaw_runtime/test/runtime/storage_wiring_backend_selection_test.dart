@@ -14,6 +14,83 @@ void main() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  test('resolves URL and named credential references with safe provenance', () {
+    final registry = CredentialRegistry(
+      credentials: const CredentialsConfig(
+        entries: {'database-main': CredentialEntry(apiKey: 'postgresql://user:password@db.example.com/app')},
+      ),
+    );
+
+    expect(
+      resolveDatabaseDsn(
+        const DatabaseConfig(
+          backend: DatabaseBackendKind.postgres,
+          url: 'postgresql://user:password@db.example.com/app',
+          urlEnvVars: ['DARTCLAW_DATABASE_URL'],
+        ),
+        credentials: registry,
+      ),
+      (dsn: 'postgresql://user:password@db.example.com/app', credentialRef: 'DARTCLAW_DATABASE_URL'),
+    );
+    expect(
+      resolveDatabaseDsn(
+        const DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'database-main'),
+        credentials: registry,
+      ),
+      (dsn: 'postgresql://user:password@db.example.com/app', credentialRef: 'database-main'),
+    );
+  });
+
+  test('unavailable references fail by name without exposing credential values', () {
+    const secret = 'DistinctiveP4ssword';
+    final cases = <({DatabaseConfig database, CredentialRegistry registry, String reference})>[
+      (
+        database: const DatabaseConfig(
+          backend: DatabaseBackendKind.postgres,
+          url: '',
+          urlEnvVars: ['DARTCLAW_DATABASE_URL'],
+        ),
+        registry: CredentialRegistry(credentials: const CredentialsConfig.defaults()),
+        reference: 'DARTCLAW_DATABASE_URL',
+      ),
+      (
+        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'missing-database'),
+        registry: CredentialRegistry(credentials: const CredentialsConfig.defaults()),
+        reference: 'missing-database',
+      ),
+      (
+        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'wrong-type'),
+        registry: CredentialRegistry(
+          credentials: const CredentialsConfig(entries: {'wrong-type': CredentialEntry.githubToken(token: secret)}),
+        ),
+        reference: 'wrong-type',
+      ),
+      (
+        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'empty-database'),
+        registry: CredentialRegistry(
+          credentials: const CredentialsConfig(
+            entries: {
+              'empty-database': CredentialEntry(apiKey: '', envVars: ['DATABASE_SECRET']),
+            },
+          ),
+        ),
+        reference: 'empty-database',
+      ),
+    ];
+
+    for (final (:database, :registry, :reference) in cases) {
+      expect(
+        () => resolveDatabaseDsn(database, credentials: registry),
+        throwsA(
+          isA<StorageConnectionException>()
+              .having((error) => '$error', 'message', contains(reference))
+              .having((error) => '$error', 'message', isNot(contains(secret))),
+        ),
+        reason: reference,
+      );
+    }
+  });
+
   for (final database in [const DatabaseConfig(), const DatabaseConfig(backend: DatabaseBackendKind.sqlite)]) {
     test('sqlite selection keeps canonical paths for $database', () async {
       final config = DartclawConfig(

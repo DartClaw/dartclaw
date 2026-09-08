@@ -100,6 +100,7 @@ const _membershipResidualReasons = <String, String>{
   'top-level config key acceptance': 'The registry-derived acceptance sweep owns top-level membership.',
   'recognized model advisory': 'Model recognition is advisory and has no closed operator-facing enum.',
   'search.qmd.host syntax': 'Loopback-host syntax is a semantic string constraint, not an enum.',
+  'database.url syntax': 'A URL password query key identifies secret material; it is not an enum config field.',
   'providers.<id>.*': 'The values belong to the providers entry shape.',
   'mcp_servers.<id>.network_class': 'The value belongs to the MCP servers entry shape.',
   'harness.acp.agents.<id>.*': 'The values belong to an out-of-package ACP entry shape.',
@@ -178,6 +179,7 @@ const _membershipLiteralResiduals = <String, List<String>>{
   'tasks.completion_action': [
     "config_parser.dart|if (trimmedCompletionAction == 'review' || trimmedCompletionAction == 'accept') {",
   ],
+  'database.url syntax': ["config_parser_providers.dart|if (key.toLowerCase() != 'password') continue;"],
   'search.qmd.host syntax': [
     "config_parser_providers.dart|if (normalized == '[::1]') normalized = '::1';",
     "config_parser_providers.dart|if (normalized == 'localhost' || normalized == '::1') return normalized;",
@@ -270,7 +272,7 @@ void _registerConfigMembershipDispositionTests() {
       }
     }
     expect(_derivedMembershipDeclarations, hasLength(21));
-    expect(_membershipResiduals, hasLength(18));
+    expect(_membershipResiduals, hasLength(19));
     expect(_membershipResidualReasons.values, everyElement(isNotEmpty));
     final ruled = _registryDispositions.expand((section) => section.keys).toList();
     expect(ruled, unorderedEquals(ruled.toSet()), reason: 'a path carries more than one disposition');

@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.25.2 dedicated Codex capability mirror and workflow tool-policy corrections; 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
+**Current through**: 0.26 PostgreSQL connection security posture and literal-loopback unification; 0.25.2 dedicated Codex capability mirror and workflow tool-policy corrections; 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
 
 ---
 
@@ -207,10 +207,11 @@ Known limitation: outbound tools reached through the live `/mcp` adapter current
 until then, incident review should treat these adapter-originated audit rows as runtime-owned outbound activity, not a
 precise end-user session trace.
 
-HTTP outbound MCP dispatch requires HTTPS by default; the sole exception is a literal loopback host (`localhost`,
-`127.0.0.0/8`, `[::1]`), where plain HTTP is permitted since the traffic never leaves the machine. The loopback match
-is literal-only – no DNS resolution – so a hostname that resolves to loopback still fails closed (no rebinding
-bypass). A plain-HTTP loopback endpoint is unauthenticated: a configured `credential` travels in cleartext, and on a
+HTTP outbound MCP dispatch requires HTTPS by default. Its plain-HTTP exception uses the shared kernel literal-loopback
+predicate and accepts only `localhost`, `127.0.0.1`, and `::1` (`[::1]` in a URL). This narrows the earlier
+IPv4 loopback-block exemption; `127.0.0.2` no longer qualifies. The match performs no DNS resolution, so a hostname that
+resolves to loopback still fails closed and cannot bypass the rule through rebinding. A plain-HTTP loopback endpoint
+is unauthenticated: a configured `credential` travels in cleartext, and on a
 multi-user host another local user can bind the port first and capture both the token and the tool traffic. The
 runtime logs a warning when a credential is dispatched over plain HTTP; prefer a stdio (`command`) server, or verified
 TLS, when that threat is in scope. For `network_class: public`, the transport applies the same
@@ -654,6 +655,54 @@ overlays a same-named YAML credential on every load and reload. `dartclaw secret
 value-free; it reports literals, unresolved references, shadowed entries, orphans, and loose file or directory modes,
 and its read-only open does not create a missing store.
 
+### Database Connection Egress
+
+A PostgreSQL connection is trusted host-side egress in the same category as a git operation. The storage layer opens
+it from operator configuration; agent tools cannot select its destination or dispatch queries through it. It therefore
+sits outside the agent `EgressGuard` chain.
+
+An active PostgreSQL configuration accepts exactly one connection reference:
+
+- `database.url` containing an environment-substituted DSN, normally `${DARTCLAW_DATABASE_URL}`; or
+- `database.credential` naming an existing generic API-key `CredentialEntry` whose resolved secret is the DSN.
+
+An inline password in persisted `database.url`, both references, or neither reference is refused during configuration
+load. An unset environment variable and an absent, empty, or wrong-typed named credential fail by reference name before
+any connection attempt. The resolved DSN stays in memory. `/api/config` and `dartclaw config show` render a configured
+URL as `***` while leaving the credential reference name visible. Typed storage exceptions and database audit entries
+are composed from allow-listed safe fields, and `MessageRedactor` covers URI, missing-scheme, keyword/value, and
+assignment-form DSNs as defense in depth.
+
+The connection posture is evaluated before a pool or socket is created. Only `postgres` and `postgresql` URI forms are
+accepted. For a non-loopback host, omitted `sslmode`, `verify-full`, and `verify-ca` all use full certificate and
+hostname verification; `verify-ca` is deliberately upgraded because the driver has no separate verification mode.
+An explicit `sslmode=disable` is refused. An explicit `sslmode=require` is accepted as an operator choice, but it
+encrypts the connection while skipping certificate verification, so `verify-full` remains the recommendation.
+
+Loopback classification uses the same literal-only kernel predicate as outbound MCP: `localhost`, `127.0.0.1`, and
+`::1` only. With no `sslmode`, those hosts keep the driver's encrypted `require` default; an explicit `disable` is
+allowed for a local server without TLS. DNS aliases and other `127.0.0.0/8` addresses do not receive the exemption.
+Certificate-chain trust failures and hostname or certificate-validity failures surface as separate safe errors; raw
+driver text is discarded.
+
+Lifecycle records use `GuardAuditLogger` with these fields:
+
+| Transition | `guard` | `hook` | `verdict` | `decision` |
+|------------|---------|--------|-----------|------------|
+| Open | `DatabaseEgress` | `connection` | `allow` | `open` |
+| Close | `DatabaseEgress` | `connection` | `allow` | `close` |
+| Authentication failure | `DatabaseEgress` | `connection` | `deny` | `auth_failure` |
+
+Each record carries only the safe server identity (`host:port/database`) and `credentialRef`; it never carries the DSN,
+userinfo, password, or raw driver text. An audit-write failure while opening the connection aborts the open.
+
+Use two PostgreSQL roles: an elevated administrator provisions the database, runtime role, and DartClaw-owned schema;
+one least-privilege runtime role then connects and may create and use the current release's objects only inside that
+schema. DartClaw does not switch roles or require a second application credential. Startup warns once when the runtime
+role is a superuser and continues; the model is guidance, not enforcement.
+
+**Source**: `packages/dartclaw_kernel/lib/src/database_config.dart`, `packages/dartclaw_kernel/lib/src/credential_registry.dart`, `packages/dartclaw_core/lib/src/storage/postgres_connection_posture.dart`, `packages/dartclaw_core/lib/src/storage/postgres_backend.dart`, `packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart`
+
 The host `~/.claude.json` is not mounted anywhere, and the containerized Codex home is still never seeded (below).
 
 > **Open pre-ship gate.** The raw-Bearer `setup-token` wire check
@@ -902,6 +951,7 @@ Regex-based redaction for outbound text across all output paths. Catches secrets
 | AWS Access Key ID | `AKIA` + 16 chars |
 | AWS Secret Access Key | `aws_secret_access_key = ...` |
 | Authorization headers | Basic, Bearer, Negotiate, Digest, and AWS4-HMAC-SHA256 credentials |
+| PostgreSQL DSNs | URI and missing-scheme userinfo, plus database URL, DSN, connection-string, and password assignments |
 | Generic secrets | `api_key: ...`, `secret = ...`, `token: ...`, `password = ...` |
 
 **Redaction strategy**: Credential assignments preserve their labels and replace values with `***`; quoted JSON values and

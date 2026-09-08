@@ -139,7 +139,7 @@ class SchedulingWiring {
     final sessions = _storage.sessions;
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
-    final memory = _storage.memory;
+    final memoryIndex = _storage.memoryIndex;
 
     // Mutable display list for scheduling UI. Starts as a copy of raw config
     // maps, excluding task-type entries (those appear in scheduledTasks section).
@@ -206,7 +206,7 @@ class SchedulingWiring {
     if (config.memory.pruningEnabled) {
       final pruner = _memoryPruner = MemoryPruner(
         workspaceDir: config.workspaceDir,
-        memoryService: memory,
+        memoryIndex: memoryIndex,
         archiveAfterDays: config.memory.archiveAfterDays,
         corpusService: _storage.memoryCorpus,
       );
@@ -472,10 +472,7 @@ class SchedulingWiring {
       workspaceDir: config.workspaceDir,
       config: config,
       kvService: kvService,
-      searchIndexCounter: (role) {
-        final result = _storage.searchDb!.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE role = ?', [role]);
-        return result.first['cnt'] as int;
-      },
+      searchIndexCounter: (role) => _storage.memoryIndex.count(userId: 'owner', metadata: {'role': role}),
       indexHealthReader: () async {
         final manifest = await _storage.memoryCorpus.manifest();
         return _storage.indexHealth.read(

@@ -355,7 +355,7 @@ class HarnessWiring {
         corpusService: memoryCorpus,
       );
       _memoryHandlers = createMemoryHandlers(
-        memory: _storage.memory,
+        memoryIndex: _storage.memoryIndex,
         memoryFile: _storage.memoryFile,
         corpusService: memoryCorpus,
         searchBackend: _storage.searchBackend,

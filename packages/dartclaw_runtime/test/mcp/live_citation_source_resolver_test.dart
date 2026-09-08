@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import '../helpers/search_index_test_support.dart';
+
 void main() {
   test('reopens role-discriminated canonical and native locators independently of search results', () async {
     final workspace = Directory.systemTemp.createTempSync('citation_resolver_');
@@ -19,14 +21,14 @@ void main() {
       taskDb.close();
       workspace.deleteSync(recursive: true);
     });
-    final memory = MemoryService(searchDb);
+    final memory = await prepareMemoryIndex(searchDb);
     final wiki = WikiSearchSource(workspaceDir: workspace.path);
     final search = ComposedSearchBackend(
-      personal: Fts5SearchBackend(memoryService: memory),
+      personal: Fts5SearchBackend(index: memory),
       wiki: wiki,
     );
     final handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: MemoryFileService(baseDir: workspace.path, corpusService: corpus),
       corpusService: corpus,
       searchBackend: search,

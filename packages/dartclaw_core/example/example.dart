@@ -34,16 +34,18 @@ void main() async {
   }
 
   final db = openSearchDbInMemory();
-  final memory = MemoryService(db);
-  final backend = Fts5SearchBackend(memoryService: memory);
-  memory.rebuildIndex([
-    MemoryIndexRow(
-      text: 'DartClaw uses a Dart runtime for agent orchestration.',
-      source: 'README.md',
-      category: 'architecture',
-      createdAt: DateTime.now(),
+  final databaseBackend = SqliteBackend(db);
+  await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'example search.db');
+  final index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
+  final backend = Fts5SearchBackend(index: index);
+  await index.replaceAll([
+    SearchDocument(
+      id: 'README.md',
+      chunks: const ['DartClaw uses a Dart runtime for agent orchestration.'],
+      metadata: const {'source': 'README.md', 'category': 'architecture', 'role': 'memory', 'provenance': 'unknown'},
+      timestamp: DateTime.now(),
     ),
-  ]);
+  ], userId: 'owner');
   final hits = await backend.search('agent orchestration');
   print('Memory hits: ${hits.length}');
   db.close();

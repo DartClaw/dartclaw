@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import '../storage/memory_service.dart';
 import 'composed_search_backend.dart';
 import 'fts5_search_backend.dart';
 import 'qmd_manager.dart';
@@ -10,14 +9,14 @@ import 'wiki_search_source.dart';
 /// Creates a [SearchBackend] based on the configured backend type.
 SearchBackend createSearchBackend({
   required String backend,
-  required MemoryService memoryService,
+  required FullTextIndex index,
   QmdManager? qmdManager,
   String defaultDepth = 'standard',
   String? workspaceDir,
   SearchIndexHealthProbe? indexHealthProbe,
 }) {
   final wikiSearch = workspaceDir == null ? null : WikiSearchSource(workspaceDir: workspaceDir);
-  final fts5 = Fts5SearchBackend(memoryService: memoryService);
+  final fts5 = Fts5SearchBackend(index: index);
 
   late final SearchBackend personal;
   if (backend == 'qmd' && qmdManager != null) {

@@ -49,7 +49,7 @@ class RebuildIndexCommand extends Command<void> {
       final health = IndexHealthStore(workspaceDir: config.workspaceDir);
       final reconciler =
           _indexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: health);
-      Stream<List<MemoryIndexRow>> rows() async* {
+      Stream<List<SearchDocument>> documents() async* {
         for (final path in manifest.paths) {
           if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
           final selection = await corpusService.selectPaths([path]);
@@ -57,12 +57,12 @@ class RebuildIndexCommand extends Command<void> {
               selection.fingerprint != manifest.fingerprint) {
             throw StateError('Canonical memory changed during index reconciliation');
           }
-          yield MemoryService.canonicalIndexRows(selection.corpus);
+          yield MemoryIndexProjection.documents(selection.corpus);
         }
       }
 
       final result = await reconciler.reconcileBatched(
-        rowBatches: rows,
+        rowBatches: documents,
         canonicalRevision: manifest.collectionRevision,
         canonicalFingerprint: manifest.fingerprint,
         authenticateComplete: () => corpusService.authenticate(manifest),

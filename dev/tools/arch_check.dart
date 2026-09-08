@@ -120,13 +120,18 @@ int _maxCeilingFor(int loc) {
 //   compatibility gate adds required-object manifests, transactional bootstrap,
 //   marker-only adoption and derived-index rebuild/refusal while retiring the
 //   temporal-KG and memory-index additive repairs.
+//
+// Reviewed necessity, 2026-09-08 (ADR-045):
+//   dartclaw_core 27812 -> 27943 (measured 27943, no headroom). The generic
+//   full-text port moves SQLite search behind DatabaseBackend, retains exact
+//   canonical document validation in the reconciler and deletes MemoryService.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 27812,
+  'dartclaw_core': 27943,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,

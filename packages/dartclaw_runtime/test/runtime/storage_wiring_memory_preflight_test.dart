@@ -196,7 +196,10 @@ void main() {
 
     await wiring.wire();
 
-    expect(wiring.memory.search('Unique startup').single.text, contains('recovery fact'));
+    expect(
+      (await wiring.memoryIndex.search('Unique startup', userId: 'owner')).single.chunk,
+      contains('recovery fact'),
+    );
     final snapshot = await wiring.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
     final health = await wiring.indexHealth.read(
       canonicalRevision: snapshot.collectionRevision,
@@ -229,7 +232,7 @@ void main() {
 
     await wiring.wire();
 
-    expect(wiring.memory.search('Corrupt index').single.text, contains('recovery fact'));
+    expect((await wiring.memoryIndex.search('Corrupt index', userId: 'owner')).single.chunk, contains('recovery fact'));
     await wiring.dispose();
   });
 
@@ -267,8 +270,11 @@ void main() {
     await second.wire();
 
     expect((await second.memoryCorpus.readCorpus()).index.metadata.revision, priorRevision + 1);
-    expect(second.memory.search('After stopped').single.text, contains('After stopped edit'));
-    expect(second.memory.search('Before stopped'), isEmpty);
+    expect(
+      (await second.memoryIndex.search('After stopped', userId: 'owner')).single.chunk,
+      contains('After stopped edit'),
+    );
+    expect(await second.memoryIndex.search('Before stopped', userId: 'owner'), isEmpty);
     final snapshot = await second.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
     expect(
       (await second.indexHealth.read(
@@ -302,7 +308,7 @@ void main() {
     );
     await first.wire();
     final prior = await first.memoryCorpus.manifest();
-    expect(first.memory.search('Delete this raw observation'), hasLength(1));
+    expect(await first.memoryIndex.search('Delete this raw observation', userId: 'owner'), hasLength(1));
     await first.dispose();
 
     observation.deleteSync();
@@ -318,7 +324,7 @@ void main() {
     final current = await second.memoryCorpus.manifest();
     expect(current.collectionRevision, prior.collectionRevision + 1);
     expect(current.paths, isNot(contains('memory/2026-08-07.md')));
-    expect(second.memory.search('Delete this raw observation'), isEmpty);
+    expect(await second.memoryIndex.search('Delete this raw observation', userId: 'owner'), isEmpty);
     expect(
       (await second.indexHealth.read(
         canonicalRevision: current.collectionRevision,
@@ -369,7 +375,7 @@ void main() {
       )).state,
       IndexHealthState.degraded,
     );
-    expect(() => wiring.memory.search('Canonical'), throwsA(isA<SqliteException>()));
+    expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
     final search = await wiring.searchBackend.search('recovery');
     expect(search.map((result) => result.locator), ['wiki/recovery.md']);
     expect(search.canonicalRevision, snapshot.collectionRevision);
@@ -395,7 +401,7 @@ void main() {
         if (targetInitiallyExists) {
           target.parent.createSync(recursive: true);
           final database = openSearchDb(target.path);
-          MemoryService(database);
+          await SqliteSchemaGate.prepareSearch(SqliteBackend(database), storeName: 'search.db');
           database.close();
           priorBytes = target.readAsBytesSync();
         }
@@ -427,7 +433,7 @@ void main() {
         } else {
           expect(target.existsSync(), isFalse);
         }
-        expect(() => wiring.memory.search('Canonical'), throwsA(isA<SqliteException>()));
+        expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
         await wiring.dispose();
       },
     );

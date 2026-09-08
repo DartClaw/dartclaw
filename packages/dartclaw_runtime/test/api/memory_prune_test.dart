@@ -10,23 +10,24 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
+import '../helpers/search_index_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late String workspaceDir;
   late KvService kvService;
   late MemoryStatusService statusService;
-  late MemoryService memoryService;
+  late FullTextIndex memoryIndex;
   late Database db;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('memory_prune_test');
     workspaceDir = p.join(tempDir.path, 'workspace');
     Directory(workspaceDir).createSync(recursive: true);
 
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     db = sqlite3.open(p.join(tempDir.path, 'memory.db'));
-    memoryService = MemoryService(db);
+    memoryIndex = await prepareMemoryIndex(db);
 
     statusService = MemoryStatusService(
       workspaceDir: workspaceDir,
@@ -59,7 +60,7 @@ void main() {
       // Write a MEMORY.md with entries
       File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Test entry\n');
 
-      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
 
       final client = ApiRouteTestClient(
         memoryRoutes(
@@ -80,7 +81,7 @@ void main() {
     test('persists result to KV prune_history', () async {
       File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Entry one\n');
 
-      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
 
       final client = ApiRouteTestClient(
         memoryRoutes(
@@ -117,7 +118,7 @@ void main() {
 
       File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2026-03-01 10:00] Entry\n');
 
-      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
 
       final client = ApiRouteTestClient(
         memoryRoutes(
@@ -141,7 +142,7 @@ void main() {
 
     test('returns 200 with zeros for empty MEMORY.md', () async {
       // No MEMORY.md file — pruner returns empty result
-      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+      final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
 
       final client = ApiRouteTestClient(
         memoryRoutes(

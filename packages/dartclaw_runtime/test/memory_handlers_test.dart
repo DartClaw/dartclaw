@@ -8,6 +8,9 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/memory_handlers.dart' show maxMemoryCaptureTextLength, maxMemoryReadResponseBytes;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'helpers/search_index_test_support.dart';
+
 import 'package:uuid/uuid.dart';
 
 Map<String, dynamic> _json(Map<String, dynamic> result) {
@@ -36,7 +39,7 @@ Future<Map<String, dynamic>> _add(
 
 void main() {
   late Database db;
-  late MemoryService memory;
+  late FullTextIndex memory;
   late MemoryCorpusService corpus;
   late MemoryFileService memoryFile;
   late Directory workspace;
@@ -44,14 +47,14 @@ void main() {
   late MemoryCaptureContext context;
   late MemoryHandlers handlers;
 
-  setUp(() {
+  setUp(() async {
     db = sqlite3.openInMemory();
-    memory = MemoryService(db);
+    memory = await prepareMemoryIndex(db);
     workspace = Directory.systemTemp.createTempSync('memory_handlers_test_');
     corpus = MemoryCorpusService(workspaceDir: workspace.path);
     memoryFile = MemoryFileService(baseDir: workspace.path, corpusService: corpus);
     search = ComposedSearchBackend(
-      personal: Fts5SearchBackend(memoryService: memory),
+      personal: Fts5SearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
     context = const MemoryCaptureContext(
@@ -62,7 +65,7 @@ void main() {
       sessionRef: 'alpha',
     );
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -98,12 +101,12 @@ void main() {
     expect(observation.provenance.sourceLocator, 'session:alpha');
     expect(observation.provenance.sourceEvent, 'message:1');
     expect(observation.trustLabel, 'untrusted-agent-observation');
-    expect(memory.search('"Falcon"').single.locator, observation.id);
+    expect((await searchMemory(memory, '"Falcon"')).single.locator, observation.id);
   });
 
   test('shared MCP capture records only truthful tool provenance known to the gateway', () async {
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -126,7 +129,7 @@ void main() {
     final improvement = SelfImprovementService(workspaceDir: workspace.path, maxEntries: 2, corpusService: corpus);
     addTearDown(improvement.dispose);
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -140,8 +143,8 @@ void main() {
 
     final retained = (await corpus.readCorpus()).learnings!.entries;
     expect(retained.map((entry) => entry.content), unorderedEquals(['Learning 1', 'Learning 2']));
-    expect(memory.search('"Learning"'), hasLength(2));
-    expect(memory.search('"Learning"').every((result) => result.role == 'learning'), isTrue);
+    expect(await searchMemory(memory, '"Learning"'), hasLength(2));
+    expect((await searchMemory(memory, '"Learning"')).every((result) => result.role == 'learning'), isTrue);
   });
 
   test('learning capture survives clock ties and rollback without changing timestamps', () async {
@@ -156,7 +159,7 @@ void main() {
     final rolledBack = at.subtract(const Duration(hours: 1));
     final times = [at, at, rolledBack].iterator;
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -191,7 +194,7 @@ void main() {
     expect(response['entryId'], entry.id);
     expect(response['outcome'], 'changed');
     expect(entry.topic, 'preferences');
-    final indexed = memory.search('"Dart"').single;
+    final indexed = (await searchMemory(memory, '"Dart"')).single;
     expect(indexed.locator, entry.id);
     expect(indexed.source, entry.id);
     expect(indexed.source, entry.id);
@@ -209,13 +212,13 @@ void main() {
     }
 
     expect((await corpus.readCorpus()).index.metadata.revision, before.index.metadata.revision);
-    expect(memory.listRecent(), isEmpty);
+    expect(await memory.listRecent(userId: 'owner'), isEmpty);
   });
 
   test('committed capture reports a degraded index without rolling canonical content back', () async {
     final failing = _IndexFailingBackend(search);
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: failing,
@@ -241,7 +244,7 @@ void main() {
       canonicalFingerprint: snapshot.fingerprint,
     );
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -261,7 +264,7 @@ void main() {
   test('search passes natural language unchanged and rejects invalid limits', () async {
     final recording = _RecordingBackend();
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: recording,
@@ -291,7 +294,7 @@ void main() {
         ),
       ];
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: backend,
@@ -342,13 +345,14 @@ void main() {
 
   test('FTS backend owns operator encoding and preserves owner scope', () async {
     await _add(handlers, corpus, 'Falcon status searchable', 'falcon');
-    db.execute('INSERT INTO memory_chunks (text, source, created_at, user_id, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Falcon status private',
-      'other-id',
-      DateTime(2026).toIso8601String(),
-      'other',
-      'other-id',
-    ]);
+    await memory.upsert([
+      SearchDocument(
+        id: 'other-id',
+        chunks: const ['Falcon status private'],
+        metadata: const {'source': 'other-id', 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime(2026),
+      ),
+    ], userId: 'other');
 
     final response = _json(await handlers.onSearch({'query': 'Falcon AND status?'}));
     final results = response['results'] as List<dynamic>;
@@ -403,7 +407,7 @@ Falcon wiki detail
     Directory('${workspace.path}/inbox').createSync();
     File('${workspace.path}/inbox/note.md').writeAsStringSync('Native inbox detail');
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: _AlwaysResolvingBackend(search),
@@ -444,7 +448,7 @@ Falcon wiki detail
       fallback: search,
     );
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -470,13 +474,14 @@ Falcon wiki detail
     expect(response['results'], hasLength(1));
     await expectLater(handlers.onRead({'role': 'observation', 'topic': 'falcon'}), throwsA(isA<ArgumentError>()));
     final staleLocator = const Uuid().v4();
-    db.execute('INSERT INTO memory_chunks (text, source, created_at, user_id, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Stale derived content',
-      staleLocator,
-      DateTime(2026).toIso8601String(),
-      'owner',
-      staleLocator,
-    ]);
+    await memory.upsert([
+      SearchDocument(
+        id: staleLocator,
+        chunks: const ['Stale derived content'],
+        metadata: {'source': staleLocator, 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime(2026),
+      ),
+    ], userId: 'owner');
     expect(_json(await handlers.onRead({'locator': staleLocator}))['results'], isEmpty);
     expect(_json(await handlers.onRead({'locator': 'wiki/missing.md'}))['results'], isEmpty);
     await expectLater(handlers.onRead({'locator': 'not-a-locator'}), throwsA(isA<ArgumentError>()));
@@ -606,7 +611,7 @@ small body
     corpus = MemoryCorpusService(workspaceDir: workspace.path, readObserver: reads.add);
     memoryFile = MemoryFileService(baseDir: workspace.path, corpusService: corpus);
     handlers = createMemoryHandlers(
-      memory: memory,
+      memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
@@ -620,7 +625,7 @@ small body
 
     expect(response['indexState'], 'degraded');
     expect(reads.where((path) => path.startsWith('memory/20') && path != 'memory/2026-08-12.md'), isEmpty);
-    expect(memory.search('Fresh sparse observation'), hasLength(1));
+    expect(await searchMemory(memory, 'Fresh sparse observation'), hasLength(1));
     final current = await corpus.manifest();
     final health = await IndexHealthStore(workspaceDir: workspace.path)
         .read(canonicalRevision: current.collectionRevision, canonicalFingerprint: current.fingerprint);

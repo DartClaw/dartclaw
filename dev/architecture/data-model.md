@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 database backend seam and goal tracer slice.
+**Current through**: 0.26 database backend and full-text index seams.
 
 ---
 
@@ -343,22 +343,23 @@ Goal
 
 **Storage**: `tasks.db` → `goals` table
 
-### Derived Memory Index Row
+### Derived Memory Index Document
 
 ```
-MemoryIndexRow
-├── id: int (autoincrement)
-├── text: String
-├── source: String (stable canonical locator, e.g. "topic/preferences/<entry-id>")
-├── category: String?
-├── createdAt: DateTime
-└── userId: String (default: "owner")
+SearchDocument
+├── id: String (canonical entry UUID)
+├── chunks: List<String>
+├── metadata: Map<String, String>
+│   ├── source, role, provenance
+│   └── category?, entry_id?, entry_revision?
+└── timestamp: DateTime
 ```
 
 **Storage**: `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table)
 **Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
 and deletion audit. Only searchable topic, archive, observation, and learning entries project into `search.db`;
-`MEMORY.audit.md` is content-free operational evidence and is never indexed.
+`errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
+`SqliteFtsIndex` stores their chunks in `memory_chunks`.
 **Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically recreates the projection while preserving stable
 entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild reads authenticated
 corpus selections in bounded batches and publishes a healthy sibling index only after complete-union validation.
@@ -708,7 +709,7 @@ durable seam that connects workflow execution to task/worktree persistence.
                                                    └──────────────┘
 
 ┌──────────────────────────────┐  derived from  ┌───────────────────┐
-│ Canonical searchable roles      │──────────────►│ MemoryIndexRow (FTS5)│
+│ Canonical searchable roles   │──────────────►│ SearchDocument (FTS5)│
 └──────────────────────────────┘  (rebuildable) └───────────────────┘
 ```
 
@@ -722,7 +723,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 | `TaskArtifact.taskId` | `Task.id` | Foreign key | **Yes** — `ON DELETE CASCADE` |
 | `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
 | `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
-| `MemoryIndexRow` | Canonical topic, archive, observation, and learning entries | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
+| `SearchDocument` | Canonical topic, archive, observation, and learning entries | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
 | `ThreadBinding.taskId` | `Task.id` | String ID reference | **No** — reconciled on startup (stale bindings pruned) |
 
 ### Lifecycle Dependencies
@@ -759,7 +760,7 @@ dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvServic
      │                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
      │                                  SqliteWorkflowRunRepository,
-     │                                  MemoryService (FTS5), SearchDb, TaskDb,
+     │                                  SqliteFtsIndex, SearchDb, TaskDb,
      │                                  TurnStateStore, TurnTraceService,
      │                                  TaskEventService
      │

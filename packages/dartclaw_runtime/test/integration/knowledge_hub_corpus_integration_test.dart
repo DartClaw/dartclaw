@@ -8,8 +8,11 @@ import 'package:dartclaw_runtime/src/knowledge/knowledge_inbox_read_service.dart
 import 'package:dartclaw_runtime/src/knowledge/wiki_lint.dart';
 import 'package:dartclaw_runtime/src/knowledge/wiki_page_store.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 /// Knowledge-hub integration over one seeded corpus.
 ///
@@ -28,7 +31,7 @@ void main() {
   late Directory workspace;
   late Database searchDb;
   late Database taskDb;
-  late MemoryService memory;
+  late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
   late WikiPageStore wiki;
 
@@ -48,7 +51,7 @@ void main() {
     workspace = Directory.systemTemp.createTempSync('knowledge_hub_corpus_');
     searchDb = sqlite3.openInMemory();
     taskDb = sqlite3.openInMemory();
-    memory = MemoryService(searchDb);
+    memory = await prepareMemoryIndex(searchDb);
     kg = TemporalKnowledgeGraphService(taskDb);
     wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
 
@@ -111,13 +114,14 @@ void main() {
       source: 'inbox/kestrel-batch-3.md',
     );
 
-    searchDb.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Kestrel escalation policy recorded from the on-call handover.',
-      'MEMORY.md',
-      'operations',
-      DateTime.utc(2026, 8, 6).toIso8601String(),
-      'MEMORY.md',
-    ]);
+    await memory.replaceAll([
+      SearchDocument(
+        id: '00000000-0000-4000-8000-000000000001',
+        chunks: const ['Kestrel escalation policy recorded from the on-call handover.'],
+        metadata: const {'source': 'memory', 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime.utc(2026, 8, 6),
+      ),
+    ], userId: 'owner');
 
     _write(workspace, 'inbox/kestrel-brief.md', 'Kestrel brief awaiting ingestion.');
     _write(workspace, 'processed/kestrel-batch-1.md', 'Kestrel batch one, already ingested.');
@@ -132,9 +136,9 @@ void main() {
   KnowledgeHubService hub() => KnowledgeHubService(
     wiki: WikiSearchSource(workspaceDir: workspace.path),
     kg: kg,
-    memory: memory,
+    memoryIndex: memory,
     searchBackend: ComposedSearchBackend(
-      personal: Fts5SearchBackend(memoryService: memory),
+      personal: Fts5SearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     ),
     inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),

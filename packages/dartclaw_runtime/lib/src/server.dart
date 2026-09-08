@@ -755,7 +755,7 @@ class DartclawServer {
       runtimeConfig: _core.runtimeConfig,
       memoryStatusService: _observability.memoryStatusService,
       memoryPruneService: _memoryPruneService,
-      memoryService: _observability.memoryService,
+      memoryIndex: _observability.memoryIndex,
       kgService: _web.kgService,
       cookieSecure: _core.config?.auth.cookieSecure ?? false,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],

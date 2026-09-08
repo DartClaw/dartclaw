@@ -56,6 +56,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Core LOC ceiling rebaseline for the full-text index seam** – `dartclaw_core/lib` measures 27,943 Dart lines
+  after replacing `MemoryService` with the `DatabaseBackend`-based SQLite index, memory projection and exact
+  reconciler validation. The ceiling is set to the measured value with no headroom.
 - **Core LOC ceiling rebaseline for SQLite schema compatibility** – `dartclaw_core/lib` measures 27,812 Dart lines
   after adding the required-object manifests, transactional schema gate and derived-index rebuild/refusal path while
   retiring the temporal-KG and memory-index additive repairs. The ceiling is set to the measured value with no

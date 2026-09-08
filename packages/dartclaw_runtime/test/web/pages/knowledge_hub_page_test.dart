@@ -11,34 +11,36 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
+import '../../helpers/search_index_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late SessionService sessions;
   late Database searchDb;
   late Database taskDb;
-  late MemoryService memory;
+  late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
     searchDb = sqlite3.openInMemory();
     taskDb = sqlite3.openInMemory();
-    memory = MemoryService(searchDb);
+    memory = await prepareMemoryIndex(searchDb);
     kg = TemporalKnowledgeGraphService(taskDb);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
-    searchDb.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Merge memory keeps durable context.',
-      'MEMORY.md',
-      'build',
-      DateTime(2026).toIso8601String(),
-      'MEMORY.md',
-    ]);
+    await memory.replaceAll([
+      SearchDocument(
+        id: '00000000-0000-4000-8000-000000000001',
+        chunks: const ['Merge memory keeps durable context.'],
+        metadata: const {'source': 'memory', 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime.utc(2026),
+      ),
+    ], userId: 'owner');
     kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
@@ -73,7 +75,7 @@ void main() {
     final page = KnowledgeHubPage(
       hubGetter: () => knowledgeHubServiceForWorkspace(
         workspaceDir: tempDir.path,
-        memory: memory,
+        memoryIndex: memory,
         kg: kg,
         searchBackend: const _RoleSearchBackend(),
       ),
@@ -131,7 +133,7 @@ void main() {
     final response = await _render(
       page: KnowledgeHubPage(
         hubGetter: () =>
-            knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memory: memory, kg: _ThrowingKg(taskDb)),
+            knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memoryIndex: memory, kg: _ThrowingKg(taskDb)),
       ),
       path: '/knowledge?q=merge',
       sessions: sessions,
@@ -160,7 +162,7 @@ void main() {
       resolver: resolver,
       hubGetter: () => knowledgeHubServiceForWorkspace(
         workspaceDir: tempDir.path,
-        memory: memory,
+        memoryIndex: memory,
         kg: kg,
         searchBackend: const _UnresolvedSearchBackend(),
       ),
@@ -183,7 +185,7 @@ void main() {
 Future<String> _renderHtml(
   Directory tempDir,
   SessionService sessions,
-  MemoryService memory,
+  FullTextIndex memory,
   TemporalKnowledgeGraphService kg, {
   String path = '/knowledge',
   KnowledgeHubPage? page,
@@ -193,7 +195,7 @@ Future<String> _renderHtml(
     page:
         page ??
         KnowledgeHubPage(
-          hubGetter: () => knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memory: memory, kg: kg),
+          hubGetter: () => knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memoryIndex: memory, kg: kg),
         ),
     sessions: sessions,
   );

@@ -59,7 +59,8 @@ class StorageWiring {
   MemoryCorpusService? _memoryCorpus;
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
-  MemoryService? _memory;
+  FullTextIndex? _memoryIndex;
+  DatabaseBackend? _searchDatabaseBackend;
   TemporalKnowledgeGraphService? _kg;
   late KvService _kvService;
   late SqliteWorkflowRunRepository _workflowRunRepository;
@@ -85,7 +86,7 @@ class StorageWiring {
   IndexHealthStore get indexHealth => _indexHealth ?? _missingPersonalMemory('indexHealth');
   MemoryFileService get memoryFile => _memoryFile ?? _missingPersonalMemory('memoryFile');
   MemoryFileService? get personalMemoryFile => _memoryFile;
-  MemoryService get memory => _memory ?? _missingPersonalMemory('memory');
+  FullTextIndex get memoryIndex => _memoryIndex ?? _missingPersonalMemory('memoryIndex');
   TemporalKnowledgeGraphService get kg => _kg ?? _missingPersonalMemory('kg');
   KvService get kvService => _kvService;
   SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
@@ -219,6 +220,16 @@ class StorageWiring {
 
     if (_searchUnavailable) {
       _searchDb = openSearchDbInMemory();
+      final backend = _searchDatabaseBackend = SqliteBackend(_searchDb!);
+      await SqliteSchemaGate.prepareSearch(
+        backend,
+        storeName: 'in-memory search.db',
+        rebuild: SqliteSearchRebuild(
+          manifestRevision: manifest.collectionRevision,
+          manifestFingerprint: manifest.fingerprint,
+          healthStore: indexHealth,
+        ),
+      );
     } else {
       try {
         _searchDb = _searchDbFactory(config.searchDbPath);
@@ -234,6 +245,16 @@ class StorageWiring {
         } catch (_) {}
         _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
         _searchDb = openSearchDbInMemory();
+        final backend = _searchDatabaseBackend = SqliteBackend(_searchDb!);
+        await SqliteSchemaGate.prepareSearch(
+          backend,
+          storeName: 'in-memory search.db',
+          rebuild: SqliteSearchRebuild(
+            manifestRevision: manifest.collectionRevision,
+            manifestFingerprint: manifest.fingerprint,
+            healthStore: indexHealth,
+          ),
+        );
       }
     }
   }
@@ -243,10 +264,8 @@ class StorageWiring {
     final searchDb = _searchDb!;
     final indexHealth = _indexHealth!;
     _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus);
-    final memory = _memory = MemoryService(searchDb);
-    if (_searchUnavailable) {
-      searchDb.execute('DROP TABLE memory_chunks_fts');
-    }
+    final backend = _searchDatabaseBackend ??= SqliteBackend(searchDb);
+    final memoryIndex = _memoryIndex = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -267,7 +286,7 @@ class StorageWiring {
 
     final searchBackend = _searchBackend = createSearchBackend(
       backend: config.search.backend,
-      memoryService: memory,
+      index: memoryIndex,
       qmdManager: _qmdManager,
       defaultDepth: config.search.defaultDepth,
       workspaceDir: config.workspaceDir,
@@ -285,18 +304,20 @@ class StorageWiring {
             throw StateError('incremental projection requires a healthy base index');
           }
         }
-        final rows = MemoryService.canonicalIndexRows(projection.corpus);
+        final documents = MemoryIndexProjection.documents(projection.corpus);
         if (projection.isComplete) {
-          memory.replaceMemoryRows(rows);
+          await memoryIndex.replaceAll(documents, userId: 'owner');
         } else {
-          memory.replaceMemoryRecords(rows, projection.priorRecordIds);
+          await memoryIndex.upsert(documents, userId: 'owner', retire: projection.priorRecordIds);
         }
         await searchBackend.indexAfterWrite();
-        if (projection.isComplete) {
-          memory.validateIndexRows(rows);
-        } else {
-          memory.validateMemoryRecords(rows, projection.priorRecordIds);
-        }
+        await memoryIndex.verifyIntegrity();
+        await _verifyProjection(
+          memoryIndex,
+          documents,
+          projection.isComplete ? const <String>{} : projection.priorRecordIds,
+          complete: projection.isComplete,
+        );
         await indexHealth.recordHealthy(
           canonicalRevision: result.collectionRevision,
           canonicalFingerprint: result.fingerprint,
@@ -327,7 +348,7 @@ class StorageWiring {
     await _memoryCorpus?.close();
   }
 
-  Stream<List<MemoryIndexRow>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {
+  Stream<List<SearchDocument>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {
     for (final path in manifest.paths) {
       if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
       final selection = await _memoryCorpus!.selectPaths([path]);
@@ -335,8 +356,49 @@ class StorageWiring {
           selection.fingerprint != manifest.fingerprint) {
         throw StateError('Canonical memory changed during index reconciliation');
       }
-      yield MemoryService.canonicalIndexRows(selection.corpus);
+      yield MemoryIndexProjection.documents(selection.corpus);
     }
+  }
+
+  Future<void> _verifyProjection(
+    FullTextIndex index,
+    List<SearchDocument> expected,
+    Set<String> priorRecordIds, {
+    required bool complete,
+  }) async {
+    final byId = {for (final document in expected) document.id: document};
+    final stored = await index.fetch({...priorRecordIds, ...byId.keys}, userId: 'owner');
+    if (stored.length != byId.length) throw StateError('Index document count mismatch');
+    for (final document in stored) {
+      final expectedDocument = byId[document.id];
+      if (expectedDocument == null ||
+          !_equalStrings(document.chunks, expectedDocument.chunks) ||
+          !_equalMetadata(document.metadata, expectedDocument.metadata) ||
+          document.timestamp != expectedDocument.timestamp) {
+        throw StateError('Index document identity mismatch');
+      }
+    }
+    final expectedCount = MemoryIndexProjection.chunkCount(expected);
+    final actualCount = await index.count(userId: 'owner');
+    if (complete ? actualCount != expectedCount : actualCount < expectedCount) {
+      throw StateError('Index row count mismatch');
+    }
+  }
+
+  static bool _equalStrings(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  static bool _equalMetadata(Map<String, String> left, Map<String, String> right) {
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (right[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 
   Future<IndexHealthEvidence> _probeIndexHealth() async {

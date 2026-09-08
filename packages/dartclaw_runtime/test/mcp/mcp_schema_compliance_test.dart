@@ -34,7 +34,7 @@ import '../api/workflow_test_support.dart';
 /// Minimal [SearchProvider] stub for tool instantiation.
 class _StubSearchProvider implements SearchProvider {
   @override
-  Future<List<SearchResult>> search(String query, {int count = 5}) async => [];
+  Future<List<WebSearchResult>> search(String query, {int count = 5}) async => [];
 }
 
 class _StubSearchBackend implements SearchBackend {

@@ -1,5 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show MemoryService, TemporalKnowledgeGraphService, WikiSearchSource;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show MemoryIndexProjection, TemporalKnowledgeGraphService, WikiSearchSource;
 
 import '../mcp/citation_packet.dart';
 import 'knowledge_inbox_read_service.dart';
@@ -92,7 +93,7 @@ final class KnowledgeHubItem {
 final class KnowledgeHubService {
   final WikiSearchSource wiki;
   final TemporalKnowledgeGraphService kg;
-  final MemoryService memory;
+  final FullTextIndex memoryIndex;
   final SearchBackend searchBackend;
   final KnowledgeInboxReadService inbox;
   final CitationSourceResolver? sourceResolver;
@@ -100,7 +101,7 @@ final class KnowledgeHubService {
   new({
     required this.wiki,
     required this.kg,
-    required this.memory,
+    required this.memoryIndex,
     required this.searchBackend,
     required this.inbox,
     this.sourceResolver,
@@ -216,9 +217,9 @@ final class KnowledgeHubService {
   }
 
   Future<List<KnowledgeHubItem>> _recentMemoryItems({required int limit}) async {
-    final results = memory.listRecent(limit: limit, userId: 'owner');
+    final results = await memoryIndex.listRecent(limit: limit, userId: 'owner');
     return [
-      for (final result in results)
+      for (final result in results.map(MemoryIndexProjection.toSearchResult))
         KnowledgeHubItem(
           layer: KnowledgeHubLayer.memory,
           title: result.category ?? 'Memory',

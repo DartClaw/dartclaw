@@ -1,16 +1,16 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import '../storage/memory_service.dart';
+import '../memory/memory_index_projection.dart';
 
-/// FTS5-based search backend — wraps the existing [MemoryService].
+/// FTS5-based personal-memory search backend.
 ///
 /// This is the default backend. FTS5 triggers handle indexing automatically,
 /// so [indexAfterWrite] is a no-op.
 class Fts5SearchBackend implements SearchBackend {
-  final MemoryService _memoryService;
+  final FullTextIndex _index;
 
-  /// Creates an FTS5 backend that delegates lookups to [memoryService].
-  new({required MemoryService memoryService}) : _memoryService = memoryService;
+  /// Creates an FTS5 backend that delegates lookups to [index].
+  new({required FullTextIndex index}) : _index = index;
 
   @override
   Future<MemorySearchOutcome> search(
@@ -22,10 +22,8 @@ class Fts5SearchBackend implements SearchBackend {
     if (layers != null && !layers.contains(SearchResultLayer.memory)) {
       return const MemorySearchOutcome(results: []);
     }
-    final encoded = MemoryService.encodeNaturalLanguageQuery(query);
-    if (encoded == null) return const MemorySearchOutcome(results: []);
-    final raw = _memoryService.search(encoded, limit: limit, userId: userId);
-    return MemorySearchOutcome(results: raw);
+    final raw = await _index.search(query, limit: limit, userId: userId);
+    return MemorySearchOutcome(results: raw.map(MemoryIndexProjection.toSearchResult).toList(growable: false));
   }
 
   @override

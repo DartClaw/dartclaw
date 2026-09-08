@@ -52,9 +52,44 @@ void main() {
     db.close();
   });
 
+  test('current fast path rebuilds corrupt FTS data with intact canonical rows', () async {
+    final corpus = _corpus(withEntry: true);
+    final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
+    await reconciler.reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+
+    final corruptDb = openSearchDb(targetPath);
+    final corruptBackend = SqliteBackend(corruptDb);
+    try {
+      corruptDb.execute('DELETE FROM memory_chunks_fts_data WHERE id > 10');
+      expect(corruptDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
+      await SqliteSchemaGate.prepareSearch(corruptBackend, storeName: 'search.db');
+      await expectLater(
+        SqliteFtsIndex(corruptBackend, table: SqliteFtsTable.memoryChunks).verifyIntegrity(),
+        throwsStateError,
+      );
+    } finally {
+      await corruptBackend.close();
+    }
+
+    final repaired = await reconciler.ensureCurrent(
+      corpus: corpus,
+      canonicalRevision: 7,
+      canonicalFingerprint: 'fingerprint-7',
+    );
+    expect((repaired.rowCount, repaired.health.state), (1, IndexHealthState.healthy));
+    final repairedBackend = SqliteBackend(openSearchDb(targetPath));
+    try {
+      final index = SqliteFtsIndex(repairedBackend, table: SqliteFtsTable.memoryChunks);
+      await index.verifyIntegrity();
+      expect((await index.search('Durable', userId: 'owner')).single.chunk, 'Durable searchable fact');
+    } finally {
+      await repairedBackend.close();
+    }
+  });
+
   test('batched current fast path proves exact rows and complete canonical authentication', () async {
     final corpus = _corpus(withEntry: true);
-    final expected = MemoryService.canonicalIndexRows(corpus);
+    final expected = MemoryIndexProjection.documents(corpus);
     final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
     await reconciler.reconcileBatched(
       rowBatches: () => Stream.value(expected),
@@ -90,7 +125,7 @@ void main() {
     final target = File(targetPath)..writeAsBytesSync([9, 1, 1]);
     await expectLater(
       CanonicalIndexReconciler(targetPath: targetPath, healthStore: health).reconcileBatched(
-        rowBatches: () => Stream.value(MemoryService.canonicalIndexRows(_corpus(withEntry: true))),
+        rowBatches: () => Stream.value(MemoryIndexProjection.documents(_corpus(withEntry: true))),
         canonicalRevision: 7,
         canonicalFingerprint: 'fingerprint-7',
         authenticateComplete: () async => throw StateError('canonical changed'),

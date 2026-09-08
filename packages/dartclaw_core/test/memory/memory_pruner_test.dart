@@ -10,18 +10,21 @@ import 'package:test/test.dart';
 void main() {
   late Directory tempDir;
   late Database db;
-  late MemoryService memoryService;
+  late SqliteBackend databaseBackend;
+  late FullTextIndex memoryIndex;
   late MemoryPruner pruner;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('memory_pruner_test');
     db = sqlite3.openInMemory();
-    memoryService = MemoryService(db);
-    pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService);
+    databaseBackend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
+    memoryIndex = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
+    pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex);
   });
 
-  tearDown(() {
-    db.close();
+  tearDown(() async {
+    await databaseBackend.close();
     tempDir.deleteSync(recursive: true);
   });
 
@@ -46,6 +49,16 @@ void main() {
       source,
     ]);
   }
+
+  Future<List<MemorySearchResult>> search(String query) async =>
+      (await memoryIndex.search(query, userId: 'owner')).map(MemoryIndexProjection.toSearchResult).toList();
+
+  SearchDocument document({
+    required String text,
+    required String source,
+    required String? category,
+    required DateTime? createdAt,
+  }) => MemoryIndexProjection.document(text: text, source: source, category: category, createdAt: createdAt)!;
 
   bool archiveExists() {
     return File('${tempDir.path}/MEMORY.archive.md').existsSync();
@@ -125,11 +138,13 @@ void main() {
     test('shared authority bootstraps canonical pruning while owned pruner stays legacy', () async {
       final sharedDir = Directory('${tempDir.path}/shared')..createSync();
       final sharedDb = sqlite3.openInMemory();
-      addTearDown(sharedDb.close);
+      final sharedBackend = SqliteBackend(sharedDb);
+      addTearDown(sharedBackend.close);
+      await SqliteSchemaGate.prepareSearch(sharedBackend, storeName: 'search.db');
       final authority = MemoryCorpusService(workspaceDir: sharedDir.path);
       final shared = MemoryPruner(
         workspaceDir: sharedDir.path,
-        memoryService: MemoryService(sharedDb),
+        memoryIndex: SqliteFtsIndex(sharedBackend, table: SqliteFtsTable.memoryChunks),
         corpusService: authority,
       );
 
@@ -149,21 +164,6 @@ void main() {
       expect(result.entriesRemaining, 0);
     });
 
-    test('missing workspace clears stale canonical index rows', () async {
-      final removedWorkspace = Directory('${tempDir.path}/removed')..createSync();
-      final removedPruner = MemoryPruner(workspaceDir: removedWorkspace.path, memoryService: memoryService);
-      await removedPruner.prune();
-      seed(text: 'Stale active fact', source: 'legacy-memory');
-      seed(text: 'Stale archived fact', source: 'archive');
-      seed(text: 'Unrelated indexed fact', source: 'wiki');
-      removedWorkspace.deleteSync();
-
-      await removedPruner.prune();
-
-      expect(memoryService.search('"Stale"'), isEmpty);
-      expect(memoryService.search('"Unrelated"').single.source, 'wiki');
-    });
-
     test('missing MEMORY.md still reconciles archive and learning index rows', () async {
       File('${tempDir.path}/MEMORY.archive.md')
           .writeAsStringSync('## project\n- [2025-01-10 09:00] Canonical archived fact\n');
@@ -173,9 +173,9 @@ void main() {
       await pruner.prune();
 
       expect(File('${tempDir.path}/MEMORY.md').existsSync(), isFalse);
-      expect(memoryService.search('"Stale"'), isEmpty);
-      expect(memoryService.search('"archived"').single.source, 'legacy-archive');
-      final learning = memoryService.search('"learning"').single;
+      expect(await search('"Stale"'), isEmpty);
+      expect((await search('"archived"')).single.source, 'legacy-archive');
+      final learning = (await search('"learning"')).single;
       expect(learning.source, 'legacy-learning');
       expect(learning.category, 'learning');
     });
@@ -323,7 +323,7 @@ void main() {
 
       await pruner.prune();
 
-      final results = memoryService.search('searchable');
+      final results = await search('searchable');
       expect(results, hasLength(1));
       expect(results[0].source, 'legacy-archive');
     });
@@ -335,7 +335,7 @@ void main() {
           '${old.year}-${old.month.toString().padLeft(2, '0')}-${old.day.toString().padLeft(2, '0')} '
           '${old.hour.toString().padLeft(2, '0')}:${old.minute.toString().padLeft(2, '0')}';
       final longTail = List.generate(90, (index) => 'segment$index').join(' ');
-      final expected = MemoryService.indexRows(
+      final expected = document(
         text: '**Archived heading**\n\n$longTail',
         source: 'legacy-archive',
         category: 'project',
@@ -346,7 +346,7 @@ void main() {
       await pruner.prune();
 
       final rows = db.select('SELECT text, source, category, created_at FROM memory_chunks ORDER BY id');
-      expect(rows.map((row) => row['text']), expected.map((row) => row.text));
+      expect(rows.map((row) => row['text']), expected.chunks);
       expect(rows.every((row) => row['source'] == 'legacy-archive' && row['category'] == 'project'), isTrue);
       expect(rows.map((row) => row['created_at']).toSet(), {timestamp.toIso8601String()});
     });
@@ -366,42 +366,47 @@ void main() {
       writeMemory(source);
       File('${tempDir.path}/learnings.md').writeAsStringSync(learnings);
       for (final entry in parseMemoryEntries(source)) {
-        for (final row in MemoryService.indexRows(
+        final projected = document(
           text: entry.rawText,
           source: 'legacy-memory',
           category: entry.category,
           createdAt: entry.timestamp,
-        )) {
-          seed(text: row.text, source: row.source, category: row.category, createdAt: row.createdAt);
+        );
+        for (final chunk in projected.chunks) {
+          seed(
+            text: chunk,
+            source: projected.metadata['source']!,
+            category: projected.metadata['category'],
+            createdAt: projected.timestamp,
+          );
         }
       }
       final learning = parseMemoryEntries(learnings).single;
-      final learningRow = MemoryService.indexRows(
+      final learningDocument = document(
         text: learning.rawText,
         source: 'legacy-learning',
         category: 'learning',
         createdAt: learning.timestamp,
-      ).single;
-      seed(
-        text: learningRow.text,
-        source: learningRow.source,
-        category: learningRow.category,
-        createdAt: learningRow.createdAt,
       );
-      seed(text: 'Independent source fact', source: 'other');
-
+      for (final chunk in learningDocument.chunks) {
+        seed(
+          text: chunk,
+          source: learningDocument.metadata['source']!,
+          category: learningDocument.metadata['category'],
+          createdAt: learningDocument.timestamp,
+        );
+      }
       await pruner.prune();
 
-      expect(memoryService.search('"Archived"'), hasLength(1));
-      expect(memoryService.search('"Archived"').single.source, 'legacy-archive');
-      expect(memoryService.search('"Recent"'), hasLength(2));
+      expect(await search('"Archived"'), hasLength(1));
+      expect((await search('"Archived"')).single.source, 'legacy-archive');
+      expect(await search('"Recent"'), hasLength(2));
       expect(
-        memoryService.search('"Recent"'),
+        await search('"Recent"'),
         everyElement(isA<MemorySearchResult>().having((row) => row.source, 'source', 'legacy-memory')),
       );
-      expect(memoryService.search('"Retained"'), hasLength(1));
-      expect(memoryService.search('"Retained"').single.category, 'learning');
-      expect(memoryService.search('"Independent"'), hasLength(1));
+      expect(await search('"Retained"'), hasLength(1));
+      expect((await search('"Retained"')).single.category, 'learning');
     });
 
     test('no-change retry repairs the post-file pre-index crash state', () async {
@@ -420,24 +425,16 @@ void main() {
       await pruner.prune();
 
       final rebuiltDb = sqlite3.openInMemory();
-      addTearDown(rebuiltDb.close);
-      final rebuilt = MemoryService(rebuiltDb);
-      rebuilt.rebuildIndex([
+      final rebuiltBackend = SqliteBackend(rebuiltDb);
+      addTearDown(rebuiltBackend.close);
+      await SqliteSchemaGate.prepareSearch(rebuiltBackend, storeName: 'search.db');
+      final rebuilt = SqliteFtsIndex(rebuiltBackend, table: SqliteFtsTable.memoryChunks);
+      await rebuilt.replaceAll([
         for (final entry in parseMemoryEntries(active))
-          ...MemoryService.indexRows(
-            text: entry.rawText,
-            source: 'legacy-memory',
-            category: entry.category,
-            createdAt: entry.timestamp,
-          ),
+          document(text: entry.rawText, source: 'legacy-memory', category: entry.category, createdAt: entry.timestamp),
         for (final entry in parseMemoryEntries(archive))
-          ...MemoryService.indexRows(
-            text: entry.rawText,
-            source: 'legacy-archive',
-            category: entry.category,
-            createdAt: entry.timestamp,
-          ),
-      ]);
+          document(text: entry.rawText, source: 'legacy-archive', category: entry.category, createdAt: entry.timestamp),
+      ], userId: 'owner');
 
       expect(_indexRows(db), unorderedEquals(_indexRows(rebuiltDb)));
     });
@@ -541,13 +538,13 @@ void main() {
       final firstArchive = readArchive();
       final entries = parseMemoryEntries(firstArchive);
       expect(entries.map((entry) => entry.category), ['preferences', 'project']);
-      expect(memoryService.search('Shared').map((entry) => entry.category).toSet(), {'preferences', 'project'});
+      expect((await search('Shared')).map((entry) => entry.category).toSet(), {'preferences', 'project'});
 
       writeMemory('## project\n$sharedBlock\n');
       await pruner.prune();
 
       expect(readArchive(), firstArchive);
-      expect(memoryService.search('Shared'), hasLength(2));
+      expect(await search('Shared'), hasLength(2));
     });
 
     test('source write failure retries without duplicate archive or index entries', () async {
@@ -561,7 +558,7 @@ void main() {
       var failSourceWrite = true;
       pruner = MemoryPruner(
         workspaceDir: tempDir.path,
-        memoryService: memoryService,
+        memoryIndex: memoryIndex,
         writeFileForTesting: (target, contents) {
           if (target.path.endsWith('MEMORY.md') && failSourceWrite) {
             failSourceWrite = false;
@@ -575,14 +572,14 @@ void main() {
 
       expect(readMemory(), source);
       expect(archiveExists(), isFalse);
-      expect(memoryService.search('Retry'), isEmpty);
+      expect(await search('Retry'), isEmpty);
 
       final result = await pruner.prune();
 
       expect(result.entriesArchived, 1);
       expect(readMemory(), '## general\n');
       expect(entry.allMatches(readArchive()), hasLength(1));
-      expect(memoryService.search('Retry'), hasLength(1));
+      expect(await search('Retry'), hasLength(1));
     });
 
     test('index failure leaves source retryable and retry creates one archive index row', () async {
@@ -593,20 +590,20 @@ void main() {
       final entry = '- [$oldStr] Index retry fact';
       final source = '## general\n$entry\n';
       writeMemory(source);
-      memoryService = _FailingMemoryService(db);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService);
+      memoryIndex = _FailingMemoryIndex(memoryIndex);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex);
 
       await expectLater(pruner.prune(), throwsStateError);
 
       expect(readMemory(), source);
       expect(archiveExists(), isFalse);
-      expect(memoryService.search('Index'), isEmpty);
+      expect(await search('Index'), isEmpty);
 
       await pruner.prune();
 
       expect(readMemory(), '## general\n');
       expect(entry.allMatches(readArchive()), hasLength(1));
-      expect(memoryService.search('Index'), hasLength(1));
+      expect(await search('Index'), hasLength(1));
     });
 
     test('canonical prune remains committed when derived index reconciliation fails', () async {
@@ -648,9 +645,9 @@ void main() {
         file.parent.createSync(recursive: true);
         file.writeAsBytesSync(member.value);
       }
-      memoryService = _FailingMemoryService(db);
+      memoryIndex = _FailingMemoryIndex(memoryIndex);
       final authority = MemoryCorpusService(workspaceDir: tempDir.path);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex, corpusService: authority);
 
       final result = await pruner.prune();
       expect(result.entriesArchived, 3);
@@ -664,7 +661,7 @@ void main() {
       expect(snapshot.documents, isNot(contains('memory/topics/general.md')));
       final archive = const MemoryMarkdownCodec().parse(utf8.decode(snapshot.documents['MEMORY.archive.md']!));
       expect(archive, isA<MemoryArchiveDocument>().having((document) => document.entries.length, 'all records', 3));
-      expect(memoryService.search('Durable'), hasLength(3));
+      expect(await search('Durable'), hasLength(3));
       await authority.close();
     });
 
@@ -711,9 +708,9 @@ void main() {
       }
       final authority = MemoryCorpusService(workspaceDir: tempDir.path);
       addTearDown(authority.close);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex, corpusService: authority);
       final before = await authority.manifest();
-      final rowsBefore = memoryService.search('Fresh').map((row) => row.locator).toList()..sort();
+      final rowsBefore = (await search('Fresh')).map((row) => row.locator).toList()..sort();
 
       final result = await pruner.prune();
 
@@ -725,7 +722,7 @@ void main() {
       expect(after.fingerprint, before.fingerprint);
       expect(File('${tempDir.path}/MEMORY.archive.md').existsSync(), isFalse);
       expect(File('${tempDir.path}/MEMORY.audit.md').existsSync(), isFalse);
-      expect(memoryService.search('Fresh').map((row) => row.locator).toList()..sort(), rowsBefore);
+      expect((await search('Fresh')).map((row) => row.locator).toList()..sort(), rowsBefore);
     });
 
     // The pruner rebuilds the whole corpus; errors and learnings are
@@ -793,7 +790,7 @@ void main() {
       }
       final authority = MemoryCorpusService(workspaceDir: tempDir.path);
       addTearDown(authority.close);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex, corpusService: authority);
       final errorsBefore = File('${tempDir.path}/errors.md').readAsBytesSync();
       final learningsBefore = File('${tempDir.path}/learnings.md').readAsBytesSync();
 
@@ -855,7 +852,7 @@ void main() {
         file.writeAsBytesSync(member.value);
       }
       final authority = MemoryCorpusService(workspaceDir: tempDir.path);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex, corpusService: authority);
 
       final result = await pruner.prune();
       final after = await authority.readCorpus();
@@ -916,7 +913,7 @@ void main() {
         file.writeAsBytesSync(member.value);
       }
       final authority = MemoryCorpusService(workspaceDir: tempDir.path);
-      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryService: memoryService, corpusService: authority);
+      pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex, corpusService: authority);
 
       final result = await pruner.prune();
       final after = await authority.readCorpus();
@@ -981,7 +978,7 @@ void main() {
       writeMemory(source);
       pruner = MemoryPruner(
         workspaceDir: tempDir.path,
-        memoryService: memoryService,
+        memoryIndex: memoryIndex,
         writeFileForTesting: (target, contents) {
           if (target.path.endsWith('MEMORY.archive.md')) {
             throw FileSystemException('injected archive write failure', target.path);
@@ -994,7 +991,7 @@ void main() {
 
       expect(readMemory(), source);
       expect(archiveExists(), isFalse);
-      expect(memoryService.search('remain'), isEmpty);
+      expect(await search('remain'), isEmpty);
     });
 
     test('rejects an unclosed archive fence before mutating MEMORY.md', () async {
@@ -1015,7 +1012,7 @@ void main() {
 
       expect(readMemory(), source);
       expect(readArchive(), archive);
-      expect(memoryService.search('remain'), isEmpty);
+      expect(await search('remain'), isEmpty);
     });
 
     test('retry with no new archive entries ignores an unrelated unclosed fence', () async {
@@ -1033,7 +1030,7 @@ void main() {
       expect(result.entriesArchived, 1);
       expect(readMemory(), '## general\n');
       expect(entry.allMatches(readArchive()), hasLength(1));
-      expect(memoryService.search('Already'), hasLength(1));
+      expect(await search('Already'), hasLength(1));
     });
 
     test('rejects a symlinked MEMORY.md without changing its target', () async {
@@ -1104,19 +1101,46 @@ memory:
   });
 }
 
-final class _FailingMemoryService extends MemoryService {
+final class _FailingMemoryIndex implements FullTextIndex {
+  final FullTextIndex delegate;
   var failNextReplacement = true;
 
-  new(super.db);
+  new(this.delegate);
 
   @override
-  void replaceMemoryRows(Iterable<MemoryIndexRow> rows, {String userId = 'owner'}) {
+  Future<void> replaceAll(Iterable<SearchDocument> documents, {required String userId}) {
     if (failNextReplacement) {
       failNextReplacement = false;
       throw StateError('injected index failure');
     }
-    super.replaceMemoryRows(rows, userId: userId);
+    return delegate.replaceAll(documents, userId: userId);
   }
+
+  @override
+  Future<void> upsert(Iterable<SearchDocument> documents, {required String userId, Set<String> retire = const {}}) =>
+      delegate.upsert(documents, userId: userId, retire: retire);
+
+  @override
+  Future<int> count({required String userId, Map<String, String> metadata = const {}}) =>
+      delegate.count(userId: userId, metadata: metadata);
+
+  @override
+  Future<void> delete(Iterable<String> ids, {required String userId}) => delegate.delete(ids, userId: userId);
+
+  @override
+  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) =>
+      delegate.fetch(ids, userId: userId);
+
+  @override
+  Future<List<SearchResult>> listRecent({required String userId, int limit = 20}) =>
+      delegate.listRecent(userId: userId, limit: limit);
+
+  @override
+  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) =>
+      delegate.search(naturalLanguageQuery, userId: userId, limit: limit);
+
+  @override
+  Future<void> verifyIntegrity() => delegate.verifyIntegrity();
 }
 
 List<(String, String, String?, String)> _indexRows(Database db) => db

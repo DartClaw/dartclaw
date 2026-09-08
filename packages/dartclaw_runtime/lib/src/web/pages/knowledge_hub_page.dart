@@ -1,6 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ComposedSearchBackend, Fts5SearchBackend, MemoryService, TemporalKnowledgeGraphService, WikiSearchSource;
+    show ComposedSearchBackend, Fts5SearchBackend, TemporalKnowledgeGraphService, WikiSearchSource;
 import 'package:dartclaw_core/dartclaw_core.dart' show MemoryCorpusService;
 import 'package:shelf/shelf.dart';
 
@@ -92,7 +92,7 @@ class KnowledgeHubPage extends DashboardPage {
 
 KnowledgeHubService knowledgeHubServiceForWorkspace({
   required String workspaceDir,
-  required MemoryService memory,
+  required FullTextIndex memoryIndex,
   SearchBackend? searchBackend,
   MemoryCorpusService? memoryCorpus,
   required TemporalKnowledgeGraphService kg,
@@ -102,13 +102,13 @@ KnowledgeHubService knowledgeHubServiceForWorkspace({
   final effectiveSearch =
       searchBackend ??
       ComposedSearchBackend(
-        personal: Fts5SearchBackend(memoryService: memory),
+        personal: Fts5SearchBackend(index: memoryIndex),
         wiki: wiki,
       );
   return KnowledgeHubService(
     wiki: wiki,
     kg: kg,
-    memory: memory,
+    memoryIndex: memoryIndex,
     searchBackend: effectiveSearch,
     inbox: inbox,
     sourceResolver: memoryCorpus == null

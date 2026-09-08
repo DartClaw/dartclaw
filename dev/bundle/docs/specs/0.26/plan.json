@@ -197,10 +197,19 @@
         "S01",
         "S02"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s03-fulltextindex-abstraction-and-fts5-implementation.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
+      "owner": "implementer_storage_s03",
       "scope": "Introduce the tenancy-carrying generic FullTextIndex port in dartclaw_kernel (search/upsert/delete with user_id required; SearchDocument/SearchResult fields and metadata semantics pinned) and the FTS5 implementation in dartclaw_core preserving current search behavior (tokenization, bm25 ranking, filters, the searchable canonical-role set that excludes the 0.25 error role). Prove user A cannot search, overwrite, or delete user B's content. Refactor the search.db memory-document query surface and CanonicalIndexReconciler onto the seam with rebuild flows unchanged and zero user-visible SQLite change; the canonical-identity metadata round trip is the gate. Phase A's memory instance excludes KG facts, wiki pages, and tasks. Excludes PostgreSQL FTS and direct KG search (S09), the conversation corpus (S13), and VectorIndex (Phase B).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr3-full-text-index-abstraction-with-tenancy"

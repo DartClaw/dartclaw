@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -19,7 +20,7 @@ final _dailyLogHeader = RegExp(r'^## (?:[01]\d|2[0-3]):[0-5]\d — ');
 /// Avoids direct `sqlite3` dependency in `dartclaw_runtime/lib/`.
 /// The caller provides a function that queries `SELECT COUNT(*) FROM
 /// memory_chunks WHERE role = ?`.
-typedef SearchIndexCounter = int Function(String role);
+typedef SearchIndexCounter = FutureOr<int> Function(String role);
 
 /// Reads current persisted search-index health evidence.
 typedef IndexHealthReader = Future<IndexHealthEvidence> Function();
@@ -404,11 +405,11 @@ class MemoryStatusService {
       evidenceFailure = error;
     }
     final state = evidence?.state ?? IndexHealthState.unknown;
-    final counts = ['topic', 'observation', 'learning'].map(_countSearchEntries).toList(growable: false);
+    final counts = await Future.wait(['topic', 'observation', 'learning'].map(_countSearchEntries));
     final indexEntries = counts.any((count) => count == null)
         ? null
         : counts.whereType<int>().fold<int>(0, (sum, count) => sum + count);
-    final indexArchived = _countSearchEntries('archive');
+    final indexArchived = await _countSearchEntries('archive');
     final dbSizeBytes = _getSearchDbSize();
 
     return {
@@ -434,11 +435,11 @@ class MemoryStatusService {
     };
   }
 
-  int? _countSearchEntries(String role) {
+  Future<int?> _countSearchEntries(String role) async {
     final counter = searchIndexCounter;
     if (counter == null) return null;
     try {
-      return counter(role);
+      return await counter(role);
     } catch (e) {
       _log.fine('Search index count failed: $e');
       return null;

@@ -3,9 +3,12 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_core/src/memory/memory_corpus_service.dart' show MemoryCorpusTransition;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/memory/memory_apply_service.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 const _a = '00000000-0000-4000-8000-00000000000a';
 const _b = '00000000-0000-4000-8000-00000000000b';
@@ -20,7 +23,7 @@ const _error = '00000000-0000-4000-8000-000000000012';
 void main() {
   late Directory workspace;
   late Database db;
-  late MemoryService index;
+  late FullTextIndex index;
   late MemoryCorpusService corpus;
   late MemorySourceRef provenance;
   late DateTime now;
@@ -29,7 +32,7 @@ void main() {
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('memory_apply_service_test_');
     db = sqlite3.openInMemory();
-    index = MemoryService(db);
+    index = await prepareMemoryIndex(db);
     corpus = MemoryCorpusService(workspaceDir: workspace.path);
     provenance = MemorySourceRef(
       originKind: MemoryOriginKind.curation,
@@ -57,7 +60,7 @@ void main() {
         reconcile ??
         (committed, _, _, _, userId) {
           reconciliations++;
-          index.replaceMemoryRows(MemoryService.canonicalIndexRows(committed), userId: userId);
+          return replaceMemoryCorpus(index, committed, userId: userId);
         },
   );
 
@@ -315,7 +318,10 @@ void main() {
     expect(current.audit!.records.map((record) => record.entryId), unorderedEquals([_c, _d]));
     expect(current.audit!.records.singleWhere((record) => record.entryId == _c).reason, 'merged duplicate');
     expect(_allCorpusText(workspace), isNot(contains('REMOVE-ME-9f8c')));
-    expect(index.listRecent().map((row) => row.text).join('\n'), isNot(contains('REMOVE-ME-9f8c')));
+    expect(
+      (await index.listRecent(userId: 'owner')).map((row) => row.chunk).join('\n'),
+      isNot(contains('REMOVE-ME-9f8c')),
+    );
   });
 
   test('wholly exact-no-op performs no canonical audit or index write', () async {
@@ -352,9 +358,9 @@ void main() {
   test('one invalid operation rejects every operation without canonical index or audit effects', () async {
     await _seed(corpus, [_entry(_a, 'A'), _entry(_b, 'B')]);
     final revision = (await corpus.readCorpus()).index.metadata.revision;
-    index.replaceMemoryRows(MemoryService.canonicalIndexRows(await corpus.readCorpus()));
+    await replaceMemoryCorpus(index, await corpus.readCorpus());
     final beforeCorpus = _corpusBytes(workspace);
-    final beforeRows = index.listRecent();
+    final beforeRows = await index.listRecent(userId: 'owner');
 
     final result = await service().apply(
       {
@@ -394,7 +400,7 @@ void main() {
     expect((records['valid-add'] as Map)['reason'], contains('not applied'));
     expect(records.values.every((record) => (record as Map)['outcome'] == 'rejected'), isTrue);
     expect(_corpusBytes(workspace), beforeCorpus);
-    expect(index.listRecent().map((row) => row.locator), beforeRows.map((row) => row.locator));
+    expect((await index.listRecent(userId: 'owner')).map((row) => row.id), beforeRows.map((row) => row.id));
     expect(reconciliations, 0);
   });
 
@@ -761,14 +767,14 @@ void main() {
     expect(current.archive!.entries.map((entry) => entry.id), unorderedEquals([_a, _b]));
     expect(current.archive!.entries.singleWhere((entry) => entry.id == _b).topic, 'logistics');
     expect(current.index.entries, isEmpty);
-    expect(index.listRecent().map((row) => row.locator), unorderedEquals([_a, _b]));
-    expect(index.listRecent().every((row) => row.role == 'archive'), isTrue);
+    expect((await index.listRecent(userId: 'owner')).map((row) => row.id), unorderedEquals([_a, _b]));
+    expect((await index.listRecent(userId: 'owner')).every((row) => row.metadata['role'] == 'archive'), isTrue);
   });
 
   test('an archived entry can be removed and an already-removed target is rejected', () async {
     await _seed(corpus, [_entry(_a, 'Archived content')], archivedIds: {_a});
     final initial = await corpus.readCorpus();
-    index.replaceMemoryRows(MemoryService.canonicalIndexRows(initial));
+    await replaceMemoryCorpus(index, initial);
 
     final removed = await service().apply(
       {
@@ -788,7 +794,7 @@ void main() {
     );
 
     expect(removed['canonicalOutcome'], 'committed');
-    expect(index.listRecent(), isEmpty);
+    expect(await index.listRecent(userId: 'owner'), isEmpty);
     final current = await corpus.readCorpus();
     expect(current.archive?.entries ?? const <CanonicalMemoryEntry>[], isEmpty);
     expect(current.audit!.records.single.entryId, _a);
@@ -821,9 +827,9 @@ void main() {
   test('malformed operation records retain precise reasons and reject valid peers without effects', () async {
     await _seed(corpus, [_entry(_a, 'A')]);
     final revision = (await corpus.readCorpus()).index.metadata.revision;
-    index.replaceMemoryRows(MemoryService.canonicalIndexRows(await corpus.readCorpus()));
+    await replaceMemoryCorpus(index, await corpus.readCorpus());
     final beforeCorpus = _corpusBytes(workspace);
-    final beforeRows = index.listRecent();
+    final beforeRows = await index.listRecent(userId: 'owner');
 
     final result = await service().apply(
       {
@@ -867,7 +873,7 @@ void main() {
     expect((records['fractional-revision'] as Map)['reason'], contains('positive integer'));
     expect(records.values.every((record) => (record as Map)['outcome'] == 'rejected'), isTrue);
     expect(_corpusBytes(workspace), beforeCorpus);
-    expect(index.listRecent().map((row) => row.locator), beforeRows.map((row) => row.locator));
+    expect((await index.listRecent(userId: 'owner')).map((row) => row.id), beforeRows.map((row) => row.id));
     expect(reconciliations, 0);
   });
 

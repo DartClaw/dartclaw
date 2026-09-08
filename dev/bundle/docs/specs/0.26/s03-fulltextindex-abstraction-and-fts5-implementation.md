@@ -199,7 +199,7 @@ file   | docs/specs/0.26/s02-sqlite-schema-bootstrap-and-compatibility-gate.md#w
 
 - **TI04** Every memory consumer reaches the index through the port with explicit user scope
   - `Fts5SearchBackend(index:)` forwards natural language; `createSearchBackend(index:)`; `KnowledgeHubService.memory` is a `FullTextIndex` mapped through `MemoryIndexProjection.toSearchResult`; `createMemoryHandlers(memoryIndex:)` runs `reconcileCanonical` as `upsert(docs, userId:, retire: priorRecordIds)` → `indexAfterWrite` → `fetch`/`count` parity check → health, inside the same error boundary; `MemoryPruner(memoryIndex:)` writes `replaceAll`/`upsert` in its `afterCommit` callbacks; `MemoryStatusService.searchIndexCounter` uses `count(userId: 'owner', metadata: {'role': role})`; the `MemoryService` fields and getters in `server_deps.dart`, `server.dart`, `web_routes.dart`, `system_pages.dart`, `knowledge_hub_page.dart`, `harness_wiring.dart`, `scheduling_wiring.dart`, `service_wiring_builder.dart` carry the port type. Depends on TI02 and TI03.
-  - **Verify**: `cmd: ! rg -q "MemoryService|MemoryIndexRow|encodeNaturalLanguageQuery" packages apps --glob '*.dart' --glob '!**/memory_index_projection*' && ! rg -q "searchDb\.select|FROM memory_chunks" packages/dartclaw_runtime/lib apps && dart test --reporter=failures-only packages/dartclaw_core/test/search packages/dartclaw_core/test/memory/memory_pruner_test.dart packages/dartclaw_runtime/test/memory_handlers_test.dart packages/dartclaw_runtime/test/knowledge/knowledge_hub_service_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/api/memory_prune_test.dart` – no consumer names the retired types or runs raw SQL against `search.db`, and the search, pruner, handler, hub, status, and prune suites pass with unchanged assertions (scenario S01)
+  - **Verify**: `cmd: ! rg -q "MemoryService|MemoryIndexRow|encodeNaturalLanguageQuery" packages apps --glob '*.dart' --glob '!**/memory_index_projection*' && ! rg -q "searchDb\.select|FROM memory_chunks" packages/dartclaw_runtime/lib apps --glob '!**/test/**' --glob '!**/*_test.dart' && dart test --reporter=failures-only packages/dartclaw_core/test/search packages/dartclaw_core/test/memory/memory_pruner_test.dart packages/dartclaw_runtime/test/memory_handlers_test.dart packages/dartclaw_runtime/test/knowledge/knowledge_hub_service_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/api/memory_prune_test.dart` – no consumer names the retired types or runs raw SQL against `search.db`, and the search, pruner, handler, hub, status, and prune suites pass with unchanged assertions (scenario S01)
   - **SATISFIES**: S01, SC02
 
 - **TI05** The composition root constructs the memory index over the seam and projects commits through it
@@ -285,3 +285,32 @@ file   | docs/specs/0.26/s02-sqlite-schema-bootstrap-and-compatibility-gate.md#w
 
 #### ASSUMPTIONS (AUTO_MODE)
 - SC02 assigns runtime FTS operations to SqliteFtsIndex. S02 schema_identity.dart remains the declaration-only FTS table/trigger owner under SC03. TI08 therefore requires exactly those two production identifier owners and separately rejects MATCH/bm25 queries in the manifest. Independent bounded review passed; every other TI08 gate is unchanged.
+
+### Run: 2026-09-08 13:13 UTC – observations
+
+#### DRIFT
+
+- spec-stale: The preparation's uniqueness claim for `SearchResult` missed the runtime web-search DTO. The distinct internal DTO is now `WebSearchResult`; the pinned kernel port type remains `SearchResult`.
+- spec-stale: Opaque metadata round trips only within the fixed table descriptor's declared columns. Mutations reject unsupported, missing required, or non-canonical integer metadata with `ArgumentError`; filters that cannot match an accepted stored map return zero.
+- spec-stale: The native source-label identity fallback conflicts with preserving multiple legacy entries from the same file. The legacy whole-corpus pruner assigns deterministic source-qualified ordinal locators; direct native projections retain the source fallback and canonical UUID identity is unchanged.
+
+### Run: 2026-09-08 13:25 UTC – observations
+
+#### DRIFT
+
+- spec-stale: TI04's raw-SQL absence scan included CLI tests whose required rebuild assertions inspect `memory_chunks`. The repaired scan excludes test paths while retaining its production consumer scope and every required TI06 assertion.
+
+### Run: 2026-09-08 13:25 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI04 Verify target repaired | Stale targets: – | `cmd: ! rg -q "MemoryService|MemoryIndexRow|encodeNaturalLanguageQuery" packages apps --glob '*.dart' --glob '!**/memory_index_projection*' && ! rg -q "searchDb\.select|FROM memory_chunks" packages/dartclaw_runtime/lib apps && dart test --reporter=failures-only packages/dartclaw_core/test/search packages/dartclaw_core/test/memory/memory_pruner_test.dart packages/dartclaw_runtime/test/memory_handlers_test.dart packages/dartclaw_runtime/test/knowledge/knowledge_hub_service_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/api/memory_prune_test.dart` → `cmd: ! rg -q "MemoryService|MemoryIndexRow|encodeNaturalLanguageQuery" packages apps --glob '*.dart' --glob '!**/memory_index_projection*' && ! rg -q "searchDb\.select|FROM memory_chunks" packages/dartclaw_runtime/lib apps --glob '!**/test/**' --glob '!**/*_test.dart' && dart test --reporter=failures-only packages/dartclaw_core/test/search packages/dartclaw_core/test/memory/memory_pruner_test.dart packages/dartclaw_runtime/test/memory_handlers_test.dart packages/dartclaw_runtime/test/knowledge/knowledge_hub_service_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/api/memory_prune_test.dart`
+
+### Run: 2026-09-08 13:34 UTC – observations
+
+#### DRIFT
+- spec-stale: The completed full-text seam migration measures `dartclaw_core` at exactly 27,942 production lines, 130 above the pinned 27,812 ceiling. The authorized exact rebaseline is recorded in `arch_check.dart` and the changelog with no headroom.
+
+### Run: 2026-09-08 13:59 UTC – observations
+
+2026-09-08 15:58 CEST: The independent gate identified three bounded correction families. The current non-batched reconciler path now verifies FTS integrity before comparing canonical documents; a real-file regression proves an intact schema/base table with corrupt FTS data is rebuilt. Added public-port falsifiers for duplicate IDs in one upsert (last occurrence wins) and immutable constructor/exposed collections. Existing real-backend contract coverage already enforces search limit, so no duplicate limit test was added. The canonical SearchDocument ID diagram now states entry UUID. Restoring the integrity call raises measured core lib LOC from 27942 to 27943; its exact ceiling and CHANGELOG measurement follow that one-line correction, with no headroom.

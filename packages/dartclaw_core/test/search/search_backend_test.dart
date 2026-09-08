@@ -46,20 +46,21 @@ class MockQmdManager extends QmdManager {
 void main() {
   group('Fts5SearchBackend', () {
     late Database db;
-    late MemoryService memoryService;
+    late SqliteBackend databaseBackend;
+    late SqliteFtsIndex index;
 
-    setUp(() {
+    setUp(() async {
       db = sqlite3.openInMemory();
-      memoryService = MemoryService(db);
+      databaseBackend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
+      index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
     });
 
-    tearDown(() {
-      db.close();
-    });
+    tearDown(() => databaseBackend.close());
 
     searchBackendContractTests(
       name: 'FTS5',
-      createBackend: () => Fts5SearchBackend(memoryService: memoryService),
+      createBackend: () => Fts5SearchBackend(index: index),
       indexContent: (text, source) async {
         _seed(db, text: text, source: source);
       },
@@ -68,24 +69,25 @@ void main() {
 
   group('QmdSearchBackend', () {
     late Database db;
-    late MemoryService memoryService;
+    late SqliteBackend databaseBackend;
+    late SqliteFtsIndex index;
     late MockQmdManager mockQmd;
 
-    setUp(() {
+    setUp(() async {
       db = sqlite3.openInMemory();
-      memoryService = MemoryService(db);
+      databaseBackend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
+      index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
       mockQmd = MockQmdManager();
     });
 
-    tearDown(() {
-      db.close();
-    });
+    tearDown(() => databaseBackend.close());
 
     searchBackendContractTests(
       name: 'QMD',
       createBackend: () => QmdSearchBackend(
         manager: mockQmd,
-        fallback: Fts5SearchBackend(memoryService: memoryService),
+        fallback: Fts5SearchBackend(index: index),
       ),
       indexContent: (text, source) async {
         mockQmd.addContent(text, source);

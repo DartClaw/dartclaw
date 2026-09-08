@@ -62,7 +62,7 @@ void main() {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     final dbPath = p.join(tempDir.path, 'search.db');
     final seededDb = openSearchDb(dbPath);
-    MemoryService(seededDb);
+    await SqliteSchemaGate.prepareSearch(SqliteBackend(seededDb), storeName: 'search.db');
     seededDb.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
       'stale searchable row',
       'legacy-memory',
@@ -75,7 +75,8 @@ void main() {
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
-    expect(MemoryService(db).search('stale'), isEmpty);
+    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
+    expect(await index.search('stale', userId: 'owner'), isEmpty);
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
     db.close();
   });
@@ -100,21 +101,22 @@ void main() {
     expect(output.last, contains('Rebuilt index: 3 entries at collection revision 2'));
 
     final db = openSearchDb(dbPath);
-    final results = MemoryService(db).search('Dart');
+    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
+    final results = await index.search('Dart', userId: 'owner');
     expect(results, isNotEmpty);
-    expect(results.first.text, contains('Dart'));
+    expect(results.first.chunk, contains('Dart'));
     db.close();
   });
 
   test('rebuild uses the live Markdown normalization and chunk boundaries', () async {
     final longTail = List.generate(90, (index) => 'segment$index').join(' ');
     final entryText = '**Durable heading**\n\n$longTail';
-    final expectedTexts = MemoryService.indexRows(
+    final expectedTexts = MemoryIndexProjection.document(
       text: entryText,
       source: 'ignored',
       category: 'project',
       createdAt: DateTime.utc(2026, 2, 23, 10),
-    ).map((row) => row.text).toList();
+    )!.chunks;
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     workspaceOf(config);
     await seedCanonicalMemory(
@@ -156,10 +158,14 @@ void main() {
     await runner.run(['rebuild-index']);
 
     final db = openSearchDb(dbPath);
-    final memory = MemoryService(db);
-    final current = memory.search('Current searchable').single;
-    final archived = memory.search('Archived searchable').single;
-    final learning = memory.search('Validate').single;
+    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
+    final current = MemoryIndexProjection.toSearchResult(
+      (await index.search('Current searchable', userId: 'owner')).single,
+    );
+    final archived = MemoryIndexProjection.toSearchResult(
+      (await index.search('Archived searchable', userId: 'owner')).single,
+    );
+    final learning = MemoryIndexProjection.toSearchResult((await index.search('Validate', userId: 'owner')).single);
     expect((current.role, current.source == current.locator, current.category), ('topic', true, 'preferences'));
     expect((archived.role, archived.source == archived.locator, archived.category), ('archive', true, 'project'));
     expect((learning.role, learning.source == learning.locator, learning.category), ('learning', true, null));

@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 database backend seam and goal tracer slice.
+**Current through**: 0.26 database backend and full-text index seams.
 
 ---
 
@@ -593,7 +593,9 @@ union that `dartclaw rebuild-index` restores.
 | `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
 | `SelfImprovementService` | `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
 | `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
-| `MemoryService` | `packages/dartclaw_core/lib/src/storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
+| `FullTextIndex` | `packages/dartclaw_kernel/lib/src/full_text_index.dart` | Corpus-agnostic, user-scoped full-text document port |
+| `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
+| `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
 | `SearchDb` | `packages/dartclaw_core/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
 | `Fts5SearchBackend` | `packages/dartclaw_core/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
 | `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
@@ -992,7 +994,7 @@ Headless workflow composition also omits the personal-memory corpus, preflight, 
 3.  File services (SessionService, MessageService, KvService)
 4.  SQLite databases (SearchDb, TaskDb, TurnStateStore/state.db)
 5.  Search backends (FTS5, optional QMD)
-6.  Memory services (MemoryFileService, MemoryService, SelfImprovementService)
+6.  Memory services (MemoryFileService, FullTextIndex, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)
 8.  Container managers (per-profile: workspace, restricted)
 9.  Primary provider harness and `TurnRunner`

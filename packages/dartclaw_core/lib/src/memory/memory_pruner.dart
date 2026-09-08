@@ -16,12 +16,12 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         MemoryFileService,
         MemoryIndexDocument,
         MemoryIndexEntry,
+        MemoryIndexProjection,
         MemoryRole,
         MemoryTopicDocument,
         parseMemoryEntries;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show FullTextIndex, SearchDocument;
 import 'package:logging/logging.dart';
-
-import '../storage/memory_service.dart';
 
 /// Result of a pruning operation.
 typedef PruneResult = ({int entriesArchived, int duplicatesRemoved, int entriesRemaining, int finalSizeBytes});
@@ -37,8 +37,8 @@ class MemoryPruner {
   /// Workspace directory containing `MEMORY.md` and `MEMORY.archive.md`.
   final String workspaceDir;
 
-  /// Storage-backed memory service for index synchronization.
-  final MemoryService memoryService;
+  /// Full-text memory index synchronized after corpus commits.
+  final FullTextIndex memoryIndex;
 
   /// Age threshold in days after which entries are archived.
   final int archiveAfterDays;
@@ -48,7 +48,7 @@ class MemoryPruner {
   /// Creates a pruner that operates on the given [workspaceDir].
   new({
     required this.workspaceDir,
-    required this.memoryService,
+    required this.memoryIndex,
     this.archiveAfterDays = 90,
     void Function(File target, String contents)? writeFileForTesting,
     MemoryCorpusService? corpusService,
@@ -70,13 +70,15 @@ class MemoryPruner {
   Future<PruneResult> prune() {
     if (!_ownsCorpusService) return _pruneCanonicalSelected();
     return _corpusService
-        .updateFiles<({PruneResult result, List<MemoryIndexRow> rows})>(
+        .updateFiles<({PruneResult result, List<SearchDocument> rows})>(
           paths: const ['MEMORY.md', 'MEMORY.archive.md', 'learnings.md'],
           prepare: _preparePrune,
           prepareCanonical: _prepareCanonicalPrune,
           bootstrapCanonical: !_ownsCorpusService,
-          afterCommit: (prepared) {
-            if (!_corpusService.hasPostCommitProjection) memoryService.replaceMemoryRows(prepared.rows);
+          afterCommit: (prepared) async {
+            if (!_corpusService.hasPostCommitProjection) {
+              await memoryIndex.replaceAll(prepared.rows, userId: 'owner');
+            }
           },
           rollbackOnAfterCommitFailure: true,
         )
@@ -87,7 +89,7 @@ class MemoryPruner {
     while (true) {
       final manifest = await _corpusService.manifest();
       var priorIds = <String>{};
-      final changed = await _corpusService.changeSelected<({PruneResult result, List<MemoryIndexRow> rows})>(
+      final changed = await _corpusService.changeSelected<({PruneResult result, List<SearchDocument> rows})>(
         expectedRevision: manifest.collectionRevision,
         include: (role, _) => const {MemoryRole.topic, MemoryRole.archive, MemoryRole.audit}.contains(role),
         paths: const ['MEMORY.archive.md', 'MEMORY.audit.md'],
@@ -99,9 +101,9 @@ class MemoryPruner {
           final mutation = _prepareCanonicalPrune(corpus);
           return MemoryCorpusChange(value: mutation.value, replacement: mutation.corpus);
         },
-        afterCommit: (prepared, _) {
+        afterCommit: (prepared, _) async {
           if (!_corpusService.hasPostCommitProjection) {
-            memoryService.replaceMemoryRecords(prepared.rows, priorIds);
+            await memoryIndex.upsert(prepared.rows, userId: 'owner', retire: priorIds);
           }
         },
       );
@@ -110,7 +112,7 @@ class MemoryPruner {
     }
   }
 
-  MemoryCorpusMutation<({PruneResult result, List<MemoryIndexRow> rows})> _prepareCanonicalPrune(
+  MemoryCorpusMutation<({PruneResult result, List<SearchDocument> rows})> _prepareCanonicalPrune(
     CanonicalMemoryCorpus corpus,
   ) {
     final all = corpus.topics.expand((document) => document.entries).toList();
@@ -156,7 +158,7 @@ class MemoryPruner {
       audit: audits.isEmpty ? null : MemoryAuditDocument(records: audits),
       verbatimMembers: corpus.verbatimMembers,
     );
-    final rows = MemoryService.canonicalIndexRows(replacement);
+    final rows = MemoryIndexProjection.documents(replacement);
     final result = (
       entriesArchived: archived.length,
       duplicatesRemoved: duplicates.length,
@@ -208,7 +210,7 @@ class MemoryPruner {
 
   String _normalizeContent(String value) => value.trim().replaceAll(RegExp(r'\s+'), ' ');
 
-  MemoryCorpusFileMutation<({PruneResult result, List<MemoryIndexRow> rows})> _preparePrune(
+  MemoryCorpusFileMutation<({PruneResult result, List<SearchDocument> rows})> _preparePrune(
     Map<String, List<int>?> files,
   ) {
     final content = files['MEMORY.md'] == null ? '' : utf8.decode(files['MEMORY.md']!);
@@ -338,18 +340,20 @@ class MemoryPruner {
     return '$existing$separator${_reconstructMemoryMd(newEntries)}';
   }
 
-  Iterable<MemoryIndexRow> _indexEntries(
+  Iterable<SearchDocument> _indexEntries(
     Iterable<MemoryEntry> entries, {
     required String source,
     String? category,
   }) sync* {
-    for (final entry in entries) {
-      yield* MemoryService.indexRows(
+    for (final (index, entry) in entries.indexed) {
+      final document = MemoryIndexProjection.document(
         text: entry.rawText,
         source: source,
         category: category ?? entry.category,
         createdAt: entry.timestamp,
+        locator: '$source:$index',
       );
+      if (document != null) yield document;
     }
   }
 }

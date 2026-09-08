@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1",
+  "story": "S03",
+  "fis": "s03-fulltextindex-abstraction-and-fts5-implementation.md",
+  "plan": "plan.json",
+  "snapshot": "bc17467fabe5+15cb5bc0eca3",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ bc17467fabe5+15cb5bc0eca3",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 89.4,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S01 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/search_backend_test.dart --name \"Fts5SearchBackend\"",
+      "exit": 0,
+      "duration": 0.986,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S07 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart --name \"rebuilds the index from a canonical corpus\"",
+      "exit": 0,
+      "duration": 3.125,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S08 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/index_reconciler_test.dart --name \"batched current fast path proves exact rows and complete canonical authentication\"",
+      "exit": 0,
+      "duration": 1.014,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "rg -qU \"full_text_index\\.dart'\\s*show[^;]*\\bFullTextIndex\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && rg -qU \"full_text_index\\.dart'\\s*show[^;]*\\bSearchDocument\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && rg -qU \"full_text_index\\.dart'\\s*show[^;]*\\bSearchResult\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && ! rg -qi \"role|provenance|entry_id|entry_revision|locator|MemorySearchResult\" packages/dartclaw_kernel/lib/src/full_text_index.dart && ! rg -q \"String userId = \" packages/dartclaw_kernel/lib/src/full_text_index.dart && dart analyze --fatal-infos packages/dartclaw_kernel",
+      "exit": 0,
+      "duration": 1.101,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/memory/memory_index_projection_test.dart --plain-name \"memory index projection\" && ! rg -q \"class (MemoryService|MemoryIndexRow)\\b\" packages apps",
+      "exit": 0,
+      "duration": 0.722,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/sqlite_fts_index_test.dart --plain-name \"SqliteFtsIndex\" && ! rg -q \"package:sqlite3\" packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart",
+      "exit": 0,
+      "duration": 0.704,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "! rg -q \"MemoryService|MemoryIndexRow|encodeNaturalLanguageQuery\" packages apps --glob '*.dart' --glob '!**/memory_index_projection*' && ! rg -q \"searchDb\\.select|FROM memory_chunks\" packages/dartclaw_runtime/lib apps --glob '!**/test/**' --glob '!**/*_test.dart' && dart test --reporter=failures-only packages/dartclaw_core/test/search packages/dartclaw_core/test/memory/memory_pruner_test.dart packages/dartclaw_runtime/test/memory_handlers_test.dart packages/dartclaw_runtime/test/knowledge/knowledge_hub_service_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/api/memory_prune_test.dart",
+      "exit": 0,
+      "duration": 3.115,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "rg -q \"SqliteFtsTable\\.memoryChunks\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && ! rg -q \"DROP TABLE memory_chunks_fts|MemoryService\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && ! rg -qi \"backend\\.close\\(\\)\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart packages/dartclaw_runtime/test/mcp/memory_tools_test.dart packages/dartclaw_runtime/test/memory/memory_apply_service_test.dart",
+      "exit": 0,
+      "duration": 3.429,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3|SearchDbFactory|MemoryService\" packages/dartclaw_core/lib/src/storage/index_reconciler.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/index_reconciler_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart",
+      "exit": 0,
+      "duration": 2.139,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "! rg -q \"MemoryIndexRow|MemoryService\\b\" dev/architecture/data-model.md dev/architecture/system-architecture.md && rg -q \"SqliteFtsIndex\" dev/architecture/data-model.md && rg -q \"FullTextIndex\" dev/architecture/system-architecture.md",
+      "exit": 0,
+      "duration": 0.02,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI08 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && test \"$(rg -l \"import 'package:sqlite3\" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')\" = 16 && test \"$(rg -l \"MATCH|bm25\\(|memory_chunks_fts\" packages apps --glob '*.dart' --glob '!**/test/**' --glob '!**/*_test.dart' | sort)\" = \"$(printf '%s\\n' packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart packages/dartclaw_core/lib/src/storage/schema_identity.dart)\" && ! rg -q \"MATCH|bm25\\(\" packages/dartclaw_core/lib/src/storage/schema_identity.dart && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check",
+      "exit": 0,
+      "duration": 199.395,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

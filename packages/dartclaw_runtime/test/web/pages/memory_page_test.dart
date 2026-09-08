@@ -12,6 +12,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
+import '../../helpers/search_index_test_support.dart';
 
 void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
@@ -21,18 +22,18 @@ void main() {
   late String workspaceDir;
   late KvService kvService;
   late MemoryStatusService statusService;
-  late MemoryService memoryService;
+  late FullTextIndex memoryIndex;
   late SessionService sessions;
   late MessageService messages;
   late Database db;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_memory_page_test_');
     workspaceDir = p.join(tempDir.path, 'workspace');
     Directory(workspaceDir).createSync(recursive: true);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     db = sqlite3.open(p.join(tempDir.path, 'memory.db'));
-    memoryService = MemoryService(db);
+    memoryIndex = await prepareMemoryIndex(db);
     statusService = MemoryStatusService(
       workspaceDir: workspaceDir,
       config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
@@ -71,7 +72,7 @@ void main() {
 
   test('S01 confirmed prune returns the refreshed region, history row, and count toast', () async {
     File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2025-01-01 10:00] Old entry\n');
-    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
     final response = await post(handlerWith(MemoryPruneService(pruner: pruner, kvService: kvService)));
 
     expect(response.status, 200);
@@ -104,7 +105,7 @@ void main() {
 
   test('an unauthenticated request is refused before pruning', () async {
     File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2025-01-01 10:00] Old entry\n');
-    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
     final token = 'a' * 64;
     final guarded = const Pipeline()
         .addMiddleware(
@@ -122,7 +123,7 @@ void main() {
 
   test('a cross-origin local-admin request is refused before pruning', () async {
     File(p.join(workspaceDir, 'MEMORY.md')).writeAsStringSync('## general\n- [2025-01-01 10:00] Old entry\n');
-    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryService: memoryService, archiveAfterDays: 90);
+    final pruner = MemoryPruner(workspaceDir: workspaceDir, memoryIndex: memoryIndex, archiveAfterDays: 90);
     final guarded = const Pipeline()
         .addMiddleware(localAdminMiddleware())
         .addMiddleware(originHostGuardMiddleware())

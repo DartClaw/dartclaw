@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.25 security posture corrections, guarded MCP dispatch, capacity-only lane retirement, kernel formation, and storage absorption.
+**Current through**: 0.26 database backend seam and goal tracer slice.
 
 ---
 
@@ -405,6 +405,11 @@ Two storage mechanisms, each for distinct access patterns:
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
 | **SQLite** (`search.db`, `tasks.db`, `state.db`) | FTS5 search index, tasks/goals/artifacts, transient turn recovery state | Relational queries, full-text search | `search.db`: derived (rebuildable). `tasks.db`: **authoritative**. `state.db`: transient operational state |
 
+The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
+semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
+an open awaited transaction unless they originate from that transaction body. `SqliteGoalRepository` is the initial
+consumer; other repositories retain direct SQLite access until their scheduled 0.26 migrations.
+
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 
 Full persistence details: [Data Model & Persistence Overview](data-model.md)
@@ -726,8 +731,8 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
-| `dartclaw_kernel` | Shared models, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
-| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file and SQLite persistence, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
+| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, `SqliteBackend` and SQLite repositories, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
 | `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns its workflow-run SQLite adapter and the fakes of its ports |
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |

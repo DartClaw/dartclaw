@@ -24,7 +24,7 @@ void main() {
       ..outputTokens = 10;
     h = TaskExecutorTestHarness(worker);
     await h.setUp(tempPrefix: 'dartclaw_budget_test_');
-    goals = GoalService(SqliteGoalRepository(sqlite3.openInMemory()));
+    goals = GoalService(await SqliteGoalRepository.open(SqliteBackend(sqlite3.openInMemory())));
     kvService = KvService(filePath: p.join(h.tempDir.path, 'kv.json'));
   });
 

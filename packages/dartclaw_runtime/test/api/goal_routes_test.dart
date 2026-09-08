@@ -13,10 +13,10 @@ void main() {
   late Handler handler;
   late ApiRouteTestClient api;
 
-  setUp(() {
+  setUp(() async {
     db = openTaskDbInMemory();
     taskRepository = SqliteTaskRepository(db);
-    goals = GoalService(SqliteGoalRepository(db));
+    goals = GoalService(await SqliteGoalRepository.open(SqliteBackend(db)));
     handler = goalRoutes(goals).call;
     api = ApiRouteTestClient(handler);
   });

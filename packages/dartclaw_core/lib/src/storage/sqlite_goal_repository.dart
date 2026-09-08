@@ -1,17 +1,21 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show Goal, GoalRepository;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 
 /// SQLite-backed goal persistence sharing the tasks database.
 class SqliteGoalRepository implements GoalRepository {
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the repository against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
+  new _(this._backend);
+
+  /// Opens the repository against [backend] and initializes its schema.
+  static Future<SqliteGoalRepository> open(DatabaseBackend backend) async {
+    final repository = SqliteGoalRepository._(backend);
+    await repository._initSchema();
+    return repository;
   }
 
-  void _initSchema() {
-    _db.execute('''
+  Future<void> _initSchema() async {
+    await _backend.execute('''
       CREATE TABLE IF NOT EXISTS goals (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -20,22 +24,21 @@ class SqliteGoalRepository implements GoalRepository {
         created_at TEXT NOT NULL
       )
     ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_goal_id)');
-    // Migrations: add columns to existing databases that don't have them.
-    final columns = _db.select('PRAGMA table_info(goals)').map((row) => row['name'] as String).toSet();
+    await _backend.execute('CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_goal_id)');
+    final columns = (await _backend.query('PRAGMA table_info(goals)')).map((row) => row['name'] as String).toSet();
     if (!columns.contains('max_tokens')) {
-      _db.execute('ALTER TABLE goals ADD COLUMN max_tokens INTEGER');
+      await _backend.execute('ALTER TABLE goals ADD COLUMN max_tokens INTEGER');
     }
   }
 
   @override
   Future<void> insert(Goal goal) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO goals (id, title, parent_goal_id, mission, created_at, max_tokens)
       VALUES (?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         goal.id,
         goal.title,
         goal.parentGoalId,
@@ -44,45 +47,45 @@ class SqliteGoalRepository implements GoalRepository {
         goal.maxTokens,
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<Goal?> getById(String id) async {
-    final stmt = _db.prepare('SELECT * FROM goals WHERE id = ?');
+    final stmt = await _backend.prepare('SELECT * FROM goals WHERE id = ?');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       return rows.isEmpty ? null : _goalFromRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<List<Goal>> list() async {
-    final stmt = _db.prepare('SELECT * FROM goals ORDER BY created_at DESC, id DESC');
+    final stmt = await _backend.prepare('SELECT * FROM goals ORDER BY created_at DESC, id DESC');
     try {
-      return stmt.select().map(_goalFromRow).toList(growable: false);
+      return (await stmt.query()).map(_goalFromRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> delete(String id) async {
-    final stmt = _db.prepare('DELETE FROM goals WHERE id = ?');
+    final stmt = await _backend.prepare('DELETE FROM goals WHERE id = ?');
     try {
-      stmt.execute([id]);
+      await stmt.execute([id]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> dispose() async {}
 
-  Goal _goalFromRow(Row row) {
+  Goal _goalFromRow(Map<String, Object?> row) {
     return Goal(
       id: row['id'] as String,
       title: row['title'] as String,

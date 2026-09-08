@@ -134,10 +134,19 @@
       "id": "S01",
       "name": "DatabaseBackend seam and SQLite backend",
       "dependsOn": [],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s01-databasebackend-seam-and-sqlite-backend.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
+      "owner": "implementer-storage-s01",
       "scope": "Define the DatabaseBackend port in dartclaw_kernel per the ratified ADR-045 hybrid shape and implement SqliteBackend in dartclaw_core. Pin the lean transaction contract (nested rejection, transaction-bound statements). Refactor sqlite_goal_repository plus its callers as the tracer slice proving rewriting, marshalling, statement lifetime, and serialized SQLite transactions with zero behavior change. Re-run the FR1 census with both instruments against the 0.25 tree (18 sqlite3 importers: 15 dartclaw_core, 1 dartclaw_workflow, 2 dartclaw_runtime; 5 dartclaw_cli typedef consumers) and record it for S06. Excludes remaining repository refactors (S04/S05), schema bootstrap (S02), FTS (S03), and PostgreSQL code.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer",

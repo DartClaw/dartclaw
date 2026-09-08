@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1",
+  "story": "S01",
+  "fis": "s01-databasebackend-seam-and-sqlite-backend.md",
+  "plan": "plan.json",
+  "snapshot": "b545fc9797f2+41ca620991e5",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ b545fc9797f2+41ca620991e5",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 85.513,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S01 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_goal_repository_test.dart --name \"SqliteGoalRepository\"",
+      "exit": 0,
+      "duration": 0.98,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "S07 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/api/goal_routes_test.dart --name \"/api/goals\"",
+      "exit": 0,
+      "duration": 1.924,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "rg -qU \"database_backend\\.dart'\\s*show[^;]*\\bDatabaseBackend\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && rg -qU \"database_backend\\.dart'\\s*show[^;]*\\bDatabaseStatement\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && rg -qU \"database_backend\\.dart'\\s*show[^;]*\\bNestedTransactionError\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && dart analyze --fatal-infos packages/dartclaw_kernel",
+      "exit": 0,
+      "duration": 0.809,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sql_placeholder_rewriter_test.dart --plain-name \"rewrites only real placeholders\"",
+      "exit": 0,
+      "duration": 0.799,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_backend_test.dart --plain-name \"marshalling and statements\" && rg -q \"show SqliteBackend\" packages/dartclaw_core/lib/dartclaw_core.dart",
+      "exit": 0,
+      "duration": 0.97,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_backend_test.dart --plain-name \"concurrent operations wait for the open transaction\"",
+      "exit": 0,
+      "duration": 0.666,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_backend_test.dart --plain-name \"reentrancy and transaction-bound lifetimes\"",
+      "exit": 0,
+      "duration": 0.666,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3\" packages/dartclaw_core/lib/src/storage/sqlite_goal_repository.dart && ! rg -qi \"backend\\.close\\(\\)\" packages/dartclaw_core/lib/src/storage/sqlite_goal_repository.dart && ! rg -q 'SqliteGoalRepository\\(' packages/dartclaw_core/lib/src/storage/sqlite_goal_repository.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_goal_repository_test.dart",
+      "exit": 0,
+      "duration": 0.703,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "rg -q \"SqliteBackend\\(\" packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart && ! rg -q 'SqliteGoalRepository\\(' packages apps --glob '*.dart' && dart test --reporter=failures-only packages/dartclaw_runtime/test/api/goal_routes_test.dart packages/dartclaw_runtime/test/task/budget_enforcement_test.dart && dart test --reporter=failures-only packages/dartclaw_runtime/test/server_test.dart --name \"goal route wiring\"",
+      "exit": 0,
+      "duration": 7.3,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI08 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && test \"$(rg -l \"import 'package:sqlite3\" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')\" = 18 && rg -q \"import 'package:sqlite3\" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check",
+      "exit": 0,
+      "duration": 197.153,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

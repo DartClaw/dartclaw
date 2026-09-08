@@ -5,7 +5,7 @@ integrate them. Canonical source for context **ids** used by architecture/domain
 [Ubiquitous Language](../state/UBIQUITOUS_LANGUAGE.md).
 
 **Path**: brownfield – derived from observed code structure, `dev/architecture/*.md`, package `AGENTS.md` boundary
-rules, and the existing UL. **Current through**: 0.25 bridge destination.
+rules, and the existing UL. **Current through**: 0.26 database backend seam and goal tracer slice.
 
 > **Contexts are linguistic boundaries, not packages.** DartClaw has 12 packages, including the standing
 > zero-dependency `dartclaw_bridge`, plus one app and 15 contexts. The mapping is many-to-many. `dartclaw_runtime` alone
@@ -74,7 +74,7 @@ Ids are stable and are the canonical names for downstream models and glossary cl
 | `observability-alerting` | Record what the runtime did and route operational signals to the operator | Observability & alerting | `dartclaw_runtime/lib/src/{alerts,observability,health,logging}/`, trace/event writers in `dartclaw_core` | ~1.5K LOC. Consumes the event bus rather than reaching into domains – the cleanest boundary in the repo |
 
 **Shared kernel** – `dartclaw_kernel` is not itself a context. It is an explicit Shared Kernel containing dependency-free
-values, typed configuration, guard contracts, and deterministic utilities shared verbatim across contexts. Its zero-workspace-dependency
+values, storage ports including `DatabaseBackend`, typed configuration, guard contracts, and deterministic utilities shared verbatim across contexts. Its zero-workspace-dependency
 position is enforced by the exact dependency map and fitness suite.
 
 **Owning team** – all contexts: single maintainer. Contexts here are linguistic and documentation boundaries, not
@@ -162,7 +162,7 @@ Packages are the observed modules; contexts are the linguistic boundaries. Where
 | Package | Contexts hosted | Gap |
 |---|---|---|
 | `dartclaw_runtime` | `turn-orchestration`, `execution-isolation`, `task-review`, `tool-surface`, `operator-interface`, `observability-alerting`, `runtime-governance`, `project-registry` (+ parts of 4 more) | Eight contexts in one package with no intra-package boundary enforcement. The only structural signal is directory naming, and two directories are misnamed (D-2) |
-| `dartclaw_core` | Claude/Codex `provider-mediation`, `conversation-session`, `channel-integration` (interfaces), plus fragments of `turn-orchestration`, `task-review`, `knowledge-memory`, `observability-alerting`, `runtime-governance` | "Core" is a dependency-position name, not a context. Runtime contracts and their persistence adapters share one physical owner where aggregate hydration requires it |
+| `dartclaw_core` | Claude/Codex `provider-mediation`, `conversation-session`, `channel-integration` (interfaces), plus fragments of `turn-orchestration`, `task-review`, `knowledge-memory`, `observability-alerting`, `runtime-governance` | "Core" is a dependency-position name, not a context. Runtime contracts and persistence adapters such as `SqliteBackend` share one physical owner where aggregate hydration requires it |
 | `dartclaw_acp` | ACP `provider-mediation` | Clean protocol-family owner: runtime, config parser, validation and registrar live together; the CLI composes it through the server's generic registrar seam |
 | `dartclaw_kernel` | shared kernel, `configuration-platform`, `guarding-audit` (partial) | One bottom-tier package for contracts consumed together; EventBus and runtime wiring remain above it |
 | `dartclaw_workflow` | `workflow-orchestration` | Clean 1:1 – the only large context with its own package |

@@ -161,6 +161,7 @@ export 'src/project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy, Proj
 export 'src/agent_execution.dart' show AgentExecution;
 export 'src/agent_execution_repository.dart' show AgentExecutionRepository;
 export 'src/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
+export 'src/database_backend.dart' show DatabaseBackend, DatabaseStatement, NestedTransactionError;
 export 'src/loop_detection.dart' show LoopDetection, LoopDetectedException, LoopMechanism;
 export 'src/loop_detector.dart' show LoopDetector;
 export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;

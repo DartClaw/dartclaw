@@ -850,10 +850,10 @@ void main() {
     late GoalService goalService;
     late SqliteTaskRepository taskRepository;
 
-    setUp(() {
+    setUp(() async {
       taskDb = openTaskDbInMemory();
       taskRepository = SqliteTaskRepository(taskDb);
-      goalService = GoalService(SqliteGoalRepository(taskDb));
+      goalService = GoalService(await SqliteGoalRepository.open(SqliteBackend(taskDb)));
       server = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,

@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.25 kernel formation and storage absorption.
+**Current through**: 0.26 database backend seam and goal tracer slice.
 
 ---
 
@@ -16,6 +16,11 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
+
+Relational repositories target the dependency-free `DatabaseBackend` port in `dartclaw_kernel`. `SqliteBackend` in
+`dartclaw_core` preserves SQLite's scalar and row formats while serializing seam-issued operations across awaited
+transactions. `SqliteGoalRepository` is the first repository on this seam; the remaining SQLite services still use
+their shared raw connection until their 0.26 migrations land.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -738,7 +743,8 @@ durable seam that connects workflow execution to task/worktree persistence.
 ## Package Ownership
 
 ```
-dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, shared enums,
+dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBackend,
+                                        shared enums,
                                         DartclawConfig, ConfigMeta, ConfigWriter,
                                         GuardChain, GuardAuditLogger, Project,
                                         AgentExecution, deterministic utilities
@@ -748,7 +754,8 @@ dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvServic
      ▲                                  MemoryFileService, Task*, Goal*, EventBus,
      │                                  ThreadBindingStore, ProjectService (interface),
      │                                  HarnessFactory, harness interfaces,
-     │                                  SqliteTaskRepository, SqliteGoalRepository,
+     │                                  SqliteBackend, SqliteTaskRepository,
+     │                                  SqliteGoalRepository (via DatabaseBackend),
      │                                  SqliteAgentExecutionRepository,
      │                                  SqliteWorkflowStepExecutionRepository,
      │                                  SqliteWorkflowRunRepository,

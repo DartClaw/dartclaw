@@ -115,7 +115,7 @@ class StorageWiring {
       if (personalMemoryEnabled) {
         _kg = TemporalKnowledgeGraphService(taskDb);
       }
-      final goalRepository = SqliteGoalRepository(taskDb);
+      final goalRepository = await SqliteGoalRepository.open(SqliteBackend(taskDb));
       _goalService = GoalService(goalRepository);
       _traceService = TurnTraceService(taskDb);
       _taskEventService = TaskEventService(taskDb);

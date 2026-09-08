@@ -465,9 +465,20 @@
         "S07",
         "S09"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s11-dual-backend-contract-suite-and-ci-integration.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10"
+      ],
       "owner": null,
       "scope": "Build the shared databaseBackendContractTests suite in dartclaw_core's test tree (dartclaw_testing may not take a driver dependency; files under 1300 lines): portable CRUD; transaction atomicity/rollback, no interleaving, nested rejection, transaction-bound statement lifetime, SQLite-only completion ordering, no replay after ambiguous dispatch; fresh bootstrap, compatible reopen, orphan-column tolerance, mismatch refusal, injected-failure rollback, SQLite derived-search rebuild/refusal; FTS set-membership parity with an explicit reviewed divergence whitelist; read/write/delete tenancy isolation; one live PostgreSQL round trip per repository family. SQLite runs in the default suite; the PostgreSQL-live path runs under the integration tag and is invoked explicitly (test_workspace.sh runs no tags) by a new ci.yml job id postgres_contract, name PostgreSQL contract, with a postgres service container (none exists today); unavailable infrastructure fails. Prove execution by comparing the JSON report's passing group IDs with a checked-in required-group manifest. Register the job name in release_check.sh gate 10's required list with a test, and document the operator step of requiring the check on GitHub main (unprotected today) as the recorded external gate.",
       "sourceRefs": [
@@ -519,7 +530,7 @@
         "S14",
         "S15"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s13-conversation-message-index-rider.md",
       "completedTaskIds": [],
       "owner": null,

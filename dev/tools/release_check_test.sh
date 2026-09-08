@@ -40,6 +40,21 @@ for release_lock_contract in \
   fi
 done
 
+ci_job_names="$(
+  awk '/^jobs:/{in_jobs=1; next} in_jobs && /^    name: / {sub(/^    name: /, ""); print}' "$ROOT_DIR/.github/workflows/ci.yml" | sort
+)"
+release_job_names="$(
+  rg -o 'for required_job in .*; do' "$ROOT_DIR/dev/tools/release_check.sh" |
+    rg -o '"[^"]+"' |
+    tr -d '"' |
+    sort
+)"
+if [[ "$ci_job_names" != "$release_job_names" ]]; then
+  echo "release check required jobs must equal CI job display names" >&2
+  diff <(printf '%s\n' "$ci_job_names") <(printf '%s\n' "$release_job_names") || true
+  exit 1
+fi
+
 cleanup() {
   rm -rf "$TEST_DIR"
 }

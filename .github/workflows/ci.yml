@@ -2,6 +2,8 @@ name: Checks
 # Action-update process: to bump a pinned action, re-resolve the tag to its current SHA with
 #   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
 # then update both the SHA and the trailing # vX comment on the uses: line.
+# Resolve the PostgreSQL service pin with:
+#   docker buildx imagetools inspect postgres:14
 
 on:
   push:
@@ -136,3 +138,38 @@ jobs:
       # fails silently and the container's user cannot enter the mount.
       - name: Container posture
         run: sudo -E env "PATH=$PATH" bash dev/testing/profiles/container/run.sh --ci
+
+  postgres_contract:
+    name: PostgreSQL contract
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14@sha256:156f0b253fd61366d5fc2107ad45955027d5612f695a8436ce20167f3fa79bff # 14
+        env:
+          POSTGRES_PASSWORD: dartclaw_ci
+          POSTGRES_DB: dartclaw_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DARTCLAW_TEST_POSTGRES_URL: postgres://postgres:dartclaw_ci@localhost:5432/dartclaw_test?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: 3.13.0
+
+      - name: Install dependencies
+        run: dart pub get --enforce-lockfile
+
+      - name: Generate embedded assets
+        run: dart run dev/tools/embed_assets.dart
+
+      - name: PostgreSQL contract
+        run: bash dev/tools/postgres_contract.sh

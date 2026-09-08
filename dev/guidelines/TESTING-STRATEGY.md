@@ -546,6 +546,27 @@ bash dev/tools/test_workspace.sh
 dart test --run-skipped -t integration packages/dartclaw_core
 ```
 
+#### PostgreSQL contract
+
+Start PostgreSQL 14, point the live suites at it, and run the same explicit contract command as CI:
+
+```bash
+docker run --rm --name dartclaw-postgres-contract \
+  -e POSTGRES_PASSWORD=dartclaw_dev \
+  -e POSTGRES_DB=dartclaw_test \
+  -p 5432:5432 postgres:14
+
+export DARTCLAW_TEST_POSTGRES_URL='postgres://postgres:dartclaw_dev@localhost:5432/dartclaw_test?sslmode=disable'
+bash dev/tools/postgres_contract.sh
+```
+
+Every contract group name starts with `[contract:<id>]`, and the same change must classify that id in
+`packages/dartclaw_core/test/storage/contract/contract_groups.json`. The report checker compares exact sets, so an
+unclassified group or a missing group fails the run.
+
+Cross-engine search differences belong in `fts_divergence_whitelist.json` only with the query, document id, engine,
+engine-level evidence, and review date. Entries that no current fixture exercises fail as stale.
+
 ### Coverage
 
 ```bash

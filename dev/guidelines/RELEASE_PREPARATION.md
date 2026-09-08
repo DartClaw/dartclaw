@@ -2,7 +2,23 @@
 
 Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, the tracked workspace dependency lock, embedded assets, formatting, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, a green `Checks` run on that exact commit, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
 
-**The commit must be pushed first.** The CI gate resolves `Checks` by the full HEAD SHA and requires `Check`, `Container boundary` and `PowerShell scripts` each green *by name*; an unpushed commit, an unfinished run, or a run with a skipped job fails it. This gate exists because the local host runs none of those three: macOS Docker Desktop remaps uids so the container posture passes locally regardless, the system `libsqlite3` masks a skipped build hook, and no `pwsh` is present to parse a `.ps1`.
+**The commit must be pushed first.** The CI gate resolves `Checks` by the full HEAD SHA and requires `Check`,
+`Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green *by name*; an unpushed commit, an
+unfinished run, or a run with a skipped job fails it. This gate exists because the local host does not reproduce all
+four jobs: macOS Docker Desktop remaps uids so the container posture passes locally regardless, the system
+`libsqlite3` masks a skipped build hook, PostgreSQL is supplied by a CI service container, and no `pwsh` is present
+to parse a `.ps1`.
+
+## One-time required-check setup
+
+No branch ruleset targeting `main` existed at the 2026-09-02 repository-settings check. In GitHub, open
+**Settings → Rules → Rulesets** and create one targeting `main`. Enable **Require status
+checks to pass**, then add `Check`, `Container boundary`, `PowerShell scripts`, and the exact check
+`PostgreSQL contract`. Save the ruleset, reopen it, and confirm all four checks are listed. Repository settings are
+kept operator-managed.
+
+At milestone close-out, record the confirmation date and the `PostgreSQL contract` check name in the current
+`dev/state/ROADMAP.md` milestone entry.
 
 **Release-workflow dry run.** When a release lands a change to `dev/tools/build_*`, `dev/tools/install_windows_test.ps1`, `install.ps1`, `dev/testing/profiles/windows-runtime/`, or `.github/workflows/release-binaries.yml`, run `Release Binaries` from `workflow_dispatch` on the branch before squashing. It builds all five targets, validates the archives, runs the Windows smoke and the installer test, and publishes nothing — `publish` is gated on `github.ref_type == 'tag'`. Nothing else exercises that matrix until the tag is pushed.
 

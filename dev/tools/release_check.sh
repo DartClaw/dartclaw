@@ -171,8 +171,8 @@ fi
 
 section "10. Green CI run on this exact commit"
 # This script runs on a developer host, which never executes the Linux
-# `Container boundary` job or the Windows release matrix. Three 0.25.0 tag
-# builds went red after it reported all-clear, so a green local run is no
+# `Container boundary`, PostgreSQL service, or Windows release matrix. Three
+# 0.25.0 tag builds went red after it reported all-clear, so a green local run is no
 # longer allowed to stand in for CI. Every job is required by name — a run
 # where one was skipped must not read as coverage — and `--commit` needs the
 # full SHA, which is why `git rev-parse` is not abbreviated.
@@ -188,7 +188,7 @@ else
   else
     ci_jobs="$(gh run view "$ci_run_id" --json jobs --jq '.jobs[] | .name + "=" + .conclusion' 2>/tmp/release_check_ci.log)"
     missing=()
-    for required_job in "Check" "Container boundary" "PowerShell scripts"; do
+    for required_job in "Check" "Container boundary" "PowerShell scripts" "PostgreSQL contract"; do
       grep -qx "$required_job=success" <<< "$ci_jobs" || missing+=("$required_job")
     done
     if [[ ${#missing[@]} -eq 0 ]]; then

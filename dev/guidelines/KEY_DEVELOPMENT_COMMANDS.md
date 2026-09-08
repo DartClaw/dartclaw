@@ -139,6 +139,8 @@ dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
+# Requires PostgreSQL 14 and DARTCLAW_TEST_POSTGRES_URL with sslmode=disable.
+bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
 git diff --check

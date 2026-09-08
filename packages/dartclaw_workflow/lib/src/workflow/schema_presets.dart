@@ -93,18 +93,21 @@ OutputResolver _withSchemaKey(OutputResolver resolver, String fieldName) {
   };
 }
 
-/// Built-in schema presets registry.
-final schemaPresets = _validatedSchemaPresets({
-  'verdict': verdictPreset,
-  'story_specs': storySpecsPreset,
-  'non_negative_integer': nonNegativeIntegerPreset,
-  'narrative_text': narrativeTextPreset,
-  'diff_summary': diffSummaryPreset,
-  'validation_summary': validationSummaryPreset,
-  'gating_findings_count': gatingFindingsCountPreset,
-  'findings_count': findingsCountPreset,
-  'review_report_path': reviewReportPathPreset,
-});
+/// Built-in schema preset declarations.
+const schemaPresetValues = [
+  verdictPreset,
+  storySpecsPreset,
+  nonNegativeIntegerPreset,
+  narrativeTextPreset,
+  diffSummaryPreset,
+  validationSummaryPreset,
+  gatingFindingsCountPreset,
+  findingsCountPreset,
+  reviewReportPathPreset,
+];
+
+/// Built-in schema presets indexed by their declared names.
+final schemaPresets = _validatedSchemaPresets({for (final preset in schemaPresetValues) preset.name: preset});
 
 /// Whether [presetName] identifies a review-report path preset. Read by
 /// `aggregate-reviews` wiring and validation only — never by output resolution.

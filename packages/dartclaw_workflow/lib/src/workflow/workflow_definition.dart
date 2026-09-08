@@ -1,6 +1,7 @@
 import 'package:logging/logging.dart';
 
 import 'output_resolver.dart';
+import 'workflow_dsl_rules.dart';
 import 'workflow_git_strategy_fields.dart';
 
 const _workflowDefinitionFieldUnset = Object();
@@ -145,6 +146,8 @@ enum OnFailurePolicy {
 
   new(this.yamlName);
 
+  static const yamlValues = ['fail', 'continue', 'retry', 'pause'];
+
   /// Parses an [OnFailurePolicy] from its YAML string representation.
   static OnFailurePolicy? fromYaml(String value) => switch (value) {
     'fail' => fail,
@@ -168,6 +171,8 @@ enum OnErrorPolicy {
   final String yamlName;
 
   new(this.yamlName);
+
+  static const yamlValues = ['pause', 'continue', 'fail'];
 
   /// Parses an [OnErrorPolicy]; the legacy `fail` spelling maps to [pause].
   static OnErrorPolicy? fromYaml(String value) => switch (value) {
@@ -624,6 +629,12 @@ class WorkflowStep {
   /// the validator rejects unknown names at load time. Empty by default.
   final List<String> workflowVariables;
 
+  /// Values for rule-source fields without a typed [WorkflowStep] member.
+  ///
+  /// This keeps a newly declared optional field parseable and available to
+  /// generic applicability validation without adding a second parser branch.
+  final Map<String, Object?> ruleValues;
+
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -675,6 +686,7 @@ class WorkflowStep {
     this.emitsOwnOutcome = false,
     this.autoFrameContext = true,
     this.workflowVariables = const [],
+    this.ruleValues = const {},
   }) : taskType = taskType ?? WorkflowTaskType.agent;
 
   /// Serializes this value to a JSON-ready map.
@@ -707,6 +719,7 @@ class WorkflowStep {
     if (emitsOwnOutcome) 'emitsOwnOutcome': true,
     if (!autoFrameContext) 'autoFrameContext': false,
     if (workflowVariables.isNotEmpty) 'workflowVariables': workflowVariables.toList(growable: false),
+    if (ruleValues.isNotEmpty) 'ruleValues': Map<String, Object?>.from(ruleValues),
   };
 
   /// Reconstructs a [WorkflowStep] from its JSON representation.
@@ -759,6 +772,7 @@ class WorkflowStep {
       emitsOwnOutcome: (json['emitsOwnOutcome'] as bool?) ?? false,
       autoFrameContext: (json['autoFrameContext'] as bool?) ?? true,
       workflowVariables: (json['workflowVariables'] as List?)?.cast<String>() ?? const [],
+      ruleValues: (json['ruleValues'] as Map?)?.cast<String, Object?>() ?? const {},
     );
   }
 
@@ -796,6 +810,7 @@ class WorkflowStep {
     bool? emitsOwnOutcome,
     bool? autoFrameContext,
     List<String>? workflowVariables,
+    Map<String, Object?>? ruleValues,
   }) {
     return WorkflowStep(
       id: id ?? this.id,
@@ -832,6 +847,7 @@ class WorkflowStep {
       emitsOwnOutcome: emitsOwnOutcome ?? this.emitsOwnOutcome,
       autoFrameContext: autoFrameContext ?? this.autoFrameContext,
       workflowVariables: workflowVariables ?? this.workflowVariables,
+      ruleValues: ruleValues ?? this.ruleValues,
     );
   }
 }
@@ -953,13 +969,13 @@ class MergeResolveConfig {
   };
 
   /// Reconstructs a [MergeResolveConfig] from its JSON representation.
-  factory fromJson(Object? raw) {
+  factory fromJson(Object? raw, {WorkflowBlockRule rule = WorkflowDslRules.mergeResolve}) {
     final json = switch (raw) {
       Map<String, dynamic> m => m,
       Map<Object?, Object?> m => Map<String, dynamic>.from(m),
       _ => <String, dynamic>{},
     };
-    const knownKeys = {'enabled', 'max_attempts', 'token_ceiling', 'escalation'};
+    final knownKeys = rule.keys;
     final unknown = json.keys.where((k) => !knownKeys.contains(k)).toList();
     final rawEsc = json['escalation'] as String?;
     return MergeResolveConfig(

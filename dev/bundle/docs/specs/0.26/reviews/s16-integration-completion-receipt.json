@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1",
+  "story": "S16",
+  "fis": "s16-declarative-workflow-step-type-rule-source.md",
+  "plan": "plan.json",
+  "snapshot": "589da3a9d214+54975f2508e1",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 589da3a9d214+54975f2508e1",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 87.226,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S02 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/built_in_workflow_contracts_test.dart && bash dev/testing/profiles/workflow-contract/run.sh",
+      "exit": 0,
+      "duration": 7.923,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"diagnostic sequence stays byte-identical\"",
+      "exit": 0,
+      "duration": 0.817,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"rule source enumerates the accepted DSL surface\"",
+      "exit": 0,
+      "duration": 0.682,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"parser key surface is the exact declared surface|one rule-source field edit makes a field parseable and applicable|parser rejection layer and messages stay byte-identical\"",
+      "exit": 0,
+      "duration": 0.721,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"diagnostic sequence stays byte-identical|validator rule-call sequence stays unchanged\" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart",
+      "exit": 0,
+      "duration": 1.365,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical\" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_loop_policy_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart",
+      "exit": 0,
+      "duration": 1.378,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical\" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart",
+      "exit": 0,
+      "duration": 1.329,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && dart format --line-length=120 --output=none --set-exit-if-changed . && git diff --exit-code -- dev/tools/fitness/check_no_framework_coupling.sh dev/fitness/test/allowlist/barrel_show_clauses.txt packages/dartclaw_workflow/lib/dartclaw_workflow.dart",
+      "exit": 0,
+      "duration": 7.24,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI08 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name \"workflow documentation matches the declared DSL surface\"",
+      "exit": 0,
+      "duration": 0.649,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

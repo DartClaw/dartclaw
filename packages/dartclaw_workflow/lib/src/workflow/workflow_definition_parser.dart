@@ -6,6 +6,7 @@ import 'duration_parser.dart';
 import 'output_resolver.dart';
 import 'schema_presets.dart';
 import 'workflow_definition.dart';
+import 'workflow_dsl_rules.dart';
 import 'workflow_git_strategy_fields.dart';
 
 /// Parses workflow definition YAML files into [WorkflowDefinition] objects.
@@ -16,131 +17,9 @@ import 'workflow_git_strategy_fields.dart';
 /// does not detect intra-step duplicate keys — author tooling (formatters,
 /// linters) is the practical line of defence.
 class WorkflowDefinitionParser {
-  static const _workflowKeys = {
-    'name',
-    'description',
-    'variables',
-    'steps',
-    'maxTokens',
-    'project',
-    'stepDefaults',
-    'gitStrategy',
-  };
+  final WorkflowBlockRule _stepRule;
 
-  static const _variableKeys = {'required', 'description', 'default'};
-
-  static const _stepKeys = {
-    'id',
-    'name',
-    'skill',
-    'type',
-    'prompt',
-    'script',
-    'provider',
-    'model',
-    'effort',
-    'timeout',
-    'timeoutSeconds',
-    'timeout_seconds',
-    'turn_timeout',
-    'parallel',
-    'entryGate',
-    'inputs',
-    'outputs',
-    'maxRetries',
-    'allowedTools',
-    'aggregateReviews',
-    'map_over',
-    'mapOver',
-    'max_parallel',
-    'maxParallel',
-    'foreach_steps',
-    'foreachSteps',
-    'continueSession',
-    'continue_session',
-    'onError',
-    'on_error',
-    'workdir',
-    'onFailure',
-    'on_failure',
-    'emitsOwnOutcome',
-    'emits_own_outcome',
-    'auto_frame_context',
-    'autoFrameContext',
-    'workflow_variables',
-    'workflowVariables',
-  };
-
-  static const _inlineForeachKeys = {
-    'id',
-    'name',
-    'type',
-    'map_over',
-    'mapOver',
-    'max_parallel',
-    'maxParallel',
-    'entryGate',
-    'inputs',
-    'outputs',
-    'steps',
-    'onFailure',
-    'on_failure',
-    'workflow_variables',
-    'workflowVariables',
-  };
-
-  static const _inlineLoopKeys = {
-    'id',
-    'name',
-    'type',
-    'maxIterations',
-    'entryGate',
-    'exitGate',
-    'steps',
-    'onMaxIterations',
-  };
-
-  static const _outputConfigKeys = {
-    'format',
-    'schema',
-    'source',
-    'description',
-    'pathPattern',
-    'path_pattern',
-    'preferPatterns',
-    'prefer_patterns',
-  };
-
-  static const _stepDefaultKeys = {
-    'match',
-    'provider',
-    'model',
-    'effort',
-    'maxRetries',
-    'timeout',
-    'timeout_seconds',
-    'timeoutSeconds',
-    'turn_timeout',
-    'allowedTools',
-  };
-
-  static const _gitStrategyKeys = {
-    'integrationBranch',
-    'integration_branch',
-    'bootstrap',
-    'worktree',
-    'promotion',
-    'publish',
-    'cleanup',
-    'artifacts',
-    'merge_resolve',
-    'mergeResolve',
-  };
-
-  static const _gitPublishKeys = {'enabled'};
-  static const _gitCleanupKeys = {'enabled'};
-  static const _gitArtifactsKeys = {'commit', 'commitMessage', 'commit_message', 'project'};
-  static const _gitWorktreeKeys = {'mode'};
+  const new({WorkflowBlockRule stepRule = WorkflowDslRules.step}) : _stepRule = stepRule;
 
   /// Parses the YAML string [source] into a [WorkflowDefinition].
   ///
@@ -159,7 +38,7 @@ class WorkflowDefinitionParser {
       throw FormatException('Invalid YAML${_at(sourcePath)}: ${e.message}');
     }
 
-    _rejectUnknownFields(yaml, _workflowKeys, 'workflow', sourcePath);
+    _rejectUnknownFields(yaml, WorkflowDslRules.workflow.keys, 'workflow', sourcePath);
     final parsedSteps = _parseSteps(yaml['steps'], sourcePath);
     return WorkflowDefinition(
       name: _requireString(yaml, 'name', sourcePath),
@@ -180,7 +59,7 @@ class WorkflowDefinitionParser {
     return parse(content, sourcePath: path);
   }
 
-  void _rejectUnknownFields(YamlMap raw, Set<String> knownKeys, String blockLabel, String? sourcePath) {
+  void _rejectUnknownFields(YamlMap raw, Iterable<String> knownKeys, String blockLabel, String? sourcePath) {
     for (final key in raw.keys) {
       final field = key.toString();
       if (knownKeys.contains(field)) continue;
@@ -228,7 +107,7 @@ class WorkflowDefinitionParser {
     if (raw is! YamlMap) {
       throw FormatException('Field "$fieldPath" must be a mapping${_at(sourcePath)}.');
     }
-    _rejectUnknownFields(raw, _variableKeys, fieldPath, sourcePath);
+    _rejectUnknownFields(raw, WorkflowDslRules.variable.keys, fieldPath, sourcePath);
     return WorkflowVariable(
       required: _optionalBool(raw['required'], '$fieldPath.required', sourcePath) ?? true,
       description: _optionalStringValue(raw['description'], '$fieldPath.description', sourcePath) ?? '',
@@ -276,7 +155,7 @@ class WorkflowDefinitionParser {
   _ParsedInlineForeachStep _parseInlineForeachStep(YamlMap raw, String? sourcePath) {
     final rawId = raw['id'];
     final blockLabel = rawId is String && rawId.isNotEmpty ? 'Foreach "$rawId"' : 'foreach step';
-    _rejectUnknownFields(raw, _inlineForeachKeys, blockLabel, sourcePath);
+    _rejectUnknownFields(raw, WorkflowDslRules.inlineForeach.keys, blockLabel, sourcePath);
     final id = raw['id'];
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Foreach step must have a non-empty "id" field${_at(sourcePath)}.');
@@ -348,7 +227,7 @@ class WorkflowDefinitionParser {
   _ParsedInlineLoopStep _parseInlineLoopStep(YamlMap raw, String? sourcePath) {
     final rawId = raw['id'];
     final blockLabel = rawId is String && rawId.isNotEmpty ? 'Inline loop "$rawId"' : 'inline loop step';
-    _rejectUnknownFields(raw, _inlineLoopKeys, blockLabel, sourcePath);
+    _rejectUnknownFields(raw, WorkflowDslRules.inlineLoop.keys, blockLabel, sourcePath);
     final id = raw['id'];
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Inline loop step must have a non-empty "id" field${_at(sourcePath)}.');
@@ -403,7 +282,7 @@ class WorkflowDefinitionParser {
   WorkflowStep _parseStep(YamlMap raw, String? sourcePath) {
     final rawId = raw['id'];
     final blockLabel = rawId is String && rawId.isNotEmpty ? 'Step "$rawId"' : 'step';
-    _rejectUnknownFields(raw, _stepKeys, blockLabel, sourcePath);
+    _rejectUnknownFields(raw, _stepRule.keys, blockLabel, sourcePath);
     final id = raw['id'];
     if (id == null || id is! String || id.isEmpty) {
       throw FormatException('Each step must have a non-empty "id" field${_at(sourcePath)}.');
@@ -419,17 +298,21 @@ class WorkflowDefinitionParser {
     // prompt validation runs.
     final rawStepType = _optionalStringValue(raw['type'], 'Step "$id": "type"', sourcePath) ?? 'agent';
     final stepType = _parseStepType(rawStepType, id, sourcePath);
+    final promptRule = _stepRule.field('prompt');
+    final scriptRule = _stepRule.field('script');
 
     // Parse prompt – optional when skill is present.
     // Accepts: List<String> (canonical), String (legacy, normalized to
     // single-element list), or null (when skill is present).
-    if (stepType == WorkflowTaskType.bash && raw.containsKey('prompt') && raw.containsKey('script')) {
+    if (scriptRule.appliesTo(stepType) &&
+        raw.containsKey('prompt') &&
+        promptRule.mutuallyExclusiveWith.any(raw.containsKey)) {
       throw FormatException('Step "$id": use "script" or "prompt", not both${_at(sourcePath)}.');
     }
-    if (stepType != WorkflowTaskType.bash && raw.containsKey('script')) {
+    if (!scriptRule.appliesTo(stepType) && raw.containsKey('script')) {
       throw FormatException('Step "$id": "script" is only valid for type: bash steps${_at(sourcePath)}.');
     }
-    final promptRaw = raw['prompt'] ?? (stepType == WorkflowTaskType.bash ? raw['script'] : null);
+    final promptRaw = raw['prompt'] ?? (scriptRule.appliesTo(stepType) ? raw['script'] : null);
     final List<String>? prompts;
     if (promptRaw == null) {
       prompts = null;
@@ -458,16 +341,14 @@ class WorkflowDefinitionParser {
     // which do not need an agent prompt, and foreach controllers which are pure
     // orchestration containers (their child steps have the prompts).
     if (skill == null && (prompts == null || prompts.isEmpty)) {
-      if (stepType != WorkflowTaskType.bash &&
-          stepType != WorkflowTaskType.approval &&
-          stepType != WorkflowTaskType.foreach &&
-          stepType != WorkflowTaskType.aggregateReviews) {
+      if (promptRule.requiresValueFor(stepType)) {
         throw FormatException('Step "$id" must have either "prompt" or "skill" (or both)${_at(sourcePath)}.');
       }
     }
 
     final timeoutRaw = raw['timeout'] ?? raw['timeoutSeconds'] ?? raw['timeout_seconds'];
-    if (stepType == WorkflowTaskType.agent && timeoutRaw != null) {
+    final timeoutRule = _stepRule.field('timeout');
+    if (!timeoutRule.appliesTo(stepType) && timeoutRaw != null) {
       throw FormatException(
         'Step "$id": "timeout" is not valid for an agent step; use "turn_timeout"${_at(sourcePath)}.',
       );
@@ -479,7 +360,7 @@ class WorkflowDefinitionParser {
     };
     final turnTimeoutSeconds = switch (raw['turn_timeout']) {
       null => null,
-      _ when stepType != WorkflowTaskType.agent => throw FormatException(
+      _ when !_stepRule.field('turn_timeout').appliesTo(stepType) => throw FormatException(
         'Step "$id": "turn_timeout" is only valid for agent steps${_at(sourcePath)}.',
       ),
       final value => _optionalTurnTimeoutSeconds(value, 'Step "$id": "turn_timeout"', sourcePath),
@@ -528,8 +409,41 @@ class WorkflowDefinitionParser {
         'Step "$id": "workflow_variables"',
         sourcePath,
       ),
+      ruleValues: _parseRuleValues(raw, blockLabel, sourcePath),
     );
   }
+
+  Map<String, Object?> _parseRuleValues(YamlMap raw, String blockLabel, String? sourcePath) {
+    final values = <String, Object?>{};
+    for (final entry in raw.entries) {
+      final name = entry.key.toString();
+      if (_typedStepFieldNames.contains(name)) continue;
+      final field = _stepRule.fields.firstWhere((candidate) => candidate.names.contains(name));
+      final value = _yamlToValue(entry.value) as Object?;
+      if (!field.acceptedKinds.any((kind) => _matchesRuleKind(value, kind))) {
+        throw FormatException('Field "$name" under $blockLabel has an invalid value kind${_at(sourcePath)}.');
+      }
+      if (value != null &&
+          !field.ignoredValues.contains(value) &&
+          field.enumValues.isNotEmpty &&
+          !field.enumValues.contains(value)) {
+        throw FormatException('Field "$name" under $blockLabel has an unsupported value${_at(sourcePath)}.');
+      }
+      values[name] = value;
+    }
+    return values;
+  }
+
+  bool _matchesRuleKind(Object? value, WorkflowValueKind kind) => switch (kind) {
+    WorkflowValueKind.string => value is String,
+    WorkflowValueKind.boolean => value is bool,
+    WorkflowValueKind.integer => value is int,
+    WorkflowValueKind.number => value is num,
+    WorkflowValueKind.stringList => value is List && value.every((entry) => entry is String),
+    WorkflowValueKind.mapping => value is Map,
+    WorkflowValueKind.list => value is List,
+    WorkflowValueKind.nullValue => value == null,
+  };
 
   WorkflowTaskType _parseStepType(String value, String stepId, String? sourcePath) {
     if (value == 'custom') {
@@ -649,7 +563,7 @@ class WorkflowDefinitionParser {
       _rejectRetiredReviewFindingsKey(key, stepId, sourcePath);
       final value = entry.value;
       if (value is YamlMap) {
-        _rejectUnknownFields(value, _outputConfigKeys, 'Step "$stepId" output "$key"', sourcePath);
+        _rejectUnknownFields(value, WorkflowDslRules.output.keys, 'Step "$stepId" output "$key"', sourcePath);
         final schema = _parseSchema(value['schema']);
         final formatRaw = _optionalStringValue(value['format'], 'Step "$stepId" output "$key": "format"', sourcePath);
         final format = formatRaw != null
@@ -787,14 +701,14 @@ class WorkflowDefinitionParser {
     if (raw is! YamlMap) {
       throw FormatException('Field "gitStrategy" must be a mapping${_at(sourcePath)}.');
     }
-    _rejectUnknownFields(raw, _gitStrategyKeys, 'gitStrategy', sourcePath);
+    _rejectUnknownFields(raw, WorkflowDslRules.gitStrategy.keys, 'gitStrategy', sourcePath);
     final publishRaw = raw['publish'];
     bool? publish;
     if (publishRaw != null) {
       if (publishRaw is! YamlMap) {
         throw FormatException('Field "gitStrategy.publish" must be a mapping${_at(sourcePath)}.');
       }
-      _rejectUnknownFields(publishRaw, _gitPublishKeys, 'gitStrategy.publish', sourcePath);
+      _rejectUnknownFields(publishRaw, WorkflowDslRules.gitPublish.keys, 'gitStrategy.publish', sourcePath);
       publish = _optionalBool(publishRaw['enabled'], 'gitStrategy.publish.enabled', sourcePath);
     }
 
@@ -804,7 +718,7 @@ class WorkflowDefinitionParser {
       if (cleanupRaw is! YamlMap) {
         throw FormatException('Field "gitStrategy.cleanup" must be a mapping${_at(sourcePath)}.');
       }
-      _rejectUnknownFields(cleanupRaw, _gitCleanupKeys, 'gitStrategy.cleanup', sourcePath);
+      _rejectUnknownFields(cleanupRaw, WorkflowDslRules.gitCleanup.keys, 'gitStrategy.cleanup', sourcePath);
       final enabledRaw = cleanupRaw['enabled'];
       if (enabledRaw != null && enabledRaw is! bool) {
         throw FormatException('Field "gitStrategy.cleanup.enabled" must be a boolean${_at(sourcePath)}.');
@@ -818,7 +732,7 @@ class WorkflowDefinitionParser {
       if (artifactsRaw is! YamlMap) {
         throw FormatException('Field "gitStrategy.artifacts" must be a mapping${_at(sourcePath)}.');
       }
-      _rejectUnknownFields(artifactsRaw, _gitArtifactsKeys, 'gitStrategy.artifacts', sourcePath);
+      _rejectUnknownFields(artifactsRaw, WorkflowDslRules.gitArtifacts.keys, 'gitStrategy.artifacts', sourcePath);
       artifacts = WorkflowGitArtifactsStrategy(
         commit: _optionalBool(artifactsRaw['commit'], 'gitStrategy.artifacts.commit', sourcePath),
         commitMessage: _optionalStringValue(
@@ -838,7 +752,7 @@ class WorkflowDefinitionParser {
           mode: _parseWorktreeMode(worktreeRaw, 'gitStrategy.worktree', sourcePath),
         );
       } else if (worktreeRaw is YamlMap) {
-        _rejectUnknownFields(worktreeRaw, _gitWorktreeKeys, 'gitStrategy.worktree', sourcePath);
+        _rejectUnknownFields(worktreeRaw, WorkflowDslRules.gitWorktree.keys, 'gitStrategy.worktree', sourcePath);
         worktree = WorkflowGitWorktreeStrategy(
           mode: switch (_optionalStringValue(worktreeRaw['mode'], 'gitStrategy.worktree.mode', sourcePath)) {
             final mode? => _parseWorktreeMode(mode, 'gitStrategy.worktree.mode', sourcePath),
@@ -894,7 +808,7 @@ class WorkflowDefinitionParser {
           }
           final match = entry['match'];
           final blockLabel = match is String && match.isNotEmpty ? 'stepDefaults "$match"' : 'stepDefaults entry';
-          _rejectUnknownFields(entry, _stepDefaultKeys, blockLabel, sourcePath);
+          _rejectUnknownFields(entry, WorkflowDslRules.stepDefault.keys, blockLabel, sourcePath);
           if (match == null || match is! String || match.isEmpty) {
             throw FormatException('Each stepDefaults entry must have a non-empty "match" field${_at(sourcePath)}.');
           }
@@ -991,6 +905,48 @@ class WorkflowDefinitionParser {
 
   String _at(String? sourcePath) => sourcePath != null ? ' in "$sourcePath"' : '';
 }
+
+const _typedStepFieldNames = {
+  'id',
+  'name',
+  'skill',
+  'type',
+  'prompt',
+  'script',
+  'provider',
+  'model',
+  'effort',
+  'timeout',
+  'timeoutSeconds',
+  'timeout_seconds',
+  'turn_timeout',
+  'parallel',
+  'entryGate',
+  'inputs',
+  'outputs',
+  'maxRetries',
+  'allowedTools',
+  'aggregateReviews',
+  'map_over',
+  'mapOver',
+  'max_parallel',
+  'maxParallel',
+  'foreach_steps',
+  'foreachSteps',
+  'continueSession',
+  'continue_session',
+  'onError',
+  'on_error',
+  'workdir',
+  'onFailure',
+  'on_failure',
+  'emitsOwnOutcome',
+  'emits_own_outcome',
+  'auto_frame_context',
+  'autoFrameContext',
+  'workflow_variables',
+  'workflowVariables',
+};
 
 class _ParsedSteps {
   final List<WorkflowStep> steps;

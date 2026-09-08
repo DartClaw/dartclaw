@@ -6,11 +6,7 @@ extension _WorkflowLoopPolicyRules on WorkflowDefinitionValidator {
   /// `continue` is a top-level loop policy; `escalate` is its foreach-nested
   /// counterpart for remediation loops that should pause for review.
   void _validateLoopMaxIterationsPolicy(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
-    const allowed = {
-      WorkflowLoop.onMaxIterationsFail,
-      WorkflowLoop.onMaxIterationsContinue,
-      WorkflowLoop.onMaxIterationsEscalate,
-    };
+    const allowed = WorkflowDslRules.loopMaxIterationsPolicies;
     final foreachNestedLoopIds = <String>{
       for (final step in definition.steps)
         if (step.foreachSteps != null) ...step.foreachSteps!,

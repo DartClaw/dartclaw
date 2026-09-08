@@ -1,12 +1,11 @@
 part of '../workflow_definition_validator.dart';
 
-bool _isFindingsCountPreset(String? presetName) => presetName == 'findings_count';
-
-bool _isGatingFindingsCountPreset(String? presetName) => presetName == 'gating_findings_count';
-
 extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
   /// Validates cross-field constraints on steps that declare `map_over`.
   void _validateMapStepConstraints(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
+    final mapRule = stepRule.fields.firstWhere((field) => field.names.contains('map_over'));
+    final parallelRule = stepRule.fields.firstWhere((field) => field.names.contains('parallel'));
+    final excludesParallel = mapRule.mutuallyExclusiveWith.any(parallelRule.names.contains);
     for (final step in definition.steps) {
       if (step.mapOver == null) continue;
 
@@ -24,7 +23,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       }
 
       // A map step cannot also be a parallel step.
-      if (step.parallel) {
+      if (excludesParallel && step.parallel) {
         errors.add(_contextErr(step.id, 'Map step "${step.id}" cannot also be a parallel step.'));
       }
 
@@ -39,7 +38,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       // per-iteration results. Declaring more than one outputs key causes the
       // engine to broadcast the identical aggregate under every declared key,
       // which is almost certainly not what the author intended.
-      if (step.outputKeys.length > 1) {
+      if (mapRule.maxOutputs case final maxOutputs? when step.outputKeys.length > maxOutputs) {
         errors.add(
           _contextErr(
             step.id,
@@ -54,11 +53,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
   }
 
   void _validateAggregateReviewsConstraints(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
-    final requiredAggregatorOutputs = <String, (OutputFormat, bool Function(String?))>{
-      'review_report_path': (OutputFormat.path, isReviewReportPathPreset),
-      'findings_count': (OutputFormat.json, _isFindingsCountPreset),
-      'gating_findings_count': (OutputFormat.json, _isGatingFindingsCountPreset),
-    };
+    const requiredAggregatorOutputs = WorkflowDslRules.aggregateReviewOutputs;
     final priorSteps = <String, WorkflowStep>{};
 
     for (final step in definition.steps) {
@@ -151,12 +146,12 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
   void _validateAggregatorOutputShape(
     WorkflowStep step,
-    Map<String, (OutputFormat, bool Function(String?))> requiredAggregatorOutputs,
+    List<WorkflowRequiredOutputRule> requiredAggregatorOutputs,
     List<WorkflowValidationError> errors,
   ) {
     final outputKeys = step.outputKeys.toSet();
     if (outputKeys.length != requiredAggregatorOutputs.length ||
-        !outputKeys.containsAll(requiredAggregatorOutputs.keys)) {
+        !outputKeys.containsAll(requiredAggregatorOutputs.map((rule) => rule.key))) {
       errors.add(
         _contextErr(
           step.id,
@@ -168,16 +163,15 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     }
 
     final outputs = step.outputs ?? const <String, OutputConfig>{};
-    for (final entry in requiredAggregatorOutputs.entries) {
-      final config = outputs[entry.key];
+    for (final rule in requiredAggregatorOutputs) {
+      final config = outputs[rule.key];
       if (config == null) continue;
-      final (expectedFormat, presetCheck) = entry.value;
-      if (config.format != expectedFormat || !presetCheck(config.presetName)) {
+      if (config.format != rule.format || config.presetName != rule.preset) {
         errors.add(
           _contextErr(
             step.id,
-            'Aggregate-reviews step "${step.id}" output "${entry.key}" must be '
-            'format: ${expectedFormat.name} with the matching schema preset '
+            'Aggregate-reviews step "${step.id}" output "${rule.key}" must be '
+            'format: ${rule.format.name} with the matching schema preset '
             '(got format: ${config.format.name}, schema: ${config.presetName ?? '<none>'}).',
           ),
         );
@@ -238,7 +232,10 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
 
     for (final step in definition.steps) {
       // Approval step in a loop — warning (runs fine today, requires loop exit gate to avoid infinite wait).
-      if (step.taskType == WorkflowTaskType.approval && stepToLoop.containsKey(step.id)) {
+      final promptRule = stepRule.field('prompt');
+      final parallelRule = stepRule.field('parallel');
+      final continueSessionRule = stepRule.field('continueSession');
+      if (WorkflowDslRules.warnsInLoopTypes.contains(step.taskType) && stepToLoop.containsKey(step.id)) {
         warnings.add(
           _err(
             WorkflowValidationErrorType.hybridStepConstraint,
@@ -251,7 +248,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
       }
 
       // Approval step as parallel — hard error (approval requires sequential gate behavior).
-      if (step.taskType == WorkflowTaskType.approval && step.parallel) {
+      if (!parallelRule.appliesTo(step.taskType) && step.parallel) {
         errors.add(
           _err(
             WorkflowValidationErrorType.hybridStepConstraint,
@@ -262,8 +259,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         );
       }
 
-      if ((step.taskType == WorkflowTaskType.bash || step.taskType == WorkflowTaskType.approval) &&
-          step.isMultiPrompt) {
+      if (!promptRule.acceptsKindForType(WorkflowValueKind.stringList, step.taskType) && step.isMultiPrompt) {
         errors.add(
           _err(
             WorkflowValidationErrorType.hybridStepConstraint,
@@ -274,7 +270,8 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         );
       }
 
-      if (step.parallel && step.continueSession != null) {
+      final excludesContinueSession = parallelRule.mutuallyExclusiveWith.any(continueSessionRule.names.contains);
+      if (excludesContinueSession && step.parallel && step.continueSession != null) {
         errors.add(
           _err(
             WorkflowValidationErrorType.hybridStepConstraint,
@@ -330,7 +327,7 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         }
 
         // continueSession on a non-agent step — hard error (bash/approval steps have no session).
-        if (step.taskType == WorkflowTaskType.bash || step.taskType == WorkflowTaskType.approval) {
+        if (!continueSessionRule.appliesTo(step.taskType)) {
           errors.add(
             _err(
               WorkflowValidationErrorType.hybridStepConstraint,

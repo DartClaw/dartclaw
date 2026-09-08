@@ -326,10 +326,10 @@
         "S02",
         "S06"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s07-opt-in-postgresbackend-core.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "implementer_storage_s06",
       "scope": "Implement PostgresBackend in dartclaw_core on the seam via postgres ^3.5.12 (recording the dartclaw_core lib LOC ceiling raise in arch_check.dart with its CHANGELOG note; no file over 1500 lines; constructors under 12 parameters): DatabaseConfig in dartclaw_kernel with backend selection (SQLite default; exactly one backend; restart reload tier; all five 0.25 config gates green), single-database/one-pool layout, configurable pool_size (provisional default 5), typed redaction-safe storage exceptions, bounded pool exhaustion, full lifecycle. Retry connection failures only when proven before dispatch; never replay after dispatch or on ambiguous commit outcome, surfacing StorageUnknownOutcomeException. Implement transactional PostgreSQL current-schema bootstrap plus epoch/manifest validation with S02's identity; incompatible or partially initialized schemas refuse before repository use. Include the runTx integrity spike and pin the minimum PostgreSQL version. Excludes TLS/credential enforcement (S08), interlock/switch semantics (S10), and PostgreSQL FTS (S09).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr4-opt-in-postgresql-backend",
@@ -503,10 +503,17 @@
         "S02",
         "S06"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s14-authoritative-store-rename.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06"
+      ],
+      "owner": "implementer_s06_test_callers",
       "scope": "Rider (owner, 2026-08-07). Rename the authoritative SQLite store file tasks.db to dartclaw.db: fresh bootstrap creates dartclaw.db; every open path (StorageWiring, the five CLI commands) resolves it through one DartclawConfig accessor with internal identifiers renamed. Supported 0.25 transition: when dartclaw.db is absent and tasks.db exists, adopt automatically before any open for use, checkpoint-first (WAL checkpointed, then one atomic rename; spent sidecars deleted); both present refuses startup loudly naming both with keep/remove guidance; a failed rename aborts before open. Store-naming refusal and notice messages (S02 gate, S10 notice) derive from the actual file name. Provide the either-name presence helper S10 consumes. search.db keeps its name; PostgreSQL is unaffected. Tests: fresh naming, adoption with and without sidecars, both-present refusal, failed-rename abort. Doc sync: data-model.md, user-guide storage/backup references, glossary.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr12-authoritative-store-rename--tasksdb--dartclawdb-rider-2026-08-07"
@@ -523,10 +530,10 @@
       "dependsOn": [
         "S06"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s15-filesystem-backed-instance-local-state.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "implementer_storage_s05",
       "scope": "Rider (owner, 2026-08-07, TD-115). Replace the two instance-local SQLite stores, unchanged since 0.24, with plain filesystem stores in dartclaw_core: turn state via atomic write-temp-rename JSON using the existing atomic_write.dart pattern with synchronous durable-at-return writes (owner decision D1), and webhook dedup via file-per-event-id with atomic create and TTL purge preserving the TTL-anchor-moves-forward-on-commit behavior. TurnStateStore's five already-async methods keep their signatures; orphan recovery in turn_runner_cancellation is unchanged. Byte-for-byte crash-recovery and dedup parity is proven by the existing fixtures plus fault-injection and Windows rename tests (TD-135: the unit suite cannot run on Windows hosts today). state.db and the ledger file are no longer created; leftovers are ignored. Tighten the S06 fitness check to SqliteBackend only. Doc sync: ADR-045 decisions #3/Q4 mechanism amendment, data-model.md, TD-115 closure with its stale 0.25 pointer corrected. The PostgreSQL zero-runtime-SQLite serve-run probe executes in S10.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr13-filesystem-backed-instance-local-state-rider-2026-08-07--td-115"
@@ -542,9 +549,18 @@
       "id": "S16",
       "name": "Declarative workflow step-type rule source",
       "dependsOn": [],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s16-declarative-workflow-step-type-rule-source.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
       "owner": null,
       "scope": "Rider (owner, 2026-09-03; deferred from 0.25 S63). Consolidate what a workflow author may write into one const rule source read by both the parser and the validator, replacing ten hand-maintained key sets, the per-step-type if-branches inline in the parser, and thirty imperative validator rule methods. The declaration carries, per DSL block, the accepted keys with their snake/camel aliases, value kinds, enum member sets, required keys, per-WorkflowTaskType applicability and mutual exclusions, as const data with no closures so a generator can walk it. Behaviour-preserving: every diagnostic keeps its message text, ValidationErrorType, step and loop attribution and emission position, proven against a golden capture of the pre-refactor output. The declaration must include onError / on_error, which survived the 0.25 S38 key retirement contrary to the original FIS's assumption; enumerate the surviving surface against the parser on main, not against the FIS prose. Modelled on dartclaw_kernel's ConfigMeta/FieldMeta and structured so the S17 emitter's job matches config_meta/json_schema.dart. Touches nothing in the storage seam S01-S15 rebuild.",
       "sourceRefs": [

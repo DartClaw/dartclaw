@@ -324,7 +324,7 @@ file   | ../dartclaw-public/packages/dartclaw_workflow/tool/regenerate_fitness_b
     nested-`continue` and top-level-`escalate` scope rules and the glob-matching arm stay imperative because
     neither is a membership fact. Messages that interpolate the allowed set keep their current rendering and
     ordering. Add the `loop policy and role aliases preserve diagnostics` case to `workflow_dsl_rules_test.dart`.
-  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "loop policy and role aliases preserve diagnostics" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_loop_policy_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart` – `sometimes` retains the ordered `fail, continue, escalate` diagnostic, `@executer` retains the supported-alias diagnostic, and the imperative scope and glob rules stay green
+  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_loop_policy_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart` – `sometimes` retains the ordered `fail, continue, escalate` diagnostic, `@executer` retains the supported-alias diagnostic, and the imperative scope and glob rules stay green
   - **SATISFIES**: S01, S02, S06, SC02, SC03
 
 - [ ] **TI06** The `aggregate-reviews` required-output shape is declared as data, not as predicates.
@@ -335,7 +335,7 @@ file   | ../dartclaw-public/packages/dartclaw_workflow/tool/regenerate_fitness_b
     count requirement and report-key collision checks in `_validateAggregateReviewsConstraints` stay imperative.
     Add the `aggregate-review output rules are const data and preserve diagnostics` case to
     `workflow_dsl_rules_test.dart`.
-  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "aggregate-review output rules are const data and preserve diagnostics" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart` – wrong format and preset diagnostics retain every named value, while the required-output triples are walkable const key/format/preset data and upstream resolution behavior stays green
+  - **Verify**: `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart` – wrong format and preset diagnostics retain every named value, while the required-output triples are walkable const key/format/preset data and upstream resolution behavior stays green
   - **SATISFIES**: S01, S02, S05, SC02, SC03, SC04
 
 - [ ] **TI07** The package's fitness gates account for the new file and still prove framework agnosticism.
@@ -373,3 +373,15 @@ file   | ../dartclaw-public/packages/dartclaw_workflow/tool/regenerate_fitness_b
 ### Run: 2026-09-08 14:19 UTC – observations
 
 2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.
+
+### Run: 2026-09-08 19:21 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI05 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "loop policy and role aliases preserve diagnostics" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_loop_policy_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart` → `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_loop_policy_rules_test.dart packages/dartclaw_workflow/test/workflow/workflow_validator_structure_rules_test.dart`
+
+### Run: 2026-09-08 19:21 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI06 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "aggregate-review output rules are const data and preserve diagnostics" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart` → `cmd: dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_dsl_rules_test.dart --name "rule source enumerates the accepted DSL surface|diagnostic sequence stays byte-identical" && dart test --reporter=failures-only packages/dartclaw_workflow/test/workflow/workflow_validator_step_type_rules_test.dart`

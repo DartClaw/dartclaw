@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.26 workflow storage backend seam
+**Current through**: 0.26 workflow storage backend seam and declarative DSL rules
 
 ---
 
@@ -638,7 +638,7 @@ DartClaw ships four DC-native workflow skills as package assets: `dartclaw-disco
 
 DartClaw does not clone AndThen, run its installer, or create a `dartclaw-*` branded copy (the earlier clone + `install-skills.sh` model was retired in 0.17 as the SP-1/SP-2 security remediation — see ADR-040). AndThen is an **operator-installed prerequisite** for whichever provider runs the workflow.
 
-- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:spec`, `andthen:review`, …) and resolved at workflow-load time to the provider-native name: Claude Code → `andthen:spec` (plugin namespace), Codex → the exact authored name when visible, then `andthen-spec` for a legacy hyphenated installation, unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
+- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:spec`, `andthen:review`, …) and resolved during execution preflight to the provider-native name: Claude Code → `andthen:spec` (plugin namespace), Codex → the exact authored name when visible, then `andthen-spec` for a legacy hyphenated installation, unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
 - **DC-native skills only** are copied by `SkillProvisioner` at `dartclaw serve` startup and before `dartclaw workflow run --standalone`: the manifest-listed package-root skill payloads go into `<dataDir>/.agents/skills/` (Codex) and `<dataDir>/.claude/skills/` (Claude Code), with configured project workspaces receiving links or managed fallback copies for those directories only. There is no git-subprocess, cached-source, or `andthen.git_url`/`ref`/`network` path; those legacy config keys are ignored with warnings.
 
 See [`025-andthen-as-runtime-prerequisite.md`](../adrs/025-andthen-as-runtime-prerequisite.md) for the original runtime-prerequisite decision, [`040-andthen-skills-via-canonical-name-resolution.md`](../adrs/040-andthen-skills-via-canonical-name-resolution.md) for the current resolution model, and [`../../docs/guide/andthen-skills.md`](../../docs/guide/andthen-skills.md) for operator usage.
@@ -940,8 +940,13 @@ The important design boundary is unchanged: the host owns orchestration, the pro
 
 ## 18. Parser Contract
 
-`WorkflowDefinitionParser` is strict about structural shape and intentionally
-loose about future-compatible authoring.
+`workflow_dsl_rules.dart` is the parser's accepted-surface authority. It declares blocks, keys and aliases, direct,
+coerced and ignored value kinds, required fields, enum members, fixed inline-controller discriminators, step-type
+applicability and mutual exclusions as data. Provider fields remain open strings; role-alias membership is a separate
+walkable declaration. `WorkflowDefinitionParser` consumes these declarations at its existing named rejection sites,
+retaining fail-fast diagnostics and normalization behavior.
+
+`WorkflowDefinitionParser` is strict about both structural shape and the declared authoring surface.
 
 The parser rejects malformed structure up front:
 
@@ -969,6 +974,7 @@ Prompt rules are relaxed for:
 
 - `bash` steps
 - `approval` steps
+- `foreach`, `loop`, and `aggregate-reviews` controller steps
 - skill-only steps
 
 That means the parser does not insist every step carry an agent prompt. It only
@@ -1006,9 +1012,11 @@ The parser does not do semantic checks such as:
 - whether `mapOver` references a prior context key
 - whether `continueSession` targets a valid step
 - whether a gate expression is well formed
-- whether a skill exists
 
-Those are validator responsibilities. The separation matters operationally:
+Those three checks are validator responsibilities. Skill existence is checked by
+`workflow_skill_preflight.dart` during execution preflight.
+
+The separation matters operationally:
 
 - parse errors are syntax/shape failures
 - validation errors are contract failures
@@ -1019,6 +1027,11 @@ and in the browser/API diagnostic surfaces.
 
 ## 19. Validation Semantics
 
+The validator consumes the same rule source at its existing named diagnostic sites for grammar-shaped decisions:
+prompt requirements, role-alias membership, loop-policy membership, hybrid step applicability and exclusions, and the
+aggregate-review output triple. Graph, reference, gate, ordering, glob and context-consistency checks remain imperative
+because they require a definition instance.
+
 Validation is not a single boolean. The validator returns a
 `ValidationReport` with:
 
@@ -1027,49 +1040,61 @@ Validation is not a single boolean. The validator returns a
 
 Definitions are loadable when `errors.isEmpty`, even if warnings exist.
 
-This is a deliberate authoring choice. It enables forward-compatible
-workflows:
+This is a deliberate authoring choice. It lets the validator report non-fatal operational risks without blocking
+iteration, while the registry can expose warning-bearing definitions instead of silently dropping them.
 
-- a future step `type` can warn today and still load
-- a non-fatal authoring smell can be reported without blocking iteration
-- the registry can expose warning-bearing definitions instead of silently
-  dropping them
+The validator invokes these stages in order; the provider-capability stage runs only when capabilities are supplied.
 
-The validator currently checks these categories:
-
-| Category | Hard error? | Notes |
+| Stage | Result | Checks |
 |---|---|---|
-| required fields | yes | empty names, missing prompts where required |
-| duplicate IDs | yes | step IDs and loop IDs must be unique |
-| variable references | yes | `{{VAR}}` and context refs must resolve |
-| context key consistency | yes | consumers cannot reference keys no earlier step produced |
-| gate expressions | yes | malformed expressions fail validation |
-| loop references | yes | loop-owned step IDs must exist |
-| loop max iterations | yes | must be `> 0` |
-| loop overlap | yes | one step cannot belong to multiple loops |
-| output config consistency | yes | output declarations must align with context outputs |
-| map-over references | yes | `mapOver` must come from a prior step |
-| foreach controller shape | yes | a step declaring `mapOver` must declare per-item steps, and cannot also be `parallel` |
-| multi-prompt provider support | yes | continuity providers are enforced |
-| skill references | yes | invalid or incompatible skill refs block loading |
-| hybrid-step rules | mixed | some cases warn, some cases error |
+| `_validateRequiredFields` | error | Required names/prompts and authored-field applicability |
+| `_validateUniqueStepIds` | error | Unique step IDs |
+| `_validateUniqueLoopIds` | error | Unique loop IDs |
+| `_validateNormalizedNodes` | error | Normalized AST references, shapes and consistency |
+| `_validateProviderAliases` | error | Known provider role aliases |
+| `_validateVariableReferences` | error | Declared template and workflow-system variables |
+| `_validateContextKeyConsistency` | error | Inputs produced earlier or within the same loop |
+| `_validateLoopGateExpressions` | error | Loop gate grammar and references |
+| `_validateLoopReferences` | error | Loop-owned step IDs exist |
+| `_validateLoopMaxIterations` | error | Positive iteration limit |
+| `_validateLoopStepOverlap` | error | No step belongs to multiple loops |
+| `_validateLoopMaxIterationsPolicy` | error | Allowed exhaustion policy and nesting scope |
+| `_validateStepTimeoutFields` | error | Agent turn timeout versus non-agent step timeout |
+| `_validateStepDefaults` | error/log warning | Default timeouts, provider aliases and unmatched patterns |
+| `_validateGitStrategy` | error/warning | Git values, worktree safety, artifacts and merge resolution |
+| `_validateStepDefaultsOrdering` | warning | Overlapping defaults whose order changes effective configuration |
+| `_validateStepEntryGates` | error | Step entry-gate grammar |
+| `_validateOutputConfigs` | error/warning | Output keys, formats, schemas, paths and descriptions |
+| `_warnCodexAllowedToolsPolicy` | warning | Codex allowed-tools declarations outside read-only policy |
+| `_validateMapOverReferences` | error | Map input produced by a prior step |
+| `_validateMapStepConstraints` | error/log warning | Per-item steps, parallel exclusion and output count |
+| `_validateAggregateReviewsConstraints` | error | Review sources and required output format/preset triples |
+| `_validateAggregateReviewsPlacement` | error | Aggregators outside loops and foreach children |
+| `_validateReviewSourcePrefixing` | error | Review output keys prefixed by their source step |
+| `_validateMultiPromptProviders` | error | Concrete providers support continuity when capabilities are supplied |
+| `_validateHybridStepRules` | error/warning | Step-type and session-continuity checks below |
 
-The hybrid-step rules are especially important because they document what the
-engine is willing to execute:
+Skill names resolve in `workflow_skill_preflight.dart` at execution preflight; they are not a validator load gate.
+Unknown step types and unsupported `onError` values fail during parsing.
+
+The hybrid-step rules follow this order. Applicability and exclusions come from `WorkflowDslRules`;
+continuity targets, provider compatibility, loop boundaries and cycles depend on the definition instance.
 
 | Rule | Severity |
 |---|---|
-| unknown step `type` | error |
 | approval step inside a loop | warning |
-| approval step marked `parallel` | error |
-| `bash` or `approval` with multi-prompt | error |
-| `parallel` combined with `continueSession` | error |
-| unsupported `onError` value | warning |
-| `continueSession` targeting unsupported provider | error |
-| `continueSession` with no resolvable target | error |
-| `continueSession` targeting non-agent step | error |
-| `continueSession` crossing loop boundary | error |
-| `continueSession` chain cycle | error |
+| step type forbids parallel execution | error |
+| step type forbids a prompt list | error |
+| parallel combined with continueSession | error |
+| continueSession uses an unsupported concrete provider | error |
+| continueSession has no resolvable target | error |
+| continueSession references an unknown target | error |
+| continuing step type forbids continueSession | error |
+| continueSession target does not precede the step | error |
+| continueSession target is bash or approval | error |
+| continueSession providers differ | error |
+| continueSession crosses a loop boundary | error |
+| continueSession chain forms a cycle | error |
 
 The warning/error boundary is pragmatic:
 

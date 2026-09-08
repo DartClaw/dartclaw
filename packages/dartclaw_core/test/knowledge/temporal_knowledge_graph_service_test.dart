@@ -60,8 +60,6 @@ void main() {
   });
 
   test('owner column exists and addFact persists caller principal', () {
-    expect(kg.hasOwnerColumn, isTrue);
-
     final id = kg.addFact(
       entity: 'Owned System',
       predicate: 'status',
@@ -73,37 +71,6 @@ void main() {
 
     expect(kg.ownerForFact(id), 'principal-1');
     expect(kg.query(entity: 'Owned System').single.owner, 'principal-1');
-  });
-
-  test('owner migration is additive for an existing kg_facts table', () {
-    final migratedDb = sqlite3.openInMemory();
-    addTearDown(migratedDb.close);
-    migratedDb.execute('''
-      CREATE TABLE kg_facts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entity TEXT NOT NULL,
-        predicate TEXT NOT NULL,
-        value TEXT NOT NULL,
-        valid_from TEXT NOT NULL,
-        valid_to TEXT,
-        source TEXT NOT NULL,
-        invalidated_at TEXT,
-        invalidation_reason TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    ''');
-    migratedDb.execute('INSERT INTO kg_facts(entity, predicate, value, valid_from, source) VALUES (?, ?, ?, ?, ?)', [
-      'legacy',
-      'status',
-      'active',
-      '2026-05-01T00:00:00.000Z',
-      'legacy',
-    ]);
-
-    final migrated = TemporalKnowledgeGraphService(migratedDb);
-
-    expect(migrated.hasOwnerColumn, isTrue);
-    expect(migrated.ownerForFact(1), isNull);
   });
 
   test('invalidate rejects an instant earlier than valid_from to keep intervals non-inverted', () {

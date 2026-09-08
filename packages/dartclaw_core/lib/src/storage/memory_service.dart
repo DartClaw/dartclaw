@@ -75,9 +75,6 @@ class MemoryService {
         entry_revision INTEGER
       )
     ''');
-
-    _migrateResultColumns();
-
     _db.execute('''
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts USING fts5(
         body,
@@ -104,21 +101,6 @@ class MemoryService {
         INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text);
       END
     ''');
-  }
-
-  void _migrateResultColumns() {
-    final cols = _db.select('PRAGMA table_info(memory_chunks)');
-    final names = cols.map((row) => row['name'] as String).toSet();
-    for (final (name, definition) in const [
-      ('user_id', "TEXT NOT NULL DEFAULT 'owner'"),
-      ('role', "TEXT NOT NULL DEFAULT 'memory'"),
-      ('provenance', "TEXT NOT NULL DEFAULT 'unknown'"),
-      ('locator', 'TEXT'),
-      ('entry_id', 'TEXT'),
-      ('entry_revision', 'INTEGER'),
-    ]) {
-      if (!names.contains(name)) _db.execute('ALTER TABLE memory_chunks ADD COLUMN $name $definition');
-    }
   }
 
   /// Searches memory chunks using FTS5 BM25 ranking.

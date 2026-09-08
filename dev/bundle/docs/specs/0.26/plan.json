@@ -7,7 +7,7 @@
   "sharedDecisions": [
     {
       "title": "DatabaseBackend seam shape and placement under the 0.25 topology",
-      "description": "S01 realizes ADR-045 decision #7 (thin portable-subset CRUD, literal-aware placeholder rewriting, result-type marshalling, prepared-statement handles) as the concrete contract every later story consumes. Placement follows ADR-056 tiers: port types (DatabaseBackend, DatabaseStatement, the StorageException family, NestedTransactionError, FullTextIndex/SearchDocument/SearchResult, DatabaseConfig) live in dartclaw_kernel, which depends on nothing; implementations live in dartclaw_core: SqliteBackend, PostgresBackend, and the schema identity/gates in packages/dartclaw_core/lib/src/storage/, and the FullTextIndex implementations (SqliteFtsIndex, PostgresFtsIndex and their table descriptors) in packages/dartclaw_core/lib/src/search/ beside the existing search layer; the only package that may carry the sqlite3 and postgres drivers (dartclaw_bridge stays dependency-free, dartclaw_testing may not take a driver, the 12-package ceiling in dev/tools/arch_check.dart is saturated). The composition root is DartclawRuntime.build -> StorageWiring.wire() in dartclaw_runtime; CLI commands reach stores only through injected factories. Growth past a lib LOC ceiling (dartclaw_core 27705, dartclaw_kernel 19920) is a recorded rebaseline in arch_check.dart with a CHANGELOG note, owned by the story that crosses it; no file may exceed 1500 lib lines or 1300 test lines; new exports carry explicit show clauses. Ceiling changes have one owner per package so a downward re-cut and a raise cannot race: S05 owns the dartclaw_workflow re-cut, S07 owns the dartclaw_core raise (S03/S09/S13 report their measured deltas to S07's figure instead of editing the constant), S01 owns any dartclaw_kernel change.",
+      "description": "S01 realizes ADR-045 decision #7 (thin portable-subset CRUD, literal-aware placeholder rewriting, result-type marshalling, prepared-statement handles) as the concrete contract every later story consumes. Placement follows ADR-056 tiers: port types (DatabaseBackend, DatabaseStatement, the StorageException family, NestedTransactionError, FullTextIndex/SearchDocument/SearchResult, DatabaseConfig) live in dartclaw_kernel, which depends on nothing; implementations live in dartclaw_core: SqliteBackend, PostgresBackend, and the schema identity/gates in packages/dartclaw_core/lib/src/storage/, and the FullTextIndex implementations (SqliteFtsIndex, PostgresFtsIndex and their table descriptors) in packages/dartclaw_core/lib/src/search/ beside the existing search layer; the only package that may carry the sqlite3 and postgres drivers (dartclaw_bridge stays dependency-free, dartclaw_testing may not take a driver, the 12-package ceiling in dev/tools/arch_check.dart is saturated). The composition root is DartclawRuntime.build -> StorageWiring.wire() in dartclaw_runtime; CLI commands reach stores only through injected factories. Growth past a lib LOC ceiling (dartclaw_core 27705, dartclaw_kernel 19920) is a recorded rebaseline in arch_check.dart with a CHANGELOG note, owned by the story that crosses it; no file may exceed 1500 lib lines or 1300 test lines; new exports carry explicit show clauses. Ceiling changes have one owner per package so a downward re-cut and a raise cannot race: S05 owns the dartclaw_workflow re-cut, S07 owns the dartclaw_core raise (S03/S09/S13 report their measured deltas to S07's figure instead of editing the constant), S01 owns any dartclaw_kernel change. S02 TI07 is the bounded early exception: if the SQLite schema identity/gate crosses the current core ceiling before S07, S02 records the final measured core LOC as its ceiling with a CHANGELOG note, without headroom. S07 retains ownership of the later PostgreSQL raise; other stories continue to report measured deltas to the root before changing a ceiling. The root serializes and reviews each measured adjustment before dependent dispatch.",
       "stories": [
         "S01",
         "S02",
@@ -165,10 +165,18 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s02-sqlite-schema-bootstrap-and-compatibility-gate.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
+      "owner": "implementer_storage_s02",
       "scope": "Define the smallest compatibility contract and implement it for SQLite: one current schema epoch plus backend-owned required table/column/index manifests, transactional fresh bootstrap of the current tasks.db/search.db schemas, compatible reopen only when marker and required structure agree, and the one bounded transition from the exact released 0.25 shape (tolerating the documented orphan column workflow_step_executions.external_artifact_mount left by 0.24-upgraded stores). Refuse missing/older/newer/malformed epochs, marker/structure mismatches, and other authoritative shapes before repository use with backup/reset/recreate guidance. Rebuild an incompatible derived search.db only when the corpus manifest plus IndexHealthStore's JSON health file prove complete supported inputs, otherwise refuse. Retire the temporal-KG owner repair and the memory_chunks additive repair as separate mechanisms. Fault-test rollback after each DDL step. Write the dated ADR-045 § Schema Bootstrap amendment recording both the 0.24 and the 0.25 rebase. No migration history, version stream, generator, directives, hooks, or general upgrade framework.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr2-current-schema-bootstrap--compatibility-gate",

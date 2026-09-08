@@ -158,7 +158,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-default', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-default'))!.status, TaskStatus.review);
     });
@@ -176,7 +176,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-mandatory', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-mandatory'))!.status, TaskStatus.review);
     });
@@ -194,7 +194,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-auto-accept', TaskStatus.accepted);
+      await executor.drain();
 
       expect((await tasks.get('task-auto-accept'))!.status, TaskStatus.accepted);
     });
@@ -212,7 +212,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-worktree-review', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-worktree-review'))!.status, TaskStatus.review);
     });
@@ -230,7 +230,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-without-worktree', TaskStatus.accepted);
+      await executor.drain();
 
       expect((await tasks.get('task-without-worktree'))!.status, TaskStatus.accepted);
     });
@@ -248,7 +248,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-unknown-mode', TaskStatus.review);
+      await executor.drain();
 
       // Falls back to default behavior: goes to review.
       expect((await tasks.get('task-unknown-mode'))!.status, TaskStatus.review);
@@ -289,8 +289,9 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-filter', TaskStatus.review);
+      await executor.drain();
 
+      expect((await tasks.get('task-filter'))!.status, TaskStatus.review);
       // Guard should be cleared after the turn (null for cleanup).
       expect(filter.allowedTools, isNull);
     });
@@ -390,7 +391,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-malformed-filter', TaskStatus.review);
+      await executor.drain();
 
       // Task should still complete — malformed allowedTools is fail-safe.
       expect((await tasks.get('task-malformed-filter'))!.status, TaskStatus.review);
@@ -445,13 +446,4 @@ void main() {
       expect(verdict.message, contains('read-only'));
     });
   });
-}
-
-Future<void> _waitForStatus(TaskService tasks, String taskId, TaskStatus expected) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 2));
-  while (DateTime.now().isBefore(deadline)) {
-    if ((await tasks.get(taskId))?.status == expected) return;
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  throw StateError('Task $taskId did not reach ${expected.name}');
 }

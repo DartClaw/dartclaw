@@ -56,6 +56,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Core LOC ceiling rebaseline for SQLite schema compatibility** – `dartclaw_core/lib` measures 27,812 Dart lines
+  after adding the required-object manifests, transactional schema gate and derived-index rebuild/refusal path while
+  retiring the temporal-KG and memory-index additive repairs. The ceiling is set to the measured value with no
+  headroom; the later PostgreSQL backend owns its separate rebaseline.
 - **Built-in workflows no longer pass `--council` to `andthen:review`.** AndThen 1.0 retired the flag, so the
   `integrated-review-council` and `plan-review-council` steps in `spec-and-implement` and `plan-and-implement` are
   gone; each pipeline's gap review feeds the aggregator alone. A multi-perspective pass is the optional

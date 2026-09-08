@@ -245,7 +245,10 @@ final class IndexHealthStore {
     final validatedAt = json['validatedAt'];
     if (indexRevision != null && indexRevision is! int ||
         indexFingerprint != null && indexFingerprint is! String ||
-        validatedAt != null && validatedAt is! String) {
+        validatedAt != null && validatedAt is! String ||
+        json['failureStage'] != null && json['failureStage'] is! String ||
+        json['reason'] != null && json['reason'] is! String ||
+        json['action'] != null && json['action'] is! String) {
       throw const FormatException('Index health reconciliation evidence is malformed');
     }
     return IndexHealthEvidence(

@@ -24,6 +24,10 @@ export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSear
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
 export 'src/storage/sqlite_backend.dart' show SqliteBackend;
+export 'src/storage/schema_identity.dart'
+    show SchemaColumn, SchemaIdentity, SchemaIndex, SchemaTable, SqliteSchemaObject;
+export 'src/storage/sqlite_schema_gate.dart'
+    show SchemaIncompatibleException, SqliteSchemaGate, SqliteSchemaInspection, SqliteSchemaState, SqliteSearchRebuild;
 export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
 export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
 export 'src/storage/sqlite_workflow_step_execution_repository.dart' show SqliteWorkflowStepExecutionRepository;

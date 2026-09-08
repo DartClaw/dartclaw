@@ -30,15 +30,7 @@ class TemporalKnowledgeGraphService {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     ''');
-    _migrateOwnerColumn();
     _db.execute('CREATE INDEX IF NOT EXISTS kg_facts_lookup ON kg_facts(entity, predicate, valid_from, valid_to)');
-  }
-
-  void _migrateOwnerColumn() {
-    final columns = _db.select('PRAGMA table_info(kg_facts)').map((row) => row['name'] as String).toSet();
-    if (!columns.contains('owner')) {
-      _db.execute('ALTER TABLE kg_facts ADD COLUMN owner TEXT');
-    }
   }
 
   /// Stores a source-linked temporal fact and returns its row id.
@@ -212,9 +204,6 @@ class TemporalKnowledgeGraphService {
 
   /// Whether a fact row with [id] exists.
   bool factExists(int id) => _db.select('SELECT 1 FROM kg_facts WHERE id = ? LIMIT 1', [id]).isNotEmpty;
-
-  /// Whether the backing schema contains the additive owner column.
-  bool get hasOwnerColumn => _db.select('PRAGMA table_info(kg_facts)').any((row) => row['name'] == 'owner');
 
   /// Finds open facts that disagree with an incoming value.
   List<KnowledgeContradiction> contradictions({

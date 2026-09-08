@@ -313,3 +313,14 @@ file   | ../dartclaw-public/packages/dartclaw_core/test/knowledge/temporal_knowl
 #### DRIFT
 
 - spec-stale: TI04 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_search_test.dart --plain-name "derived search store"` → `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_search_test.dart --plain-name "derived search store" && ! rg -q "_migrateResultColumns" packages/dartclaw_core/lib/src/storage/memory_service.dart`
+
+### Run: 2026-09-08 11:40 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+- The explicit S07/TI04 failure-preservation invariant governs the healthy-publication order: publish healthy evidence inside the existing database transaction after authentication, then commit. The outer failure path records degraded evidence. This supersedes the Technical Overview's post-commit narration without weakening any failed-rebuild outcome.
+- SqliteSearchRebuild carries health context independently of complete source availability: its populate/authenticate pair may be absent, in which case preparation records degraded unavailable-source evidence before refusing without database writes. Callers with existing health evidence must supply this context even when the source is unavailable. A wholly absent context identifies no writable evidence authority and can only produce the typed refusal; no manifest is invented.
+- Reserved marker collision checks follow SQLite's shared table/view/index namespace case-insensitively. Same-named triggers do not collide and remain unrelated objects. Malformed health optional fields are rejected by the existing IndexHealthStore decoder authority as FormatException.
+
+### Run: 2026-09-08 12:13 UTC – observations
+
+The required fast-tier runtime suite exposed a pre-existing two-second polling race in task_autonomy_test.dart. The minimum gate unblock replaces eight wall-clock polling calls with the existing TaskExecutor.drain() barrier, retaining every status assertion explicitly. No production behavior changes. Targeted tests pass 15/15; full runtime suite passes 4770 with its 10 configured skips. Full completion replay remains required.

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1",
+  "story": "S02",
+  "fis": "s02-sqlite-schema-bootstrap-and-compatibility-gate.md",
+  "plan": "plan.json",
+  "snapshot": "2431111e5218+1d49d3de6363",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 2431111e5218+1d49d3de6363",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 96.906,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S06 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/index_reconciler_test.dart --name \"validated empty corpus is healthy with exact zero rows\"",
+      "exit": 0,
+      "duration": 1.078,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/schema_identity_test.dart --plain-name \"manifests describe the released 0.25 fixtures exactly\" && ! rg -q \"class \\w*(Migration|Migrator|History|Upgrade)\\w*\" packages/dartclaw_core/lib/src/storage/schema_identity.dart packages/dartclaw_core/lib/src/storage/sqlite_schema_gate.dart",
+      "exit": 0,
+      "duration": 0.7,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_test.dart --plain-name \"classification\" && ! rg -q \"workflow_run_migrations\" packages/dartclaw_core/lib/src/storage/sqlite_schema_gate.dart",
+      "exit": 0,
+      "duration": 0.898,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_test.dart --plain-name \"authoritative tasks store\" && ! rg -q \"_migrateOwnerColumn|hasOwnerColumn\" packages/dartclaw_core/lib/src/knowledge/temporal_knowledge_graph_service.dart packages/dartclaw_core/test/knowledge/temporal_knowledge_graph_service_test.dart",
+      "exit": 0,
+      "duration": 0.737,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_search_test.dart --plain-name \"derived search store\" && ! rg -q \"_migrateResultColumns\" packages/dartclaw_core/lib/src/storage/memory_service.dart",
+      "exit": 0,
+      "duration": 0.802,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_rollback_test.dart --plain-name \"every DDL prefix rolls back and a clean retry converges\"",
+      "exit": 0,
+      "duration": 0.861,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "rg -q \"exact released 0\\.25\" dev/adrs/045-pluggable-database-backend.md && rg -q \"external_artifact_mount\" dev/adrs/045-pluggable-database-backend.md && rg -q \"2026-08-14\" dev/adrs/045-pluggable-database-backend.md && ! rg -q \"exact expected 0\\.23 structure\" dev/adrs/045-pluggable-database-backend.md",
+      "exit": 0,
+      "duration": 0.017,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "rg -qU \"sqlite_schema_gate\\.dart'\\s*show[^;]*\\bSqliteSchemaGate\\b\" packages/dartclaw_core/lib/dartclaw_core.dart && ! rg -q \"SqliteSchemaGate|SchemaIdentity\" packages/dartclaw_runtime/lib apps && ! rg -q \"package:sqlite3\" packages/dartclaw_core/lib/src/storage/schema_identity.dart packages/dartclaw_core/lib/src/storage/sqlite_schema_gate.dart && test \"$(rg -l \"import 'package:sqlite3\" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')\" = 18 && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_core && bash dev/tools/fitness/run_all.sh && dart run dev/tools/arch_check.dart && git diff --check",
+      "exit": 0,
+      "duration": 57.946,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

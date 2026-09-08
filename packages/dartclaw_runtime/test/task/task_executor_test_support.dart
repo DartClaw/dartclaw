@@ -58,6 +58,7 @@ final class TaskExecutorTestHarness {
   late ArtifactCollector collector;
   late GuardChain workflowGuardChain;
   late TaskToolFilterGuard workflowToolFilterGuard;
+  late SqliteBackend taskBackend;
 
   final List<ExecutionCoordinator> _ownedWorkflowCoordinators = [];
 
@@ -83,7 +84,9 @@ final class TaskExecutorTestHarness {
     sessions = SessionService(baseDir: sessionsDir);
     messages = messageServiceFactory?.call(sessionsDir) ?? MessageService(baseDir: sessionsDir);
     final taskDatabase = sqlite3.openInMemory();
-    _defaultTasks = TaskService(taskRepositoryFactory?.call(taskDatabase) ?? SqliteTaskRepository(taskDatabase));
+    taskBackend = SqliteBackend(taskDatabase);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
+    _defaultTasks = TaskService(taskRepositoryFactory?.call(taskDatabase) ?? SqliteTaskRepository(taskBackend));
     tasks = _defaultTasks;
     turns = TurnManager(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -189,6 +192,7 @@ final class TaskExecutorTestHarness {
       await _defaultTasks.dispose();
     }
     await messages.dispose();
+    await taskBackend.close();
     if (workerDispose != null) await workerDispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     final wsDir = Directory(workspaceDir);
@@ -323,6 +327,7 @@ final class WorkflowTaskExecutorTestContext {
   TaskExecutorTestHarness get harness => _harness;
 
   late Database taskDb;
+  late SqliteBackend taskBackend;
   late SqliteAgentExecutionRepository agentExecutions;
   late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
@@ -345,6 +350,8 @@ final class WorkflowTaskExecutorTestContext {
   }) async {
     await _harness.setUp(tempPrefix: tempPrefix, messageServiceFactory: messageServiceFactory);
     taskDb = sqlite3.openInMemory();
+    taskBackend = SqliteBackend(taskDb);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     agentExecutions = SqliteAgentExecutionRepository(taskDb);
     workflowRuns = SqliteWorkflowRunRepository(taskDb);
     workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskDb);
@@ -352,7 +359,7 @@ final class WorkflowTaskExecutorTestContext {
     // Replace the harness's simple TaskService with one backed by the shared DB
     // (needed for workflow repo joins). tasksDispose in tearDown handles lifecycle.
     _harness.tasks = TaskService(
-      SqliteTaskRepository(taskDb),
+      SqliteTaskRepository(taskBackend),
       agentExecutionRepository: agentExecutions,
       executionTransactor: executionTransactor,
     );
@@ -368,6 +375,7 @@ final class WorkflowTaskExecutorTestContext {
   Future<void> tearDown({Future<void> Function()? workerDispose}) async {
     await kvService.dispose();
     await _harness.tearDown(executor: executor, workerDispose: workerDispose, tasksDispose: tasks.dispose);
+    await taskBackend.close();
   }
 
   /// Builds a [TaskExecutor] wired to this context's workflow-aware services.

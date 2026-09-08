@@ -44,7 +44,9 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskCancellationSub
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
+        SqliteBackend,
         SqliteExecutionRepositoryTransactor,
+        SqliteSchemaGate,
         SqliteTaskRepository,
         SqliteWorkflowStepExecutionRepository,
         openTaskDbInMemory;
@@ -65,8 +67,9 @@ void main() {
   late EventBus eventBus;
   late WorkflowService workflowService;
 
-  setUp(() {
-    harness = WorkflowServiceTestHarness()..setUp();
+  setUp(() async {
+    harness = WorkflowServiceTestHarness();
+    await harness.setUp();
     tempDir = harness.tempDir;
     taskService = harness.taskService;
     repository = harness.repository;
@@ -833,8 +836,10 @@ void main() {
     ]);
 
     final disposeDb = openTaskDbInMemory();
+    final disposeBackend = SqliteBackend(disposeDb);
+    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
     final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
     final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
@@ -866,7 +871,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
     await Future<void>.delayed(Duration.zero);
@@ -881,8 +886,10 @@ void main() {
 
   test('dispose() snapshots active run ids before task lookup awaits', () async {
     final disposeDb = openTaskDbInMemory();
+    final disposeBackend = SqliteBackend(disposeDb);
+    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
     final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
     final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
@@ -939,7 +946,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
 
@@ -961,10 +968,12 @@ void main() {
       'retry-queued-version-conflict',
     ]) {
       final disposeDb = openTaskDbInMemory();
+      final disposeBackend = SqliteBackend(disposeDb);
+      await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
       final disposeEventBus = EventBus();
       final taskEvents = <TaskStatusChangedEvent>[];
       final taskEventSub = disposeEventBus.on<TaskStatusChangedEvent>().listen(taskEvents.add);
-      final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+      final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
       final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
       final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
       final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
@@ -1027,7 +1036,7 @@ void main() {
       addTearDown(disposeKv.dispose);
       addTearDown(taskEventSub.cancel);
       addTearDown(disposeEventBus.dispose);
-      addTearDown(disposeDb.close);
+      addTearDown(disposeBackend.close);
 
       final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
       Future<Task?> queuedTaskForRun() async {
@@ -1072,8 +1081,10 @@ void main() {
 
   test('dispose() bounds queued promotion and falls back to direct cancellation under persistent conflicts', () async {
     final disposeDb = openTaskDbInMemory();
+    final disposeBackend = SqliteBackend(disposeDb);
+    await SqliteSchemaGate.prepareTasks(disposeBackend, storeName: 'tasks.db');
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
     final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
     final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
     final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
@@ -1116,7 +1127,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
     Future<Task?> queuedTaskForRun() async {

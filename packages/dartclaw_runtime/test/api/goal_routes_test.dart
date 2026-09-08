@@ -1,22 +1,22 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
-  late Database db;
+  late SqliteBackend backend;
   late SqliteTaskRepository taskRepository;
   late GoalService goals;
   late Handler handler;
   late ApiRouteTestClient api;
 
   setUp(() async {
-    db = openTaskDbInMemory();
-    taskRepository = SqliteTaskRepository(db);
-    goals = GoalService(await SqliteGoalRepository.open(SqliteBackend(db)));
+    backend = await openPreparedTaskBackend();
+    taskRepository = SqliteTaskRepository(backend);
+    goals = GoalService(await SqliteGoalRepository.open(backend));
     handler = goalRoutes(goals).call;
     api = ApiRouteTestClient(handler);
   });
@@ -24,6 +24,7 @@ void main() {
   tearDown(() async {
     await goals.dispose();
     await taskRepository.dispose();
+    await backend.close();
   });
 
   group('POST /api/goals', () {

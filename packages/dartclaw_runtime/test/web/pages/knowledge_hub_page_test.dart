@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/knowledge_hub_page.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -17,7 +18,7 @@ void main() {
   late Directory tempDir;
   late SessionService sessions;
   late Database searchDb;
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
@@ -28,9 +29,9 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
+    taskBackend = await openPreparedTaskBackend();
     memory = await prepareMemoryIndex(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
     await memory.replaceAll([
@@ -41,7 +42,7 @@ void main() {
         timestamp: DateTime.utc(2026),
       ),
     ], userId: 'owner');
-    kg.addFact(
+    await kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
       value: 'requires green checks',
@@ -50,9 +51,9 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
@@ -132,8 +133,11 @@ void main() {
   test('S06 renders partial failure notice without returning 500', () async {
     final response = await _render(
       page: KnowledgeHubPage(
-        hubGetter: () =>
-            knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memoryIndex: memory, kg: _ThrowingKg(taskDb)),
+        hubGetter: () => knowledgeHubServiceForWorkspace(
+          workspaceDir: tempDir.path,
+          memoryIndex: memory,
+          kg: _ThrowingKg(taskBackend),
+        ),
       ),
       path: '/knowledge?q=merge',
       sessions: sessions,
@@ -235,10 +239,10 @@ final _emptySidebarData = (
 );
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async => throw StateError('boom');
 }
 
 final class _RoleSearchBackend implements SearchBackend {

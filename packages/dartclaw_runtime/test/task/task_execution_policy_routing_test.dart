@@ -31,7 +31,7 @@ void main() {
       tempPrefix: 'dartclaw_policy_routing_',
       taskRepositoryFactory: (database) {
         taskDatabase = database;
-        return taskRepository = SqliteTaskRepository(database);
+        return taskRepository = SqliteTaskRepository(harness.taskBackend);
       },
     );
     requests = [];

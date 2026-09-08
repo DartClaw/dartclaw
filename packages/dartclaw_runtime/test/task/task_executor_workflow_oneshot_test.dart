@@ -8,7 +8,7 @@ import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show lastFail
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart' show TurnCancelReason;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion;
 import 'package:fake_async/fake_async.dart';
@@ -558,9 +558,9 @@ void main() {
   });
 
   test('missing provider session records validation failure without fabricating an envelope', () async {
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     await executor.stop();
     final factory = HarnessFactory()
       ..register(
@@ -577,8 +577,7 @@ void main() {
 
     expect((await context.tasks.get('missing-session'))?.status, TaskStatus.failed);
     expect((await context.workflowStepExecutions.getByTaskId('missing-session'))?.structuredOutput, isNull);
-    final failure = eventService
-        .listForTask('missing-session')
+    final failure = (await eventService.listForTask('missing-session'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'missing_provider_session');
   });
@@ -601,9 +600,9 @@ void main() {
   });
 
   test('two empty finalizer turns fail with missing_envelope', () async {
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     await executor.stop();
     final factory = HarnessFactory()
       ..register(
@@ -626,16 +625,15 @@ void main() {
     );
 
     expect((await context.tasks.get('missing-envelope'))?.status, TaskStatus.failed);
-    final failure = eventService
-        .listForTask('missing-envelope')
+    final failure = (await eventService.listForTask('missing-envelope'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'missing_envelope');
   });
 
   test('malformed finalizer envelope fails closed and is not stamped', () async {
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     await executor.stop();
     final factory = HarnessFactory()
       ..register(
@@ -664,8 +662,7 @@ void main() {
 
     expect((await context.tasks.get('malformed-envelope'))?.status, TaskStatus.failed);
     expect((await context.workflowStepExecutions.getByTaskId('malformed-envelope'))?.structuredOutput, isNull);
-    final failure = eventService
-        .listForTask('malformed-envelope')
+    final failure = (await eventService.listForTask('malformed-envelope'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'malformed_envelope');
   });
@@ -692,9 +689,9 @@ void main() {
   });
 
   test('a reply body that is not the declared object records missing_envelope', () async {
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     await executor.stop();
     executor = context.buildExecutor(
       turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
@@ -711,16 +708,15 @@ void main() {
     );
 
     expect((await context.tasks.get('prose-body'))?.status, TaskStatus.failed);
-    final failure = eventService
-        .listForTask('prose-body')
+    final failure = (await eventService.listForTask('prose-body'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'missing_envelope');
   });
 
   test('a reply body carrying a schema-violating object records malformed_envelope', () async {
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     await executor.stop();
     executor = context.buildExecutor(
       turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
@@ -736,8 +732,7 @@ void main() {
     );
 
     expect((await context.tasks.get('body-malformed'))?.status, TaskStatus.failed);
-    final failure = eventService
-        .listForTask('body-malformed')
+    final failure = (await eventService.listForTask('body-malformed'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'malformed_envelope');
   });

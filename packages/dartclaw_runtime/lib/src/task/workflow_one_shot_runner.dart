@@ -242,7 +242,7 @@ final class WorkflowOneShotRunner {
       if (structuredPayload == null) {
         finalizerFailureReason ??= 'missing_envelope';
         if (workflowStepId != null) {
-          _eventRecorder?.recordStructuredOutputValidationFailed(
+          await _eventRecorder?.recordStructuredOutputValidationFailed(
             task.id,
             stepId: workflowStepId,
             outputKey: eventKey,
@@ -252,7 +252,11 @@ final class WorkflowOneShotRunner {
       } else {
         structuredPayload = {...structuredPayload, executionEnvelopeMarkerKey: executionEnvelopeVersion};
         if (workflowStepId != null) {
-          _eventRecorder?.recordStructuredOutputFinalizerUsed(task.id, stepId: workflowStepId, outputKey: eventKey);
+          await _eventRecorder?.recordStructuredOutputFinalizerUsed(
+            task.id,
+            stepId: workflowStepId,
+            outputKey: eventKey,
+          );
         }
       }
     }

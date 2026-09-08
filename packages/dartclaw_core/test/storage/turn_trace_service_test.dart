@@ -48,15 +48,19 @@ TurnTrace _makeTrace({
 
 void main() {
   late Database db;
+  late SqliteBackend backend;
   late TurnTraceService service;
 
-  setUp(() {
+  setUp(() async {
     db = openTaskDbInMemory();
-    service = TurnTraceService(db);
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    service = TurnTraceService(backend);
   });
 
   tearDown(() async {
     await service.dispose();
+    await backend.close();
   });
 
   test('creates turns table and indexes', () {

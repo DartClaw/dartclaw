@@ -1,40 +1,17 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show tryParseIsoInstant;
-import 'package:sqlite3/sqlite3.dart';
 
 import 'known_systems.dart';
 
 /// SQLite-backed service for time-bounded operational facts.
 class TemporalKnowledgeGraphService {
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the KG schema on [_db] and enables SQLite foreign-key checks.
-  new(this._db) {
-    _db.execute('PRAGMA foreign_keys=ON');
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS kg_facts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entity TEXT NOT NULL,
-        predicate TEXT NOT NULL,
-        value TEXT NOT NULL,
-        valid_from TEXT NOT NULL,
-        valid_to TEXT,
-        source TEXT NOT NULL,
-        owner TEXT,
-        invalidated_at TEXT,
-        invalidation_reason TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS kg_facts_lookup ON kg_facts(entity, predicate, valid_from, valid_to)');
-  }
+  /// Creates the service against a prepared task [backend].
+  new(this._backend);
 
   /// Stores a source-linked temporal fact and returns its row id.
-  int addFact({
+  Future<int> addFact({
     required String entity,
     required String predicate,
     required String value,
@@ -42,7 +19,7 @@ class TemporalKnowledgeGraphService {
     String? validTo,
     required String source,
     String? owner,
-  }) {
+  }) async {
     final normalizedEntity = normalizeKnowledgeEntity(entity);
     final normalizedPredicate = _required(predicate, 'predicate');
     final normalizedValue = _required(value, 'value');
@@ -54,10 +31,11 @@ class TemporalKnowledgeGraphService {
       throw ArgumentError('valid_to must not be before valid_from');
     }
 
-    _db.execute(
+    final rows = await _backend.query(
       '''
       INSERT INTO kg_facts(entity, predicate, value, valid_from, valid_to, source, owner)
       VALUES (?, ?, ?, ?, ?, ?, ?)
+      RETURNING id
       ''',
       [
         normalizedEntity,
@@ -69,22 +47,22 @@ class TemporalKnowledgeGraphService {
         normalizedOwner,
       ],
     );
-    return _db.lastInsertRowId;
+    return rows.single['id'] as int;
   }
 
   /// Returns facts for [entity] and optional [predicate] that are valid at [asOf].
-  List<KnowledgeFact> query({
+  Future<List<KnowledgeFact>> query({
     required String entity,
     String? predicate,
     String? asOf,
     bool includeInvalidated = false,
-  }) {
+  }) async {
     final instant = asOf == null || asOf.trim().isEmpty ? null : _parseIso(asOf, 'as_of');
     final (where, args) = _entityPredicateFilter(entity, predicate);
     if (instant == null && !includeInvalidated) {
       where.add('invalidated_at IS NULL');
     }
-    final rows = _db.select('''
+    final rows = await _backend.query('''
       SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
       FROM kg_facts
       WHERE ${where.join(' AND ')}
@@ -98,7 +76,7 @@ class TemporalKnowledgeGraphService {
   }
 
   /// Returns facts across every entity, optionally filtered by [asOf] and [search].
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async {
     if (limit != null && limit < 1) {
       return const [];
     }
@@ -113,16 +91,13 @@ class TemporalKnowledgeGraphService {
     if (sqlLimit != null) {
       args.add(sqlLimit);
     }
-    final facts = _db
-        .select('''
+    final facts = (await _backend.query('''
           SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
           FROM kg_facts
           ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
           ORDER BY entity ASC, valid_from ASC, id ASC
           ${sqlLimit == null ? '' : 'LIMIT ?'}
-          ''', args)
-        .map(KnowledgeFact.fromRow)
-        .toList();
+          ''', args)).map(KnowledgeFact.fromRow).toList();
     if (instant == null) {
       return facts;
     }
@@ -134,17 +109,14 @@ class TemporalKnowledgeGraphService {
   DateTime parseAsOf(String asOf) => _parseIso(asOf, 'as_of');
 
   /// Returns all facts for [entity] in chronological order.
-  List<KnowledgeFact> timeline({required String entity, String? predicate}) {
+  Future<List<KnowledgeFact>> timeline({required String entity, String? predicate}) async {
     final (where, args) = _entityPredicateFilter(entity, predicate);
-    return _db
-        .select('''
+    return (await _backend.query('''
           SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
           FROM kg_facts
           WHERE ${where.join(' AND ')}
           ORDER BY valid_from ASC, id ASC
-          ''', args)
-        .map(KnowledgeFact.fromRow)
-        .toList();
+          ''', args)).map(KnowledgeFact.fromRow).toList();
   }
 
   (List<String>, List<Object?>) _entityPredicateFilter(String entity, String? predicate) {
@@ -158,17 +130,17 @@ class TemporalKnowledgeGraphService {
   }
 
   /// Marks a fact invalidated while preserving the original row.
-  bool invalidate({required int id, required String invalidatedAt, required String reason}) {
+  Future<bool> invalidate({required int id, required String invalidatedAt, required String reason}) async {
     final instant = _parseIso(invalidatedAt, 'invalidated_at');
     final normalizedReason = _required(reason, 'reason');
     final iso = _isoUtc(instant);
-    final existing = _db.select('SELECT valid_from FROM kg_facts WHERE id = ?', [id]);
+    final existing = await _backend.query('SELECT valid_from FROM kg_facts WHERE id = ?', [id]);
     if (existing.isEmpty) return false;
     final validFrom = _parseIso(existing.first['valid_from'] as String, 'valid_from');
     if (instant.isBefore(validFrom)) {
       throw ArgumentError('invalidated_at must not be before valid_from');
     }
-    _db.execute(
+    final changed = await _backend.execute(
       '''
       UPDATE kg_facts
       SET invalidated_at = ?,
@@ -178,19 +150,19 @@ class TemporalKnowledgeGraphService {
       ''',
       [iso, normalizedReason, iso, iso, id],
     );
-    return _db.updatedRows > 0;
+    return changed > 0;
   }
 
   /// Returns the owner principal for [id], or `null` for legacy/system-owned rows.
-  String? ownerForFact(int id) {
-    final rows = _db.select('SELECT owner FROM kg_facts WHERE id = ?', [id]);
+  Future<String?> ownerForFact(int id) async {
+    final rows = await _backend.query('SELECT owner FROM kg_facts WHERE id = ?', [id]);
     if (rows.isEmpty) return null;
     return rows.first['owner'] as String?;
   }
 
   /// Returns the fact identified by [id], including preserved invalidated facts.
-  KnowledgeFact? factById(int id) {
-    final rows = _db.select(
+  Future<KnowledgeFact?> factById(int id) async {
+    final rows = await _backend.query(
       '''
       SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
       FROM kg_facts
@@ -203,19 +175,19 @@ class TemporalKnowledgeGraphService {
   }
 
   /// Whether a fact row with [id] exists.
-  bool factExists(int id) => _db.select('SELECT 1 FROM kg_facts WHERE id = ? LIMIT 1', [id]).isNotEmpty;
+  Future<bool> factExists(int id) async =>
+      (await _backend.query('SELECT 1 FROM kg_facts WHERE id = ? LIMIT 1', [id])).isNotEmpty;
 
   /// Finds open facts that disagree with an incoming value.
-  List<KnowledgeContradiction> contradictions({
+  Future<List<KnowledgeContradiction>> contradictions({
     required String entity,
     required String predicate,
     required String value,
-  }) {
+  }) async {
     final normalizedEntity = normalizeKnowledgeEntity(entity);
     final normalizedPredicate = _required(predicate, 'predicate');
     final normalizedValue = _required(value, 'value');
-    return _db
-        .select(
+    return (await _backend.query(
           '''
           SELECT id, entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at, invalidation_reason
           FROM kg_facts
@@ -227,15 +199,14 @@ class TemporalKnowledgeGraphService {
           ORDER BY id DESC
           ''',
           [normalizedEntity, normalizedPredicate, normalizedValue],
-        )
+        ))
         .map((row) => KnowledgeContradiction(existing: KnowledgeFact.fromRow(row), incomingValue: normalizedValue))
         .toList();
   }
 
   /// Finds open fact pairs with the same entity and predicate but different values.
-  List<KnowledgeContradiction> openContradictions() {
-    return _db
-        .select('''
+  Future<List<KnowledgeContradiction>> openContradictions() async {
+    return (await _backend.query('''
           SELECT a.id, a.entity, a.predicate, a.value, a.valid_from, a.valid_to, a.source, a.owner, a.invalidated_at,
                  a.invalidation_reason, b.value AS incoming_value
           FROM kg_facts a
@@ -249,7 +220,7 @@ class TemporalKnowledgeGraphService {
             AND a.valid_to IS NULL
             AND b.valid_to IS NULL
           ORDER BY a.entity, a.predicate, a.id
-          ''')
+          '''))
         .map(
           (row) => KnowledgeContradiction(
             existing: KnowledgeFact.fromRow(row),
@@ -341,7 +312,7 @@ class KnowledgeFact {
   });
 
   /// Hydrates a fact from a SQLite result row.
-  factory fromRow(Row row) => KnowledgeFact(
+  factory fromRow(Map<String, Object?> row) => KnowledgeFact(
     id: row['id'] as int,
     entity: row['entity'] as String,
     predicate: row['predicate'] as String,

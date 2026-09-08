@@ -4,6 +4,7 @@ import 'package:dartclaw_runtime/src/knowledge/knowledge_hub_service.dart';
 import 'package:dartclaw_runtime/src/knowledge/knowledge_inbox_read_service.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -12,20 +13,20 @@ import '../helpers/search_index_test_support.dart';
 void main() {
   late Directory tempDir;
   late Database searchDb;
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_service_test_');
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
+    taskBackend = await openPreparedTaskBackend();
     memory = await prepareMemoryIndex(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
     await _seed(memory, text: 'Merge memory keeps durable context.', id: '00000000-0000-4000-8000-000000000001');
-    kg.addFact(
+    await kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
       value: 'requires green checks',
@@ -34,9 +35,9 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
@@ -75,7 +76,7 @@ void main() {
   });
 
   test('S06 isolates a failed KG query and keeps surviving layer results', () async {
-    final throwing = _ThrowingKg(taskDb);
+    final throwing = _ThrowingKg(taskBackend);
     final result = await KnowledgeHubService(
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
       kg: throwing,
@@ -121,7 +122,7 @@ void main() {
   });
 
   test('KG hub leg passes the effective page cap to the shared KG read surface', () async {
-    final recordingKg = _RecordingKg(taskDb);
+    final recordingKg = _RecordingKg(taskBackend);
 
     await KnowledgeHubService(
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
@@ -207,20 +208,20 @@ void _writeFile(Directory tempDir, String relativePath, String body) {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async => throw StateError('boom');
 }
 
 final class _RecordingKg extends TemporalKnowledgeGraphService {
   String? lastSearch;
   int? lastLimit;
 
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async {
     lastSearch = search;
     lastLimit = limit;
     return const [];

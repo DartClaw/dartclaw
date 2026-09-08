@@ -46,6 +46,7 @@ class StorageWiring {
   late SessionService _sessions;
   late MessageService _messages;
   Database? _searchDb;
+  Database? _taskDb;
   late TaskRepository _taskRepository;
   late AgentExecutionRepository _agentExecutionRepository;
   late WorkflowStepExecutionRepository _workflowStepExecutionRepository;
@@ -108,18 +109,20 @@ class StorageWiring {
     }
 
     try {
-      final taskDb = _taskDbFactory(config.tasksDbPath);
+      final taskDb = _taskDb = _taskDbFactory(config.tasksDbPath);
+      final backend = SqliteBackend(taskDb);
+      await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
       _agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: _eventBus);
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
       _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskDb);
-      _taskRepository = SqliteTaskRepository(taskDb);
+      _taskRepository = SqliteTaskRepository(backend);
       if (personalMemoryEnabled) {
-        _kg = TemporalKnowledgeGraphService(taskDb);
+        _kg = TemporalKnowledgeGraphService(backend);
       }
-      final goalRepository = await SqliteGoalRepository.open(SqliteBackend(taskDb));
+      final goalRepository = await SqliteGoalRepository.open(backend);
       _goalService = GoalService(goalRepository);
-      _traceService = TurnTraceService(taskDb);
-      _taskEventService = TaskEventService(taskDb);
+      _traceService = TurnTraceService(backend);
+      _taskEventService = TaskEventService(backend);
       _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
       _taskService = TaskService(
         _taskRepository,
@@ -134,6 +137,11 @@ class StorageWiring {
         _searchDb?.close();
       } catch (closeErr) {
         _log.fine('Error closing search DB during taskDb failure cleanup', closeErr);
+      }
+      try {
+        _taskDb?.close();
+      } catch (closeErr) {
+        _log.fine('Error closing task DB during taskDb failure cleanup', closeErr);
       }
       _log.severe('Cannot open task database at ${config.tasksDbPath}', e, st);
       _exitFn(1);
@@ -151,6 +159,7 @@ class StorageWiring {
       }
     } catch (e, st) {
       await _taskService.dispose();
+      _taskDb?.close();
       _searchDb?.close();
       _log.severe('Cannot open turn state database at $stateDbPath', e, st);
       _exitFn(1);
@@ -342,6 +351,8 @@ class StorageWiring {
 
   Future<void> dispose() async {
     await _taskService.dispose();
+    final taskDb = _taskDb;
+    if (taskDb != null) taskDb.close();
     await _turnStateStore.dispose();
     _searchDb?.close();
     await _memoryFile?.dispose();

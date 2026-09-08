@@ -11,6 +11,7 @@ import 'api_test_helpers.dart';
 
 void main() {
   late Database db;
+  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
@@ -19,9 +20,11 @@ void main() {
 
   setUp(() async {
     db = openTaskDbInMemory();
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
     eventBus = EventBus();
     tasks = TaskService(
-      SqliteTaskRepository(db),
+      SqliteTaskRepository(backend),
       agentExecutionRepository: SqliteAgentExecutionRepository(db, eventBus: eventBus),
       executionTransactor: SqliteExecutionRepositoryTransactor(db),
       eventBus: eventBus,
@@ -35,6 +38,7 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
+    await backend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

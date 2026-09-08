@@ -10,7 +10,8 @@ import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository, openTaskDb, openTaskDbInMemory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -196,15 +197,18 @@ agent:
       });
 
       Future<List<String>> runStatus(String runId, WorkflowRun run) async {
-        final tmpDb = openTaskDbInMemory();
-        addTearDown(tmpDb.close);
-        final repo = SqliteWorkflowRunRepository(tmpDb);
+        final taskDbPath = p.join(tempDir.path, '$runId.db');
+        final seedDb = openTaskDb(taskDbPath);
+        final seedBackend = SqliteBackend(seedDb);
+        await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
+        final repo = SqliteWorkflowRunRepository(seedDb);
         await repo.insert(run);
+        await seedBackend.close();
 
         final output = <String>[];
         final command = WorkflowStatusCommand(
           config: config,
-          taskDbFactory: (_) => tmpDb,
+          taskDbFactory: (_) => openTaskDb(taskDbPath),
           writeLine: output.add,
           exitFn: fakeExit,
         );
@@ -320,10 +324,12 @@ agent:
           currentStepIndex: 1,
           definitionJson: def.toJson(),
         );
-        final tmpDb = openTaskDbInMemory();
-        addTearDown(tmpDb.close);
-        await SqliteWorkflowRunRepository(tmpDb).insert(run);
-        await SqliteTaskRepository(tmpDb).insert(
+        final taskDbPath = p.join(tempDir.path, 'hostile-title.db');
+        final seedDb = openTaskDb(taskDbPath);
+        final seedBackend = SqliteBackend(seedDb);
+        await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
+        await SqliteWorkflowRunRepository(seedDb).insert(run);
+        await SqliteTaskRepository(seedBackend).insert(
           Task(
             id: 't1',
             title: 'evil\x1b[2J\r\ntitle\x07',
@@ -334,11 +340,12 @@ agent:
             stepIndex: 0,
           ),
         );
+        await seedBackend.close();
 
         final output = <String>[];
         final command = WorkflowStatusCommand(
           config: config,
-          taskDbFactory: (_) => tmpDb,
+          taskDbFactory: (_) => openTaskDb(taskDbPath),
           writeLine: output.add,
           exitFn: fakeExit,
         );

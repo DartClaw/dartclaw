@@ -37,7 +37,9 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         SqliteAgentExecutionRepository,
+        SqliteBackend,
         SqliteExecutionRepositoryTransactor,
+        SqliteSchemaGate,
         SqliteTaskRepository,
         SqliteWorkflowStepExecutionRepository;
 import 'package:sqlite3/sqlite3.dart';
@@ -127,10 +129,13 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
+      await h.taskBackend.close();
 
       final resumedDb = sqlite3.openInMemory();
+      final resumedBackend = SqliteBackend(resumedDb);
+      await SqliteSchemaGate.prepareTasks(resumedBackend, storeName: 'tasks.db');
       eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(resumedDb);
+      taskRepository = SqliteTaskRepository(resumedBackend);
       agentExecutionRepository = SqliteAgentExecutionRepository(resumedDb, eventBus: eventBus);
       workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(resumedDb);
       executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(resumedDb);
@@ -151,6 +156,7 @@ void main() {
       h.executionRepositoryTransactor = executionRepositoryTransactor;
       h.repository = repository;
       h.db = resumedDb;
+      h.taskBackend = resumedBackend;
 
       final resumedRun = crashSnapshot.copyWith(
         status: WorkflowRunStatus.running,

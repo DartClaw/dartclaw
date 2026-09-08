@@ -22,11 +22,14 @@ final class _ThrowingSkillIntrospector implements SkillIntrospector {
 void main() {
   late WorkflowExecutorHarness h;
 
-  setUp(() {
-    h = WorkflowExecutorHarness()..setUp();
+  setUp(() async {
+    h = WorkflowExecutorHarness();
+    await h.setUp();
   });
 
-  tearDown(() => h.tearDown());
+  tearDown(() async {
+    await h.tearDown();
+  });
 
   test('bad skill ref loads but fails execution preflight before task dispatch', () async {
     final definition = WorkflowDefinitionParser().parse('''

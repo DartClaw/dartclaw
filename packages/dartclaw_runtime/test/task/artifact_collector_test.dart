@@ -7,7 +7,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -17,6 +16,7 @@ void main() {
   late SessionService sessions;
   late TaskService tasks;
   late ArtifactCollector collector;
+  late SqliteBackend taskBackend;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_artifact_collector_test_');
@@ -24,12 +24,14 @@ void main() {
     workspaceDir = Directory.systemTemp.createTempSync('dartclaw_artifact_workspace_').path;
     Directory(sessionsDir).createSync(recursive: true);
     sessions = SessionService(baseDir: sessionsDir);
-    tasks = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     collector = ArtifactCollector(tasks: tasks, sessionsDir: sessionsDir, dataDir: tempDir.path);
   });
 
   tearDown(() async {
     await tasks.dispose();
+    await taskBackend.close();
     final wsDir = Directory(workspaceDir);
     if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

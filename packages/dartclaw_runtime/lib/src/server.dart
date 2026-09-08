@@ -280,7 +280,7 @@ class DartclawServer {
       for (final task in runningTasks) {
         final tokenBudget =
             (task.configJson['tokenBudget'] as num?)?.toInt() ?? (task.configJson['budget'] as num?)?.toInt();
-        final events = taskEventService.listForTask(task.id);
+        final events = await taskEventService.listForTask(task.id);
         tracker.seedFromEvents(
           task.id,
           events.map((e) => {'kind': e.kind.name, 'details': Map<String, dynamic>.from(e.details)}).toList(),

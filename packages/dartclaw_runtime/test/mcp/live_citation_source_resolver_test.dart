@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -13,12 +14,12 @@ void main() {
   test('reopens role-discriminated canonical and native locators independently of search results', () async {
     final workspace = Directory.systemTemp.createTempSync('citation_resolver_');
     final searchDb = sqlite3.openInMemory();
-    final taskDb = sqlite3.openInMemory();
+    final taskBackend = await openPreparedTaskBackend();
     final corpus = MemoryCorpusService(workspaceDir: workspace.path);
     addTearDown(() async {
       await corpus.close();
       searchDb.close();
-      taskDb.close();
+      await taskBackend.close();
       workspace.deleteSync(recursive: true);
     });
     final memory = await prepareMemoryIndex(searchDb);
@@ -44,8 +45,8 @@ void main() {
     final inboxFile = File(p.join(workspace.path, 'inbox', 'note.md'));
     inboxFile.parent.createSync(recursive: true);
     inboxFile.writeAsStringSync('Inbox note');
-    final kg = TemporalKnowledgeGraphService(taskDb);
-    final factId = kg.addFact(
+    final kg = TemporalKnowledgeGraphService(taskBackend);
+    final factId = await kg.addFact(
       entity: 'Falcon',
       predicate: 'status',
       value: 'green',

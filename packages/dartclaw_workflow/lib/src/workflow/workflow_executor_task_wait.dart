@@ -30,6 +30,9 @@ extension WorkflowExecutorTaskWait on WorkflowExecutor {
 
     // Priority completer: abort always wins over task completion.
     final result = Completer<Task>();
+    // An abort can arrive during the async state re-checks below, before the
+    // final await attaches its handler. The later await still receives the error.
+    result.future.ignore();
     _WorkflowRunWaitAbort? pendingAbort;
 
     void abortWait(String message) {

@@ -7,6 +7,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/api/github_webhook.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
@@ -17,7 +18,7 @@ import 'package:test/test.dart';
 import 'workflow_test_support.dart';
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
   late TaskService tasks;
   late FakeWorkflowService workflows;
@@ -42,11 +43,11 @@ void main() {
   ]);
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('github-webhook-test_');
 
-    final taskRepo = SqliteTaskRepository(taskDb);
+    final taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
     workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
@@ -64,7 +65,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    taskDb.close();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

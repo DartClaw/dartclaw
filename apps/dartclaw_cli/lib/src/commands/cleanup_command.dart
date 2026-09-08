@@ -99,28 +99,25 @@ class CleanupCommand extends Command<void> {
     if (retention.pruneAfterDays <= 0) return false;
     if (!File(config.tasksDbPath).existsSync()) return false;
 
-    final db = _taskDbFactory(config.tasksDbPath);
-    RuntimeArtifactsPruneReport report;
+    final List<WorkflowRun> completedRuns;
     try {
-      // Schema init runs in the repository constructor, so a corrupt or
-      // write-locked tasks.db can throw there too — keep it inside the catch so
-      // any DB failure degrades to a skip warning rather than crashing cleanup.
-      final List<WorkflowRun> completedRuns;
+      final db = _taskDbFactory(config.tasksDbPath);
       try {
         final repository = SqliteWorkflowRunRepository(db);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
-      } catch (e) {
-        _writeLine('WARNING: workflow artifact retention skipped (database read failed): $e');
-        return true;
+      } finally {
+        // Best-effort close: a close error must not mask the original outcome.
+        try {
+          db.close();
+        } catch (_) {}
       }
-      final pruner = WorkflowRuntimeArtifactsPruner(config: retention, dataDir: config.server.dataDir);
-      report = pruner.run(completedRuns, modeOverride: modeOverride);
-    } finally {
-      // Best-effort close: a close error must not mask the original outcome.
-      try {
-        db.close();
-      } catch (_) {}
+    } catch (e) {
+      _writeLine('WARNING: workflow artifact retention skipped (database read failed): $e');
+      return true;
     }
+
+    final pruner = WorkflowRuntimeArtifactsPruner(config: retention, dataDir: config.server.dataDir);
+    final report = pruner.run(completedRuns, modeOverride: modeOverride);
 
     _printRetentionReport(report, modeOverride: modeOverride);
     return report.warnings.isNotEmpty;

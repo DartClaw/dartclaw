@@ -9,6 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowStep, WorkflowVariable;
 import 'package:shelf/shelf.dart';
@@ -86,7 +87,7 @@ Task _makeTask({
 }
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
   late SqliteTaskRepository taskRepo;
   late EventBus eventBus;
@@ -98,10 +99,10 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
     eventBus = EventBus();
-    taskRepo = SqliteTaskRepository(taskDb);
+    taskRepo = SqliteTaskRepository(taskBackend);
     tasks = TaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_routes_test_');
 
@@ -125,6 +126,7 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await eventBus.dispose();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });

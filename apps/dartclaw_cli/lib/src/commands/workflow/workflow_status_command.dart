@@ -9,7 +9,13 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show SqliteAgentExecutionRepository, SqliteTaskRepository, openTaskDb, TaskDbFactory;
+    show
+        SqliteAgentExecutionRepository,
+        SqliteBackend,
+        SqliteSchemaGate,
+        SqliteTaskRepository,
+        openTaskDb,
+        TaskDbFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
@@ -92,11 +98,13 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     }
 
     final taskDb = _taskDbFactory(config.tasksDbPath);
+    final backend = SqliteBackend(taskDb);
     try {
-      SqliteAgentExecutionRepository(taskDb);
-      final repository = SqliteWorkflowRunRepository(taskDb);
       WorkflowRun? run;
       try {
+        await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+        SqliteAgentExecutionRepository(taskDb);
+        final repository = SqliteWorkflowRunRepository(taskDb);
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.
@@ -109,7 +117,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         exitFn(1);
       }
 
-      final taskRepository = SqliteTaskRepository(taskDb);
+      final taskRepository = SqliteTaskRepository(backend);
       final childTasks = (await taskRepository.list()).where((task) => task.workflowRunId == runId).toList()
         ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 
@@ -122,7 +130,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         _printStandaloneTable(run, childTasks);
       }
     } finally {
-      taskDb.close();
+      await backend.close();
     }
   }
 

@@ -157,6 +157,12 @@ class TaskService implements WorkflowTaskService {
       await _repo.insert(task);
     }
     if (autoStart) {
+      await _eventRecorder?.recordStatusChanged(
+        task.id,
+        oldStatus: TaskStatus.draft,
+        newStatus: task.status,
+        trigger: trigger,
+      );
       _fireEvent(
         TaskStatusChangedEvent(
           taskId: task.id,
@@ -165,12 +171,6 @@ class TaskService implements WorkflowTaskService {
           trigger: trigger,
           timestamp: timestamp,
         ),
-      );
-      _eventRecorder?.recordStatusChanged(
-        task.id,
-        oldStatus: TaskStatus.draft,
-        newStatus: task.status,
-        trigger: trigger,
       );
     }
     return task;
@@ -233,6 +233,7 @@ class TaskService implements WorkflowTaskService {
       }
       throw StateError('Task status changed concurrently: expected ${task.status.name}, found ${current.status.name}');
     }
+    await _eventRecorder?.recordStatusChanged(taskId, oldStatus: oldStatus, newStatus: newStatus, trigger: trigger);
     _fireEvent(
       TaskStatusChangedEvent(
         taskId: taskId,
@@ -242,7 +243,6 @@ class TaskService implements WorkflowTaskService {
         timestamp: timestamp,
       ),
     );
-    _eventRecorder?.recordStatusChanged(taskId, oldStatus: oldStatus, newStatus: newStatus, trigger: trigger);
     if (newStatus == TaskStatus.review) {
       _fireReviewReadyEvent(taskId);
     }

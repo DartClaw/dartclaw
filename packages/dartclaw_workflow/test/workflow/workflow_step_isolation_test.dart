@@ -23,6 +23,8 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         HarnessFactory,
         HarnessFactoryConfig,
         SqliteAgentExecutionRepository,
+        SqliteBackend,
+        SqliteSchemaGate,
         SqliteTaskRepository,
         SqliteWorkflowStepExecutionRepository,
         TurnOutcome,
@@ -280,6 +282,7 @@ void main() {
   late String fixtureDir;
   late String runtimeArtifactsDir;
   late TaskService taskService;
+  late SqliteBackend taskBackend;
   late SqliteAgentExecutionRepository agentExecutions;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
   late SessionService sessionService;
@@ -334,7 +337,7 @@ void main() {
     skillInventory = WorkspaceSkillInventory.fromDataDir(skillsCacheDir.path);
   });
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_step_isolation_');
     final sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
@@ -357,7 +360,9 @@ void main() {
     );
 
     final database = sqlite3.openInMemory();
-    taskService = TaskService(SqliteTaskRepository(database));
+    taskBackend = SqliteBackend(database);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
+    taskService = TaskService(SqliteTaskRepository(taskBackend));
     agentExecutions = SqliteAgentExecutionRepository(database);
     workflowStepExecutions = SqliteWorkflowStepExecutionRepository(database);
     sessionService = SessionService(baseDir: sessionsDir);
@@ -387,6 +392,7 @@ void main() {
   tearDown(() async {
     await taskService.dispose();
     await messageService.dispose();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

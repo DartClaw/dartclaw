@@ -42,6 +42,7 @@ void main() {
   group('workflow_task_factory', () {
     late Directory tempDir;
     late Database db;
+    late SqliteBackend taskBackend;
     late EventBus eventBus;
     late SqliteTaskRepository taskRepository;
     late SqliteAgentExecutionRepository agentExecutionRepository;
@@ -50,11 +51,13 @@ void main() {
     late TaskService taskService;
     late StepExecutionContext executionContext;
 
-    setUp(() {
+    setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('workflow_task_factory_test_');
       db = sqlite3.openInMemory();
+      taskBackend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
       eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(db);
+      taskRepository = SqliteTaskRepository(taskBackend);
       agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
       workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
       executionTransactor = SqliteExecutionRepositoryTransactor(db);
@@ -86,7 +89,7 @@ void main() {
     });
 
     tearDown(() async {
-      db.close();
+      await taskBackend.close();
       await tempDir.delete(recursive: true);
     });
 

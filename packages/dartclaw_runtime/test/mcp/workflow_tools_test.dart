@@ -7,7 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/workflow_tools.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
@@ -61,7 +61,7 @@ final _nightlyReview = WorkflowDefinition(
 
 void main() {
   late Directory tempDir;
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
   late TaskService tasks;
   late FakeWorkflowService workflows;
@@ -69,10 +69,10 @@ void main() {
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_tools_');
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
     final eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(taskDb), eventBus: eventBus);
+    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
     workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     // The required-variable rule lives in WorkflowService.start, so the fake has
     // to keep it for the tool's refusal path to exist at all.
@@ -90,7 +90,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    taskDb.close();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });

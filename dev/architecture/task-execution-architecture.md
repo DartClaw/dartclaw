@@ -2,9 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.25 explicit task worktree declarations, workflow worker leasing, capacity-only lane retirement,
-declared task security profiles, category retirement, agent task tools, kernel formation, storage absorption, and turn contract threading for
-structured output and provider sessions.
+**Current through**: 0.26 task storage backend and awaited event persistence.
 
 ---
 
@@ -640,7 +638,7 @@ Sealed-class event hierarchy in `dartclaw_kernel/lib/src/task_event.dart`:
 `TaskEventService` in `dartclaw_core/lib/src/storage/task_event_service.dart`:
 
 - SQLite `task_events` table (append-only)
-- Synchronous writes for durability (NF04 requirement)
+- Awaited writes through the shared `DatabaseBackend`; schema is prepared before construction
 - Indexed on `task_id`, `(task_id, kind)`, and `timestamp`
 - Queries: `listForTask()` (chronological), `countForTask()`
 
@@ -659,10 +657,13 @@ CREATE TABLE task_events (
 
 Centralized recording service at `dartclaw_runtime/lib/src/task/task_event_recorder.dart`.
 
-Each convenience method:
+Each convenience method returns `Future<void>` and its caller awaits completion:
+
 1. Constructs a `TaskEvent` with appropriate kind and details
-2. Inserts synchronously via `TaskEventService` (NF04 durability)
-3. Fires `TaskEventCreatedEvent` on the `EventBus`
+2. Awaits the insert through `TaskEventService`; a write failure propagates
+3. Fires `TaskEventCreatedEvent` on the `EventBus` only after the insert succeeds
+
+The synchronous workflow structured-output callback catches and logs recording failures through its explicit asynchronous wrapper.
 
 Methods: `recordStatusChanged()`, `recordToolCalled()`, `recordArtifactCreated()`, `recordPushBack()`, `recordTokenUpdate()`, `recordError()`, `recordCompaction()`.
 

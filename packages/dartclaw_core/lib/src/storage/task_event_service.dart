@@ -1,45 +1,27 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 import 'package:logging/logging.dart';
-import 'package:sqlite3/sqlite3.dart';
 
 /// SQLite-backed persistence for task timeline events.
 ///
-/// Shares the same [Database] instance as [SqliteTaskRepository] and
-/// [TurnTraceService] (co-located in tasks.db).
-///
-/// Writes are synchronous — no event loss on crash (NF04).
+/// Writes complete before the returned future completes.
 class TaskEventService {
   static final _log = Logger('TaskEventService');
 
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the service against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
-  }
+  /// Creates the service against a prepared task [backend].
+  new(this._backend);
 
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS task_events (
-        id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        details TEXT NOT NULL DEFAULT '{}'
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_task_events_task_kind ON task_events(task_id, kind)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_task_events_timestamp ON task_events(timestamp)');
-  }
-
-  /// Inserts a single event. Synchronous write for durability (NF04).
-  void insert(TaskEvent event) {
-    final stmt = _db.prepare('INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES (?, ?, ?, ?, ?)');
+  /// Inserts a single event before the returned future completes.
+  Future<void> insert(TaskEvent event) async {
+    final stmt = await _backend.prepare(
+      'INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES (?, ?, ?, ?, ?)',
+    );
     try {
-      stmt.execute([
+      await stmt.execute([
         event.id,
         event.taskId,
         event.timestamp.toIso8601String(),
@@ -47,38 +29,37 @@ class TaskEventService {
         jsonEncode(event.details),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   /// Retrieves events for a task in chronological order (oldest first).
   ///
   /// Optionally filtered by [kind] and limited to [limit] results.
-  List<TaskEvent> listForTask(String taskId, {TaskEventKind? kind, int? limit}) {
+  Future<List<TaskEvent>> listForTask(String taskId, {TaskEventKind? kind, int? limit}) async {
     final filter = _taskFilter(taskId, kind);
     final limitClause = limit != null ? ' LIMIT $limit' : '';
 
-    final stmt = _db.prepare(
+    final stmt = await _backend.prepare(
       'SELECT id, task_id, timestamp, kind, details FROM task_events '
       'WHERE ${filter.whereClause} ORDER BY timestamp ASC$limitClause',
     );
     try {
-      final rows = stmt.select(filter.params);
-      return rows.map(_eventFromRow).toList();
+      return (await stmt.query(filter.params)).map(_eventFromRow).toList();
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   /// Returns the count of events for a task, optionally filtered by kind.
-  int countForTask(String taskId, {TaskEventKind? kind}) {
+  Future<int> countForTask(String taskId, {TaskEventKind? kind}) async {
     final filter = _taskFilter(taskId, kind);
-    final stmt = _db.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE ${filter.whereClause}');
+    final stmt = await _backend.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE ${filter.whereClause}');
     try {
-      final rows = stmt.select(filter.params);
+      final rows = await stmt.query(filter.params);
       return (rows.firstOrNull?['cnt'] as num?)?.toInt() ?? 0;
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -92,7 +73,7 @@ class TaskEventService {
     return (whereClause: where.join(' AND '), params: params);
   }
 
-  TaskEvent _eventFromRow(Row row) {
+  TaskEvent _eventFromRow(Map<String, Object?> row) {
     Map<String, dynamic> details = const {};
     final detailsJson = row['details'] as String?;
     if (detailsJson != null && detailsJson.isNotEmpty) {

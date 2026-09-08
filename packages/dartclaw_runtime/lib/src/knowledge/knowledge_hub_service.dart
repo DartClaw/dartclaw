@@ -202,7 +202,7 @@ final class KnowledgeHubService {
   }
 
   Future<List<KnowledgeHubItem>> _kgItems(String query, {required int limit}) async {
-    final facts = kg.allFacts(search: query, limit: limit);
+    final facts = await kg.allFacts(search: query, limit: limit);
     return [
       for (final fact in facts)
         KnowledgeHubItem(

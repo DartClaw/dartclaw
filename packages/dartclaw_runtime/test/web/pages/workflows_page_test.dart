@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SqliteWorkflowRunRepository,
@@ -84,7 +85,7 @@ Request _get(String path) => Request('GET', Uri.parse('http://localhost$path'));
 
 void main() {
   late WorkflowsPage page;
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
   late SqliteWorkflowRunRepository workflowRepo;
   late TaskService tasks;
@@ -96,11 +97,11 @@ void main() {
 
   setUp(() async {
     page = WorkflowsPage();
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('wf_page_test_');
 
-    final taskRepo = SqliteTaskRepository(taskDb);
+    final taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
 
@@ -120,7 +121,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    taskDb.close();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });

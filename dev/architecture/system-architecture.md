@@ -658,10 +658,10 @@ Enriched turn recording and task event system added in 0.14.
 | `ToolCallRecord` | `dartclaw_core/turn/tool_call_record.dart` | Per-tool-call record: name, success, durationMs, errorType |
 | `TaskEvent`, `TaskEventKind` | `dartclaw_core/task/task_event.dart` | Typed task-timeline event and its closed event-kind vocabulary |
 | `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `tasks.db` (NF03 — zero latency impact) |
-| `TaskEventService` | `dartclaw_core` | Synchronous persistence to `task_events` SQLite table in `tasks.db` (NF04 — no event loss on crash) |
+| `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `tasks.db` |
 | `TaskEventRecorder` | `dartclaw_runtime` | Centralized event recording helper with typed convenience methods |
 
-**Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task events are synchronous — guaranteed persistence before the recording call returns. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).
+**Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task event recording returns `Future<void>` and awaits persistence before emitting the bus event or completing. An insert failure propagates without emitting the event. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).
 
 0.16 extends task observability with compaction tracking. `CompactionTaskEventSubscriber` listens for `CompactionCompletedEvent` and records a `TaskEventKind.compaction` row when the compacted SDK session belongs to a currently running task. This keeps long-running task sessions observable even when provider-managed compaction occurs mid-task.
 

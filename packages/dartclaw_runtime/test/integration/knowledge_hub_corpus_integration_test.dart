@@ -9,6 +9,7 @@ import 'package:dartclaw_runtime/src/knowledge/wiki_lint.dart';
 import 'package:dartclaw_runtime/src/knowledge/wiki_page_store.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
@@ -30,7 +31,7 @@ import '../helpers/search_index_test_support.dart';
 void main() {
   late Directory workspace;
   late Database searchDb;
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
   late WikiPageStore wiki;
@@ -50,9 +51,9 @@ void main() {
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('knowledge_hub_corpus_');
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
+    taskBackend = await openPreparedTaskBackend();
     memory = await prepareMemoryIndex(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
 
     // A page the pipeline authored, linking onward to the runbook.
@@ -99,14 +100,14 @@ void main() {
     );
 
     // The KG carries a contradiction the operator has to settle.
-    kg.addFact(
+    await kg.addFact(
       entity: 'Kestrel',
       predicate: 'tier',
       value: 'gold',
       validFrom: '2026-08-01T00:00:00Z',
       source: 'wiki/kestrel-overview.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Kestrel',
       predicate: 'tier',
       value: 'silver',
@@ -127,9 +128,9 @@ void main() {
     _write(workspace, 'processed/kestrel-batch-1.md', 'Kestrel batch one, already ingested.');
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 

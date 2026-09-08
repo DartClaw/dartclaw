@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -1045,10 +1046,11 @@ void main() {
   });
 
   test('inserts trace record when traceService is provided', () async {
-    final db = openTaskDbInMemory();
-    final traceService = TurnTraceService(db);
+    final backend = await openPreparedTaskBackend();
+    final traceService = TurnTraceService(backend);
     addTearDown(() async {
       await traceService.dispose();
+      await backend.close();
     });
 
     worker.responseText = 'Done.';

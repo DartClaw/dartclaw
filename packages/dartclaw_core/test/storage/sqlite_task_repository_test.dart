@@ -1,8 +1,7 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -10,31 +9,22 @@ import 'package:test/test.dart';
 void main() {
   group('SqliteTaskRepository', () {
     late Database db;
+    late SqliteBackend backend;
     late SqliteTaskRepository repository;
 
-    setUp(() {
+    setUp(() async {
       db = openTaskDbInMemory();
-      repository = SqliteTaskRepository(db);
+      backend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+      repository = SqliteTaskRepository(backend);
     });
 
     tearDown(() async {
       await repository.dispose();
+      await backend.close();
     });
 
     group('schema', () {
-      test('creates tables and indexes', () {
-        final tables = db.select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name");
-        final names = tables.map((row) => row['name']).toList();
-
-        expect(names, contains('tasks'));
-        expect(names, contains('task_artifacts'));
-        expect(names, contains('idx_tasks_status'));
-        expect(names, contains('idx_tasks_type'));
-        expect(names, contains('idx_tasks_status_type'));
-        expect(names, contains('idx_tasks_workflow_run_id'));
-        expect(names, contains('idx_task_artifacts_task_id'));
-      });
-
       test('enables foreign keys', () {
         final rows = db.select('PRAGMA foreign_keys');
         expect(rows.single.columnAt(0), 1);
@@ -44,66 +34,21 @@ void main() {
         final tempDir = await Directory.systemTemp.createTemp('sqlite-task-repo-');
         try {
           final fileDb = openTaskDb(p.join(tempDir.path, 'tasks.db'));
-          final fileRepo = SqliteTaskRepository(fileDb);
-          final rows = fileDb.select('PRAGMA journal_mode');
+          final fileBackend = SqliteBackend(fileDb);
+          try {
+            await SqliteSchemaGate.prepareTasks(fileBackend, storeName: 'tasks.db');
+            final fileRepo = SqliteTaskRepository(fileBackend);
+            final rows = fileDb.select('PRAGMA journal_mode');
 
-          expect(rows.single.columnAt(0), 'wal');
+            expect(rows.single.columnAt(0), 'wal');
 
-          await fileRepo.dispose();
+            await fileRepo.dispose();
+          } finally {
+            await fileBackend.close();
+          }
         } finally {
           tempDir.deleteSync(recursive: true);
         }
-      });
-
-      test('migrates legacy task tables that predate agent_execution_id', () async {
-        final legacyDb = sqlite3.openInMemory();
-        legacyDb.execute('PRAGMA foreign_keys = ON');
-        legacyDb.execute('''
-          CREATE TABLE tasks (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            type TEXT NOT NULL,
-            status TEXT NOT NULL,
-            version INTEGER,
-            goal_id TEXT,
-            acceptance_criteria TEXT,
-            session_id TEXT,
-            provider TEXT,
-            config_json TEXT NOT NULL,
-            worktree_json TEXT,
-            created_at TEXT NOT NULL,
-            started_at TEXT,
-            completed_at TEXT,
-            created_by TEXT,
-            max_tokens INTEGER
-          )
-        ''');
-        legacyDb.execute('''
-          INSERT INTO tasks (
-            id, title, description, type, status, version, goal_id, acceptance_criteria,
-            session_id, provider, config_json, worktree_json, created_at, started_at,
-            completed_at, created_by, max_tokens
-          ) VALUES (
-            'task-1', 'Legacy task', 'Legacy description', 'coding', 'review', 1, NULL, NULL,
-            'sess-1', 'codex', '{"priority":"high","model":"gpt-5.4"}', NULL,
-            '2026-03-10T10:00:00Z', '2026-03-10T10:01:00Z', NULL, 'operator', 50000
-          )
-        ''');
-
-        final legacyRepository = SqliteTaskRepository(legacyDb);
-        final loaded = await legacyRepository.getById('task-1');
-
-        expect(loaded, isNotNull);
-        expect(loaded?.sessionId, 'sess-1');
-        expect(loaded?.provider, 'codex');
-        expect(loaded?.model, 'gpt-5.4');
-        expect(loaded?.maxTokens, 50000);
-
-        final columns = legacyDb.select('PRAGMA table_info(tasks)').map((row) => row['name'] as String).toSet();
-        expect(columns, contains('agent_execution_id'));
-
-        await legacyRepository.dispose();
       });
     });
 
@@ -581,13 +526,6 @@ void main() {
     });
 
     group('workflow column migration', () {
-      test('index idx_tasks_workflow_run_id is created', () {
-        final rows = db.select(
-          "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_tasks_workflow_run_id'",
-        );
-        expect(rows.length, 1);
-      });
-
       test('tasks with workflowRunId and stepIndex can be inserted and read', () async {
         final task = Task(
           id: 'task-wf',

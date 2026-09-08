@@ -315,11 +315,11 @@ void main() {
     });
 
     test('task form creates through the shared service and redirects with HX-Location', () async {
-      final db = openTaskDbInMemory();
-      final tasks = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final tasks = TaskService(SqliteTaskRepository(backend));
       addTearDown(() async {
         await tasks.dispose();
-        db.close();
+        await backend.close();
       });
       final project = Project(
         id: 'acme',
@@ -364,11 +364,11 @@ void main() {
     });
 
     test('task form refusal stays inline with submitted values and creates nothing', () async {
-      final db = openTaskDbInMemory();
-      final tasks = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final tasks = TaskService(SqliteTaskRepository(backend));
       addTearDown(() async {
         await tasks.dispose();
-        db.close();
+        await backend.close();
       });
       final response = await page.handler(
         Request(
@@ -389,12 +389,12 @@ void main() {
     });
 
     test('registered routes preserve refusal input and enforce the bounded form contract', () async {
-      final db = openTaskDbInMemory();
-      final tasks = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final tasks = TaskService(SqliteTaskRepository(backend));
       final tempDir = Directory.systemTemp.createTempSync('tasks_page_registered_routes_');
       addTearDown(() async {
         await tasks.dispose();
-        db.close();
+        await backend.close();
         tempDir.deleteSync(recursive: true);
       });
       final registry = PageRegistry()..register(TasksPage());
@@ -581,11 +581,11 @@ void main() {
     });
 
     test('task form refuses profile-bearing input', () async {
-      final db = openTaskDbInMemory();
-      final tasks = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final tasks = TaskService(SqliteTaskRepository(backend));
       addTearDown(() async {
         await tasks.dispose();
-        db.close();
+        await backend.close();
       });
       final response = await page.handler(
         Request(
@@ -602,11 +602,11 @@ void main() {
     });
 
     test('task form forwards both retired category aliases to the shared refusal authority', () async {
-      final db = openTaskDbInMemory();
-      final tasks = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final tasks = TaskService(SqliteTaskRepository(backend));
       addTearDown(() async {
         await tasks.dispose();
-        db.close();
+        await backend.close();
       });
 
       for (final input in const [
@@ -682,11 +682,11 @@ void main() {
     });
 
     test('default review list excludes workflow-owned review tasks and exposes toggle', () async {
-      final db = openTaskDbInMemory();
-      final taskService = TaskService(SqliteTaskRepository(db));
+      final backend = await openPreparedTaskBackend();
+      final taskService = TaskService(SqliteTaskRepository(backend));
       addTearDown(() async {
         await taskService.dispose();
-        db.close();
+        await backend.close();
       });
 
       await taskService.create(

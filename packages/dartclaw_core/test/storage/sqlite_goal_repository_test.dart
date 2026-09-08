@@ -5,18 +5,22 @@ import 'package:test/test.dart';
 void main() {
   group('SqliteGoalRepository', () {
     late Database db;
+    late SqliteBackend backend;
     late SqliteTaskRepository taskRepository;
     late SqliteGoalRepository repository;
 
     setUp(() async {
       db = openTaskDbInMemory();
-      taskRepository = SqliteTaskRepository(db);
-      repository = await SqliteGoalRepository.open(SqliteBackend(db));
+      backend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+      taskRepository = SqliteTaskRepository(backend);
+      repository = await SqliteGoalRepository.open(backend);
     });
 
     tearDown(() async {
       await repository.dispose();
       await taskRepository.dispose();
+      await backend.close();
     });
 
     group('schema', () {

@@ -8,11 +8,14 @@ import 'workflow_executor_test_support.dart';
 void main() {
   late WorkflowExecutorHarness h;
 
-  setUp(() {
-    h = WorkflowExecutorHarness()..setUp();
+  setUp(() async {
+    h = WorkflowExecutorHarness();
+    await h.setUp();
   });
 
-  tearDown(() => h.tearDown());
+  tearDown(() async {
+    await h.tearDown();
+  });
 
   test('S01: unauthenticated referenced provider aborts before step 1 with remediation', () async {
     final definition = const WorkflowDefinition(

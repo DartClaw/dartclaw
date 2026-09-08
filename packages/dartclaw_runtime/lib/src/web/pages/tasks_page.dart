@@ -299,6 +299,14 @@ class TasksPage extends DashboardPage {
       includeWorkflowOwned: !includeWorkflowOwned,
     );
 
+    final taskEvents = <String, List<TaskEvent>>{};
+    final taskEventService = context.taskEventService;
+    if (taskEventService != null) {
+      for (final task in tasks) {
+        taskEvents[task.id] = await taskEventService.listForTask(task.id);
+      }
+    }
+
     // Runner metrics and lease-derived worker capacity.
     final observer = context.runnerObserver;
     List<Map<String, dynamic>>? runners;
@@ -336,7 +344,7 @@ class TasksPage extends DashboardPage {
       projectNames: projectNames,
       showProjectColumn: showProjectColumn,
       progressTracker: context.progressTracker,
-      taskEventService: context.taskEventService,
+      taskEvents: taskEvents,
       showWorkflowReviewToggle: statusFilter == TaskStatus.review,
       includeWorkflowOwned: includeWorkflowOwned,
       activeListQuery: activeListQuery,
@@ -415,7 +423,7 @@ class TasksPage extends DashboardPage {
     final taskEventService = context.taskEventService;
     if (taskEventService != null) {
       try {
-        final events = taskEventService.listForTask(taskId);
+        final events = await taskEventService.listForTask(taskId);
         timelineHtml = taskTimelineHtml(
           events: events,
           taskId: taskId,
@@ -459,7 +467,7 @@ class TasksPage extends DashboardPage {
       final eventService = context.taskEventService;
       if (eventService != null) {
         try {
-          final events = eventService.listForTask(taskId);
+          final events = await eventService.listForTask(taskId);
           final seedMaps = <Map<String, dynamic>>[];
           for (final e in events) {
             final details = Map<String, dynamic>.from(e.details);

@@ -14,9 +14,11 @@ void main() {
   late RecordingMessageQueue queue;
   late ChannelManager channelManager;
   late TaskNotificationSubscriber subscriber;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+  setUp(() async {
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     eventBus = EventBus();
     queue = RecordingMessageQueue();
     channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
@@ -35,6 +37,7 @@ void main() {
     await channelManager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
+    await taskBackend.close();
   });
 
   test('task-shaped channel text follows normal routing and creates no task notification', () async {

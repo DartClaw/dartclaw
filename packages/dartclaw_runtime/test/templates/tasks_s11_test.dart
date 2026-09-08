@@ -1,10 +1,10 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, TaskEvent, TaskEventKind;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, SqliteTaskRepository, TaskEvent, TaskEventKind;
 import 'package:dartclaw_runtime/src/task/task_progress_tracker.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/templates/tasks.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository, TaskEventService, openTaskDbInMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -53,8 +53,8 @@ void main() {
       expect(html, isNot(contains('task-progress-indeterminate')));
     });
 
-    test('renders a determinate meter with percentage when budget set', () {
-      final tracker = _stubTrackerWithTokens('task-run', tokensUsed: 5000, tokenBudget: 10000);
+    test('renders a determinate meter with percentage when budget set', () async {
+      final tracker = await _stubTrackerWithTokens('task-run', tokensUsed: 5000, tokenBudget: 10000);
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -67,8 +67,8 @@ void main() {
       expect(html, contains('class="meter-fill"'));
     });
 
-    test('renders token display text for running task', () {
-      final tracker = _stubTrackerWithTokens('task-run', tokensUsed: 1500, tokenBudget: 10000);
+    test('renders token display text for running task', () async {
+      final tracker = await _stubTrackerWithTokens('task-run', tokensUsed: 1500, tokenBudget: 10000);
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
@@ -159,23 +159,21 @@ void main() {
     });
 
     test('renders compact events section when task has recent events', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
-      eventService.insert(
-        TaskEvent(
-          id: 'evt-1',
-          taskId: 'task-run',
-          timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
-          kind: TaskEventKind.toolCalled,
-          details: {'name': 'Bash', 'success': true},
-        ),
+      final event = TaskEvent(
+        id: 'evt-1',
+        taskId: 'task-run',
+        timestamp: DateTime.parse('2026-03-24T10:02:00Z'),
+        kind: TaskEventKind.toolCalled,
+        details: {'name': 'Bash', 'success': true},
       );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        taskEventService: eventService,
+        taskEvents: {
+          'task-run': [event],
+        },
       );
 
       expect(html, contains('task-events'));
@@ -190,10 +188,8 @@ void main() {
     });
 
     test('compact events limited to last 3', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
-      for (var i = 1; i <= 5; i++) {
-        eventService.insert(
+      final events = [
+        for (var i = 1; i <= 5; i++)
           TaskEvent(
             id: 'evt-$i',
             taskId: 'task-run',
@@ -201,14 +197,13 @@ void main() {
             kind: TaskEventKind.toolCalled,
             details: {'name': 'Tool$i', 'success': true},
           ),
-        );
-      }
+      ];
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        taskEventService: eventService,
+        taskEvents: {'task-run': events},
       );
 
       // Most recent 3 events shown (most-recent-first): Tool5, Tool4, Tool3.
@@ -220,9 +215,7 @@ void main() {
     });
 
     test('event icon classes are set per kind', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
-      eventService.insert(
+      final events = [
         TaskEvent(
           id: 'evt-tool',
           taskId: 'task-run',
@@ -230,8 +223,6 @@ void main() {
           kind: TaskEventKind.toolCalled,
           details: {'name': 'Read', 'success': true},
         ),
-      );
-      eventService.insert(
         TaskEvent(
           id: 'evt-artifact',
           taskId: 'task-run',
@@ -239,13 +230,13 @@ void main() {
           kind: TaskEventKind.artifactCreated,
           details: {'name': 'output.md', 'kind': 'document'},
         ),
-      );
+      ];
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [runningTask],
-        taskEventService: eventService,
+        taskEvents: {'task-run': events},
       );
 
       expect(html, contains('task-event-icon-tool'));
@@ -269,23 +260,21 @@ void main() {
     });
 
     test('shows formatted token total from token events', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
-      eventService.insert(
-        TaskEvent(
-          id: 'evt-tok',
-          taskId: 'task-rev',
-          timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
-          kind: TaskEventKind.tokenUpdate,
-          details: {'inputTokens': 8000, 'outputTokens': 2000},
-        ),
+      final event = TaskEvent(
+        id: 'evt-tok',
+        taskId: 'task-rev',
+        timestamp: DateTime.parse('2026-03-24T10:05:00Z'),
+        kind: TaskEventKind.tokenUpdate,
+        details: {'inputTokens': 8000, 'outputTokens': 2000},
       );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [reviewTask],
-        taskEventService: eventService,
+        taskEvents: {
+          'task-rev': [event],
+        },
       );
 
       expect(html, contains('task-tokens-static'));
@@ -293,9 +282,7 @@ void main() {
     });
 
     test('sums multiple token events for total', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
-      eventService.insert(
+      final events = [
         TaskEvent(
           id: 'evt-tok-1',
           taskId: 'task-rev',
@@ -303,8 +290,6 @@ void main() {
           kind: TaskEventKind.tokenUpdate,
           details: {'inputTokens': 1000, 'outputTokens': 500},
         ),
-      );
-      eventService.insert(
         TaskEvent(
           id: 'evt-tok-2',
           taskId: 'task-rev',
@@ -312,13 +297,13 @@ void main() {
           kind: TaskEventKind.tokenUpdate,
           details: {'inputTokens': 500, 'outputTokens': 250},
         ),
-      );
+      ];
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [reviewTask],
-        taskEventService: eventService,
+        taskEvents: {'task-rev': events},
       );
 
       // Total: 1000+500+500+250 = 2250 → 2.3K
@@ -326,24 +311,22 @@ void main() {
     });
 
     test('non-tool events on running task do not affect non-running token count', () {
-      final db = openTaskDbInMemory();
-      final eventService = TaskEventService(db);
       // Insert a pushback event — should not count as tokens
-      eventService.insert(
-        TaskEvent(
-          id: 'evt-push',
-          taskId: 'task-rev',
-          timestamp: DateTime.parse('2026-03-24T10:07:00Z'),
-          kind: TaskEventKind.pushBack,
-          details: {'comment': 'Fix this'},
-        ),
+      final event = TaskEvent(
+        id: 'evt-push',
+        taskId: 'task-rev',
+        timestamp: DateTime.parse('2026-03-24T10:07:00Z'),
+        kind: TaskEventKind.pushBack,
+        details: {'comment': 'Fix this'},
       );
 
       final html = tasksPageTemplate(
         sidebarData: emptySidebar,
         navItems: navItems,
         tasks: const [reviewTask],
-        taskEventService: eventService,
+        taskEvents: {
+          'task-rev': [event],
+        },
       );
 
       // No token events → the canon absent treatment, not a literal dash
@@ -355,9 +338,15 @@ void main() {
 
 /// Creates a [TaskProgressTracker] seeded with [tokensUsed] (and optionally
 /// [tokenBudget]) for [taskId].
-TaskProgressTracker _stubTrackerWithTokens(String taskId, {required int tokensUsed, int? tokenBudget}) {
+Future<TaskProgressTracker> _stubTrackerWithTokens(String taskId, {required int tokensUsed, int? tokenBudget}) async {
   final eventBus = EventBus();
-  final tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+  final backend = await openPreparedTaskBackend();
+  final tasks = TaskService(SqliteTaskRepository(backend));
+  addTearDown(() async {
+    await tasks.dispose();
+    await backend.close();
+    await eventBus.dispose();
+  });
   final tracker = TaskProgressTracker(eventBus: eventBus, tasks: tasks);
   tracker.seedFromEvents(taskId, [
     {

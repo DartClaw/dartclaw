@@ -5,9 +5,9 @@ import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeTurnManager, SessionService, TurnOutcome, TurnStatus;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeTurnManager, SessionService, TurnOutcome, TurnStatus, openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -17,16 +17,16 @@ void main() {
   late KnowledgeInboxService service;
   late SessionService sessions;
   late FakeTurnManager turns;
-  late Database kgDb;
+  late SqliteBackend kgBackend;
   late TemporalKnowledgeGraphService kg;
 
-  setUp(() {
+  setUp(() async {
     workspace = Directory.systemTemp.createTempSync('dartclaw_knowledge_inbox_service_test_');
     saved = <Map<String, dynamic>>[];
     captureContexts = <MemoryCaptureContext>[];
     sessions = SessionService(baseDir: p.join(workspace.path, 'sessions'));
-    kgDb = sqlite3.openInMemory();
-    kg = TemporalKnowledgeGraphService(kgDb);
+    kgBackend = await openPreparedTaskBackend();
+    kg = TemporalKnowledgeGraphService(kgBackend);
     turns = _turnsReturning(_extractionPayload());
     File(p.join(workspace.path, 'USER.md')).writeAsStringSync('''
 # User Context
@@ -62,8 +62,8 @@ void main() {
     );
   });
 
-  tearDown(() {
-    kgDb.close();
+  tearDown(() async {
+    await kgBackend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 
@@ -119,7 +119,7 @@ void main() {
     expect(wiki, contains('provenance: llm-authored'));
     expect(wiki, contains('sources:'));
     expect(wiki, contains('last_updated_by: "cron:knowledge-inbox"'));
-    expect(kg.query(entity: 'Dart SDK', predicate: 'roadmap').single.source, 'inbox/dart-roadmap.md');
+    expect((await kg.query(entity: 'Dart SDK', predicate: 'roadmap')).single.source, 'inbox/dart-roadmap.md');
     expect(report.summary, contains('processed files: dart-roadmap.md'));
   });
 
@@ -224,7 +224,7 @@ void main() {
     expect(calls, 1);
     expect(report.quarantined.single.file, 'commit.md');
     expect(report.processed, isEmpty);
-    expect(kg.timeline(entity: 'Dart SDK'), isEmpty);
+    expect(await kg.timeline(entity: 'Dart SDK'), isEmpty);
   });
 
   // The extraction turn is the one step that writes nothing, so it is the only
@@ -522,7 +522,7 @@ Celebrity gossip should be excluded.
 
     expect(report.quarantined.single.file, 'undated.md');
     expect(saved, isEmpty);
-    expect(kg.query(entity: 'Dart SDK', predicate: 'roadmap'), isEmpty);
+    expect(await kg.query(entity: 'Dart SDK', predicate: 'roadmap'), isEmpty);
   });
 
   test('a fact with an invalid timezone offset quarantines the file and writes no KG fact', () async {
@@ -541,7 +541,7 @@ Celebrity gossip should be excluded.
 
     expect(report.quarantined.single.file, 'bad-offset.md');
     expect(saved, isEmpty);
-    expect(kg.query(entity: 'Dart SDK', predicate: 'roadmap'), isEmpty);
+    expect(await kg.query(entity: 'Dart SDK', predicate: 'roadmap'), isEmpty);
   });
 
   test('a source with empty facts still ingests when the KG is wired', () async {
@@ -577,7 +577,7 @@ Celebrity gossip should be excluded.
   });
 
   test('a contradicting fact is surfaced and not inserted', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'stable',
@@ -601,7 +601,7 @@ Celebrity gossip should be excluded.
     expect(report.contradictions.single.file, 'channel.md');
     expect(report.contradictions.single.detail, contains('dart sdk.channel'));
     expect(report.summary, contains('contradictions: channel.md'));
-    final channels = kg.query(entity: 'Dart SDK', predicate: 'channel').map((fact) => fact.value).toList();
+    final channels = (await kg.query(entity: 'Dart SDK', predicate: 'channel')).map((fact) => fact.value).toList();
     expect(channels, ['stable'], reason: 'the conflicting beta fact must not be inserted');
   });
 
@@ -624,7 +624,7 @@ Celebrity gossip should be excluded.
 
     expect(report.processed, ['channel.md']);
     expect(report.contradictions.single.detail, contains('conflicting values in extraction payload'));
-    expect(kg.query(entity: 'Dart SDK', predicate: 'channel'), isEmpty);
+    expect(await kg.query(entity: 'Dart SDK', predicate: 'channel'), isEmpty);
   });
 
   test('batch contradiction screening keeps non-overlapping clean facts for the same key', () async {
@@ -646,7 +646,7 @@ Celebrity gossip should be excluded.
     final report = await service.runOnce(requireStable: false);
 
     expect(report.contradictions.single.detail, contains('conflicting values in extraction payload'));
-    expect(kg.timeline(entity: 'Dart SDK').map((fact) => fact.value), ['dev']);
+    expect((await kg.timeline(entity: 'Dart SDK')).map((fact) => fact.value), ['dev']);
   });
 
   test('non-overlapping historical facts inside one extraction payload are inserted', () async {
@@ -667,7 +667,7 @@ Celebrity gossip should be excluded.
     final report = await service.runOnce(requireStable: false);
 
     expect(report.contradictions, isEmpty);
-    expect(kg.timeline(entity: 'Dart SDK'), hasLength(2));
+    expect(await kg.timeline(entity: 'Dart SDK'), hasLength(2));
   });
 
   test('a file that disappears during the stability window is skipped without aborting the run', () async {
@@ -791,7 +791,7 @@ Celebrity gossip should be excluded.
     await serviceReturning(_extractionPayload()).runOnce(requireStable: false);
     final page = File(p.join(workspace.path, 'wiki', 'dart-roadmap.md'));
     final before = page.readAsStringSync();
-    final facts = kg.timeline(entity: 'Dart SDK').length;
+    final facts = (await kg.timeline(entity: 'Dart SDK')).length;
 
     var index = 0;
     for (final (label, merge, reason) in [
@@ -818,7 +818,7 @@ Celebrity gossip should be excluded.
       expect(report.wikiMerges, isEmpty, reason: label);
       expect(page.readAsStringSync(), before, reason: label);
       expect(saved, isEmpty, reason: label);
-      expect(kg.timeline(entity: 'Dart SDK'), hasLength(facts), reason: label);
+      expect(await kg.timeline(entity: 'Dart SDK'), hasLength(facts), reason: label);
     }
   });
 
@@ -957,7 +957,7 @@ Celebrity gossip should be excluded.
 
     expect(report.quarantined.single.file, 'bad.md');
     expect(saved, isEmpty);
-    expect(kg.timeline(entity: 'Dart SDK'), isEmpty);
+    expect(await kg.timeline(entity: 'Dart SDK'), isEmpty);
   });
 
   // The wiki page must be the last durable write, so that a `wiki-merges=0`
@@ -968,12 +968,12 @@ Celebrity gossip should be excluded.
   test('a KG insert failure leaves no wiki page behind', () async {
     Directory(p.join(workspace.path, 'inbox')).createSync(recursive: true);
     File(p.join(workspace.path, 'inbox', 'rejected.md')).writeAsStringSync('Curated batch source.');
-    final rejectingDb = sqlite3.openInMemory();
-    addTearDown(rejectingDb.close);
+    final rejectingBackend = await openPreparedTaskBackend();
+    addTearDown(rejectingBackend.close);
 
     final report = await serviceReturning(
       _extractionPayload(),
-      graph: _RejectingKnowledgeGraph(rejectingDb),
+      graph: _RejectingKnowledgeGraph(rejectingBackend),
     ).runOnce(requireStable: false);
 
     expect(report.quarantined.single.file, 'rejected.md');
@@ -1180,10 +1180,10 @@ String _body(String page) => page.substring(page.indexOf('\n---', 4) + 4);
 /// insert, so the failure lands between the memory findings and the wiki write –
 /// the only place that can tell those two writes' ordering apart.
 class _RejectingKnowledgeGraph extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  int addFact({
+  Future<int> addFact({
     required String entity,
     required String predicate,
     required String value,
@@ -1191,7 +1191,7 @@ class _RejectingKnowledgeGraph extends TemporalKnowledgeGraphService {
     String? validTo,
     required String source,
     String? owner,
-  }) => throw StateError('injected KG insert failure');
+  }) async => throw StateError('injected KG insert failure');
 }
 
 /// A turn manager whose turns fail with [errorMessage], which the harness

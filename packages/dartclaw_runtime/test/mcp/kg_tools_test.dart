@@ -9,16 +9,17 @@ import 'package:test/test.dart';
 
 void main() {
   late Database db;
+  late SqliteBackend backend;
   late TemporalKnowledgeGraphService kg;
 
-  setUp(() {
+  setUp(() async {
     db = sqlite3.openInMemory();
-    kg = TemporalKnowledgeGraphService(db);
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    kg = TemporalKnowledgeGraphService(backend);
   });
 
-  tearDown(() {
-    db.close();
-  });
+  tearDown(() => backend.close());
 
   test('S08 kg tools add query timeline invalidate lifecycle', () async {
     final add = KgAddTool(kg: kg);
@@ -55,7 +56,7 @@ void main() {
   });
 
   test('S10 kg query no-result and contradiction are explicit', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'stable',
@@ -114,7 +115,7 @@ void main() {
     });
 
     test('S06 kg_add emits denied audit record on contradiction', () async {
-      kg.addFact(
+      await kg.addFact(
         entity: 'Conflict Entity',
         predicate: 'status',
         value: 'active',
@@ -145,7 +146,7 @@ void main() {
     });
 
     test('kg_invalidate emits audit record on successful invalidation', () async {
-      final id = kg.addFact(
+      final id = await kg.addFact(
         entity: 'Invalidate Test',
         predicate: 'flag',
         value: 'on',
@@ -209,11 +210,11 @@ void main() {
       final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
       expect(json['status'], 'denied');
       expect(json['decision'], 'deny');
-      expect(kg.query(entity: 'Audit Failure', includeInvalidated: true), isEmpty);
+      expect(await kg.query(entity: 'Audit Failure', includeInvalidated: true), isEmpty);
     });
 
     test('S06 kg_invalidate does not write caller reason text into audit reason', () async {
-      final id = kg.addFact(
+      final id = await kg.addFact(
         entity: 'Redaction Test',
         predicate: 'status',
         value: 'active',
@@ -251,7 +252,7 @@ void main() {
     });
 
     test('kg_invalidate accepts a valid existing fact ID', () async {
-      final id = kg.addFact(
+      final id = await kg.addFact(
         entity: 'Scope Test',
         predicate: 'value',
         value: 'v1',
@@ -278,14 +279,14 @@ void main() {
         'source': 'test',
       });
       final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
-      expect(kg.ownerForFact(id), 'alice');
+      expect(await kg.ownerForFact(id), 'alice');
 
       final denied = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => 'bob',
       ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not mine'});
       expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
-      expect(kg.query(entity: 'Owned Fact', includeInvalidated: true).single.invalidatedAt, isNull);
+      expect((await kg.query(entity: 'Owned Fact', includeInvalidated: true)).single.invalidatedAt, isNull);
 
       final allowed = await KgInvalidateTool(
         kg: kg,
@@ -332,7 +333,7 @@ void main() {
         'source': 'test',
       });
       final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
-      expect(kg.ownerForFact(id), systemKgPrincipal);
+      expect(await kg.ownerForFact(id), systemKgPrincipal);
 
       final denied = await KgInvalidateTool(
         kg: kg,

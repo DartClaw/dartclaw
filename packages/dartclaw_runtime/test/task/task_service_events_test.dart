@@ -2,7 +2,6 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/task/task_event_recorder.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -181,18 +180,18 @@ void main() {
   });
 
   group('TaskEventRecorder integration', () {
-    late Database db;
+    late SqliteBackend eventBackend;
     late TaskEventService eventService;
     late TaskEventRecorder recorder;
 
-    setUp(() {
-      db = openTaskDbInMemory();
-      eventService = TaskEventService(db);
+    setUp(() async {
+      eventBackend = await openPreparedTaskBackend();
+      eventService = TaskEventService(eventBackend);
       recorder = TaskEventRecorder(eventService: eventService);
     });
 
-    tearDown(() {
-      db.close();
+    tearDown(() async {
+      await eventBackend.close();
     });
 
     test('transition() records statusChanged event via eventRecorder', () async {
@@ -202,12 +201,50 @@ void main() {
       await repo.insert(makeTask(status: TaskStatus.queued));
       await serviceWithRecorder.transition('task-1', TaskStatus.running, trigger: 'system');
 
-      final events = eventService.listForTask('task-1');
+      final events = await eventService.listForTask('task-1');
       expect(events, hasLength(1));
       expect(events[0].kind.name, 'statusChanged');
       expect(events[0].details['oldStatus'], 'queued');
       expect(events[0].details['newStatus'], 'running');
       expect(events[0].details['trigger'], 'system');
+    });
+
+    test('transition publishes no status event when durable event recording fails', () async {
+      final serviceWithRecorder = TaskService(repo, eventBus: eventBus, eventRecorder: recorder);
+      addTearDown(serviceWithRecorder.dispose);
+
+      await repo.insert(makeTask(status: TaskStatus.queued));
+      await eventBackend.close();
+
+      await expectLater(
+        serviceWithRecorder.transition('task-1', TaskStatus.running, trigger: 'system'),
+        throwsA(isA<StateError>()),
+      );
+
+      expect((await repo.getById('task-1'))?.status, TaskStatus.running);
+      expect(eventBus.eventsOfType<TaskStatusChangedEvent>(), isEmpty);
+    });
+
+    test('auto-start creation publishes no status event when durable event recording fails', () async {
+      final serviceWithRecorder = TaskService(repo, eventBus: eventBus, eventRecorder: recorder);
+      addTearDown(serviceWithRecorder.dispose);
+
+      await eventBackend.close();
+
+      await expectLater(
+        serviceWithRecorder.create(
+          id: 'task-2',
+          title: 'Auto start',
+          description: 'desc',
+          configJson: const {'needsWorktree': false},
+          autoStart: true,
+          trigger: 'user',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect((await repo.getById('task-2'))?.status, TaskStatus.queued);
+      expect(eventBus.eventsOfType<TaskStatusChangedEvent>(), isEmpty);
     });
 
     test('create(autoStart: true) records statusChanged event via eventRecorder', () async {
@@ -223,7 +260,7 @@ void main() {
         trigger: 'user',
       );
 
-      final events = eventService.listForTask('task-2');
+      final events = await eventService.listForTask('task-2');
       expect(events, hasLength(1));
       expect(events[0].kind.name, 'statusChanged');
       expect(events[0].details['oldStatus'], 'draft');

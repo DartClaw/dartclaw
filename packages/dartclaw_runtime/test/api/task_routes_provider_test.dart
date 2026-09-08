@@ -6,12 +6,15 @@ import 'api_test_helpers.dart';
 
 void main() {
   late TaskService tasks;
+  late SqliteBackend backend;
   late ApiRouteTestClient client;
 
-  setUp(() {
+  setUp(() async {
     final db = openTaskDbInMemory();
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
     tasks = TaskService(
-      SqliteTaskRepository(db),
+      SqliteTaskRepository(backend),
       agentExecutionRepository: SqliteAgentExecutionRepository(db),
       executionTransactor: SqliteExecutionRepositoryTransactor(db),
     );
@@ -20,6 +23,7 @@ void main() {
 
   tearDown(() async {
     await tasks.dispose();
+    await backend.close();
   });
 
   test('POST /api/tasks persists a provider hint on the created task', () async {

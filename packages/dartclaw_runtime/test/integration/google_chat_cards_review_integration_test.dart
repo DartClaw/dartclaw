@@ -31,10 +31,12 @@ void main() {
   late TaskReviewService reviewService;
   late TaskNotificationSubscriber notificationSubscriber;
   late GoogleChatWebhookHandler webhookHandler;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
+  setUp(() async {
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
     restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
@@ -58,6 +60,7 @@ void main() {
     await manager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
+    await taskBackend.close();
   });
 
   test('review transition sends a card and card click accepts the task', () async {

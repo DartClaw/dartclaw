@@ -219,9 +219,9 @@ void main() {
   group('update', () {
     test('a change refused for active tasks reports the JSON tier\'s message and writes nothing', () async {
       projects.seed(makeProject(id: 'acme', name: 'acme', remoteUrl: 'https://github.com/acme/app.git'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await tasks.create(
         id: 'running-task',
         title: 'Running',
@@ -247,6 +247,7 @@ void main() {
 
       await eventBus.dispose();
       await tasks.dispose();
+      await backend.close();
     });
 
     test('a config-defined project is refused with CONFIG_DEFINED\'s message', () async {
@@ -281,9 +282,9 @@ void main() {
     test('remove cascades exactly as the JSON delete does and re-renders the list without it', () async {
       projects.seed(makeProject(id: 'doomed', name: 'doomed'));
       projects.seed(makeProject(id: 'keeper', name: 'keeper'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await tasks.create(
         id: 'q-task',
         title: 'Queued',
@@ -314,6 +315,7 @@ void main() {
 
       await eventBus.dispose();
       await tasks.dispose();
+      await backend.close();
     });
 
     test('a refused row action leaves the list unchanged and reports an error toast', () async {
@@ -350,9 +352,9 @@ void main() {
   group('one authority, two tiers', () {
     test('an active-task refusal is decided once and reported in each tier\'s own encoding', () async {
       projects.seed(makeProject(id: 'acme', name: 'acme', remoteUrl: 'https://github.com/acme/app.git'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await tasks.create(
         id: 'running-task',
         title: 'Running',
@@ -400,6 +402,7 @@ void main() {
 
       await eventBus.dispose();
       await tasks.dispose();
+      await backend.close();
     });
 
     test('a config-defined project is untouched from either tier', () async {

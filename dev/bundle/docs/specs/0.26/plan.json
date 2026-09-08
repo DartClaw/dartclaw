@@ -229,10 +229,20 @@
         "S01",
         "S02"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s04-task-domain-storage-seam-refactor.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
+      "owner": "implementer_storage_s04",
       "scope": "Move the task-domain repositories in dartclaw_core onto the backend seam: sqlite_task_repository (Task.type is retired in 0.25; TaskLegacyRefusal hydration and the tasks.type placeholder column are preserved as-is), task_event_service, turn_trace_service, and temporal_knowledge_graph_service (ISO-8601 parsing now delegates to tryParseIsoInstant). The repositories and their dartclaw_runtime, dartclaw_workflow, and dartclaw_cli callers are already Future-returning, so the change is seam adoption with unchanged signatures, rows, ordering, data formats, and error behavior; the full workspace suite stays green. Consume S02's ready current schema without adding schema logic to services. Excludes the execution/workflow cluster (S05) and composition-root construction (S06).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/prd.md#fr1-backend-agnostic-storage-layer"

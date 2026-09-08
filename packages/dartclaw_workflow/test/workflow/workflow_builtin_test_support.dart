@@ -242,7 +242,7 @@ final class BuiltInWorkflowDriver {
     _definitionsDir ??= await _resolveWorkflowDefinitionsDir();
   }
 
-  void setUp() => harness.setUp();
+  Future<void> setUp() => harness.setUp();
 
   Future<void> tearDown() => harness.tearDown();
 

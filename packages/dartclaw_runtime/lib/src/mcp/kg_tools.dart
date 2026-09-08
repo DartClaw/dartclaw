@@ -48,7 +48,7 @@ class KgAddTool implements McpTool {
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
     final principal = principalProvider();
-    final contradictions = kg.contradictions(
+    final contradictions = await kg.contradictions(
       entity: _string(args, 'entity'),
       predicate: _string(args, 'predicate'),
       value: _string(args, 'value'),
@@ -74,7 +74,7 @@ class KgAddTool implements McpTool {
       reason: 'entity=$entity predicate=$predicate',
     );
     if (failure != null) return failure;
-    final id = kg.addFact(
+    final id = await kg.addFact(
       entity: entity,
       predicate: predicate,
       value: _string(args, 'value'),
@@ -115,7 +115,7 @@ class KgQueryTool implements McpTool {
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
-    final facts = kg.query(
+    final facts = await kg.query(
       entity: _string(args, 'entity'),
       predicate: args['predicate'] as String?,
       asOf: args['as_of'] as String?,
@@ -152,7 +152,7 @@ class KgTimelineTool implements McpTool {
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
-    final facts = kg.timeline(entity: _string(args, 'entity'), predicate: args['predicate'] as String?);
+    final facts = await kg.timeline(entity: _string(args, 'entity'), predicate: args['predicate'] as String?);
     if (facts.isEmpty) return _jsonText({'status': 'no_result', 'facts': []});
     return _jsonText({'status': 'ok', 'facts': _factsJson(facts)});
   }
@@ -196,7 +196,7 @@ class KgInvalidateTool implements McpTool {
     final principal = principalProvider();
     final id = (args['id'] as num).toInt();
     final reason = _string(args, 'reason');
-    if (!kg.factExists(id)) {
+    if (!(await kg.factExists(id))) {
       final failure = await _auditFailureResult(
         auditLogger,
         tool: 'kg_invalidate',
@@ -207,7 +207,7 @@ class KgInvalidateTool implements McpTool {
       if (failure != null) return failure;
       return _jsonText({'status': 'not_found', 'id': id});
     }
-    final owner = kg.ownerForFact(id);
+    final owner = await kg.ownerForFact(id);
     if (owner == null && !_samePrincipal(principal, stewardPrincipal)) {
       final failure = await _auditFailureResult(
         auditLogger,
@@ -238,7 +238,7 @@ class KgInvalidateTool implements McpTool {
       reason: 'fact_invalidated',
     );
     if (failure != null) return failure;
-    final updated = kg.invalidate(id: id, invalidatedAt: _string(args, 'invalidated_at'), reason: reason);
+    final updated = await kg.invalidate(id: id, invalidatedAt: _string(args, 'invalidated_at'), reason: reason);
     if (!updated) return _jsonText({'status': 'not_found', 'id': id});
     return _jsonText({'status': 'invalidated'});
   }
@@ -271,7 +271,7 @@ class KgContradictionsTool implements McpTool {
 
   @override
   Future<ToolResult> call(Map<String, dynamic> args) async {
-    final contradictions = kg.contradictions(
+    final contradictions = await kg.contradictions(
       entity: _string(args, 'entity'),
       predicate: _string(args, 'predicate'),
       value: _string(args, 'value'),

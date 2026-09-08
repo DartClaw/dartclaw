@@ -28,7 +28,7 @@ final class TaskFailureHandler {
   }) async {
     if (recordError && errorSummary != null && errorSummary.isNotEmpty) {
       _log.warning('Task ${task.id} failed: $errorSummary');
-      _eventRecorder?.recordError(task.id, message: errorSummary);
+      await _eventRecorder?.recordError(task.id, message: errorSummary);
     }
     try {
       final current = await _tasks.get(task.id);
@@ -51,7 +51,7 @@ final class TaskFailureHandler {
     bool retryable = true,
     bool correctCancelled = false,
   }) async {
-    if (errorSummary.isNotEmpty) _eventRecorder?.recordError(task.id, message: errorSummary);
+    if (errorSummary.isNotEmpty) await _eventRecorder?.recordError(task.id, message: errorSummary);
     try {
       final current = await _tasks.get(task.id);
       if (current == null || (current.status.terminal && !_correctable(current.status, correctCancelled))) return;

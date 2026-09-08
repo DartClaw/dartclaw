@@ -215,8 +215,8 @@ class TaskExecutor {
     retryable: false,
   );
 
-  void _recordProviderUnavailable(Task task, String message) {
-    _eventRecorder?.recordError(task.id, message: message);
+  Future<void> _recordProviderUnavailable(Task task, String message) async {
+    await _eventRecorder?.recordError(task.id, message: message);
   }
 
   Future<bool> _pollOnceInner() async {
@@ -264,7 +264,7 @@ class TaskExecutor {
       final provider = _effectiveProviderForTask(preparedTask);
       if (provider == null) {
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
-          _recordProviderUnavailable(preparedTask, 'Task has no configured execution provider');
+          await _recordProviderUnavailable(preparedTask, 'Task has no configured execution provider');
         }
         continue;
       }
@@ -311,18 +311,18 @@ class TaskExecutor {
       } on StateError catch (error) {
         unavailableWorkerProfiles.add(workerProfileKey);
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
-          _recordProviderUnavailable(preparedTask, error.message);
+          await _recordProviderUnavailable(preparedTask, error.message);
         }
         continue;
       } on FileSystemException catch (error) {
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
-          _recordProviderUnavailable(preparedTask, error.toString());
+          await _recordProviderUnavailable(preparedTask, error.toString());
         }
         continue;
       } on WorkerCreationException catch (error) {
         unavailableWorkerProfiles.add(workerProfileKey);
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
-          _recordProviderUnavailable(preparedTask, error.message);
+          await _recordProviderUnavailable(preparedTask, error.message);
         }
         continue;
       }
@@ -666,7 +666,7 @@ class TaskExecutor {
         }
         final artifacts = await _artifactCollector.collect(refreshedTask, executionDirectory: executionDirectory);
         for (final artifact in artifacts) {
-          _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
+          await _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
         }
         final postStatus = _resolvePostCompletionStatus(refreshedTask);
         await _tasks.transition(task.id, postStatus, trigger: 'system');
@@ -751,7 +751,7 @@ class TaskExecutor {
       // Must execute before the fire-and-forget trace write.
       final recorder = _eventRecorder;
       if (recorder != null) {
-        recorder.recordTokenUpdate(
+        await recorder.recordTokenUpdate(
           task.id,
           inputTokens: outcome.inputTokens,
           outputTokens: outcome.outputTokens,
@@ -759,7 +759,7 @@ class TaskExecutor {
           cacheWriteTokens: outcome.cacheWriteTokens,
         );
         for (final tc in outcome.toolCalls) {
-          recorder.recordToolCalled(
+          await recorder.recordToolCalled(
             task.id,
             name: tc.name,
             success: tc.success,
@@ -806,7 +806,7 @@ class TaskExecutor {
         }
         final artifacts = await _artifactCollector.collect(refreshed, executionDirectory: executionDirectory);
         for (final artifact in artifacts) {
-          _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
+          await _eventRecorder?.recordArtifactCreated(task.id, name: artifact.name, kind: artifact.kind.name);
         }
         if (tokenBudget != null && outcome.totalTokens > tokenBudget) {
           _log.warning('Task ${task.id} exceeded token budget ($tokenBudget < ${outcome.totalTokens}); marking failed');

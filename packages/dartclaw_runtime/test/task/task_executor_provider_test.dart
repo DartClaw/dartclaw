@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -21,8 +22,9 @@ void main() {
   late TaskService tasks;
   late ArtifactCollector collector;
   late TaskExecutor executor;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_executor_provider_test_');
     sessionsDir = p.join(tempDir.path, 'sessions');
     workspaceDir = Directory.systemTemp.createTempSync('dartclaw_task_executor_ws_').path;
@@ -30,13 +32,15 @@ void main() {
 
     sessions = _SerialSessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     collector = ArtifactCollector(tasks: tasks, sessionsDir: sessionsDir, dataDir: tempDir.path);
   });
 
   tearDown(() async {
     await executor.stop();
     await tasks.dispose();
+    await taskBackend.close();
     await messages.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     final wsDir = Directory(workspaceDir);
@@ -162,9 +166,9 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final eventDb = openTaskDbInMemory();
-    addTearDown(eventDb.close);
-    final eventService = TaskEventService(eventDb);
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
     final eventRecorder = TaskEventRecorder(eventService: eventService);
     final primaryRunner = TurnRunner(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -205,7 +209,7 @@ void main() {
     expect(claudeTaskWorker.turnCalls, 0);
     expect(codexWorker.turnCalls, 0);
     expect((await tasks.get('task-provider-unknown'))!.status, TaskStatus.queued);
-    final events = eventService.listForTask('task-provider-unknown', kind: TaskEventKind.taskError);
+    final events = await eventService.listForTask('task-provider-unknown', kind: TaskEventKind.taskError);
     expect(events, hasLength(1));
     expect(events.single.details['message'], contains('Provider "goose" is not configured'));
   });

@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingGitRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingGitRunner, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
@@ -212,9 +212,9 @@ void main() {
     final localMessages = MessageService(baseDir: sessionDataDir);
     final localWorker = FakeWorkerService();
     final eventBus = EventBus();
-    final taskDb = openTaskDbInMemory();
+    final taskBackend = await openPreparedTaskBackend();
     final workflowDb = sqlite3.openInMemory();
-    final tasks = TaskService(SqliteTaskRepository(taskDb), eventBus: eventBus);
+    final tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
     final workflows = FakeWorkflowService(
       db: workflowDb,
       taskService: tasks,
@@ -243,7 +243,7 @@ void main() {
       await workflows.dispose();
       await tasks.dispose();
       await eventBus.dispose();
-      taskDb.close();
+      await taskBackend.close();
       workflowDb.close();
     });
     final session = await localSessions.createSession();
@@ -442,10 +442,10 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: p.join(tempDir.path, 'github-workspace')),
         config: config,
       );
-      final taskDb = openTaskDbInMemory();
+      final taskBackend = await openPreparedTaskBackend();
       final workflowDb = sqlite3.openInMemory();
       final workflowEvents = EventBus();
-      final workflowTasks = TaskService(SqliteTaskRepository(taskDb), eventBus: workflowEvents);
+      final workflowTasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: workflowEvents);
       final workflows = FakeWorkflowService(
         db: workflowDb,
         taskService: workflowTasks,
@@ -470,7 +470,7 @@ void main() {
         await workflows.dispose();
         await workflowTasks.dispose();
         await workflowEvents.dispose();
-        taskDb.close();
+        await taskBackend.close();
         workflowDb.close();
       });
 
@@ -602,7 +602,7 @@ void main() {
   });
 
   group('task route wiring', () {
-    late Database taskDb;
+    late SqliteBackend taskBackend;
     late TaskService taskService;
     late EventBus eventBus;
     late WorktreeManager worktreeManager;
@@ -611,10 +611,10 @@ void main() {
     late RunnerObserver runnerObserver;
     late String configDataDir;
 
-    setUp(() {
-      taskDb = openTaskDbInMemory();
+    setUp(() async {
+      taskBackend = await openPreparedTaskBackend();
       configDataDir = p.join(tempDir.path, 'config-data');
-      taskService = TaskService(SqliteTaskRepository(taskDb));
+      taskService = TaskService(SqliteTaskRepository(taskBackend));
       eventBus = EventBus();
       worktreeManager = WorktreeManager(
         dataDir: tempDir.path,
@@ -660,6 +660,7 @@ void main() {
     tearDown(() async {
       await eventBus.dispose();
       await taskService.dispose();
+      await taskBackend.close();
     });
 
     test('task routes are mounted behind auth middleware', () async {
@@ -731,11 +732,12 @@ void main() {
 
   group('runtime service validation', () {
     test('throws when taskService is enabled without required task runtime services', () async {
-      final taskDb = openTaskDbInMemory();
-      final taskService = TaskService(SqliteTaskRepository(taskDb));
+      final taskBackend = await openPreparedTaskBackend();
+      final taskService = TaskService(SqliteTaskRepository(taskBackend));
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
       addTearDown(taskService.dispose);
+      addTearDown(taskBackend.close);
 
       final s = composeServer(
         core: ServerCoreDeps(sessions: sessions, messages: messages, worker: worker, staticDir: _staticDirPath),
@@ -846,14 +848,14 @@ void main() {
   });
 
   group('goal route wiring', () {
-    late Database taskDb;
+    late SqliteBackend taskBackend;
     late GoalService goalService;
     late SqliteTaskRepository taskRepository;
 
     setUp(() async {
-      taskDb = openTaskDbInMemory();
-      taskRepository = SqliteTaskRepository(taskDb);
-      goalService = GoalService(await SqliteGoalRepository.open(SqliteBackend(taskDb)));
+      taskBackend = await openPreparedTaskBackend();
+      taskRepository = SqliteTaskRepository(taskBackend);
+      goalService = GoalService(await SqliteGoalRepository.open(taskBackend));
       server = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,
@@ -878,6 +880,7 @@ void main() {
     tearDown(() async {
       await goalService.dispose();
       await taskRepository.dispose();
+      await taskBackend.close();
     });
 
     test('goal routes are mounted behind auth middleware', () async {

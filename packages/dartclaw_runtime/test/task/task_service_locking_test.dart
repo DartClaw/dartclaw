@@ -1,7 +1,6 @@
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../helpers/in_memory_agent_execution_repository.dart';
@@ -11,17 +10,15 @@ void main() {
   group('InMemoryTaskRepository', () => _runLockingTests(() => InMemoryTaskRepository()));
 
   group('SqliteTaskRepository (in-memory SQLite)', () {
-    late Database db;
+    late SqliteBackend backend;
 
-    setUp(() {
-      db = openTaskDbInMemory();
+    setUp(() async {
+      backend = await openPreparedTaskBackend();
     });
 
-    tearDown(() {
-      db.close();
-    });
+    tearDown(() => backend.close());
 
-    _runLockingTests(() => SqliteTaskRepository(db));
+    _runLockingTests(() => SqliteTaskRepository(backend));
   });
 
   group('InMemoryTaskRepository with AgentExecution persistence', () {

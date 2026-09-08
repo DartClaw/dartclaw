@@ -176,8 +176,10 @@ void main() {
   });
 
   test('queued workers wait for startup and discover the complete MCP registry', () async {
-    final database = sqlite3.openInMemory();
-    final repository = SqliteTaskRepository(database);
+    final taskDbPath = p.join(tempDir.path, 'queued-workers.db');
+    final seedBackend = SqliteBackend(openTaskDb(taskDbPath));
+    await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
+    final repository = SqliteTaskRepository(seedBackend);
     await repository.insert(
       Task(
         id: 'recovered-task',
@@ -187,6 +189,7 @@ void main() {
         createdAt: DateTime.utc(2026, 1, 1),
       ),
     );
+    await seedBackend.close();
     final primaryStarting = Completer<void>();
     final releasePrimary = Completer<void>();
     final workerStarting = Completer<void>();
@@ -223,7 +226,7 @@ void main() {
     final building = buildRuntime(
       config,
       harnessFactory: factory,
-      taskDbFactory: (_) => database,
+      taskDbFactory: (_) => openTaskDb(taskDbPath),
       serverFactory: (composed) => server = composed,
     );
     await Future.any([primaryStarting.future, building.then<void>((_) {})]).timeout(const Duration(seconds: 10));

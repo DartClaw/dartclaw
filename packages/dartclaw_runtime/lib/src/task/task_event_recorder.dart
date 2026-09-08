@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 /// Integration points call typed convenience methods instead of manually
 /// constructing [TaskEvent] instances. Each method:
 /// 1. Constructs a [TaskEvent] with the appropriate kind and details
-/// 2. Inserts it synchronously via [TaskEventService] (NF04 durability)
+/// 2. Awaits insertion via [TaskEventService]
 /// 3. Fires a [TaskEventCreatedEvent] on the [EventBus]
 class TaskEventRecorder {
   final TaskEventService _eventService;
@@ -19,13 +19,13 @@ class TaskEventRecorder {
       _uuid = uuid ?? const Uuid();
 
   /// Records a task lifecycle status transition.
-  void recordStatusChanged(
+  Future<void> recordStatusChanged(
     String taskId, {
     required TaskStatus oldStatus,
     required TaskStatus newStatus,
     required String trigger,
-  }) {
-    _record(taskId, TaskEventKind.statusChanged, {
+  }) async {
+    await _record(taskId, TaskEventKind.statusChanged, {
       'oldStatus': oldStatus.name,
       'newStatus': newStatus.name,
       'trigger': trigger,
@@ -33,14 +33,14 @@ class TaskEventRecorder {
   }
 
   /// Records a tool invocation during agent execution.
-  void recordToolCalled(
+  Future<void> recordToolCalled(
     String taskId, {
     required String name,
     required bool success,
     int durationMs = 0,
     String? errorType,
     String? context,
-  }) {
+  }) async {
     final details = <String, dynamic>{'name': name, 'success': success, 'durationMs': durationMs};
     if (errorType case final value?) {
       details['errorType'] = value;
@@ -48,29 +48,33 @@ class TaskEventRecorder {
     if (context case final value?) {
       details['context'] = value;
     }
-    _record(taskId, TaskEventKind.toolCalled, details);
+    await _record(taskId, TaskEventKind.toolCalled, details);
   }
 
   /// Records an artifact being created and attached to the task.
-  void recordArtifactCreated(String taskId, {required String name, required String kind}) {
-    _record(taskId, TaskEventKind.artifactCreated, {'name': name, 'kind': kind});
+  Future<void> recordArtifactCreated(String taskId, {required String name, required String kind}) async {
+    await _record(taskId, TaskEventKind.artifactCreated, {'name': name, 'kind': kind});
   }
 
   /// Records that the structured finalization envelope supplied the declared
   /// outputs — the standard agent-step completion path.
-  void recordStructuredOutputFinalizerUsed(String taskId, {required String stepId, required String outputKey}) {
-    _record(taskId, TaskEventKind.structuredOutputFinalizerUsed, {'stepId': stepId, 'outputKey': outputKey});
+  Future<void> recordStructuredOutputFinalizerUsed(
+    String taskId, {
+    required String stepId,
+    required String outputKey,
+  }) async {
+    await _record(taskId, TaskEventKind.structuredOutputFinalizerUsed, {'stepId': stepId, 'outputKey': outputKey});
   }
 
   /// Records that a required finalizer envelope was missing or malformed, so the
   /// step is treated as a workflow validation failure.
-  void recordStructuredOutputValidationFailed(
+  Future<void> recordStructuredOutputValidationFailed(
     String taskId, {
     required String stepId,
     required String outputKey,
     required String failureReason,
-  }) {
-    _record(taskId, TaskEventKind.structuredOutputValidationFailed, {
+  }) async {
+    await _record(taskId, TaskEventKind.structuredOutputValidationFailed, {
       'stepId': stepId,
       'outputKey': outputKey,
       'failureReason': failureReason,
@@ -78,34 +82,34 @@ class TaskEventRecorder {
   }
 
   /// Records that structured-output extraction fell back to heuristic parsing.
-  void recordStructuredOutputFallbackUsed(
+  Future<void> recordStructuredOutputFallbackUsed(
     String taskId, {
     required String stepId,
     required String outputKey,
     required String failureReason,
     String? providerSubtype,
-  }) {
+  }) async {
     final details = <String, dynamic>{'stepId': stepId, 'outputKey': outputKey, 'failureReason': failureReason};
     if (providerSubtype case final value?) {
       details['providerSubtype'] = value;
     }
-    _record(taskId, TaskEventKind.structuredOutputFallbackUsed, details);
+    await _record(taskId, TaskEventKind.structuredOutputFallbackUsed, details);
   }
 
   /// Records a push-back from review with a comment.
-  void recordPushBack(String taskId, {required String comment}) {
-    _record(taskId, TaskEventKind.pushBack, {'comment': comment});
+  Future<void> recordPushBack(String taskId, {required String comment}) async {
+    await _record(taskId, TaskEventKind.pushBack, {'comment': comment});
   }
 
   /// Records a token consumption update after a completed turn.
-  void recordTokenUpdate(
+  Future<void> recordTokenUpdate(
     String taskId, {
     required int inputTokens,
     required int outputTokens,
     int cacheReadTokens = 0,
     int cacheWriteTokens = 0,
-  }) {
-    _record(taskId, TaskEventKind.tokenUpdate, {
+  }) async {
+    await _record(taskId, TaskEventKind.tokenUpdate, {
       'inputTokens': inputTokens,
       'outputTokens': outputTokens,
       if (cacheReadTokens > 0) 'cacheReadTokens': cacheReadTokens,
@@ -114,20 +118,25 @@ class TaskEventRecorder {
   }
 
   /// Records an error that occurred during task execution.
-  void recordError(String taskId, {required String message}) {
-    _record(taskId, TaskEventKind.taskError, {'message': message});
+  Future<void> recordError(String taskId, {required String message}) async {
+    await _record(taskId, TaskEventKind.taskError, {'message': message});
   }
 
   /// Records a context compaction that occurred during agent execution.
-  void recordCompaction(String taskId, {required String trigger, required String sessionId, int? preTokens}) {
+  Future<void> recordCompaction(
+    String taskId, {
+    required String trigger,
+    required String sessionId,
+    int? preTokens,
+  }) async {
     final details = <String, dynamic>{'trigger': trigger, 'sessionId': sessionId};
     if (preTokens != null) details['preTokens'] = preTokens;
-    _record(taskId, TaskEventKind.compaction, details);
+    await _record(taskId, TaskEventKind.compaction, details);
   }
 
-  void _record(String taskId, TaskEventKind kind, Map<String, dynamic> details) {
+  Future<void> _record(String taskId, TaskEventKind kind, Map<String, dynamic> details) async {
     final event = TaskEvent(id: _uuid.v4(), taskId: taskId, timestamp: DateTime.now(), kind: kind, details: details);
-    _eventService.insert(event);
+    await _eventService.insert(event);
     _eventBus?.fire(
       TaskEventCreatedEvent(
         taskId: taskId,

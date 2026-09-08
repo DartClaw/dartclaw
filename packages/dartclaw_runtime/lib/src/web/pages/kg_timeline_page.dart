@@ -46,11 +46,11 @@ class KgTimelinePage extends DashboardPage implements DashboardNavigationExclusi
     final resolver = _resolver ?? CitationSourceIndexResolver(kgFactExists: kg.factExists);
 
     try {
-      final facts = kg.allFacts();
-      final activeAsOfIds = asOf == null ? <int>{} : kg.allFacts(asOf: asOf).map((fact) => fact.id).toSet();
+      final facts = await kg.allFacts();
+      final activeAsOfIds = asOf == null ? <int>{} : (await kg.allFacts(asOf: asOf)).map((fact) => fact.id).toSet();
       final groups = await _buildTimelineGroups(
         facts: facts,
-        contradictions: kg.openContradictions(),
+        contradictions: await kg.openContradictions(),
         resolver: resolver,
         selectedCategory: selectedCategory,
         asOf: asOf,

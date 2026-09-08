@@ -44,6 +44,7 @@ final class ScenarioTaskHarness {
   late ArtifactCollector collector;
   late KvService kvService;
   late Database taskDb;
+  late SqliteBackend taskBackend;
   late SqliteAgentExecutionRepository agentExecutions;
   late SqliteWorkflowRunRepository workflowRuns;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
@@ -61,8 +62,10 @@ final class ScenarioTaskHarness {
     harness.sessions = SessionService(baseDir: harness.sessionsDir);
     harness.messages = MessageService(baseDir: harness.sessionsDir);
     harness.taskDb = sqlite3.openInMemory();
+    harness.taskBackend = SqliteBackend(harness.taskDb);
+    await SqliteSchemaGate.prepareTasks(harness.taskBackend, storeName: 'tasks.db');
     harness.eventBus = EventBus();
-    harness.taskRepository = SqliteTaskRepository(harness.taskDb);
+    harness.taskRepository = SqliteTaskRepository(harness.taskBackend);
     harness.agentExecutions = SqliteAgentExecutionRepository(harness.taskDb);
     harness.workflowRuns = SqliteWorkflowRunRepository(harness.taskDb);
     harness.workflowStepExecutions = SqliteWorkflowStepExecutionRepository(harness.taskDb);
@@ -366,7 +369,7 @@ final class ScenarioTaskHarness {
     await messages.dispose();
     await kvService.dispose();
     await eventBus.dispose();
-    taskDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

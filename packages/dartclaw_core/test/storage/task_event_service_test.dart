@@ -20,15 +20,18 @@ TaskEvent _makeEvent({
 
 void main() {
   late Database db;
+  late SqliteBackend backend;
   late TaskEventService service;
 
-  setUp(() {
+  setUp(() async {
     db = openTaskDbInMemory();
-    service = TaskEventService(db);
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    service = TaskEventService(backend);
   });
 
-  tearDown(() {
-    db.close();
+  tearDown(() async {
+    await backend.close();
   });
 
   test('creates task_events table and indexes', () {
@@ -42,57 +45,57 @@ void main() {
     expect(names, contains('idx_task_events_timestamp'));
   });
 
-  test('insert and retrieve by taskId', () {
+  test('insert and retrieve by taskId', () async {
     final event = _makeEvent(
       id: 'evt-1',
       taskId: 'task-A',
       kind: TaskEventKind.statusChanged,
       details: {'oldStatus': 'draft', 'newStatus': 'queued', 'trigger': 'system'},
     );
-    service.insert(event);
+    await service.insert(event);
 
-    final result = service.listForTask('task-A');
+    final result = await service.listForTask('task-A');
     expect(result, hasLength(1));
     expect(result[0].id, 'evt-1');
     expect(result[0].kind.name, 'statusChanged');
     expect(result[0].details['oldStatus'], 'draft');
   });
 
-  test('insert multiple events and verify chronological order', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 10, 0, 0)));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 11, 0, 0)));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 12, 0, 0)));
+  test('insert multiple events and verify chronological order', () async {
+    await service.insert(_makeEvent(id: 'evt-1', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 10, 0, 0)));
+    await service.insert(_makeEvent(id: 'evt-2', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 11, 0, 0)));
+    await service.insert(_makeEvent(id: 'evt-3', taskId: 'task-B', timestamp: DateTime.utc(2026, 3, 24, 12, 0, 0)));
 
-    final result = service.listForTask('task-B');
+    final result = await service.listForTask('task-B');
     expect(result, hasLength(3));
     expect(result[0].id, 'evt-1');
     expect(result[1].id, 'evt-2');
     expect(result[2].id, 'evt-3');
   });
 
-  test('listForTask with kind filter returns only matching events', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-C', kind: TaskEventKind.statusChanged));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-C', kind: TaskEventKind.toolCalled));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-C', kind: TaskEventKind.toolCalled));
+  test('listForTask with kind filter returns only matching events', () async {
+    await service.insert(_makeEvent(id: 'evt-1', taskId: 'task-C', kind: TaskEventKind.statusChanged));
+    await service.insert(_makeEvent(id: 'evt-2', taskId: 'task-C', kind: TaskEventKind.toolCalled));
+    await service.insert(_makeEvent(id: 'evt-3', taskId: 'task-C', kind: TaskEventKind.toolCalled));
 
-    final result = service.listForTask('task-C', kind: TaskEventKind.toolCalled);
+    final result = await service.listForTask('task-C', kind: TaskEventKind.toolCalled);
     expect(result, hasLength(2));
     for (final e in result) {
       expect(e.kind.name, 'toolCalled');
     }
   });
 
-  test('listForTask with limit returns at most N events', () {
+  test('listForTask with limit returns at most N events', () async {
     for (var i = 0; i < 5; i++) {
-      service.insert(_makeEvent(id: 'evt-$i', taskId: 'task-D', timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)));
+      await service.insert(_makeEvent(id: 'evt-$i', taskId: 'task-D', timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)));
     }
-    final result = service.listForTask('task-D', limit: 3);
+    final result = await service.listForTask('task-D', limit: 3);
     expect(result, hasLength(3));
   });
 
-  test('listForTask with kind + limit combined', () {
+  test('listForTask with kind + limit combined', () async {
     for (var i = 0; i < 4; i++) {
-      service.insert(
+      await service.insert(
         _makeEvent(
           id: 'tool-$i',
           taskId: 'task-E',
@@ -101,53 +104,53 @@ void main() {
         ),
       );
     }
-    service.insert(_makeEvent(id: 'status-1', taskId: 'task-E', kind: TaskEventKind.statusChanged));
+    await service.insert(_makeEvent(id: 'status-1', taskId: 'task-E', kind: TaskEventKind.statusChanged));
 
-    final result = service.listForTask('task-E', kind: TaskEventKind.toolCalled, limit: 2);
+    final result = await service.listForTask('task-E', kind: TaskEventKind.toolCalled, limit: 2);
     expect(result, hasLength(2));
     for (final e in result) {
       expect(e.kind.name, 'toolCalled');
     }
   });
 
-  test('countForTask returns correct count', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-F'));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-F'));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-G'));
+  test('countForTask returns correct count', () async {
+    await service.insert(_makeEvent(id: 'evt-1', taskId: 'task-F'));
+    await service.insert(_makeEvent(id: 'evt-2', taskId: 'task-F'));
+    await service.insert(_makeEvent(id: 'evt-3', taskId: 'task-G'));
 
-    expect(service.countForTask('task-F'), 2);
-    expect(service.countForTask('task-G'), 1);
-    expect(service.countForTask('task-H'), 0);
+    expect(await service.countForTask('task-F'), 2);
+    expect(await service.countForTask('task-G'), 1);
+    expect(await service.countForTask('task-H'), 0);
   });
 
-  test('countForTask with kind filter', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-I', kind: TaskEventKind.statusChanged));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-I', kind: TaskEventKind.toolCalled));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-I', kind: TaskEventKind.toolCalled));
+  test('countForTask with kind filter', () async {
+    await service.insert(_makeEvent(id: 'evt-1', taskId: 'task-I', kind: TaskEventKind.statusChanged));
+    await service.insert(_makeEvent(id: 'evt-2', taskId: 'task-I', kind: TaskEventKind.toolCalled));
+    await service.insert(_makeEvent(id: 'evt-3', taskId: 'task-I', kind: TaskEventKind.toolCalled));
 
-    expect(service.countForTask('task-I', kind: TaskEventKind.toolCalled), 2);
-    expect(service.countForTask('task-I', kind: TaskEventKind.statusChanged), 1);
-    expect(service.countForTask('task-I', kind: TaskEventKind.taskError), 0);
+    expect(await service.countForTask('task-I', kind: TaskEventKind.toolCalled), 2);
+    expect(await service.countForTask('task-I', kind: TaskEventKind.statusChanged), 1);
+    expect(await service.countForTask('task-I', kind: TaskEventKind.taskError), 0);
   });
 
-  test('insert with empty details map, details round-trips correctly', () {
-    service.insert(_makeEvent(id: 'evt-empty', taskId: 'task-J', details: const {}));
+  test('insert with empty details map, details round-trips correctly', () async {
+    await service.insert(_makeEvent(id: 'evt-empty', taskId: 'task-J', details: const {}));
 
-    final result = service.listForTask('task-J');
+    final result = await service.listForTask('task-J');
     expect(result, hasLength(1));
     expect(result[0].details, isEmpty);
   });
 
-  test('listForTask returns only events for the requested task', () {
-    service.insert(_makeEvent(id: 'evt-1', taskId: 'task-K'));
-    service.insert(_makeEvent(id: 'evt-2', taskId: 'task-L'));
-    service.insert(_makeEvent(id: 'evt-3', taskId: 'task-K'));
+  test('listForTask returns only events for the requested task', () async {
+    await service.insert(_makeEvent(id: 'evt-1', taskId: 'task-K'));
+    await service.insert(_makeEvent(id: 'evt-2', taskId: 'task-L'));
+    await service.insert(_makeEvent(id: 'evt-3', taskId: 'task-K'));
 
-    expect(service.listForTask('task-K'), hasLength(2));
-    expect(service.listForTask('task-L'), hasLength(1));
+    expect(await service.listForTask('task-K'), hasLength(2));
+    expect(await service.listForTask('task-L'), hasLength(1));
   });
 
-  test('each of the 6 kinds round-trips through insert + list', () {
+  test('each of the 6 kinds round-trips through insert + list', () async {
     final kinds = [
       TaskEventKind.statusChanged,
       TaskEventKind.toolCalled,
@@ -157,34 +160,36 @@ void main() {
       TaskEventKind.taskError,
     ];
     for (var i = 0; i < kinds.length; i++) {
-      service.insert(
+      await service.insert(
         _makeEvent(id: 'kind-$i', taskId: 'task-M', kind: kinds[i], timestamp: DateTime.utc(2026, 3, 24, i, 0, 0)),
       );
     }
-    final result = service.listForTask('task-M');
+    final result = await service.listForTask('task-M');
     expect(result, hasLength(6));
     for (var i = 0; i < kinds.length; i++) {
       expect(result[i].kind.name, kinds[i].name);
     }
   });
 
-  test('details with complex values round-trips correctly', () {
+  test('details with complex values round-trips correctly', () async {
     final details = {'name': 'bash', 'success': true, 'durationMs': 250, 'errorType': 'tool_error'};
-    service.insert(_makeEvent(id: 'evt-complex', taskId: 'task-N', kind: TaskEventKind.toolCalled, details: details));
+    await service.insert(
+      _makeEvent(id: 'evt-complex', taskId: 'task-N', kind: TaskEventKind.toolCalled, details: details),
+    );
 
-    final result = service.listForTask('task-N');
+    final result = await service.listForTask('task-N');
     expect(result[0].details['name'], 'bash');
     expect(result[0].details['success'], isTrue);
     expect(result[0].details['durationMs'], 250);
     expect(result[0].details['errorType'], 'tool_error');
   });
 
-  test('malformed JSON in details column returns empty map gracefully', () {
+  test('malformed JSON in details column returns empty map gracefully', () async {
     // Insert malformed JSON directly into the DB to simulate corruption.
     db.execute(
       "INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES ('bad-evt', 'task-O', '2026-03-24T10:00:00.000Z', 'error', 'not-valid-json')",
     );
-    final result = service.listForTask('task-O');
+    final result = await service.listForTask('task-O');
     expect(result, hasLength(1));
     expect(result[0].details, isEmpty);
   });

@@ -1,5 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -1225,7 +1226,22 @@ class _RuntimeAssembly {
         bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
         roleDefaults: workflowRoleDefaults,
         approvalPolicyDefault: config.workflow.approvals,
-        structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
+        structuredOutputFallbackRecorder:
+            (taskId, {required stepId, required outputKey, required failureReason, providerSubtype}) {
+              unawaited(
+                storage.taskEventRecorder
+                    .recordStructuredOutputFallbackUsed(
+                      taskId,
+                      stepId: stepId,
+                      outputKey: outputKey,
+                      failureReason: failureReason,
+                      providerSubtype: providerSubtype,
+                    )
+                    .catchError((Object error, StackTrace stackTrace) {
+                      _log.warning('Failed to record structured-output fallback for task $taskId', error, stackTrace);
+                    }),
+              );
+            },
         skillIntrospector:
             skillIntrospector ?? _buildSkillIntrospector(ctx, (id) => _providerProbeEnvironment(ctx, id)),
         // The in-engine backstop is inert without this, so an in-`serve`

@@ -24,7 +24,8 @@ import 'package:dartclaw_runtime/src/scheduling/schedule_mutation.dart';
 import 'package:dartclaw_runtime/src/task/task_review_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/workspace/workspace_path_guard.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemorySessionService, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemorySessionService, InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -60,8 +61,15 @@ LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
 
 void main() {
   group('MCP tool schema compliance — additionalProperties: false', () {
-    final kgDb = sqlite3.openInMemory();
-    final kg = TemporalKnowledgeGraphService(kgDb);
+    late SqliteBackend kgBackend;
+    late TemporalKnowledgeGraphService kg;
+
+    setUpAll(() async {
+      kgBackend = await openPreparedTaskBackend();
+      kg = TemporalKnowledgeGraphService(kgBackend);
+    });
+
+    tearDownAll(() => kgBackend.close());
 
     /// Verifies that an object-type tool inputSchema has additionalProperties: false.
     void expectCompliant(McpTool tool) {

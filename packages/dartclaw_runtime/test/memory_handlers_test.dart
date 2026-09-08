@@ -38,7 +38,8 @@ Future<Map<String, dynamic>> _add(
 }
 
 void main() {
-  late Database db;
+  late Database searchDb;
+  late SqliteBackend taskBackend;
   late FullTextIndex memory;
   late MemoryCorpusService corpus;
   late MemoryFileService memoryFile;
@@ -48,8 +49,10 @@ void main() {
   late MemoryHandlers handlers;
 
   setUp(() async {
-    db = sqlite3.openInMemory();
-    memory = await prepareMemoryIndex(db);
+    taskBackend = SqliteBackend(sqlite3.openInMemory());
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
+    searchDb = sqlite3.openInMemory();
+    memory = await prepareMemoryIndex(searchDb);
     workspace = Directory.systemTemp.createTempSync('memory_handlers_test_');
     corpus = MemoryCorpusService(workspaceDir: workspace.path);
     memoryFile = MemoryFileService(baseDir: workspace.path, corpusService: corpus);
@@ -76,7 +79,8 @@ void main() {
 
   tearDown(() async {
     await corpus.close();
-    db.close();
+    await taskBackend.close();
+    searchDb.close();
     workspace.deleteSync(recursive: true);
   });
 
@@ -388,15 +392,15 @@ Falcon wiki detail
   });
 
   test('read reopens native KG and inbox locators through their source owners', () async {
-    final kg = TemporalKnowledgeGraphService(db);
-    final factId = kg.addFact(
+    final kg = TemporalKnowledgeGraphService(taskBackend);
+    final factId = await kg.addFact(
       entity: 'Falcon',
       predicate: 'status',
       value: 'green',
       validFrom: '2026-08-12T00:00:00Z',
       source: 'wiki/falcon.md',
     );
-    final otherFactId = kg.addFact(
+    final otherFactId = await kg.addFact(
       entity: 'Private Falcon',
       predicate: 'status',
       value: 'hidden',

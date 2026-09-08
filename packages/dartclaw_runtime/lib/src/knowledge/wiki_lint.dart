@@ -28,12 +28,11 @@ Future<WikiLintReport> lintWikiPages(WikiPageStore store, {TemporalKnowledgeGrap
   var degraded = false;
   final degradations = <MemorySearchDegradation>[];
   final contradictions =
-      kg
-          ?.openContradictions()
+      (await kg?.openContradictions())
           // Built from model-chosen predicate and value strings, and this
           // summary is one line reaching a channel and the server log, so an
           // unstripped line break forges a report line of its own.
-          .map(
+          ?.map(
             (item) => normalizeWhitespace(
               '${item.existing.entity}.${item.existing.predicate}: ${item.existing.value} <> ${item.incomingValue}',
             ),

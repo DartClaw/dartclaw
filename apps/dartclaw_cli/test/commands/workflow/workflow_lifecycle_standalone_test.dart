@@ -10,7 +10,8 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart'
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_core/dartclaw_core.dart' show openSearchDb, openTaskDb, openTaskDbInMemory;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show SqliteBackend, SqliteSchemaGate, openSearchDb, openTaskDb, openTaskDbInMemory;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -506,6 +507,8 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
 
 Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {WorkflowDefinition? definition}) async {
   final db = openTaskDbInMemory();
+  final backend = SqliteBackend(db);
+  await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
   final now = DateTime.now();
   final effectiveDefinition = definition ?? singleBashDefinition();
   final run = WorkflowRun(
@@ -523,6 +526,8 @@ Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {Workflo
 
 Future<({Database db, String runId})> seedApprovalPaused() async {
   final db = openTaskDbInMemory();
+  final backend = SqliteBackend(db);
+  await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
   final now = DateTime.now();
   const stepId = 'gate';
   final run = WorkflowRun(

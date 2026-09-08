@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Knowledge layer carried by a source reference in a citation packet.
 enum CitationLayer {
   /// Synthesized wiki page source.
@@ -149,14 +151,14 @@ final class CitationSourceIndexResolver implements CitationSourceResolver {
   final Set<String> _wikiLocators;
   final Set<String> _memoryLocators;
   final Set<String> _inboxLocators;
-  final bool Function(int id) _kgFactExists;
+  final FutureOr<bool> Function(int id) _kgFactExists;
 
   /// Creates a resolver over known live source locators.
   new({
     Iterable<String> wikiLocators = const [],
     Iterable<String> memoryLocators = const [],
     Iterable<String> inboxLocators = const [],
-    bool Function(int id)? kgFactExists,
+    FutureOr<bool> Function(int id)? kgFactExists,
   }) : _wikiLocators = Set.unmodifiable(wikiLocators),
        _memoryLocators = Set.unmodifiable(memoryLocators),
        _inboxLocators = Set.unmodifiable(inboxLocators),
@@ -168,12 +170,12 @@ final class CitationSourceIndexResolver implements CitationSourceResolver {
       CitationLayer.wiki => _wikiLocators.contains(ref.locator),
       CitationLayer.memory => _memoryLocators.contains(ref.locator),
       CitationLayer.inbox => _inboxLocators.contains(ref.locator),
-      CitationLayer.kg => _resolvesKg(ref.locator),
+      CitationLayer.kg => await _resolvesKg(ref.locator),
     };
   }
 
-  bool _resolvesKg(String locator) {
+  Future<bool> _resolvesKg(String locator) async {
     final id = int.tryParse(locator);
-    return id != null && _kgFactExists(id);
+    return id != null && await _kgFactExists(id);
   }
 }

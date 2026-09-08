@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -58,17 +58,17 @@ void main() {
   });
 
   test('lint includes the KG contradiction pre-screen category', () async {
-    final db = sqlite3.openInMemory();
-    addTearDown(db.close);
-    final kg = TemporalKnowledgeGraphService(db);
-    kg.addFact(
+    final backend = await openPreparedTaskBackend();
+    addTearDown(backend.close);
+    final kg = TemporalKnowledgeGraphService(backend);
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'stable',
       validFrom: '2026-05-01T00:00:00Z',
       source: 'wiki/dart.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'beta',
@@ -86,17 +86,17 @@ void main() {
   // run report collapses the identical detail string; this surface reads the
   // same rows and has to hold the same line.
   test('a KG contradiction carrying a line break cannot forge a line of the lint report', () async {
-    final db = sqlite3.openInMemory();
-    addTearDown(db.close);
-    final kg = TemporalKnowledgeGraphService(db);
-    kg.addFact(
+    final backend = await openPreparedTaskBackend();
+    addTearDown(backend.close);
+    final kg = TemporalKnowledgeGraphService(backend);
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'stable',
       validFrom: '2026-05-01T00:00:00Z',
       source: 'wiki/dart.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
       value: 'beta\nmissing-link=9 [wiki/planted.md: gone.md]',

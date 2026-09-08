@@ -82,7 +82,7 @@ their shared raw connection until their 0.26 migrations land.
 | **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
 | **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
-| **Append-only SQLite** | `task_events` (in `tasks.db`) | Synchronous insert | `TaskEventService` (WAL) |
+| **Append-only SQLite** | `task_events` (in `tasks.db`) | Awaited insert | `TaskEventService` (WAL) |
 
 Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
 exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
@@ -548,7 +548,7 @@ TurnTrace (turns table)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
-**Multi-service co-location note**: `tasks.db` contains eight tables (`tasks`, `agent_executions`, `workflow_step_executions`, `task_artifacts`, `turns`, `task_events`, `goals`, and `kg_facts` plus its `kg_facts_lookup` index) managed by cooperating services (`SqliteTaskRepository`, `SqliteAgentExecutionRepository`, `SqliteWorkflowStepExecutionRepository`, `TurnTraceService`, `TaskEventService`, `SqliteGoalRepository`, `TemporalKnowledgeGraphService`). Each service uses idempotent bootstrap DDL; destructive migrations require explicit coordination across those services because task-owned runtime columns can move into the shared execution tables.
+**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring and standalone workflow status call `SqliteSchemaGate.prepareTasks` before constructing any repository. `SqliteTaskRepository`, `TurnTraceService`, `TaskEventService` and `TemporalKnowledgeGraphService` share one `DatabaseBackend`; their constructors do not create or repair schema. Connection PRAGMAs belong to the task-database open helpers, and wiring owns connection closure.
 
 ### Task Event
 
@@ -575,7 +575,7 @@ TaskEvent (task_events table)
 | `error` | `message` | Task-level error |
 
 **Storage**: `tasks.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
-**Write pattern**: Synchronous — no event loss on crash. Opposite design choice from turn traces (fire-and-forget) because task events are operational data, not analytical.
+**Write pattern**: Awaited persistence. `TaskEventRecorder` waits for the insert before emitting `TaskEventCreatedEvent`; a failed insert propagates to the caller and emits no event.
 **Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
 **Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
 

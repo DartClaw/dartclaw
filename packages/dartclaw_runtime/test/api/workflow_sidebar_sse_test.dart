@@ -32,6 +32,7 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
 
 void main() {
   late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
   late TaskService tasks;
   late EventBus eventBus;
@@ -39,12 +40,14 @@ void main() {
   late SqliteWorkflowRunRepository workflowRepo;
   late Directory tempDir;
 
-  setUp(() {
+  setUp(() async {
     taskDb = openTaskDbInMemory();
+    taskBackend = SqliteBackend(taskDb);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     workflowDb = sqlite3.openInMemory();
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
     eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(taskDb);
+    final taskRepository = SqliteTaskRepository(taskBackend);
     final agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: eventBus);
     final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
     final executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
@@ -78,7 +81,7 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await eventBus.dispose();
-    taskDb.close();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
@@ -403,6 +406,11 @@ void main() {
 
       final payload = await nextFrameOfType(it, 'task_status_changed');
       expect(payload['taskId'], 'task-health');
+
+      // create(autoStart: true) and transition() each emit a task event. Drain
+      // both projections before teardown closes the task backend.
+      final remainingPayload = await nextFrameOfType(it, 'task_status_changed');
+      expect(remainingPayload['taskId'], 'task-health');
     });
   });
 }

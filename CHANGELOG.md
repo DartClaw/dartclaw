@@ -22,6 +22,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   including aliases, shorthand forms and per-step-type fields. It is generated from the parser and validator's shared
   rule source, and the fitness harness rejects drift.
 
+### Changed
+
+- Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
+
 ---
 
 ## [0.25.2] - 2026-09-08

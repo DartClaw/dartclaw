@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.25.1 versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation.
+**Current through**: 0.26 versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -81,7 +81,7 @@ Key characteristics:
 - **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
 - **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
 - **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
-- **Derived path getters** (`workspaceDir`, `sessionsDir`, `logsDir`, `searchDbPath`, `tasksDbPath`, `credentialsDir`, etc.) computed from `server.dataDir`
+- **Derived path getters** (`workspaceDir`, `sessionsDir`, `logsDir`, `searchDbPath`, `dartclawDbPath`, `credentialsDir`, etc.) computed from `server.dataDir`
 
 ### Section Config Classes
 

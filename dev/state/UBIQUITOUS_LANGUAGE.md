@@ -96,6 +96,7 @@
 | Cursor | Line number in an NDJSON file used as a crash-recovery resume point. `lastCursor` tracks position | offset, checkpoint, position |
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write |
 | Database Backend | Pluggable database engine behind the storage layer (`DatabaseBackend`: `SqliteBackend` default, `PostgresBackend` opt-in; ADR-045). Always qualified as *database* backend – bare "backend" is a disfavored synonym for Provider | engine, database provider |
+| Authoritative Store | Durable relational records for tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts. SQLite stores these in `dartclaw.db`; the derived search index is rebuildable | `tasks.db` (retired SQLite filename) |
 | Schema Compatibility Gate | Startup contract using one current schema epoch plus backend-owned required-object checks. It transactionally bootstraps fresh storage, admits the exact supported SQLite transition, refuses incompatible authoritative storage, and rebuilds incompatible derived search storage only from complete supported sources. Not a migration history or automatic upgrade framework (ADR-045) | schema epoch check, compatibility check |
 
 ## Channel Integration
@@ -266,6 +267,7 @@
 
 ## Changelog
 
+- 2026-09-08: Added Authoritative Store and its `dartclaw.db` SQLite filename; `tasks.db` is the retired name.
 - 2026-08-25: Added Named Credential Store under `provider-mediation` for the 0.24.3 credential and secrets CLI contract.
 - 2026-08-20: Split the overloaded "health" term: Health Status is now stated as the single projection of the host Worker's lifecycle, and Provider Availability is registered beside it as the separately derived provider-mediation term, with an Overloaded Terms row demarcating the two.
 - 2026-08-17: Added the 0.24.1 knowledge-inbox wiki vocabulary under `knowledge-memory`: wiki provenance, `hybrid`, supplement section, wiki collision, consolidation debt, declared drop.

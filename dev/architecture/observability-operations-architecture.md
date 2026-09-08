@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.25 worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption.
+**Current through**: 0.26 worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -324,7 +324,7 @@ Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 ### TurnTraceService
 
-SQLite-backed persistence in `turns` table (co-located in tasks.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
+SQLite-backed persistence in `turns` table (co-located in dartclaw.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
 Source: `packages/dartclaw_core/lib/src/storage/turn_trace_service.dart`
 

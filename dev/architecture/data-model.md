@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 database backend and full-text index seams.
+**Current through**: 0.26 database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -35,7 +35,7 @@ transactor delegates transaction ownership to the backend shared by its particip
 ├── dartclaw.yaml                     # [YAML]   Config (live + reloadable + restart-required fields)
 ├── kv.json                           # [JSON]   Global key-value store
 ├── search.db                         # [SQLite] FTS5 search index (REBUILDABLE)
-├── tasks.db                          # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events + kg_facts (AUTHORITATIVE)
+├── dartclaw.db                       # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events + kg_facts (AUTHORITATIVE)
 ├── state.db                          # [SQLite] Active turn recovery state (TRANSIENT)
 ├── projects.json                     # [JSON]   Project registry (atomic writes)
 ├── audit-YYYY-MM-DD.ndjson           # [NDJSON] Guard audit log partitions with retention cleanup
@@ -77,12 +77,12 @@ transactor delegates transaction ownership to the backend shared by its particip
 
 | Pattern | Files | Write Method | Concurrency |
 |---------|-------|-------------|-------------|
-| **Relational queries** | `search.db`, `tasks.db`, `state.db` | SQLite prepared statements | WAL (`tasks.db`, `state.db`), single-thread (`search.db`) |
+| **Relational queries** | `search.db`, `dartclaw.db`, `state.db` | SQLite prepared statements | WAL (`dartclaw.db`, `state.db`), single-thread (`search.db`) |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
-| **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
-| **Append-only SQLite** | `task_events` (in `tasks.db`) | Awaited insert | `TaskEventService` (WAL) |
+| **Append-mostly SQLite** | `turns` (in `dartclaw.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
+| **Append-only SQLite** | `task_events` (in `dartclaw.db`) | Awaited insert | `TaskEventService` (WAL) |
 
 Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
 exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
@@ -193,7 +193,7 @@ Task
 └── completedAt: DateTime?
 ```
 
-**Storage**: `tasks.db` → `tasks` table (WAL mode, indexed on status; the legacy `type` column remains through 0.25 for refusal compatibility)
+**Storage**: `dartclaw.db` → `tasks` table (WAL mode, indexed on status; the legacy `type` column remains through 0.25 for refusal compatibility)
 **Package**: `dartclaw_core` (model and repository), `dartclaw_runtime` (service)
 
 Task JSON and API surfaces now expose nested `agentExecution` and `workflowStepExecution` objects when hydrated. The task row itself keeps only task-owned lifecycle and artifact fields; runtime provider/session/model state lives on `AgentExecution`, and workflow-only metadata lives on `WorkflowStepExecution`.
@@ -216,7 +216,7 @@ AgentExecution
 └── completedAt: DateTime?
 ```
 
-**Storage**: `tasks.db` → `agent_executions` table (indexed on `session_id`)
+**Storage**: `dartclaw.db` → `agent_executions` table (indexed on `session_id`)
 **Relationships**: `tasks.agent_execution_id` references `agent_executions.id`; `workflow_step_executions.agent_execution_id` also references `agent_executions.id`
 
 ### WorkflowStepExecution
@@ -241,7 +241,7 @@ WorkflowStepExecution
 └── stepTokenBreakdownJson: String?
 ```
 
-**Storage**: `tasks.db` → `workflow_step_executions` table (indexed on `(workflow_run_id, step_index)`)
+**Storage**: `dartclaw.db` → `workflow_step_executions` table (indexed on `(workflow_run_id, step_index)`)
 **Relationships**: `task_id` is `ON DELETE CASCADE` to `tasks.id`; `agent_execution_id` references `agent_executions.id`
 
 #### TaskOrigin (channel-originated tasks)
@@ -317,7 +317,7 @@ TaskArtifact
 └── createdAt: DateTime
 ```
 
-**Storage**: `tasks.db` → `task_artifacts` table (FK cascade on task delete)
+**Storage**: `dartclaw.db` → `task_artifacts` table (FK cascade on task delete)
 
 Merge conflicts are persisted as a data artifact named `conflict.json` with the shape:
 
@@ -341,7 +341,7 @@ Goal
 └── createdAt: DateTime
 ```
 
-**Storage**: `tasks.db` → `goals` table
+**Storage**: `dartclaw.db` → `goals` table
 
 ### Derived Memory Index Document
 
@@ -544,11 +544,11 @@ TurnTrace (turns table)
 └── tool_calls: String              (JSON records/count envelope; legacy arrays readable)
 ```
 
-**Storage**: `tasks.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
+**Storage**: `dartclaw.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
-**Multi-service co-location note**: `tasks.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. SqliteSchemaGate.prepareTasks applies WAL and foreign-key connection settings before classification. Wiring opens through DatabaseBackendFactory and owns closure; repositories do not close shared backends.
+**Multi-service co-location note**: `dartclaw.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. SqliteSchemaGate.prepareTasks applies WAL and foreign-key connection settings before classification. Wiring opens through DatabaseBackendFactory and owns closure; repositories do not close shared backends.
 
 ### Task Event
 
@@ -574,7 +574,7 @@ TaskEvent (task_events table)
 | `compaction` | `trigger`, `sessionId`, `preTokens?` | Provider compacted the task session context |
 | `error` | `message` | Task-level error |
 
-**Storage**: `tasks.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
+**Storage**: `dartclaw.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
 **Write pattern**: Awaited persistence. `TaskEventRecorder` waits for the insert before emitting `TaskEventCreatedEvent`; a failed insert propagates to the caller and emits no event.
 **Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
 **Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
@@ -689,23 +689,23 @@ durable seam that connects workflow execution to task/worktree persistence.
        │
                            ┌─────────────┐
                            │    Goal      │
-                           │  (tasks.db)  │
+                           │ (dartclaw.db)│
                            └──────┬───────┘
                                   │ goal_id (optional)
                                   │
 ┌─────────────┐  session_id  ┌────┴────────┐  task_id   ┌──────────────┐
 │   Session   │◄─ ─ ─ ─ ─ ─ ┤    Task     ├───────────►│ TaskArtifact │
-│  (files)    │  (by ID,     │  (tasks.db) │  (FK,      │  (tasks.db)  │
+│  (files)    │  (by ID,     │(dartclaw.db)│  (FK,      │ (dartclaw.db)│
 └──────┬──────┘   not FK)    └──────┬──────┘  CASCADE)  └──────────────┘
        │                            │
        │ contains                   ├── task_id ──►┌──────────────┐
        │                            │              │  TurnTrace   │
-┌──────┴──────┐                     │              │  (tasks.db)  │
+┌──────┴──────┐                     │              │ (dartclaw.db)│
 │   Message   │                     │              └──────────────┘
 │  (NDJSON)   │                     │
 └─────────────┘                     └── task_id ──►┌──────────────┐
                                                    │  TaskEvent   │
-                                                   │  (tasks.db)  │
+                                                   │ (dartclaw.db)│
                                                    └──────────────┘
 
 ┌──────────────────────────────┐  derived from  ┌───────────────────┐
@@ -854,17 +854,19 @@ tar czf dartclaw-backup-$(date +%Y%m%d).tar.gz ~/.dartclaw/
 
 For consistent SQLite snapshots, flush WAL first:
 ```bash
-sqlite3 ~/.dartclaw/tasks.db "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 ~/.dartclaw/dartclaw.db "PRAGMA wal_checkpoint(TRUNCATE);"
 ```
 
 `search.db` does not need WAL flush (no WAL mode) and is rebuildable anyway.
 
 ### Recovery
 
+Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
+
 | Scenario | Recovery |
 |----------|---------|
 | `search.db` corrupted/deleted | `dartclaw rebuild-index` — rebuilt from the validated canonical corpus |
-| `tasks.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
+| `dartclaw.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | `state.db` corrupted/deleted | Loss of active-turn crash recovery only. In-flight sessions may miss a recovery banner, but durable message/task data remains intact. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
 | `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |

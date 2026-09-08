@@ -13,7 +13,7 @@ _Split and refreshed 2026-09-02 against released 0.25 (public HEAD `daf5125a`) f
 
 - [OC01] The authoritative SQLite store is `dartclaw.db` everywhere: fresh bootstrap creates it, and serve, the standalone workflow commands, `cleanup`, and `workflow status` all resolve it through one config accessor.
 - [OC02] A released-0.25 data directory holding `tasks.db` is adopted automatically before any open for use – WAL checkpointed, one atomic rename, spent sidecars gone – with every committed row intact and no operator action.
-- [OC03] Ambiguity and failure are loud: both files present refuses startup naming both with keep/remove guidance; a failed checkpoint or rename aborts before any open with nothing deleted or partially adopted.
+- [OC03] Ambiguity and failure are loud: both files present refuses startup naming both with keep/remove guidance; a failed checkpoint or rename aborts before any open for use, with no committed data lost, no `dartclaw.db` created, and `tasks.db` still authoritative.
 - [OC04] Store naming is truthful: gate refusals and open-failure diagnostics name the file on disk, and one presence helper reports a local authoritative store under either name, with or without data, without creating, opening for write, or renaming anything – the surface story S10's abandoned-store notice consumes.
 
 
@@ -62,10 +62,10 @@ _Split and refreshed 2026-09-02 against released 0.25 (public HEAD `daf5125a`) f
   - **When** startup runs (and separately `cleanup` and `workflow status --standalone`)
   - **Then** the process refuses before either file is opened; the error names both files with their byte sizes, states the store identity is ambiguous, and tells the operator to keep the file holding their data and remove or archive the other; neither file's bytes change; serve exits 1 through the existing fatal path, the CLI commands print the message and exit 1
 
-- **S05 [OC03] [TI02] A failed checkpoint or rename aborts with the legacy store untouched**
+- **S05 [OC03] [TI02] A failed checkpoint or rename aborts with committed legacy data intact**
   - **Given** a populated `tasks.db` and either (a) a data directory the process cannot write (rename refused by the OS) or (b) another connection holding the legacy store open so `PRAGMA wal_checkpoint(TRUNCATE)` reports busy
   - **When** adoption runs
-  - **Then** it throws before any open for use; no `dartclaw.db` exists; `tasks.db` and its sidecars are byte-identical to before; the message carries the file-level error in case (a) and names the store as in use by another process in case (b)
+  - **Then** it throws before any open for use; no `dartclaw.db` exists; `tasks.db` remains authoritative and all committed data remains readable; checkpointing may change the main file and sidecar bytes before refusal; the message carries the file-level error in case (a) and names the store as in use by another process in case (b)
 
 - **S06 [OC04] [TI03,TI04] Refusals and diagnostics name the file on disk**
   - **Given** an adopted or fresh `dartclaw.db` the S02 gate refuses (for example a `goals` table without `max_tokens`)
@@ -81,7 +81,7 @@ _Split and refreshed 2026-09-02 against released 0.25 (public HEAD `daf5125a`) f
   - **Given** retention enabled and a data directory holding only a released-0.25 `tasks.db` with a terminal workflow run older than the retention window
   - **When** `dartclaw cleanup` runs
   - **Then** the store is adopted first, the run is pruned from `dartclaw.db`, and the command does not report "no store" or skip retention; a corrupt `dartclaw.db` still degrades to the retention-skipped warning and exit 1 exactly as today
-  - **Proof**: `apps/dartclaw_cli/test/commands/cleanup_command_test.dart#a corrupt tasks.db degrades to a skip warning and exit 1 instead of crashing` – green – parity/regression (the degrade path; the adoption case is bound by TI03's Verify)
+  - **Proof**: `apps/dartclaw_cli/test/commands/cleanup_command_test.dart#a corrupt authoritative store degrades to a skip warning and exit 1 instead of crashing` – green – parity/regression (the degrade path; the adoption case is bound by TI03's Verify)
 
 
 ## Structural Criteria
@@ -171,7 +171,7 @@ file   | ../dartclaw-public/dev/state/UBIQUITOUS_LANGUAGE.md#conversation--sessi
 
 - **TI02** Legacy stores adopt checkpoint-first, ambiguity and failure refuse, and presence is reported under either name
   - `packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart` implements the Technical Overview (`adoptLegacyAuthoritativeStore`, `probeAuthoritativeStore`, `AuthoritativeStoreAdoptionException`), `show`-exported from `dartclaw_core.dart`; `SqliteBackend.openReadOnly(String path)` is added beside S06's `open`/`openInMemory`. New suite `packages/dartclaw_core/test/storage/authoritative_store_adoption_test.dart` builds fixtures through raw `sqlite3` connections wrapped in `SqliteBackend` and asserts file listings and byte snapshots. Depends on TI01 for the path name only.
-  - **Verify**: `cmd: ! rg -q "package:sqlite3" packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart && rg -q "openReadOnly" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && rg -qU "authoritative_store_adoption\.dart'\s*show[^;]*\badoptLegacyAuthoritativeStore\b" packages/dartclaw_core/lib/dartclaw_core.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/authoritative_store_adoption_test.dart` – no driver import in the module, the read-only constructor exists, the export carries a `show` clause, and the suite proves scenarios S02 (WAL-resident row readable after adoption, no `tasks.db*` left), S03 (byte-identical content, second call a no-op), S04 (refusal text contains `dartclaw.db`, `tasks.db`, both sizes, "ambiguous", "keep", "remove"; bytes unchanged), S05 (read-only directory: OS error in the message, no `dartclaw.db`, legacy bytes unchanged; open second connection inside a read transaction: "in use" refusal, nothing renamed), S07 (five directory states, could-not-verify on an unreadable store, listing and bytes unchanged), the orphan-sidecar-only case, and that two adopters started concurrently on one directory (`Isolate.run` × 2) both complete without error with exactly one `dartclaw.db` afterwards
+  - **Verify**: `cmd: ! rg -q "package:sqlite3" packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart && rg -q "openReadOnly" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && rg -qU "authoritative_store_adoption\.dart'\s*show[^;]*\badoptLegacyAuthoritativeStore\b" packages/dartclaw_core/lib/dartclaw_core.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/authoritative_store_adoption_test.dart` – no driver import in the module, the read-only constructor exists, the export carries a `show` clause, and the suite proves scenarios S02 (WAL-resident row readable after adoption, no `tasks.db*` left), S03 (byte-identical content, second call a no-op), S04 (refusal text contains `dartclaw.db`, `tasks.db`, both sizes, "ambiguous", "keep", "remove"; bytes unchanged), S05 (read-only directory with WAL-resident data: OS error in the message, no `dartclaw.db`, committed rows remain readable and adoption succeeds on retry; clean-store refusal preserves bytes; open second connection inside a read transaction: "in use" refusal, nothing renamed), S07 (five directory states, could-not-verify on an unreadable store, listing and bytes unchanged), the orphan-sidecar-only case, and that two adopters started concurrently on one directory (`Isolate.run` × 2) both complete without error with exactly one `dartclaw.db` afterwards
   - **SATISFIES**: S02, S03, S04, S05, S07, SC03
 
 - **TI03** Every production open of the authoritative store adopts first and labels the gate with the file on disk
@@ -236,3 +236,12 @@ Evidence: Owner ratified 2026-08-07 (preflight interview, `docs/specs/0.26/prefl
 ### Run: 2026-09-08 14:19 UTC – observations
 
 2026-09-08 16:14 CEST owner scheduling override: one focused independent review and relevant checks per story. Full workspace and full fitness runs in task Verify commands are deferred to the final combined A+B gate, with no acceptance requirement removed. The retained command proves the story-local checks; prose referring to full-suite success describes final milestone evidence. Standard fast-tier closure remains; broad integration, platform and release verification run at the end.
+
+### Run: 2026-09-08 18:46 UTC – observations
+
+spec-stale: S08 scenario Proof now targets the preserved cleanup regression under its new name, `a corrupt authoritative store degrades to a skip warning and exit 1 instead of crashing`. The required legacy-name sweep renamed the test; its corrupt-store warning, exit and non-crash assertions remain. Acceptance unchanged. The installed ops repair-proof verb handles task Verify targets only; this scenario selector was updated exactly and is covered by the current independent story gate.
+
+### Run: 2026-09-08 19:36 UTC – observations
+
+#### DRIFT
+- spec-stale: S05 physical byte identity contradicted FR12's explicit owner decision2026-08-07 and the FIS Technical Overview: checkpoint WAL into main, then one atomic rename. Independent source-hierarchy review2026-09-08 classified this as a uniquely determined FIS overconstraint, requiring no new product decision. S05 now preserves committed data under the legacy name and refuses before use; checkpointed bytes may differ. Both-present/no-op byte guarantees remain unchanged. The WAL-resident rename-refusal regression proves readable committed data, no new filename and successful retry. | Stale targets: S14 S05/TI02 | –

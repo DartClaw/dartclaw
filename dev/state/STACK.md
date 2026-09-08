@@ -98,7 +98,7 @@ DartClaw built-in workflows reference AndThen-owned skills by canonical names su
 | Service | Purpose | Notes |
 |---------|---------|-------|
 | Docker | Agent container isolation | `debian:bookworm-slim`, `network:none`, `cap-drop=ALL`, non-root user |
-| SQLite3 | Embedded database | `search.db` (FTS5, derived), `tasks.db` (authoritative), `state.db` (transient) |
+| SQLite3 | Embedded database | `search.db` (FTS5, derived), `dartclaw.db` (authoritative), `state.db` (transient) |
 
 ## Analyzer Configuration
 

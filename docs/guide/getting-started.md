@@ -229,7 +229,7 @@ DartClaw stores all configuration and runtime artifacts in a single **instance d
   sessions/
   logs/
   search.db
-  tasks.db
+  dartclaw.db
 ```
 
 To use a different location, set `DARTCLAW_HOME` to point at your instance directory. Config is resolved in this order: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`.

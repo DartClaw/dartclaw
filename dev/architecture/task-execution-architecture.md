@@ -2,7 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.26 task storage backend and awaited event persistence.
+**Current through**: 0.26 task storage backend and awaited event persistence. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -732,7 +732,7 @@ Rich per-turn record persisted to SQLite (`dartclaw_core`):
 
 `TurnTraceService` in `dartclaw_core/lib/src/storage/turn_trace_service.dart`:
 
-- SQLite `turns` table, co-located in `tasks.db`
+- SQLite `turns` table, co-located in `dartclaw.db`
 - Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`
 - Fire-and-forget writes (callers use `unawaited`)
 
@@ -948,7 +948,7 @@ See [Security Architecture](security-architecture.md) for the full governance mo
 - [System Architecture](system-architecture.md) — component map, package DAG, deployment model
 - [Control Protocol](control-protocol.md) — harness interface, JSONL protocol, stream events, tool approval chain
 - [Security Architecture](security-architecture.md) — guard pipeline, TaskFileGuard integration, container isolation, governance enforcement
-- [Data Model](data-model.md) — tasks.db schema, worktree storage, entity relationships
+- [Data Model](data-model.md) — dartclaw.db schema, worktree storage, entity relationships
 - [Workflow Architecture](workflow-architecture.md) — workflow steps create tasks via `WorkflowTaskService`, session continuation across steps
 - [ADR-017](../adrs/017-multi-project-architecture.md) — multi-project design decisions and credential model
 - [ADR-021](../adrs/021-agent-execution-primitive.md) — `AgentExecution` + `WorkflowStepExecution` decomposition; `Task` carries nested `agentExecution` / `workflowStepExecution` objects

@@ -378,7 +378,7 @@ The full milestone (both phases) is the MVP: the demand gate that committed it i
 
 **Validation**: tests cover fresh-bootstrap naming, legacy rename with and without sidecars, both-present refusal, and unchanged `search.db` naming; instance-local stores change separately under FR13.
 
-**Error Handling**: a failed rename aborts startup before open with the file-level error; nothing is deleted or partially adopted.
+**Error Handling**: a failed rename aborts startup before open for use with the file-level error; no committed data is lost, no `dartclaw.db` is created, and `tasks.db` remains authoritative. The preceding checkpoint may already have changed the main file and sidecar bytes.
 
 **Priority**: Must / P1
 

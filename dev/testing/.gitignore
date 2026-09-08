@@ -16,6 +16,7 @@ kv.json
 *.bak
 usage.jsonl
 tasks.db*
+dartclaw.db*
 state.db*
 *.runtime.yaml
 
@@ -39,7 +40,7 @@ scenarios/results/
 !profiles/visual/data/kv.json
 !profiles/visual/data/search.db
 !profiles/visual/data/state.db
-!profiles/visual/data/tasks.db
+!profiles/visual/data/dartclaw.db
 !profiles/visual/data/usage.jsonl
 !profiles/visual/data/sessions/
 !profiles/visual/data/sessions/**

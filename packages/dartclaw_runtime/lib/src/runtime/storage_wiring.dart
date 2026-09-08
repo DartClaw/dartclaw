@@ -106,8 +106,9 @@ class StorageWiring {
     }
 
     try {
-      final backend = _taskBackend = await _taskBackendFactory(config.tasksDbPath);
-      await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+      final backend = _taskBackend = await _taskBackendFactory(config.dartclawDbPath);
+      await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
       _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
       _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(backend);
@@ -139,7 +140,7 @@ class StorageWiring {
       } catch (closeErr) {
         _log.fine('Error closing task DB during taskDb failure cleanup', closeErr);
       }
-      _log.severe('Cannot open task database at ${config.tasksDbPath}', e, st);
+      _log.severe('Cannot open task database at ${config.dartclawDbPath}', e, st);
       _exitFn(1);
     }
 

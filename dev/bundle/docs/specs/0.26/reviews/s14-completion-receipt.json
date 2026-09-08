@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1",
+  "story": "S14",
+  "fis": "s14-authoritative-store-rename.md",
+  "plan": "plan.json",
+  "snapshot": "92127830e8e2+8a49a461c150",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 92127830e8e2+8a49a461c150",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 85.391,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S08 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/cleanup_command_test.dart --name \"a corrupt authoritative store degrades to a skip warning and exit 1 instead of crashing\"",
+      "exit": 0,
+      "duration": 1.005,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "! rg -q \"tasksDbPath\" packages apps && rg -q \"String get dartclawDbPath => p.join\\(server.dataDir, 'dartclaw.db'\\)\" packages/dartclaw_kernel/lib/src/dartclaw_config.dart && dart test --reporter=failures-only packages/dartclaw_kernel/test/dartclaw_config_test.dart apps/dartclaw_cli/test/commands/init/init_command_test.dart",
+      "exit": 0,
+      "duration": 1.25,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "! rg -q \"package:sqlite3\" packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart && rg -q \"openReadOnly\" packages/dartclaw_core/lib/src/storage/sqlite_backend.dart && rg -qU \"authoritative_store_adoption\\.dart'\\s*show[^;]*\\badoptLegacyAuthoritativeStore\\b\" packages/dartclaw_core/lib/dartclaw_core.dart && dart test --reporter=failures-only packages/dartclaw_core/test/storage/authoritative_store_adoption_test.dart",
+      "exit": 0,
+      "duration": 0.969,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "test \"$(rg -l 'adoptLegacyAuthoritativeStore\\(' packages apps --glob '!**/test/**' --glob '!packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart' | sort | tr '\\n' ' ')\" = \"apps/dartclaw_cli/lib/src/commands/cleanup_command.dart apps/dartclaw_cli/lib/src/commands/workflow/workflow_status_command.dart packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart \" && test \"$(rg -n 'adoptLegacyAuthoritativeStore' packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart | head -1 | cut -d: -f1)\" -lt \"$(rg -n 'taskBackendFactory\\(' packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart | head -1 | cut -d: -f1)\" && test \"$(rg -n 'adoptLegacyAuthoritativeStore' apps/dartclaw_cli/lib/src/commands/cleanup_command.dart | head -1 | cut -d: -f1)\" -lt \"$(rg -n 'existsSync' apps/dartclaw_cli/lib/src/commands/cleanup_command.dart | head -1 | cut -d: -f1)\" && ! rg -q \"storeName: 'tasks\\.db'\" packages apps --glob '!**/test/**' && dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_tasks_gate_test.dart apps/dartclaw_cli/test/commands/cleanup_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_status_command_test.dart",
+      "exit": 0,
+      "duration": 2.149,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "test \"$(rg -l 'tasks\\.db' packages apps --glob '!**/test/**' --glob '!**/CHANGELOG.md' --glob '!**/CLAUDE.md' | sort | tr '\\n' ' ')\" = \"packages/dartclaw_core/lib/src/storage/authoritative_store_adoption.dart \" && ! rg -q \"tasks\\.db|tasksDbPath\" packages/dartclaw_testing apps/dartclaw_cli/test/commands/cleanup_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_lifecycle_standalone_test.dart && ! git ls-files | rg -q '(^|/)tasks\\.db' && git ls-files --error-unmatch dev/testing/profiles/visual/data/dartclaw.db && rg -q '^!profiles/visual/data/dartclaw\\.db$' dev/testing/.gitignore && rg -q '^dartclaw\\.db\\*$' dev/testing/.gitignore",
+      "exit": 0,
+      "duration": 0.098,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "! rg -q 'tasks\\.db' docs/guide/configuration.md docs/guide/getting-started.md docs/guide/workspace.md dev/state/STACK.md dev/state/LEARNINGS.md dev/architecture/system-architecture.md dev/architecture/task-execution-architecture.md dev/architecture/observability-operations-architecture.md dev/architecture/configuration-architecture.md packages/dartclaw_core/CLAUDE.md && ! rg -n 'tasks\\.db' dev/architecture/data-model.md docs/guide/architecture.md | rg -qv 'dartclaw\\.db' && rg -q 'dartclaw\\.db' dev/architecture/data-model.md docs/guide/architecture.md docs/guide/getting-started.md dev/state/UBIQUITOUS_LANGUAGE.md CHANGELOG.md && rg -q '^\\*\\*Current through\\*\\*: 0\\.26' dev/architecture/data-model.md && dart run dev/tools/render_config_reference.dart --check",
+      "exit": 0,
+      "duration": 0.184,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos && dart run dev/tools/arch_check.dart && git diff --check && test \"$(grep -cv '^\\s*#\\|^\\s*$' dev/fitness/test/allowlist/sqlite3_import_surface.txt)\" = 3",
+      "exit": 0,
+      "duration": 3.899,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

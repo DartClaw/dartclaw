@@ -80,6 +80,40 @@ void main() {
       await expectLater(() => backend.query('SELECT 1'), throwsStateError);
     });
 
+    test('standalone mode reports ambiguous store filenames before opening a backend', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_status_ambiguous_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final legacyPath = p.join(tempDir.path, 'tasks.db');
+      File(config.dartclawDbPath).writeAsBytesSync([1, 2, 3]);
+      File(legacyPath).writeAsBytesSync([4, 5]);
+      var taskBackendOpens = 0;
+      final output = <String>[];
+      final command = WorkflowStatusCommand(
+        config: config,
+        taskBackendFactory: (_) async {
+          taskBackendOpens++;
+          return SqliteBackend.openInMemory();
+        },
+        writeLine: output.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['status', '--standalone', 'missing-run']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+      );
+
+      expect(taskBackendOpens, 0);
+      final diagnostic = output.join('\n');
+      expect(diagnostic, contains('dartclaw.db'));
+      expect(diagnostic, contains('tasks.db'));
+      expect(diagnostic.toLowerCase(), contains('ambiguous'));
+      expect(File(config.dartclawDbPath).readAsBytesSync(), [1, 2, 3]);
+      expect(File(legacyPath).readAsBytesSync(), [4, 5]);
+    });
+
     test('standalone mode discovers cwd-local .dartclaw config', () async {
       final workspace = Directory.systemTemp.createTempSync('workflow_status_dot_config_test_');
       final dataDir = Directory(p.join(workspace.path, '.dartclaw'))..createSync();

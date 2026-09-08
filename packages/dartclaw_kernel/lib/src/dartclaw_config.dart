@@ -180,8 +180,8 @@ class DartclawConfig {
   /// searchDbPath.
   String get searchDbPath => p.join(server.dataDir, 'search.db');
 
-  /// tasksDbPath.
-  String get tasksDbPath => p.join(server.dataDir, 'tasks.db');
+  /// dartclawDbPath.
+  String get dartclawDbPath => p.join(server.dataDir, 'dartclaw.db');
 
   /// kvPath.
   String get kvPath => p.join(server.dataDir, 'kv.json');

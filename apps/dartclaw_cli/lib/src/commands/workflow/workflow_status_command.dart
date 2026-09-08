@@ -8,9 +8,16 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        adoptLegacyAuthoritativeStore,
+        AuthoritativeStoreAdoptionException,
+        SqliteBackend,
+        SqliteSchemaGate,
+        SqliteTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
+import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
@@ -90,11 +97,18 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    final backend = await _taskBackendFactory(config.tasksDbPath);
+    try {
+      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+    } on AuthoritativeStoreAdoptionException catch (error) {
+      writeLine(error.toString());
+      exitFn(1);
+    }
+
+    final backend = await _taskBackendFactory(config.dartclawDbPath);
     try {
       WorkflowRun? run;
       try {
-        await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+        await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
         final repository = SqliteWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {

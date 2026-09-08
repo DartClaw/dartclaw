@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.24**
+> Current through: **0.26**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -200,8 +200,10 @@ DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fai
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
 | `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
-| `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
+| `dartclaw.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 | `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
+
+Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
 
 ### Crash Recovery
 

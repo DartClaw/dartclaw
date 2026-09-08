@@ -95,7 +95,7 @@ DartClaw uses a single **instance directory** as the canonical home for configur
   sessions/
   logs/
   search.db
-  tasks.db
+  dartclaw.db
 ```
 
 Set `DARTCLAW_HOME` to use a different instance directory (points to the directory, not the config file).

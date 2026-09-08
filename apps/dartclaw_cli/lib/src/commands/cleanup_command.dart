@@ -7,6 +7,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show RuntimeArtifactsPruneReport, SqliteWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
+import 'package:path/path.dart' as p;
 
 import 'config_loader.dart';
 
@@ -96,18 +97,19 @@ class CleanupCommand extends Command<void> {
   /// Prunes runtime-artifacts of old completed runs when retention is enabled.
   ///
   /// Returns true when the pass surfaced warnings (drives the exit code). Opens
-  /// the tasks DB only when retention is enabled, so a fresh data dir with no
-  /// runs stays a no-op.
+  /// the authoritative store only when retention is enabled, so a fresh data
+  /// directory with no runs stays a no-op.
   Future<bool> _runWorkflowArtifactRetention(DartclawConfig config, {MaintenanceMode? modeOverride}) async {
     final retention = config.workflow.runtimeArtifactsRetention;
     if (retention.pruneAfterDays <= 0) return false;
-    if (!File(config.tasksDbPath).existsSync()) return false;
 
     final List<WorkflowRun> completedRuns;
     try {
-      final backend = await _taskBackendFactory(config.tasksDbPath);
+      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+      if (!File(config.dartclawDbPath).existsSync()) return false;
+      final backend = await _taskBackendFactory(config.dartclawDbPath);
       try {
-        await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+        await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
         final repository = SqliteWorkflowRunRepository(backend);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
       } finally {

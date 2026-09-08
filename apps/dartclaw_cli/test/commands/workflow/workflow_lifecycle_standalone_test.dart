@@ -462,9 +462,9 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
 Future<WorkflowRunStatus?> statusOf(DartclawConfig config, String runId) async => (await runOf(config, runId))?.status;
 
 Future<WorkflowRun?> runOf(DartclawConfig config, String runId) async {
-  final backend = await SqliteBackend.open(config.tasksDbPath);
+  final backend = await SqliteBackend.open(config.dartclawDbPath);
   try {
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'dartclaw.db');
     return await SqliteWorkflowRunRepository(backend).getById(runId);
   } finally {
     await backend.close();

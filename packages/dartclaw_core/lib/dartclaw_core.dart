@@ -17,6 +17,16 @@
 library;
 
 // Storage services
+export 'src/storage/authoritative_store_adoption.dart'
+    show
+        adoptLegacyAuthoritativeStore,
+        probeAuthoritativeStore,
+        AuthoritativeStoreAdoptionException,
+        AuthoritativeStoreProbe,
+        AuthoritativeStoreAbsent,
+        AuthoritativeStoreAmbiguous,
+        AuthoritativeStorePresent,
+        AuthoritativeStoreContentState;
 export 'src/storage/index_reconciler.dart'
     show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;

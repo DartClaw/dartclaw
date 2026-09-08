@@ -33,7 +33,7 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
   search.db          # SQLite FTS5 search index
 ```
 
-This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), databases (`state.db`, `tasks.db`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
+This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), databases (`state.db`, `dartclaw.db`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
 
 ## Behavior Files
 

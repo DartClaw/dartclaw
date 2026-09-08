@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 database backend and full-text index seams.
+**Current through**: 0.26 database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -131,7 +131,7 @@ and context-specific remediation text.
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
 │  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
-│  │ Net/Cont │  │ HostGateway (per authority)   │  │         tasks.db   │ │
+│  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db│ │
 │  │          │  │ Docker (per authority)        │  │         state.db   │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
 │                                                                          │
@@ -403,7 +403,7 @@ Two storage mechanisms, each for distinct access patterns:
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **SQLite** (`search.db`, `tasks.db`, `state.db`) | FTS5 search index, tasks/goals/artifacts, transient turn recovery state | Relational queries, full-text search | `search.db`: derived (rebuildable). `tasks.db`: **authoritative**. `state.db`: transient operational state |
+| **SQLite** (`search.db`, `dartclaw.db`, `state.db`) | FTS5 search index, tasks/goals/artifacts, transient turn recovery state | Relational queries, full-text search | `search.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. `state.db`: transient operational state |
 
 The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
 semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
@@ -660,8 +660,8 @@ Enriched turn recording and task event system added in 0.14.
 |-----------|------|------|
 | `ToolCallRecord` | `dartclaw_core/turn/tool_call_record.dart` | Per-tool-call record: name, success, durationMs, errorType |
 | `TaskEvent`, `TaskEventKind` | `dartclaw_core/task/task_event.dart` | Typed task-timeline event and its closed event-kind vocabulary |
-| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `tasks.db` (NF03 — zero latency impact) |
-| `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `tasks.db` |
+| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `dartclaw.db` (NF03 — zero latency impact) |
+| `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `dartclaw.db` |
 | `TaskEventRecorder` | `dartclaw_runtime` | Centralized event recording helper with typed convenience methods |
 
 **Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task event recording returns `Future<void>` and awaits persistence before emitting the bus event or completing. An insert failure propagates without emitting the event. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).

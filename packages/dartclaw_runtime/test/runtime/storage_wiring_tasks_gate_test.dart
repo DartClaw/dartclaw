@@ -28,7 +28,7 @@ void main() {
 
     await wiring.wire();
 
-    final database = sqlite3.open(config.tasksDbPath);
+    final database = sqlite3.open(config.dartclawDbPath);
     try {
       final marker = database.select('SELECT id, epoch FROM dartclaw_schema').single;
       expect([marker['id'], marker['epoch']], [1, 1]);
@@ -64,16 +64,16 @@ void main() {
     test(variant.key, () async {
       final variantDir = Directory(p.join(tempDir.path, variant.value ? 'upgraded' : 'fresh'))..createSync();
       final config = DartclawConfig(server: ServerConfig(dataDir: variantDir.path));
-      await _prepareReleasedStore(config.tasksDbPath, withOrphanColumn: variant.value);
-      final before = _storeSnapshot(config.tasksDbPath);
+      await _prepareReleasedStore(config.dartclawDbPath, withOrphanColumn: variant.value);
+      final before = _storeSnapshot(config.dartclawDbPath);
       final wiring = _wiring(config, eventBus);
 
       await wiring.wire();
 
-      final after = _storeSnapshot(config.tasksDbPath);
+      final after = _storeSnapshot(config.dartclawDbPath);
       expect(after.schema, before.schema);
       expect(after.tasks, before.tasks);
-      final database = sqlite3.open(config.tasksDbPath);
+      final database = sqlite3.open(config.dartclawDbPath);
       try {
         expect(database.select('SELECT id, epoch FROM dartclaw_schema').single['epoch'], 1);
       } finally {
@@ -83,15 +83,67 @@ void main() {
     });
   }
 
-  test('current store opens without changing domain data', () async {
+  test('legacy store is adopted before schema preparation', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
-    await _prepareCurrentStore(config.tasksDbPath);
-    final before = _storeSnapshot(config.tasksDbPath);
+    final legacyPath = p.join(tempDir.path, 'tasks.db');
+    await _prepareReleasedStore(legacyPath, withOrphanColumn: false);
+    final before = _storeSnapshot(legacyPath);
     final wiring = _wiring(config, eventBus);
 
     await wiring.wire();
 
-    final after = _storeSnapshot(config.tasksDbPath);
+    expect(File(legacyPath).existsSync(), isFalse);
+    expect(File(config.dartclawDbPath).existsSync(), isTrue);
+    final after = _storeSnapshot(config.dartclawDbPath);
+    expect(after.schema, before.schema);
+    expect(after.tasks, before.tasks);
+    await wiring.dispose();
+  });
+
+  test('both store filenames refuse before the task backend opens', () async {
+    final records = <LogRecord>[];
+    final subscription = Logger.root.onRecord.listen(records.add);
+    addTearDown(subscription.cancel);
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+    final legacyPath = p.join(tempDir.path, 'tasks.db');
+    File(config.dartclawDbPath).writeAsBytesSync([1, 2, 3]);
+    File(legacyPath).writeAsBytesSync([4, 5]);
+    var taskBackendOpens = 0;
+    final wiring = StorageWiring(
+      config: config,
+      eventBus: eventBus,
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async {
+        taskBackendOpens++;
+        return SqliteBackend.openInMemory();
+      },
+      exitFn: (code) => throw _Exit(code),
+      personalMemoryEnabled: false,
+    );
+
+    await expectLater(wiring.wire(), throwsA(isA<_Exit>().having((error) => error.code, 'code', 1)));
+
+    expect(taskBackendOpens, 0);
+    final diagnostic = records
+        .where((record) => record.level == Level.SEVERE)
+        .map((record) => '${record.message} ${record.error}')
+        .join('\n');
+    expect(diagnostic, contains('dartclaw.db'));
+    expect(diagnostic, contains('tasks.db'));
+    expect(diagnostic.toLowerCase(), contains('ambiguous'));
+    expect(File(config.dartclawDbPath).readAsBytesSync(), [1, 2, 3]);
+    expect(File(legacyPath).readAsBytesSync(), [4, 5]);
+  });
+
+  test('current store opens without changing domain data', () async {
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+    await _prepareCurrentStore(config.dartclawDbPath);
+    final before = _storeSnapshot(config.dartclawDbPath);
+    final wiring = _wiring(config, eventBus);
+
+    await wiring.wire();
+
+    final after = _storeSnapshot(config.dartclawDbPath);
     expect(after.schema, before.schema);
     expect(after.tasks, before.tasks);
     await wiring.dispose();
@@ -102,12 +154,12 @@ void main() {
     final subscription = Logger.root.onRecord.listen(records.add);
     addTearDown(subscription.cancel);
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
-    final database = sqlite3.open(config.tasksDbPath);
+    final database = sqlite3.open(config.dartclawDbPath);
     database
       ..execute('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)')
       ..execute("INSERT INTO tasks (id, title) VALUES ('legacy-1', 'Legacy')");
     database.close();
-    final before = _storeSnapshot(config.tasksDbPath);
+    final before = _storeSnapshot(config.dartclawDbPath);
     final wiring = _wiring(config, eventBus);
 
     await expectLater(wiring.wire(), throwsA(isA<_Exit>().having((error) => error.code, 'code', 1)));
@@ -120,7 +172,7 @@ void main() {
             .having((record) => record.message, 'message', contains('Cannot open task database')),
       ),
     );
-    final after = _storeSnapshot(config.tasksDbPath);
+    final after = _storeSnapshot(config.dartclawDbPath);
     expect(after.schema, before.schema);
     expect(after.tasks, before.tasks);
   });

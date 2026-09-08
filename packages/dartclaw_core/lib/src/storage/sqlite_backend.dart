@@ -17,6 +17,10 @@ final class SqliteBackend implements DatabaseBackend {
   /// Opens a SQLite backend at [path].
   static Future<SqliteBackend> open(String path) async => SqliteBackend(sqlite.sqlite3.open(path));
 
+  /// Opens a SQLite backend at [path] without write access.
+  static Future<SqliteBackend> openReadOnly(String path) async =>
+      SqliteBackend(sqlite.sqlite3.open(path, mode: sqlite.OpenMode.readOnly));
+
   /// Opens an in-memory SQLite backend.
   static SqliteBackend openInMemory() => SqliteBackend(sqlite.sqlite3.openInMemory());
 

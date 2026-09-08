@@ -503,7 +503,7 @@
         "S02",
         "S06"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s14-authoritative-store-rename.md",
       "completedTaskIds": [
         "TI01",

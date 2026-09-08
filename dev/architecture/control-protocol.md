@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.25.2 Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -101,7 +101,9 @@ claude --print \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
        [--mcp-config <path>] \
-       [--json-schema <json>]
+       [--json-schema <json>] \
+       [--max-turns <n>] \
+       [--disallowedTools <name>...]        # variadic: always last
 ```
 
 | Flag | Purpose |
@@ -118,11 +120,18 @@ claude --print \
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL `can_use_tool` channel (not an interactive TTY). Emitted only when native permissions are *not* skipped – the `restricted` container profile, or a non-`bypassPermissions`/`dontAsk` `permissionMode`. **Not** emitted in the default config |
 | `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--settings <json>` | Inline settings JSON (sandbox / permissions allow-deny). Emitted only when the provider's `sandbox`/`permissions`/`settings` options are present |
+| `--max-turns <n>` | `agent.max_turns` or a per-turn override (a changed override restarts the process). Exceeding it ends the turn with `subtype: error_max_turns`, mapped to an error result |
+| `--disallowedTools <name>...` | `agent.disallowed_tools` plus the native `WebSearch`/`WebFetch` suppression when DartClaw serves the guarded MCP versions or the spawn is containerized. Entries are normalized through `ToolPolicyCascade.normalizeEntry` and mapped to Claude's spelling (`shell` → `Bash`, `file_edit` → `Edit` + `NotebookEdit`); unknown names pass through. The flag is variadic, so it is always the last argument |
 | `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
 | `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessLaunchOptions`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
 | `--mcp-config` | Path to ephemeral MCP config file pointing at DartClaw's internal MCP server |
 | `--json-schema` | Inline JSON Schema the CLI enforces on the turn's final output, emitted only when `turn(outputSchema: ...)` supplies one. Process-level, so a changed schema joins the desired-state comparison and restarts the process – **dropping** the schema restarts too, and every restart re-injects the bounded `<conversation_history>` replay, so alternating schema-bearing and schema-free turns pays two restarts and two replays per pair |
+
+Workflow write grants use Claude's POSIX permission-pattern syntax. Native Windows drive roots are normalized from
+`C:\path` to `//c/path/**`; UNC roots are omitted because Claude does not support most UNC working directories and
+directs operators to map the share to a drive letter. POSIX roots retain their path bytes, including a backslash that
+is part of a filename.
 
 #### Permission-flag selection
 
@@ -154,6 +163,8 @@ These are stripped before spawning. The parent environment is otherwise inherite
 ### Claude settings sources
 
 Direct host-side Claude harness spawns omit `--setting-sources` by default. Claude's default is to load user, project, and local settings, which makes user-scope plugins, skills, agents, commands, and MCP configuration visible to interactive and workflow workers. Set `providers.claude.inherit_user_settings: false` to restore the previous project-only posture; DartClaw then passes `--setting-sources project` before `--model` on every direct harness spawn. Containerized Claude spawns do not use this flag because the container provides the isolation boundary.
+
+For a nonempty workflow tool policy, the exact native `Skill` and `ToolSearch` identities remain available so Claude can load trusted skill instructions and tool schemas. Empty policies and the knowledge-inbox no-tools sentinel deny those helpers. Ordinary tool calls reported through the provider hook path remain filtered. Skill activation can run trusted plugin hooks and shell preprocessing; this tool allowlist is not a sandbox for that native plugin code. Claude documents [dynamic context](https://code.claude.com/docs/en/skills#inject-dynamic-context) separately from [tool-hook events](https://code.claude.com/docs/en/hooks#pretooluse), without promising that preprocessing emits a Bash hook.
 
 ### Containerized spawning
 
@@ -213,22 +224,19 @@ The first exchange after spawning. Dart sends an `initialize` control request; t
           "timeout": 10
         }
       ]
-    },
-    "disallowedTools": ["WebSearch"],
-    "maxTurns": 25,
-    "model": "sonnet"
+    }
   }
 }
 ```
+
+Tool policy, the turn cap, model and effort are **not** handshake fields: the SDK protocol has no such keys and the
+binary ignores unknown ones silently. They travel as the spawn flags above.
 
 Key fields in the `request` object:
 
 | Field | Source | Description |
 |---|---|---|
 | `hooks` | Hardcoded | Unfiltered `PreToolUse` (30s, all built-ins and dynamic MCP tools), `PostToolUse` (10s, audit), `PermissionDenied` (10s, audit), and `PreCompact` (10s, compaction signal) |
-| `disallowedTools` | `HarnessLaunchOptions.disallowedTools` | Tool blocklist enforced by the binary |
-| `maxTurns` | `HarnessLaunchOptions.maxTurns` | Safety cap on agentic loops |
-| `model` | `HarnessLaunchOptions.model` | Model override (supports `[1m]` suffix for extended context, e.g. `opus[1m]`) |
 | `sdkMcpServers` | Fallback only | In-protocol MCP tools (used when no HTTP MCP server is configured) |
 
 **claude → Dart:**
@@ -519,7 +527,22 @@ Signals the end of a turn with cost and token metadata.
 A turn spawned with `--json-schema` additionally carries `structured_output` (the payload the CLI validated against the
 schema) and, when validation never succeeded, `subtype: "error_max_structured_output_retries"`.
 
+Claude submits that payload through its native `StructuredOutput` protocol call. For a turn with an active provider-enforced schema, `TurnRunner` enables a session-local `TaskToolFilterGuard` exception requiring both raw `StructuredOutput` and canonical `claude:StructuredOutput`. This keeps an explicit empty workflow tool policy compatible with finalization; ordinary tools and the knowledge-inbox no-tools sentinel remain denied, and the exception is cleared after the turn.
+
 Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
+
+#### Background tasks at the turn boundary
+
+The CLI runs the `Agent` tool in the background by default (2.1.x) and may background a shell command. It re-lists its background tasks in full on every change:
+
+```json
+{"type": "system", "subtype": "background_tasks_changed",
+ "tasks": [{"task_id": "acaa9356", "task_type": "local_agent", "description": "probe marker"}]}
+```
+
+beside per-task `task_started` / `task_progress` / `task_updated` / `task_notification` system messages, which DartClaw ignores. The model's turn ends with an ordinary `result` while those tasks are still running; when a task reports, the CLI runs a notification turn on its own – a new `system`/`init`, the model's reaction, and a second `result` carrying `origin: {"kind": "task-notification"}` – with no stdin input.
+
+`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and, on a successful `result` while it lists a task whose `task_type` is not `local_bash`, does **not** complete the turn: it logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds that result's token usage into the result that finally completes the turn – the first `result` with nothing outstanding (its `total_cost_usd` is session-cumulative and already includes the subagents). The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
 
 ---
 
@@ -536,6 +559,8 @@ ClaudeMessage (sealed)
 ├── ToolUseBlock        – name, id, input
 ├── ToolResultBlock     – toolId, output, isError
 ├── ControlRequest      – requestId, subtype, data
+├── CompactBoundary     – trigger, preTokens
+├── BackgroundTasksChanged – tasks (id, type)
 └── TerminalResult      – stopReason, subtype, structuredOutput, costUsd, durationMs,
                           inputTokens, outputTokens, cacheReadInputTokens,
                           cacheCreationInputTokens
@@ -891,12 +916,12 @@ Key behavioral properties:
 
 ### HarnessLaunchOptions
 
-Configuration forwarded in the initialize handshake:
+Spawn-time options, fixed for the life of a harness; every field that reaches the binary does so as a CLI flag:
 
 ```dart
 class HarnessLaunchOptions {
-  final List<String> disallowedTools;  // Tool blocklist
-  final int? maxTurns;                 // Safety cap
+  final List<String> disallowedTools;  // --disallowedTools (Claude); guard-only on Codex/ACP
+  final int? maxTurns;                 // --max-turns
   final String? model;                 // Model selection (supports [1m] suffix)
   final String? effort;                // Reasoning-effort override
   final String? appendSystemPrompt;    // Behavior content (spawn-time flag)
@@ -927,7 +952,7 @@ DartClaw does not advertise `terminal.create` and rejects all ACP terminal lifec
 
 ### Per-turn execution changes
 
-The harness contract supports per-turn persona, working directory, model, effort, output-schema, and provider-session inputs. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes — the output schema and provider-session id included, since both are spawn flags. That cost is symmetric: adding or dropping either input is a change, and each restart re-injects the bounded history replay. Codex applies persona/model/effort to its session thread, uses `thread/resume` for an explicit durable provider session, and refuses an output schema. ACP prepends the persona to the prompt, ignores model/effort overrides, and refuses output-schema and provider-session inputs.
+The harness contract supports per-turn persona, working directory, model, effort, output-schema, and provider-session inputs. Claude applies these as spawn-time desired state and performs one stop-and-restart cycle when that state changes — the output schema and provider-session id included, since both are spawn flags. That cost is symmetric: adding or dropping either input is a change, and each restart re-injects the bounded history replay. A restart kills the process's background subagents, so the harness holds a turn open while the CLI still lists non-shell background tasks (Section 4.8); the restart the next turn triggers then finds none running. Codex applies persona/model/effort to its session thread, uses `thread/resume` for an explicit durable provider session, and refuses an output schema. ACP prepends the persona to the prompt, ignores model/effort overrides, and refuses output-schema and provider-session inputs.
 
 ```
 turn(directory: "/worktrees/task-42")
@@ -1049,6 +1074,11 @@ Only after that does DartClaw create a thread with `thread/start`, or load an ex
 Each turn is issued with `turn/start` on the active thread. By default DartClaw passes the current user message plus its
 own replayed history. An explicit provider-session id instead loads the rollout from a durable system or dedicated
 `CODEX_HOME`; a missing rollout fails the turn and never falls back to `thread/start`.
+
+The harness correlates response notifications with the active thread and, once `turn/started` identifies it, the active
+turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit
+parent-response text, contribute usage, or settle the pending parent turn. Child tool lifecycle notifications continue
+through the approval and guard path.
 
 When the app-server exits unexpectedly, DartClaw clears the cached thread IDs, restarts the process with backoff, re-runs the handshake, creates a fresh thread, and replays the saved history into the next `turn/start` request.
 
@@ -1508,7 +1538,7 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart` | `ClaudeCodeHarness` – all JSONL handling, spawn, lifecycle |
 | `packages/dartclaw_core/lib/src/harness/claude_protocol.dart` | `ClaudeMessage` sealed hierarchy + `parseJsonlLine()` |
 | `packages/dartclaw_core/lib/src/harness/agent_harness.dart` | `AgentHarness` abstract interface |
-| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – initialize handshake fields |
+| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – spawn-time options |
 | `packages/dartclaw_core/lib/src/harness/tool_policy.dart` | `ToolApprovalPolicy`, response builders |
 | `packages/dartclaw_core/lib/src/harness/mcp_tool.dart` | `McpTool` interface |
 | `packages/dartclaw_core/lib/src/harness/tool_result.dart` | `ToolResult` sealed class |

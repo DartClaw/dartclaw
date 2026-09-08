@@ -21,6 +21,11 @@ abstract interface class TurnManager {
 
   /// Reserves a new turn slot for [sessionId]; [workerPolicy] overrides the
   /// execution placement otherwise derived from the session's pinned routing.
+  ///
+  /// [outputSchemaWhenSupported] declares that the caller validates the result
+  /// host-side, so a harness that cannot enforce the schema gets none instead
+  /// of refusing the turn. Left false, [outputSchema] reaches the harness
+  /// unconditionally and an unsupporting one fails the turn.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -31,6 +36,7 @@ abstract interface class TurnManager {
     ExecutionPolicy? workerPolicy,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,
@@ -53,6 +59,8 @@ abstract interface class TurnManager {
   /// Clears runner-local and provider-side continuity for [sessionId].
   Future<void> resetSessionContinuity(String sessionId);
 
+  /// Reserves and immediately executes a turn; [outputSchemaWhenSupported]
+  /// carries the same contract as on [reserveTurn].
   Future<String> startTurn(
     String sessionId,
     List<Map<String, dynamic>> messages, {
@@ -63,6 +71,7 @@ abstract interface class TurnManager {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,

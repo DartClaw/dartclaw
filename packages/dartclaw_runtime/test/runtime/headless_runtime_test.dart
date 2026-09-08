@@ -22,6 +22,25 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'headless_runtime_test_support.dart';
+import 'memory_wiring_test_support.dart';
+
+void expectNoPersonalMemoryArtifacts(DartclawConfig config) {
+  for (final path in [
+    config.searchDbPath,
+    p.join(config.workspaceDir, '.dartclaw-memory-index.json'),
+    p.join(config.workspaceDir, '.dartclaw-memory-corpus.json'),
+    p.join(config.workspaceDir, '.dartclaw-memory-transaction.json'),
+    p.join(config.workspaceDir, 'MEMORY.audit.md'),
+  ]) {
+    expect(File(path).existsSync(), isFalse, reason: path);
+  }
+  for (final path in [
+    p.join(config.workspaceDir, '.dartclaw-memory-transaction'),
+    p.join(config.workspaceDir, 'memory'),
+  ]) {
+    expect(Directory(path).existsSync(), isFalse, reason: path);
+  }
+}
 
 void main() {
   late Directory tempDir;
@@ -114,6 +133,125 @@ steps:
     );
 
     expect(staging.workflowRegistry.getByName('ci-demo'), isNotNull);
+  });
+
+  test('standalone lifecycle wiring leaves personal memory untouched and absent', () async {
+    final config = fixture.config();
+    final memory = seedInvalidCurrentMemory(config.workspaceDir);
+    final before = memory.readAsBytesSync();
+    var searchFactoryCalls = 0;
+
+    final staging = await fixture.stage(
+      config,
+      searchDbFactory: (_) {
+        searchFactoryCalls++;
+        throw StateError('standalone opened the personal-memory search database');
+      },
+      autoDispose: false,
+    );
+    final runtime = await staging.completeForLifecycle();
+    addTearDown(runtime.shutdown);
+
+    expect(searchFactoryCalls, 0);
+    expect(runtime.searchDb, isNull);
+    expect(runtime.selfImprovement, isNull);
+    expect(runtime.qmdManager, isNull);
+    expect(memory.readAsBytesSync(), before);
+    expectNoPersonalMemoryArtifacts(config);
+  });
+
+  test('standalone workflow workers expose no DartClaw personal-memory capability', () async {
+    final workflowWorkspace = Directory(p.join(tempDir.path, 'workflow-workspace'))..createSync(recursive: true);
+    final projectInstructions = File(p.join(workflowWorkspace.path, 'AGENTS.md'));
+    final config = fixture.config(
+      providers: const ProvidersConfig(entries: {'claude': ProviderEntry(executable: 'claude', poolSize: 1)}),
+      workflow: WorkflowConfig(workspaceDir: workflowWorkspace.path),
+    );
+    final memory = seedInvalidCurrentMemory(config.workspaceDir);
+    final before = memory.readAsBytesSync();
+    final captured = <HarnessFactoryConfig>[];
+    final worker = FakeAgentHarness();
+    final factory = HarnessFactory()
+      ..register('claude', (factoryConfig) {
+        if (factoryConfig.cwd == '/') return FakeAgentHarness();
+        captured.add(factoryConfig);
+        return worker;
+      });
+    var searchFactoryCalls = 0;
+    final runtime = await fixture.runtime(
+      config,
+      harnessFactory: factory,
+      searchDbFactory: (_) {
+        searchFactoryCalls++;
+        throw StateError('standalone opened the personal-memory search database');
+      },
+      autoDispose: false,
+    );
+    addTearDown(runtime.shutdown);
+    runtime.taskExecutor!.stopPolling();
+
+    final unrelated = await runtime.taskService.create(
+      id: 'unrelated-generic-task',
+      title: 'Unrelated generic task',
+      description: 'Must remain queued during standalone workflow execution.',
+      autoStart: true,
+      provider: 'claude',
+      configJson: const {'needsWorktree': false},
+    );
+
+    final run = await runtime.workflowService.start(
+      const WorkflowDefinition(
+        name: 'memory-free-worker',
+        description: 'Runs one standalone workflow turn',
+        steps: [
+          WorkflowStep(id: 'run', name: 'Run', taskType: WorkflowTaskType.agent, prompts: ['Inspect the project.']),
+        ],
+      ),
+      const {},
+    );
+    final taskDeadline = DateTime.now().add(const Duration(seconds: 5));
+    while ((await runtime.taskService.list()).every((task) => task.workflowRunId != run.id) &&
+        DateTime.now().isBefore(taskDeadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect((await runtime.taskService.list()).any((task) => task.workflowRunId == run.id), isTrue);
+    unawaited(runtime.taskExecutor!.pollOnce());
+    await worker.turnInvoked.timeout(const Duration(seconds: 5));
+
+    expect((await runtime.taskService.get(unrelated.id))?.status, TaskStatus.queued);
+    expect(captured, hasLength(1));
+    final factoryConfig = captured.single;
+    expect(factoryConfig.harnessConfig.appendSystemPrompt, isNot(contains('Memory retrieval')));
+    expect(factoryConfig.harnessConfig.appendSystemPrompt, isNot(contains('memory_read')));
+    expect(worker.lastSystemPrompt, isNot(contains('Memory retrieval')));
+    expect(worker.lastSystemPrompt, isNot(contains('memory_read')));
+    expect(worker.lastDirectory, workflowWorkspace.path);
+    expect(factoryConfig.onMemoryApply, isNull);
+    expect(factoryConfig.onMemoryObserve, isNull);
+    expect(factoryConfig.onContextualMemoryApply, isNull);
+    expect(factoryConfig.onContextualMemoryObserve, isNull);
+    expect(factoryConfig.onMemorySearch, isNull);
+    expect(factoryConfig.onMemoryRead, isNull);
+    expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
+    expect(runtime.searchDb, isNull);
+    expect(runtime.selfImprovement, isNull);
+    expect(runtime.qmdManager, isNull);
+
+    worker.completeSuccess(const TurnResult(finalText: 'Done.'));
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while ((await runtime.workflowService.get(run.id))?.status != WorkflowRunStatus.completed &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect((await runtime.workflowService.get(run.id))?.status, WorkflowRunStatus.completed);
+    expect((await runtime.taskService.get(unrelated.id))?.status, TaskStatus.queued);
+    expect(worker.turnCallCount, 1);
+    final task = (await runtime.taskService.list()).singleWhere((candidate) => candidate.workflowRunId == run.id);
+    expect(task.agentExecution?.workspaceDir, workflowWorkspace.path);
+    expect(projectInstructions.readAsStringSync(), contains('# DartClaw Workflow Step'));
+    expect(searchFactoryCalls, 0);
+    expect(memory.readAsBytesSync(), before);
+    expectNoPersonalMemoryArtifacts(config);
   });
 
   test('loads canonical custom workflows without legacy deprecation warning', () async {
@@ -524,9 +662,9 @@ steps:
       ),
     );
 
-    await fixture.withWiredCurrentDirectory(
-      repoDir,
+    await fixture.withWiredRuntime(
       config,
+      runtimeCwd: repoDir.path,
       body: (runtime) async {
         expect(runtime.worktreeManager, isNotNull);
 
@@ -649,14 +787,12 @@ steps:
   });
 
   test('local project fallback resolves against runtime cwd instead of launch cwd', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = fixture.seedGitRepo('runtime-repo', readme: 'runtime\n');
     runGitSync(runtimeCwd.path, ['checkout', '-b', 'runtime-feature']);
 
     final config = fixture.config();
 
-    await fixture.withWiredCurrentDirectory(
-      launchDir,
+    await fixture.withWiredRuntime(
       config,
       runtimeCwd: runtimeCwd.path,
       body: (runtime) async {
@@ -672,7 +808,6 @@ steps:
   });
 
   test('standalone workflow output validation uses runtime cwd as default workspace root', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = fixture.seedGitRepo('runtime-output-root', readme: 'runtime\n');
     File(p.join(runtimeCwd.path, 'docs/specs/demo/prd.md'))
       ..createSync(recursive: true)
@@ -692,8 +827,6 @@ steps:
 
     final config = fixture.config();
 
-    final savedCwd = Directory.current;
-    Directory.current = launchDir;
     DartclawRuntime? disposable;
     try {
       final wired = disposable = await fixture.runtime(
@@ -774,12 +907,10 @@ steps:
       expect(completed?.status, WorkflowRunStatus.completed);
     } finally {
       await disposable?.shutdown();
-      Directory.current = savedCwd;
     }
   });
 
   test('tracked workflow git cleanup for named projects runs in the project checkout', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
@@ -793,8 +924,7 @@ steps:
       ),
     );
 
-    await fixture.withWiredCurrentDirectory(
-      launchDir,
+    await fixture.withWiredRuntime(
       config,
       runtimeCwd: runtimeCwd.path,
       body: (runtime) async {
@@ -828,7 +958,6 @@ steps:
   });
 
   test('tracked workflow git cleanup preserves non-terminal runs for resume', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
@@ -841,8 +970,7 @@ steps:
 
     String? worktreePath;
     String? workflowBranch;
-    await fixture.withWiredCurrentDirectory(
-      launchDir,
+    await fixture.withWiredRuntime(
       config,
       runtimeCwd: runtimeCwd.path,
       body: (runtime) async {
@@ -905,7 +1033,6 @@ steps:
   });
 
   test('standalone worker-leased one-shot teardown records in-flight sibling task as cancelled', () async {
-    final launchDir = Directory(p.join(tempDir.path, 'launch-repo'))..createSync(recursive: true);
     final runtimeCwd = fixture.seedGitRepo('runtime-cwd', readme: '# runtime\n');
     final heldHarness = FakeAgentHarness();
     final cancelled = Completer<void>();
@@ -914,8 +1041,6 @@ steps:
     final config = fixture.config();
     var disposed = false;
 
-    final savedCwd = Directory.current;
-    Directory.current = launchDir;
     DartclawRuntime? disposable;
     try {
       final wired = disposable = await fixture.runtime(
@@ -1005,7 +1130,6 @@ steps:
       if (!disposed) {
         await disposable?.shutdown();
       }
-      Directory.current = savedCwd;
     }
   });
 }

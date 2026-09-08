@@ -225,6 +225,23 @@ void main() {
       expect(ConfigMeta.fields['context.compact_instructions']!.nullable, true);
     });
 
+    test('all channel allowlists share the structured row declaration', () {
+      final fields = [
+        for (final channel in ['google_chat', 'signal', 'whatsapp'])
+          for (final list in ['dm_allowlist', 'group_allowlist']) ConfigMeta.fields['channels.$channel.$list']!,
+      ];
+
+      expect(fields.map((field) => field.type).toSet(), {ConfigFieldType.stringList});
+      expect(fields.map((field) => field.entry).toSet(), hasLength(1));
+      final entry = fields.first.entry! as ObjectEntry;
+      expect(entry.requiredFields, ['id']);
+      expect(entry.fields.keys, unorderedEquals(['id', 'name', 'project', 'model', 'effort', 'agent']));
+      expect(entry.fields['id']!.minLength, 1);
+      expect(entry.fields['id']!.pattern, r'\S');
+      expect(entry.fields['agent']!.type, ConfigFieldType.string);
+      expect(entry.fields['agent']!.pattern, r'\S');
+    });
+
     test('JSON key mapping is complete and stable for representative fields', () {
       expect(ConfigMeta.byJsonKey.length, ConfigMeta.fields.length);
       final cases = {
@@ -396,10 +413,15 @@ void main() {
       expect(mcp['command']!.nullable, isTrue);
       expect(mcp['network_class']!.allowedValues, const ['local', 'private', 'public']);
 
-      // Every object-typed field declares a shape, and no scalar field carries one.
+      // Every object-typed field declares a shape. A string-list shape declares
+      // the structured alternative accepted beside a plain string row.
       for (final meta in ConfigMeta.fields.values) {
         final isObject = meta.type == ConfigFieldType.objectList || meta.type == ConfigFieldType.objectMap;
-        expect(isObject || meta.entry == null, isTrue, reason: '${meta.yamlPath} is scalar but declares an entry');
+        expect(
+          isObject || meta.type == ConfigFieldType.stringList || meta.entry == null,
+          isTrue,
+          reason: '${meta.yamlPath} is scalar but declares an entry',
+        );
         expect(
           !isObject || meta.entry != null,
           isTrue,

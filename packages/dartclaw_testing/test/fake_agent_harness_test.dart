@@ -98,6 +98,15 @@ void main() {
       await eventsFuture;
     });
 
+    test('records continuity resets in call order', () async {
+      final harness = FakeAgentHarness(initialState: WorkerState.idle);
+
+      await harness.resetSessionContinuity('session-a');
+      await harness.resetSessionContinuity('session-b');
+
+      expect(harness.resetContinuitySessions, ['session-a', 'session-b']);
+    });
+
     test('stop marks the harness stopped', () async {
       final harness = FakeAgentHarness(initialState: WorkerState.busy);
 

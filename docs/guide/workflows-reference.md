@@ -145,7 +145,11 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `task_unbind` | Removing a task's thread bindings |
 | `mcp_call` | Other tools routed through an MCP server |
 
-Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
+Omit `allowedTools` to inherit the harness default tool surface. Declaring it is a strict allowlist: any omitted category is blocked by the tool filter, and `allowedTools: []` denies ordinary tool calls. Read-only review/audit steps usually list `shell` and `file_read` while omitting write categories; implementation and remediation steps usually omit the field or explicitly include the write/edit categories they require.
+
+For Claude, a nonempty allowlist also admits the exact native `Skill` and `ToolSearch` helpers so Claude can activate a
+trusted skill and discover a tool schema. Ordinary tool callbacks remain subject to the declared allowlist. An empty
+allowlist admits neither helper.
 
 Provider enforcement differs: Claude maps categories to permission patterns; Codex treats the allowlist as advisory plus sandbox/approval policy. A non-read-only Codex step that declares `allowedTools` emits a workflow-load warning because Codex CLI has no native per-tool allowlist.
 

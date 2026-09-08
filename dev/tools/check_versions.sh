@@ -94,6 +94,19 @@ for manifest in "$REPO_ROOT/package/scoop/dartclaw.json" "$REPO_ROOT/package/sco
   fi
 done
 
+# The CHANGELOG's top section is named in the version-pin commit, not at the
+# cut: `## [<version>] - Unreleased` from the pin on, and the release cut only
+# replaces `Unreleased` with the date (dev/state/DECISIONS.md § Still Current).
+# A `[Unreleased]` heading outliving the pin is the drift this catches.
+changelog="$REPO_ROOT/CHANGELOG.md"
+top_section="$(grep -m1 '^## \[' "$changelog" | sed -n 's/^## \[\([^]]*\)\].*/\1/p')"
+if [[ "$top_section" != "$expected" ]]; then
+  echo "MISMATCH: CHANGELOG.md top section is [$top_section] (expected [$expected] – rename it in the version-pin commit)"
+  errors=$((errors + 1))
+else
+  echo "  OK: CHANGELOG.md top section @ $top_section"
+fi
+
 if [[ $errors -gt 0 ]]; then
   echo
   echo "FAILED: $errors version mismatch(es) found."

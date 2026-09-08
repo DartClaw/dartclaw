@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../scheduling/cron_parser.dart';
+import '../scheduling/pending_schedule_change.dart';
 import 'components.dart';
+import 'helpers.dart';
 import 'layout.dart';
 import 'loader.dart';
 import 'sidebar.dart';
@@ -28,6 +32,7 @@ String schedulingTemplate({
   List<Map<String, dynamic>> jobs = const [],
   List<String> systemJobNames = const [],
   List<ScheduledTaskDefinition> scheduledTasks = const [],
+  List<PendingScheduleChange> pendingChanges = const [],
   String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
@@ -43,6 +48,7 @@ String schedulingTemplate({
         jobs: jobs,
         systemJobNames: systemJobNames,
         scheduledTasks: scheduledTasks,
+        pendingChanges: pendingChanges,
       ),
     },
   );
@@ -55,6 +61,7 @@ String schedulingContentFragment({
   required List<Map<String, dynamic>> jobs,
   required List<String> systemJobNames,
   required List<ScheduledTaskDefinition> scheduledTasks,
+  List<PendingScheduleChange> pendingChanges = const [],
 }) => templateLoader.trellis.renderFragment(
   templateLoader.source('scheduling'),
   fragment: 'schedulingContent',
@@ -74,6 +81,7 @@ String schedulingContentFragment({
     'heartbeatOn': heartbeatEnabled,
     'jobFormHtml': schedulingJobFormFragment(),
     'jobsTableHtml': schedulingJobsFragment(jobs: jobs, systemJobNames: systemJobNames),
+    'pendingChangesHtml': schedulingPendingChangesFragment(changes: pendingChanges),
     'taskFormHtml': schedulingTaskFormFragment(),
     'tasksTableHtml': schedulingTasksFragment(tasks: scheduledTasks),
   },
@@ -88,6 +96,10 @@ String schedulingJobsFragment({
     final name = (job['name'] ?? job['id'])?.toString() ?? '';
     final status = job['status']?.toString() ?? 'active';
     final system = systemJobNames.contains(name);
+    // A shell job is file-only: it runs on demand like any other row, but it is
+    // written and removed by editing dartclaw.yaml, so the seam would refuse an
+    // Edit or Delete posted from here.
+    final shell = job['jobType']?.toString() == 'shell';
     final canRun = !system || job['runnable'] == true;
     final running = status == 'running';
     final schedule = job['schedule']?.toString() ?? '';
@@ -111,6 +123,8 @@ String schedulingJobsFragment({
       },
       'rowClass': system ? 'row-system' : (status == 'error' || status == 'failed' ? 'row-error' : ''),
       'isSystem': system,
+      'isShell': shell,
+      'canEdit': !system && !shell,
       'canStart': canRun && !running,
       'runDisabled': canRun && running,
       'hasActions': !system || canRun,
@@ -135,6 +149,76 @@ String schedulingJobsFragment({
     },
   );
 }
+
+/// The parked `schedule_upsert` writes awaiting an operator.
+///
+/// Every value but the change id and timestamp came from a model turn, so each
+/// reaches the markup through `tl:text` / `tl:attr` only. The root renders even
+/// when empty — hidden — so a settle response has a target to swap.
+String schedulingPendingChangesFragment({required List<PendingScheduleChange> changes}) {
+  final rows = changes
+      .map(
+        (change) => <String, dynamic>{
+          'jobId': change.jobId,
+          'summary': _pendingSummary(change.job),
+          'details': _pendingDetails(change.job),
+          'kind': change.kind.name,
+          'schedule': _pendingScheduleText(change.job['schedule']),
+          'requester': change.requester,
+          'requestedAt': formatRelativeTime(change.requestedAt),
+          'requestedAtIso': change.requestedAt.toUtc().toIso8601String(),
+          'approveUrl': '/scheduling/pending/${Uri.encodeComponent(change.changeId)}/approve',
+          'rejectUrl': '/scheduling/pending/${Uri.encodeComponent(change.changeId)}/reject',
+          'rejectMessage': "Reject the pending change to '${change.jobId}'?",
+        },
+      )
+      .toList();
+  return templateLoader.trellis.renderFragment(
+    templateLoader.source('scheduling'),
+    fragment: 'pendingChanges',
+    context: {'hasPending': rows.isNotEmpty, 'changes': rows},
+  );
+}
+
+/// What kind of job the body declares and where it delivers — the two words
+/// that tell an operator whether approving it reaches a channel.
+String _pendingSummary(Map<String, dynamic> job) {
+  final type = job['type'] as String;
+  final delivery = job['delivery'];
+  return delivery == null ? type : '$type · $delivery';
+}
+
+/// Every model-supplied field the approved write can commit.
+List<Map<String, String>> _pendingDetails(Map<String, dynamic> job) {
+  final details = <Map<String, String>>[
+    {'label': 'Schedule', 'value': _pendingScheduleText(job['schedule'])},
+  ];
+  switch (job) {
+    case {'type': 'prompt', 'prompt': final Object prompt}:
+      details.add({'label': 'Prompt', 'value': '$prompt'});
+    case {'type': 'task', 'task': final Map<String, dynamic> task}:
+      const labels = {
+        'title': 'Task title',
+        'description': 'Description',
+        'acceptance_criteria': 'Acceptance criteria',
+        'auto_start': 'Auto-start',
+      };
+      for (final field in task.entries) {
+        details.add({'label': labels[field.key] ?? field.key, 'value': _pendingDetailValue(field.value)});
+      }
+  }
+  for (final field in const [('delivery', 'Delivery'), ('model', 'Model'), ('effort', 'Effort')]) {
+    if (job.containsKey(field.$1)) details.add({'label': field.$2, 'value': '${job[field.$1]}'});
+  }
+  return details;
+}
+
+String _pendingDetailValue(Object? value) => value is String ? value : jsonEncode(value);
+
+String _pendingScheduleText(Object? schedule) => switch (schedule) {
+  {'type': 'once', 'at': final Object at} => 'once at $at',
+  _ => schedule?.toString() ?? '',
+};
 
 String schedulingTasksFragment({required List<ScheduledTaskDefinition> tasks, bool outOfBand = false}) {
   final rows = tasks

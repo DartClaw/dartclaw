@@ -7,9 +7,6 @@
 # and may legitimately be named "*review*" (e.g. s20-review-grammar-...).
 dev/bundle/docs/specs/**/*-review*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.md
 
-# Per-checkout workflow continuity
-dev/state/STATE.local.md
-
 # Dart
 .dart_tool/
 .dart-tool/

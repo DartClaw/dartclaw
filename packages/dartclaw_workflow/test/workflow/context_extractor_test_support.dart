@@ -98,13 +98,19 @@ final class ContextExtractorTestHarness {
     String? projectId,
     String? workflowRunId,
     String? worktreePath,
+    String? workflowWorkspaceDir,
   }) async {
+    final agentExecutionId = workflowWorkspaceDir == null ? null : 'ae-workspace-$id';
+    if (agentExecutionId != null) {
+      await agentExecutions.create(AgentExecution(id: agentExecutionId, workspaceDir: workflowWorkspaceDir));
+    }
     await taskService.create(
       id: id,
       title: 'Test',
       description: 'Test',
       autoStart: true,
       sessionId: sessionId,
+      agentExecutionId: agentExecutionId,
       projectId: projectId,
       workflowRunId: workflowRunId,
     );
@@ -194,6 +200,7 @@ final class ContextExtractorTestHarness {
     String? projectId,
     String? workflowRunId,
     String? worktreePath,
+    String? workflowWorkspaceDir,
   }) async {
     final session = await sessionService.getOrCreateMainSession();
     await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: '$prefix$suffix');
@@ -203,6 +210,7 @@ final class ContextExtractorTestHarness {
       projectId: projectId,
       workflowRunId: workflowRunId,
       worktreePath: worktreePath,
+      workflowWorkspaceDir: workflowWorkspaceDir,
     );
     await seedEnvelopeOutputs(taskId, context, workflowRunId: workflowRunId);
     return task;
@@ -244,6 +252,7 @@ final class ContextExtractorTestHarness {
     String? projectId,
     String? workflowRunId,
     String? worktreePath,
+    String? workflowWorkspaceDir,
   }) async {
     final task = await buildTaskWithContext(
       taskId,
@@ -253,6 +262,7 @@ final class ContextExtractorTestHarness {
       projectId: projectId,
       workflowRunId: workflowRunId,
       worktreePath: worktreePath,
+      workflowWorkspaceDir: workflowWorkspaceDir,
     );
     return extractor.extract(step, task);
   }
@@ -268,6 +278,7 @@ final class ContextExtractorTestHarness {
     String? projectId,
     String? workflowRunId,
     String? worktreePath,
+    String? workflowWorkspaceDir,
   }) {
     return extractStepFromContext(
       extractor,
@@ -279,6 +290,7 @@ final class ContextExtractorTestHarness {
       projectId: projectId,
       workflowRunId: workflowRunId,
       worktreePath: worktreePath,
+      workflowWorkspaceDir: workflowWorkspaceDir,
     );
   }
 

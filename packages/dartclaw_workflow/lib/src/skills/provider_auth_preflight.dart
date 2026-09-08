@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'provider_probe_environment.dart';
+
 /// Outcome of evaluating one referenced provider's authentication state.
 ///
 /// Carries an actionable [remediationMessage] (rather than throwing) so a
@@ -42,8 +44,9 @@ typedef AuthProbeRunner = Future<ProcessResult> Function(
 ///
 /// Asynchronous for the same reason as `SkillProbeEnvironmentBuilder`: the
 /// lanes share one builder, and presenting a subscription credential can
-/// require preparing a dedicated provider home first.
-typedef AuthProbeEnvironmentBuilder = Future<Map<String, String>> Function(String provider);
+/// require preparing a dedicated provider home first. The consumer must call
+/// [ProviderProbeEnvironment.dispose] after either success or failure.
+typedef AuthProbeEnvironmentBuilder = Future<ProviderProbeEnvironment> Function(String provider);
 
 /// CLI-backed [ProviderAuthPreflight].
 ///
@@ -101,14 +104,19 @@ final class CliProviderAuthPreflight implements ProviderAuthPreflight {
       return ProviderAuthResult.unauthenticated(provider, _remediation(provider, family, reason));
     }
     final resolvedExecutable = executable?.trim().isNotEmpty == true ? executable!.trim() : _defaultExecutable(family);
-    final environment = await _environmentForProvider?.call(provider) ?? _environment;
-    return switch (family) {
-      ProviderIdentity.claude => _probeClaude(provider, family, resolvedExecutable, environment),
-      ProviderIdentity.codex => _probeCodex(provider, family, resolvedExecutable, environment),
-      // No auth probe is configured for other provider families; do not block —
-      // skill introspection still surfaces genuinely broken provider setups.
-      _ => Future.value(ProviderAuthResult.authenticated(provider)),
-    };
+    final scopedEnvironment = await _environmentForProvider?.call(provider);
+    final environment = scopedEnvironment?.environment ?? _environment;
+    try {
+      return await switch (family) {
+        ProviderIdentity.claude => _probeClaude(provider, family, resolvedExecutable, environment),
+        ProviderIdentity.codex => _probeCodex(provider, family, resolvedExecutable, environment),
+        // No auth probe is configured for other provider families; do not block —
+        // skill introspection still surfaces genuinely broken provider setups.
+        _ => Future.value(ProviderAuthResult.authenticated(provider)),
+      };
+    } finally {
+      await scopedEnvironment?.dispose();
+    }
   }
 
   Future<ProviderAuthResult> _probeClaude(

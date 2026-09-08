@@ -14,7 +14,7 @@ void main() {
     // Helpers
     // ---------------------------------------------------------------------------
 
-    final drainedSessions = <Map<String, String>>[];
+    final drainedSessions = <List<PausedChannelTurn>>[];
 
     SlashCommandHandler buildHandler({PauseController? pauseController, bool Function(String)? isAdmin}) {
       drainedSessions.clear();
@@ -111,7 +111,7 @@ void main() {
         expect(_confirmationTitle(response), contains('Resumed'));
       });
 
-      test('resume with queued messages — calls onDrain with collapsed map', () async {
+      test('resume with queued messages — calls onDrain with collapsed turns', () async {
         final controller = PauseController();
         controller.pause('alice');
         final fakeChannel = _FakeCh();
@@ -123,7 +123,8 @@ void main() {
         final handler = buildHandler(pauseController: controller);
         await invoke(handler, 'resume');
         expect(drainedSessions, hasLength(1));
-        expect(drainedSessions.first.containsKey('session:1'), isTrue);
+        expect(drainedSessions.first.single.sessionKey, 'session:1');
+        expect(drainedSessions.first.single.message.text, contains('hello'));
       });
 
       test('resume with 0 queued — confirmation says no messages queued', () async {

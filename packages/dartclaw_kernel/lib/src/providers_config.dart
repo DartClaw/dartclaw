@@ -48,7 +48,9 @@ class ProviderEntry {
   /// Path to the provider binary.
   final String executable;
 
-  /// Hard ceiling on concurrent worker executions for this provider. 0 = use default.
+  /// Hard ceiling on concurrent worker executions for this provider. 0 = use
+  /// the default of two, which lets a scheduled or task turn spawn a logical
+  /// agent without deadlocking on the lease it already holds.
   final int poolSize;
 
   /// Which credential this provider presents upstream, or `null` when the entry
@@ -65,8 +67,12 @@ class ProviderEntry {
   /// Creates a provider entry; [auth] is `null` when unconfigured.
   const new({required this.executable, this.poolSize = 0, this.auth, this.options = const {}});
 
-  /// Effective worker capacity after applying the unset default.
-  int get effectivePoolSize => poolSize > 0 ? poolSize : 1;
+  /// Effective worker capacity after applying the unset default of two.
+  ///
+  /// Two, not one: a scheduled or task turn holds a lease for its whole turn,
+  /// so a logical agent it spawns needs a second one. Workers spawn lazily, so
+  /// this is a ceiling rather than a target.
+  int get effectivePoolSize => poolSize > 0 ? poolSize : 2;
 
   /// Returns a copy with the given fields replaced, carrying every other field
   /// verbatim.

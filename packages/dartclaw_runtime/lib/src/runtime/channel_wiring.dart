@@ -6,7 +6,6 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' as config_tools;
-import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
@@ -16,6 +15,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
 import 'feedback_observer_factory.dart';
 import 'model_resolver.dart';
@@ -36,12 +36,14 @@ class ChannelWiring {
     required StorageWiring storage,
     required TaskWiring task,
     required String resolvedConfigPath,
+    ChannelAgentBinder? agentBinder,
   }) : _dataDir = dataDir,
        _port = port,
        _eventBus = eventBus,
        _storage = storage,
        _task = task,
-       _resolvedConfigPath = resolvedConfigPath;
+       _resolvedConfigPath = resolvedConfigPath,
+       _agentBinder = agentBinder;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -50,6 +52,7 @@ class ChannelWiring {
   final StorageWiring _storage;
   final TaskWiring _task;
   final String _resolvedConfigPath;
+  final ChannelAgentBinder? _agentBinder;
 
   static final _log = Logger('ChannelWiring');
 
@@ -65,7 +68,6 @@ class ChannelWiring {
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig>? _channelGroupConfigs;
-  GroupConfigResolver? _groupConfigResolver;
 
   ChannelManager? get channelManager => _channelManager;
   WhatsAppChannel? get whatsAppChannel => _whatsAppChannel;
@@ -75,10 +77,10 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
   TaskNotificationSubscriber? get taskNotificationSubscriber => _taskNotificationSubscriber;
   ThreadBindingStore? get threadBindingStore => _threadBindingStore;
+  PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig> get channelGroupConfigs => _channelGroupConfigs ?? const [];
-  GroupConfigResolver? get groupConfigResolver => _groupConfigResolver;
 
   /// Wires channel services. [serverRefGetter] resolves lazily for dispatch
   /// closures that must reference the server after it is built.
@@ -109,6 +111,21 @@ class ChannelWiring {
 
     final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
 
+    // The one row lookup, built before the channel manager so the session-key
+    // derivation and both dispatch sites consume the same rows.
+    final rows = GroupConfigResolver.fromChannelEntries(
+      {
+        ChannelType.whatsapp: whatsAppConfig.groupAllowlist,
+        ChannelType.signal: signalConfig.groupAllowlist,
+        ChannelType.googlechat: googleChatConfig.groupAllowlist,
+      },
+      dms: {
+        ChannelType.whatsapp: whatsAppConfig.dmAllowlist,
+        ChannelType.signal: signalConfig.dmAllowlist,
+        ChannelType.googlechat: googleChatConfig.dmAllowlist,
+      },
+    );
+
     // Initialize ThreadBindingStore if thread binding is enabled.
     final threadBindingEnabled = config.features.threadBinding.enabled;
     if (threadBindingEnabled) {
@@ -137,9 +154,9 @@ class ChannelWiring {
         config: config,
         googleChatConfig: googleChatConfig,
         liveScopeConfig: liveScopeConfig,
+        rows: rows,
         sessions: sessions,
         messages: messages,
-        serverRef: serverRefGetter,
         turnManagerGetter: turnManagerGetter,
         redactor: messageRedactor,
         pauseController: pauseController,
@@ -156,7 +173,8 @@ class ChannelWiring {
             eventBus: _eventBus,
             sseBroadcast: sseBroadcast,
             pauseController: pauseController,
-            sessions: sessions,
+            replayPausedTurns: (collapsed) =>
+                ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
             threadBindingStore: _threadBindingStore,
           ),
           perSenderRateLimiter: perSenderLimiter,
@@ -185,7 +203,7 @@ class ChannelWiring {
         final waChannel = WhatsAppChannel(
           gowa: gowaManager,
           config: whatsAppConfig,
-          dmAccess: DmAccessController(mode: whatsAppConfig.dmAccess, allowlist: whatsAppConfig.dmAllowlist.toSet()),
+          dmAccess: DmAccessController(mode: whatsAppConfig.dmAccess, allowlist: whatsAppConfig.dmIds.toSet()),
           mentionGating: MentionGating(
             requireMention: whatsAppConfig.requireMention,
             mentionPatterns: whatsAppConfig.mentionPatterns,
@@ -256,7 +274,7 @@ class ChannelWiring {
         }
         final googleChatDmAccess = DmAccessController(
           mode: googleChatConfig.dmAccess,
-          allowlist: googleChatConfig.dmAllowlist.toSet(),
+          allowlist: googleChatConfig.dmIds.toSet(),
         );
         final googleChatMentionGating = MentionGating(
           requireMention: googleChatConfig.requireMention,
@@ -285,11 +303,8 @@ class ChannelWiring {
             sseBroadcast: sseBroadcast,
           ).execute(stoppedBy: stoppedBy),
           isAdmin: config.governance.isAdmin,
-          onDrain: (collapsed) => ReservedCommandHandler.drainPauseQueue(
-            collapsed: collapsed,
-            sessions: sessions,
-            turnManagerGetter: turnManagerGetter,
-          ),
+          onDrain: (collapsed) =>
+              ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: activeChannelManager.queue),
         );
 
         // Phase 1: Create dedup + subscription manager before webhook handler.
@@ -348,7 +363,7 @@ class ChannelWiring {
             serverRef: serverRefGetter,
             config: config,
             message: message,
-            groupConfigResolver: _groupConfigResolver,
+            agentBinder: _agentBinder,
           ),
         );
 
@@ -421,10 +436,7 @@ class ChannelWiring {
           },
         );
 
-        final sigDmAccess = DmAccessController(
-          mode: signalConfig.dmAccess,
-          allowlist: signalConfig.dmAllowlist.toSet(),
-        );
+        final sigDmAccess = DmAccessController(mode: signalConfig.dmAccess, allowlist: signalConfig.dmIds.toSet());
         final sigMentionGating = MentionGating(
           requireMention: signalConfig.requireMention,
           mentionPatterns: signalConfig.mentionPatterns,
@@ -458,9 +470,8 @@ class ChannelWiring {
       _taskNotificationSubscriber!.subscribe(_eventBus);
     }
 
-    // Build per-channel group configs for GroupSessionInitializer and resolver.
+    // Build per-channel group configs for GroupSessionInitializer.
     final groupConfigs = <ChannelGroupConfig>[];
-    final resolverEntries = <ChannelType, List<GroupEntry>>{};
     if (_whatsAppChannel != null) {
       final waConf = _whatsAppChannel!.config;
       groupConfigs.add(
@@ -470,7 +481,6 @@ class ChannelWiring {
           groupEntries: waConf.groupAllowlist,
         ),
       );
-      resolverEntries[ChannelType.whatsapp] = waConf.groupAllowlist;
     }
     if (_signalChannel != null) {
       final sigConf = _signalChannel!.config;
@@ -481,7 +491,6 @@ class ChannelWiring {
           groupEntries: sigConf.groupAllowlist,
         ),
       );
-      resolverEntries[ChannelType.signal] = sigConf.groupAllowlist;
     }
     if (_googleChatChannel != null) {
       final gcConf = _googleChatChannel!.config;
@@ -492,23 +501,21 @@ class ChannelWiring {
           groupEntries: gcConf.groupAllowlist,
         ),
       );
-      resolverEntries[ChannelType.googlechat] = gcConf.groupAllowlist;
     }
     _channelGroupConfigs = groupConfigs;
-    _groupConfigResolver = GroupConfigResolver.fromChannelEntries(resolverEntries);
   }
 
   /// Builds the shared [ChannelManager] used by all messaging channels.
   ///
-  /// The dispatcher closure captures [serverRef] (a lazy callback) so the
-  /// server reference is resolved at dispatch time, after it's been assigned.
+  /// The dispatcher resolves [turnManagerGetter] lazily because turns are
+  /// wired after channels and before inbound messages can arrive.
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
     required GoogleChatConfig googleChatConfig,
     required LiveScopeConfig liveScopeConfig,
+    required GroupConfigResolver rows,
     required SessionService sessions,
     required MessageService messages,
-    required DartclawServer Function() serverRef,
     required TurnManager Function() turnManagerGetter,
     MessageRedactor? redactor,
     ChannelTaskBridge? taskBridge,
@@ -537,15 +544,12 @@ class ChannelWiring {
             String? senderDisplayName,
             String? groupJid,
           }) async {
-            final overrides = resolveChannelTurnOverrides(
-              sessionKey: sessionKey,
-              config: config,
-              groupConfigResolver: _groupConfigResolver,
-            );
+            final row = rows.resolveRow(channelType, groupId: groupJid, peerId: senderJid);
+            final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
             return dispatchChannelTurn(
               sessions: sessions,
               messages: messages,
-              turnManagerGetter: () => serverRef().turns,
+              turnManagerGetter: turnManagerGetter,
               sessionKey: sessionKey,
               message: message,
               channelType: channelType,
@@ -554,6 +558,7 @@ class ChannelWiring {
               groupJid: groupJid,
               model: overrides.model,
               effort: overrides.effort,
+              binding: _agentBinder?.bind(row),
             );
           },
     );
@@ -561,6 +566,7 @@ class ChannelWiring {
       queue: messageQueue,
       config: config.channels,
       liveScopeConfig: liveScopeConfig,
+      groupConfigResolver: rows,
       taskBridge: taskBridge,
       isPaused: pauseController != null ? () => pauseController.isPaused : null,
       enqueueForPause: pauseController != null
@@ -585,14 +591,11 @@ class ChannelWiring {
     required DartclawServer Function() serverRef,
     required DartclawConfig config,
     required ChannelMessage message,
-    GroupConfigResolver? groupConfigResolver,
+    ChannelAgentBinder? agentBinder,
   }) {
     final sessionKey = channelManager.deriveSessionKey(message);
-    final overrides = resolveChannelTurnOverrides(
-      sessionKey: sessionKey,
-      config: config,
-      groupConfigResolver: groupConfigResolver,
-    );
+    final row = channelManager.resolveRow(message);
+    final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
     return dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
@@ -605,15 +608,24 @@ class ChannelWiring {
       groupJid: message.groupJid,
       model: overrides.model,
       effort: overrides.effort,
+      binding: agentBinder?.bind(row),
     );
   }
 }
 
 /// Dispatches the shared human-facing channel turn path.
+///
+/// With a [binding] the session is created pinned to the agent's provider and
+/// execution policy and the turn runs under the agent's name with the persona
+/// as its behaviour – the logical-agent recipe, minus `systemPromptOverride`.
+/// [model] and [effort] arrive resolved through the channel chain and win over
+/// the agent's own. The getter is the runtime [TurnManager] because
+/// `behaviorOverride` is a runtime type that `dartclaw_core`'s interface
+/// cannot carry.
 Future<String> dispatchChannelTurn({
   required SessionService sessions,
   required MessageService messages,
-  required core.TurnManager Function() turnManagerGetter,
+  required TurnManager Function() turnManagerGetter,
   required String sessionKey,
   required String message,
   required ChannelType channelType,
@@ -622,8 +634,17 @@ Future<String> dispatchChannelTurn({
   String? groupJid,
   String? model,
   String? effort,
+  ChannelAgentBinding? binding,
 }) async {
-  final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+  final session = binding == null
+      ? await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel)
+      : await sessions.getOrCreateByKey(
+          sessionKey,
+          type: SessionType.channel,
+          provider: binding.providerId,
+          securityProfile: binding.policy.containerProfile,
+          executionMode: binding.policy.mode,
+        );
   final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
   await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
 
@@ -637,16 +658,43 @@ Future<String> dispatchChannelTurn({
   final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
 
   final turns = turnManagerGetter();
-  final turnId = await turns.startTurn(
-    session.id,
-    messagesList,
-    source: 'channel',
-    isHumanInput: true,
-    model: model,
-    effort: effort,
-    promptScope: PromptScope.primary,
-    origin: (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null),
-  );
+  final origin = (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null);
+  final String turnId;
+  if (binding == null) {
+    turnId = await turns.startTurn(
+      session.id,
+      messagesList,
+      source: 'channel',
+      isHumanInput: true,
+      model: model,
+      effort: effort,
+      promptScope: PromptScope.primary,
+      origin: origin,
+    );
+  } else {
+    final agent = binding.definition;
+    turnId = await turns.reserveTurn(
+      session.id,
+      agentName: agent.id,
+      model: model ?? _nonBlank(agent.model),
+      effort: effort ?? _nonBlank(agent.effort),
+      isHumanInput: true,
+      behaviorOverride: binding.behavior,
+      promptScope: binding.promptScope,
+      origin: origin,
+    );
+    try {
+      turns.executeTurn(session.id, turnId, messagesList, source: 'channel', agentName: agent.id);
+    } catch (_) {
+      turns.releaseTurn(session.id, turnId);
+      rethrow;
+    }
+  }
   final outcome = await turns.waitForOutcome(session.id, turnId);
   return outcome.responseText ?? '';
+}
+
+String? _nonBlank(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }

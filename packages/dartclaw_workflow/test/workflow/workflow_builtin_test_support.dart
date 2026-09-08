@@ -57,13 +57,6 @@ class StubResponse {
   const new({required this.outputs, this.worktreeJson});
 }
 
-StubResponse integratedReviewCouncilStub({int findingsCount = 0, int? gatingFindingsCount}) => StubResponse(
-  outputs: {
-    'integrated-review-council.findings_count': findingsCount,
-    'integrated-review-council.gating_findings_count': gatingFindingsCount ?? findingsCount,
-  },
-);
-
 StubResponse specAndImplementCommonStub(
   QueuedStep queued, {
   String specPath = 'docs/specs/test/spec.md',
@@ -97,7 +90,6 @@ StubResponse specAndImplementCommonStub(
         findingsCount: 0,
       ),
     ),
-    'integrated-review-council' => integratedReviewCouncilStub(),
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
 }
@@ -142,12 +134,6 @@ StubResponse planAndImplementCommonStub(
       },
     ),
     'update-state' => StubResponse(outputs: {'state_update_summary': 'done'}),
-    'plan-review-council' => StubResponse(
-      outputs: {'plan-review-council.findings_count': 0, 'plan-review-council.gating_findings_count': 0},
-    ),
-    'integrated-review-council' => StubResponse(
-      outputs: {'integrated-review-council.findings_count': 0, 'integrated-review-council.gating_findings_count': 0},
-    ),
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
 }

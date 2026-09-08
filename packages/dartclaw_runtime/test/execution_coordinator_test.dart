@@ -170,6 +170,35 @@ void main() {
       await reused.release();
     });
 
+    test('workflow policy posture is execution-scoped even without directories or environment', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+      final workerLease = await fixture.acquire(sessionId: 'task');
+      final warmRunner = workerLease.runner;
+      await workerLease.release();
+
+      final emptyPolicy = await fixture.coordinator.acquire(
+        fixture.request(sessionId: 'workflow-empty', surface: ExecutionSurface.workflow, allowedTools: const []),
+      );
+      expect(emptyPolicy!.runner, isNot(same(warmRunner)));
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+      final emptyRunner = emptyPolicy.runner;
+      await emptyPolicy.release();
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+
+      final omittedPolicy = await fixture.coordinator.acquire(
+        fixture.request(sessionId: 'workflow-omitted', surface: ExecutionSurface.workflow),
+      );
+      expect(omittedPolicy!.runner, isNot(same(warmRunner)));
+      expect(omittedPolicy.runner, isNot(same(emptyRunner)));
+      await omittedPolicy.release();
+
+      final reusedTask = await fixture.acquire(sessionId: 'task');
+      expect(reusedTask.runner, same(warmRunner));
+      expect(fixture.created, hasLength(3));
+      await reusedTask.release();
+    });
+
     test('fail-fast admission reports exhaustion without queueing', () async {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);
@@ -628,6 +657,45 @@ void main() {
       await lease!.release();
     });
 
+    test('continuity reset of another session proceeds while a worker is busy', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+
+      final busy = await fixture.acquire(sessionId: 'session-a');
+      final idle = await fixture.acquire(sessionId: 'session-b');
+      final idleRunner = idle.runner;
+      await idle.release();
+      expect(idleRunner, isNot(same(busy.runner)));
+
+      await fixture.coordinator.resetSessionContinuity('session-b');
+
+      expect((idleRunner.harness as _TestHarness).resetContinuitySessions, ['session-b']);
+      await busy.release();
+    });
+
+    test('continuity reset of an unrelated session proceeds at capacity one', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final busy = await fixture.acquire(sessionId: 'session-a');
+
+      await fixture.coordinator.resetSessionContinuity('session-b');
+
+      await busy.release();
+    });
+
+    test('continuity reset of the busy session itself fails closed', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+      final busy = await fixture.acquire(sessionId: 'session-a');
+
+      await expectLater(
+        fixture.coordinator.resetSessionContinuity('session-a'),
+        throwsA(isA<BusyTurnException>().having((error) => error.isSameSession, 'isSameSession', isTrue)),
+      );
+
+      await busy.release();
+    });
+
     test('snapshot and lifecycle events report real allocation state', () async {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);
@@ -708,6 +776,7 @@ final class _CoordinatorFixture {
     ExecutionSurface surface = ExecutionSurface.task,
     ExecutionAdmission admission = ExecutionAdmission.wait,
     String? taskId,
+    List<String>? allowedTools,
     String? artifactsDir,
     Map<String, String>? spawnEnvironment,
   }) => ExecutionRequest(
@@ -717,6 +786,7 @@ final class _CoordinatorFixture {
     sessionId: sessionId,
     admission: admission,
     taskId: taskId,
+    allowedTools: allowedTools,
     artifactsDir: artifactsDir,
     spawnEnvironment: spawnEnvironment,
   );

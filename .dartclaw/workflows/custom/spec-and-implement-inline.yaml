@@ -131,7 +131,7 @@ steps:
 
   - id: integrated-review-council
     name: Integrated Review with Council
-    skill: andthen:review
+    skill: andthen-some:council
     parallel: true
     # Advisory extra-perspective pass: the gap + architecture reviews carry the
     # gating signal, and the council writes its report to the reviews
@@ -145,7 +145,7 @@ steps:
     effort: xhigh
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
     prompt: >-
-      --mode code,security --council --auto
+      --mode code,security --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
       Review implementation of {{context.spec_path}}. Scope by the FIS –
       assess only the working-tree state implementing this spec; the live

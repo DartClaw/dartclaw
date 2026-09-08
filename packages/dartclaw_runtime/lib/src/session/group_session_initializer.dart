@@ -58,7 +58,9 @@ class GroupSessionInitializer {
     for (final entry in entries) {
       final groupId = entry.id;
       try {
-        final key = SessionKey.groupShared(channelType: channelType, groupId: groupId);
+        // The row's agent is the key's agent component, as it is for the
+        // messages the group sends; a `main` key here would be a titled twin.
+        final key = SessionKey.groupShared(agentId: entry.agent ?? 'main', channelType: channelType, groupId: groupId);
         final session = await _sessions.getOrCreateByKey(key, type: SessionType.channel);
         // Set title only if null (newly created) — don't overwrite user-set titles.
         if (session.title == null) {
@@ -106,20 +108,7 @@ class GroupSessionInitializer {
       final newList = event.newValues[key];
       if (newList is! List) continue;
 
-      // Extract IDs from mixed list (strings or maps with 'id' key).
-      // Wrap as GroupEntry(id: ...) — structured overrides not available here
-      // since config change fires with raw YAML values.
-      final entries = <GroupEntry>[];
-      for (final item in newList) {
-        if (item is String) {
-          entries.add(GroupEntry(id: item));
-        } else if (item is Map) {
-          final id = item['id'];
-          if (id is String && id.trim().isNotEmpty) {
-            entries.add(GroupEntry(id: id));
-          }
-        }
-      }
+      final entries = GroupEntry.parseList(newList, field: key, onWarning: _log.warning);
       unawaited(
         _ensureGroupSessions(
           channelType,

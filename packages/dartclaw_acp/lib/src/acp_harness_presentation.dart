@@ -38,6 +38,7 @@ extension _AcpHarnessPresentation on AcpHarness {
         case proto.CompactBoundary():
         case proto.CompactionStarted():
         case proto.CompactionCompleted():
+        case proto.BackgroundTasksChanged():
           break;
       }
     }

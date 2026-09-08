@@ -79,10 +79,43 @@ scheduling:
 ```
 
 A job created, edited or deleted through the `schedule_upsert` tool, the jobs API or the Scheduling page is loaded into
-the running server before the write is answered — no restart, and no restart marker. A hand edit of `dartclaw.yaml`
-still needs one: file reloads treat the whole `scheduling` section as restart-tier. On a lane that reads untrusted
-channel content, withhold `schedule_upsert` via `agent.disallowed_tools` — see
+the running server before the write is answered — no restart, and no restart marker. The one exception is a tool
+write under `scheduling.mutation.approval: operator`, which is parked until you approve it (below). A hand edit of
+`dartclaw.yaml` still needs a restart: file reloads treat the whole `scheduling` section as restart-tier. On a lane
+that reads untrusted channel content, turn approval on — or withhold `schedule_upsert` outright via
+`agent.disallowed_tools` — see
 [Hardening the primary agent for untrusted channels](security.md#hardening-the-primary-agent-for-untrusted-channels).
+
+### Operator approval for tool writes
+
+```yaml
+scheduling:
+  mutation:
+    approval: operator          # none (default) | operator
+```
+
+Under `operator`, a `schedule_upsert` call from a model turn is validated exactly as today but not written: the job body
+is parked in `<data_dir>/pending-schedule-changes.json` together with who asked (the MCP caller's identity, or the tool
+name for the primary lane) and when, and the tool answers `{"id": ..., "pending": true, "changeId": ...}` instead of
+`loaded`. Nothing changes in `dartclaw.yaml` or the running scheduler until you settle the change on the Scheduling
+page, where a **Pending Changes** section lists every parked write with Approve and Reject buttons. Approve commits the
+parked body through the same write path an unparked write takes, so the job is live when the toast appears; Reject
+discards it. Both need an admin session. A parked change survives a restart. Approval re-checks only what host state
+can have changed since parking — a one-time instant that has since passed, or a job id that has since become a
+built-in — and refuses with the reason while leaving the change pending for an explicit Reject.
+
+The pending list shows the full body being authorized: schedule, prompt or task title and description, task acceptance
+criteria and auto-start choice, delivery, model, and effort. Parking accepts at most 100 changes or 1 MiB of compact
+serialized UTF-8 JSON, whichever is reached first. A full queue refuses the new tool request and preserves every
+existing request. A legacy file already over either limit still loads with a warning and remains settleable; new
+requests stay refused until settlements bring it within both limits.
+
+Approval removes the pending record durably before reporting success. If that removal fails after the config write,
+DartClaw restores the previous `scheduling.jobs` value and reloads the resulting YAML. The error names any rollback or
+runtime reload failure instead of claiming that the approval was cleanly rejected.
+
+The mode gates the tool alone. The jobs API and the Scheduling page are authenticated operator surfaces and always
+commit directly, whatever the key says. The default `none` keeps every surface as it was.
 
 ### One-time jobs
 
@@ -155,6 +188,72 @@ rewrite entries it was never shown. The scope covers only that run: an ordinary 
 
 While `memory.curation.enabled` is set, a `scheduling.jobs` entry claiming the `memory-curation` ID is refused at config
 load as a duplicate job ID, the same way `memory-journal` is.
+
+### Shell jobs
+
+A `type: shell` entry runs a command instead of a model turn. It exists for a credentialed data feed the agent only
+reads — a process holding a token that fetches data on a schedule — so the feed lives on the scheduler the deployment
+already runs, with the same cron and interval schedules, `enabled`, `retry.*`, failure alerting and on-demand run as
+every other job.
+
+```yaml
+scheduling:
+  jobs:
+    - id: mail-feed
+      type: shell
+      schedule: "*/15 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - mail
+        - --json
+      env:
+        FEED_TOKEN: mail-api-key
+      output: mail.json
+      timeout_seconds: 60
+      retry:
+        attempts: 2
+        delay_seconds: 30
+```
+
+**The command.** `command` is an argument vector, executable first and by absolute path — no shell is involved, so
+nothing is quoted, word-split or glob-expanded. There is no `stdin`, no `PATH` knob and no streaming output. The
+command runs with the data directory as its working directory.
+
+**The credential.** Each `env` value names a `credentials.<name>` entry — never the secret itself. Only an
+`api_key` entry with a non-empty value can be presented; an entry that is absent, is a `github-token`, or resolves to
+an empty value is refused, and the whole job is skipped with the reason in the log. The resolved value reaches the
+child process and nothing else: it is not written back to `dartclaw.yaml` and never appears in the job's logged
+result. The child sees only the named credentials plus a minimal environment (`PATH`, `HOME`, `TZ` and similar) —
+the server's own `*_TOKEN`, `*_API_KEY` and `*_SECRET` variables are stripped before the credential is overlaid.
+
+**The output.** `output` is a path under `<data_dir>/feeds/`; an absolute path, or one that escapes `feeds/`, is
+refused at parse. On a clean run the command's stdout replaces that file atomically. On POSIX hosts the file is
+owner-only; on Windows it inherits the data directory's ACLs. The agent reads it as an ordinary file with `file_read`
+– no new permission is needed.
+
+**When a fire fails.** A non-zero exit, a timeout, stdout over 16 MiB, stdout that is not valid UTF-8, an unwritable
+output, an exit-0 run whose output pipe another process still holds open two seconds later (a backgrounded helper
+with inherited stdio), **and an exit-0 run that wrote nothing to stdout** all fail the fire. Each is retried per `retry.*` and then
+raises the usual failure alert, and none of them writes a file: the previous run's feed stays exactly as it was. Zero
+bytes is deliberately in that list — a legitimately empty payload is still `[]` or `{}`, and silently replacing a good
+feed with an empty file would give the agent an authoritative-looking empty answer with no alert. The logged result of
+a good run names the byte count and the exit code, never the document.
+
+`timeout_seconds` defaults to 300. A command that outruns it is terminated (SIGTERM, then SIGKILL) and the fire fails.
+
+**No one-time schedule.** A shell job must be recurring — cron or interval. A one-time (`at:`) job removes its own
+entry from `dartclaw.yaml` once its instant is behind it, and a shell entry is the operator's to write and remove, so
+`at` on a `type: shell` entry is refused at parse and the entry is not loaded. Every other job kind still takes it.
+
+**File-only.** A `type: shell` entry exists only by editing `dartclaw.yaml`. Every write surface refuses one — the
+jobs API, the Scheduling page and the `schedule_upsert` tool — so the kind is unreachable from chat. The Scheduling
+page lists a shell job as a run-only row: it can be run on demand, not edited or deleted. Because `scheduling` is a
+restart-tier section, a hand edit is applied at the next restart.
+
+**Trust and limits.** The command is operator-declared configuration carrying the same trust as `credentials.*`: no
+guard runs over it, and nothing validates what it does. A containerized agent lane does not see the host data
+directory, so a feed under `<data_dir>/feeds/` is readable by host-lane agents only; there is no `feeds/` mount
+convention for containers.
 
 ## Scheduled Task Jobs
 

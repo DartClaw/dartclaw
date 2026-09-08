@@ -261,7 +261,8 @@ class ScheduleService {
       a.jobType == b.jobType &&
       a.model == b.model &&
       a.effort == b.effort &&
-      a.taskDefinition == b.taskDefinition;
+      a.taskDefinition == b.taskDefinition &&
+      a.shellDefinition == b.shellDefinition;
 
   ScheduledJob? _loadedJob(String id) {
     for (final job in _jobs) {
@@ -276,13 +277,18 @@ class ScheduleService {
   /// caller that must refuse instead has to ask first.
   bool hasJob(String id) => _jobs.any((job) => job.id == id);
 
-  /// Starts a runnable prompt job without changing its schedule or pause state.
+  /// Starts a runnable prompt or shell job without changing its schedule or
+  /// pause state.
+  ///
+  /// A shell job is admitted on its kind, never on [ScheduledJob.isConfigDeclared]:
+  /// `auto-task-*` jobs are config-declared callback jobs too, and admitting
+  /// those would make every scheduled task on-demand runnable.
   RunScheduledJobResult runJobNow(String id) {
     if (!_started) return RunScheduledJobResult.notFound;
 
     ScheduledJob? job;
     for (final candidate in _jobs) {
-      if (candidate.id == id && candidate.onExecute == null) {
+      if (candidate.id == id && (candidate.onExecute == null || candidate.jobType == ScheduledJobType.shell)) {
         job = candidate;
         break;
       }

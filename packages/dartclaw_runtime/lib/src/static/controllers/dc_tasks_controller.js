@@ -539,6 +539,7 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
       if (!nextContent || !currentContent) return;
 
       currentContent.replaceWith(nextContent);
+      htmx.process(nextContent);
       reinitializeTaskUi();
       if (typeof shell.renderMarkdown === 'function') {
         shell.renderMarkdown();

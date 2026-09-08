@@ -65,8 +65,11 @@ final class ObjectEntry extends ConfigEntryShape {
   /// Entry fields keyed by their path relative to the entry root.
   final Map<String, EntryFieldMeta> fields;
 
+  /// Field names every object entry must declare.
+  final List<String> requiredFields;
+
   /// Creates an [ObjectEntry] value.
-  const new({required this.fields});
+  const new({required this.fields, this.requiredFields = const []});
 }
 
 /// One entry is a single value rather than a map — e.g. `alerts.routes`, whose
@@ -120,6 +123,12 @@ class EntryFieldMeta {
   /// For [ConfigFieldType.enum_]: allowed string values.
   final List<String>? allowedValues;
 
+  /// For [ConfigFieldType.string]: minimum accepted character count.
+  final int? minLength;
+
+  /// For [ConfigFieldType.string]: JSON Schema regular expression the value must match.
+  final String? pattern;
+
   /// For object-typed fields: the shape of one nested entry.
   final ConfigEntryShape? entry;
 
@@ -132,16 +141,21 @@ class EntryFieldMeta {
     this.min,
     this.max,
     this.allowedValues,
+    this.minLength,
+    this.pattern,
     this.entry,
   }) : assert(description != '', 'Every entry field must carry a description'),
        assert(alsoAccepts != type, 'An alternative type must differ from the declared one'),
        assert(
-         entry == null || (min == null && max == null && allowedValues == null),
+         entry == null || (min == null && max == null && allowedValues == null && minLength == null && pattern == null),
          'An entry shape and scalar constraints are mutually exclusive',
        ),
        assert(
-         entry == null || type == ConfigFieldType.objectList || type == ConfigFieldType.objectMap,
-         'Only objectList and objectMap fields carry an entry shape',
+         entry == null ||
+             type == ConfigFieldType.stringList ||
+             type == ConfigFieldType.objectList ||
+             type == ConfigFieldType.objectMap,
+         'Only list and objectMap fields carry an entry shape',
        );
 }
 
@@ -256,8 +270,11 @@ class FieldMeta {
          'An entry shape and scalar constraints are mutually exclusive',
        ),
        assert(
-         entry == null || type == ConfigFieldType.objectList || type == ConfigFieldType.objectMap,
-         'Only objectList and objectMap fields carry an entry shape',
+         entry == null ||
+             type == ConfigFieldType.stringList ||
+             type == ConfigFieldType.objectList ||
+             type == ConfigFieldType.objectMap,
+         'Only list and objectMap fields carry an entry shape',
        );
 }
 

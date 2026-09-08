@@ -251,6 +251,7 @@ class TurnManager implements core.TurnManager {
     ExecutionPolicy? workerPolicy,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,
@@ -283,6 +284,7 @@ class TurnManager implements core.TurnManager {
         systemPromptOverride: systemPromptOverride,
         maxTurns: maxTurns,
         outputSchema: outputSchema,
+        outputSchemaWhenSupported: outputSchemaWhenSupported,
         providerSessionId: providerSessionId,
         requestProviderSessionResume: requestProviderSessionResume,
         taskId: taskId,
@@ -360,6 +362,7 @@ class TurnManager implements core.TurnManager {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,
@@ -378,6 +381,7 @@ class TurnManager implements core.TurnManager {
       systemPromptOverride: systemPromptOverride,
       maxTurns: maxTurns,
       outputSchema: outputSchema,
+      outputSchemaWhenSupported: outputSchemaWhenSupported,
       providerSessionId: providerSessionId,
       requestProviderSessionResume: requestProviderSessionResume,
       taskId: taskId,
@@ -527,9 +531,14 @@ class TurnManager implements core.TurnManager {
     final provider = session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
     final isLogicalAgent = session?.type == SessionType.logicalAgent;
+    // A channel session bound to a logical agent executes as that agent: the
+    // channel surface would route it to the primary lane under the primary's
+    // policy, discarding the pin, so it takes the logical-agent surface while
+    // its admission stays the channel's waiting kind.
+    final boundChannel = session?.type == SessionType.channel && agentName != null && agentName != 'main';
     final surface = switch (session?.type) {
       SessionType.cron => ExecutionSurface.scheduler,
-      SessionType.channel => ExecutionSurface.channel,
+      SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
       SessionType.logicalAgent => ExecutionSurface.logicalAgent,
       SessionType.task => ExecutionSurface.task,
       _ => ExecutionSurface.interactive,
@@ -543,7 +552,7 @@ class TurnManager implements core.TurnManager {
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,
-        logicalAgentId: isLogicalAgent ? agentName : null,
+        logicalAgentId: isLogicalAgent || boundChannel ? agentName : null,
       ),
     );
     if (lease != null) return lease;

@@ -30,8 +30,8 @@ class SignalConfig {
   /// Group-message access policy for Signal groups.
   final GroupAccessMode groupAccess;
 
-  /// Approved direct-message senders when [dmAccess] is allowlist-based.
-  final List<String> dmAllowlist;
+  /// Approved direct-message rows when [dmAccess] is allowlist-based.
+  final List<GroupEntry> dmAllowlist;
 
   /// Approved group entries when [groupAccess] is allowlist-based.
   final List<GroupEntry> groupAllowlist;
@@ -52,7 +52,7 @@ class SignalConfig {
     this.maxChunkSize = 4000,
     this.dmAccess = DmAccessMode.allowlist,
     this.groupAccess = GroupAccessMode.disabled,
-    this.dmAllowlist = const [],
+    this.dmAllowlist = const <GroupEntry>[],
     this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
     this.mentionPatterns = const [],
@@ -63,6 +63,10 @@ class SignalConfig {
   /// Provides backward-compatible access equivalent to the previous
   /// `List<String> groupAllowlist` field.
   List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
+
+  /// The peer ids from [dmAllowlist] as a plain string list – the shape the
+  /// DM access check consumes.
+  List<String> get dmIds => GroupEntry.groupIds(dmAllowlist);
 
   /// Creates a disabled Signal configuration.
   const new disabled() : this();
@@ -110,7 +114,7 @@ class SignalConfig {
     // operator loses access silently. Warned rather than refused because a
     // channel section's only load-time surface is this advisory list, which
     // reaches `config.warnings` and blocks a hot reload.
-    for (final entry in common.dmAllowlist) {
+    for (final entry in GroupEntry.groupIds(common.dmAllowlist)) {
       if (isValidSignalUuid(entry)) {
         if (entry != entry.toLowerCase()) {
           warns.add(

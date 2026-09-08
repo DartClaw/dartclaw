@@ -49,7 +49,7 @@ void main() {
       eventBus: eventBus,
       sseBroadcast: SseBroadcast(),
       pauseController: pauseController,
-      sessions: InMemorySessionService(),
+      replayPausedTurns: (_) async {},
       threadBindingStore: threadBindingStore,
     );
   }

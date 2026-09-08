@@ -252,7 +252,11 @@ abstract class AgentHarness {
 
   /// Clears provider-side conversation continuity for [sessionId], if any.
   ///
-  /// Callers must not invoke this while a turn for [sessionId] is active.
+  /// Only a call for the session whose turn is active is a contract violation;
+  /// callers must not make one. A call for any other session is always
+  /// permitted, including while a turn is in flight, so implementations must
+  /// answer for what their own process actually carries: either a no-op or a
+  /// clear bounded to [sessionId] that is safe alongside the running turn.
   Future<void> resetSessionContinuity(String sessionId) async {}
 
   /// Cancel the current in-progress turn.

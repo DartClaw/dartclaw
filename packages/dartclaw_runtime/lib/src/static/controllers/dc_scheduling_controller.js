@@ -67,9 +67,16 @@ export default class DcSchedulingController extends Stimulus.Controller {
     copy.textContent = message;
     const confirm = document.createElement('button');
     confirm.className = 'btn btn-danger-fill btn-sm';
-    confirm.textContent = 'Confirm Delete';
+    confirm.textContent = button.dataset.deleteLabel || 'Confirm Delete';
     confirm.setAttribute('hx-post', url);
-    confirm.setAttribute('hx-target', url.includes('/tasks/') ? '#scheduling-tasks-table' : '#scheduling-jobs-table');
+    confirm.setAttribute(
+      'hx-target',
+      url.includes('/pending/')
+        ? '#scheduling-pending-changes'
+        : url.includes('/tasks/')
+          ? '#scheduling-tasks-table'
+          : '#scheduling-jobs-table',
+    );
     confirm.setAttribute('hx-swap', 'outerHTML');
     const cancel = document.createElement('button');
     cancel.className = 'btn btn-ghost btn-sm';

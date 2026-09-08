@@ -47,6 +47,7 @@ class ConfigurableTurnManager implements TurnManager {
     String? systemPromptOverride,
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     String? taskId,

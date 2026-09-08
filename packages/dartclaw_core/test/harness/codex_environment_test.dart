@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -90,6 +91,29 @@ void main() {
         expect(config, isNot(contains('https://example.com')));
       });
 
+      test('seeds authentication from an exported CODEX_HOME before the default home', () async {
+        final root = Directory.systemTemp.createTempSync('dartclaw-codex-custom-source-');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final defaultHome = Directory(p.join(root.path, 'operator'))..createSync();
+        final defaultCodexHome = Directory(p.join(defaultHome.path, '.codex'))..createSync();
+        File(p.join(defaultCodexHome.path, 'auth.json')).writeAsStringSync('{"source":"default"}');
+        final customCodexHome = Directory(p.join(root.path, 'custom-codex'))..createSync();
+        File(p.join(customCodexHome.path, 'auth.json')).writeAsStringSync('{"source":"custom"}');
+        final env = CodexEnvironment(
+          developerInstructions: 'worker rules',
+          useSystemCodexHome: false,
+          platformCapabilities: PlatformCapabilities(
+            operatingSystem: 'linux',
+            environment: {'HOME': defaultHome.path, 'CODEX_HOME': customCodexHome.path},
+          ),
+        );
+        addTearDown(env.cleanup);
+
+        final dirPath = await env.setup();
+
+        expect(File(p.join(dirPath, 'auth.json')).readAsStringSync(), '{"source":"custom"}');
+      });
+
       test('cleanup removes the temp directory and is safe to call twice', () async {
         final env = CodexEnvironment(developerInstructions: 'cleanup test', useSystemCodexHome: false);
         final dirPath = await env.setup();
@@ -128,6 +152,19 @@ void main() {
           isFalse,
           reason: 'system mode must NOT override CODEX_HOME — subprocess inherits from parent env',
         );
+      });
+
+      test('setup reports an exported CODEX_HOME as the inherited system home', () async {
+        final env = CodexEnvironment(
+          developerInstructions: 'anything',
+          platformCapabilities: PlatformCapabilities(
+            operatingSystem: 'linux',
+            environment: const {'HOME': '/home/dev', 'CODEX_HOME': '/srv/codex-profile'},
+          ),
+        );
+
+        expect(await env.setup(), '/srv/codex-profile');
+        expect(env.environmentOverrides(), isNot(contains('CODEX_HOME')));
       });
 
       test('setup still exports the MCP bearer token env var when configured', () async {
@@ -354,6 +391,68 @@ void main() {
         expect(File(p.join(home, 'skills', 'local-skill.md')).readAsStringSync(), '# local');
       });
 
+      test('mirrors capabilities from an exported CODEX_HOME before the default home', () async {
+        plantOperatorPlugins();
+        final customCodex = Directory(p.join(root.path, 'custom-codex'))..createSync();
+        File(p.join(customCodex.path, 'config.toml')).writeAsStringSync(
+          '[plugins."custom@custom"]\n'
+          'enabled = true\n',
+        );
+        Directory(p.join(customCodex.path, 'skills')).createSync(recursive: true);
+        File(p.join(customCodex.path, 'skills', 'custom-skill.md')).writeAsStringSync('# custom');
+        File(p.join(customCodex.path, 'auth.json')).writeAsStringSync('{"token":"OPERATOR-CUSTOM"}');
+        final environment = CodexEnvironment.dedicated(
+          developerInstructions: 'be careful',
+          homePath: dedicatedHome,
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path, 'CODEX_HOME': customCodex.path}),
+        );
+
+        final home = await environment.setup();
+
+        final config = File(p.join(home, 'config.toml')).readAsStringSync();
+        expect(config, contains('[plugins."custom@custom"]'));
+        expect(config, isNot(contains('[plugins."andthen@andthen"]')));
+        expect(File(p.join(home, 'skills', 'custom-skill.md')).readAsStringSync(), '# custom');
+        expect(File(p.join(home, 'auth.json')).existsSync(), isFalse);
+      });
+
+      test('an exported CODEX_HOME equal to the dedicated target is not mirrored onto itself', () async {
+        File(p.join(dedicatedHome, 'auth.json')).writeAsStringSync('{"token":"DEDICATED"}');
+        File(p.join(dedicatedHome, 'config.toml')).writeAsStringSync(
+          '[plugins."native@local"]\n'
+          'enabled = true\n',
+        );
+        Directory(p.join(dedicatedHome, 'skills')).createSync(recursive: true);
+        File(p.join(dedicatedHome, 'skills', 'native.md')).writeAsStringSync('# native');
+
+        completeDedicatedCodexHome(
+          dedicatedHome,
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path, 'CODEX_HOME': dedicatedHome}),
+        );
+
+        expect(File(p.join(dedicatedHome, 'auth.json')).readAsStringSync(), '{"token":"DEDICATED"}');
+        expect(File(p.join(dedicatedHome, 'skills', 'native.md')).readAsStringSync(), '# native');
+        expect(File(p.join(dedicatedHome, 'config.toml')).readAsStringSync(), contains('[plugins."native@local"]'));
+      });
+
+      test('configured source and dedicated home root symlinks retain their root semantics', () async {
+        final source = Directory(p.join(root.path, 'operator-source'))..createSync();
+        File(p.join(source.path, 'config.toml')).writeAsStringSync('');
+        Directory(p.join(source.path, 'skills')).createSync();
+        File(p.join(source.path, 'skills', 'linked-root-skill.md')).writeAsStringSync('# linked roots');
+        final sourceAlias = Link(p.join(root.path, 'operator-source-alias'))..createSync(source.path);
+        final dedicatedAlias = Link(p.join(root.path, 'dedicated-alias'))..createSync(dedicatedHome);
+        final environment = CodexEnvironment.dedicated(
+          developerInstructions: 'be careful',
+          homePath: dedicatedAlias.path,
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path, 'CODEX_HOME': sourceAlias.path}),
+        );
+
+        await environment.setup();
+
+        expect(File(p.join(dedicatedHome, 'skills', 'linked-root-skill.md')).readAsStringSync(), '# linked roots');
+      }, skip: Platform.isWindows);
+
       test('mirroring never carries the operator credential across', () async {
         plantOperatorPlugins();
         await plantOperatorLogin();
@@ -564,6 +663,88 @@ void main() {
             everyElement(isNot(contains('OPERATOR-LOGIN'))),
             reason: 'no path out of ~/.codex may carry the operator login into the dedicated store',
           );
+        });
+
+        test('skips source links instead of following them to credential material', () async {
+          final operatorCodex = Directory(p.join(root.path, '.codex'))..createSync(recursive: true);
+          File(p.join(operatorCodex.path, 'config.toml')).writeAsStringSync('');
+          final skills = Directory(p.join(operatorCodex.path, 'skills'))..createSync();
+          final auth = File(p.join(operatorCodex.path, 'auth.json'))..writeAsStringSync('OPERATOR-SECRET');
+          Link(p.join(skills.path, 'leak')).createSync(auth.path);
+
+          await build().setup();
+
+          expect(
+            FileSystemEntity.typeSync(p.join(dedicatedHome, 'skills', 'leak'), followLinks: false),
+            FileSystemEntityType.notFound,
+          );
+          expect(
+            Directory(dedicatedHome)
+                .listSync(recursive: true, followLinks: false)
+                .whereType<File>()
+                .map((file) => file.readAsStringSync()),
+            everyElement(isNot(contains('OPERATOR-SECRET'))),
+          );
+        }, skip: Platform.isWindows);
+
+        test('rejects a linked source payload directory that escapes the operator home', () async {
+          final operatorCodex = Directory(p.join(root.path, '.codex'))..createSync(recursive: true);
+          File(p.join(operatorCodex.path, 'config.toml')).writeAsStringSync('');
+          final outside = Directory(p.join(root.path, 'outside-source'))..createSync();
+          File(p.join(outside.path, 'leak')).writeAsStringSync('OUTSIDE-SECRET');
+          Link(p.join(operatorCodex.path, 'skills')).createSync(outside.path);
+
+          await build().setup();
+
+          expect(File(p.join(dedicatedHome, 'skills', 'leak')).existsSync(), isFalse);
+          expect(File(p.join(outside.path, 'leak')).readAsStringSync(), 'OUTSIDE-SECRET');
+        }, skip: Platform.isWindows);
+
+        test('a linked destination payload cannot redirect swaps outside the dedicated home', () async {
+          plantOperatorPlugins();
+          final outside = Directory(p.join(root.path, 'outside-target'))..createSync();
+          final sentinel = File(p.join(outside.path, 'local-skill.md'))..writeAsStringSync('OUTSIDE-SENTINEL');
+          Link(p.join(dedicatedHome, 'skills')).createSync(outside.path);
+
+          await build().setup();
+
+          expect(sentinel.readAsStringSync(), 'OUTSIDE-SENTINEL');
+          expect(Directory(outside.path).listSync().map((entity) => p.basename(entity.path)), ['local-skill.md']);
+        }, skip: Platform.isWindows);
+
+        test('a linked staging directory cannot redirect swaps or cleanup outside the dedicated home', () async {
+          plantOperatorPlugins();
+          final outside = Directory(p.join(root.path, 'outside-staging'))..createSync();
+          final redirectedSwap = Directory(p.join(outside.path, '$pid-0'))..createSync();
+          final sentinel = File(p.join(redirectedSwap.path, 'sentinel'))..writeAsStringSync('OUTSIDE-SENTINEL');
+          Link(p.join(dedicatedHome, '.dartclaw-mirror-staging')).createSync(outside.path);
+
+          await build().setup();
+
+          expect(sentinel.readAsStringSync(), 'OUTSIDE-SENTINEL');
+          expect(Directory(outside.path).listSync().map((entity) => p.basename(entity.path)), ['$pid-0']);
+          expect(redirectedSwap.listSync().map((entity) => p.basename(entity.path)), ['sentinel']);
+        }, skip: Platform.isWindows);
+
+        test('path-bearing manifest names cannot retire files outside a mirrored payload', () async {
+          final operatorCodex = Directory(p.join(root.path, '.codex'))..createSync(recursive: true);
+          File(p.join(operatorCodex.path, 'config.toml')).writeAsStringSync('');
+          Directory(p.join(operatorCodex.path, 'skills')).createSync();
+          Directory(p.join(dedicatedHome, 'skills')).createSync();
+          final outside = File(p.join(root.path, 'outside-owned-name'))..writeAsStringSync('OUTSIDE-SENTINEL');
+          final name = p.relative(outside.path, from: p.join(dedicatedHome, 'skills'));
+          File(p.join(dedicatedHome, '.dartclaw-mirror.json')).writeAsStringSync(
+            jsonEncode({
+              'directories': {
+                'skills': [name],
+              },
+              'pluginTables': <String>[],
+            }),
+          );
+
+          await build().setup();
+
+          expect(outside.readAsStringSync(), 'OUTSIDE-SENTINEL');
         });
 
         test('refuses the whole mirror when the operator config leaves the supported subset', () async {

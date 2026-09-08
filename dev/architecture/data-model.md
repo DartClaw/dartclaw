@@ -39,6 +39,7 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 │   └── signal-sender-map.json        # [JSON]   Signal UUID↔phone mapping
 ├── google-chat-user-oauth.json       # [JSON]   Shared Google Chat user OAuth refresh token + client metadata (space events + reactions)
 ├── thread-bindings.json              # [JSON]   Channel thread/task bindings
+├── pending-schedule-changes.json     # [JSON]   Parked schedule_upsert writes awaiting operator approval
 ├── sessions/
 │   ├── .session_keys.json            # [JSON]   Deterministic key→UUID index
 │   └── <uuid>/
@@ -73,7 +74,7 @@ Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.
 |---------|-------|-------------|-------------|
 | **Relational queries** | `search.db`, `tasks.db`, `state.db` | SQLite prepared statements | WAL (`tasks.db`, `state.db`), single-thread (`search.db`) |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
-| **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, OAuth store, projects) |
+| **Atomic documents** | `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
 | **Append-mostly SQLite** | `turns` (in `tasks.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
 | **Append-only SQLite** | `task_events` (in `tasks.db`) | Synchronous insert | `TaskEventService` (WAL) |

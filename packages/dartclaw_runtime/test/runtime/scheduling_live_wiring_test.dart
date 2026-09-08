@@ -120,7 +120,7 @@ scheduling:
       await runtime.taskService.dispose();
       await runtime.eventBus.dispose();
       await runtime.qmdManager?.stop();
-      runtime.searchDb.close();
+      runtime.searchDb!.close();
       await logService.dispose();
     });
     return runtime;

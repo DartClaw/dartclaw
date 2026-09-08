@@ -1,20 +1,22 @@
-import 'dart:io';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../scheduling/schedule_mutation.dart';
 import '../scheduling/schedule_service.dart';
 import '../scheduling/scheduled_task_runner.dart';
+import 'mcp_server.dart';
 import 'tool_schema.dart';
 
 /// MCP tool that creates or updates a scheduled job through the shared
 /// scheduling-mutation seam.
 ///
 /// Performs no validation of its own beyond its declared input contract: the
-/// schedule rule and the config write are the seam's, exactly as for the web
-/// API. The seam loads what it wrote before returning, so the result reports
-/// whether the running scheduler holds the job rather than promising a restart.
-class ScheduleUpsertTool implements McpTool {
+/// schedule rule, the merge-or-create and the config write are the seam's,
+/// exactly as for the web API. The seam loads what it wrote before returning,
+/// so the result reports whether the running scheduler holds the job rather
+/// than promising a restart — or, under operator approval, that the write is
+/// parked. The requester a parked change records is host-owned: the dispatch's
+/// caller identity where it has one, else this tool's name, never an argument.
+class ScheduleUpsertTool implements ContextualMcpTool {
   new({required ScheduleMutationService mutations, ScheduleService? schedules})
     : _mutations = mutations,
       _schedules = schedules;
@@ -29,7 +31,8 @@ class ScheduleUpsertTool implements McpTool {
   String get description =>
       'Create or update a scheduled job. It runs from the moment this call returns — no restart. Pass "schedule" for '
       'a recurring job or "at" for a one-time job, never both. List what is configured and what is running with '
-      'schedule_list first.';
+      'schedule_list first. Where the deployment requires operator approval, the result reports the write as '
+      'pending instead of loaded.';
 
   @override
   Map<String, dynamic> get inputSchema => toolSchema(
@@ -65,7 +68,13 @@ class ScheduleUpsertTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _upsert(args, requester: name);
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _upsert(args, requester: context.authorityId);
+
+  Future<ToolResult> _upsert(Map<String, dynamic> args, {required String requester}) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 
@@ -89,11 +98,6 @@ class ScheduleUpsertTool implements McpTool {
     if (shapeRefusal != null) return toolError('invalid_request', shapeRefusal);
 
     final id = args['id'] as String;
-    if (_mutations.reservedJobIds.contains(id)) {
-      return toolError('conflict', 'Job "$id" is a built-in job and cannot be edited through schedule_upsert', {
-        'id': id,
-      });
-    }
 
     // The schedule/at rule is the seam's, so the tool and the jobs API cannot
     // accept different instants or different cron expressions.
@@ -116,34 +120,34 @@ class ScheduleUpsertTool implements McpTool {
       if (args['effort'] != null) 'effort': args['effort'],
     };
 
-    final jobs = [for (final entry in await _mutations.readJobs()) Map<String, dynamic>.from(entry)];
-    final existing = ScheduleMutationService.indexOfJob(jobs, id);
-    final created = existing == -1;
-    if (created) {
-      jobs.add(job);
-    } else {
-      // Merged, not replaced — the same shape `PUT /api/scheduling/jobs/<name>`
-      // applies. Replacing would drop every operator-set key this tool cannot
-      // express (`enabled`, `webhook_url`, `retry.*`, `allowed_tools`).
-      jobs[existing] = {...jobs[existing], ...job};
+    // The built-in-id refusal, the merge-or-create and the approval gate are
+    // all the seam's, so the parked body and the committed one are one code
+    // path. The seam's refusal codes map onto this tool's reasons: a shell
+    // entry's file-only refusal arrives as INVALID_INPUT like any other.
+    final outcome = await _mutations.upsertJob(job, requester: requester);
+    switch (outcome.result) {
+      case ScheduleMutationRefused(:final refusal):
+        final reason = switch (refusal.code) {
+          'CONFLICT' => 'conflict',
+          'INVALID_INPUT' => 'invalid_request',
+          'PENDING_QUEUE_FULL' => 'pending_queue_full',
+          _ => 'write_failed',
+        };
+        return toolError(reason, refusal.message, {'id': id});
+      case ScheduleMutationParked(:final changeId):
+        return toolJson({'id': id, 'pending': true, 'changeId': changeId});
+      case ScheduleMutationApplied():
+        // A `type: task` entry reaches the scheduler under the runner's job id,
+        // so asking about the entry id would report every task upsert as not
+        // loaded.
+        final loadedId = type == 'task' ? ScheduledTaskRunner.jobIdForDefinition(id) : id;
+        return toolJson({
+          'id': id,
+          'created': outcome.created,
+          'schedule': schedule.value,
+          'loaded': _schedules?.hasJob(loadedId) ?? false,
+        });
     }
-
-    try {
-      await _mutations.commitAndApply(jobs);
-    } on StateError catch (error) {
-      return toolError('write_failed', 'Config backup failed: ${error.message}', {'id': id});
-    } on FileSystemException catch (error) {
-      return toolError('write_failed', 'Config write failed: ${error.message}', {'id': id});
-    }
-    // A `type: task` entry reaches the scheduler under the runner's job id, so
-    // asking about the entry id would report every task upsert as not loaded.
-    final loadedId = type == 'task' ? ScheduledTaskRunner.jobIdForDefinition(id) : id;
-    return toolJson({
-      'id': id,
-      'created': created,
-      'schedule': schedule.value,
-      'loaded': _schedules?.hasJob(loadedId) ?? false,
-    });
   }
 }
 
@@ -195,7 +199,9 @@ class ScheduleListTool implements McpTool {
         'source': 'config',
         'loaded': entry != null,
         'paused': entry?.paused ?? false,
-        'editable': true,
+        // A shell entry is file-only: schedule_upsert refuses every write that
+        // would touch it, so reporting it editable would invite a refused call.
+        'editable': job['type'] != 'shell',
         // A written job is loaded before its write returns, so a configured
         // entry the scheduler does not hold is one it could not compose.
         if (entry == null && _schedules != null)

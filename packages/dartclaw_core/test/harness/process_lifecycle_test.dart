@@ -311,7 +311,12 @@ void main() {
       print('Native Windows process lifecycle: directly managed root PID ${process.pid} reaped.');
     } finally {
       process.kill();
-      Process.killPid(childPid);
+      final childTermination = await Process.run(PlatformCapabilities().windowsSystemExecutable('taskkill.exe'), [
+        '/PID',
+        '$childPid',
+        '/F',
+      ]);
+      expect(childTermination.exitCode, isZero, reason: 'orphan cleanup failed: ${childTermination.stderr}');
       try {
         await process.exitCode.timeout(const Duration(seconds: 2));
       } on TimeoutException {

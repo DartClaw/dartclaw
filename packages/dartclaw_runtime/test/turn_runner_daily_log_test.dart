@@ -21,9 +21,9 @@ final class _CountingRedactor extends MessageRedactor {
   var redactedCodeUnits = 0;
 
   @override
-  String redact(String input) {
+  String redact(String input, {List<String> sensitiveValues = const []}) {
     redactedCodeUnits += input.length;
-    return super.redact(input);
+    return super.redact(input, sensitiveValues: sensitiveValues);
   }
 }
 
@@ -83,8 +83,12 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  Future<void> runToolTurn(List<ToolUseEvent> toolEvents) async {
-    final session = await sessions.createSession(type: SessionType.user);
+  Future<void> runToolTurn(
+    List<ToolUseEvent> toolEvents, {
+    SessionType type = SessionType.user,
+    String agentName = 'main',
+  }) async {
+    final session = await sessions.createSession(type: type);
     unawaited(() async {
       await worker.turnInvoked;
       for (final event in toolEvents) {
@@ -96,11 +100,16 @@ void main() {
     }());
     final turnId = await runner.startTurn(session.id, [
       {'role': 'user', 'content': 'Exercise the daily-log serializer'},
-    ]);
+    ], agentName: agentName);
     await runner.waitForOutcome(session.id, turnId);
   }
 
-  File dailyLog() => Directory(p.join(workspaceDir, 'memory')).listSync().whereType<File>().single;
+  List<File> dailyLogs() {
+    final dir = Directory(p.join(workspaceDir, 'memory'));
+    return dir.existsSync() ? dir.listSync().whereType<File>().toList() : const [];
+  }
+
+  File dailyLog() => dailyLogs().single;
 
   test('a tool input past the byte cap is cut as it is written, not after it is encoded whole', () async {
     // 512 values of 8 KiB: the item budget admits every one of them, so encoding
@@ -168,5 +177,24 @@ void main() {
     final content = dailyLog().readAsStringSync();
     expect(dailyLogToolSummaries(content).single, contains('"env":'));
     expect(content, isNot(contains('JWT_PAYLOAD_SENTINEL')));
+  });
+
+  group('bound persona turns', () {
+    final toolEvents = [
+      ToolUseEvent(toolName: 'file_read', toolId: 'read-1', input: {'path': 'notes.md'}),
+    ];
+
+    test('a channel-session turn named for an agent appends nothing', () async {
+      await runToolTurn(toolEvents, type: SessionType.channel, agentName: 'ana');
+
+      expect(dailyLogs(), isEmpty);
+    });
+
+    test('a main channel turn with the same result appends exactly what it does today', () async {
+      await runToolTurn(toolEvents, type: SessionType.channel);
+
+      final content = dailyLog().readAsStringSync();
+      expect(dailyLogToolSummaries(content).single, contains('"path":"notes.md"'));
+    });
   });
 }

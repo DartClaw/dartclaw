@@ -550,7 +550,9 @@ void main() {
     expect((await context.tasks.get('finalizer-contract'))?.status, TaskStatus.review);
     expect(harness.lastProviderSessionId, 'provider-session');
     expect(harness.lastOutputSchema, _summaryEnvelopeSchema);
-    expect(harness.lastMaxTurns, 2);
+    // Each schema rejection of the provider's StructuredOutput call costs a turn
+    // before the corrected retry; a ceiling of 2 failed live steps on one slip.
+    expect(harness.lastMaxTurns, 4);
     final request = workerRequests.single;
     expect(request.allowedTools, isNull);
   });

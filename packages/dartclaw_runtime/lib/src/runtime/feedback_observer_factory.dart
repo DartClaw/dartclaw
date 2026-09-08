@@ -1,5 +1,3 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
@@ -42,7 +40,10 @@ class FeedbackObserverFactory {
         statusInterval: feedbackConfig.statusInterval,
         statusStyle: feedbackConfig.statusStyle,
       );
-      final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+      final session = await sessions.getByKey(sessionKey);
+      if (session == null) {
+        return false;
+      }
       final context = FeedbackContext(
         channel: sourceChannel,
         recipientJid: recipientJid,

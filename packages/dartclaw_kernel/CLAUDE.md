@@ -36,7 +36,11 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   against it. `runtimeBinary` rides the same object as resolution output, not as a YAML key. Parsing therefore
   **defers** `validateExecutionPolicySelections` while `declaredEnabled` is null — resolution re-runs it, and
   `execution: container` under a resolved-disabled posture is still startup-fatal ([ADR-055](../../dev/adrs/055-container-by-default-posture.md)).
-- All YAML mutations use `ConfigWriter`; it owns queued, backed-up, atomic writes.
+- All YAML mutations use `ConfigWriter`; it owns queued, backed-up, atomic writes. `ConfigWriter.applyEdit` is the one
+  path-edit seam (null removes, missing parents are created, collections are handed to `YamlEditor` as plain Dart
+  values — a `YamlNode` read back through `readSchedulingJobs` re-emits in its source style at the wrong indentation and
+  the write asserts). `dartclaw_cli`'s init writer drives its own editor through that seam because it creates the file
+  and leaves no `.bak`. Edits are surgical only outside the written paths: a subtree written whole loses its comments.
 - `HarnessConfig.sections` retains raw harness sections. The adapter package owns parsing its section.
 - Credential selection stays in `CredentialRegistry`; subscription credential files remain core-owned and are injected
   as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`.
@@ -90,6 +94,12 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `ProviderEntry.auth == null` means inherit the family selection; explicit `auto` is different. Rebuild entries with
   `copyWith`.
 - `GuardChain.layered` reads the base list live while retaining layer-owned guards.
+- `TaskToolFilterGuard.denyEmptyAllowlist` opts into explicit empty-list denial. Null remains unrestricted; the default
+  preserves legacy empty-list behavior. Runtime enables strict empty lists for workflow workers and their finalizers.
+  A schema-active session may admit only the exact Claude `StructuredOutput` protocol identity; the knowledge-inbox
+  no-tools sentinel still wins, and clearing the session policy also clears this exception.
+  Nonempty policies admit exact native Claude Skill/ToolSearch helpers; empty policies and the sentinel deny them.
+  Skill activation loads trusted plugin code, while ordinary tool callbacks remain filtered.
 - `FileGuard` resolves relative paths against the tool cwd and resolves symlinks before matching.
 - `SearchBackend.search` accepts natural language and optional layer constraints; adapters own backend syntax and
   degradation labels.

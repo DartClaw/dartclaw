@@ -75,10 +75,10 @@ void main() {
       expect(_node(schema, 'guards')['additionalProperties'], false);
     });
 
-    test('no schema position carries required or default', () {
+    test('only structured allowlist rows carry required, and no position carries default', () {
       for (final position in positions) {
-        expect(position.containsKey('required'), isFalse);
         expect(position.containsKey('default'), isFalse);
+        if (position.containsKey('required')) expect(position['required'], ['id']);
       }
     });
 
@@ -93,6 +93,43 @@ void main() {
   });
 
   group('entry-shaped fields', () {
+    test('all channel allowlists accept a plain id or a closed structured row', () {
+      for (final channel in ['google_chat', 'signal', 'whatsapp']) {
+        for (final list in ['dm_allowlist', 'group_allowlist']) {
+          final items = _node(schema, 'channels.$channel.$list.[]');
+          expect(items['oneOf'], hasLength(2), reason: 'channels.$channel.$list');
+          expect(validateAgainstSchema('peer', items), isEmpty, reason: 'channels.$channel.$list plain row');
+          expect(
+            validateAgainstSchema({
+              'id': 'peer',
+              'name': 'Peer',
+              'project': 'project',
+              'model': 'model',
+              'effort': 'high',
+              'agent': 'ana',
+            }, items),
+            isEmpty,
+            reason: 'channels.$channel.$list structured row',
+          );
+          expect(validateAgainstSchema({'agent': 'ana'}, items), isNotEmpty, reason: 'missing id');
+          expect(validateAgainstSchema({'id': ''}, items), isNotEmpty, reason: 'blank id');
+          expect(validateAgainstSchema({'id': '   '}, items), isNotEmpty, reason: 'whitespace-only id');
+          expect(validateAgainstSchema({'id': 'peer', 'agent': 7}, items), isNotEmpty, reason: 'wrong agent type');
+          expect(
+            validateAgainstSchema({'id': 'peer', 'agent': '   '}, items),
+            isNotEmpty,
+            reason: 'whitespace-only agent',
+          );
+          expect(validateAgainstSchema({'id': 'peer', 'extra': true}, items), isNotEmpty, reason: 'unknown key');
+          expect(
+            validateAgainstSchema({'id': 'peer', 'name': '   ', 'project': '', 'model': null, 'effort': '   '}, items),
+            isEmpty,
+            reason: 'optional values follow loader semantics',
+          );
+        }
+      }
+    });
+
     test('an operator-named entry is typed while a shapeless sub-map stays open', () {
       final entry = _node(schema, 'mcp_servers.<entry>');
       expect(entry['additionalProperties'], false);

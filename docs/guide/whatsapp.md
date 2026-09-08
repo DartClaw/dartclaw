@@ -94,6 +94,25 @@ channels:
 
 See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
 
+`dm_allowlist` takes the same structured entries as `group_allowlist`, and both accept `agent: <name>`, which binds that
+conversation to the `agent.agents.<name>` definition: its own tools, model, effort and `prompt`, on the owner's one
+workspace. Entries without `agent` keep talking to the primary agent.
+
+```yaml
+channels:
+  whatsapp:
+    dm_allowlist:
+      - id: "46701234567@s.whatsapp.net"
+        agent: ana                # this contact talks to the `ana` persona
+      - "46709876543@s.whatsapp.net"              # plain string — the primary agent, as before
+    group_allowlist:
+      - id: "120363041234567890@g.us"
+        agent: ana
+```
+
+A row naming an agent that `agent.agents` does not declare refuses the config load. What a bound conversation inherits
+and costs is in [Agents § Binding a channel conversation to an agent](agents.md#binding-a-channel-conversation-to-an-agent).
+
 ### 4. Group Policies
 
 In groups, the agent only responds when mentioned (default `mention` mode). Configure mention patterns in `dartclaw.yaml`. The agent also responds to replies to its own messages.

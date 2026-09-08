@@ -38,8 +38,14 @@ class SchedulingJobsApplier {
   final DateTime Function()? _now;
 
   Future<void> apply() async {
-    final scheduling = loadDartclawConfig(configPath: _configPath).scheduling;
-    final composed = composeConfigJobs(scheduling, taskService: _taskService, now: _now);
+    final config = loadDartclawConfig(configPath: _configPath);
+    final composed = composeConfigJobs(
+      config.scheduling,
+      taskService: _taskService,
+      credentials: config.credentials,
+      dataDir: config.server.dataDir,
+      now: _now,
+    );
     _scheduleService()?.replaceConfigJobs(composed.jobs);
     if (composed.missedOnceIds.isNotEmpty) await _jobs.removeJobs(composed.missedOnceIds);
   }

@@ -4,9 +4,44 @@
 
 ## Active Milestone
 
+### 0.25.2 – Deployment feedback and workflow fixes
+
+**Status: release-ready, awaiting tag on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06),
+unreleased; pins at 0.25.2; record in the private patch PRD
+`docs/specs/0.25.2/prd.md`.** The third deployment-feedback batch delivered spawn-flag deny/turn limits, global deny
+on the main lane, final-text delivery, provider-enforced logical-agent schemas, `pool_size` default 2 and
+harness-owned continuity reset. Three follow-on features shipped on the branch and are consolidated in the PRD:
+operator approval for chat-driven scheduling writes (`c2057657`), model-free file-only shell jobs (`16917bc8`) and
+channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`. 0.26 waits behind this patch.
+
+The workflow follow-up restores Claude user-plugin inheritance with declared tool filtering, projectless inline
+output roots, Codex probe/worker isolation parity and safe capability mirroring from custom `CODEX_HOME`
+(`08a3ef2b`). Claude now holds a turn while background subagents remain (`71b1e3fa`); finalizers receive the complete
+root-envelope schema plus a derived skeleton and four-turn ceiling, and thread-binding writes drain before shutdown
+(`f0c453a0`, `03e5a911`); built-in workflows no longer invoke AndThen 1.0's retired review-council flag
+(`63bc6429`). Targeted live checks and intermediate full workspace gates passed; final pinned-commit gates remain the
+release authority. Release smoke also corrected persisted taskless workflow progress and task controls after
+live refresh; their focused regressions and browser reproductions passed. Codex now correlates response notifications
+with the active thread and turn, and the happy-path E2Es reject failed or cancelled final child tasks even when the
+run completes. The standalone boundary correction (`3e396940`) excludes personal-memory initialization and generic queued tasks
+from standalone workflow execution. Its review findings are closed; 11,429 workspace tests passed with 27
+configured/platform skips, and both binaries built. Live workflow, UI and container evidence is retained from release
+preparation; the final pinned-commit release checker remains the tagging gate.
+
+**Follow-ups** (in-flight items with no story of their own; drop each line when it lands):
+- Post-tag audits for v0.25.1.
+- 0.25 residuals: containerized workflow-step composition is unit-tested only; the historical workflow profile's
+  Codex rollout-location anomaly has not been rerun end to end. The background-subagent termination finding is
+  closed by `71b1e3fa` and its live canary.
+- Four diagrams 0.25 invalidated are unedited: crowd coding, the crowd-coding recipe, the inbound message pipeline
+  and the package DAG. Redo them through the excalidraw skill from a main conversation, never from a story executor.
+- Two 0.25 open items stay recorded only in the 0.25 PRD § Open items.
+
+## Released
+
 ### 0.25.1 — Release-process hardening
 
-**Status: release-ready on `feat/0.25.1`, awaiting tag.** Release-process hardening plus bug fixes from the
+**Status: released 2026-09-05 as `v0.25.1`.** Release-process hardening plus bug fixes from the
 2026-09-02 deployment-feedback review, and (owner, 2026-09-03) five operator quick wins: `dartclaw doctor`, the
 TD-121 leaked-container sweep, the lean workflow-only binary `dartclaw-workflow` (flat command tree,
 standalone-only), config JSON-schema distribution (`$schema` modeline, `dartclaw config schema --out`), and CLI
@@ -14,9 +49,9 @@ quick wins (truthful `status`, stderr + exit codes, `--yes` on deletes). Closes 
 `release_check.sh` runs only on the developer's host, which never exercises the Linux container job or the Windows
 release matrix, so a green local check preceded three red tag builds. The release now publishes ten archives across
 five targets — `dartclaw` and `dartclaw-workflow` each on macOS arm64/x64, Linux x64/arm64 and Windows x64. Record:
-`dartclaw-private/docs/specs/0.25.1/prd.md`.
-
-## Released
+`dartclaw-private/docs/specs/0.25.1/prd.md`. The same patch carried the second SecondBrain feedback batch (primary-agent hardening recipe and
+startup warning, channel identity in the composed prompt, announce continuity, `sessions.reset_hour: -1`) and the
+boy-scout cleanups from the 0.25 ledgers.
 
 ### 0.25 — Lean Runtime
 
@@ -32,7 +67,7 @@ harness path as interactive ones.
 reduction (lib fell 1,996 against a 12,000 target and the test surface grew 7,520), the CLI's ≤ 8K lib LOC bar
 (10,491, down from 20,769), and the ≥ 40 dead-config-key removal (~29 plus 2 uncounted — several keys turned out to
 be live and were preserved under the no-regression constraint). Measured figures and the per-clause verdicts are in
-[`STATE.md`](STATE.md).
+the 0.25 PRD.
 
 **Deferred at close-out, re-homed to 0.26 as S16/S17 on 2026-09-03**: S63 and S64, the workflow schema-emitting validator. They stayed `spec-ready`; the preserved
 work is parked on `parked/s64-workflow-schema`.

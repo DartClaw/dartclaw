@@ -445,13 +445,14 @@ void main() {
 
         await h.start();
 
+        final command = container.lastCommand;
+        final flag = command.indexOf('--disallowedTools');
+        expect(flag, greaterThanOrEqualTo(0));
+        expect(command.sublist(flag + 1), containsAll(['Computer', 'WebSearch', 'WebFetch']));
         final initialize = container.spawned!.capturedStdinJson.firstWhere(
           (message) => (message['request'] as Map?)?['subtype'] == 'initialize',
         );
-        expect(
-          ((initialize['request'] as Map)['disallowedTools'] as List).cast<String>(),
-          containsAll(['Computer', 'WebSearch', 'WebFetch']),
-        );
+        expect((initialize['request'] as Map).keys, isNot(contains('disallowedTools')));
       });
 
       test('translates plain path-based settings for containerized execution without overlays', () async {
@@ -588,6 +589,7 @@ void main() {
         final succeeded = await nextTurn;
         expect(succeeded.stopReason, 'end_turn');
         expect(succeeded.isError, isFalse);
+        expect(succeeded.finalText, 'ok');
         expect(harness.state, WorkerState.idle);
       });
 
@@ -624,33 +626,6 @@ void main() {
         expect(h.state, WorkerState.stopped);
         await h.stop();
         expect(h.state, WorkerState.stopped);
-      });
-
-      test('resetSessionContinuity stops the warm provider process', () async {
-        final processes = <FakeProcess>[];
-        final h = buildClaudeHarness(
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            final fake = FakeProcess(stdoutController: StreamController<List<int>>(), completeExitOnKill: true);
-            processes.add(fake);
-            scheduleMicrotask(() {
-              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
-            });
-            return fake;
-          },
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
-        expect(h.state, WorkerState.idle);
-
-        await h.resetSessionContinuity('sess-reset');
-
-        expect(h.state, WorkerState.stopped);
-        expect(processes.single.killCalled, isTrue);
-
-        await h.start();
-        expect(processes, hasLength(2));
-        expect(h.state, WorkerState.idle);
       });
     });
 
@@ -714,45 +689,6 @@ void main() {
       test('promptStrategy is append', () {
         final h = ClaudeCodeHarness(cwd: '/tmp');
         expect(h.promptStrategy, PromptStrategy.append);
-      });
-
-      test('spawn args include --append-system-prompt when configured', () async {
-        List<String>? capturedArgs;
-
-        final h = buildClaudeHarness(
-          harnessConfig: const HarnessLaunchOptions(appendSystemPrompt: 'test behavior prompt'),
-          processFactory: capturingInitFactory(
-            onSpawn: (spawn) {
-              capturedArgs = spawn.args;
-            },
-          ),
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
-
-        expect(capturedArgs, isNotNull);
-        final idx = capturedArgs!.indexOf('--append-system-prompt');
-        expect(idx, greaterThanOrEqualTo(0), reason: '--append-system-prompt flag should be present');
-        expect(capturedArgs![idx + 1], 'test behavior prompt');
-      });
-
-      test('spawn args omit --append-system-prompt when not configured', () async {
-        List<String>? capturedArgs;
-
-        final h = buildClaudeHarness(
-          processFactory: capturingInitFactory(
-            onSpawn: (spawn) {
-              capturedArgs = spawn.args;
-            },
-          ),
-        );
-        addTeardownAsync(() => h.dispose());
-
-        await h.start();
-
-        expect(capturedArgs, isNotNull);
-        expect(capturedArgs, isNot(contains('--append-system-prompt')));
       });
 
       test('logical-agent persona and model restart once, then empty restores defaults once', () async {

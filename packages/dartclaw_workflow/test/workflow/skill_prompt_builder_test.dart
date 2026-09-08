@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -569,10 +571,46 @@ void main() {
       final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
       final finalizerPrompt = buildFinalizerPrompt(schema);
 
-      expect(finalizerPrompt, contains('## Declared Outputs'));
+      final schemaBlock = RegExp(r'```json\n([\s\S]*?)\n```').firstMatch(finalizerPrompt);
+      expect(schemaBlock, isNotNull);
+      expect(jsonDecode(schemaBlock!.group(1)!), schema);
       expect(finalizerPrompt, contains('Absolute review report path under the workflow runtime artifacts directory.'));
       expect(finalizerPrompt, contains('Review Finding Scoring'));
       expect(finalizerPrompt, contains('at or above `high`'));
+    });
+
+    // Live Claude finalizers submitted the declared outputs as the whole payload
+    // and dropped `step_outcome`; the skeleton names both root keys up front,
+    // before the schema block.
+    test('finalizer prompt opens with a root-envelope skeleton naming outputs and step_outcome', () {
+      final schema = buildExecutionEnvelopeSchema(reviewStep, reviewStep.outputs)!;
+      final finalizerPrompt = buildFinalizerPrompt(schema);
+
+      final skeleton = RegExp(r'Shape of the entire response[^\n]*\n```\n(\{[^\n]*\})\n```')
+          .firstMatch(finalizerPrompt);
+      expect(skeleton, isNotNull, reason: 'the skeleton is a one-line JSON object under its own heading');
+      final line = skeleton!.group(1)!;
+      expect(line, startsWith('{"outputs": {'));
+      for (final key in (schema['properties']['outputs']['properties'] as Map).keys) {
+        expect(line, contains('"$key": <'), reason: 'every declared output key appears with a type placeholder');
+      }
+      expect(line, contains('"step_outcome": {"outcome": "succeeded|failed|needsInput", "reason": "<string>"}'));
+      expect(finalizerPrompt.indexOf('Shape of the entire response'), lessThan(finalizerPrompt.indexOf('JSON Schema')));
+    });
+
+    test('finalizer prompt skeleton omits step_outcome for an emitsOwnOutcome step', () {
+      final step = WorkflowStep(
+        id: 'own-outcome',
+        name: 'Own outcome',
+        prompts: const ['Do it.'],
+        emitsOwnOutcome: true,
+        outputs: const {'summary': OutputConfig(format: OutputFormat.text)},
+      );
+      final schema = buildExecutionEnvelopeSchema(step, step.outputs)!;
+      final finalizerPrompt = buildFinalizerPrompt(schema);
+
+      final skeleton = RegExp(r'```\n(\{"outputs"[^\n]*\})\n```').firstMatch(finalizerPrompt)!.group(1)!;
+      expect(skeleton, '{"outputs": {"summary": <string>}}');
     });
   });
 }

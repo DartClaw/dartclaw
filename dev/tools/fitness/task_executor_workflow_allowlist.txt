@@ -5,10 +5,13 @@
 # Curated 2026-05-02 after the 0.16.4 task_executor decomposition: most workflow
 # orchestration moved into WorkflowWorktreeBinder + WorkflowOneShotRunner, so the
 # remaining refs in task_executor are limited to dependency wiring and a single
-# delegation entry point + the workflow-orchestrated execution dispatch.
+# delegation entry point, workflow-orchestrated execution dispatch and standalone queue selection.
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository, WorkflowStepExecutionRepository, WorkflowWorktreeBinding; | workflow-repository-binding-and-step-execution-import
 _workflowStepExecutionRepository = services.workflowStepExecutionRepository, | workflow-step-execution-repository-wiring
 _workflowRunRepository = services.workflowRunRepository, | workflow-run-repository-wiring
+_workflowOnly = workflowOnly; | standalone-workflow-only-queue-wiring
+final bool _workflowOnly; | standalone-workflow-only-queue-mode
+final queued = _workflowOnly | standalone-queue-selection-through-existing-workflow-identity
 final WorkflowStepExecutionRepository? _workflowStepExecutionRepository; | workflow-step-execution-repository-field
 final WorkflowRunRepository? _workflowRunRepository; | workflow-run-repository-field
 workflowRunRepository: _workflowRunRepository, | workflow-run-repository-binder-arg

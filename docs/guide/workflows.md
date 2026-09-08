@@ -186,6 +186,8 @@ The runtime also writes metadata keys automatically:
 
 Agent steps receive a workflow output contract automatically. A dedicated no-tools structured finalization turn after the main work turn emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }`. Declared model-derived keys appear under `outputs`; `step_outcome` is omitted when the step sets `emitsOwnOutcome: true`. The envelope is the only source for declared outputs: assistant prose, JSON fences and inline `<workflow-context>` blocks are inert text. A run persisted before the 0.25 envelope format must be re-run under 0.25.
 
+The finalization turn restarts the Claude process. A work turn that left subagents running in the background (Claude Code's `Agent` tool runs them that way by default) is held open until they report and the CLI's own notification turn ends, bounded by the step's turn timeout, so the restart cannot kill them; the step log then shows `Turn boundary held: N background task(s)` and the held turns' tokens count toward the step. A shell command left running in the background is not waited for. Skill prompts need no `run_in_background: false` workaround.
+
 Only steps that set `emitsOwnOutcome: true` use the inline step-outcome tag as their designed channel. End the final assistant message with:
 
 ```text
@@ -260,7 +262,7 @@ steps:
     name: Review Full Implementation
     skill: andthen:review
     parallel: true
-    prompt: '--mode mixed --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
+    prompt: '--mode gap --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
     outputs:
       plan-review.review_report_path: review_report_path
       plan-review.findings_count: findings_count
@@ -268,9 +270,9 @@ steps:
 
   - id: plan-review-council
     name: Review Full Implementation with Council
-    skill: andthen:review
+    skill: andthen-some:council
     parallel: true
-    prompt: '--mode code,security --council --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
+    prompt: '--mode code,security --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{context.plan}}'
     outputs:
       plan-review-council.review_report_path: review_report_path
       plan-review-council.findings_count: findings_count
@@ -864,6 +866,8 @@ dartclaw workflow run --standalone spec-and-implement --var FEATURE="Add search"
 
 `--standalone` builds the workflow engine in the current process — on the same composition root `dartclaw serve` uses, assembled headlessly — and bypasses any running server, without starting the HTTP server. Execution capacity is provisioned only for the providers the definition actually references, so an unreferenced logged-out provider does not block the run. It still uses the same `WorkflowService.start(...)` lifecycle as connected runs, so the resolved approval policy is persisted on the run and honored after resume. Without `--config`, standalone workflow commands first look for `.dartclaw/dartclaw.yaml` in the current directory, which is the path written by `dartclaw init --workflow`; pass `--config <path>/dartclaw.yaml` or set `DARTCLAW_CONFIG` only for custom locations. Put instance custom definitions in `<data_dir>/workflows/custom/` and run them by name. Files directly under the legacy `<data_dir>/workflows/` drop path still load for one release with a deprecation warning that names `workflows/custom/`. Built-in definitions referencing `andthen:*` skills still require AndThen installed for the selected provider; a missing skill is reported by the run preflight before any step dispatches.
 
+Standalone mode composes workflow infrastructure only: task, session and turn persistence, provider execution, skills, guards and repository operations. Its executor leaves unrelated queued tasks untouched. It does not initialize DartClaw personal-memory services, run memory preflight or indexing, expose memory tools, or add memory retrieval hints to prompts. Existing personal-memory data is left untouched, even when invalid. Provider-native tools, installed plugins and project instructions remain available.
+
 `resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same headless composition and the same `WorkflowService` the server uses. `cancel` and `pause` only transition persisted run state, so they provision no skills, configure no provider capacity, and start no provider process. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
 
 `--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `plan-and-implement --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
@@ -948,7 +952,7 @@ Notable patterns:
 
 Role usage:
 - `@planner`: `spec`
-- `@reviewer`: `revise-spec`, `integrated-review`, `integrated-review-council`, `re-review`
+- `@reviewer`: `revise-spec`, `integrated-review`, `re-review`
 - `@executor`: `implement`, `remediate`
 
 ### `plan-and-implement` – Story Fan-Out
@@ -971,7 +975,7 @@ Role usage:
 - `@workflow`: `discover-plan-state`
 - `@planner`: `plan`
 - `@executor`: `implement`, `remediate-story`, `remediate`
-- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `plan-review-council`, `re-review`
+- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `re-review`
 
 ### `code-review` – Review And Remediate Loop
 
@@ -1029,7 +1033,7 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 - `andthen:remediate-findings` – remediation loop driver
 - `andthen:triage` – failure investigation
 
-Install AndThen for the provider you run — the built-in workflows reference only core `andthen` plugin skills. DartClaw resolves `<plugin>:<name>` to `<plugin>-<name>` for Codex and leaves it unchanged for Claude Code. See [AndThen Skills](andthen-skills.md).
+Install AndThen for the provider you run – the built-in workflows reference only core `andthen` plugin skills. DartClaw uses the exact authored name when visible, with a `<plugin>-<name>` fallback for legacy Codex skill installations. User-scope plugins are supported on host execution; see [AndThen Skills](andthen-skills.md#user-scope-plugins) for settings inheritance and isolation.
 
 ## Reference
 

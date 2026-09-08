@@ -11,6 +11,8 @@ import 'package:test/test.dart';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
 
+import 'memory_wiring_test_support.dart';
+
 void main() {
   late Directory dataDir;
 
@@ -137,8 +139,7 @@ void main() {
         server: ServerConfig(dataDir: p.join(dataDir.path, 'case-${lineEnding.codeUnits.join('-')}')),
         search: const SearchConfig(backend: 'qmd'),
       );
-      final memory = File(p.join(config.workspaceDir, 'MEMORY.md'))..parent.createSync(recursive: true);
-      memory.writeAsStringSync('# DartClaw Canonical Memory${lineEnding}invalid current metadata$lineEnding');
+      final memory = seedInvalidCurrentMemory(config.workspaceDir, lineEnding: lineEnding);
       final before = memory.readAsBytesSync();
       var searchOpened = false;
       var qmdConstructed = false;

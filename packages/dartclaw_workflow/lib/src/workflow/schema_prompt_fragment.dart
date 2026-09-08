@@ -1,10 +1,7 @@
 /// Renders a JSON Schema as prompt prose.
 ///
-/// The one schema-to-prose renderer. Two prompts need it and must not diverge:
-/// the step's required-output-format section, and the finalizer prompt — which
-/// tells a model to "match the provided schema" even when the provider cannot
-/// be given one, so the schema has to reach it as text or the model guesses the
-/// types and the envelope fails host validation on fields it was never shown.
+/// Used for a step's required-output-format section. Finalizer turns receive
+/// their complete persisted JSON schema directly.
 String describeSchemaForPrompt(Map<String, dynamic> schema, String outputKey) {
   final buf = StringBuffer();
   buf.writeln('Produce your output for "$outputKey" as JSON with this structure:');

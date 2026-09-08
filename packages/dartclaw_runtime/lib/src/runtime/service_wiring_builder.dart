@@ -17,7 +17,7 @@ TurnManager _composeTurns(
   behavior: harness.behavior,
   executions: harness.executions,
   policyResolver: harness.policyResolver,
-  memoryFile: storage.memoryFile,
+  memoryFile: storage.personalMemoryFile,
   kv: storage.kvService,
   guardChain: security.guardChain,
   lockManager: harness.lockManager,
@@ -109,6 +109,7 @@ DartclawServer _composeRuntimeServer(
     memoryCorpus: storage.memoryCorpus,
     scheduleService: scheduling.scheduleService,
     schedulingJobsApplier: scheduling.applyJobs,
+    pendingScheduleChanges: scheduling.pendingScheduleChanges,
     gitSync: scheduling.gitSync,
   ),
   web: ServerWebDeps(

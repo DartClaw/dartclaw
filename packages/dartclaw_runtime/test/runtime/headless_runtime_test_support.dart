@@ -115,6 +115,7 @@ final class HeadlessRuntimeFixture {
   Future<HeadlessRuntimeStaging> stage(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
+    SearchDbFactory? searchDbFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -132,7 +133,7 @@ final class HeadlessRuntimeFixture {
       skillProvisionerEnvironment: resolvedEnvironment,
       runtimeCwd: runtimeCwd,
       harnessFactory: harnessFactory ?? harnessFactoryFor(() => FakeAgentHarness()),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
+      searchDbFactory: searchDbFactory ?? (_) => sqlite3.openInMemory(),
       taskDbFactory: (_) => sqlite3.openInMemory(),
       stderrLine: (_) {},
       exitFn: unexpectedExit,
@@ -153,6 +154,7 @@ final class HeadlessRuntimeFixture {
   Future<DartclawRuntime> runtime(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
+    SearchDbFactory? searchDbFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -165,6 +167,7 @@ final class HeadlessRuntimeFixture {
     final staging = await stage(
       config,
       harnessFactory: harnessFactory,
+      searchDbFactory: searchDbFactory,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
       runtimeCwd: runtimeCwd,
@@ -180,15 +183,12 @@ final class HeadlessRuntimeFixture {
     return wired;
   }
 
-  Future<T> withWiredCurrentDirectory<T>(
-    Directory currentDirectory,
+  Future<T> withWiredRuntime<T>(
     DartclawConfig config, {
-    String? runtimeCwd,
+    required String runtimeCwd,
     HarnessFactory? harnessFactory,
     required Future<T> Function(DartclawRuntime runtime) body,
   }) async {
-    final savedCwd = Directory.current;
-    Directory.current = currentDirectory;
     DartclawRuntime? wired;
     try {
       wired = await runtime(config, runtimeCwd: runtimeCwd, harnessFactory: harnessFactory, autoDispose: false);
@@ -197,7 +197,6 @@ final class HeadlessRuntimeFixture {
       if (wired != null) {
         await wired.shutdown();
       }
-      Directory.current = savedCwd;
     }
   }
 

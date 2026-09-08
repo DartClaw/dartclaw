@@ -26,7 +26,6 @@ final class StepTurnRunner {
     bool requestProviderSessionResume = false,
     Duration? turnTimeout,
   }) async {
-    final providerEnforcedSchema = _runner.harness.supportsStructuredOutput ? outputSchema : null;
     final turnId = await _runner.reserveAdmittedTurn(
       sessionId,
       agentName: stepAgentName,
@@ -38,7 +37,8 @@ final class StepTurnRunner {
       allowedTools: allowedTools,
       readOnly: readOnly,
       maxTurns: maxTurns,
-      outputSchema: providerEnforcedSchema,
+      outputSchema: outputSchema,
+      outputSchemaWhenSupported: true,
       providerSessionId: providerSessionId,
       requestProviderSessionResume: requestProviderSessionResume,
       promptScope: PromptScope.task,

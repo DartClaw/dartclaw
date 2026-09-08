@@ -4,15 +4,15 @@ import 'package:test/test.dart';
 void main() {
   group('GroupEntry.parseList', () {
     test('null input returns empty list', () {
-      expect(GroupEntry.parseList(null), isEmpty);
+      expect(GroupEntry.parseList(null, field: 'x.group_allowlist'), isEmpty);
     });
 
     test('empty list returns empty list', () {
-      expect(GroupEntry.parseList([]), isEmpty);
+      expect(GroupEntry.parseList([], field: 'x.group_allowlist'), isEmpty);
     });
 
     test('plain strings produce GroupEntry with id only, all overrides null', () {
-      final result = GroupEntry.parseList(['grp-1', 'grp-2']);
+      final result = GroupEntry.parseList(['grp-1', 'grp-2'], field: 'x.group_allowlist');
       expect(result, hasLength(2));
       expect(result[0].id, 'grp-1');
       expect(result[0].name, isNull);
@@ -25,7 +25,7 @@ void main() {
     test('structured map with all fields produces correct GroupEntry', () {
       final result = GroupEntry.parseList([
         {'id': 'grp-1', 'name': 'Dev Team', 'project': 'proj-abc', 'model': 'sonnet', 'effort': 'medium'},
-      ]);
+      ], field: 'x.group_allowlist');
       expect(result, hasLength(1));
       expect(result[0].id, 'grp-1');
       expect(result[0].name, 'Dev Team');
@@ -37,7 +37,7 @@ void main() {
     test('structured map with only id produces same as plain string', () {
       final result = GroupEntry.parseList([
         {'id': 'grp-1'},
-      ]);
+      ], field: 'x.group_allowlist');
       expect(result, hasLength(1));
       expect(result[0].id, 'grp-1');
       expect(result[0].name, isNull);
@@ -48,9 +48,13 @@ void main() {
 
     test('map without id is skipped and warning emitted', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([
-        {'name': 'No ID'},
-      ], onWarning: warns.add);
+      final result = GroupEntry.parseList(
+        [
+          {'name': 'No ID'},
+        ],
+        field: 'x.group_allowlist',
+        onWarning: warns.add,
+      );
       expect(result, isEmpty);
       expect(warns, hasLength(1));
       expect(warns[0], contains('missing or invalid'));
@@ -58,17 +62,21 @@ void main() {
 
     test('non-string/non-map item (int) is skipped and warning emitted', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([42, true], onWarning: warns.add);
+      final result = GroupEntry.parseList([42, true], field: 'x.group_allowlist', onWarning: warns.add);
       expect(result, isEmpty);
       expect(warns, hasLength(2));
     });
 
     test('duplicate IDs: last entry wins and warning emitted', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([
-        {'id': 'grp-1', 'name': 'First'},
-        {'id': 'grp-1', 'name': 'Second'},
-      ], onWarning: warns.add);
+      final result = GroupEntry.parseList(
+        [
+          {'id': 'grp-1', 'name': 'First'},
+          {'id': 'grp-1', 'name': 'Second'},
+        ],
+        field: 'x.group_allowlist',
+        onWarning: warns.add,
+      );
       expect(result, hasLength(1));
       expect(result[0].name, 'Second');
       expect(warns, hasLength(1));
@@ -78,15 +86,30 @@ void main() {
     test('whitespace-only name is treated as null', () {
       final result = GroupEntry.parseList([
         {'id': 'grp-1', 'name': '   '},
-      ]);
+      ], field: 'x.group_allowlist');
       expect(result[0].name, isNull);
+    });
+
+    test('optional blank and null routing overrides retain loader semantics', () {
+      final result = GroupEntry.parseList([
+        {'id': 'grp-1', 'name': '   ', 'project': '', 'model': null, 'effort': '   '},
+      ], field: 'x.group_allowlist');
+
+      expect(result.single.name, isNull);
+      expect(result.single.project, '');
+      expect(result.single.model, isNull);
+      expect(result.single.effort, '   ');
     });
 
     test('unknown keys in map are ignored and warning emitted', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([
-        {'id': 'grp-1', 'unknown_key': 'value'},
-      ], onWarning: warns.add);
+      final result = GroupEntry.parseList(
+        [
+          {'id': 'grp-1', 'unknown_key': 'value'},
+        ],
+        field: 'x.group_allowlist',
+        onWarning: warns.add,
+      );
       expect(result, hasLength(1));
       expect(result[0].id, 'grp-1');
       expect(warns, hasLength(1));
@@ -95,11 +118,15 @@ void main() {
 
     test('mixed list (strings + maps) produces correct combined result', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([
-        'grp-plain',
-        {'id': 'grp-structured', 'name': 'Team'},
-        42,
-      ], onWarning: warns.add);
+      final result = GroupEntry.parseList(
+        [
+          'grp-plain',
+          {'id': 'grp-structured', 'name': 'Team'},
+          42,
+        ],
+        field: 'x.group_allowlist',
+        onWarning: warns.add,
+      );
       expect(result, hasLength(2));
       expect(result[0].id, 'grp-plain');
       expect(result[0].name, isNull);
@@ -109,21 +136,25 @@ void main() {
     });
 
     test('groupIds convenience: matches expected ID list', () {
-      final entries = GroupEntry.parseList(['a', 'b', 'c']);
+      final entries = GroupEntry.parseList(['a', 'b', 'c'], field: 'x.group_allowlist');
       expect(GroupEntry.groupIds(entries), ['a', 'b', 'c']);
     });
 
     test('backward compat: list of plain strings produces identical groupIds to old _parseStringList output', () {
       final raw = ['grp-1', 'grp-2', 'grp-3'];
-      final entries = GroupEntry.parseList(raw);
+      final entries = GroupEntry.parseList(raw, field: 'x.group_allowlist');
       expect(GroupEntry.groupIds(entries), raw);
     });
 
     test('map with empty string id is skipped and warning emitted', () {
       final warns = <String>[];
-      final result = GroupEntry.parseList([
-        {'id': ''},
-      ], onWarning: warns.add);
+      final result = GroupEntry.parseList(
+        [
+          {'id': ''},
+        ],
+        field: 'x.group_allowlist',
+        onWarning: warns.add,
+      );
       expect(result, isEmpty);
       expect(warns, hasLength(1));
     });
@@ -150,6 +181,57 @@ void main() {
       final str = entry.toString();
       expect(str, contains('g1'));
       expect(str, contains('Team'));
+    });
+  });
+
+  group('agent binding', () {
+    test('a plain-string row parses with a null agent', () {
+      final result = GroupEntry.parseList(['+46700000002'], field: 'signal.dm_allowlist');
+      expect(result.single.agent, isNull);
+    });
+
+    test('a map row parses its agent', () {
+      final result = GroupEntry.parseList([
+        {'id': '+46700000001', 'agent': 'ana'},
+      ], field: 'signal.dm_allowlist');
+      expect(result.single, const GroupEntry(id: '+46700000001', agent: 'ana'));
+    });
+
+    test('an unknown key still warns, naming the config path of the list being parsed', () {
+      final warns = <String>[];
+      GroupEntry.parseList(
+        [
+          {'id': '+46700000001', 'agnet': 'ana'},
+        ],
+        field: 'signal.dm_allowlist',
+        onWarning: warns.add,
+      );
+      expect(warns.single, startsWith('signal.dm_allowlist: unknown key "agnet"'));
+    });
+
+    test('the missing-id and duplicate rules are unchanged and name the same path', () {
+      final warns = <String>[];
+      final result = GroupEntry.parseList(
+        [
+          {'agent': 'ana'},
+          {'id': '', 'agent': 'ana'},
+          {'id': 'grp-1', 'agent': 'ana'},
+          {'id': 'grp-1', 'agent': 'bob'},
+        ],
+        field: 'whatsapp.group_allowlist',
+        onWarning: warns.add,
+      );
+      expect(result.single.agent, 'bob');
+      expect(warns, hasLength(3));
+      expect(warns.where((w) => w.startsWith('whatsapp.group_allowlist: map missing or invalid "id"')), hasLength(2));
+      expect(warns.last, 'whatsapp.group_allowlist: duplicate id "grp-1" — last entry wins');
+    });
+
+    test('agent takes part in equality and toString', () {
+      const bound = GroupEntry(id: 'g1', agent: 'ana');
+      const unbound = GroupEntry(id: 'g1');
+      expect(bound, isNot(equals(unbound)));
+      expect(bound.toString(), contains('agent: ana'));
     });
   });
 }

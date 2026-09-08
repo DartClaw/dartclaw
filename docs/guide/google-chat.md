@@ -128,6 +128,25 @@ channels:
 
 See the [crowd coding recipe](recipes/08-crowd-coding.md#per-group-configuration) for full details.
 
+`dm_allowlist` takes the same structured entries as `group_allowlist`, and both accept `agent: <name>`, which binds that
+conversation to the `agent.agents.<name>` definition: its own tools, model, effort and `prompt`, on the owner's one
+workspace. Entries without `agent` keep talking to the primary agent.
+
+```yaml
+channels:
+  google_chat:
+    dm_allowlist:
+      - id: "users/12345678901234567890"
+        agent: ana                # this contact talks to the `ana` persona
+      - "users/10987654321098765432"              # plain string — the primary agent, as before
+    group_allowlist:
+      - id: "spaces/AAAAJ7bWv0Y"
+        agent: ana
+```
+
+A row naming an agent that `agent.agents` does not declare refuses the config load. What a bound conversation inherits
+and costs is in [Agents § Binding a channel conversation to an agent](agents.md#binding-a-channel-conversation-to-an-agent).
+
 When `require_mention: true`, DartClaw only responds when the bot is explicitly mentioned in group spaces. Registered slash commands are exempt from that check — a slash command names the app explicitly — but they are still subject to `dm_access` and `group_access`; see [Slash Commands](#slash-commands).
 
 ## Admin Approval Caveat

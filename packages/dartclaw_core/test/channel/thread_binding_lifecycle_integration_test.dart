@@ -3,6 +3,8 @@ library;
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -27,7 +29,6 @@ void main() {
 
   tearDown(() async {
     await eventBus.dispose();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -80,6 +81,32 @@ void main() {
 
     expect(handled, isTrue);
     expect(enqueuedSessionKeys, equals(['session-xyz']));
+  });
+
+  test('bound routing waits for last-activity persistence', () async {
+    final heldStore = _HeldActivityStore(bindingsFile);
+    await heldStore.load();
+    final binding = makeBinding().copyWith(lastActivity: DateTime.fromMillisecondsSinceEpoch(0));
+    await heldStore.create(binding);
+    final bridge = ChannelTaskBridge(threadBindings: heldStore, threadBindingEnabled: true);
+    var completed = false;
+
+    final handling = bridge
+        .tryHandle(makeBoundMessage(), channel, sessionKey: 'default-session', enqueue: (_, _, _) {})
+        .then((_) => completed = true);
+    await heldStore.started.future;
+    try {
+      await pumpEventQueue();
+      expect(completed, isFalse, reason: 'Routing must wait for the activity write.');
+      heldStore.release.complete();
+      await handling;
+      final persisted = jsonDecode(await bindingsFile.readAsString()) as List<dynamic>;
+      expect(DateTime.parse(persisted.single['lastActivity'] as String).isAfter(binding.lastActivity), isTrue);
+    } finally {
+      if (!heldStore.release.isCompleted) heldStore.release.complete();
+      await heldStore.update;
+      await handling;
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -142,7 +169,7 @@ void main() {
     // Flush to allow the stream listener to process the event
     await flushAsync(2);
 
-    manager.dispose();
+    await manager.dispose();
 
     final afterUnbind = store.lookupByThread('googlechat', 'spaces/X/threads/A');
     expect(afterUnbind, isNull);
@@ -156,4 +183,22 @@ void main() {
     expect(handledAfter, isFalse);
     expect(enqueuedAfter, isEmpty);
   });
+}
+
+class _HeldActivityStore extends ThreadBindingStore {
+  final release = Completer<void>();
+  final started = Completer<void>();
+  late Future<void> update;
+
+  new(super.file);
+
+  @override
+  Future<void> updateLastActivity(String channelType, String threadId, DateTime timestamp) =>
+      update = _update(channelType, threadId, timestamp);
+
+  Future<void> _update(String channelType, String threadId, DateTime timestamp) async {
+    started.complete();
+    await release.future;
+    await super.updateLastActivity(channelType, threadId, timestamp);
+  }
 }

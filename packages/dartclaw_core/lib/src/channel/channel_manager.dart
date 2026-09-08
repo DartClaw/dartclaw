@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import '../scoping/group_config_resolver.dart';
+import '../scoping/group_entry.dart';
 import '../scoping/live_scope_config.dart';
 import 'channel.dart';
 import 'channel_task_bridge.dart';
@@ -20,6 +22,7 @@ class ChannelManager {
   final MessageQueue queue;
   final ChannelConfig config;
   final LiveScopeConfig liveScopeConfig;
+  final GroupConfigResolver? _rows;
   final ChannelTaskBridge? _taskBridge;
   final List<Channel> _channels = [];
 
@@ -33,6 +36,10 @@ class ChannelManager {
     required this.queue,
     required this.config,
     LiveScopeConfig? liveScopeConfig,
+
+    /// The allowlist rows a message's agent binding is looked up in; without
+    /// one every conversation runs as the primary agent.
+    GroupConfigResolver? groupConfigResolver,
     ChannelTaskBridge? taskBridge,
 
     /// Returns `true` if the agent is currently paused.
@@ -44,6 +51,7 @@ class ChannelManager {
     /// Returns the name of the admin who initiated the pause (for acknowledgment).
     String Function()? pausedByName,
   }) : liveScopeConfig = liveScopeConfig ?? LiveScopeConfig(const SessionScopeConfig.defaults()),
+       _rows = groupConfigResolver,
        _taskBridge = taskBridge,
        _isPaused = isPaused,
        _enqueueForPause = enqueueForPause,
@@ -104,19 +112,33 @@ class ChannelManager {
     queue.enqueue(message, channel, sessionKey);
   }
 
+  /// The structured allowlist row owning [message]'s conversation – the group
+  /// row for a group message, else the sender's DM row – or null for a plain
+  /// entry or an unwired resolver.
+  GroupEntry? resolveRow(ChannelMessage message) =>
+      _rows?.resolveRow(message.channelType, groupId: message.groupJid, peerId: message.senderJid);
+
   /// Derive a deterministic session key from a channel message.
   ///
-  /// Uses the current live scope config to select the appropriate [SessionKey] factory.
-  /// Per-channel overrides are resolved via [SessionScopeConfig.forChannel].
+  /// Uses the current live scope config to select the appropriate [SessionKey]
+  /// factory; per-channel overrides are resolved via [SessionScopeConfig.forChannel].
+  /// The key's agent component is the row's `agent`, else `main`, so a bound
+  /// row opens that agent's session under the same scope rule.
   String deriveSessionKey(ChannelMessage message) {
     final channelType = message.channelType.name;
     final resolved = liveScopeConfig.current.forChannel(channelType);
+    final agentId = resolveRow(message)?.agent ?? 'main';
 
     if (message.groupJid != null) {
       final groupScope = resolved.groupScope ?? liveScopeConfig.current.groupScope;
       return switch (groupScope) {
-        GroupScope.shared => SessionKey.groupShared(channelType: channelType, groupId: message.groupJid!),
+        GroupScope.shared => SessionKey.groupShared(
+          agentId: agentId,
+          channelType: channelType,
+          groupId: message.groupJid!,
+        ),
         GroupScope.perMember => SessionKey.groupPerMember(
+          agentId: agentId,
           channelType: channelType,
           groupId: message.groupJid!,
           peerId: message.senderJid,
@@ -126,9 +148,13 @@ class ChannelManager {
 
     final dmScope = resolved.dmScope ?? liveScopeConfig.current.dmScope;
     return switch (dmScope) {
-      DmScope.shared => SessionKey.dmShared(),
-      DmScope.perContact => SessionKey.dmPerContact(peerId: message.senderJid),
-      DmScope.perChannelContact => SessionKey.dmPerChannelContact(channelType: channelType, peerId: message.senderJid),
+      DmScope.shared => SessionKey.dmShared(agentId: agentId),
+      DmScope.perContact => SessionKey.dmPerContact(agentId: agentId, peerId: message.senderJid),
+      DmScope.perChannelContact => SessionKey.dmPerChannelContact(
+        agentId: agentId,
+        channelType: channelType,
+        peerId: message.senderJid,
+      ),
     };
   }
 

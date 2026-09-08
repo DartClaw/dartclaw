@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' show MessageService;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/auth/request_auth_context.dart';
 import 'package:dartclaw_runtime/src/config/scheduling_jobs_applier.dart';
+import 'package:dartclaw_runtime/src/scheduling/schedule_mutation.dart';
 import 'package:dartclaw_runtime/src/templates/scheduling.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/scheduling_page.dart';
@@ -86,9 +88,11 @@ void main() {
   group('server-rendered scheduling routes', () {
     late String configPath;
     late ConfigWriter writer;
+    late SchedulingJobsApplier applier;
+    late PendingScheduleChangeStore store;
     late SchedulingPage page;
 
-    setUp(() {
+    setUp(() async {
       configPath = '${workspace.path}/dartclaw.yaml';
       File(configPath).writeAsStringSync('''
 scheduling:
@@ -103,21 +107,29 @@ scheduling:
       addTearDown(writer.dispose);
       // Wired the way the composition root wires it, so what the page reports
       // about a job is what the running scheduler holds.
-      final applier = SchedulingJobsApplier(
+      applier = SchedulingJobsApplier(
         configPath: configPath,
         jobs: ScheduleMutationService(writer: writer),
         scheduleService: () => service,
         taskService: TaskService(InMemoryTaskRepository()),
       );
-      page = SchedulingPage(configWriter: writer, scheduleServiceGetter: () => service, applyJobs: applier.apply);
+      store = PendingScheduleChangeStore(File('${workspace.path}/pending-schedule-changes.json'));
+      await store.load();
+      page = SchedulingPage(
+        configWriter: writer,
+        scheduleServiceGetter: () => service,
+        applyJobs: applier.apply,
+        pendingChanges: store,
+      );
     });
 
     Future<({int status, String body, Map<String, String> headers})> send(
       String method,
       String path, {
       Map<String, String>? form,
+      bool admin = false,
     }) async {
-      final request = Request(
+      var request = Request(
         method,
         Uri.parse('http://localhost$path'),
         headers: form == null ? null : {'content-type': 'application/x-www-form-urlencoded'},
@@ -125,6 +137,7 @@ scheduling:
             .map((entry) => '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}')
             .join('&'),
       );
+      if (admin) request = withAdminAuthContext(request);
       final response = await page.handler(request, _context(dataDir: workspace.path));
       return (status: response.statusCode, body: await response.readAsString(), headers: response.headers);
     }
@@ -468,7 +481,7 @@ scheduling:
     test('mutations are declared as non-GET routes under the owning page', () {
       final mutations = page.declaredRoutes.where((route) => route.method != 'GET');
       expect(mutations.every((route) => route.path.startsWith('/scheduling/')), isTrue);
-      expect(mutations, hasLength(8));
+      expect(mutations, hasLength(10));
     });
 
     test('unauthenticated requests are refused before any scheduling write', () async {
@@ -492,11 +505,314 @@ scheduling:
         '/scheduling/tasks/task-id/update',
         '/scheduling/tasks/task-id/delete',
         '/scheduling/tasks/task-id/toggle',
+        '/scheduling/pending/change-id/approve',
+        '/scheduling/pending/change-id/reject',
       ]) {
         final response = await guarded(Request('POST', Uri.parse('http://localhost$path')));
         expect(response.statusCode, anyOf(401, 302, 303), reason: path);
       }
       expect(File(configPath).readAsBytesSync(), before);
+    });
+
+    group('pending changes', () {
+      late DateTime clock;
+
+      /// Parks one change the way the MCP tool site does: the seam carries the
+      /// operator mode and the same store the page settles from.
+      Future<String> park({
+        Object? schedule = '0 9 * * 1',
+        String requester = 'mcp-client:ops',
+        Map<String, dynamic>? job,
+      }) async {
+        final parking = ScheduleMutationService(
+          writer: writer,
+          applyJobs: applier.apply,
+          reservedJobIds: () => service.builtInJobIds,
+          now: () => clock,
+          approval: ScheduleMutationApproval.operator,
+          pendingChanges: store,
+        );
+        final outcome = await parking.upsertJob(
+          job ??
+              {
+                'id': 'weekly',
+                'schedule': schedule,
+                'type': 'prompt',
+                'prompt': 'Summarize <the> week',
+                'delivery': 'announce',
+              },
+          requester: requester,
+        );
+        return (outcome.result as ScheduleMutationParked).changeId;
+      }
+
+      Map<String, dynamic> toast(Map<String, String> headers) =>
+          ((jsonDecode(headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map).cast<String, dynamic>();
+
+      setUp(() => clock = DateTime.utc(2026, 9, 6, 12));
+
+      test('the page lists a parked change with its requester and timestamp', () async {
+        final changeId = await park(requester: 'mcp-client:<ops>');
+
+        final html = (await send('GET', '/scheduling')).body;
+
+        expect(html, contains('id="scheduling-pending-changes"'));
+        expect(html, isNot(contains('id="scheduling-pending-changes" hidden')));
+        expect(html, contains('<span>weekly</span>'));
+        expect(html, contains('mcp-client:&lt;ops&gt;'), reason: 'the requester is model-adjacent text and is escaped');
+        expect(html, contains('datetime="2026-09-06T12:00:00.000Z"'));
+        // The payload approval commits is on the row, escaped: the operator is
+        // approving this prompt and this delivery, not just a job id.
+        expect(html, contains('Summarize &lt;the&gt; week'));
+        expect(html, contains('prompt · announce'));
+        expect(html, contains('Schedule'));
+        expect(html, contains('0 9 * * 1'));
+        expect(html, contains('hx-post="/scheduling/pending/$changeId/approve"'));
+        // Reject goes through the confirm bar the jobs table's Delete uses.
+        expect(html, contains('data-delete-url="/scheduling/pending/$changeId/reject"'));
+        expect(html, contains("data-delete-message=\"Reject the pending change to 'weekly'?\""));
+        expect(html, isNot(contains('Summarize <the> week')));
+      });
+
+      test('the page shows and escapes every task field approval commits', () async {
+        await park(
+          job: {
+            'id': 'weekly',
+            'schedule': '15 8 * * 2',
+            'type': 'task',
+            'task': {
+              'title': 'Title <marker>',
+              'description': 'Description & marker',
+              'acceptance_criteria': 'Accept <marker> & condition',
+              'auto_start': false,
+              'custom_detail': {'marker': '<custom>'},
+            },
+            'model': 'model <marker>',
+            'effort': 'effort & marker',
+          },
+        );
+
+        final html = (await send('GET', '/scheduling')).body;
+
+        expect(html, contains('15 8 * * 2'));
+        expect(html, contains('Title &lt;marker&gt;'));
+        expect(html, contains('Description &amp; marker'));
+        expect(html, contains('Accept &lt;marker&gt; &amp; condition'));
+        expect(html, contains('>false</span>'));
+        expect(html, contains('custom_detail'));
+        expect(html, contains('&lt;custom&gt;'));
+        expect(html, contains('model &lt;marker&gt;'));
+        expect(html, contains('effort &amp; marker'));
+        expect(html, isNot(contains('Title <marker>')));
+        expect(html, isNot(contains('Description & marker')));
+      });
+
+      test('with nothing parked the section is hidden and the page is otherwise unchanged', () async {
+        final html = (await send('GET', '/scheduling')).body;
+
+        expect(html, contains('id="scheduling-pending-changes" hidden=""'));
+        expect(html, isNot(contains('Approve')));
+        expect(html, isNot(contains('Pending Changes')), reason: 'an empty section renders no heading or table');
+      });
+
+      test('S02 approve writes the YAML, loads the job, and empties the list', () async {
+        final changeId = await park();
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.status, 200);
+        expect(toast(response.headers)['type'], 'success');
+        expect(response.body, contains('id="scheduling-pending-changes" hidden=""'));
+        // The jobs table rides along out of band, so the loaded job shows.
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('<span>weekly</span>'));
+        final stored = (await writer.readSchedulingJobs()).singleWhere((job) => job['id'] == 'weekly');
+        expect(stored['prompt'], 'Summarize <the> week');
+        expect(service.hasJob('weekly'), isTrue);
+        expect(store.values, isEmpty);
+      });
+
+      test('approving a task refreshes both ownership tables out of band', () async {
+        final changeId = await park(
+          job: {
+            'id': 'weekly-task',
+            'schedule': '0 9 * * 1',
+            'type': 'task',
+            'task': {'title': 'Weekly review', 'description': 'Review the week', 'auto_start': true},
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.status, 200);
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('Weekly review'));
+        expect(store.values, isEmpty);
+      });
+
+      test('approving prompt to task removes the old jobs row and adds the tasks row', () async {
+        final changeId = await park(
+          job: {
+            'id': 'digest',
+            'schedule': '0 8 * * *',
+            'type': 'task',
+            'task': {'title': 'Digest task replacement', 'description': 'Create the digest task'},
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('Digest task replacement'));
+        expect(response.body, isNot(contains('<span class="delivery-badge webhook">webhook</span>')));
+      });
+
+      test('approving task to prompt removes the old tasks row and adds the jobs row', () async {
+        final direct = ScheduleMutationService(
+          writer: writer,
+          applyJobs: applier.apply,
+          reservedJobIds: () => service.builtInJobIds,
+        );
+        final created = await direct.createTask({
+          'id': 'weekly-task',
+          'schedule': '0 9 * * 1',
+          'title': 'Old task title',
+          'description': 'Old task description',
+        });
+        expect(created, isA<ScheduleMutationApplied>());
+        final changeId = await park(
+          job: {
+            'id': 'weekly-task',
+            'schedule': '0 10 * * 1',
+            'type': 'prompt',
+            'prompt': 'Prompt replacement',
+            'delivery': 'announce',
+          },
+        );
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+
+        expect(response.body, contains('id="scheduling-jobs-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('id="scheduling-tasks-table" class="table-fade-wrap" hx-swap-oob="true"'));
+        expect(response.body, contains('<span>weekly-task</span>'));
+        expect(response.body, contains('<span class="delivery-badge announce">announce</span>'));
+        expect(response.body, isNot(contains('Old task title')));
+      });
+
+      test('S03 reject writes nothing and empties the list', () async {
+        final changeId = await park();
+        final before = File(configPath).readAsBytesSync();
+
+        final response = await send('POST', '/scheduling/pending/$changeId/reject', admin: true);
+
+        expect(response.status, 200);
+        expect(toast(response.headers)['type'], 'success');
+        expect(toast(response.headers)['message'], contains('"weekly"'));
+        expect(response.body, contains('id="scheduling-pending-changes" hidden=""'));
+        expect(response.body, isNot(contains('hx-swap-oob')));
+        expect(File(configPath).readAsBytesSync(), before);
+        expect(service.hasJob('weekly'), isFalse);
+        expect(store.values, isEmpty);
+      });
+
+      test('S05 both routes without admin context answer 403 with the change still pending', () async {
+        final changeId = await park();
+        final before = File(configPath).readAsBytesSync();
+        final loadedBefore = service.entries.map((entry) => entry.id).toList();
+
+        for (final action in const ['approve', 'reject']) {
+          final response = await send('POST', '/scheduling/pending/$changeId/$action');
+          expect(response.status, 403, reason: action);
+          expect(response.headers.containsKey('hx-trigger-after-swap'), isFalse);
+        }
+
+        expect(File(configPath).readAsBytesSync(), before);
+        expect(service.entries.map((entry) => entry.id), loadedBefore);
+        expect(store.values.single.changeId, changeId);
+      });
+
+      test('S06 an approval the host can no longer honour answers an error toast and stays pending', () async {
+        // Parked on a clock two hours back, so the instant was ahead when the
+        // seam accepted it and is behind the page's real clock at approval.
+        clock = DateTime.now().toUtc().subtract(const Duration(hours: 2));
+        final at = clock.add(const Duration(minutes: 10)).toIso8601String();
+        final changeId = await park(schedule: {'type': 'once', 'at': at});
+        final before = File(configPath).readAsBytesSync();
+
+        final response = await send('POST', '/scheduling/pending/$changeId/approve', admin: true);
+        final unknown = await send('POST', '/scheduling/pending/no-such-change/approve', admin: true);
+
+        expect(response.status, 200);
+        expect(toast(response.headers)['type'], 'error');
+        expect(toast(response.headers)['message'], '"at" must be later than now: "$at"');
+        expect(response.body, contains('data-delete-url="/scheduling/pending/$changeId/reject"'));
+        expect(toast(unknown.headers)['type'], 'error');
+        expect(toast(unknown.headers)['message'], 'Pending change "no-such-change" not found');
+        expect(File(configPath).readAsBytesSync(), before);
+        expect(service.hasJob('weekly'), isFalse);
+        expect(store.values.single.changeId, changeId);
+      });
+    });
+
+    group('a shell job is a run-only row', () {
+      setUp(() {
+        File(configPath).writeAsStringSync('''
+scheduling:
+  jobs:
+    - id: mail-feed
+      type: shell
+      schedule: "0 * * * *"
+      command:
+        - /usr/local/bin/hey
+        - mail
+      env:
+        FEED_TOKEN: feed-secret
+      output: mail.json
+    - name: digest
+      schedule: "0 7 * * *"
+      type: prompt
+      delivery: webhook
+      prompt: Existing prompt
+''');
+      });
+
+      test('renders a shell job as a run-only row', () async {
+        final table = (await send('GET', '/scheduling')).body;
+
+        expect(table, contains('<span class="kind-badge">SHELL</span>'));
+        expect(table, contains('<span>mail-feed</span>'));
+        // Run stays; edit and delete do not, because the seam would refuse them.
+        expect(table, contains('hx-post="/scheduling/jobs/mail-feed/run"'));
+        expect(table, isNot(contains('hx-get="/scheduling/jobs/mail-feed/form"')));
+        expect(table, isNot(contains('data-delete-url="/scheduling/jobs/mail-feed/delete"')));
+        // The prompt row beside it keeps all three.
+        expect(table, contains('hx-post="/scheduling/jobs/digest/run"'));
+        expect(table, contains('hx-get="/scheduling/jobs/digest/form"'));
+        expect(table, contains('data-delete-url="/scheduling/jobs/digest/delete"'));
+      });
+
+      test('a delete posted for the shell id surfaces the seam refusal as an error toast', () async {
+        final before = File(configPath).readAsStringSync();
+
+        final response = await send('POST', '/scheduling/jobs/mail-feed/delete');
+
+        expect(response.status, 200);
+        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        expect(toast['type'], 'error');
+        expect(toast['message'], contains('Shell jobs are file-only'));
+        expect(File(configPath).readAsStringSync(), before);
+      });
+
+      test('an edit form requested for the shell id closes with a not-found toast', () async {
+        final response = await send('GET', '/scheduling/jobs/mail-feed/form');
+
+        expect(response.status, 200);
+        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        expect(toast['message'], 'Job not found');
+        expect(response.body, isNot(contains('mail-feed')));
+      });
     });
   });
 }

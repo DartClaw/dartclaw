@@ -119,7 +119,7 @@ WorkflowDefinition _mergeResolveIntegrationDefinition() {
         prompts: [
           'In the current task worktree, edit docs/STATE.md only. '
               'Append exactly this line as the final line: '
-              '- {{story.item.id}}: e2e marker\n'
+              '- {{map.item.id}}: e2e marker\n'
               'Save the file. Do not edit any other file. '
               'Return a concise completion note.',
         ],

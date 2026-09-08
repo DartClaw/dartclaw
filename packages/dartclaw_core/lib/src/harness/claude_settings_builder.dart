@@ -204,7 +204,12 @@ abstract final class ClaudeSettingsBuilder {
     Iterable<String> canonicalTools, {
     required Iterable<String> writableRoots,
   }) {
-    final roots = writableRoots.map((root) => root.trim()).where((root) => p.isAbsolute(root)).toList();
+    final roots = writableRoots
+        .map((root) => root.trim())
+        .where((root) => p.isAbsolute(root))
+        .map(_absolutePermissionRoot)
+        .whereType<String>()
+        .toList();
     final rules = <String>[];
     for (final tool in canonicalTools) {
       switch (tool.trim()) {
@@ -213,7 +218,7 @@ abstract final class ClaudeSettingsBuilder {
         case 'file_read':
           rules.add('Read');
         case 'file_write' || 'file_edit':
-          rules.addAll(roots.map((root) => 'Edit(/${p.join(root, '**')})'));
+          rules.addAll(roots.map((root) => 'Edit(${p.posix.join(root, '**')})'));
         case 'web_fetch':
           rules.add('WebFetch');
         case 'web_search':
@@ -223,6 +228,19 @@ abstract final class ClaudeSettingsBuilder {
       }
     }
     return rules.toSet().toList();
+  }
+
+  static String? _absolutePermissionRoot(String root) {
+    if (p.style == p.Style.windows) {
+      if (root.startsWith(r'\\') || root.startsWith('//')) return null;
+      final drivePath = RegExp(r'^([A-Za-z]):[\\/]*(.*)$').firstMatch(root);
+      if (drivePath != null) {
+        final drive = drivePath.group(1)!.toLowerCase();
+        final path = drivePath.group(2)!.replaceAll(r'\', '/');
+        return p.posix.join('//$drive', path);
+      }
+    }
+    return '/$root';
   }
 
   static String _containerSettingsPath(

@@ -9,6 +9,15 @@ void main() {
   });
 
   group('MessageRedactor', () {
+    test('literal credentials are fully masked before overlapping patterns reveal any prefix', () {
+      const secret = 'prefix sk-ant-abcdef 雪😀suffix';
+      expect(
+        redactor.redact('before $secret after', sensitiveValues: ['sk-ant-abcdef', secret, '']),
+        'before [REDACTED] after',
+      );
+      expect(redactor.redact('a.b+[x]', sensitiveValues: ['a.b+[x]']), '[REDACTED]');
+    });
+
     test('redacts built-in secret patterns while preserving safe context', () {
       final cases =
           <

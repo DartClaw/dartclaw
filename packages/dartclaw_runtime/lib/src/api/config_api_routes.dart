@@ -506,6 +506,8 @@ Response _scheduleMutationResponse(
 }) => switch (result) {
   ScheduleMutationApplied(:final value) => applied(value),
   ScheduleMutationRefused(:final refusal) => errorResponse(refusal.status, refusal.code, refusal.message),
+  // Unreachable by construction: this seam instance carries no approval mode.
+  ScheduleMutationParked() => errorResponse(500, 'INTERNAL', 'The jobs API never parks a scheduling write'),
 };
 
 Response _channelAccessResponse(ChannelAccessResult result, {int successStatus = 200}) => switch (result) {

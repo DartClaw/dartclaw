@@ -38,6 +38,94 @@ void main() {
       expect(verdict.isPass, isTrue);
     });
 
+    test('strict empty allowlist blocks every tool shape before special-case admission', () async {
+      final strictGuard = TaskToolFilterGuard(denyEmptyAllowlist: true)..allowedTools = const [];
+
+      final shell = await strictGuard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'shell'));
+      final missingName = await strictGuard.evaluate(_ctx(hookPoint: 'beforeToolCall'));
+      final discovery = await strictGuard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:ToolSearch', rawProviderToolName: 'ToolSearch'),
+      );
+      final skill = await strictGuard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:Skill', rawProviderToolName: 'Skill'),
+      );
+
+      expect(shell.isBlock, isTrue);
+      expect(missingName.isBlock, isTrue);
+      expect(discovery.isBlock, isTrue);
+      expect(skill.isBlock, isTrue);
+    });
+
+    test('strict empty session allowlist overrides an unrestricted worker default', () async {
+      final strictGuard = TaskToolFilterGuard(denyEmptyAllowlist: true);
+      strictGuard.setSessionToolFilter('workflow-session', const []);
+
+      final workflowVerdict = await strictGuard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'file_read', sessionId: 'workflow-session'),
+      );
+      final otherVerdict = await strictGuard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'file_read', sessionId: 'other-session'),
+      );
+
+      expect(workflowVerdict.isBlock, isTrue);
+      expect(otherVerdict.isPass, isTrue);
+    });
+
+    test('strict empty policy admits only exact Claude StructuredOutput while a schema is active', () async {
+      final strictGuard = TaskToolFilterGuard(denyEmptyAllowlist: true)..allowedTools = const [];
+      strictGuard.setSessionToolFilter('schema-session', const [], allowClaudeStructuredOutput: true);
+
+      final structuredOutput = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'schema-session',
+        ),
+      );
+      final noSchema = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'other-session',
+        ),
+      );
+      final wrongCanonicalIdentity = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'file_read',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'schema-session',
+        ),
+      );
+      final wrongRawIdentity = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'Read',
+          sessionId: 'schema-session',
+        ),
+      );
+      strictGuard.setSessionToolFilter('inbox-session', const [
+        '__knowledge_inbox_no_tools__',
+      ], allowClaudeStructuredOutput: true);
+      final toollessTurn = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'inbox-session',
+        ),
+      );
+
+      expect(structuredOutput.isPass, isTrue);
+      expect(noSchema.isBlock, isTrue);
+      expect(wrongCanonicalIdentity.isBlock, isTrue);
+      expect(wrongRawIdentity.isBlock, isTrue);
+      expect(toollessTurn.isBlock, isTrue);
+    });
+
     test('tool in allowedTools — pass', () async {
       guard.allowedTools = ['shell', 'file_read'];
       final verdict = await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'shell'));
@@ -70,6 +158,32 @@ void main() {
       expect(unrelatedFetch.isBlock, isTrue);
     });
 
+    test('closed nonempty policy permits exact Claude skill loading but filters the skill operations', () async {
+      guard.allowedTools = ['file_write'];
+
+      final skill = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:Skill', rawProviderToolName: 'Skill'),
+      );
+      final allowedWrite = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'file_write', rawProviderToolName: 'Write'),
+      );
+      final deniedShell = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'shell', rawProviderToolName: 'Bash'),
+      );
+      final wrongCanonicalIdentity = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'shell', rawProviderToolName: 'Skill'),
+      );
+      final wrongRawIdentity = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:Skill', rawProviderToolName: 'Read'),
+      );
+
+      expect(skill.isPass, isTrue);
+      expect(allowedWrite.isPass, isTrue);
+      expect(deniedShell.isBlock, isTrue);
+      expect(wrongCanonicalIdentity.isBlock, isTrue);
+      expect(wrongRawIdentity.isBlock, isTrue);
+    });
+
     test('Claude tool discovery requires matching raw and canonical identities', () async {
       guard.allowedTools = ['memory_apply'];
 
@@ -84,14 +198,18 @@ void main() {
       expect(canonicalMismatch.isBlock, isTrue);
     });
 
-    test('tool discovery remains blocked for a toolless policy', () async {
+    test('Claude control helpers remain blocked for a toolless policy', () async {
       guard.allowedTools = ['__knowledge_inbox_no_tools__'];
 
-      final verdict = await guard.evaluate(
+      final discoveryVerdict = await guard.evaluate(
         _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:ToolSearch', rawProviderToolName: 'ToolSearch'),
       );
+      final skillVerdict = await guard.evaluate(
+        _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:Skill', rawProviderToolName: 'Skill'),
+      );
 
-      expect(verdict.isBlock, isTrue);
+      expect(discoveryVerdict.isBlock, isTrue);
+      expect(skillVerdict.isBlock, isTrue);
     });
 
     test('sentinel allowlist blocks read and network tools for toolless turns', () async {

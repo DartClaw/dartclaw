@@ -53,6 +53,7 @@ import 'project/project_mutation_service.dart';
 import 'provider_status_service.dart';
 import 'restart_service.dart';
 import 'runtime_config.dart';
+import 'scheduling/pending_schedule_change.dart';
 import 'scheduling/schedule_service.dart';
 import 'session/session_reset_service.dart';
 import 'task/runner_observer.dart';

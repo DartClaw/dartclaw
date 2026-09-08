@@ -18,12 +18,9 @@
 //    the skill input and automation flags, not long instruction blocks.
 //  * Variable passthrough: authored input variables (FEATURE/TARGET) leak
 //    into at most the steps that need them.
-//
-// Tests that assert behavior the current YAML does NOT yet satisfy are marked
-// with a `skip:` and an explicit open-issue reference. They fire the moment
-// the YAML is tightened, preventing silent regressions.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
@@ -614,8 +611,8 @@ void main() {
 
     test('parallel review workflows aggregate first-pass findings and re-review overwrites simple names', () {
       final expectedSources = {
-        'spec-and-implement.yaml': ['integrated-review', 'integrated-review-council'],
-        'plan-and-implement.yaml': ['plan-review', 'plan-review-council'],
+        'spec-and-implement.yaml': ['integrated-review'],
+        'plan-and-implement.yaml': ['plan-review'],
         'spec-and-implement-inline.yaml': ['integrated-review', 'integrated-review-council'],
         'plan-and-implement-inline.yaml': ['plan-review', 'plan-review-council'],
       };
@@ -747,7 +744,7 @@ void main() {
       }
     });
 
-    test('plan-and-implement: whole-plan pass gates on gap + architecture + code,security council', () {
+    test('plan-and-implement: whole-plan pass gates on the gap review, re-review on gap,code,security', () {
       final def = _load('plan-and-implement.yaml');
       final planReview = _flattenedSteps(def).firstWhere((s) => s.id == 'plan-review');
       final planReviewText = _allPromptText(planReview);
@@ -755,18 +752,34 @@ void main() {
       expect(planReviewText, contains('--mode gap'));
       expect(planReviewText, contains('--auto'));
 
-      // The code,security council runs alongside, provider-agnostic, and is
-      // crash-tolerant (onFailure: continue) but still feeds the aggregator.
-      final council = _flattenedSteps(def).firstWhere((s) => s.id == 'plan-review-council');
-      expect(_allPromptText(council), contains('--mode code,security --council'));
-      expect(council.onFailure, OnFailurePolicy.continueWorkflow);
-      expect(council.skill, 'andthen:review');
-
-      // The top-level remediation re-review uses the combined gap,code,security
-      // mode (no council).
       final reReview = _flattenedSteps(def).firstWhere((s) => s.id == 're-review');
       expect(_allPromptText(reReview), contains('--mode gap,code,security'));
-      expect(_allPromptText(reReview), isNot(contains('--council')));
+    });
+
+    test('no shipped or inline workflow passes the retired review --council flag', () {
+      // AndThen 1.0 retired `review --council`; a council pass is the optional
+      // `andthen-some:council` skill, which the built-ins must not require.
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'spec-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+      for (final entry in definitions.entries) {
+        for (final step in _flattenedSteps(entry.value)) {
+          expect(_allPromptText(step), isNot(contains('--council')), reason: '${entry.key} → ${step.id}');
+          if (!entry.key.endsWith('-inline.yaml')) {
+            expect(
+              step.skill,
+              isNot('andthen-some:council'),
+              reason: '${entry.key} → ${step.id} requires the satellite',
+            );
+          }
+        }
+      }
     });
 
     test('andthen:review steps pin reports to the host-owned step artifacts dir', () {
@@ -1180,13 +1193,19 @@ void main() {
     // nothing else, so every field host validation requires has to be named in
     // it — including the required fields of an array element, which is what
     // rejected a live run's envelope on `parallel` / `wave` / `phase`.
-    test('the finalizer prompt names the required fields of a story-spec item', () {
+    test('the finalizer prompt carries the complete root schema and required story fields', () {
       final def = _load('plan-and-implement.yaml');
       final discover = _flattenedSteps(def).firstWhere((s) => s.id == 'discover-plan-state');
       final schema = buildExecutionEnvelopeSchema(discover, discover.outputs)!;
       final prompt = buildFinalizerPrompt(schema);
 
-      expect(prompt, contains('Each item has:'));
+      expect(prompt, contains('Return the envelope itself as the root JSON object'));
+      expect(prompt, contains('If a structured-output tool is supplied, submit the envelope through that tool'));
+      final schemaBlock = RegExp(r'```json\n([\s\S]*?)\n```').firstMatch(prompt);
+      expect(schemaBlock, isNotNull, reason: 'the finalizer must receive the root envelope schema as data');
+      final supplied = jsonDecode(schemaBlock!.group(1)!) as Map<String, dynamic>;
+      expect(supplied, schema, reason: 'prompt and provider validation must describe the same envelope');
+      expect(supplied['required'], unorderedEquals(['outputs', 'step_outcome']));
       for (final field in const ['id', 'title', 'phase', 'wave', 'parallel']) {
         expect(prompt, contains(field), reason: 'a required story-spec field the model is never shown otherwise');
       }

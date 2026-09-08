@@ -149,6 +149,8 @@ Standalone mode is available for workflow commands with meaningful local semanti
 
 The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives `dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
 
+Headless composition retains task/session/turn persistence and guarded workflow execution. It omits personal-memory corpus preflight, search storage/backends, knowledge graph, self-improvement, memory MCP callbacks and memory prompt projection/retrieval hints. This boundary follows the existing headless mode; it is not a separate user configuration setting. Provider-native capabilities and project instructions are unaffected.
+
 ## 5. Shared API Client
 
 The connected command path uses:

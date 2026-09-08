@@ -74,7 +74,7 @@ Future<void> _disposeRuntime(DartclawRuntime runtime, LogService logService) asy
   await runtime.taskService.dispose();
   await runtime.eventBus.dispose();
   await runtime.qmdManager?.stop();
-  runtime.searchDb.close();
+  runtime.searchDb!.close();
   await logService.dispose();
 }
 

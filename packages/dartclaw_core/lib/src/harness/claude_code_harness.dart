@@ -25,6 +25,7 @@ import 'harness_launch_options.dart';
 import 'protocol_message.dart' as proto;
 import 'process_lifecycle.dart';
 import 'process_types.dart';
+import '../agents/tool_policy_cascade.dart';
 import 'tool_policy.dart';
 
 part 'claude_code_harness_mcp.dart';
@@ -38,6 +39,8 @@ List<String> _buildClaudeArgs({
   String? settings,
   String? outputSchemaJson,
   String? providerSessionId,
+  int? maxTurns,
+  List<String> disallowedTools = const [],
   bool persistSession = false,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
@@ -65,12 +68,17 @@ List<String> _buildClaudeArgs({
   if (mcpConfigPath != null) ...['--mcp-config', mcpConfigPath],
   if (settings != null) ...['--settings', settings],
   if (outputSchemaJson != null) ...['--json-schema', outputSchemaJson],
+  if (maxTurns != null) ...['--max-turns', '$maxTurns'],
+  // Variadic: the CLI reads names up to the next flag, so this stays last.
+  if (disallowedTools.isNotEmpty) ...['--disallowedTools', ...disallowedTools],
 ];
 
 /// Credential names a model-supplied Bash `env` map may never carry. The host's
 /// own copy reaches the provider through the spawn environment only; a value
 /// the model puts here would hand it to an arbitrary child process.
 const _bashEnvCredentialNames = ['ANTHROPIC_API_KEY', claudeOauthTokenEnvVar];
+
+const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
@@ -83,9 +91,8 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Canonical tools this spawn's workflow step declared, or null for a spawn
   /// that is not a workflow step.
   ///
-  /// When set, the derived Claude permission rules are the spawn's *total*
-  /// policy: user-scope settings are excluded so the step runs on what it
-  /// declared, not on the host operator's personal allow list.
+  /// When set, the harness derives matching Claude permission rules while the
+  /// guard chain continues to enforce the step's tool policy.
   final List<String>? declaredCanonicalTools;
 
   /// Roots the step's file-mutating tools may write — its worktree and its
@@ -146,6 +153,15 @@ class ClaudeCodeHarness extends BaseHarness {
 
   /// Wire form, because that is exactly what a reused process keeps.
   String? _processOutputSchemaJson;
+
+  /// Background tasks the running process last listed; a new process starts
+  /// with none. The turn boundary waits for [_awaitedBackgroundTasks].
+  List<proto.BackgroundTaskRef> _backgroundTasks = const [];
+
+  /// Usage of the `result` lines the current turn held open, folded into the
+  /// result that finally completes it.
+  ({int input, int output, int cacheRead, int cacheWrite}) _heldUsage = _zeroUsage;
+  int _heldResultCount = 0;
 
   Completer<Map<String, dynamic>>? _initCompleter;
 
@@ -290,12 +306,18 @@ class ClaudeCodeHarness extends BaseHarness {
 
   @override
   Future<void> resetSessionContinuity(String sessionId) async {
+    // `_conversationSessionId` — not `_sessionId`, which is the provider's own
+    // id — records whose conversation the running process carries: set on every
+    // turn (a `--resume` spawn happens inside that same turn) and cleared on
+    // start/restart, so a process that never ran a turn is bound to nothing.
+    if (_conversationSessionId != sessionId) return;
     if (currentState == WorkerState.busy) {
       throw StateError('Cannot reset session continuity while a turn is in progress');
     }
     await stop();
     _sessionId = null;
     _turnsSinceStart = 0;
+    _conversationSessionId = null;
   }
 
   Future<void> _stopInternal() async {
@@ -412,6 +434,8 @@ class ClaudeCodeHarness extends BaseHarness {
     _activeTurnSessionId = sessionId;
     _activeAgentId = agentId;
     _turnCompleter = Completer<TurnResult>();
+    _heldUsage = _zeroUsage;
+    _heldResultCount = 0;
 
     try {
       final messageContent = messages.last['content'];
@@ -476,6 +500,7 @@ class ClaudeCodeHarness extends BaseHarness {
   Future<void> _startInternal() async {
     _turnsSinceStart = 0;
     _conversationSessionId = null;
+    _backgroundTasks = const [];
     final cm = containerManager;
     if (cm == null) {
       ProcessResult? claudeResult;
@@ -565,14 +590,12 @@ class ClaudeCodeHarness extends BaseHarness {
         'profile, which mounts no workspace – a permission bypass there would run without any containment.',
       );
     }
-    // A workflow step runs on the policy it declared. Deriving the CLI's allow
-    // rules from the same canonical list the guard chain enforces is what stops
-    // the provider layer from falling back to its own — which is empty for a
-    // step, and the operator's personal one when it is not.
+    // Deriving the CLI's allow rules from the same canonical list the guard
+    // chain enforces lets declared tools pass Claude's native permission layer.
     final declaredTools = declaredCanonicalTools;
-    // A spawn whose execution directory is not yet known holds nothing: the
-    // alternative is deriving the worktree root from the server's own cwd,
-    // which would grant a step write access to the DartClaw checkout.
+    // A spawn whose execution directory is not yet known derives no declared
+    // grants: using the server's own cwd would grant a step write access to the
+    // DartClaw checkout.
     final declaredToolRules = declaredTools == null
         ? null
         : !_executionDirectoryIsExplicit
@@ -594,8 +617,8 @@ class ClaudeCodeHarness extends BaseHarness {
       // transcript, which is what this defect cost the first time.
       _log.info(
         declaredToolRules.isEmpty
-            ? 'Step tool policy: none — this spawn has no execution directory yet, so it may call nothing'
-            : 'Step tool policy: ${declaredToolRules.join(', ')}',
+            ? 'Step native grants: none – this spawn has no execution directory yet'
+            : 'Step native grants: ${declaredToolRules.join(', ')}',
       );
     }
     final nativeSettings = ClaudeSettingsBuilder.buildSettings(
@@ -613,14 +636,10 @@ class ClaudeCodeHarness extends BaseHarness {
       settings: nativeSettings,
       outputSchemaJson: _processOutputSchemaJson,
       providerSessionId: _processProviderSession.id,
+      maxTurns: _processMaxTurns,
+      disallowedTools: _spawnDisallowedTools,
       persistSession: _processProviderSession.persists,
-      // A step's declared rules are its total policy, so its spawn never reads
-      // the host operator's user-scope settings: a server lane whose tool
-      // policy varies with whoever's `~/.claude/settings.json` is on the box is
-      // nondeterministic by construction. `inherit_user_settings` governs the
-      // interactive lane only.
-      settingSourcesProject:
-          cm == null && (declaredTools != null || ClaudeProviderOptions.useProjectSettingSources(providerOptions)),
+      settingSourcesProject: cm == null && ClaudeProviderOptions.useProjectSettingSources(providerOptions),
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
@@ -695,6 +714,17 @@ class ClaudeCodeHarness extends BaseHarness {
   /// the only web path a container has.
   List<String> get _deniedNativeWebTools => containerManager == null ? const [] : const ['WebSearch', 'WebFetch'];
 
+  /// Every withheld tool in the spelling `--disallowedTools` takes, once each.
+  ///
+  /// Policy entries may use any provider's native spelling; the cascade's
+  /// normalizer is the one table for those, so `command_execution` withholds
+  /// `Bash` here exactly as it does at the guard.
+  List<String> get _spawnDisallowedTools => {
+    for (final name in [...harnessConfig.disallowedTools, ..._deniedNativeWebTools])
+      if (name.trim().isNotEmpty)
+        ...ClaudeProtocolAdapter.nativeToolNames(ToolPolicyCascade.normalizeEntry(name.trim())),
+  }.toList();
+
   String? _resolveProviderOption(String? override, String? fallback) {
     final trimmed = override?.trim();
     if (trimmed != null && trimmed.isNotEmpty) return trimmed;
@@ -707,6 +737,17 @@ class ClaudeCodeHarness extends BaseHarness {
   }
 
   int? _resolveMaxTurns(int? override) => override ?? harnessConfig.maxTurns;
+
+  /// Background tasks the turn boundary waits for: every listed task except a
+  /// backgrounded shell command.
+  ///
+  /// Mirrors the CLI's own `--print` exit policy, which holds the process for
+  /// subagents and workflows – their results feed a notification turn – but
+  /// kills a background shell a few seconds after the final result. So a step
+  /// that leaves a dev server running still ends, while one that fanned out
+  /// subagents keeps them alive across the finalizer restart.
+  Iterable<proto.BackgroundTaskRef> get _awaitedBackgroundTasks =>
+      _backgroundTasks.where((task) => task.type != 'local_bash');
 
   bool get _nativePermissionsSkipped {
     final permissionMode = _nativePermissionMode;
@@ -900,12 +941,6 @@ class ClaudeCodeHarness extends BaseHarness {
             },
           ],
         },
-        initializeFields: {
-          ...harnessConfig.toInitializeFields(),
-          if (_deniedNativeWebTools.isNotEmpty)
-            'disallowedTools': [...harnessConfig.disallowedTools, ..._deniedNativeWebTools],
-          if (_processMaxTurns != null) 'maxTurns': _processMaxTurns,
-        },
         // Gated on the boundary, not the URL: a container whose authority was
         // granted no tools has a null bridge URL, and must end up with *less*
         // exposure, not the SDK memory tools deny-by-default excluded.
@@ -1069,6 +1104,12 @@ class ClaudeCodeHarness extends BaseHarness {
       case proto.ProtocolDiagnostic():
         break;
 
+      case proto.BackgroundTasksChanged(:final tasks):
+        _backgroundTasks = tasks;
+        _log.info(
+          'Background tasks: ${tasks.length} listed, ${_awaitedBackgroundTasks.length} awaited at the turn boundary',
+        );
+
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
         unawaited(_handleControlRequest(requestId, subtype, data));
 
@@ -1076,6 +1117,7 @@ class ClaudeCodeHarness extends BaseHarness {
         :final stopReason,
         :final subtype,
         :final structuredOutput,
+        :final finalText,
         :final costUsd,
         :final inputTokens,
         :final outputTokens,
@@ -1084,6 +1126,34 @@ class ClaudeCodeHarness extends BaseHarness {
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           final isError = stopReason == 'error';
+          final awaited = _awaitedBackgroundTasks.toList();
+          if (!isError && awaited.isNotEmpty) {
+            // The CLI ends the model's turn while its background subagents are
+            // still running and, once they report, runs a notification turn
+            // of its own that ends in a second `result`. Completing here would
+            // let the caller's next turn restart the process and kill them, so
+            // the turn stays open until a result arrives with nothing
+            // outstanding; the turn timeout still bounds the wait.
+            _heldUsage = (
+              input: _heldUsage.input + (inputTokens ?? 0),
+              output: _heldUsage.output + (outputTokens ?? 0),
+              cacheRead: _heldUsage.cacheRead + (cacheReadTokens ?? 0),
+              cacheWrite: _heldUsage.cacheWrite + (cacheWriteTokens ?? 0),
+            );
+            _heldResultCount++;
+            final ids = awaited.map((task) => task.id).join(', ');
+            _log.info(
+              'Turn boundary held: ${awaited.length} background task(s) still running ($ids); '
+              'the notification turn completes it',
+            );
+            emitEvent(
+              ProviderProgressBridgeEvent(
+                kind: 'background_tasks',
+                text: 'Waiting for ${awaited.length} background task(s): $ids',
+              ),
+            );
+            return;
+          }
           String? error;
           if (isError) {
             final decoded = decodeJsonObject(line);
@@ -1099,18 +1169,22 @@ class ClaudeCodeHarness extends BaseHarness {
           }
           // Not `is_error`: this is derived from the synthesized stopReason, so
           // on a retry-exhaustion event it disagrees with the provider's own line.
-          _log.info('Terminal result: stopReason=$stopReason subtype=$subtype');
+          _log.info(
+            'Terminal result: stopReason=$stopReason subtype=$subtype'
+            '${_heldResultCount == 0 ? '' : ' after $_heldResultCount held result(s)'}',
+          );
           _turnCompleter!.complete(
             TurnResult(
               stopReason: stopReason,
               error: error,
+              finalText: finalText,
               costUsd: costUsd,
               providerSessionId: _processProviderSession.persists ? _sessionId : null,
               structuredOutput: structuredOutput,
-              inputTokens: inputTokens ?? 0,
-              outputTokens: outputTokens ?? 0,
-              cacheReadTokens: cacheReadTokens ?? 0,
-              cacheWriteTokens: cacheWriteTokens ?? 0,
+              inputTokens: _heldUsage.input + (inputTokens ?? 0),
+              outputTokens: _heldUsage.output + (outputTokens ?? 0),
+              cacheReadTokens: _heldUsage.cacheRead + (cacheReadTokens ?? 0),
+              cacheWriteTokens: _heldUsage.cacheWrite + (cacheWriteTokens ?? 0),
             ),
           );
         }

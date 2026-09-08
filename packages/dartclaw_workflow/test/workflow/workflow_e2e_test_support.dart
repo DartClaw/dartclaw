@@ -110,6 +110,18 @@ void expectWorkflowFinalStatus({
   }
 }
 
+void expectNoFailedFinalChildTraces(Iterable<WorkflowStepTrace> traces, {required String runId}) {
+  final failed = traces
+      .where((trace) => trace.terminalStatus == TaskStatus.failed || trace.terminalStatus == TaskStatus.cancelled)
+      .toList(growable: false);
+  if (failed.isEmpty) return;
+
+  fail(
+    'Workflow $runId completed with failed or cancelled final child traces:\n'
+    '${failed.map((trace) => '- step=${trace.stepKey} task=${trace.taskId} status=${trace.terminalStatus.name}').join('\n')}',
+  );
+}
+
 void expectStepOrderSubsequence(Iterable<String> actualSteps, List<String> expectedSteps) {
   final actual = actualSteps.toList(growable: false);
   var expectedIdx = 0;
@@ -327,12 +339,6 @@ Map<String, dynamic> forcedReviewRemediationOutputs({
       count: 'findings_count',
       scopedCount: 'plan-review.findings_count',
       scopedGatingCount: 'plan-review.gating_findings_count',
-    ),
-    'plan-review-council' when targetReviews.contains('plan-review-council') => (
-      findings: 'plan-review-council.review_report_path',
-      count: 'findings_count',
-      scopedCount: 'plan-review-council.findings_count',
-      scopedGatingCount: 'plan-review-council.gating_findings_count',
     ),
     _ => null,
   };

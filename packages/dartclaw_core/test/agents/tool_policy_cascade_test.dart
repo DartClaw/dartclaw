@@ -112,6 +112,41 @@ void main() {
       expect(verdict.isPass, isTrue);
     });
 
+    test('global deny binds the main agent', () async {
+      final guard = ToolPolicyGuard(cascade: ToolPolicyCascade(globalDeny: {'Bash'}));
+      final context = GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'shell',
+        rawProviderToolName: 'Bash',
+        toolInput: {},
+        timestamp: DateTime.now(),
+      );
+      final verdict = await guard.evaluate(context);
+      expect(verdict.isBlock, isTrue);
+      expect(verdict.message, contains('the main agent'));
+    });
+
+    test('agent layers do not bind the main agent', () async {
+      final guard = ToolPolicyGuard(
+        cascade: ToolPolicyCascade(
+          agentDeny: {
+            'search': {'Bash'},
+          },
+          agentAllow: {
+            'search': {'WebSearch'},
+          },
+        ),
+      );
+      final context = GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'shell',
+        rawProviderToolName: 'Bash',
+        toolInput: {},
+        timestamp: DateTime.now(),
+      );
+      expect((await guard.evaluate(context)).isPass, isTrue);
+    });
+
     test('blocks tool not in agent sandbox', () async {
       final guard = ToolPolicyGuard(
         cascade: ToolPolicyCascade(

@@ -213,7 +213,7 @@ void main() {
   // What must still hold is that nothing claims provider enforcement it lacks —
   // the harness receives no schema.
   test('a schema-declaring step runs on a provider that enforces no schema, without receiving one', () async {
-    var workerAllocations = 0;
+    final allocatedWorkers = <FakeTaskWorker>[];
     final primary = context.turns.executions.primary!;
     final executions = ExecutionCoordinator(
       providerCapacities: const {'claude': 1},
@@ -221,10 +221,11 @@ void main() {
       admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
       releaseAdmission: primary.releaseAdmission,
       createWorker: (request) async {
-        workerAllocations++;
+        final allocatedWorker = FakeTaskWorker()..responseText = worker.responseText;
+        allocatedWorkers.add(allocatedWorker);
         return TurnRunner(
           turnLimits: const TurnLimitsConfig.defaults(),
-          harness: worker,
+          harness: allocatedWorker,
           messages: context.messages,
           behavior: BehaviorFileService(workspaceDir: context.workspaceDir),
           sessions: context.sessions,
@@ -243,7 +244,7 @@ void main() {
     await context.tasks.create(
       id: 'task-unsupported-schema',
       title: 'Unsupported schema',
-      description: 'Must fail before allocation.',
+      description: 'Runs without provider schema enforcement.',
       configJson: const {'needsWorktree': false},
       autoStart: true,
       agentExecutionId: 'ae-task-unsupported-schema',
@@ -264,9 +265,17 @@ void main() {
     // envelope this scripted worker never produces — not on the provider's
     // capability, which is the refusal that used to happen before allocation.
     final ran = (await context.tasks.get('task-unsupported-schema'))!;
-    expect(workerAllocations, 1, reason: 'the step must reach a worker rather than be refused before allocation');
-    expect(worker.turnCallCount, greaterThan(0));
-    expect(worker.lastOutputSchema, isNull, reason: 'the schema must not reach a harness that cannot enforce it');
+    expect(
+      allocatedWorkers,
+      hasLength(1),
+      reason: 'the step must reach a worker rather than be refused before allocation',
+    );
+    expect(allocatedWorkers.single.turnCallCount, greaterThan(0));
+    expect(
+      allocatedWorkers.single.lastOutputSchema,
+      isNull,
+      reason: 'the schema must not reach a harness that cannot enforce it',
+    );
     expect(
       ran.configJson['errorSummary'],
       isNot(contains('structured output')),
@@ -292,9 +301,8 @@ void main() {
     await executor.pollOnce();
     await executor.drain();
 
-    // One allocation, not two: the coordinator reuses a healthy idle worker for
-    // the same provider and policy.
     expect((await context.tasks.get('task-schema-free'))?.status, TaskStatus.review);
-    expect(workerAllocations, 1);
+    expect(allocatedWorkers, hasLength(2), reason: 'workflow workers are execution-scoped');
+    expect(allocatedWorkers.last.lastOutputSchema, isNull);
   });
 }

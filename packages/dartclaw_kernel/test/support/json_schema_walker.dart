@@ -29,6 +29,10 @@ const Set<String> emittedKeywords = {
   'enum',
   'minimum',
   'maximum',
+  'minLength',
+  'oneOf',
+  'pattern',
+  'required',
 };
 
 /// Every `type` name the emitter may use.
@@ -39,6 +43,15 @@ const Set<String> emittedTypes = {'array', 'boolean', 'integer', 'null', 'number
 List<String> validateAgainstSchema(Object? instance, Map<String, Object?> schema, {String path = ''}) {
   final diagnostics = <String>[];
   final label = path.isEmpty ? '<root>' : path;
+
+  if (schema['oneOf'] case final List<Object?> alternatives) {
+    final matching = alternatives
+        .cast<Map<String, Object?>>()
+        .where((alternative) => validateAgainstSchema(instance, alternative, path: path).isEmpty)
+        .length;
+    if (matching != 1) diagnostics.add('$label: expected exactly one allowed shape, found $matching');
+    return diagnostics;
+  }
 
   if (schema['type'] case final declared?) {
     final accepted = declared is List ? declared.cast<String>() : [declared as String];
@@ -64,9 +77,23 @@ List<String> validateAgainstSchema(Object? instance, Map<String, Object?> schema
     }
   }
 
+  if (instance case final String value) {
+    if (schema['minLength'] case final int minLength when value.length < minLength) {
+      diagnostics.add('$label: string is shorter than $minLength character(s)');
+    }
+    if (schema['pattern'] case final String pattern when !RegExp(pattern).hasMatch(value)) {
+      diagnostics.add('$label: string does not match pattern "$pattern"');
+    }
+  }
+
   if (instance is Map) {
     final properties = (schema['properties'] as Map?)?.cast<String, Object?>() ?? const {};
     final additional = schema['additionalProperties'];
+    if (schema['required'] case final List<Object?> required) {
+      for (final key in required.cast<String>()) {
+        if (!instance.containsKey(key)) diagnostics.add('$label: missing required property "$key"');
+      }
+    }
     for (final entry in instance.entries) {
       final key = entry.key.toString();
       final child = '${path.isEmpty ? '' : '$path.'}$key';
@@ -129,5 +156,10 @@ Iterable<Map<String, Object?>> schemaPositions(Map<String, Object?> schema) sync
   }
   if (schema['additionalProperties'] case final Map<String, Object?> additional) {
     yield* schemaPositions(additional);
+  }
+  if (schema['oneOf'] case final List<Object?> alternatives) {
+    for (final alternative in alternatives.cast<Map<String, Object?>>()) {
+      yield* schemaPositions(alternative);
+    }
   }
 }

@@ -1,10 +1,12 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../config/runtime_toggle_applier.dart';
 import '../config/scheduling_jobs_applier.dart';
@@ -75,6 +77,7 @@ class SchedulingWiring {
   late List<ScheduledJob> _scheduledJobs;
   late List<String> _missedOneTimeJobIds;
   late final DeliveryService _deliveryService;
+  late final PendingScheduleChangeStore _pendingScheduleChanges;
 
   /// The single writer of per-provider credential health. Detecting paths other
   /// than the scheduled probe report through this instance rather than firing
@@ -89,6 +92,14 @@ class SchedulingWiring {
   /// awaits it after each commit — that is what makes a job written through the
   /// tool, the API or the page run without a restart.
   Future<void> Function() get applyJobs => _jobsApplier.apply;
+
+  /// The one store for `schedule_upsert` writes parked under
+  /// `scheduling.mutation.approval: operator`.
+  ///
+  /// Handed to the two seam construction sites that touch it — the MCP tool
+  /// site parks into it, the scheduling page settles from it. The jobs API
+  /// site takes neither it nor a mode: it never parks.
+  PendingScheduleChangeStore get pendingScheduleChanges => _pendingScheduleChanges;
 
   /// The single owner of DM-target resolution for host-originated sends.
   ///
@@ -140,7 +151,12 @@ class SchedulingWiring {
 
     // Config-declared jobs come from the one composer the live applier also
     // uses, so a boot load and a live application cannot answer differently.
-    final composed = composeConfigJobs(config.scheduling, taskService: taskService);
+    final composed = composeConfigJobs(
+      config.scheduling,
+      taskService: taskService,
+      credentials: config.credentials,
+      dataDir: config.server.dataDir,
+    );
     _missedOneTimeJobIds = composed.missedOnceIds;
     _scheduledJobs = [...composed.jobs];
 
@@ -411,6 +427,15 @@ class SchedulingWiring {
     // re-applying the list they write would loop.
     final jobsStore = ScheduleMutationService(writer: configWriter);
 
+    final pendingChanges = PendingScheduleChangeStore(
+      File(p.join(config.server.dataDir, 'pending-schedule-changes.json')),
+    );
+    await pendingChanges.load();
+    _pendingScheduleChanges = pendingChanges;
+    if (pendingChanges.values.isNotEmpty) {
+      _log.info('${pendingChanges.values.length} scheduling change(s) awaiting operator approval');
+    }
+
     // Constructed unconditionally: heartbeat and credential health are always
     // registered, and a live write must reach a scheduler that already exists.
     final scheduleService = _scheduleService = ScheduleService(
@@ -448,7 +473,7 @@ class SchedulingWiring {
       config: config,
       kvService: kvService,
       searchIndexCounter: (role) {
-        final result = _storage.searchDb.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE role = ?', [role]);
+        final result = _storage.searchDb!.select('SELECT COUNT(*) as cnt FROM memory_chunks WHERE role = ?', [role]);
         return result.first['cnt'] as int;
       },
       indexHealthReader: () async {

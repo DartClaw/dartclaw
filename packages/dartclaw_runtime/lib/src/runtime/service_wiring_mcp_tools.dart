@@ -31,10 +31,14 @@ Future<OutboundMcpPool?> _registerMcpTools(
   // argument, which is what makes them answer the same way to a chat turn and a
   // cron turn — and is why a containerized lane reaches exactly what the host
   // lane of the same kind reaches, through the shared canonical mapping.
+  // The only seam instance that carries the approval mode: model-originated
+  // writes arrive here and nowhere else.
   final scheduleMutations = ScheduleMutationService(
     writer: configWriter,
     applyJobs: scheduling.applyJobs,
     reservedJobIds: () => scheduling.scheduleService?.builtInJobIds ?? const {},
+    approval: config.scheduling.mutationApproval,
+    pendingChanges: scheduling.pendingScheduleChanges,
   );
   server.registerTool(WorkflowRunTool(definitions: workflowDefinitions, workflows: workflowService));
   server.registerTool(WorkflowListTool(definitions: workflowDefinitions));

@@ -27,6 +27,10 @@ extension _TurnRunnerMemory on TurnRunner {
   }) async {
     final memFile = _memoryFile;
     if (memFile == null || toolEventCount == 0 || toolEvents.isEmpty) return;
+    // A persona's conversation is not the owner's day: a channel-bound agent has
+    // no vault of its own yet and must not write into the owner's.
+    final agentName = _activeTurns[sessionId]?.agentName;
+    if (agentName != null && agentName != 'main') return;
 
     final now = DateTime.now();
 

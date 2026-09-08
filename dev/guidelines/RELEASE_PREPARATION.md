@@ -31,27 +31,31 @@ Then bump in a single commit:
 - `version` and concrete install-time URL in both canonical Scoop manifests `package/scoop/dartclaw.json` and `package/scoop/dartclaw-workflow.json` (lockstep with `dartclawVersion`)
 - `$id` in `schemas/dartclaw.schema.json`: regenerate after the version bump with
   `dart run packages/dartclaw_kernel/tool/generate_config_schema.dart`; never edit it by hand
-- CHANGELOG, `dev/state/STATE.md`, `dev/state/ROADMAP.md`, "Current through" markers in docs. Only the section being
+- CHANGELOG, `dev/state/ROADMAP.md`, "Current through" markers in docs. Only the section being
   released changes: a shipped release's section is a record, never edited to match the new code (0.25.0 rewrote a
   0.24.0 bullet and so recorded a breaking config change under the release that documented the old form)
+- The CHANGELOG's top heading: `## [Unreleased]` becomes `## [<version>] - Unreleased` in the same commit as the pins
+  above – whenever that pin lands, usually when `feat/<version>` opens, not at the cut. The cut then only replaces
+  `Unreleased` with the date. State and roadmap notes cite the section as `CHANGELOG § <version>` from the pin on.
 
 `dev/tools/check_versions.sh` enforces every pin above except the schema `$id` — the pubspecs, `version.dart`, both
-Homebrew formulas, and both Scoop manifests including each manifest's concrete install-time URL. Release check gate 2
-and the tag workflow's *Verify release version lockstep* step both run it, so a drifted packaging pin fails the build
-instead of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the
-schema generator's `--check`, which the fitness suite runs.
+Homebrew formulas, both Scoop manifests including each manifest's concrete install-time URL, and the CHANGELOG's top
+heading. The per-push fitness runner, release check gate 2 and the tag workflow's *Verify release version lockstep*
+step all run it, so a drifted packaging pin or a heading left at `[Unreleased]` past the pin fails the build instead
+of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the schema
+generator's `--check`, which the fitness suite runs.
 
 ## Release sequence (squash-merge pattern)
 
 Development happens directly on `feat/<version>` — no nested sub-branches for individual fixes/stories; the branch squash-merges as one unit.
 
-1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, STATE.md says "release-ready, awaiting tag". Push the branch and let its `Checks` run finish green, then run `release_check.sh --version <version>` on that commit; manual gates pass. The dry run above is required if this release touched the release-workflow surface.
+1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, `ROADMAP.md` § Active Milestone says "release-ready, awaiting tag". Push the branch and let its `Checks` run finish green, then run `release_check.sh --version <version>` on that commit; manual gates pass. The dry run above is required if this release touched the release-workflow surface.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.
    The release workflow stages ten archives across five native targets privately. Only after every build and the staged Windows
    installer test pass does one job publish the archives, their checksums, and aggregate `SHA256SUMS.txt`. Homebrew and
    Scoop publication starts only after that job succeeds.
 4. **Delete the remote feature branch; retain the local `feat/<version>` branch as the release-development archive.**
-5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips STATE.md / ROADMAP.md to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself – the tag is the source of truth for "released."
+5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips `ROADMAP.md` to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself – the tag is the source of truth for "released."
 
 **`main` carries exactly one commit per release. Never push a follow-up commit to it.** When the tag build fails, fix on the branch, re-squash the whole tree onto the same parent, force-push `main`, and move the tag — and only while nothing has been published. Once `Publish release assets` has run, the tag is frozen and the fix is the next patch version instead. Amending after publication would leave installed artifacts pointing at a commit that no longer exists.

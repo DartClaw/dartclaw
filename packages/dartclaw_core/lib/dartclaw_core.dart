@@ -188,7 +188,9 @@ export 'src/harness/protocol_message.dart'
         SystemInit,
         CompactBoundary,
         CompactionStarted,
-        CompactionCompleted;
+        CompactionCompleted,
+        BackgroundTaskRef,
+        BackgroundTasksChanged;
 export 'src/harness/tool_policy.dart' show ToolApprovalPolicy;
 export 'src/harness/tool_result.dart' show ToolResult, ToolResultError, ToolResultText;
 

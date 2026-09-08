@@ -118,6 +118,45 @@ void main() {
     );
   }
 
+  /// Wires a [HarnessWiring] directly (bypassing [wireTestHarness]) and composes
+  /// a [DartclawServer] around it, mirroring production's turn-manager-getter cycle.
+  Future<void> wireHarnessWithServer(HarnessFactory factory) async {
+    late DartclawServer wiredServer;
+    harnessWiring = HarnessWiring(
+      config: config,
+      dataDir: tempDir.path,
+      port: 3333,
+      harnessFactory: factory,
+      exitFn: _unexpectedExit,
+      storage: storage!,
+      security: security!,
+      messageRedactor: MessageRedactor(),
+      eventBus: eventBus,
+    );
+    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
+    wiredServer = composeServer(
+      core: ServerCoreDeps(
+        sessions: storage!.sessions,
+        messages: storage!.messages,
+        worker: harnessWiring!.primaryHarness,
+        staticDir: tempDir.path,
+        config: config,
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: storage!.sessions,
+          messages: storage!.messages,
+          worker: harnessWiring!.primaryHarness,
+          behavior: harnessWiring!.behavior,
+          executions: harnessWiring!.executions,
+          sessionsForTurns: storage!.sessions,
+          config: config,
+        ),
+        executions: harnessWiring!.executions,
+      ),
+    );
+  }
+
   /// Wires an unwired [HarnessWiring] so a test can assert on `wire()` itself.
   Future<void> wireHarnessExpectingFailure(HarnessFactory factory, Matcher matcher) async {
     harnessWiring = HarnessWiring(
@@ -146,12 +185,16 @@ void main() {
   HarnessFactory fakeFactory(
     Iterable<String> providerIds, {
     void Function(String providerId, HarnessFactoryConfig)? onCreate,
+    bool supportsStructuredOutput = false,
   }) {
     final factory = HarnessFactory();
     for (final providerId in providerIds) {
       factory.register(providerId, (factoryConfig) {
         onCreate?.call(providerId, factoryConfig);
-        final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append);
+        final harness = FakeAgentHarness(
+          promptStrategy: PromptStrategy.append,
+          supportsStructuredOutput: supportsStructuredOutput,
+        );
         createdHarnesses.add(harness);
         return harness;
       });
@@ -340,13 +383,17 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
-    expect(recordedConfigs.last.declaredCanonicalTools, ['shell', 'file_write']);
-    expect(recordedConfigs.last.declaredWritableRoots, ['/tmp/workflow-declared']);
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
+    expect(factoryConfig.declaredCanonicalTools, ['shell', 'file_write']);
+    expect(factoryConfig.declaredWritableRoots, ['/tmp/workflow-declared']);
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, ['shell', 'file_write']);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('shell', const {})).isPass, isTrue);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isBlock, isTrue);
   });
 
-  test('a workflow step declaring no tools gets the fixed set, never the operator user settings', () async {
-    // Undeclared used to mean "inherit whatever is on this host", so the same
-    // step behaved differently on two machines.
+  test('an omitted workflow policy keeps provider-native user tools unrestricted', () async {
     await wireStorageAndSecurity();
     final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
     await wireHarness(factory);
@@ -363,10 +410,40 @@ void main() {
     );
     addTearDown(() async => lease?.release());
 
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
     expect(
-      recordedConfigs.last.declaredCanonicalTools,
+      factoryConfig.declaredCanonicalTools,
       containsAll(<String>['shell', 'file_read', 'file_write', 'file_edit', 'web_fetch', 'web_search', 'mcp_call']),
     );
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, isNull);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isPass, isTrue);
+  });
+
+  test('an explicit empty workflow policy blocks ordinary and provider-native tools', () async {
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final lease = await harnessWiring!.executions.acquire(
+      const ExecutionRequest(
+        surface: ExecutionSurface.workflow,
+        providerId: 'claude',
+        policy: ExecutionPolicy.host(),
+        sessionId: 'workflow-empty',
+        allowedTools: [],
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
+    expect(factoryConfig.declaredCanonicalTools, isEmpty);
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, isEmpty);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('file_read', const {})).isBlock, isTrue);
+    expect((await factoryConfig.guardChain!.evaluateBeforeToolCall('claude:Skill', const {})).isBlock, isTrue);
   });
 
   test('a non-workflow surface derives no step policy and keeps inheritance', () async {
@@ -473,36 +550,6 @@ void main() {
     expect(verdict, isA<GuardBlock>());
   });
 
-  test('logical agents are not forwarded as provider-native agents', () async {
-    config = config.copyWith(
-      gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
-      search: const SearchConfig(providers: {'brave': SearchProviderEntry(enabled: true, apiKey: 'brave-key')}),
-      agent: AgentConfig(
-        provider: 'claude',
-        definitions: const [
-          AgentDefinition(
-            id: 'search',
-            description: 'Search',
-            prompt: 'Search',
-            allowedTools: {'WebSearch', 'WebFetch'},
-          ),
-          AgentDefinition(
-            id: 'worker',
-            description: 'Worker',
-            prompt: 'Work',
-            allowedTools: {'shell', 'file_read', 'Grep'},
-          ),
-          AgentDefinition(id: 'unrestricted', description: 'Unrestricted', prompt: 'Work'),
-        ],
-      ),
-    );
-
-    await wireStorageAndSecurity();
-    await wireHarness(fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig)));
-
-    expect(recordedConfigs.single.harnessConfig.toInitializeFields(), isNot(contains('agents')));
-  });
-
   test('token-authenticated harness reaches the server on its bound loopback host', () async {
     config = config.copyWith(
       gateway: const GatewayConfig(authMode: 'token', token: 'test-token'),
@@ -569,41 +616,7 @@ void main() {
       ),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude']);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude']));
 
     Future<void> expectLogicalAgentSession({
       required String agent,
@@ -676,6 +689,68 @@ void main() {
     expect(await storage!.sessions.listSessions(type: SessionType.logicalAgent), hasLength(sessionsBefore.length));
   });
 
+  /// Spawns a schema-bound logical agent and returns the schema its harness saw.
+  Future<Map<String, dynamic>?> spawnSchemaBoundAgent({required bool supportsStructuredOutput}) async {
+    config = config.copyWith(
+      agent: const AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(
+            id: 'extractor',
+            description: 'Extract',
+            prompt: 'EXTRACT PERSONA',
+            outputSchema: {
+              'type': 'object',
+              'properties': {
+                'answer': {'type': 'string'},
+              },
+              'required': ['answer'],
+              'additionalProperties': false,
+            },
+          ),
+        ],
+      ),
+    );
+    await wireStorageAndSecurity();
+    await wireHarnessWithServer(fakeFactory(['claude'], supportsStructuredOutput: supportsStructuredOutput));
+
+    final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
+      'agent': 'extractor',
+      'message': 'Extract the answer',
+    });
+    await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+    final agentHarness = createdHarnesses.last;
+    await agentHarness.turnInvoked;
+    final observed = agentHarness.lastOutputSchema;
+    // A harness without structured output answers in text; the host check is what the schema rests on there.
+    agentHarness.completeSuccess(
+      supportsStructuredOutput
+          ? const TurnResult(structuredOutput: {'answer': 'extracted'})
+          : const TurnResult(finalText: '{"answer":"extracted"}'),
+    );
+    final result = await resultFuture;
+    expect(result['isError'], isNull, reason: 'the host-side schema check passes on the bare JSON value');
+    expect(result['content'], contains(containsPair('text', '{"answer":"extracted"}')));
+    return observed;
+  }
+
+  test('a schema-bound logical agent hands its schema to a harness that enforces it', () async {
+    expect(await spawnSchemaBoundAgent(supportsStructuredOutput: true), {
+      'type': 'object',
+      'properties': {
+        'answer': {'type': 'string'},
+      },
+      'required': ['answer'],
+      'additionalProperties': false,
+    });
+  });
+
+  test('a schema-bound logical agent still runs on a harness that cannot enforce the schema', () async {
+    // Codex declares no structured-output support; the host check at the agent
+    // boundary is what the schema rests on there, so the turn must not be refused.
+    expect(await spawnSchemaBoundAgent(supportsStructuredOutput: false), isNull);
+  });
+
   test('logical-agent restricted profile fails closed when container isolation is unavailable', () async {
     config = config.copyWith(
       agent: const AgentConfig(
@@ -744,41 +819,7 @@ void main() {
       credentials: const CredentialsConfig(entries: {'openai': CredentialEntry(apiKey: 'openai-key')}),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude', providerId]);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude', providerId]));
 
     Future<void> completeLogicalAgentSession(String agentId) async {
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
@@ -819,41 +860,7 @@ void main() {
       ),
     );
     await wireStorageAndSecurity();
-    final factory = fakeFactory(['claude']);
-    late DartclawServer wiredServer;
-    harnessWiring = HarnessWiring(
-      config: config,
-      dataDir: tempDir.path,
-      port: 3333,
-      harnessFactory: factory,
-      exitFn: _unexpectedExit,
-      storage: storage!,
-      security: security!,
-      messageRedactor: MessageRedactor(),
-      eventBus: eventBus,
-    );
-    await harnessWiring!.wire(turnManagerGetter: () => wiredServer.turns);
-    wiredServer = composeServer(
-      core: ServerCoreDeps(
-        sessions: storage!.sessions,
-        messages: storage!.messages,
-        worker: harnessWiring!.primaryHarness,
-        staticDir: tempDir.path,
-        config: config,
-      ),
-      turn: ServerTurnDeps(
-        turns: composeServerTurns(
-          sessions: storage!.sessions,
-          messages: storage!.messages,
-          worker: harnessWiring!.primaryHarness,
-          behavior: harnessWiring!.behavior,
-          executions: harnessWiring!.executions,
-          sessionsForTurns: storage!.sessions,
-          config: config,
-        ),
-        executions: harnessWiring!.executions,
-      ),
-    );
+    await wireHarnessWithServer(fakeFactory(['claude']));
 
     final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
       'agent': 'search',
@@ -1004,7 +1011,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 3);
     expect(
       records.map((record) => record.message),
       contains(contains('Tool-restricted agent or job turns are configured for an ACP')),
@@ -1103,7 +1110,7 @@ void main() {
     await wireHarness(factory);
 
     expect(factory.supports('goose'), isTrue);
-    expect(harnessWiring!.executions.snapshot.configuredWorkers, 2);
+    expect(harnessWiring!.executions.snapshot.configuredWorkers, 4);
   });
 
   test('providers pool_size overrides configured ACP agent default capacity', () async {

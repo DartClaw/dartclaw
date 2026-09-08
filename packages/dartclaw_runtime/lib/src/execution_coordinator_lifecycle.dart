@@ -96,36 +96,22 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
           (runner) => (!workersOnly || !identical(runner, _primary)) && !ownedContainers.any((w) => w.runner == runner),
         )
         .toList();
-    _ActiveExecution? busyExecution;
-    for (final execution in _active.values) {
-      if (!workersOnly || !identical(execution.runner, _primary)) {
-        busyExecution = execution;
-        break;
-      }
-    }
-    ExecutionRequest? acquiringExecution;
-    for (final acquisition in _acquiring.values) {
-      if (!workersOnly || acquisition.lane != ExecutionLane.primary) {
-        acquiringExecution = acquisition.request;
-        break;
-      }
-    }
-    TurnRunner? busyRunner;
-    for (final runner in relevantRunners) {
-      if (runner.activeSessionIds.isNotEmpty) {
-        busyRunner = runner;
-        break;
-      }
-    }
-    if (busyExecution != null || acquiringExecution != null || busyRunner != null) {
-      final sameSession =
-          busyExecution?.request.sessionId == sessionId ||
-          acquiringExecution?.sessionId == sessionId ||
-          (busyRunner?.activeSessionIds.contains(sessionId) ?? false);
-      throw BusyTurnException(
-        'Cannot reset session continuity while a relevant runner is busy',
-        isSameSession: sameSession,
-      );
+    // Only work on this very session blocks the reset; every runner is still
+    // asked, and each harness decides what its process holds for the session
+    // (a Claude process serves one conversation, a Codex process keeps a thread
+    // per session it has served).
+    final busyWithSession =
+        _active.values.any(
+          (execution) =>
+              (!workersOnly || !identical(execution.runner, _primary)) && execution.request.sessionId == sessionId,
+        ) ||
+        _acquiring.values.any(
+          (acquisition) =>
+              (!workersOnly || acquisition.lane != ExecutionLane.primary) && acquisition.request.sessionId == sessionId,
+        ) ||
+        relevantRunners.any((runner) => runner.activeSessionIds.contains(sessionId));
+    if (busyWithSession) {
+      throw BusyTurnException('Cannot reset session continuity while its own turn is running', isSameSession: true);
     }
     for (final worker in ownedContainers) {
       _cache.remove(worker);

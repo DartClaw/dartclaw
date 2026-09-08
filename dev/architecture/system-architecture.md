@@ -977,6 +977,8 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 
 `DartclawRuntime.build(config, {headless, harnessRegistrars, …})` (in `dartclaw_runtime`, `lib/src/runtime/`) is the dependency injection root. It constructs all services, wires them together, and returns a `DartclawRuntime` carrying everything `ServeCommand.run` needs plus the `shutdown()` that tears them down. `headless: true` composes the same guarded execution, task and workflow stacks while constructing none of the inbound or scheduled surfaces — no `DartclawServer`, channel manager, heartbeat, schedule service or token service — so a caller that is not `serve` boots a runtime without copying application code. `harnessRegistrars` lets the composer contribute provider families `dartclaw_runtime` does not name.
 
+Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `DartclawRuntime.searchDb` and `selfImprovement` are absent. The construction order below describes the connected runtime.
+
 ### Construction Order (simplified)
 
 ```
@@ -1027,7 +1029,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 | Roadmap | [`dev/state/ROADMAP.md`](../state/ROADMAP.md) | Milestones, status, success criteria |
 | Feature comparison | `docs/specs/feature-comparison.md` (private repo) | OpenClaw vs NanoClaw vs DartClaw |
 | Product Backlog | `docs/PRODUCT-BACKLOG.md` (private repo) | Deferred/future features with rationale |
-| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) (index) + `dev/state/learnings/` shards | Traps, gotchas, non-obvious patterns |
+| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
 | User-facing architecture overview | [`docs/guide/architecture.md`](../../docs/guide/architecture.md) | Operator-oriented 2-layer overview |
 
 ### Key ADRs

@@ -461,8 +461,8 @@ immediately after success (not on the next 30s poll)
 - Edit pre-populates fields; name field disabled in edit mode
 - Delete uses an inline confirmation row
 - Job names containing `"` `'` `<` `&` render safely in the confirmation
-- A newly written job is marked `Restart to run`, while a job already loaded by the running scheduler is not
-- The restart banner appears with the successful mutation response, without a page reload
+- A newly written valid job is loaded by the running scheduler immediately; it does not show `Restart to run`
+- Successful job mutations update the table without a reload or a restart banner
 
 **Fail:** Form doesn't open; cron preview missing; raw HTML in confirmation; layout breaks on special chars
 

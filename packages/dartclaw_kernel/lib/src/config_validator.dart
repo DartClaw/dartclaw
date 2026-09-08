@@ -237,8 +237,8 @@ class ConfigValidator {
     errors.add(ValidationError(field: field, message: "Field '$field' is required when $requiredByField is true"));
   }
 
-  /// Checks each entry of an object-valued field against the shape the registry
-  /// declares for it, reusing the one constraint evaluator.
+  /// Checks each object entry against the shape the registry declares for it,
+  /// reusing the one constraint evaluator.
   ///
   /// Only declared keys are judged. An entry shape does not say whether an entry
   /// is closed, and several are open on purpose — `ProviderEntry.options`
@@ -255,7 +255,9 @@ class ConfigValidator {
         for (final entry in value.entries) ..._validateEntry(shape, entry.value, '${meta.yamlPath}.${entry.key}'),
       ],
       List<Object?>() => [
-        for (final (index, element) in value.indexed) ..._validateEntry(shape, element, '${meta.yamlPath}[$index]'),
+        for (final (index, element) in value.indexed)
+          if (meta.type != ConfigFieldType.stringList || element is! String)
+            ..._validateEntry(shape, element, '${meta.yamlPath}[$index]'),
       ],
       _ => const [],
     };
@@ -268,11 +270,17 @@ class ConfigValidator {
       case ValueEntry(:final value):
         final error = _validateValue(_asFieldMeta(value, path), entry);
         return error == null ? const [] : [error];
-      case ObjectEntry(:final fields):
+      case ObjectEntry(:final fields, :final requiredFields):
         if (entry is! Map) {
           return [ValidationError(field: path, message: "Entry '$path' must be an object")];
         }
         final errors = <ValidationError>[];
+        for (final name in requiredFields) {
+          if (!entry.containsKey(name)) {
+            final fieldPath = '$path.$name';
+            errors.add(ValidationError(field: fieldPath, message: "Field '$fieldPath' is required"));
+          }
+        }
         for (final MapEntry(key: name, value: declared) in fields.entries) {
           if (!entry.containsKey(name)) continue;
           final fieldPath = '$path.$name';

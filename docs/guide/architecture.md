@@ -57,7 +57,7 @@ Each provider binary is spawned as a subprocess. The Dart host manages its lifec
 
 Bounded workflow agent steps run through the guarded harness path on one leased worker. The Dart host owns the task, session transcript, budgets, and workflow state while the harness owns the provider process and turn protocol.
 
-In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user/channel turns. Tasks, cron/system work, logical agents, and workflow steps acquire hard per-provider worker leases; each provider defaults to capacity `1`, overridden by `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
+In a mixed deployment, the execution coordinator owns one fixed serialized primary lane plus provider-scoped worker capacity. The primary lane uses `agent.provider` for main user and unbound channel turns. Tasks, cron/system work, logical agents, bound channel conversations, and workflow steps acquire hard per-provider worker leases; each provider defaults to capacity `2`, overridden by `providers.<id>.pool_size`. See [Agents § Providers](agents.md#providers) and [Configuration](configuration.md) for details.
 
 `AcpHarness` is the ACP implementation. It runs ACP agents over stdio JSON-RPC and adapts ACP session updates into DartClaw turn events. Direct-provider ACP agents can be guard-mediated only when verification proves they honor host filesystem reverse-calls. Relay or unverified ACP topologies claim no guard mediation, so a container would be their only boundary — and DartClaw mediates no provider credential or host capability for an ACP client inside a container, so those registrations are rejected at startup. ACP runs on the host only, on the long-lived surface only.
 
@@ -335,7 +335,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 | `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, default tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, explicitly declared tasks |
 
-A profile is a filesystem/capability template, not a running container: each live container execution owns a dedicated container, destroyed when its authority is released. Container count is therefore bounded by configured worker capacity, which `pool_size` alone still governs.
+A profile is a filesystem/capability template. Each container execution owns its container; a logical-agent session may retain its container between turns until discard, eviction, or shutdown. `providers.<id>.pool_size` bounds concurrent worker leases for that provider, with a default of two. The primary lane has separate capacity, so a containerized primary can run alongside those two workers. The coordinator also bounds retained workers against provider capacity.
 
 Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
 

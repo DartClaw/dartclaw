@@ -103,9 +103,9 @@ Each entry under `agent.agents.<id>` supports:
 | `model` | *(provider default)* | Model override for this logical agent |
 | `effort` | *(provider default)* | Reasoning-effort override for Claude and Codex |
 | `max_response_bytes` | `5242880` (5MB) | Response size cap. Without an `output_schema` the response is truncated to it; with one the turn fails instead, since a truncated value is not the declared contract |
-| `output_schema` | *(none)* | Inline JSON Schema the agent's answer must conform to; a non-conforming answer fails the turn. Read once at startup when agent definitions are built — restart to change it. Never set it on `search`, which `context_research` spawns internally and whose own result packet it would break. See [Configuration](configuration.md#full-config-reference) for the supported keyword set |
+| `output_schema` | *(none)* | Inline JSON Schema the agent's answer must conform to; a non-conforming answer fails the turn. Handed to the provider's structured-output mode when the harness supports it (Claude, `--json-schema`), and validated host-side at the agent boundary either way. Read once at startup when agent definitions are built — restart to change it. Never set it on `search`, which `context_research` spawns internally and whose own result packet it would break. See [Configuration](configuration.md#full-config-reference) for the supported keyword set |
 
-**Schema-bound output**: With `output_schema` set, the agent's persona carries a rendered contract — every property name and type, the required set, the closed-object rule, and the instruction to answer with only the JSON value — and the host parses and validates the result at the agent boundary, after the content guard. A result that is not exactly one JSON value (prose, or JSON inside a code fence), that carries an undeclared property, that is missing a required one, or that is over `max_response_bytes` is returned to the caller as an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an undeclared property name is replaced by a non-semantic fingerprint so rejected content is not echoed. Nothing is repaired, defaulted, or partially salvaged, and there is no automatic retry — re-asking is the caller's decision.
+**Schema-bound output**: With `output_schema` set, the agent's persona carries a rendered contract — every property name and type, the required set, the closed-object rule, and the instruction to answer with only the JSON value. The schema is also handed to the provider's structured-output mode when the harness supports it (Claude, via `--json-schema`), and the host parses and validates the result at the agent boundary either way, after the content guard. A provider without structured output (Codex, ACP) must therefore still answer with exactly one bare JSON value. A result that is not exactly one JSON value (prose, or JSON inside a code fence), that carries an undeclared property, that is missing a required one, or that is over `max_response_bytes` is returned to the caller as an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an undeclared property name is replaced by a non-semantic fingerprint so rejected content is not echoed. Nothing is repaired, defaulted, or partially salvaged, and there is no automatic retry — re-asking is the caller's decision.
 
 **Tools default behavior**: The built-in `search` agent defaults to the canonical allowlist `[web_search, web_fetch]`. Other agents default to an empty list. Empty or absent `tools` means no sandbox allowlist is enforced, so all tools remain available except explicit denies. A startup warning calls out this fail-open posture.
 
@@ -117,9 +117,12 @@ Caller cancellation does not currently propagate into an in-flight `sessions_spa
 
 ### Tool Policy Cascade
 
-On logical-agent turns, tool access is evaluated by `ToolPolicyGuard` through a 3-layer policy (most restrictive wins):
+Tool access is evaluated by `ToolPolicyGuard` through a 3-layer policy (most restrictive wins). The main agent has no
+agent identity, so only the first layer binds it:
 
-1. **Global deny** — `agent.disallowed_tools` blocks tools for the main agent and every logical agent
+1. **Global deny** — `agent.disallowed_tools` blocks tools for the main agent, scheduled and task turns, and every
+   logical agent. Claude is additionally spawned with `--disallowedTools`, so the model is never offered them; Codex and
+   ACP have no equivalent and rely on the guard at their interception points below
 2. **Agent deny** — `denied_tools` blocks tools for that specific logical agent
 3. **Sandbox allow** – a non-empty `tools` list is a closed allowlist
 
@@ -128,9 +131,34 @@ for using `agent.disallowed_tools` to withhold tools from a primary lane exposed
 
 The active turn's agent identity is threaded through each provider interception path before this evaluation. Claude registers an unfiltered `PreToolUse` hook so built-ins and dynamically named MCP tools reach the host guard. When Claude defers an allowlisted tool behind `ToolSearch`, DartClaw permits that schema-discovery step but evaluates the selected tool separately against the closed policy; discovery does not grant the capability. Codex enforcement exists only for operations that emit approval requests: `on-request` is the broadest available interception, `unless-allow-listed` is partial, and `never` bypasses the host guard. Disabling the optional security-guard bundle leaves configured tool policy and per-turn filters active. ACP enforcement covers host reverse file calls and permission requests only; operations that request no permission do not reach the guard. DartClaw warns at startup when configured agent policy cannot be fully mediated by the selected provider posture.
 
+### Binding a Channel Conversation to an Agent
+
+A `dm_allowlist` or `group_allowlist` entry may carry `agent: <name>`, naming an `agent.agents.<name>` definition (see
+the [WhatsApp](whatsapp.md), [Signal](signal.md) and [Google Chat](google-chat.md) guides for the row form). That peer's
+or group's messages then open and continue a session keyed by the agent instead of `main`, under the same `dm_scope` /
+`group_scope` rule as every other channel conversation, and a row without `agent` keeps the primary agent. Precedence
+is row → primary: there is no channel-level default agent.
+
+A bound conversation executes as the agent. Its session is pinned to the agent's `provider`, `execution` mode and
+`security_profile` exactly as a `sessions_spawn` session is; the turn carries the agent's name, so `tools` and
+`denied_tools` apply through the [tool policy cascade](#tool-policy-cascade) whole – a declared `tools` list closes the
+set for that conversation – and under a container policy the bridged MCP grant is the agent's. The agent's `model` and
+`effort` apply unless the row, the channel scope or the crowd-coding fallback set their own; the row's win.
+
+Its prompt is the persona over the task composition: the agent's `prompt` stands where the workspace `SOUL.md` stands for
+the owner (a blank `prompt` inherits `SOUL.md`), followed by `TOOLS.md`, `AGENTS.md`, the channel-origin section and the
+memory-retrieval hint. The owner's `USER.md`, recent errors and memory index are not composed in, and the persona's turns
+never write the owner's daily activity log, so the nightly journal never folds a persona's conversation into the owner's
+memory. Tool-mediated memory access (`memory_read`, `memory_search` and the write tools) is bounded only by the agent's
+`tools` – a persona has no vault of its own yet and reads and writes the owner's one workspace. An agent resolving to
+the `restricted` container profile composes tools only, with no identity, as a restricted task turn does.
+
+Each persona chatting concurrently consumes a `providers.<id>.pool_size` worker slot on its provider; a bound turn waits
+for a slot rather than failing fast the way a nested `sessions_spawn` does. Web sessions stay on the primary agent.
+
 ### Capacity Boundary
 
-The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and channel turns. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller.
+The execution coordinator is the single post-governance capacity authority. It owns one fixed, serialized primary lane for main user and unbound channel turns; a channel conversation [bound to an agent](#binding-a-channel-conversation-to-an-agent) takes a worker lease like a logical-agent session, waiting for one rather than failing fast. Separately, `providers.<id>.pool_size` is a hard concurrent worker-lease limit for that provider across background tasks, scheduled/system work, and logical-agent conversations. A logical agent may start another logical-agent session when policy permits and capacity remains; exhausted nested capacity fails immediately instead of waiting on a worker held by its caller. A scheduled or task turn holds a lease for its whole turn, so a logical agent it spawns needs a second one — which is why the default capacity is two.
 
 Workers are created lazily. Harness-construction inputs are fixed for a coordinator's lifetime, so after a lease is released a healthy idle host worker may be retained and reused only when its provider and security profile match. A logical-agent container is retained only for that exact session/agent owner across its turns and destroyed on discard, eviction, or shutdown; it never crosses principals. The number of profiles or retained containers does not consume or enlarge active worker lease capacity.
 
@@ -171,7 +199,7 @@ The execution coordinator manages admission and optional reuse:
 - **Worker leases** – hard per-provider capacity shared by tasks, cron/system execution, and logical-agent sessions. Workers spawn lazily and never fall back to the busy primary lane.
 - **Workflow worker leases** – workflow steps consume provider capacity on the guarded harness path.
 
-Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `1`.
+Configure capacity per provider with `providers.<id>.pool_size`. Without an explicit provider entry, the selected default provider gets worker-lease capacity `2`.
 
 ```yaml
 providers:
@@ -365,7 +393,7 @@ DartClaw therefore uses Codex's native skill loading directly. Runtime-provision
 Which Codex home a host turn runs against depends on the credential the host presents:
 
 - **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Host harness workers use the normal Codex profile and OAuth state unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
-- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; DartClaw never reads, copies, or writes your own `~/.codex` login, and `use_system_codex_home` does not apply.
+- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; its capability mirror reads plugins and skills from the operator `CODEX_HOME` (or `~/.codex`) without copying source authentication, and `use_system_codex_home` does not apply.
 
 This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage while keeping DartClaw-managed skill payloads scoped to the configured data directory.
 

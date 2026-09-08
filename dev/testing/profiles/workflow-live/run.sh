@@ -36,11 +36,16 @@ Modes:
 
 Canaries:
   core                 Real core bridge protocol smoke.
+  user-plugins         User-only plugin consumption in Claude and Codex,
+                       including Claude tool denials and Codex dedicated homes.
   step-isolation       Live workflow step/output contract probes. Two files,
                        two providers by design: the env-export canary pins
                        codex, the step/declared-output suite pins claude
                        (only Claude's harness enforces an output schema).
                        Each skips itself when its binary is absent.
+  background-subagent  Turn-boundary probe: a workflow step that leaves an
+                       Agent running in the background must still succeed
+                       with the agent's marker present (Claude only).
   spec-and-implement   Single spec workflow E2E.
   plan-and-implement   Multi-story plan workflow E2E.
   merge-resolve        Live merge-resolve conflict workflow.
@@ -68,6 +73,8 @@ EOF
 FULL_FILES=(
   "packages/dartclaw_core/test/integration/direct_bridge_test.dart"
   "packages/dartclaw_workflow/test/workflow/step_artifacts_env_live_canary_test.dart"
+  "packages/dartclaw_workflow/test/workflow/claude_user_plugin_inheritance_test.dart"
+  "packages/dartclaw_workflow/test/workflow/codex_user_plugin_inheritance_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart"
   "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
@@ -163,6 +170,18 @@ case "${MODE}:${CANARY:-}" in
       "packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart"
     )
     LOG_LABEL="canary-step-isolation"
+    ;;
+  canary:user-plugins)
+    FILES=(
+      "packages/dartclaw_workflow/test/workflow/claude_user_plugin_inheritance_test.dart"
+      "packages/dartclaw_workflow/test/workflow/codex_user_plugin_inheritance_test.dart"
+    )
+    LOG_LABEL="canary-user-plugins"
+    ;;
+  canary:background-subagent)
+    FILES=("packages/dartclaw_workflow/test/workflow/workflow_step_isolation_test.dart")
+    NAME_FILTER="backgrounded subagent survives"
+    LOG_LABEL="canary-background-subagent"
     ;;
   canary:spec-and-implement)
     FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")

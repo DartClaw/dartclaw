@@ -1,13 +1,12 @@
 part of 'service_wiring.dart';
 
-/// [DartclawRuntime.executions], [DartclawRuntime.resetService] and
-/// [DartclawRuntime.selfImprovement], each refusing by name on a lifecycle-only
-/// build: a verb reached a field its composition never built, which is a wiring
-/// mistake rather than a state to fall back from.
+/// Required execution services, each refusing with the composition that omitted it.
 extension DartclawRuntimeExecutionStack on DartclawRuntime {
   ExecutionCoordinator get requireExecutions => executions ?? _absent('executions');
   SessionResetService get requireResetService => resetService ?? _absent('resetService');
-  SelfImprovementService get requireSelfImprovement => selfImprovement ?? _absent('selfImprovement');
+  SelfImprovementService get requireSelfImprovement =>
+      selfImprovement ??
+      (throw StateError('DartclawRuntime.selfImprovement is composed only for the connected server runtime.'));
 
   Never _absent(String field) => throw StateError(
     'DartclawRuntime.$field is not composed in a lifecycle-only build '
@@ -17,7 +16,7 @@ extension DartclawRuntimeExecutionStack on DartclawRuntime {
 
 DartclawRuntime _assembleRuntime(
   _WiringContext ctx,
-  Future<Map<String, String>> Function(String providerId) providerProbeEnvironment,
+  Future<ProviderProbeEnvironment> Function(String providerId) providerProbeEnvironment,
   DartclawServer? server,
   StorageWiring storage,
   HarnessWiring? harness,
@@ -67,7 +66,7 @@ DartclawRuntime _assembleRuntime(
     prepareExecutionShutdown: task.prepareExecutionShutdown,
     shutdownExtras: () async {
       try {
-        lifecycleManager?.dispose();
+        await lifecycleManager?.dispose();
         // The zero-server lane owns the invocation repository for the life of
         // the process, so its worktrees and branches are swept here — after the
         // in-flight one-shots are cancelled and the executor has drained, and
@@ -92,7 +91,7 @@ DartclawRuntime _assembleRuntime(
         await project.dispose();
       } finally {
         try {
-          await storage.memoryCorpus.close();
+          await storage.personalMemoryCorpus?.close();
         } finally {
           await outboundMcpPool?.close();
         }

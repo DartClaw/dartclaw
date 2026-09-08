@@ -71,13 +71,15 @@ class TaskWiring {
     required EventBus eventBus,
     required StorageWiring storage,
     ProjectWiring? project,
+    bool workflowOnly = false,
   }) : _dataDir = dataDir,
        _runtimeCwd = runtimeCwd,
        _localFallbackDir = localFallbackDir,
        _remotePushServiceOverride = remotePushServiceOverride,
        _eventBus = eventBus,
        _storage = storage,
-       _project = project;
+       _project = project,
+       _workflowOnly = workflowOnly;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -93,6 +95,7 @@ class TaskWiring {
   final EventBus _eventBus;
   final StorageWiring _storage;
   final ProjectWiring? _project;
+  final bool _workflowOnly;
 
   static final _log = Logger('TaskWiring');
 
@@ -240,6 +243,7 @@ class TaskWiring {
       workspaceRoot: config.workspaceDir,
       currentDirectory: _runtimeCwd,
       dataDir: _dataDir,
+      workflowOnly: _workflowOnly,
     );
     _postServerWired = true;
     _log.fine('TaskExecutor wired');

@@ -24,8 +24,8 @@ class WhatsAppConfig {
   /// Group-message access policy for WhatsApp groups.
   final GroupAccessMode groupAccess;
 
-  /// Approved direct-message senders when [dmAccess] is allowlist-based.
-  final List<String> dmAllowlist;
+  /// Approved direct-message rows when [dmAccess] is allowlist-based.
+  final List<GroupEntry> dmAllowlist;
 
   /// Approved group entries when [groupAccess] is allowlist-based.
   final List<GroupEntry> groupAllowlist;
@@ -51,7 +51,7 @@ class WhatsAppConfig {
     this.gowaDbUri,
     this.dmAccess = DmAccessMode.pairing,
     this.groupAccess = GroupAccessMode.disabled,
-    this.dmAllowlist = const [],
+    this.dmAllowlist = const <GroupEntry>[],
     this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
     this.mentionPatterns = const [],
@@ -64,6 +64,10 @@ class WhatsAppConfig {
   /// Provides backward-compatible access equivalent to the previous
   /// `List<String> groupAllowlist` field.
   List<String> get groupIds => GroupEntry.groupIds(groupAllowlist);
+
+  /// The peer ids from [dmAllowlist] as a plain string list – the shape the
+  /// DM access check consumes.
+  List<String> get dmIds => GroupEntry.groupIds(dmAllowlist);
 
   /// Creates a disabled WhatsApp configuration.
   const new disabled() : this();

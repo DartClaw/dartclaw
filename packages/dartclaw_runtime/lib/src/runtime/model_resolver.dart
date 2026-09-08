@@ -7,40 +7,27 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 /// remain the harness defaults when the per-turn override is `null`.
 ///
 /// Resolution chain (highest to lowest precedence):
-///   per-group (GroupEntry.model) -> per-channel -> scope global -> crowd_coding -> null
+///   allowlist row (DM or group) -> per-channel -> scope global -> crowd_coding -> null
+///
+/// [row] is the conversation's structured allowlist row, resolved from the
+/// message by the channel manager; [sessionKey] still selects the per-channel
+/// scope override and gates the crowd-coding fallback on the group scope.
 ({String? model, String? effort}) resolveChannelTurnOverrides({
   required String sessionKey,
   required DartclawConfig config,
-  GroupConfigResolver? groupConfigResolver,
+  GroupEntry? row,
 }) {
   final parsed = _tryParseSessionKey(sessionKey);
   final channelTypeStr = channelTypeFromSessionKey(sessionKey);
-  final channelType = channelTypeStr != null
-      ? ChannelType.values.where((t) => t.name == channelTypeStr).firstOrNull
-      : null;
   final channelScope = channelTypeStr != null ? config.sessions.scopeConfig.channels[channelTypeStr] : null;
   final crowdCodingModel = parsed?.scope == 'group' ? config.governance.crowdCoding.model : null;
   final crowdCodingEffort = parsed?.scope == 'group' ? config.governance.crowdCoding.effort : null;
 
-  GroupEntry? groupEntry;
-  if (groupConfigResolver != null && parsed?.scope == 'group' && channelType != null) {
-    final groupId = _groupIdFromSessionKey(parsed!.identifiers);
-    if (groupId != null) {
-      groupEntry = groupConfigResolver.resolve(channelType, groupId);
-    }
-  }
-
   return (
-    model: groupEntry?.model ?? channelScope?.model ?? config.sessions.scopeConfig.model ?? crowdCodingModel,
-    effort: groupEntry?.effort ?? channelScope?.effort ?? config.sessions.scopeConfig.effort ?? crowdCodingEffort,
+    model: row?.model ?? channelScope?.model ?? config.sessions.scopeConfig.model ?? crowdCodingModel,
+    effort: row?.effort ?? channelScope?.effort ?? config.sessions.scopeConfig.effort ?? crowdCodingEffort,
   );
 }
-
-/// Extracts the groupId from the identifiers part of a group session key.
-///
-/// Group session keys encode `channelType:groupId` in the identifiers segment.
-/// Returns null for non-group scopes or malformed identifiers.
-String? _groupIdFromSessionKey(String identifiers) => _decodeIdentifierPart(identifiers, 1);
 
 /// Extracts the channel type from a channel-derived [sessionKey].
 String? channelTypeFromSessionKey(String sessionKey) {

@@ -100,6 +100,24 @@ class FakeSignalCliManager extends SignalCliManager {
   }
 }
 
+final class _RoutingFakeChannelManager extends ChannelManager {
+  final List<ChannelMessage> received = [];
+
+  new({required GroupConfigResolver rows})
+    : super(
+        queue: MessageQueue(
+          dispatcher: (_, _, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+        ),
+        config: const ChannelConfig.defaults(),
+        groupConfigResolver: rows,
+      );
+
+  @override
+  void handleInboundMessage(ChannelMessage message) {
+    received.add(message);
+  }
+}
+
 /// Build a signal-cli envelope for testing.
 Map<String, dynamic> _signalEnvelope({
   required String source,
@@ -128,7 +146,7 @@ Map<String, dynamic> _signalEnvelope({
 
 SignalChannel _makeChannel({
   required FakeSignalCliManager sidecar,
-  required FakeChannelManager channelManager,
+  required ChannelManager channelManager,
   SignalConfig config = const SignalConfig(enabled: true, groupAccess: GroupAccessMode.open),
   DmAccessController? dmAccess,
   MentionGating? mentionGating,
@@ -695,7 +713,7 @@ final value = 1;
       expect(warns, isEmpty);
       expect(config.dmAccess, DmAccessMode.open);
       expect(config.groupAccess, GroupAccessMode.allowlist);
-      expect(config.dmAllowlist, ['+9999999999']);
+      expect(config.dmIds, ['+9999999999']);
       expect(config.groupIds, ['grp-abc']);
       expect(config.requireMention, isFalse);
       expect(config.mentionPatterns, [r'@bot']);
@@ -707,7 +725,7 @@ final value = 1;
       expect(warns, isEmpty);
       expect(config.dmAccess, DmAccessMode.allowlist);
       expect(config.groupAccess, GroupAccessMode.disabled);
-      expect(config.dmAllowlist, isEmpty);
+      expect(config.dmIds, isEmpty);
       expect(config.groupIds, isEmpty);
       expect(config.requireMention, isTrue);
       expect(config.mentionPatterns, isEmpty);
@@ -857,9 +875,64 @@ final value = 1;
       );
 
       expect(pairingManager.received, hasLength(1));
-      expect(pairingManager.received.first.senderJid, phone);
+      expect(pairingManager.received.first.senderJid, uuid);
+      final manager = ChannelManager(
+        queue: MessageQueue(
+          dispatcher: (_, _, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+        ),
+        config: const ChannelConfig.defaults(),
+        groupConfigResolver: GroupConfigResolver.fromChannelEntries(
+          const {},
+          dms: const {
+            ChannelType.signal: [GroupEntry(id: uuid, agent: 'ana')],
+          },
+        ),
+      );
+      expect(manager.deriveSessionKey(pairingManager.received.single), startsWith('agent:ana:'));
       // Phone form should now be in allowlist (self-healing normalization)
       expect(dmAccess.allowlist, containsAll([uuid, phone]));
+    });
+
+    test('sealed-sender: open access routes a phone envelope through its bound UUID row', () async {
+      const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      const phone = '+46701234567';
+      final manager = _RoutingFakeChannelManager(
+        rows: GroupConfigResolver.fromChannelEntries(
+          const {},
+          dms: const {
+            ChannelType.signal: [GroupEntry(id: uuid, agent: 'ana')],
+          },
+        ),
+      );
+      final ch = _makeChannel(
+        sidecar: pairingSidecar,
+        channelManager: manager,
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+      );
+
+      await ch.connect();
+      await _emitAndPump(
+        pairingSidecar,
+        _signalEnvelope(source: uuid, sourceNumber: phone, sourceUuid: uuid, message: 'Hello'),
+      );
+
+      expect(manager.received.single.senderJid, uuid);
+      expect(manager.deriveSessionKey(manager.received.single), startsWith('agent:ana:'));
+    });
+
+    test('sealed-sender: open access preserves the phone identity when neither form has a row', () async {
+      const uuid = '12bfcd5a-3363-45f4-94b6-3fe247f11ab8';
+      const phone = '+46701234567';
+      final dmAccess = DmAccessController(mode: DmAccessMode.open);
+      final ch = _makeChannel(sidecar: pairingSidecar, channelManager: pairingManager, dmAccess: dmAccess);
+
+      await ch.connect();
+      await _emitAndPump(
+        pairingSidecar,
+        _signalEnvelope(source: uuid, sourceNumber: phone, sourceUuid: uuid, message: 'Hello'),
+      );
+
+      expect(pairingManager.received.single.senderJid, phone);
     });
 
     test('sealed-sender: UUID message NOT resolved when allowlist holds phone (documented limitation)', () async {

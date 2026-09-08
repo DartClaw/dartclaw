@@ -37,20 +37,49 @@ void main() {
       expect(spawn!.environment!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '0');
     });
 
-    test('a workflow step spawn stops inheriting the operator user settings', () async {
-      // A server lane whose tool policy varies with whoever's
-      // `~/.claude/settings.json` is on the host is nondeterministic by
-      // construction: on 2026-08-28 a review step's Bash calls ran on the
-      // developer's personal rules while its Write calls were refused.
-      final capturedArgs = await startHarnessAndCaptureArgs(
-        providerOptions: {'permissionMode': 'dontAsk'},
-        declaredCanonicalTools: const ['shell'],
-      );
+    for (final inheritUserSettings in [null, true]) {
+      for (final declaredTools in <List<String>?>[
+        null,
+        const ['shell'],
+        const [],
+      ]) {
+        test('inherit_user_settings ${inheritUserSettings ?? 'default'} inherits user settings '
+            'with ${declaredTools == null
+                ? 'no declared tool list'
+                : declaredTools.isEmpty
+                ? 'an empty declared tool list'
+                : 'a declared tool list'}', () async {
+          final capturedArgs = await startHarnessAndCaptureArgs(
+            providerOptions: {'permissionMode': 'dontAsk', 'inherit_user_settings': ?inheritUserSettings},
+            declaredCanonicalTools: declaredTools,
+          );
 
-      expect(capturedArgs, containsAllInOrder(['--setting-sources', 'project']));
-    });
+          expect(capturedArgs, isNot(contains('--setting-sources')));
+        });
+      }
+    }
 
-    test('a pre-execution step spawn grants nothing rather than the server cwd', () async {
+    for (final declaredTools in <List<String>?>[
+      null,
+      const ['shell'],
+      const [],
+    ]) {
+      test('inherit_user_settings false uses project settings '
+          'with ${declaredTools == null
+              ? 'no declared tool list'
+              : declaredTools.isEmpty
+              ? 'an empty declared tool list'
+              : 'a declared tool list'}', () async {
+        final capturedArgs = await startHarnessAndCaptureArgs(
+          providerOptions: const {'permissionMode': 'dontAsk', 'inherit_user_settings': false},
+          declaredCanonicalTools: declaredTools,
+        );
+
+        expect(capturedArgs, containsAllInOrder(['--setting-sources', 'project']));
+      });
+    }
+
+    test('a pre-execution step spawn derives no grants from the server cwd', () async {
       // Deriving the worktree root from the construction cwd would hand a
       // workflow step write access to the DartClaw checkout itself — observed
       // live 2026-08-28 as `Write(/Users/.../dartclaw-public-0.25/**)` on the
@@ -70,7 +99,7 @@ void main() {
       final allow =
           ((jsonDecode(spawn!.args[settingsIndex + 1]) as Map<String, dynamic>)['permissions']
               as Map<String, dynamic>)['allow'];
-      expect(allow, isEmpty, reason: 'a spawn whose execution directory is unknown may grant nothing');
+      expect(allow, isEmpty, reason: 'an unknown execution directory must add no declared-tool grants');
       expect(jsonEncode(allow), isNot(contains('/tmp')), reason: 'the construction cwd must never become a root');
     });
 

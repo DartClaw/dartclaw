@@ -284,13 +284,11 @@ void main() {
       staging.completeForExecution({'not-configured'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('not-configured'))),
     );
+    expect(taskDbs, hasLength(1));
+    expect(taskDbs.single.select('SELECT 1'), isNotEmpty);
     await staging.dispose();
 
-    expect(
-      () => searchDbs.single.select('SELECT 1'),
-      throwsA(isA<StateError>()),
-      reason: 'the search database was left open',
-    );
+    expect(searchDbs, isEmpty, reason: 'headless staging composed a personal-memory search database');
     expect(
       () => taskDbs.single.select('SELECT 1'),
       throwsA(isA<StateError>()),
@@ -304,7 +302,7 @@ void main() {
     await runtime.shutdown();
 
     expect(
-      () => runtime.searchDb.select('SELECT 1'),
+      () => runtime.searchDb!.select('SELECT 1'),
       throwsA(isA<StateError>()),
       reason: 'the search database is the last thing shutdown closes',
     );

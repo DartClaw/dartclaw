@@ -42,7 +42,7 @@ class ReservedCommandHandler {
     required EventBus eventBus,
     required SseBroadcast sseBroadcast,
     required PauseController pauseController,
-    required SessionService sessions,
+    required Future<void> Function(List<PausedChannelTurn>) replayPausedTurns,
     required ThreadBindingStore? threadBindingStore,
   }) async {
     final command = _reservedChannelCommand(message.text);
@@ -126,7 +126,7 @@ class ReservedCommandHandler {
     final queueDepth = pauseController.queueDepth;
     final collapsed = pauseController.drain();
     if (collapsed != null && collapsed.isNotEmpty) {
-      await drainPauseQueue(collapsed: collapsed, sessions: sessions, turnManagerGetter: turnManagerGetter);
+      await replayPausedTurns(collapsed);
     }
 
     final sessionCount = collapsed?.length ?? 0;
@@ -252,32 +252,10 @@ class ReservedCommandHandler {
     }
   }
 
-  /// Delivers collapsed pause queue messages by creating turns via [TurnManager].
-  ///
-  /// Each session in [collapsed] gets one turn with the concatenated text.
-  /// Errors per session are logged and skipped — partial delivery is acceptable.
-  static Future<void> drainPauseQueue({
-    required Map<String, String> collapsed,
-    required SessionService sessions,
-    required core.TurnManager Function() turnManagerGetter,
-  }) async {
-    final turns = turnManagerGetter();
-    for (final MapEntry(key: sessionKey, value: text) in collapsed.entries) {
-      try {
-        final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
-        final messages = [
-          {'role': 'user', 'content': text},
-        ];
-        await turns.startTurn(
-          session.id,
-          messages,
-          source: 'pause-queue',
-          isHumanInput: true,
-          promptScope: PromptScope.primary,
-        );
-      } catch (e, st) {
-        _log.warning('Failed to deliver paused messages for session $sessionKey', e, st);
-      }
+  /// Replays collapsed pause queue messages through the original channel queue.
+  static Future<void> drainPauseQueue({required List<PausedChannelTurn> collapsed, required MessageQueue queue}) async {
+    for (final turn in collapsed) {
+      queue.enqueue(turn.message, turn.channel, turn.sessionKey);
     }
   }
 }

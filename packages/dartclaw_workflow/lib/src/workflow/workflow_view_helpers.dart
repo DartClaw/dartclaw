@@ -7,23 +7,38 @@ import 'workflow_run.dart' show WorkflowRun;
 /// Maps a task's status (or absence) to a workflow step status string.
 ///
 /// Status comes from four layers, in precedence order:
-/// 1. Step-local outcome markers in `run.contextJson` (for steps with no task,
-///    e.g. skipped entryGate branches)
+/// 1. A skipped step-local outcome marker in `run.contextJson`
 /// 2. Child task lifecycle (`Task.status`) when a task exists
-/// 3. `run.currentStepIndex` while the workflow is actively running
-/// 4. The workflow run's terminal state
+/// 3. Producer-owned context status for a taskless step
+/// 4. `run.currentStepIndex` while the workflow is actively running; otherwise
+///    the step is pending
 ///
 /// Shared by the API routes and the workflow UI templates to avoid duplicating
 /// this mapping in multiple places.
 String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepId}) {
-  final contextData = _contextData(run);
-  final outcome = stepId == null
-      ? null
-      : (run.contextJson['step.$stepId.outcome'] ?? contextData['step.$stepId.outcome']);
+  final outcome = stepId == null ? null : workflowContextValue(run, 'step.$stepId.outcome');
   if (outcome == 'skipped') {
     return 'skipped';
   }
   if (task == null) {
+    final approvalStatus = stepId == null ? null : workflowContextValue(run, '$stepId.approval.status');
+    final projectedApprovalStatus = switch (approvalStatus) {
+      'pending' || 'waiting' || 'awaiting_approval' => 'awaiting_approval',
+      'approved' || 'completed' => 'completed',
+      'rejected' => 'rejected',
+      'expired' || 'timed_out' => 'timed_out',
+      _ => null,
+    };
+    if (projectedApprovalStatus != null) return projectedApprovalStatus;
+
+    final persistedStatus = stepId == null ? null : workflowContextValue(run, '$stepId.status');
+    final projectedPersistedStatus = switch (persistedStatus) {
+      'success' || 'accepted' || 'completed' => 'completed',
+      'failed' => 'failed',
+      'cancelled' => 'cancelled',
+      _ => null,
+    };
+    if (projectedPersistedStatus != null) return projectedPersistedStatus;
     if (index == run.currentStepIndex && run.status == WorkflowRunStatus.running) {
       return 'running';
     }
@@ -40,6 +55,10 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
     TaskStatus.rejected => 'failed',
   };
 }
+
+/// Reads a workflow context value from either the persisted data map or the
+/// legacy flat run snapshot.
+Object? workflowContextValue(WorkflowRun run, String key) => run.contextJson[key] ?? _contextData(run)[key];
 
 /// Builds a short operator-facing summary of run-level `blocked` (recoverable)
 /// step outcomes from a persisted run's context, or null when none exist.

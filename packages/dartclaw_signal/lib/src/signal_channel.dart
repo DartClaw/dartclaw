@@ -125,8 +125,30 @@ class SignalChannel extends Channel {
   /// Handle an inbound SSE event from signal-cli daemon.
   void _handleEvent(Map<String, dynamic> payload) {
     try {
-      final message = _parseEnvelope(payload);
+      var message = _parseEnvelope(payload);
       if (message == null) return;
+
+      final altId = message.metadata['sourceUuid'] as String?;
+      if (message.groupJid == null &&
+          altId != null &&
+          altId != message.senderJid &&
+          _channelManager?.resolveRow(message) == null) {
+        final alternateMessage = ChannelMessage(
+          id: message.id,
+          channelType: message.channelType,
+          senderJid: altId,
+          text: message.text,
+          timestamp: message.timestamp,
+          mentionedJids: message.mentionedJids,
+          metadata: message.metadata,
+        );
+        final alternateHasRow = _channelManager?.resolveRow(alternateMessage) != null;
+        final alternateIsAllowed = dmAccess.mode != DmAccessMode.open && dmAccess.isAllowed(altId);
+        if (alternateHasRow || alternateIsAllowed) {
+          if (alternateIsAllowed) dmAccess.addToAllowlist(message.senderJid);
+          message = alternateMessage;
+        }
+      }
 
       final decision = ChannelInboundGate.evaluate(
         message,
@@ -142,8 +164,8 @@ class SignalChannel extends Channel {
         case ChannelInboundDecision.dmPairingRequired:
           // Sealed-sender: senderJid may be phone while allowlist holds UUID (or vice versa).
           // Check the alternate UUID form stored in metadata.
-          final altId = message.metadata['sourceUuid'] as String?;
-          if (altId != null && altId != message.senderJid && dmAccess.isAllowed(altId)) {
+          final alternateId = message.metadata['sourceUuid'] as String?;
+          if (alternateId != null && alternateId != message.senderJid && dmAccess.isAllowed(alternateId)) {
             // Resolved via alternate. Normalize: add senderJid so future lookups skip the fallback.
             dmAccess.addToAllowlist(message.senderJid);
             break;

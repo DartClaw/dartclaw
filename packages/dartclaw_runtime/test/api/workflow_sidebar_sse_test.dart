@@ -8,7 +8,14 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SqliteWorkflowRunRepository, WorkflowDefinition, WorkflowPersistencePorts, WorkflowService, WorkflowStep;
+    show
+        SqliteWorkflowRunRepository,
+        WorkflowDefinition,
+        WorkflowPersistencePorts,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowTaskType;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -29,6 +36,7 @@ void main() {
   late TaskService tasks;
   late EventBus eventBus;
   late WorkflowService workflows;
+  late SqliteWorkflowRunRepository workflowRepo;
   late Directory tempDir;
 
   setUp(() {
@@ -47,7 +55,7 @@ void main() {
       eventBus: eventBus,
     );
 
-    final workflowRepo = SqliteWorkflowRunRepository(workflowDb);
+    workflowRepo = SqliteWorkflowRunRepository(workflowDb);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService(
@@ -147,6 +155,41 @@ void main() {
       expect(wf['status'], 'running');
       expect(wf['totalSteps'], 4);
       expect(wf['completedSteps'], isA<int>());
+    });
+
+    test('activeWorkflows counts taskless steps from persisted context data', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      final definition = WorkflowDefinition(
+        name: 'release-ui-smoke',
+        description: 'Taskless workflow state projection.',
+        steps: const [
+          WorkflowStep(id: 'prepare', name: 'Prepare', taskType: WorkflowTaskType.bash, prompts: ['prepare']),
+          WorkflowStep(id: 'approve', name: 'Approve', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          WorkflowStep(id: 'finish', name: 'Finish', taskType: WorkflowTaskType.bash, prompts: ['finish']),
+        ],
+      );
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-taskless',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.running,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 3,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {'prepare.status': 'success', 'approve.approval.status': 'approved', 'finish.status': 'success'},
+          },
+        ),
+      );
+
+      final handler = taskSseRoutes(tasks, eventBus, workflows: workflows).call;
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/sidebar-state')));
+      final payload = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final activeWorkflow = (payload['activeWorkflows'] as List<dynamic>).single as Map<String, dynamic>;
+
+      expect(activeWorkflow['completedSteps'], 3);
+      expect(activeWorkflow['totalSteps'], 3);
     });
 
     test('sidebar-state endpoint includes activeWorkflows when workflows are configured', () async {

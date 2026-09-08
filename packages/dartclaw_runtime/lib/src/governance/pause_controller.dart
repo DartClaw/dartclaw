@@ -10,6 +10,21 @@ enum QueueResult {
   full,
 }
 
+/// One collapsed paused conversation ready to re-enter the channel queue.
+class PausedChannelTurn {
+  /// The route selected before the pause intercepted the message.
+  final String sessionKey;
+
+  /// The collapsed inbound message with its channel routing context intact.
+  final ChannelMessage message;
+
+  /// The transport that received the original messages.
+  final Channel channel;
+
+  /// Creates a paused turn ready for replay.
+  const new({required this.sessionKey, required this.message, required this.channel});
+}
+
 /// In-memory pause state controller.
 ///
 /// Tracks pause/resume state, queues inbound messages while paused, and
@@ -79,12 +94,13 @@ class PauseController {
     return QueueResult.queued;
   }
 
-  /// Drain the queue and return grouped messages per session.
+  /// Drain the queue and return grouped messages per conversation route.
   ///
-  /// Returns a map of `sessionKey → collapsed message text`.
+  /// Messages sharing a session but arriving from different DM rows remain
+  /// separate so replay retains each row's agent and model overrides.
   /// Clears the queue and unpauses atomically.
   /// Returns `null` if not currently paused.
-  Map<String, String>? drain() {
+  List<PausedChannelTurn>? drain() {
     if (!_paused) return null;
     final result = _collapseQueue();
     _queue.clear();
@@ -105,15 +121,19 @@ class PauseController {
 
   // ---- Private helpers ----
 
-  Map<String, String> _collapseQueue() {
-    // Partition by session key.
-    final bySession = <String, List<_QueuedMessage>>{};
+  List<PausedChannelTurn> _collapseQueue() {
+    final byRoute = <({String sessionKey, Channel channel, String conversationId}), List<_QueuedMessage>>{};
     for (final entry in _queue) {
-      bySession.putIfAbsent(entry.sessionKey, () => []).add(entry);
+      final route = (
+        sessionKey: entry.sessionKey,
+        channel: entry.channel,
+        conversationId: entry.message.groupJid ?? entry.message.senderJid,
+      );
+      byRoute.putIfAbsent(route, () => []).add(entry);
     }
 
-    final result = <String, String>{};
-    for (final MapEntry(key: sessionKey, value: messages) in bySession.entries) {
+    final result = <PausedChannelTurn>[];
+    for (final MapEntry(key: route, value: messages) in byRoute.entries) {
       // Group by sender within the session, preserving chronological first-appearance order.
       final bySender = <String, List<String>>{};
       final senderOrder = <String>[];
@@ -134,7 +154,23 @@ class PauseController {
         buffer.writeln('- $name: ${texts.join(', ')}');
       }
 
-      result[sessionKey] = buffer.toString().trimRight();
+      final representative = messages.last.message;
+      result.add(
+        PausedChannelTurn(
+          sessionKey: route.sessionKey,
+          channel: route.channel,
+          message: ChannelMessage(
+            id: representative.id,
+            channelType: representative.channelType,
+            senderJid: representative.senderJid,
+            groupJid: representative.groupJid,
+            text: buffer.toString().trimRight(),
+            timestamp: representative.timestamp,
+            mentionedJids: representative.mentionedJids,
+            metadata: representative.metadata,
+          ),
+        ),
+      );
     }
     return result;
   }

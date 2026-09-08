@@ -46,7 +46,7 @@ The original decision was taken against `codex exec --output-schema`, a surface 
 Codex harness speaks the app-server protocol, whose turn notifications carry no structured or validated field — only
 assistant text — so `CodexHarness.supportsStructuredOutput` is `false` and `TaskExecutor` refuses a schema-bearing step
 on a Codex provider before dispatch. Enforcement is not the gap; readback is. Mechanism detail and wire references are
-in `dev/state/learnings/agent-harness-protocols.md` § Structured Output.
+in `dev/state/LEARNINGS.md` § Agent Harness Protocols › Structured Output.
 
 Consequences:
 

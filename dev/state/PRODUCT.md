@@ -1,28 +1,41 @@
-# DartClaw — Product Summary
+# DartClaw – Product Summary
 
 ## Vision
 
-**DartClaw** is an experimental, security-conscious AI agent runtime built with Dart. A single AOT-compiled Dart binary orchestrates multiple agent harnesses (Claude Code, Codex, more planned) via a 2-layer architecture (Dart host → native agent binaries via control protocols), providing persistent memory, real-time streaming, and defense-in-depth isolation — all with zero npm/Node.js at runtime.
-
-## Architecture
-Architecture: 2-layer model — Dart host (state/API/security) → agent harness binaries via control protocols. DartClaw is **multi-harness by design** — Claude Code (JSONL over stdin/stdout), Codex (JSON-RPC), and ACP adapters share one host-owned execution contract. An execution coordinator serializes the primary interactive lane, enforces per-provider worker capacity, and opportunistically reuses only compatible healthy harnesses. Each harness type retains its own binary, protocol adapter, and native conventions.
-
-## Development Stage
-
-DartClaw is in **early, experimental development** — soft-published only (pre-alpha placeholder on pub.dev). The architecture is stabilizing but not frozen. **Breaking changes are acceptable** for the time being — correctness, security, and clean design take priority over backward compatibility. Expect API surfaces, config schemas, protocol details, and storage formats to evolve as the project matures. Stability commitments will come later, once the core is battle-tested.
+**DartClaw** is an experimental, security-conscious AI agent runtime built with Dart. It brings a personal assistant, persistent knowledge, and automated work together in a self-hosted system under one owner's control.
 
 ## Core Philosophy
 
-A ground-up agent runtime leveraging Dart's strengths. Guiding principles: security by design, security in depth, developer ergonomics, pragmatic lightweight architecture. DartClaw should not only be secure and efficient but also a joy to use and build upon.
+**Pragmatic, efficient, lean, lightweight, adaptable, and approachable.** These product requirements guide features, architecture, dependencies, and user experience.
 
-**Four pillars.** DartClaw is (1) a **personal daily-driver assistant** — message it from your phone, have it safely search the web, remember things across sessions, run scheduled jobs; (2) an **agentic work runtime** — background code changes and a workflow engine whose definitions DartClaw's own agents can compose dynamically (validated data, never model-authored code); (3) a **glass-box knowledge system** — memory corpus, wiki, and temporal knowledge graph with a steward loop, **shareable as a context engine to other users, agents, and tools over MCP**; (4) **real security boundaries** — OS isolation, guard chain, audit — not prompt-level policy.
+- **Solve the real problem simply.** Choose the smallest solution that meets the need. Avoid over-engineering, speculative features, and unnecessary layers or configuration knobs. Cut scope before adding complexity; fix root causes instead of adding workarounds.
+- **Keep it lean and efficient.** Use few, justified dependencies. Minimize runtime overhead and unnecessary model calls; bound concurrency and model spending. Measure before adding performance machinery.
+- **Make setup and daily use straightforward.** Require little initial configuration, provide sensible defaults and actionable errors, and make permissions and operating state understandable. Keep the code easy to extend.
+- **Build security into the system.** Prefer OS-enforced isolation where supported, least privilege, scoped credentials, and auditable actions. Guards add enforcement where the provider permits it. Make weaker execution modes explicit: isolation and guard coverage depend on the provider, environment, and configuration.
+- **Build on each harness's strengths.** Use each harness's native protocols, tools, and skill conventions. Reuse their capabilities instead of rebuilding them in DartClaw.
+- **Delegate judgment; keep enforcement deterministic.** Models interpret content through declared schema or tool contracts. The host validates once and fails closed on invalid output, without repairing or inventing answers. Security decisions, resource limits, persistence invariants, protocols, channel formatting, and stop controls remain deterministic.
+- **Keep one authority per concern.** Extend the existing owner of a concern instead of adding competing parsers, validators, schemas, or policies. Keep ownership explicit and the codebase small enough to inspect.
 
-**Single-owner, multi-client.** One person owns the assistant, its chat identity, and its writes. Its knowledge surface may serve many clients read-only over MCP. Multi-tenant deployment, per-sender arbitration in chat, and team/crowd features are explicitly out of scope (group-chat use is a recipe, not a product pillar).
+[ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) defines the model/host boundary and validation exemption. Keep the architecture auditable through dependency checks, prompt-surface tracking, and per-package size ceilings. Justified ceiling increases follow [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md).
 
-**Guiding principles:**
-- **OS boundaries over application boundaries** — containers and process isolation are the default posture where a runtime exists; guards are defence in depth, not the boundary
-- **Model-first** — judgment belongs to the model behind a schema/tool contract; Dart validates once, bounds, persists, enforces. Never re-derive, repair, default, or overrule a model-supplied value
-- **One authority per concern** — one composition root, one execution stack, one workflow runtime, one config schema source, one process-ownership primitive. A second implementation of an existing seam is a defect unless an ADR names why
-- **Minimal viable scope per milestone** — resist feature creep; cut scope before adding abstraction
-- **Claude-native** — leverage the harness (Claude Code, Codex, ACP agents), `.claude/skills/`, and the native binaries directly; don't re-invent what they provide
-- **Auditable, enforced** — per-package lib LOC ceilings that only go down; every subsystem has one owner; prompt-surface inventory tracked; dependencies stay minimal
+## Product Scope
+
+- **Personal assistant:** conversations through the web UI and messaging channels, web research, memory across sessions, and scheduled jobs.
+- **Automated work:** background tasks, code changes, and validated workflows. Runtime composition of declarative, schema-validated workflow definitions by agents is planned.
+- **Inspectable knowledge:** memory, a wiki, and a temporal knowledge graph, with read-only access for trusted clients over MCP. A broader knowledge steward loop is planned.
+
+**Single-owner, multi-client.** One person administers the assistant through the main conversation, which has access to everything. Channel-bound agents connect to workspaces of their own, with narrower tools, and reach the owner's knowledge through the context engine. Other people use the assistant through those agents, or as read clients of the knowledge surface in a context-engine deployment; such a deployment serves many clients plus automated work such as repository maintenance rather than doubling as a personal assistant. Nobody but the administrator owns configuration or writes. Multi-tenant deployment, per-sender chat arbitration, and team/crowd features are out of scope; trusted group-chat use remains a recipe.
+
+## Architecture
+
+An AOT-compiled Dart host owns state, APIs, security enforcement, and execution coordination. It drives Claude Code, Codex, and ACP agents through provider-specific adapters. DartClaw itself requires no npm or Node.js runtime; external harnesses and optional integrations have their own prerequisites.
+
+## Development Stage
+
+DartClaw remains early, experimental software. Breaking changes to APIs, configuration, protocols, and storage are acceptable. Correctness, security, and simple design take priority over backward compatibility.
+
+## Proportionality
+
+- **Stage:** prototype. Experimental, soft-published; breaking changes to APIs, configuration, protocols and storage are acceptable.
+- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; SQLite per instance with data in the megabytes; one maintainer.
+- **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers.

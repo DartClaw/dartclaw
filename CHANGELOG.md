@@ -5,12 +5,175 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Every section is a released version. An `[Unreleased]` heading is transitional only — it exists between a tag and the
-moment the next version number is pinned, and the release cut renames it. Nothing rolls forward from release to
-release: a deprecation is recorded once, under the version that deprecated the key. What the loader *currently*
-tolerates is a live inventory, not history, and lives in *Deprecated Keys* in `docs/guide/configuration.md`.
+Every section is a version. The top section is named in the same commit that pins the version – `## [<version>] -
+Unreleased` – and the release cut only replaces `Unreleased` with the date; a bare `[Unreleased]` heading exists only
+between a tag and that pin, and `dev/tools/check_versions.sh` holds the heading to the pinned version. Nothing rolls
+forward from release to release: a deprecation is recorded once, under the version that deprecated the key. What the
+loader *currently* tolerates is a live inventory, not history, and lives in *Deprecated Keys* in
+`docs/guide/configuration.md`.
 
 ---
+
+## [0.25.2] - 2026-09-08
+
+### Added
+
+- **Channel conversations bound to a logical agent (`agent: <name>` on an allowlist row)** – a `dm_allowlist` or
+  `group_allowlist` entry may name an `agent.agents.<name>` definition: that peer's or group's messages open and
+  continue a session keyed by the agent, pinned to the agent's provider, execution mode and container profile, run
+  with the agent's tool policy, model and effort (the row's own `model` / `effort` still win) and prompted with the
+  agent's `prompt` in place of `SOUL.md` over the task composition – `TOOLS.md`, `AGENTS.md` and the channel origin,
+  without the owner's `USER.md` or memory index. A bound turn queues on `providers.<id>.pool_size` capacity rather
+  than failing fast and never writes the owner's daily log. `dm_allowlist` now takes the same structured entries as
+  `group_allowlist`, so a DM row's `model` / `effort` apply for the first time, and its parse warnings name
+  `<channel>.dm_allowlist`. A row naming an undeclared agent refuses the config load rather than routing the peer to
+  the primary agent. Web sessions and workspaces are unchanged: a bound persona reads and writes the owner's one
+  workspace.
+- **Model-free scheduled job (`type: shell`)** – a `scheduling.jobs` entry that runs a command instead of a model
+  turn, for a credentialed data feed the agent only reads. It uses the scheduler the deployment already runs: the same
+  cron and interval schedules, `enabled`, `retry.*`, failure alerting, on-demand run and Scheduling-page row as every
+  other job. A one-time (`at:`) schedule is refused for this kind alone: such a job removes its own entry, and a shell
+  entry is the operator's to write and remove. `command` is an argument vector with an absolute executable (no shell, no quoting, no `stdin`); each `env`
+  value names a `credentials.<name>` api-key entry whose value reaches only the child process and neither
+  `dartclaw.yaml` nor the logged result; stdout replaces `<data_dir>/feeds/<output>` atomically, with owner-only
+  permissions on POSIX and inherited directory ACLs on Windows.
+  A non-zero exit, a `timeout_seconds` overrun (default 300), stdout over 16 MiB or not valid UTF-8, an unwritable
+  output, an output pipe another process still holds open two seconds after exit, and an exit-0 run that wrote
+  nothing all fail the fire and leave the previous feed file intact. The kind is
+  file-only: the jobs API, the Scheduling page and `schedule_upsert` all refuse a write touching one, so it exists
+  only by editing `dartclaw.yaml`. A containerized agent lane does not see the host data directory and therefore
+  cannot read `feeds/`. See [Scheduling § Shell jobs](docs/guide/scheduling.md#shell-jobs).
+
+- **Operator approval for tool-written jobs (`scheduling.mutation.approval`)** – under `operator`, a `schedule_upsert`
+  call from a model turn is validated as before but parked instead of written: the job body, the requester (the MCP
+  caller's identity, or the tool name) and a timestamp go to `<data_dir>/pending-schedule-changes.json`, and the tool
+  answers `pending: true` with a `changeId` instead of `loaded`. The Scheduling page lists every parked change and
+  settles it behind the admin gate: Approve commits through the same write path an unparked write takes and loads
+  the job at once, Reject discards it. Approval re-checks only a one-time instant that has since passed and a job id
+  that has since become a built-in. The jobs API and the Scheduling page keep committing directly; the default `none`
+  changes nothing. Recommended over `agent.disallowed_tools: [schedule_upsert]` for a lane reading untrusted channel
+  content – see [Scheduling § Operator approval for tool writes](docs/guide/scheduling.md#operator-approval-for-tool-writes).
+
+### Changed
+
+- **Built-in workflows no longer pass `--council` to `andthen:review`.** AndThen 1.0 retired the flag, so the
+  `integrated-review-council` and `plan-review-council` steps in `spec-and-implement` and `plan-and-implement` are
+  gone; each pipeline's gap review feeds the aggregator alone. A multi-perspective pass is the optional
+  `andthen-some:council` skill, which a custom workflow may add as a second aggregate source (the maintainer inline
+  variants do); the built-ins never require the satellite.
+
+- **Probe environment ownership (breaking, SDK)** – `buildProviderProbeEnvironment`, `SkillProbeEnvironmentBuilder`,
+  and `AuthProbeEnvironmentBuilder` return `ProviderProbeEnvironment` with an environment map and `dispose()`.
+  CLI skill and auth probes release temporary provider homes in `finally`.
+- **Runtime LOC ceiling raised for the channel agent binding** – `dartclaw_runtime/lib` measures 65,871 Dart lines
+  after the bound dispatch, the SOUL stand-in, the load-time refusal, the row-preserving allowlist writes and the
+  worker-lane reservation landed; the ceiling is re-cut to `_maxCeilingFor(measured)`, 67,371, and the necessity is
+  recorded in `dev/tools/arch_check.dart` (ADR-033).
+- **Runtime LOC ceiling raised for the scheduling approval gate** – `dartclaw_runtime/lib` measures 65,676 Dart lines
+  after the pending-change store, the seam's park/approve/reject and the Scheduling page's pending section; the
+  reviewed ceiling is 65,700. The proportional band and the automatic downward slack ratchet are unchanged.
+- **`providers.<id>.pool_size` defaults to `2`** (was `1`). A scheduled or task turn that spawns a logical agent
+  holds one worker lease and its child needs a second; with one lease the child failed on every fire, and the built-in
+  `search` agent means every deployment has a logical agent. Two is a ceiling, not a target – workers still spawn
+  lazily. `pool_size: 1` remains an explicit choice.
+
+### Fixed
+
+- **Standalone workflows no longer initialize personal memory.** Headless startup skips memory preflight, indexing,
+  search and self-improvement, and workflow harnesses receive no DartClaw memory callbacks or retrieval hints.
+  Invalid personal-memory data cannot block standalone workflow execution, and unrelated queued tasks stay queued.
+  Connected runtime memory is unchanged.
+  **SDK:** `DartclawRuntime.searchDb` is now nullable and absent in headless mode.
+
+- **Claude write grants on Windows** – native drive roots use Claude's POSIX permission-pattern syntax, while
+  unsupported UNC roots add no wildcard grant.
+- **Codex parent-turn correlation** – background subagent answers and turn completions no longer replace or
+  prematurely finish the parent response. The harness filters response notifications by the active thread and turn
+  before accumulating text or settling the result. Live workflow tests now reject failed or cancelled child tasks
+  even when the enclosing run reaches `completed`.
+- Task controls remain active after live refreshes. Cancelling a running task uses the page's HTMX action instead of
+  a native form submission that fails the origin check.
+- **Taskless workflow step progress** – the workflow detail page, run API, SSE snapshot, and sidebar now read bash,
+  aggregate, and approval status from persisted workflow context data through one shared projection. Taskless steps no
+  longer remain `Pending` after completion, failure, or cancellation, and successful runs report the correct
+  completed-step count.
+- **Workflow finalization** – finalizer prompts carry a skeleton of the root envelope (both `outputs` and
+  `step_outcome`) plus the complete persisted JSON schema, and explicitly require the envelope at the response root,
+  using the provider's structured-output tool when supplied. The finalizer turn ceiling rises from 2 to 4: Claude Code
+  submits the envelope as a `StructuredOutput` tool call and each schema rejection costs a turn, so one slip exhausted
+  the old ceiling with `error_max_turns` before the host's re-ask could run.
+- **Thread-binding persistence at shutdown** – lifecycle cleanup is serialized and drained before shutdown
+  completes; `ThreadBindingLifecycleManager.dispose()` now returns a future that callers must await. Bound-message
+  routing also awaits its activity-timestamp write.
+- Claude workflow steps no longer lose subagents left running in the background when the work turn ends. Claude
+  Code 2.1.x runs `Agent` in the background by default and ends the turn's `result` while they run; the finalizer
+  turn then restarted the process for its `--json-schema`, killing them, and the envelope reported the step's
+  reviewers or implementers as stopped. The harness now holds a turn open while the CLI's
+  `background_tasks_changed` inventory lists a task other than a background shell and completes it on the
+  notification turn the CLI runs once they report, bounded by the step's turn timeout; the held results' token
+  usage is charged to the turn. A backgrounded shell command is not waited for. The CLI has no flag, setting or
+  environment variable that makes `Agent` foreground by default (checked against 2.1.263), so skill prompts need
+  no `run_in_background: false` workaround. Live proof: `workflow-live/run.sh --canary background-subagent`.
+- Claude workflow steps honor `inherit_user_settings` even when they declare tools, restoring user-scope plugins
+  under the default setting. Explicit empty workflow tool lists deny ordinary tool calls; omitted lists retain
+  the inherited harness surface, and native denies and DartClaw guards remain in force.
+- Projectless inline tasks resolve relative `format: path` claims against their persisted execution workspace.
+  Worktrees retain precedence, and path traversal and symlink escapes remain rejected.
+- Codex skill and auth probes honor explicit `use_system_codex_home: false` without a stored subscription,
+  matching worker isolation instead of preflighting against ambient user plugins.
+- Dedicated Codex subscription homes mirror capabilities from the operator's custom `CODEX_HOME`, falling back to
+  `~/.codex`. Authentication remains separate; payload links are skipped, copy/prune destinations stay within
+  the dedicated home, and a source/destination collision cannot mirror onto itself.
+- Bound channel conversations retain their agent identity and execution policy through pause replay, Google Chat
+  feedback, and Signal alternate sender IDs. Invalid `agent` values fail config loading, and the generated schema
+  accepts structured allowlist rows.
+- Shell-job diagnostics redact injected credentials before reaching failure logs or alerts. File-only enforcement
+  preserves duplicate shell rows, and feed paths reject Windows-style traversal.
+- Schedule approvals serialize settlement and keep failed persistence consistent with config. The approval panel
+  exposes task instructions and execution overrides, including the schedule on mobile. Pending requests are bounded
+  to 100 entries or 1 MiB of serialized data; existing over-limit queues remain available for settlement.
+
+- **Allowlist writes keep structured rows** – adding or removing an entry through the config API or the settings
+  page, and confirming a DM pairing, wrote back a plain id list and silently dropped every structured
+  `group_allowlist` row. Writes now edit the stored rows by id, and the API and page still answer ids.
+- **A bound group has no `main` twin** – the startup and config-change pre-creation of group sessions carries the
+  row's `agent`, so the titled session is the one the group's messages land in; the config-change path now parses
+  rows through the one allowlist parser instead of extracting ids by hand.
+- **A `scheduling.jobs` entry written with an inline collection no longer breaks the next job write** – `ConfigWriter`
+  handed `YamlEditor` the `YamlMap`/`YamlList` nodes it had read back, and the editor re-emitted any that were
+  flow-style (`task: {title: T, description: D}`, `command: ["a", "b"]`) at column 0, failing every later create,
+  update or delete through the API, the tool or the Scheduling page with `Failed to produce valid YAML`. The one write
+  seam now hands the editor plain collections, so such an entry is rewritten in block style and the file stays valid.
+- **`agent.disallowed_tools` and `agent.max_turns` reach the Claude process** – both were sent only as fields of
+  the SDK `initialize` handshake, which the protocol has never carried, so Claude offered the withheld tools and
+  ignored the turn cap on every lane; the guard skipped the primary lane too because it evaluates nothing without an
+  agent identity. The deny list is now a `--disallowedTools` spawn flag (canonical names mapped to the native ones:
+  `shell` → `Bash`, `file_edit` → `Edit` and `NotebookEdit`, …), the cap is `--max-turns`, and the guard's global
+  layer binds the main agent as well. A workflow finalizer's `maxTurns: 2` is therefore enforced for the first time.
+- **A logical agent's `output_schema` is handed to a provider that can enforce it** – the schema was checked only
+  after the turn, on the assistant text, so a conforming object inside a ```` ```json ```` fence was rejected as
+  `parse` and the result discarded. The logical-agent turn now carries the schema when the leased harness supports
+  structured output (Claude, `--json-schema`) and the host validates the returned payload as before; the workflow
+  step runner uses the same single gate (`outputSchemaWhenSupported`). A provider without structured output (Codex)
+  still has to answer with one bare JSON value.
+- **A session's continuity can be reset while other sessions are busy** – the coordinator refused whenever *any*
+  worker was busy, so a logical agent spawned from a scheduled or task turn and then discarded always logged
+  `Cannot reset session continuity while a relevant runner is busy`, and an announce's continuity reset failed
+  while another job ran. The refusal now applies only when the session being reset is itself active or acquiring;
+  otherwise the runner clears its own state for that session and asks the harness, which answers for its process:
+  Claude's returns untouched for a session it is not serving, Codex's drops that session's thread while another
+  session's turn runs.
+- **A Claude turn's stored message is the final assistant message, not the working notes** – Claude's terminal
+  `result` line carries the last assistant message, and the adapter dropped it, so the stored message, the daily-log
+  record and every `delivery: announce` text was the concatenation of all text blocks the model wrote between tool
+  calls. The Claude harness now reports that final text, as Codex already did, on every lane; the live stream to the
+  web UI is unchanged, so a reloaded page shows the final message where the stream showed the interleaved blocks.
+
+### Security
+
+- **Claude's native `WebFetch` and `WebSearch` are withheld when DartClaw serves the guarded MCP `web_fetch` and
+  `web_search`** – the suppression relied on the same dead handshake field, so the native tools (no SSRF policy, no
+  ContentGuard) were reachable on every Claude host turn and inside containers. They now go through the spawn flag.
 
 ## [0.25.1] - 2026-09-05
 

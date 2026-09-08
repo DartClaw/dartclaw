@@ -92,11 +92,7 @@ void main() {
     }
   });
 
-  group('resolveChannelTurnOverrides with GroupConfigResolver', () {
-    GroupConfigResolver resolverWith(ChannelType type, GroupEntry entry) => GroupConfigResolver.fromChannelEntries({
-      type: [entry],
-    });
-
+  group('resolveChannelTurnOverrides with an allowlist row', () {
     final groupKey = SessionKey.groupShared(channelType: 'whatsapp', groupId: 'group@g.us');
     final crowdCodingConfig = DartclawConfig(
       sessions: const SessionConfig(scopeConfig: SessionScopeConfig.defaults()),
@@ -121,7 +117,7 @@ void main() {
           ),
         ),
         sessionKey: groupKey,
-        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low')),
+        row: const GroupEntry(id: 'group@g.us', model: 'haiku', effort: 'low'),
         expectedModel: 'haiku',
         expectedEffort: 'low',
       ),
@@ -137,33 +133,50 @@ void main() {
           ),
         ),
         sessionKey: groupKey,
-        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: 'group@g.us', effort: 'high')),
+        row: const GroupEntry(id: 'group@g.us', effort: 'high'),
         expectedModel: 'opus',
         expectedEffort: 'high',
       ),
       (
-        name: 'no per-group override preserves crowd-coding fallback',
+        name: 'a plain row preserves the crowd-coding fallback',
         config: crowdCodingConfig,
         sessionKey: groupKey,
-        resolver: resolverWith(ChannelType.whatsapp, const GroupEntry(id: 'group@g.us')),
+        row: const GroupEntry(id: 'group@g.us'),
         expectedModel: 'haiku',
         expectedEffort: 'low',
       ),
       (
-        name: 'null resolver leaves existing chain unchanged',
+        name: 'a null row falls through the same chain',
         config: crowdCodingConfig,
         sessionKey: groupKey,
-        resolver: null,
+        row: null,
         expectedModel: 'haiku',
         expectedEffort: 'low',
       ),
       (
-        name: 'DM session key with resolver does not apply per-group override',
+        name: 'a DM row resolves its model and effort through the same argument, with no crowd fallback',
         config: crowdCodingConfig,
         sessionKey: SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '+123'),
-        resolver: resolverWith(ChannelType.whatsapp, GroupEntry(id: '+123', model: 'opus', effort: 'high')),
-        expectedModel: null,
-        expectedEffort: null,
+        row: const GroupEntry(id: '+123', model: 'opus', effort: 'high'),
+        expectedModel: 'opus',
+        expectedEffort: 'high',
+      ),
+      (
+        name: 'a DM row carrying only agent leaves model and effort to the channel and scope',
+        config: DartclawConfig(
+          sessions: SessionConfig(
+            scopeConfig: SessionScopeConfig(
+              dmScope: DmScope.perChannelContact,
+              groupScope: GroupScope.shared,
+              channels: {'signal': const ChannelScopeConfig(model: 'opus')},
+              effort: 'medium',
+            ),
+          ),
+        ),
+        sessionKey: SessionKey.dmPerChannelContact(channelType: 'signal', peerId: '+123'),
+        row: const GroupEntry(id: '+123', agent: 'ana'),
+        expectedModel: 'opus',
+        expectedEffort: 'medium',
       ),
     ];
 
@@ -172,7 +185,7 @@ void main() {
         final overrides = resolveChannelTurnOverrides(
           sessionKey: testCase.sessionKey,
           config: testCase.config,
-          groupConfigResolver: testCase.resolver,
+          row: testCase.row,
         );
 
         expect(overrides.model, testCase.expectedModel);

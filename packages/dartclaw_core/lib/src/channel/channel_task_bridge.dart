@@ -95,7 +95,7 @@ class ChannelTaskBridge {
       return true;
     }
 
-    if (_threadBindingRouter.routeBoundMessage(message, channel, threadBinding, enqueue: enqueue)) {
+    if (await _threadBindingRouter.routeBoundMessage(message, channel, threadBinding, enqueue: enqueue)) {
       return true;
     }
 

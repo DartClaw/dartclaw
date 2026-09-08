@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
+**Current through**: 0.25.2 dedicated Codex capability mirror and workflow tool-policy corrections; 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
 
 ---
 
@@ -145,7 +145,7 @@ GuardChain._evaluate(context):
 
 **Package attribution**: `dartclaw_kernel` owns guard execution and remains zero-EventBus; wiring guard verdicts into the EventBus happens in `dartclaw_runtime`.
 
-**Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: coordinator construction inputs are immutable and the security profile must match, while turn-scoped policy is rebound from the active lease/request.
+**Per-execution chain composition**: serve wiring builds one shared base chain from `guards.*` config. The fixed primary harness and every coordinator-created worker evaluate a layered chain (`GuardChain.layered`): the live base chain plus the worker's `TaskToolFilterGuard`. A `guards.*` hot-reload (`replaceGuards`) reaches every chain while the execution-scoped filter remains authoritative for per-task `allowedTools` and session policies such as no-tools turns. Reuse cannot weaken this boundary: coordinator construction inputs are immutable and the security profile must match, while turn-scoped policy is rebound from the active lease/request. Workflow workers opt into strict empty allowlists: null inherits the harness surface, a nonempty list restricts tools, and an empty list denies ordinary tool calls, including during finalization. Workflow workers are execution-scoped even without artifact/environment construction inputs.
 
 The same composition is the responsibility of whoever hands the runtime an already-constructed harness. `composeServerTurns` (`dartclaw_runtime`, `lib/src/server_composition.dart` — package-local, not exported) cannot retrofit that harness's chain: a composer wanting turn-scoped tool policies builds the filter first, layers it over the base chain, passes the layered chain to the harness, and passes the same instance as `taskToolFilterGuard`. It never creates one on the composer's behalf — a filter outside the chain the harness evaluates is inert, and silently so. An out-of-package host does not compose a server directly; it calls `DartclawRuntime.build`, which owns this layering for every runner it creates.
 
@@ -638,6 +638,14 @@ creates `0700` directories and writes the Claude token `0600` through `secureWri
 when any dedicated path resolves onto an operator login store (`~/.claude`, `~/.codex`, or the `CLAUDE_CONFIG_DIR` /
 `CODEX_HOME` overrides). The container boundary is unchanged from 0.24 – `network:none`, no credential in container
 env, filesystem, arguments, or generated configuration; only the injected credential and the pinned upstream differ.
+
+The dedicated Codex host home mirrors capabilities from the operator home selected by the original `CODEX_HOME`, with
+`~/.codex` as the fallback: `[plugins.*]` configuration, `plugins/cache`, and `skills`. Worker and workflow probe lanes
+use the same `completeDedicatedCodexHome` writer, so preflight observes the capabilities available to execution. This
+mirror never copies source `auth.json`; the dedicated destination owns its separately established credential. The
+explicit isolated-home lifecycle remains distinct and may seed authentication from the operator home. Mirrored payload
+symlinks are skipped, and canonical source, destination, staging, swap, retirement, and pruning paths must stay within
+their expected homes. Container Codex homes receive neither this mirror nor authentication.
 
 Named API keys and GitHub tokens use a separate `NamedCredentialStore` under
 `<data_dir>/credentials/named/<name>.json`. It is not an encrypted vault: its boundary is `0700` directories, `0600`

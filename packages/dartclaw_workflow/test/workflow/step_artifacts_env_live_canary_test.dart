@@ -105,54 +105,23 @@ void main() {
     expect(response.toString(), contains(stepArtifactsDir));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
-  // The Claude sibling, added 2026-08-28 when the Claude workflow lane was
-  // found unable to write any file and no shipped test covered that lane at
-  // all — this canary was Codex-only. Codex cannot stand in: the two providers
-  // reach their permission decision by different means.
-  //
-  // It must force the **Write** tool, and it must make the shell fallback
-  // impossible rather than merely forbid it in the prompt. Asking an agent not
-  // to use Bash is not a control: on 2026-08-28 a live review step was refused
-  // its `Write`, ran `cat > "$DARTCLAW_STEP_ARTIFACTS_DIR/review-report.md"`
-  // instead, and the step passed with the rule dead. `Bash` in
-  // `disallowedTools` is what makes "the file exists" mean "the Write tool
-  // worked".
-  //
-  // Known limitation, recorded rather than iterated on: in this test's
-  // temp-directory cwd the CLI honours `--dangerously-skip-permissions`, so the
-  // write never reaches a rule check and the canary passes whichever rule form
-  // is emitted. In a production step's worktree cwd the same spawn's skip is
-  // nullified by `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` and the rules do decide —
-  // captured from the live spawn's own argv 2026-08-28. This canary therefore
-  // proves the spawn reaches the CLI and can write outside its cwd; the rule
-  // form itself is pinned by `claude_settings_builder_test.dart` and by an
-  // operator workflow run.
-  //
-  // It spawns with the step's declared canonical tools so the assertion is
-  // about the rules `allowRulesForCanonicalTools` derives, not about a
-  // permission-mode posture that would pass whatever those rules said. The
-  // harness cwd is deliberately *not* the turn's directory: rules are derived
-  // only once a spawn has an explicit execution directory, which the harness
-  // establishes by restarting into it. A canary whose cwd already equals the
-  // turn directory never restarts, ships `{"permissions":{"allow":[]}}`, and
-  // passes on the `dontAsk` posture alone — verified from the spawn's own argv
-  // 2026-08-28.
-  test('a guarded-posture claude step can write into \$DARTCLAW_STEP_ARTIFACTS_DIR', () async {
+  // Deny Bash so an outside-cwd file cannot be produced by a shell fallback.
+  // Native permission skipping can still bypass allow-rule checks; rule
+  // derivation is covered by claude_settings_builder_test.dart.
+  test('a claude step can Write to its resolved artifact path outside cwd', () async {
     if (!claudeReady) {
       markTestSkipped('claude binary not available – run with Claude CLI installed');
       return;
     }
 
-    // Outside the step cwd on purpose. In production the step artifacts dir
-    // lives under the data dir while the step's cwd is its worktree, and it is
-    // exactly that gap the CLI's own permission layer refuses to cross when it
-    // is prompting. An artifacts dir nested under the cwd proves nothing.
+    // Production artifacts live under the data dir, outside the step worktree.
     final outsideCwd = Directory.systemTemp.createTempSync('dartclaw_step_artifacts_outside_');
     addTearDown(() {
       if (outsideCwd.existsSync()) outsideCwd.deleteSync(recursive: true);
     });
     final stepArtifactsDir = p.join(outsideCwd.path, 'runtime-artifacts', 'steps', 'review');
     final reportPath = p.join(stepArtifactsDir, 'report.md');
+    // A different initial cwd exercises the harness restart into the turn directory.
     final preExecutionCwd = Directory.systemTemp.createTempSync('dartclaw_pre_execution_cwd_');
     addTearDown(() {
       if (preExecutionCwd.existsSync()) preExecutionCwd.deleteSync(recursive: true);
@@ -162,10 +131,7 @@ void main() {
     final inheritedEnv = <String, String>{
       for (final key in const ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL'])
         if (Platform.environment[key] != null) key: Platform.environment[key]!,
-      // What `provider_resolution.dart` puts on every host claude spawn. It is
-      // present on purpose and the canary is worthless without it: the harness
-      // must clear it for this posture, or the CLI forces `--permission-mode
-      // default` and refuses the Write below.
+      // Match the host workflow spawn environment.
       'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB': '1',
       'DARTCLAW_STEP_ARTIFACTS_DIR': stepArtifactsDir,
     };
@@ -175,13 +141,6 @@ void main() {
         cwd: preExecutionCwd.path,
         executable: 'claude',
         turnTimeout: const Duration(minutes: 3),
-        // No permissionMode, because no production code sets one — it comes
-        // only from operator `providers.claude` config, and the built-in
-        // workflows ship none. The spawn therefore carries
-        // `--dangerously-skip-permissions`, the scrub above makes the CLI
-        // ignore it and fall back to `default`, and the derived rules are what
-        // decide. Passing `dontAsk` here instead makes the write succeed
-        // whether the rules are alive or dead — checked both ways 2026-08-28.
         declaredCanonicalTools: const ['file_read', 'file_write'],
         declaredWritableRoots: [stepArtifactsDir],
         harnessConfig: const HarnessLaunchOptions(disallowedTools: ['Bash']),
@@ -197,11 +156,11 @@ void main() {
       await harness.start();
       await harness.turn(
         sessionId: 'step-artifacts-write-canary',
-        messages: const [
+        messages: [
           {
             'role': 'user',
             'content':
-                'Use the **Write** tool to create the file \$DARTCLAW_STEP_ARTIFACTS_DIR/report.md '
+                'Use the **Write** tool to create the file $reportPath '
                 'with the exact contents: canary\n'
                 'Then report whether the write succeeded.',
           },
@@ -219,11 +178,10 @@ void main() {
       File(reportPath).existsSync(),
       isTrue,
       reason:
-          'Expected the derived allow rules to grant the Write tool for $reportPath. Bash is disallowed, '
-          'so no shell fallback can have produced this file: an absent file means the rules the spawn '
-          'carried do not grant writes to a path outside its cwd. Response: $response',
+          'Expected Write to create $reportPath outside the turn directory ${tempDir.path}. '
+          'Bash is disallowed, so no shell fallback can produce the file. Response: $response',
     );
-    // The Write tool may terminate the file with a newline; the property under test is the grant, not the byte count.
+    // Write may append a newline; this canary checks the target and contents, not the trailing delimiter.
     expect(File(reportPath).readAsStringSync().trim(), 'canary');
   }, timeout: const Timeout(Duration(minutes: 4)));
 }

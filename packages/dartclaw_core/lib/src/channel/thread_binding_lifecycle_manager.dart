@@ -16,7 +16,7 @@ import 'thread_binding.dart';
 ///      whose [ThreadBinding.lastActivity] exceeds [idleTimeout].
 ///
 /// Call [start] once after construction to activate both mechanisms.
-/// Call [dispose] on shutdown to cancel the subscription and timer.
+/// Await [dispose] on shutdown to cancel new work and drain pending writes.
 class ThreadBindingLifecycleManager {
   static final _log = Logger('ThreadBindingLifecycleManager');
 
@@ -27,6 +27,7 @@ class ThreadBindingLifecycleManager {
 
   StreamSubscription<TaskStatusChangedEvent>? _eventSub;
   Timer? _cleanupTimer;
+  Future<void> _pending = Future<void>.value();
 
   /// Creates a lifecycle manager.
   ///
@@ -48,16 +49,29 @@ class ThreadBindingLifecycleManager {
 
   /// Starts listening for task status events and schedules periodic cleanup.
   void start() {
-    _eventSub = _eventBus.on<TaskStatusChangedEvent>().listen(_onTaskStatusChanged);
-    _cleanupTimer = Timer.periodic(_cleanupInterval, (_) => _cleanupExpiredBindings());
+    _eventSub = _eventBus.on<TaskStatusChangedEvent>().listen((event) => _enqueue(() => _onTaskStatusChanged(event)));
+    _cleanupTimer = Timer.periodic(_cleanupInterval, (_) => _enqueue(_cleanupExpiredBindings));
   }
 
-  /// Cancels the event subscription and the cleanup timer.
-  void dispose() {
-    _eventSub?.cancel();
-    _eventSub = null;
+  /// Cancels new event and timer work, then waits for pending binding writes.
+  /// Persistence exceptions are logged without preventing subsequent cleanup.
+  Future<void> dispose() async {
     _cleanupTimer?.cancel();
     _cleanupTimer = null;
+    final cancellation = _eventSub?.cancel();
+    _eventSub = null;
+    await cancellation;
+    await _pending;
+  }
+
+  void _enqueue(Future<void> Function() operation) {
+    _pending = _pending.then((_) async {
+      try {
+        await operation();
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Failed to persist thread binding cleanup', error, stackTrace);
+      }
+    });
   }
 
   Future<void> _onTaskStatusChanged(TaskStatusChangedEvent event) async {

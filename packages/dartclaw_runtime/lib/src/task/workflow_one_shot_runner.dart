@@ -23,6 +23,13 @@ import 'task_service.dart';
 
 part 'workflow_one_shot_runner_helpers.dart';
 
+/// Turn ceiling for the no-tools finalizer. Claude Code delivers structured
+/// output as a `StructuredOutput` tool call, and each schema rejection costs a
+/// turn before the corrected retry; live runs needed two attempts often enough
+/// that a ceiling of two failed the step with `error_max_turns` instead of
+/// reaching the host's re-ask. No-tool turns are cheap, so the headroom is wide.
+const _finalizerMaxTurns = 4;
+
 /// Executes workflow-owned tasks through the shared guarded turn runner.
 final class WorkflowOneShotRunner {
   static ({String? artifactsDir, Map<String, String>? spawnEnvironment}) constructionInputs(Task task) {
@@ -204,7 +211,7 @@ final class WorkflowOneShotRunner {
           finalizerPrompt,
           turnAllowedTools: const <String>[],
           turnReadOnly: true,
-          maxTurns: 2,
+          maxTurns: _finalizerMaxTurns,
           outputSchema: structuredSchema,
         );
         if (outcome.status != TurnStatus.completed) return aggregate(outcome);
@@ -215,7 +222,7 @@ final class WorkflowOneShotRunner {
             'Output ONLY the JSON object now.',
             turnAllowedTools: const <String>[],
             turnReadOnly: true,
-            maxTurns: 2,
+            maxTurns: _finalizerMaxTurns,
             outputSchema: structuredSchema,
           );
           if (outcome.status != TurnStatus.completed) return aggregate(outcome);

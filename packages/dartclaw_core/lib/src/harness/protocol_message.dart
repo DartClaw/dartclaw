@@ -128,6 +128,21 @@ final class TurnComplete extends ProtocolMessage {
       'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
 }
 
+/// One background task the provider runs beside the turn: its id and the
+/// provider's own task type (`local_agent`, `local_bash`, …).
+typedef BackgroundTaskRef = ({String id, String? type});
+
+/// The provider's current set of background tasks, re-listed in full on every
+/// change – a task starting in the background or finishing.
+final class BackgroundTasksChanged extends ProtocolMessage {
+  final List<BackgroundTaskRef> tasks;
+
+  const new({required this.tasks});
+
+  @override
+  String toString() => 'BackgroundTasksChanged(tasks: $tasks)';
+}
+
 /// Context compaction completed signal from the provider.
 final class CompactBoundary extends ProtocolMessage {
   /// Trigger source: `"auto"` or `"manual"`.

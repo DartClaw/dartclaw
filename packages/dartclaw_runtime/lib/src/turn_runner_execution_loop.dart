@@ -25,7 +25,13 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
     final buffer = StringBuffer();
     final stopwatch = Stopwatch()..start();
     final turnPolicy = _activeTurns[sessionId];
-    _installTurnPolicy(sessionId, turnId, turnPolicy?.allowedTools, turnPolicy?.readOnly ?? false);
+    _installTurnPolicy(
+      sessionId,
+      turnId,
+      turnPolicy?.allowedTools,
+      turnPolicy?.readOnly ?? false,
+      allowClaudeStructuredOutput: turnPolicy?.outputSchema != null,
+    );
     var progressTextLength = 0;
     TurnLivenessTracker? runtimeWait;
     final pendingApprovalIds = <String>{};
@@ -379,7 +385,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             userMessage: userMessageFull,
             toolEvents: toolHooks.toolEvents,
             toolEventCount: toolHooks.toolCallCount,
-            result: accumulated,
+            result: responseContent,
           );
         } catch (e) {
           TurnRunner._log.warning('Failed to write daily log', e);

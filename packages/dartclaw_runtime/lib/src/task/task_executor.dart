@@ -42,6 +42,7 @@ class TaskExecutor {
     String? workspaceRoot,
     String? currentDirectory,
     String? dataDir,
+    bool workflowOnly = false,
     this.pollInterval = const Duration(seconds: 2),
   }) : _tasks = services.tasks,
        _goals = services.goals,
@@ -68,7 +69,8 @@ class TaskExecutor {
        _budgetConfig = limits.budgetConfig,
        _defaultProviderId = limits.defaultProviderId,
        _eventBus = services.eventBus,
-       _dataDir = dataDir;
+       _dataDir = dataDir,
+       _workflowOnly = workflowOnly;
 
   static final _log = Logger('TaskExecutor');
   static const _uuid = Uuid();
@@ -99,6 +101,7 @@ class TaskExecutor {
   final String? _defaultProviderId;
   final EventBus? _eventBus;
   final String? _dataDir;
+  final bool _workflowOnly;
   final Duration pollInterval;
   late final TaskFailureHandler _failureHandler = TaskFailureHandler(
     tasks: _tasks,
@@ -337,7 +340,10 @@ class TaskExecutor {
   }
 
   Future<List<Task>> _queuedTasks() async {
-    final queued = await _tasks.list(status: TaskStatus.queued);
+    final persisted = await _tasks.list(status: TaskStatus.queued);
+    final queued = _workflowOnly
+        ? (await Future.wait(persisted.map(_hydrateWorkflowStepExecution))).where(_isWorkflowOrchestrated).toList()
+        : persisted;
     queued.sort((a, b) {
       final createdAtCompare = a.createdAt.compareTo(b.createdAt);
       if (createdAtCompare != 0) return createdAtCompare;

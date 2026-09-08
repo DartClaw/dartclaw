@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         CliProviderAuthPreflight,
         CliSkillIntrospector,
         ProviderAuthPreflight,
+        ProviderProbeEnvironment,
         SkillIntrospector,
         WorkflowAssetSourceResolver,
         WorkflowPreflightException,
@@ -34,7 +35,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         workflowBlockedOutcomeSummary,
         WorkflowServiceOptions,
-        WorkflowSkillPreflightConfig,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
@@ -48,6 +48,7 @@ import '../server.dart'
     show ServerChannelDeps, ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
 import '../server_composition.dart';
 import '../restart_service.dart' show consumeRestartPending;
+import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
 import 'harness_wiring.dart';
 import 'scheduling_wiring.dart';
@@ -93,7 +94,9 @@ Map<String, String> credentialedProviderFamilies(Map<String, ProviderEntry> entr
 class DartclawRuntime {
   /// The HTTP/web/MCP surface, or `null` for a headless build.
   final DartclawServer? server;
-  final Database searchDb;
+
+  /// The personal-memory search database, absent from standalone workflow runtimes.
+  final Database? searchDb;
   final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
 
@@ -103,9 +106,8 @@ class DartclawRuntime {
 
   /// Execution allocation, or `null` in a lifecycle-only composition.
   ///
-  /// See the class doc for the two build shapes: a lifecycle-only build
-  /// composes no security or harness layer at all, so nothing here can lease a
-  /// worker, reset provider continuity, or record a learning.
+  /// A lifecycle-only build composes no security or harness layer, so nothing
+  /// there can lease a worker or reset provider continuity.
   final ExecutionCoordinator? executions;
   final ScheduleService? scheduleService;
   final KvService kvService;
@@ -113,8 +115,7 @@ class DartclawRuntime {
   /// Provider-side continuity reset, or `null` in a lifecycle-only composition.
   final SessionResetService? resetService;
 
-  /// Agent-authored learnings and error records, or `null` in a lifecycle-only
-  /// composition.
+  /// Agent-authored learnings and error records, available only to the connected server runtime.
   final SelfImprovementService? selfImprovement;
   final QmdManager? qmdManager;
   final ChannelManager? channelManager;
@@ -163,7 +164,7 @@ class DartclawRuntime {
   /// Both probes spawn through `SafeProcess.run` with no injectable starter, so
   /// there is no process seam downstream to observe what they were handed.
   @visibleForTesting
-  final Future<Map<String, String>> Function(String providerId) providerProbeEnvironment;
+  final Future<ProviderProbeEnvironment> Function(String providerId) providerProbeEnvironment;
 
   static final _log = Logger('DartclawRuntime');
 
@@ -202,21 +203,18 @@ class DartclawRuntime {
 
   /// Assembles the whole runtime from [config].
   ///
-  /// This is the **full** build shape: every field below is non-null except the
-  /// ones documented as surface-conditional. The other shape is
-  /// **lifecycle-only**, reached through
-  /// [HeadlessRuntimeStaging.completeForLifecycle], which composes no security
-  /// or harness layer and therefore leaves [executions], [resetService],
-  /// [selfImprovement] and [taskExecutor] null. Reading one of those on a
-  /// lifecycle-only runtime is a composition error, not a state to handle: the
-  /// verb that reached it cannot dispatch a step by construction.
+  /// This is the connected build shape: every field below is non-null except
+  /// the ones documented as surface-conditional. Headless staging produces a
+  /// workflow-only runtime without personal-memory services; lifecycle-only
+  /// completion also omits execution capacity, provider continuity, and task
+  /// dispatch.
   ///
   /// With [headless] left `false` this composes exactly what `serve` runs.
   /// With `headless: true` it constructs none of the inbound or scheduled
   /// surfaces — no [DartclawServer], channel manager, heartbeat, schedule
-  /// service or token service — and the guarded execution, task and workflow
-  /// stacks are assembled identically. [server] is non-null exactly when
-  /// [headless] is false.
+  /// service, token service, personal-memory service, or knowledge service.
+  /// The guarded execution, task and workflow stacks remain available.
+  /// [server] is non-null exactly when [headless] is false.
   ///
   /// [harnessRegistrars] contribute provider families this package does not
   /// name; the empty default composes exactly what a build with no registrar
@@ -425,7 +423,7 @@ class DartclawRuntime {
       await server?.shutdown();
       await _disposeExtras();
     } finally {
-      searchDb.close();
+      searchDb?.close();
     }
   }
 
@@ -678,7 +676,8 @@ class _RuntimeAssembly {
     PrCreator? prCreator,
     @visibleForTesting Map<String, String>? environment,
   }) : serverFactory = serverFactory,
-       platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       platformCapabilities =
+           platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
        runtimeCwd = runtimeCwd ?? Directory.current.path,
        localFallbackDir = localRepositoryPosture ? (runtimeCwd ?? Directory.current.path) : null,
@@ -956,6 +955,7 @@ class _RuntimeAssembly {
       searchDbFactory: searchDbFactory,
       taskDbFactory: taskDbFactory,
       exitFn: exitFn,
+      personalMemoryEnabled: !headless,
     );
     await storage.wire();
     await _dropLegacySessionCostEntries(storage.kvService);
@@ -1013,6 +1013,8 @@ class _RuntimeAssembly {
       headless: headless,
       workflowProviderScope: workflowProviderScope,
       harnessRegistrars: harnessRegistrars,
+      environment: _environment,
+      platformCapabilities: platformCapabilities,
     );
     await harness.wire(turnManagerGetter: () => headless ? null : ctx._serverTurns);
     ctx.registeredProviderEntries = harness.registeredProviderEntries;
@@ -1030,6 +1032,7 @@ class _RuntimeAssembly {
       eventBus: ctx.eventBus,
       storage: storage,
       project: project,
+      workflowOnly: headless,
     );
     await task.wirePreServer();
     return task;
@@ -1049,6 +1052,7 @@ class _RuntimeAssembly {
       storage: storage,
       task: task,
       resolvedConfigPath: resolvedConfigPath,
+      agentBinder: ChannelAgentBinder.forHarness(harness),
     );
     await channel.wire(
       serverRefGetter: ctx.composedServerGetter,
@@ -1122,7 +1126,7 @@ class _RuntimeAssembly {
   config_tools.CredentialRegistry _credentialRegistry(_WiringContext ctx, {config_tools.ProvidersConfig? providers}) =>
       config_tools.CredentialRegistry(
         credentials: config.credentials,
-        env: Platform.environment,
+        env: _environment,
         providers: providers ?? config.providers,
         subscriptions: ctx.subscriptions.readAll(),
       );
@@ -1150,18 +1154,14 @@ class _RuntimeAssembly {
     );
   }
 
-  WorkflowSkillPreflightConfig _buildSkillPreflightConfig() {
-    return buildWorkflowSkillPreflightConfig(config);
-  }
-
   /// The environment the skill-introspection and auth probes spawn the vendor
   /// CLI with. The registry is built here rather than passed in, so a credential
   /// stored or rotated after wiring is the one the probe presents.
-  Future<Map<String, String>> _providerProbeEnvironment(_WiringContext ctx, String providerId) {
+  Future<ProviderProbeEnvironment> _providerProbeEnvironment(_WiringContext ctx, String providerId) {
     return buildProviderProbeEnvironment(
       target: resolveProviderTarget(config, providerId, registeredProviders: ctx.registeredProviderEntries),
       registry: _credentialRegistry(ctx),
-      baseEnvironment: Platform.environment,
+      baseEnvironment: _environment,
       codexRefresh: ctx.codexRefresh,
       credentialsDir: config.credentialsDir,
       onCredentialHealth: _reportProbeCredentialHealth,
@@ -1237,7 +1237,7 @@ class _RuntimeAssembly {
         // creation behind this gate: a boot-time snapshot would refuse a step
         // whose newly stored credential the coordinator worker would use.
         providerAuthPreflight: _resolveProviderAuthPreflight(ctx),
-        skillPreflightConfig: _buildSkillPreflightConfig(),
+        skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
       ),
       turnAdapter: _buildWorkflowTurnAdapter(
         config,

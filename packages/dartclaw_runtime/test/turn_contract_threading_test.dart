@@ -247,6 +247,47 @@ void main() {
     expect(storedAssistant.map((message) => message.content), everyElement('[Turn failed]'));
   });
 
+  test('a host-validated schema is dropped rather than refused when the harness cannot enforce it', () async {
+    // The caller (logical agents, workflow steps) validates the result itself,
+    // so the fail-closed refusal would cost it a provider it can still use.
+    final runner = buildRunner();
+    const schema = {'type': 'object'};
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(worker, responseText: '{"answer":"host-checked"}');
+
+    final turnId = await runner.reserveTurn(session.id, outputSchema: schema, outputSchemaWhenSupported: true);
+    runner.executeTurn(session.id, turnId, const [
+      {'role': 'user', 'content': 'Return structured output'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(worker.lastOutputSchema, isNull);
+  });
+
+  test('a host-validated schema still reaches a harness that enforces it', () async {
+    worker = FakeAgentHarness(supportsStructuredOutput: true);
+    final runner = buildRunner();
+    const schema = {
+      'type': 'object',
+      'properties': {
+        'answer': {'type': 'string'},
+      },
+    };
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(worker, result: const TurnResult(structuredOutput: {'answer': 'provider-enforced'}));
+
+    final turnId = await runner.reserveTurn(session.id, outputSchema: schema, outputSchemaWhenSupported: true);
+    runner.executeTurn(session.id, turnId, const [
+      {'role': 'user', 'content': 'Return structured output'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(worker.lastOutputSchema, schema);
+    expect(outcome.responseText, '{"answer":"provider-enforced"}');
+  });
+
   test('a turn that outran its provider backstop says so instead of failing generically', () async {
     // The remedy for a timeout is a budget, not a retry, and the two are
     // indistinguishable to an operator when both read "Turn execution failed" —

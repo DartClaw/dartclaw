@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.25 workflow worker leasing
+**Current through**: 0.25.2 provider-probe parity and inline workspace output roots
 
 ---
 
@@ -376,7 +376,8 @@ Practical consequences:
 - Workflow step type does not flow through task-system bookkeeping.
 - Workflow step read-only behavior is derived from effective `allowedTools` via `step_config_policy.stepIsReadOnly`, and the mutation check runs against the provisioned worktree path when present.
 - `format: json` with `schema` selects provider-enforced structured output; the mode is inferred, not authored. A missing or malformed envelope charges the bounded re-ask and then fails the step.
-- Agent steps finalize through a dedicated no-tools structured turn after the main work turn. The provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when `emitsOwnOutcome: true`). The envelope is the only model-derived declared-output source. Inline `<step-outcome>` parsing exists only for `emitsOwnOutcome` steps; a pre-0.25 persisted turn without an envelope marker fails with a re-run instruction.
+- Agent steps finalize through a dedicated structured turn without work tools after the main work turn. The finalizer prompt embeds the complete persisted JSON schema and requests the envelope itself at the response root, so providers without native schema enforcement see the same contract. A provider-supplied structured-output tool remains the response channel when available. The provider emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }` (`step_outcome` omitted when `emitsOwnOutcome: true`). The envelope is the only model-derived declared-output source. Inline `<step-outcome>` parsing exists only for `emitsOwnOutcome` steps; a pre-0.25 persisted turn without an envelope marker fails with a re-run instruction.
+- The finalizer turn changes the Claude process's spawn flags (`--json-schema`, `--max-turns`, `--resume`), so it restarts the process. Claude Code 2.1.x runs the `Agent` tool in the background by default and ends the work turn's `result` while those subagents are still running; a restart at that point kills them, and the envelope then reports the step's reviewers or implementers as stopped. `ClaudeCodeHarness` therefore holds the work turn open while the CLI's `background_tasks_changed` inventory lists a task other than a background shell, and completes it on the `result` of the notification turn the CLI runs by itself once the tasks report (`control-protocol.md` § 4.8). The engine adds no wait of its own: the hold is bounded by the step's turn timeout, and a background shell command is not waited for, matching the CLI's own `--print` exit policy. The CLI exposes no flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks (checked against 2.1.263: `--help`, the CLI, environment-variable and sub-agent references, and the binary's own strings), so the boundary is made safe host-side rather than by a spawn option, and skill prompts need no `run_in_background: false` workaround. Live proof: `dev/testing/profiles/workflow-live/run.sh --canary background-subagent`.
 
 The parser normalizes `prompt: "single string"` to `prompts: ["single string"]` so the executor always works with a list. `step.isMultiPrompt` is true when `prompts.length > 1`.
 
@@ -574,6 +575,8 @@ The engine is intentionally simple. It does not attempt to be a general-purpose 
 
 Context is persisted atomically after each step, so a crash can resume from the last committed state instead of replaying from scratch.
 
+`stepStatusFromTask` is the single run-presentation projection shared by the workflow API, web detail page, SSE snapshot, and sidebar. Task-backed steps use their task lifecycle; taskless bash, aggregate, and approval steps use the step-owned status values inside the persisted `WorkflowContext.data` map. It also reads older flat run snapshots for compatibility.
+
 ## 10. Budgets and Defaults
 
 Budgeting exists at two levels:
@@ -602,6 +605,12 @@ The skill system plugs into workflow authoring through the `skill:` field and ru
 - `workflow_skill_preflight.dart` compares authored refs against the provider-visible names and records aliases when a provider exposes a different invocation name, such as Codex `andthen-review` for authored `andthen:review`.
 - Missing refs fail with `WorkflowPreflightException` before any workflow step dispatches.
 
+Skill preflight prepares the same resolved provider environment as workflow workers. For a selected stored Codex
+subscription, both lanes complete the dedicated capability mirror before starting the CLI. Authentication checks that
+find a present credential in the registry return without starting a CLI; checks that require a CLI probe use the same
+environment builder. Each CLI probe owns its returned `ProviderProbeEnvironment` and disposes it in a `finally` block
+after success or failure; temporary isolated homes therefore do not outlive the probe.
+
 When a step declares `skill:`, the `SkillPromptBuilder` handles four prompt construction cases:
 
 | Case | Prompt shape |
@@ -625,7 +634,7 @@ DartClaw ships four DC-native workflow skills as package assets: `dartclaw-disco
 
 DartClaw does not clone AndThen, run its installer, or create a `dartclaw-*` branded copy (the earlier clone + `install-skills.sh` model was retired in 0.17 as the SP-1/SP-2 security remediation — see ADR-040). AndThen is an **operator-installed prerequisite** for whichever provider runs the workflow.
 
-- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:spec`, `andthen:review`, …) and resolved at workflow-load time to the provider-native name: Claude Code → `andthen:spec` (plugin namespace), Codex → `andthen-spec` (hyphenated directory), unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
+- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:spec`, `andthen:review`, …) and resolved at workflow-load time to the provider-native name: Claude Code → `andthen:spec` (plugin namespace), Codex → the exact authored name when visible, then `andthen-spec` for a legacy hyphenated installation, unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
 - **DC-native skills only** are copied by `SkillProvisioner` at `dartclaw serve` startup and before `dartclaw workflow run --standalone`: the manifest-listed package-root skill payloads go into `<dataDir>/.agents/skills/` (Codex) and `<dataDir>/.claude/skills/` (Claude Code), with configured project workspaces receiving links or managed fallback copies for those directories only. There is no git-subprocess, cached-source, or `andthen.git_url`/`ref`/`network` path; those legacy config keys are ignored with warnings.
 
 See [`025-andthen-as-runtime-prerequisite.md`](../adrs/025-andthen-as-runtime-prerequisite.md) for the original runtime-prerequisite decision, [`040-andthen-skills-via-canonical-name-resolution.md`](../adrs/040-andthen-skills-via-canonical-name-resolution.md) for the current resolution model, and [`../../docs/guide/andthen-skills.md`](../../docs/guide/andthen-skills.md) for operator usage.
@@ -747,7 +756,7 @@ The workflow↔task import boundary is mechanically enforced by a fitness test a
 
 Workflow steps do not inherit the main interactive workspace behavior files.
 Instead, the workflow engine passes a dedicated workflow workspace path through
-the task config seam (`_workflowWorkspaceDir`) and continuation-turn adapter.
+the persisted `Task.agentExecution.workspaceDir` and continuation-turn adapter.
 
 - Default behavior: the engine materializes a built-in `AGENTS.md` under
   `<dataDir>/workflow-workspace/` and uses that directory for workflow steps.
@@ -819,14 +828,14 @@ resolution surfaces a `MissingArtifactFailure` rather than substituting an
 unrelated file.
 
 **Root order.** Claims are probed against the step artifacts dir first, then the
-worktree, then runtime-artifacts, then project data
+worktree (or persisted execution workspace when the task has neither a worktree nor a project), then runtime-artifacts, then project data
 (`filesystem_output_resolver.fileSystemOutputRoots`). Step-dir-first is what
 makes the same rule correct for every `format: path` output, with no
 review-artifact recognition: when the same relative name resolves under both the
 step dir and the worktree — the maintainer profile nests `.dartclaw/` inside the
 checkout, so a review claim is also within the worktree root — the host-owned
 copy wins. A value resolved under an engine-owned root (step artifacts dir,
-runtime-artifacts) reaches context **absolute**; worktree and project-data values
+runtime-artifacts) reaches context **absolute**; worktree, execution-workspace and project-data values
 stay root-relative, because downstream steps interpolate a relative path value as
 a workspace-relative skill argument.
 
@@ -1252,7 +1261,7 @@ implement.status == accepted
 review.verdict == pass
 analysis.tokenCount < 50000
 plan.status == accepted && plan.tokenCount < 12000
-plan-review.gating_findings_count > 0 || plan-review-council.gating_findings_count > 0
+plan-review.gating_findings_count > 0 || re-review.gating_findings_count > 0
 review_report_path isNotEmpty && findings_count < 5
 story_specs.items isEmpty || story_specs == null
 ```

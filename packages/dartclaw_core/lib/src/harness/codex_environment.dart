@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../container/container_executor.dart' show containerImageUidGid;
 import '../storage/atomic_write.dart';
+import '../storage/login_store_guard.dart' show operatorCodexHome, resolveThroughSymlinks;
 import 'codex_config_generator.dart';
 
 final _log = Logger('CodexEnvironment');
@@ -18,11 +19,11 @@ const _homeDirectoryRemediation = 'Set HOME or USERPROFILE before starting DartC
 /// Four distinct lifecycles, and they must stay distinct:
 ///
 /// - **System home** ([useSystemCodexHome] = `true`, the default): the worker
-///   subprocess inherits the user's standard `~/.codex/` – no temp dir, no
-///   config mutation.
+///   subprocess inherits the operator's exported `CODEX_HOME`, falling back to
+///   `~/.codex/` – no temp dir, no config mutation.
 /// - **Isolated seeded home** ([useSystemCodexHome] = `false`): a per-worker
-///   temp `CODEX_HOME` seeded with authentication copied from `~/.codex/`, plus
-///   generated `developer_instructions` and MCP entries.
+///   temp `CODEX_HOME` seeded with authentication copied from that operator
+///   home, plus generated `developer_instructions` and MCP entries.
 /// - **Container auth-clean home** ([CodexEnvironment.containerAuthClean]): a
 ///   freshly created home inside one container authority's generated-state
 ///   directory that is *never* seeded and holds only generated client
@@ -42,8 +43,9 @@ class CodexEnvironment {
   final PlatformCapabilities platformCapabilities;
 
   /// When `true` (default), the harness does not override `CODEX_HOME` and the
-  /// Codex subprocess reads the user's `~/.codex/` directly. When `false`, an
-  /// isolated temp `CODEX_HOME` is created with authentication from `~/.codex/`.
+  /// Codex subprocess reads the operator's selected home directly. When
+  /// `false`, an isolated temp `CODEX_HOME` is created with authentication from
+  /// that home.
   final bool useSystemCodexHome;
 
   /// Host path of the auth-clean home, or `null` outside container mode.
@@ -125,6 +127,20 @@ class CodexEnvironment {
 
   bool get isContainerAuthClean => _containerHostHome != null;
 
+  /// Resolves the configured system/isolated lifecycle from provider options.
+  static bool useSystemHome(Map<String, dynamic> providerOptions) {
+    final value = providerOptions['use_system_codex_home'];
+    if (value is bool) return value;
+    if (value is String) {
+      return switch (value.trim().toLowerCase()) {
+        'false' => false,
+        'true' => true,
+        _ => true,
+      };
+    }
+    return true;
+  }
+
   /// Whether this home is the DartClaw-owned dedicated subscription store.
   bool get isDedicated => _dedicatedHome != null;
 
@@ -144,7 +160,7 @@ class CodexEnvironment {
     }
     if (isDedicated) return _setupDedicatedHome();
     if (useSystemCodexHome) {
-      final home = platformCapabilities.homeDirectory;
+      final home = operatorCodexHome(platformCapabilities);
       if (home == null) {
         throw const UnsupportedCapabilityError(
           capability: 'home directory',
@@ -155,11 +171,11 @@ class CodexEnvironment {
       if (mcpServerUrl != null && mcpServerUrl!.trim().isNotEmpty) {
         _log.warning(
           'CodexEnvironment: useSystemCodexHome=true but mcpServerUrl is set — DartClaw will NOT inject '
-          'the MCP server into the user\'s ~/.codex/config.toml. Configure the MCP server manually or '
+          'the MCP server into the operator Codex config. Configure the MCP server manually or '
           'set providers.codex.use_system_codex_home: false to restore isolated injection.',
         );
       }
-      return _defaultCodexHome(home);
+      return home;
     }
 
     final existingDirectory = _tempDirectory;
@@ -353,12 +369,10 @@ class CodexEnvironment {
   }
 
   Future<void> _seedAuthentication(String targetDir) async {
-    final home = platformCapabilities.homeDirectory;
-    if (home == null) {
-      return;
-    }
+    final home = operatorCodexHome(platformCapabilities);
+    if (home == null) return;
 
-    final sourceDir = Directory(_defaultCodexHome(home));
+    final sourceDir = Directory(home);
     if (!sourceDir.existsSync()) {
       return;
     }
@@ -391,8 +405,8 @@ class CodexEnvironment {
 /// home's own, never the mirror's to remove.
 ///
 /// Nothing outside `[plugins.*]`, `plugins/cache/` and `skills/` is read from
-/// the operator's home; `auth.json` in particular is never a mirror source, so
-/// the operator's own login cannot reach this store.
+/// the operator's selected home; `auth.json` in particular is never a mirror
+/// source, so the operator's own login cannot reach this store.
 void completeDedicatedCodexHome(
   String homePath, {
   String? generatedConfig,
@@ -401,11 +415,14 @@ void completeDedicatedCodexHome(
 }) {
   if (!Directory(homePath).existsSync()) return;
 
-  final operatorState = _readOperatorCodexState(platformCapabilities);
+  var operatorState = _readOperatorCodexState(platformCapabilities);
+  if (operatorState != null && resolveThroughSymlinks(operatorState.home.path) == resolveThroughSymlinks(homePath)) {
+    operatorState = null;
+  }
   final manifest = _MirrorManifest.read(homePath);
 
   if (operatorState != null) {
-    final session = _MirrorSession(homePath);
+    final session = _MirrorSession(homePath, operatorState.home.path);
     try {
       for (final payload in _mirroredPayloads) {
         final key = payload.join('/');
@@ -562,9 +579,16 @@ class _MirrorManifest {
 /// which is the only step a concurrent reader can observe. Retired entries are
 /// renamed into staging too and deleted together at [close], after every swap.
 class _MirrorSession {
-  new(this.homePath);
+  new(String homePath, String sourceHomePath)
+    : homePath = p.normalize(p.absolute(homePath)),
+      sourceHomePath = p.normalize(p.absolute(sourceHomePath)),
+      _canonicalHomePath = resolveThroughSymlinks(homePath),
+      _canonicalSourceHomePath = resolveThroughSymlinks(sourceHomePath);
 
   final String homePath;
+  final String sourceHomePath;
+  final String _canonicalHomePath;
+  final String _canonicalSourceHomePath;
   Directory? _staging;
   var _sequence = 0;
 
@@ -572,40 +596,61 @@ class _MirrorSession {
   /// [previouslyMirrored] names the operator has since removed, returning the
   /// names now mirrored.
   List<String> syncEntries(Directory source, Directory target, List<String> previouslyMirrored) {
-    final entries = source.existsSync() ? source.listSync() : const <FileSystemEntity>[];
+    final ownedNames = previouslyMirrored.where(_isEntryName).toList(growable: false);
+    if (!_safeSourcePayload(source.path) || !_safeDestinationPath(target.path)) {
+      _log.warning('Refusing an operator Codex mirror path outside its configured home');
+      return ownedNames;
+    }
+    final entries = source.existsSync()
+        ? source
+              .listSync(followLinks: false)
+              .where(
+                (entity) => switch (FileSystemEntity.typeSync(entity.path, followLinks: false)) {
+                  FileSystemEntityType.file || FileSystemEntityType.directory => true,
+                  _ => false,
+                },
+              )
+              .toList(growable: false)
+        : const <FileSystemEntity>[];
     final sourceNames = entries.map((entity) => p.basename(entity.path)).toSet();
 
-    for (final name in previouslyMirrored) {
+    final retainedOwned = <String>[];
+    for (final name in ownedNames) {
       if (sourceNames.contains(name)) continue;
-      _retire(p.join(target.path, name));
+      if (!_retire(p.join(target.path, name))) retainedOwned.add(name);
     }
-    if (entries.isEmpty) return const [];
+    if (entries.isEmpty) return retainedOwned;
 
-    final mirrored = <String>[];
+    final mirrored = <String>[...retainedOwned];
     try {
       target.createSync(recursive: true);
+      _requireDestinationPath(target.path);
     } on FileSystemException catch (error) {
       _log.warning('Could not create ${target.path} for the operator Codex mirror: $error');
-      return const [];
+      return ownedNames;
     }
     for (final entity in entries) {
       final name = p.basename(entity.path);
-      if (_swapIntoPlace(entity, p.join(target.path, name))) mirrored.add(name);
+      if (_swapIntoPlace(entity, p.join(target.path, name)) || ownedNames.contains(name)) mirrored.add(name);
     }
     return mirrored;
   }
 
   bool _swapIntoPlace(FileSystemEntity source, String targetPath) {
     try {
+      if (!_safeSourceEntry(source.path)) return false;
+      _requireDestinationPath(targetPath);
       final staged = _nextStagingPath();
-      if (source is Directory) {
-        _copyTree(source, staged);
-      } else if (source is File) {
-        source.copySync(staged);
-      } else {
-        return false;
+      switch (FileSystemEntity.typeSync(source.path, followLinks: false)) {
+        case FileSystemEntityType.directory:
+          _copyTree(Directory(source.path), staged);
+        case FileSystemEntityType.file:
+          File(source.path).copySync(staged);
+        default:
+          return false;
       }
       _retire(targetPath);
+      _requireDestinationPath(targetPath);
       if (FileSystemEntity.isDirectorySync(staged)) {
         Directory(staged).renameSync(targetPath);
       } else {
@@ -622,9 +667,14 @@ class _MirrorSession {
 
   /// Renames [path] out of the way, so its removal is one atomic step rather
   /// than a recursive delete a reader can catch halfway.
-  void _retire(String path) {
-    final type = FileSystemEntity.typeSync(path);
-    if (type == FileSystemEntityType.notFound) return;
+  bool _retire(String path) {
+    if (!_safeDestinationPath(path)) {
+      _log.warning('Refusing to retire a path outside the dedicated Codex home: $path');
+      return false;
+    }
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return true;
+    if (type != FileSystemEntityType.directory && type != FileSystemEntityType.file) return true;
     try {
       final retired = _nextStagingPath();
       if (type == FileSystemEntityType.directory) {
@@ -632,14 +682,30 @@ class _MirrorSession {
       } else {
         File(path).renameSync(retired);
       }
+      return true;
     } on FileSystemException catch (error) {
       _log.warning('Could not retire $path from the dedicated Codex home: $error');
+      return false;
     }
   }
 
   String _nextStagingPath() {
-    final staging = _staging ??= Directory(p.join(homePath, _mirrorStagingDirectoryName))..createSync(recursive: true);
-    return p.join(staging.path, '$pid-${_sequence++}');
+    var staging = _staging;
+    if (staging == null) {
+      final stagingPath = p.join(homePath, _mirrorStagingDirectoryName);
+      _requireDestinationPath(stagingPath);
+      final type = FileSystemEntity.typeSync(stagingPath, followLinks: false);
+      if (type == FileSystemEntityType.link ||
+          (type != FileSystemEntityType.notFound && type != FileSystemEntityType.directory)) {
+        throw FileSystemException('Unsafe Codex mirror staging directory', stagingPath);
+      }
+      staging = Directory(stagingPath)..createSync(recursive: true);
+      _requireDestinationPath(staging.path);
+      _staging = staging;
+    }
+    final path = p.join(staging.path, '$pid-${_sequence++}');
+    _requireDestinationPath(path);
+    return path;
   }
 
   void close() {
@@ -647,21 +713,82 @@ class _MirrorSession {
     _staging = null;
     if (staging == null) return;
     try {
-      if (staging.existsSync()) staging.deleteSync(recursive: true);
+      if (_safeDestinationPath(staging.path) &&
+          FileSystemEntity.typeSync(staging.path, followLinks: false) == FileSystemEntityType.directory) {
+        staging.deleteSync(recursive: true);
+      }
     } catch (_) {} // Best-effort: the next pass reuses and re-clears the directory.
   }
 
-  static void _copyTree(Directory source, String targetPath) {
+  void _copyTree(Directory source, String targetPath) {
+    if (!_safeSourceEntry(source.path)) {
+      throw FileSystemException('Source escapes the operator Codex home', source.path);
+    }
+    _requireDestinationPath(targetPath);
     Directory(targetPath).createSync(recursive: true);
-    for (final entity in source.listSync()) {
+    _requireDestinationPath(targetPath);
+    for (final entity in source.listSync(followLinks: false)) {
+      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+      if (type != FileSystemEntityType.directory && type != FileSystemEntityType.file) continue;
+      if (!_safeSourceEntry(entity.path)) continue;
       final destination = p.join(targetPath, p.basename(entity.path));
-      if (entity is Directory) {
-        _copyTree(entity, destination);
-      } else if (entity is File) {
-        entity.copySync(destination);
+      _requireDestinationPath(destination);
+      if (type == FileSystemEntityType.directory) {
+        _copyTree(Directory(entity.path), destination);
+      } else {
+        File(entity.path).copySync(destination);
       }
     }
   }
+
+  bool _safeSourcePayload(String path) {
+    if (!_lexicallyContained(sourceHomePath, path) || _hasLinkBelow(sourceHomePath, path)) return false;
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    return (type == FileSystemEntityType.directory || type == FileSystemEntityType.notFound) &&
+        _canonicallyContained(_canonicalSourceHomePath, path);
+  }
+
+  bool _safeSourceEntry(String path) =>
+      _lexicallyContained(sourceHomePath, path) &&
+      !_hasLinkBelow(sourceHomePath, path) &&
+      _canonicallyContained(_canonicalSourceHomePath, path);
+
+  bool _safeDestinationPath(String path) =>
+      _lexicallyContained(homePath, path) &&
+      !_hasLinkBelow(homePath, path) &&
+      _canonicallyContained(_canonicalHomePath, path);
+
+  void _requireDestinationPath(String path) {
+    if (!_safeDestinationPath(path)) throw FileSystemException('Path escapes the dedicated Codex home', path);
+  }
+
+  static bool _lexicallyContained(String root, String path) {
+    final candidate = p.normalize(p.absolute(path));
+    return p.equals(root, candidate) || p.isWithin(root, candidate);
+  }
+
+  static bool _canonicallyContained(String root, String path) {
+    try {
+      final candidate = resolveThroughSymlinks(path);
+      return p.equals(root, candidate) || p.isWithin(root, candidate);
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static bool _hasLinkBelow(String root, String path) {
+    final relative = p.relative(p.normalize(p.absolute(path)), from: root);
+    if (relative == '.') return false;
+    var current = root;
+    for (final segment in p.split(relative)) {
+      current = p.join(current, segment);
+      if (FileSystemEntity.typeSync(current, followLinks: false) == FileSystemEntityType.link) return true;
+    }
+    return false;
+  }
+
+  static bool _isEntryName(String name) =>
+      name.isNotEmpty && name != '.' && name != '..' && !name.contains('/') && !name.contains(r'\');
 }
 
 /// The operator's own Codex home and the `[plugins.*]` tables it enables.
@@ -679,9 +806,9 @@ class _OperatorCodexState {
 /// it: mirroring payloads whose enabling tables were mis-split would leave the
 /// dedicated home advertising capabilities it cannot resolve.
 _OperatorCodexState? _readOperatorCodexState(PlatformCapabilities? platformCapabilities) {
-  final home = (platformCapabilities ?? PlatformCapabilities()).homeDirectory;
+  final home = operatorCodexHome(platformCapabilities ?? PlatformCapabilities());
   if (home == null) return null;
-  final directory = Directory(_defaultCodexHome(home));
+  final directory = Directory(home);
   if (!directory.existsSync()) return null;
 
   final config = File(p.join(directory.path, 'config.toml'));
@@ -704,9 +831,4 @@ _OperatorCodexState? _readOperatorCodexState(PlatformCapabilities? platformCapab
     return null;
   }
   return _OperatorCodexState(directory, split.pluginTables);
-}
-
-String _defaultCodexHome(String home) {
-  final isWindowsPath = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(home) || home.startsWith(r'\\');
-  return isWindowsPath ? p.windows.join(home, '.codex') : p.join(home, '.codex');
 }

@@ -324,12 +324,8 @@ void main() {
     permissionMode = 'bypassPermissions';
     artifactDir = _createPreservedArtifactDir('workflow-step-isolation');
 
-    // The harness runs Claude Code against `fixtureDir` with
-    // `--setting-sources project`, so it only sees `dartclaw-*` skills staged
-    // under the fixture itself — never the operator's own `~/.claude/skills`.
-    // Reproduce the production seam (`SkillProvisioner` copy +
-    // `WorkspaceSkillLinker` link) here instead of relying on whatever the
-    // developer's box happens to have cached.
+    // Stage the DartClaw-native skills through the production provision/link
+    // seam so the fixture does not depend on a previous local DartClaw run.
     skillsCacheDir = Directory.systemTemp.createTempSync('dartclaw_workflow_step_isolation_skills_');
     await SkillProvisioner(
       dataDir: skillsCacheDir.path,
@@ -488,6 +484,8 @@ void main() {
 
     // Pin the model: an unpinned harness falls back to the operator's own
     // configured default, which breaks hermeticity.
+    final taskToolFilter = TaskToolFilterGuard(denyEmptyAllowlist: true);
+    final guardChain = GuardChain(guards: [taskToolFilter]);
     final harness = HarnessFactory().create(
       'claude',
       HarnessFactoryConfig(
@@ -496,6 +494,7 @@ void main() {
         turnTimeout: stepTimeout,
         providerOptions: {'permissionMode': permissionMode},
         environment: {...inheritedEnv, stepArtifactsDirEnvVar: stepArtifactsDir},
+        guardChain: guardChain,
       ),
     );
     final turnStopwatch = Stopwatch()..start();
@@ -511,6 +510,8 @@ void main() {
           behavior: BehaviorFileService(workspaceDir: fixtureDir),
           sessions: sessionService,
           providerId: 'claude',
+          guardChain: guardChain,
+          taskToolFilterGuard: taskToolFilter,
         ),
         sessionId: session.id,
         pendingMessage: prompt,
@@ -699,7 +700,8 @@ void main() {
           'prd': prdPath,
         },
       ),
-      stepTimeout: const Duration(minutes: 14),
+      // Planning waits for authoring, review, correction and validation subagent turns.
+      stepTimeout: const Duration(minutes: 20),
     );
 
     // The plan step declares `story_specs` (story_specs schema) and `plan`
@@ -730,7 +732,7 @@ void main() {
     expect(resolvedStorySpec.trim(), contains('"spec_path"'));
     // AC is resolved from the FIS body at spec_path, not carried inline.
     expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
-  }, timeout: const Timeout(Duration(minutes: 15)));
+  }, timeout: const Timeout(Duration(minutes: 22)));
 
   // Live authoring probe for spec-and-implement. The heavy spec-and-implement
   // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live
@@ -1034,6 +1036,50 @@ void main() {
       lessThanOrEqualTo(findingsCount),
       reason: 'Artifact: ${result.artifactPath}',
     );
+  }, timeout: _defaultLiveTestTimeout);
+
+  test('a backgrounded subagent survives the finalizer restart', () async {
+    if (!claudeReady) {
+      markTestSkipped('claude binary not available – run with Claude Code CLI installed');
+      return;
+    }
+    // Claude Code 2.1.263 runs `Agent` in the background by default and ends
+    // the parent turn at once, while the declared output below makes the
+    // runner restart the process for its finalizer turn. The marker exists
+    // only if the harness held the work turn open until the agent reported:
+    // a subagent killed by the restart never reaches the touch.
+    final marker = p.join(fixtureDir, 'background-agent.marker');
+    final definition = WorkflowDefinitionParser().parse('''
+name: background-subagent-probe
+description: Turn-boundary probe for a subagent left running in the background
+steps:
+  - id: probe
+    name: Background subagent probe
+    prompt: |
+      Call the Agent tool exactly once with run_in_background: true, subagent_type "general-purpose",
+      description "marker writer" and this prompt: "Run the shell command: sleep 10 && touch $marker
+      and then reply with the single word done." As soon as the Agent tool returns its launch
+      confirmation, end your turn immediately with the single word LAUNCHED. Do not wait for the
+      agent and do not call any other tool.
+    outputs:
+      launch_note:
+        format: text
+        description: The single word you ended your work turn with
+''');
+
+    final result = await executeStep(
+      step: _stepById(definition, 'probe'),
+      context: WorkflowContext(variables: const {'PROJECT': 'workflow-testing', 'BRANCH': 'main'}),
+      artifactLabel: 'background-subagent-probe',
+    );
+
+    expect(
+      File(marker).existsSync(),
+      isTrue,
+      reason: 'the background agent was killed at the finalizer restart. Artifact: ${result.artifactPath}',
+    );
+    expect(result.outputs['launch_note'], isA<String>(), reason: 'Artifact: ${result.artifactPath}');
+    expect((result.outputs['launch_note'] as String).trim(), isNotEmpty, reason: 'Artifact: ${result.artifactPath}');
   }, timeout: _defaultLiveTestTimeout);
 }
 

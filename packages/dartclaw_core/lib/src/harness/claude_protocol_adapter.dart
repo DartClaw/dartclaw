@@ -39,6 +39,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         :final stopReason,
         :final subtype,
         :final structuredOutput,
+        :final finalText,
         :final costUsd,
         :final durationMs,
         :final inputTokens,
@@ -50,6 +51,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
           stopReason: stopReason,
           subtype: subtype,
           structuredOutput: structuredOutput,
+          finalText: finalText,
           costUsd: costUsd,
           durationMs: durationMs,
           inputTokens: inputTokens,
@@ -66,6 +68,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         trigger: trigger,
         preTokens: preTokens,
       ),
+      claude_protocol.BackgroundTasksChanged(:final tasks) => BackgroundTasksChanged(tasks: tasks),
     };
   }
 
@@ -116,13 +119,16 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   }
 
   /// Builds a Claude initialize `control_request`.
+  ///
+  /// Only hooks and SDK MCP servers travel here. Tool policy, turn caps, model
+  /// and effort are spawn flags: the SDK protocol has no initialize field for
+  /// them and the CLI ignores unknown ones.
   Map<String, dynamic> buildInitializeRequest({
     required String requestId,
     required Map<String, dynamic> hooks,
-    required Map<String, dynamic> initializeFields,
     Map<String, dynamic>? sdkMcpServers,
   }) {
-    final request = <String, dynamic>{'subtype': 'initialize', 'hooks': hooks, ...?sdkMcpServers, ...initializeFields};
+    final request = <String, dynamic>{'subtype': 'initialize', 'hooks': hooks, ...?sdkMcpServers};
     return {'type': 'control_request', 'request_id': requestId, 'request': request};
   }
 
@@ -140,6 +146,21 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
       },
     };
   }
+
+  /// The Claude-native spelling of a canonical tool name, for `--disallowedTools`.
+  ///
+  /// The inverse of [mapToolName] for the built-ins it maps; a name that is
+  /// not a canonical stable name is already native (or an MCP tool) and passes
+  /// through. `file_edit` names two built-ins, so it expands to both.
+  static List<String> nativeToolNames(String name) => switch (name) {
+    'shell' => const ['Bash'],
+    'file_read' => const ['Read'],
+    'file_write' => const ['Write'],
+    'file_edit' => const ['Edit', 'NotebookEdit'],
+    'web_fetch' => const ['WebFetch'],
+    'web_search' => const ['WebSearch'],
+    _ => [name],
+  };
 
   @override
   CanonicalTool? mapToolName(String providerToolName, {String? kind}) {

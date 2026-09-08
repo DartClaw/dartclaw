@@ -126,6 +126,7 @@ void main() {
             systemPromptOverride,
             maxTurns,
             outputSchema,
+            outputSchemaWhenSupported = false,
             providerSessionId,
             requestProviderSessionResume = false,
             taskId,

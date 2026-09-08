@@ -319,13 +319,7 @@ class ContextExtractor {
   Map<String, String> _existingSafeFileClaims(List<String> values, Task task, String stepArtifactsDir) {
     return fs.existingSafeFileClaims(
       values,
-      roots: fs.fileSystemOutputRoots(
-        stepArtifactsDir: stepArtifactsDir,
-        worktreeJson: task.worktreeJson,
-        workflowRunId: task.workflowRunId,
-        projectId: task.projectId,
-        dataDir: _dataDir,
-      ),
+      roots: fs.fileSystemOutputRoots(stepArtifactsDir: stepArtifactsDir, task: task, dataDir: _dataDir),
       taskId: task.id,
     );
   }

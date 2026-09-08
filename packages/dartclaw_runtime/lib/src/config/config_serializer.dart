@@ -91,6 +91,7 @@ class ConfigSerializer {
           'intervalMinutes': config.scheduling.heartbeatIntervalMinutes,
         },
         'jobs': config.scheduling.jobs,
+        'mutation': {'approval': config.scheduling.mutationApproval.toYaml()},
       },
       'context': {
         'reserveTokens': config.context.reserveTokens,
@@ -210,7 +211,7 @@ class ConfigSerializer {
             'statusStyle': googleChatConfig.feedback.statusStyle.name,
           },
           'dmAccess': googleChatConfig.dmAccess.name,
-          'dmAllowlist': googleChatConfig.dmAllowlist,
+          'dmAllowlist': googleChatConfig.dmIds,
           'groupAccess': googleChatConfig.groupAccess.name,
           'groupAllowlist': googleChatConfig.groupIds,
           'requireMention': googleChatConfig.requireMention,

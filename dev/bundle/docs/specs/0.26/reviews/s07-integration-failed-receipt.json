@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1",
+  "story": "S07",
+  "fis": "s07-opt-in-postgresbackend-core.md",
+  "plan": "plan.json",
+  "snapshot": "d532ffaf1eb6+bb9040d92244",
+  "outcome": "refused",
+  "reason": "fast tier: failed",
+  "gate": {
+    "line": "Story-Gate: PASS @ d532ffaf1eb6+bb9040d92244",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 1,
+      "duration": 7.836,
+      "status": "failed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "S02 Proof",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart --name \"the canonical corpus is current before the FTS5 factory observes the workspace\"",
+      "exit": 0,
+      "duration": 1.765,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && test -f .agent_temp/s07-postgres-transaction-spike/bin/spike.dart && ! git ls-files --error-unmatch .agent_temp/s07-postgres-transaction-spike/bin/spike.dart 2>/dev/null && dart run .agent_temp/s07-postgres-transaction-spike/bin/spike.dart && ! rg -q \"s07-postgres-transaction-spike|bin/spike\\.dart\" packages apps --glob \"*.dart\"",
+      "exit": 0,
+      "duration": 1.334,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_kernel/test/database_config_test.dart && rg -q \"'database': \\(tier: ConfigReloadTier\\.restart\" packages/dartclaw_kernel/lib/src/config_notifier.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && bash dev/tools/fitness/check_config_reference_drift.sh && dart test --reporter=failures-only dev/fitness/test/config_section_tier_coverage_test.dart dev/fitness/test/config_load_seam_test.dart",
+      "exit": 0,
+      "duration": 2.896,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "rg -qU \"storage_exceptions\\.dart'\\s*show[^;]*\\bSchemaIncompatibleException\\b\" packages/dartclaw_kernel/lib/dartclaw_kernel.dart && test \"$(rg -l \"class SchemaIncompatibleException\" packages --glob '!**/test/**' | wc -l | tr -d ' ')\" = 1 && ! rg -q \"SchemaIncompatibleException\" packages/dartclaw_core/lib/dartclaw_core.dart && dart test --reporter=failures-only packages/dartclaw_kernel/test/storage_exceptions_test.dart packages/dartclaw_core/test/storage/sqlite_schema_gate_test.dart && dart analyze --fatal-infos",
+      "exit": 0,
+      "duration": 4.394,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/postgres_dispatch_policy_test.dart --plain-name \"dispatch boundary\"",
+      "exit": 0,
+      "duration": 0.474,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_backend_live_test.dart && rg -q \"^  postgres: \\^3\\.5\\.12\" packages/dartclaw_core/pubspec.yaml && test \"$(rg -l \"package:postgres\" packages apps --glob '!**/test/**' | rg -v '^packages/dartclaw_core/' | wc -l | tr -d ' ')\" = 0",
+      "exit": 0,
+      "duration": 0.276,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "dart analyze --fatal-infos packages/dartclaw_core/test/storage/postgres_schema_gate_live_test.dart && ! rg -q \"class \\w*(Migration|Migrator|History|Upgrade)\\w*|schema_migrations\" packages/dartclaw_core/lib/src/storage/postgres_schema_gate.dart",
+      "exit": 0,
+      "duration": 0.219,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI07 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_memory_preflight_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart apps/dartclaw_cli/test/commands/cleanup_command_test.dart apps/dartclaw_cli/test/commands/workflow/workflow_status_command_test.dart && dart analyze --fatal-infos packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart && dart test --reporter=failures-only dev/fitness/test/config_key_consumers_test.dart && ! rg -q \"^database\\.\" dev/fitness/test/allowlist/config_key_consumers.txt",
+      "exit": 0,
+      "duration": 16.807,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI08 Verify",
+      "kind": "run",
+      "command": "test \"$(rg -l \"@Tags\\(\\['integration'\\]\\)\" packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_core/test/storage/postgres_schema_gate_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart | wc -l | tr -d ' ')\" = 3 && ! rg -q \"markTestSkipped\" packages/dartclaw_core/test/storage/postgres_live_support.dart && (unset DARTCLAW_TEST_POSTGRES_URL; dart analyze --fatal-infos) && dart run dev/tools/arch_check.dart && { test \"$(rg -o \"'dartclaw_core': [0-9]+\" dev/tools/arch_check.dart | rg -o '[0-9]+$')\" = 27943 || awk '/^## \\[Unreleased\\]/{f=1;next} /^## /{f=0} f' CHANGELOG.md | rg -q \"Core LOC ceiling rebaseline for PostgreSQL storage\"; } && git diff --check",
+      "exit": 0,
+      "duration": 3.133,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

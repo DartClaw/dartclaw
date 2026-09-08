@@ -67,31 +67,6 @@ final class SqliteSearchRebuild {
   final Future<bool> Function()? authenticateComplete;
 }
 
-/// Refuses a store whose marker or required structure is unsupported.
-final class SchemaIncompatibleException implements Exception {
-  /// Creates a typed compatibility refusal.
-  const new({required this.storeName, required this.foundEpoch, required this.differences, required this.action});
-
-  /// Caller-supplied store name.
-  final String storeName;
-
-  /// Human-readable marker state.
-  final String foundEpoch;
-
-  /// Required-object or transition failures.
-  final List<String> differences;
-
-  /// Operator recovery guidance.
-  final String action;
-
-  @override
-  String toString() {
-    final details = differences.isEmpty ? 'no structural details available' : differences.join('; ');
-    return 'SchemaIncompatibleException: $storeName is incompatible: expected epoch '
-        '${SchemaIdentity.currentEpoch}, found $foundEpoch; $details. $action';
-  }
-}
-
 /// Classifies and prepares SQLite schemas before repository construction.
 abstract final class SqliteSchemaGate {
   static const _markerTableSql = '''

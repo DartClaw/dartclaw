@@ -11,6 +11,7 @@ export 'provider_resolution.dart'
         resolveProviderTarget;
 export 'runtime_types.dart' show ExitFn, ServerFactory, WriteLine;
 export 'service_wiring.dart' show DartclawRuntime, DartclawRuntimeExecutionStack, HeadlessRuntimeStaging;
+export 'storage_wiring.dart' show resolveDatabaseDsn;
 export 'workflow_config_support.dart' show workflowRoleDefaultsFromConfig;
 export 'workflow_git_support.dart'
     show

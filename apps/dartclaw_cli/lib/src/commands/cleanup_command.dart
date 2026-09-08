@@ -4,7 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
-    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize;
+    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize, resolveDatabaseDsn;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show RuntimeArtifactsPruneReport, SqliteWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
 import 'package:path/path.dart' as p;
@@ -19,7 +19,7 @@ class CleanupCommand extends Command<void> {
   final DartclawConfig? _config;
   final CleanupWriteLine _writeLine;
   final CleanupExitFn _exitFn;
-  final DatabaseBackendFactory _taskBackendFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
 
   new({
     DartclawConfig? config,
@@ -29,7 +29,7 @@ class CleanupCommand extends Command<void> {
   }) : _config = config,
        _writeLine = writeLine ?? stdout.writeln,
        _exitFn = exitFn ?? exit,
-       _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open {
+       _taskBackendFactory = taskBackendFactory {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }
@@ -105,11 +105,14 @@ class CleanupCommand extends Command<void> {
 
     final List<WorkflowRun> completedRuns;
     try {
-      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-      if (!File(config.dartclawDbPath).existsSync()) return false;
-      final backend = await _taskBackendFactory(config.dartclawDbPath);
+      if (config.database.backend == DatabaseBackendKind.sqlite) {
+        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+        if (!File(config.dartclawDbPath).existsSync()) return false;
+      }
+      final factory = _taskBackendFactory ?? databaseBackendFactoryFor(config.database, resolveDsn: resolveDatabaseDsn);
+      final backend = await factory(config.dartclawDbPath);
       try {
-        await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
+        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
         final repository = SqliteWorkflowRunRepository(backend);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
       } finally {

@@ -24,6 +24,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Core LOC ceiling rebaseline for PostgreSQL storage** – `dartclaw_core/lib` measures 28,475 Dart lines after
+  integrating the bounded PostgreSQL pool backend, dispatch-boundary classifier and exact schema compatibility gate. The
+  ceiling is re-cut to 29,759 under the existing 1,500-line headroom band.
 - Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
 
 ---

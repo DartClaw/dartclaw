@@ -56,6 +56,8 @@ memory.journal.enabled  # Memory distillation
 memory.max_bytes  # Prompt memory bound
 memory.pruning.enabled  # Memory maintenance
 search.backend  # Search implementation
+database.backend  # Authoritative database engine
+database.url  # PostgreSQL connection reference
 mcp_servers.<name>.enabled  # Outbound MCP activation
 mcp_servers.<name>.network_class  # Outbound MCP reach
 mcp_servers.<name>.surface_tools  # Model-visible MCP tools

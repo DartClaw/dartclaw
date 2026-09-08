@@ -5,6 +5,7 @@ part 'config_meta/server_fields.dart';
 part 'config_meta/agent_fields.dart';
 part 'config_meta/channel_fields.dart';
 part 'config_meta/governance_fields.dart';
+part 'config_meta/database_fields.dart';
 
 /// Mutability classification for config fields.
 enum ConfigMutability {
@@ -293,6 +294,7 @@ abstract final class ConfigMeta {
     ..._agentFields,
     ..._channelFields,
     ..._governanceFields,
+    ..._databaseFields,
   };
 
   /// YAML paths the loader still accepts for a migration advisory but never

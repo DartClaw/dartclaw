@@ -7,7 +7,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_core/src/storage/index_reconciler.dart' show IndexReconcileTransition;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/sqlite3.dart' hide DatabaseConfig;
 import 'package:test/test.dart';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
@@ -31,6 +31,22 @@ void main() {
   }
 
   Directory workspaceOf(DartclawConfig config) => Directory(config.workspaceDir)..createSync(recursive: true);
+
+  test('postgres refuses offline index rebuild before touching local search state', () async {
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      database: const DatabaseConfig(backend: DatabaseBackendKind.postgres, url: 'postgresql://unused.invalid/example'),
+    );
+    int? code;
+    final runner = DartclawRunner()
+      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+
+    await runner.run(['rebuild-index']);
+
+    expect(code, 1);
+    expect(output, ['rebuild-index is unavailable because PostgreSQL memory search is in-process.']);
+    expect(File(config.searchDbPath).existsSync(), isFalse);
+  });
 
   test('bootstraps and rebuilds an empty canonical corpus', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));

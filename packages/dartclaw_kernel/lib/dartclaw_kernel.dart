@@ -139,6 +139,15 @@ export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/scheduling_config.dart' show ScheduleMutationApproval, SchedulingConfig;
 export 'src/search_config.dart' show SearchConfig, SearchProviderEntry;
+export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
+export 'src/storage_exceptions.dart'
+    show
+        SchemaIncompatibleException,
+        StorageConnectionException,
+        StorageException,
+        StoragePoolExhaustedException,
+        StorageQueryException,
+        StorageUnknownOutcomeException;
 export 'src/security_config.dart' show SecurityBashStepConfig, SecurityConfig;
 export 'src/server_config.dart' show ServerConfig;
 export 'src/session_config.dart' show SessionConfig;

@@ -12,11 +12,11 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show
         adoptLegacyAuthoritativeStore,
         AuthoritativeStoreAdoptionException,
-        SqliteBackend,
-        SqliteSchemaGate,
-        SqliteTaskRepository;
+        SqliteTaskRepository,
+        databaseBackendFactoryFor,
+        prepareAuthoritativeStore;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
 import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
@@ -24,7 +24,7 @@ import '../connected_command_support.dart' hide truncate;
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
-  final DatabaseBackendFactory _taskBackendFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
@@ -39,7 +39,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     super.connection,
     super.writeLine,
     super.exitFn,
-  }) : _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open,
+  }) : _taskBackendFactory = taskBackendFactory,
        _currentDirectory = currentDirectory,
        _environment = environment {
     argParser
@@ -97,18 +97,21 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    try {
-      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-    } on AuthoritativeStoreAdoptionException catch (error) {
-      writeLine(error.toString());
-      exitFn(1);
+    if (config.database.backend == DatabaseBackendKind.sqlite) {
+      try {
+        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+      } on AuthoritativeStoreAdoptionException catch (error) {
+        writeLine(error.toString());
+        exitFn(1);
+      }
     }
 
-    final backend = await _taskBackendFactory(config.dartclawDbPath);
+    final factory = _taskBackendFactory ?? databaseBackendFactoryFor(config.database, resolveDsn: resolveDatabaseDsn);
+    final backend = await factory(config.dartclawDbPath);
     try {
       WorkflowRun? run;
       try {
-        await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
+        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
         final repository = SqliteWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {

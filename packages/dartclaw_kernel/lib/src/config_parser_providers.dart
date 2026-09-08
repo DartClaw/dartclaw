@@ -2,6 +2,39 @@ part of 'dartclaw_config.dart';
 
 final _mcpServersLog = Logger('McpServersConfig');
 
+DatabaseConfig _parseDatabase(
+  Map<String, dynamic> yaml,
+  Map<String, String> env,
+  DatabaseConfig defaults,
+  List<String> warns,
+) {
+  final map = _sectionMap('database', yaml, warns);
+  if (map == null) return defaults;
+  final backendValue = readString('backend', map, warns, defaultValue: defaults.backend.name);
+  final backend = DatabaseBackendKind.values.firstWhere(
+    (value) => value.name == backendValue,
+    orElse: () {
+      warns.add('Invalid database.backend: "$backendValue" — using default');
+      return defaults.backend;
+    },
+  );
+  final rawUrl = readString('url', map, warns);
+  final url = rawUrl == null ? null : envSubstitute(rawUrl, env: env);
+  final credential = readString('credential', map, warns);
+  final poolSize = readInt('pool_size', map, warns, defaultValue: defaults.poolSize) ?? defaults.poolSize;
+  if (FieldConstraints.evaluate(ConfigMeta.fields['database.pool_size']!, poolSize) != null) {
+    warns.add('Invalid database.pool_size: must be positive');
+  }
+  if (backend == DatabaseBackendKind.postgres) {
+    if ((url == null || url.isEmpty) && (credential == null || credential.isEmpty)) {
+      warns.add('Invalid database.url/database.credential: postgres requires exactly one connection reference');
+    } else if (url != null && url.isNotEmpty && credential != null && credential.isNotEmpty) {
+      warns.add('Invalid database.url/database.credential: postgres accepts exactly one connection reference');
+    }
+  }
+  return DatabaseConfig(backend: backend, url: url, credential: credential, poolSize: poolSize);
+}
+
 SearchConfig _parseSearch(
   Map<String, dynamic> yaml,
   Map<String, String> env,

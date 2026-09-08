@@ -125,13 +125,17 @@ int _maxCeilingFor(int loc) {
 //   dartclaw_core 27812 -> 27943 (measured 27943, no headroom). The generic
 //   full-text port moves SQLite search behind DatabaseBackend, retains exact
 //   canonical document validation in the reconciler and deletes MemoryService.
+//
+// Reviewed necessity, 2026-09-08 (ADR-045):
+//   dartclaw_core 27943 -> 29759 (measured 28475). The PostgreSQL implementation
+//   adds the bounded pool backend, dispatch classifier and exact schema gate.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 27943,
+  'dartclaw_core': 29759,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,

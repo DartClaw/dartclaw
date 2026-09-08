@@ -11,11 +11,17 @@ class RebuildIndexCommand extends Command<void> {
   final DartclawConfig? _config;
   final void Function(String)? _writeLine;
   final CanonicalIndexReconciler? _indexReconciler;
+  final void Function(int) _exitFn;
 
-  new({DartclawConfig? config, void Function(String)? writeLine, CanonicalIndexReconciler? indexReconciler})
-    : _config = config,
-      _writeLine = writeLine,
-      _indexReconciler = indexReconciler {
+  new({
+    DartclawConfig? config,
+    void Function(String)? writeLine,
+    CanonicalIndexReconciler? indexReconciler,
+    void Function(int)? exitFn,
+  }) : _config = config,
+       _writeLine = writeLine,
+       _indexReconciler = indexReconciler,
+       _exitFn = exitFn ?? exit {
     argParser.addFlag('json', negatable: false, help: 'Output the rebuild result as JSON');
   }
 
@@ -30,6 +36,12 @@ class RebuildIndexCommand extends Command<void> {
     final config = _config ?? loadCliConfig(configPath: globalResults?['config'] as String?);
     final write = _writeLine ?? stdout.writeln;
     final json = argResults?['json'] as bool? ?? false;
+
+    if (config.database.backend == DatabaseBackendKind.postgres) {
+      write('rebuild-index is unavailable because PostgreSQL memory search is in-process.');
+      _exitFn(1);
+      return;
+    }
 
     if (!json) {
       for (final w in config.warnings) {

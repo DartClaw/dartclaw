@@ -212,8 +212,8 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required DatabaseBackendFactory searchBackendFactory,
-    required DatabaseBackendFactory taskBackendFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required int port,
@@ -281,8 +281,8 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required DatabaseBackendFactory searchBackendFactory,
-    required DatabaseBackendFactory taskBackendFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     String? runtimeCwd,
@@ -341,8 +341,8 @@ class DartclawRuntime {
     required String dataDir,
     required int port,
     required HarnessFactory harnessFactory,
-    required DatabaseBackendFactory searchBackendFactory,
-    required DatabaseBackendFactory taskBackendFactory,
+    required DatabaseBackendFactory? searchBackendFactory,
+    required DatabaseBackendFactory? taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required String resolvedConfigPath,
@@ -554,8 +554,8 @@ class _RuntimeAssembly {
   final ServerFactory? serverFactory;
   final bool headless;
   final List<HarnessRegistrar> harnessRegistrars;
-  final DatabaseBackendFactory searchBackendFactory;
-  final DatabaseBackendFactory taskBackendFactory;
+  final DatabaseBackendFactory? searchBackendFactory;
+  final DatabaseBackendFactory? taskBackendFactory;
   final WriteLine stderrLine;
   final ExitFn exitFn;
   final String resolvedConfigPath;

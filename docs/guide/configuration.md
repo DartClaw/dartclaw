@@ -218,6 +218,8 @@ These are the settings most operators need first. The exhaustive reference below
 | `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
 | `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
+| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
+| `database.url` | null or string |  | PostgreSQL connection URL. Environment references are resolved when configuration loads. (restart required) |
 | `mcp_servers.<name>.enabled` | boolean |  | Whether the server is used. It is forced off at load when its credential does not resolve. (restart required) |
 | `mcp_servers.<name>.network_class` | string | one of "local", "private", "public" | How far the server can reach, which decides what egress mediation applies. Required. (restart required) |
 | `mcp_servers.<name>.surface_tools` | array |  | Tools listed to the harness. Empty exposes none, so the model never sees them. (restart required) |
@@ -353,6 +355,11 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `credentials.<name>.type` | null or string | one of "api-key", "apiKey", "github-token", "githubToken", null | Which kind of secret the entry holds. Omitted means an API key. (file-only, not settable via API or CLI) |
 | **data_dir** |  |  |  |
 | `data_dir` | string |  | Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required) |
+| **database** |  |  |  |
+| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
+| `database.credential` | null or string |  | Named credential containing the PostgreSQL connection URL. (restart required) |
+| `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
+| `database.url` | null or string |  | PostgreSQL connection URL. Environment references are resolved when configuration loads. (restart required) |
 | **dev_mode** |  |  |  |
 | `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
 | **features** |  |  |  |

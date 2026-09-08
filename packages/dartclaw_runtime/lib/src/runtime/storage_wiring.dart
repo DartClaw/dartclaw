@@ -18,8 +18,8 @@ class StorageWiring {
   new({
     required this.config,
     required EventBus eventBus,
-    required DatabaseBackendFactory searchBackendFactory,
-    required DatabaseBackendFactory taskBackendFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     required ExitFn exitFn,
     this.personalMemoryEnabled = true,
     QmdManager Function()? qmdManagerFactory,
@@ -33,8 +33,8 @@ class StorageWiring {
 
   final DartclawConfig config;
   final EventBus _eventBus;
-  final DatabaseBackendFactory _searchBackendFactory;
-  final DatabaseBackendFactory _taskBackendFactory;
+  final DatabaseBackendFactory? _searchBackendFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
   final QmdManager Function()? _qmdManagerFactory;
@@ -106,9 +106,12 @@ class StorageWiring {
     }
 
     try {
-      await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-      final backend = _taskBackend = await _taskBackendFactory(config.dartclawDbPath);
-      await SqliteSchemaGate.prepareTasks(backend, storeName: p.basename(config.dartclawDbPath));
+      if (config.database.backend == DatabaseBackendKind.sqlite) {
+        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+      }
+      final factory = _taskBackendFactory ?? databaseBackendFactoryFor(config.database, resolveDsn: resolveDatabaseDsn);
+      final backend = _taskBackend = await factory(config.dartclawDbPath);
+      await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
       _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
       _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
       _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(backend);
@@ -197,13 +200,21 @@ class StorageWiring {
       _exitFn(1);
     }
 
+    if (config.database.backend == DatabaseBackendKind.postgres) {
+      _searchUnavailable = true;
+      _log.warning('Persistent memory search is unavailable with PostgreSQL; using an in-process index');
+      _searchBackend = SqliteBackend.openInMemory();
+      await SqliteSchemaGate.prepareSearch(_searchBackend!, storeName: 'in-memory search.db');
+      return;
+    }
+
     final indexHealth = _indexHealth = IndexHealthStore(workspaceDir: config.workspaceDir);
     final indexReconciler =
         _injectedIndexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: indexHealth);
     final manifest = currentManifest;
     DatabaseBackend? gateBackend;
     try {
-      gateBackend = await _searchBackendFactory(config.searchDbPath);
+      gateBackend = await (_searchBackendFactory ?? SqliteBackend.open)(config.searchDbPath);
       await SqliteSchemaGate.prepareSearch(
         gateBackend,
         storeName: 'search.db',
@@ -261,7 +272,7 @@ class StorageWiring {
     try {
       _searchBackend = _searchUnavailable
           ? SqliteBackend.openInMemory()
-          : await _searchBackendFactory(config.searchDbPath);
+          : await (_searchBackendFactory ?? SqliteBackend.open)(config.searchDbPath);
       await SqliteSchemaGate.prepareSearch(
         _searchBackend!,
         storeName: _searchUnavailable ? 'in-memory search.db' : 'search.db',
@@ -285,7 +296,7 @@ class StorageWiring {
 
   Future<void> _wirePersonalMemoryAfterTaskStorage() async {
     final memoryCorpus = _memoryCorpus!;
-    final indexHealth = _indexHealth!;
+    final indexHealth = _indexHealth;
     _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus);
     final memoryIndex = _memoryIndex = SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
 
@@ -318,7 +329,7 @@ class StorageWiring {
       try {
         if (_searchUnavailable) throw StateError('persistent search index is unavailable');
         if (!projection.isComplete) {
-          final priorHealth = await indexHealth.read(
+          final priorHealth = await indexHealth!.read(
             canonicalRevision: projection.baseRevision,
             canonicalFingerprint: projection.baseFingerprint,
           );
@@ -340,13 +351,13 @@ class StorageWiring {
           projection.isComplete ? const <String>{} : projection.priorRecordIds,
           complete: projection.isComplete,
         );
-        await indexHealth.recordHealthy(
+        await indexHealth!.recordHealthy(
           canonicalRevision: result.collectionRevision,
           canonicalFingerprint: result.fingerprint,
         );
       } on Object catch (error) {
         try {
-          await indexHealth.recordDegraded(
+          await indexHealth?.recordDegraded(
             canonicalRevision: result.collectionRevision,
             canonicalFingerprint: result.fingerprint,
             stage: 'incrementalProjection',
@@ -430,6 +441,15 @@ class StorageWiring {
 
   Future<IndexHealthEvidence> _probeIndexHealth() async {
     final manifest = await _memoryCorpus!.manifest();
+    if (_indexHealth == null) {
+      return IndexHealthEvidence(
+        state: IndexHealthState.unknown,
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+        reason: 'Persistent search is unavailable for the configured database backend.',
+        action: 'Use the in-process search available for this runtime.',
+      );
+    }
     try {
       return await _indexHealth!.read(
         canonicalRevision: manifest.collectionRevision,
@@ -445,4 +465,15 @@ class StorageWiring {
       );
     }
   }
+}
+
+/// Resolves a database URL or refuses the not-yet-wired credential reference.
+String resolveDatabaseDsn(DatabaseConfig database) {
+  final url = database.url;
+  if (url != null) return url;
+  throw StorageConnectionException(
+    operation: 'resolve database credential',
+    databaseIdentity: database.credential,
+    guidance: 'Named database credential resolution is not wired.',
+  );
 }

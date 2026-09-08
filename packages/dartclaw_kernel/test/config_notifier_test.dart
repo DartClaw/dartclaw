@@ -130,6 +130,7 @@ void main() {
             'memory',
             'knowledge',
             'search',
+            'database',
             'mcpServers',
             'providers',
             'credentials',
@@ -151,7 +152,7 @@ void main() {
         // `extensions` has no value equality, so `!=` between two parses of the
         // same file is always true — see the fitness allowlist for the record.
         expect(ConfigNotifier.sectionTiers, isNot(contains('extensions')));
-        expect(ConfigNotifier.sectionTiers, hasLength(27));
+        expect(ConfigNotifier.sectionTiers, hasLength(28));
       });
 
       test('the tier table is not mutable through its public view', () {

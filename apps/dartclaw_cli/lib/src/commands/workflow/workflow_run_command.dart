@@ -7,7 +7,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show ProviderAuthPreflight, WorkflowExclusion, WorkflowPreflightException, SkillIntrospector;
 import 'package:path/path.dart' as p;
@@ -238,8 +238,8 @@ class WorkflowRunCommand extends Command<void> {
       environment: environment,
       skillProvisionerEnvironment: environment,
       harnessFactory: _harnessFactory ?? HarnessFactory(),
-      searchBackendFactory: _searchBackendFactory ?? SqliteBackend.open,
-      taskBackendFactory: _taskBackendFactory ?? SqliteBackend.open,
+      searchBackendFactory: _searchBackendFactory,
+      taskBackendFactory: _taskBackendFactory,
       stderrLine: _stderrLine,
       exitFn: _exitFn,
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,

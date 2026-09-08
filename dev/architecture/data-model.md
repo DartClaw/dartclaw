@@ -2,17 +2,17 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 filesystem-backed instance-local state; database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL backend and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
 ## Architecture Principle
 
-**Files are the source of truth. SQLite is a derived index or relational model.**
+**Files hold canonical documents; the selected database holds authoritative relational data and derived indexes.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
 - Search index → SQLite FTS5 (derived from validated searchable canonical roles, rebuildable via `dartclaw rebuild-index`)
-- Tasks, goals, artifacts, turn traces, task events → SQLite (authoritative — relational queries on status/type/goal)
+- Tasks, goals, artifacts, turn traces, task events → SQLite by default or PostgreSQL (authoritative; relational queries on status/type/goal)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
@@ -21,6 +21,10 @@ Relational repositories target the dependency-free `DatabaseBackend` port in `da
 `dartclaw_core` preserves SQLite's scalar and row formats while serializing seam-issued operations across awaited
 transactions. Goal, task, execution, workflow-run, trace, event and KG persistence use this seam. The execution
 transactor delegates transaction ownership to the backend shared by its participating repositories.
+
+`database.backend: postgres` selects `PostgresBackend` in `dartclaw_core` on PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
+
+`PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when no required relation exists. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL full-text search is not yet wired at this checkpoint: runtime marks search unavailable, uses an in-memory fallback and leaves local search files untouched; `rebuild-index` refuses.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 

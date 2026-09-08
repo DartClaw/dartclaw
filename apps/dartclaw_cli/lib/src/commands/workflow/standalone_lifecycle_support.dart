@@ -6,7 +6,6 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProviderAuthPreflight,
@@ -187,8 +186,8 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
       environment: env,
       skillProvisionerEnvironment: env,
       harnessFactory: harnessFactory ?? HarnessFactory(),
-      searchBackendFactory: searchBackendFactory ?? SqliteBackend.open,
-      taskBackendFactory: taskBackendFactory ?? SqliteBackend.open,
+      searchBackendFactory: searchBackendFactory,
+      taskBackendFactory: taskBackendFactory,
       stderrLine: stderrLine,
       exitFn: exitFn,
       runWorkflowSkillsBootstrap: bootstrapSkills,

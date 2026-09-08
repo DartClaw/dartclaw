@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 filesystem-backed instance-local state; database backend and full-text index seams. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL backend and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -414,13 +414,15 @@ owning another queue or issuing transaction SQL. Runtime and CLI open stores thr
 with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
 WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
 
+`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The PostgreSQL search path currently reports degraded availability and creates no local search database or health-evidence files.
+
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 
 Full persistence details: [Data Model & Persistence Overview](data-model.md)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
 
-**Package**: `dartclaw_core` (file-based and SQLite services)
+**Package**: `dartclaw_core` (file services, SQLite and PostgreSQL backends)
 
 #### Web UI
 

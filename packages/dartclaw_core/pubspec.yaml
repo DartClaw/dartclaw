@@ -26,6 +26,7 @@ dependencies:
   meta: ^1.18.0
   path: ^1.9.1
   sqlite3: ^3.1.6
+  postgres: ^3.5.12
 
 dev_dependencies:
   dartclaw_testing:

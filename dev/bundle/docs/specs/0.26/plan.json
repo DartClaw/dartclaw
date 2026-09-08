@@ -326,9 +326,18 @@
         "S02",
         "S06"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s07-opt-in-postgresbackend-core.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
       "owner": "implementer_storage_s06",
       "scope": "Implement PostgresBackend in dartclaw_core on the seam via postgres ^3.5.12 (recording the dartclaw_core lib LOC ceiling raise in arch_check.dart with its CHANGELOG note; no file over 1500 lines; constructors under 12 parameters): DatabaseConfig in dartclaw_kernel with backend selection (SQLite default; exactly one backend; restart reload tier; all five 0.25 config gates green), single-database/one-pool layout, configurable pool_size (provisional default 5), typed redaction-safe storage exceptions, bounded pool exhaustion, full lifecycle. Retry connection failures only when proven before dispatch; never replay after dispatch or on ambiguous commit outcome, surfacing StorageUnknownOutcomeException. Implement transactional PostgreSQL current-schema bootstrap plus epoch/manifest validation with S02's identity; incompatible or partially initialized schemas refuse before repository use. Include the runTx integrity spike and pin the minimum PostgreSQL version. Excludes TLS/credential enforcement (S08), interlock/switch semantics (S10), and PostgreSQL FTS (S09).",
       "sourceRefs": [

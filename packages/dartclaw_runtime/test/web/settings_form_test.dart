@@ -157,10 +157,16 @@ void main() {
       expect(
         ownedElsewhere,
         ConfigMeta.fields.keys
-            .where((path) => path == 'channels' || path.startsWith('channels.') || path.startsWith('guards.'))
+            .where(
+              (path) =>
+                  path == 'channels' ||
+                  path.startsWith('channels.') ||
+                  path.startsWith('guards.') ||
+                  path.startsWith('database.'),
+            )
             .toSet(),
       );
-      expect(settingsFieldOwners.keys.toSet(), {'channels', 'guards'});
+      expect(settingsFieldOwners.keys.toSet(), {'channels', 'guards', 'database'});
     });
 
     test('no two panels declare an overlapping prefix, and every id is unique', () {

@@ -21,8 +21,8 @@ typedef ProcessSignalWatch = Stream<ProcessSignal> Function();
 /// Starts the DartClaw HTTP server with web UI.
 class ServeCommand extends Command<void> {
   final DartclawConfig? _config;
-  final DatabaseBackendFactory _searchBackendFactory;
-  final DatabaseBackendFactory _taskBackendFactory;
+  final DatabaseBackendFactory? _searchBackendFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
   final HarnessFactory _harnessFactory;
   final ServerFactory? _serverFactory;
   final ServeFn _serveFn;
@@ -58,8 +58,8 @@ class ServeCommand extends Command<void> {
     bool runWorkflowSkillsBootstrap = true,
     bool connectChannels = true,
   }) : _config = config,
-       _searchBackendFactory = searchBackendFactory ?? SqliteBackend.open,
-       _taskBackendFactory = taskBackendFactory ?? SqliteBackend.open,
+       _searchBackendFactory = searchBackendFactory,
+       _taskBackendFactory = taskBackendFactory,
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _serverFactory = serverFactory,
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),

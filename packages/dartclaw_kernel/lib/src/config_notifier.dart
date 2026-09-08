@@ -66,6 +66,7 @@ class ConfigNotifier {
     'memory': (tier: ConfigReloadTier.restart, read: (config) => config.memory),
     'knowledge': (tier: ConfigReloadTier.restart, read: (config) => config.knowledge),
     'search': (tier: ConfigReloadTier.restart, read: (config) => config.search),
+    'database': (tier: ConfigReloadTier.restart, read: (config) => config.database),
     'mcpServers': (tier: ConfigReloadTier.restart, read: (config) => config.mcpServers),
     'providers': (tier: ConfigReloadTier.restart, read: (config) => config.providers),
     'credentials': (tier: ConfigReloadTier.restart, read: (config) => config.credentials),

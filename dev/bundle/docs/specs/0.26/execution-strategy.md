@@ -22,6 +22,15 @@ This scheduling correction supersedes the cross-worktree storage serialization b
 - Root owns integration commits, main-plan transitions and completion receipts. Review frozen changes once, with only targeted closure for integration changes or confirmed findings. Run completion evidence against the actual integrated tree; broad live/platform/full campaigns remain at the final combined A+B gate.
 - Use the three implementation slots while work is independent; a completed lane frees the slot for its reviewer. Keep `feat/0.26` checked out in the main workspace. Preserve unrelated work and do not push, merge to main, publish, or commit private changes.
 
+## Parallel verification tooling after S09 – 2026-09-08 20:32 CEST
+
+After S09 is accepted, execute S10 and S11 concurrently from that accepted integration SHA. Their declared dependencies are satisfied and neither depends on the other. This supersedes the later S11 → S10 serialization without changing acceptance checks.
+
+- S10 owns the integration checkout: interlock, abandoned-store probes, recovery order, runtime wiring and its tests/docs.
+- S11 owns the reusable PostgreSQL worktree: dual-backend contract tests, manifest/checker, CI/release scripts and testing guidelines. Its production dependency is confined to the core test dependency and lockfile; it does not modify the interlock or runtime wiring.
+- Complete and integrate S10, then dispatch S13 once its declared dependencies are done. S11 can continue independently; integrate it before S12. Root serializes completion in the integration checkout and reconciles shared dependency/tooling changes by path.
+- Retain one focused independent gate per story. The final combined gate remains responsible for all deferred live contracts and CI/release behavior; implementing the CI job does not claim a live pass.
+
 ## Delivery contract
 
 Execute [plan.json](plan.json) and its 17 FIS through direct orchestration. Keep their scope, acceptance scenarios, task proofs, dependency constraints and independent story gates. This document supplies the operating sequence, ownership and launch procedure; it does not regenerate the bundle or change product requirements.

@@ -219,7 +219,7 @@ file   | docs/specs/0.26/s02-sqlite-schema-bootstrap-and-compatibility-gate.md#w
 
 - **TI08** Zero-behavior-change and structural gates hold workspace-wide
   - Depends on TI01–TI07. If `arch_check` reports a crossed ceiling, apply the rebaseline protocol (ceiling change in `dev/tools/arch_check.dart#_libLocCeilings` plus a CHANGELOG note) in this same change.
-  - **Verify**: `cmd: dart analyze --fatal-infos && test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')" = 16 && test "$(rg -l "MATCH|bm25\(|memory_chunks_fts" packages apps --glob '*.dart' --glob '!**/test/**' --glob '!**/*_test.dart' | tr -d ' ')" = "packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart" && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check` – analysis clean; the importer census is 16; the only production file with FTS5 SQL is the SQLite implementation; workspace suite, LOC/package ceilings, fitness suite, and whitespace check are green
+  - **Verify**: `cmd: dart analyze --fatal-infos && test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')" = 16 && test "$(rg -l "MATCH|bm25\(|memory_chunks_fts" packages apps --glob '*.dart' --glob '!**/test/**' --glob '!**/*_test.dart' | sort)" = "$(printf '%s\n' packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart packages/dartclaw_core/lib/src/storage/schema_identity.dart)" && ! rg -q "MATCH|bm25\(" packages/dartclaw_core/lib/src/storage/schema_identity.dart && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check` – analysis clean; the importer census is 16; the only production file with FTS5 SQL is the SQLite implementation; workspace suite, LOC/package ceilings, fitness suite, and whitespace check are green
   - **SATISFIES**: SC01, SC02, SC03, SC06
 
 ### Testing Strategy
@@ -274,3 +274,14 @@ file   | docs/specs/0.26/s02-sqlite-schema-bootstrap-and-compatibility-gate.md#w
 #### DRIFT
 
 - spec-stale: TI03 Verify target repaired | Stale targets: – | `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/search/sqlite_fts_index_test.dart --plain-name "SqliteFtsIndex"` → `cmd: dart test --reporter=failures-only packages/dartclaw_core/test/search/sqlite_fts_index_test.dart --plain-name "SqliteFtsIndex" && ! rg -q "package:sqlite3" packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart`
+
+### Run: 2026-09-08 11:48 UTC – repair-proof
+
+#### DRIFT
+
+- spec-stale: TI08 Verify target repaired | Stale targets: – | `cmd: dart analyze --fatal-infos && test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')" = 16 && test "$(rg -l "MATCH|bm25\(|memory_chunks_fts" packages apps --glob '*.dart' --glob '!**/test/**' --glob '!**/*_test.dart' | tr -d ' ')" = "packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart" && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check` → `cmd: dart analyze --fatal-infos && test "$(rg -l "import 'package:sqlite3" packages apps --glob '!**/test/**' --glob '!**/*_test.dart' | wc -l | tr -d ' ')" = 16 && test "$(rg -l "MATCH|bm25\(|memory_chunks_fts" packages apps --glob '*.dart' --glob '!**/test/**' --glob '!**/*_test.dart' | sort)" = "$(printf '%s\n' packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart packages/dartclaw_core/lib/src/storage/schema_identity.dart)" && ! rg -q "MATCH|bm25\(" packages/dartclaw_core/lib/src/storage/schema_identity.dart && bash dev/tools/test_workspace.sh && dart run dev/tools/arch_check.dart && bash dev/tools/fitness/run_all.sh && git diff --check`
+
+### Run: 2026-09-08 11:48 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+- SC02 assigns runtime FTS operations to SqliteFtsIndex. S02 schema_identity.dart remains the declaration-only FTS table/trigger owner under SC03. TI08 therefore requires exactly those two production identifier owners and separately rejects MATCH/bm25 queries in the manifest. Independent bounded review passed; every other TI08 gate is unchanged.

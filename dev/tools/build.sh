@@ -144,8 +144,7 @@ if [[ -z "$SKIP_COMPILE" ]]; then
     --source "$ROOT_DIR" \
     --destination "$native_workspace" \
     --hook-root "$native_hook_root" \
-    --release v0.3.0 \
-    --repository https://github.com/leehack/llamadart-native
+    --manifest "$NATIVE_MANIFEST"
   (cd "$native_workspace" && dart pub get --offline --enforce-lockfile)
 fi
 : > "$BUILD_DIR/SHA256SUMS.txt"

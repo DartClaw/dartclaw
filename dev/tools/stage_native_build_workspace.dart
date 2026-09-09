@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../../apps/dartclaw_cli/tool/native_artifact_preparation.dart';
+
 Future<void> main(List<String> arguments) async {
   String requiredValue(String name) {
     final index = arguments.indexOf(name);
@@ -11,8 +13,7 @@ Future<void> main(List<String> arguments) async {
   final source = Directory(requiredValue('--source'));
   final destination = Directory(requiredValue('--destination'));
   final hookRoot = requiredValue('--hook-root');
-  final release = requiredValue('--release');
-  final repository = requiredValue('--repository');
+  final manifest = await NativeArtifactManifest.load(requiredValue('--manifest'));
   if (!await source.exists()) throw ArgumentError('Source workspace does not exist');
   if (await destination.exists()) throw StateError('Destination workspace already exists');
   await destination.create(recursive: true);
@@ -24,8 +25,8 @@ Future<void> main(List<String> arguments) async {
       '  user_defines:\n'
       '    llamadart:\n'
       '      llamadart_native_path: ${jsonEncode(hookRoot)}\n'
-      '      llamadart_native_tag: ${jsonEncode(release)}\n'
-      '      llamadart_native_repository: ${jsonEncode(repository)}\n'
+      '      llamadart_native_tag: ${jsonEncode(manifest.release)}\n'
+      '      llamadart_native_repository: ${jsonEncode(manifest.repository.toString())}\n'
       '      llamadart_native_runtimes:\n'
       '        - llama_cpp\n';
   await File(_join(destination.path, 'pubspec.yaml')).writeAsString(stagedPubspec);

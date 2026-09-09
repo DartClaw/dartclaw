@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -17,6 +18,18 @@ void main() {
     expect(File(p.join(root, 'pubspec.yaml')).readAsStringSync(), isNot(contains('llamadart_native_path')));
     expect(posix.indexOf('native_artifact_preparation.dart'), lessThan(posix.indexOf('for binary_name in')));
     expect(windows.indexOf('native_artifact_preparation.dart'), lessThan(windows.indexOf(r'foreach ($binary')));
+    expect(
+      posix,
+      contains(r'''--hook-root "$native_hook_root" \
+    --manifest "$NATIVE_MANIFEST"'''),
+    );
+    expect(
+      windows,
+      contains(r'''--hook-root $nativeHookRoot `
+      --manifest $manifestPath'''),
+    );
+    expect(posix, isNot(contains('--release v0.3.0')));
+    expect(windows, isNot(contains(r'--release $nativeManifest.release')));
   });
 
   test('source mutations cannot bypass verification or broaden the selected runtime', () {
@@ -46,6 +59,24 @@ void main() {
     File(p.join(app.path, 'lib', 'app.dart')).writeAsStringSync('void value() {}\n');
     Directory(p.join(app.path, 'tool')).createSync();
     File(p.join(app.path, 'tool', 'probe.dart')).writeAsStringSync('void main() {}\n');
+    const digest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    final manifest = File(p.join(source.path, 'native-artifacts.json'))
+      ..writeAsStringSync(
+        jsonEncode({
+          'release': 'v9.8.7',
+          'repository': 'https://example.test/custom-native',
+          'model': {'basename': 'model.gguf', 'url': 'https://example.test/model.gguf', 'size': 1, 'sha256': digest},
+          'artifacts': {
+            'macos-arm64': {
+              'bundle': 'macos-arm64',
+              'archive': 'llamadart-native-macos-arm64-v9.8.7.tar.gz',
+              'url': 'https://example.test/llamadart-native-macos-arm64-v9.8.7.tar.gz',
+              'size': 1,
+              'sha256': digest,
+            },
+          },
+        }),
+      );
 
     await workspace_stage.main([
       '--source',
@@ -54,10 +85,8 @@ void main() {
       destination.path,
       '--hook-root',
       p.join(source.path, 'verified hook'),
-      '--release',
-      'v0.3.0',
-      '--repository',
-      'https://github.com/leehack/llamadart-native',
+      '--manifest',
+      manifest.path,
     ]);
     expect(
       File(p.join(destination.path, 'apps', 'dartclaw_cli', 'tool', 'probe.dart')).readAsStringSync(),
@@ -65,8 +94,8 @@ void main() {
     );
     final staged = File(p.join(destination.path, 'pubspec.yaml')).readAsStringSync();
     expect(staged, contains('llamadart_native_path: "${p.join(source.path, 'verified hook')}"'));
-    expect(staged, contains('llamadart_native_tag: "v0.3.0"'));
-    expect(staged, contains('llamadart_native_repository: "https://github.com/leehack/llamadart-native"'));
+    expect(staged, contains('llamadart_native_tag: "v9.8.7"'));
+    expect(staged, contains('llamadart_native_repository: "https://example.test/custom-native"'));
     expect(staged, contains('llamadart_native_runtimes:\n        - llama_cpp'));
     expect(
       File(p.join(source.path, 'pubspec.yaml')).readAsStringSync(),

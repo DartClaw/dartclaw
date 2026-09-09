@@ -209,14 +209,12 @@ if ($MyInvocation.InvocationName -ne '.') {
       throw 'Windows native archive preparation failed.'
     }
 
-    $nativeManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $releaseWorkspace = Join-Path $tempRoot 'workspace'
     & dart run (Join-Path $script:RootDir 'dev/tools/stage_native_build_workspace.dart') `
       --source $script:RootDir `
       --destination $releaseWorkspace `
       --hook-root $nativeHookRoot `
-      --release $nativeManifest.release `
-      --repository $nativeManifest.repository
+      --manifest $manifestPath
     if ($LASTEXITCODE -ne 0) {
       throw 'Windows release workspace staging failed.'
     }

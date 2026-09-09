@@ -235,10 +235,8 @@ final class NativeEmbeddingPlatformGate {
         probeWorkspace,
         '--hook-root',
         preparation.hookRoot,
-        '--release',
-        manifest.release,
-        '--repository',
-        manifest.repository.toString(),
+        '--manifest',
+        manifestPath,
       ], workingDirectory: root.path);
       if (stage.exitCode != 0) throw StateError('Native embedding probe workspace preparation failed');
       final resolve = await Process.run('dart', [

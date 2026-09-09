@@ -158,9 +158,14 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s03-native-and-http-embedding-providers.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
       "owner": "implementer_b_s03_providers",
       "scope": "Provide verified local-model acquisition, in-process embeddings and the explicit HTTP alternative with model identity, credential-safe failures and bounded lifecycle handling.",
       "sourceRefs": [

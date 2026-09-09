@@ -17,7 +17,8 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 
 **Validation spike (2026-07-25, passed; full record in the private research dir):**
 - macOS arm64 `dart build cli`: 6 MB binary + 10 MB `libllamadart.dylib`, ADR-048 shape; max RSS ≈ 477 MB with embeddinggemma-300M resident; ~7 ms/doc embed.
-- Linux (Docker `dart:stable`): works; needs `libgomp1` at runtime; llamadart hangs (no surfaced error) when the native lib fails to load – wrapper needs an init timeout.
+- Linux (Docker `dart:stable`): works; needs `libgomp1` at runtime. The historical 0.8.17 native-library
+  refusal motivated the lifecycle investigation; it is not evidence about the selected dependency.
 - Parity: cosine 1.000000 vs llama.cpp's own `llama-server` on the same GGUF.
 - Swedish/English retrieval fixture: unstemmed keyword-only 0.38 hit@1 (0.00 on Swedish inflection/compound/vocabulary-mismatch – the motivating gap); embeddinggemma-300M vector 1.00/1.00 incl. cross-lingual; hybrid RRF 0.94. Qwen3-Embedding-0.6B head-to-head: 0.94, missed the hardest Swedish semantic query, weaker cross-lingual, 2× size.
 
@@ -52,7 +53,10 @@ the deprecation warning; the following milestone removes the implementation.
 
 ### Negative / accepted
 
-- **llamadart is pre-1.0, single-maintainer** – pinned exact; the `EmbeddingProvider` seam keeps it swappable (the HTTP fallback is the standing escape hatch). Known bug: engine hangs instead of erroring on native-lib load failure – wrapper wraps init in a timeout; report upstream.
+- **llamadart is pre-1.0, single-maintainer** – pinned exactly at 0.8.22; the `EmbeddingProvider` seam keeps it
+  swappable (the HTTP fallback is the standing escape hatch). Its worker startup has a dependency-owned 30-second
+  handshake that observes error/exit and kills the worker on failure or timeout. Model-load and dispose requests remain
+  separately bounded by DartClaw at the provider edge; final platform process probes decide acceptance.
 - **Bundle supply chain needs hardening by us** – the hook tag-pins but does **not** sha256-verify the llama.cpp archives; release builds mirror the bundles or use the local-path user-define. Build-time network access is required unless mirrored.
 - **Linux runtime dependency** – bundles link OpenMP; `libgomp1` must be documented/bundled in release packaging.
 - **~0.5 GB RAM while the embedder is resident**, and a one-time ~320 MB model download on enabling hybrid search.
@@ -76,7 +80,13 @@ the deprecation warning; the following milestone removes the implementation.
 
 ## Implementation Notes
 
-- Binding spec-time items: `FullTextIndex`/`VectorIndex` contract placement decided during Phase A **with this package in view** (it must reach the contracts without depending on `dartclaw_storage`); engine-init timeout; RRF weight tuning + larger Swedish eval fixture; parity fixtures stay set-membership-only across backends; `CREATE EXTENSION IF NOT EXISTS vector` handling per ADR-045 FR2's extension rule.
+Explicit model acquisition follows at most three redirects manually because the pinned immutable Hugging Face source
+redirects to a signed CDN URL. Each target must use HTTPS with a non-empty host and no userinfo or fragment, and passes
+the existing network policy before I/O. Signed CDN query strings remain private to the request. Automatic redirects
+remain disabled; missing/unsafe targets and exhausted redirects fail closed. Exact size and SHA-256 still authenticate
+bytes before atomic publication. HTTP embedding requests continue to refuse every redirect.
+
+- Binding spec-time items: `FullTextIndex`/`VectorIndex` contract placement decided during Phase A **with this package in view** (it must reach the contracts without depending on `dartclaw_storage`); llamadart 0.8.22 worker startup uses its existing 30-second handshake while DartClaw separately bounds model-load and dispose; RRF weight tuning + larger Swedish eval fixture; parity fixtures stay set-membership-only across backends; `CREATE EXTENSION IF NOT EXISTS vector` handling per ADR-045 FR2's extension rule.
 - Release packaging: mirror/pin llamadart native bundles; add `libgomp1` to Linux packaging docs; apply the runtimes trim user-define.
 - Remaining platform legs (Linux x64, Windows) ride the existing CI release matrix (ADR-048 native runners).
 

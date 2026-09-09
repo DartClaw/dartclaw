@@ -4,6 +4,9 @@
 /// `dartclaw_kernel`; this package owns no authoritative corpus or database.
 library;
 
+export 'src/default_embedding_model_acquirer.dart'
+    show DefaultEmbeddingModel, DefaultEmbeddingModelAcquirer, ModelAcquisitionResult, ModelAcquisitionStatus;
+export 'src/embedding_providers.dart' show HttpEmbeddingProvider, NativeEmbeddingProvider, NetworkAccessCheck;
 export 'src/hybrid_search.dart' show HybridSearch, VectorSynchronizationResult, VectorSynchronizer;
 export 'src/hybrid_search_backend.dart' show HybridSearchBackend;
 

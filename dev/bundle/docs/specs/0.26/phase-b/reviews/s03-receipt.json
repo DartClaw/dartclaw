@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1",
+  "story": "S03",
+  "fis": "s03-native-and-http-embedding-providers.md",
+  "plan": "plan.json",
+  "snapshot": "77bf8f25b8ba+6ba47ee095ac",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 77bf8f25b8ba+6ba47ee095ac",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 100.485,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_search/test/native_embedding_provider_test.dart packages/dartclaw_search/test/embedding_fingerprint_test.dart",
+      "exit": 0,
+      "duration": 1.209,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_search/test/http_embedding_provider_test.dart",
+      "exit": 0,
+      "duration": 0.594,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_search/test/default_embedding_model_acquirer_test.dart",
+      "exit": 0,
+      "duration": 0.539,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "rg -q '0\\.8\\.22' dev/adrs/050-native-hybrid-search.md && rg -q '30-second' dev/adrs/050-native-hybrid-search.md && rg -q 'model[- ]load.*dispose' dev/adrs/050-native-hybrid-search.md",
+      "exit": 0,
+      "duration": 0.021,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

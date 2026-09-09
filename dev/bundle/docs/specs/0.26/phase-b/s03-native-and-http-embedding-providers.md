@@ -145,8 +145,9 @@ userinfo, query or fragment.
   - **Given** either an existing exact default file or an absent/corrupt destination
   - **When** `acquire` runs
   - **Then** exact bytes return `reused` without a network check/request; otherwise the check precedes each request,
-    redirects are refused, bytes stream to an operation-unique sibling temporary file, and exact size plus SHA-256 are
-    required before a downloaded file is published and returned
+    including at most three manually followed HTTPS redirects with a non-empty host and no userinfo or fragment;
+    automatic redirects remain disabled, unsafe/missing targets and exhausted redirects fail closed, bytes stream to
+    an operation-unique sibling temporary file, and exact size plus SHA-256 are required before publication
 
 - **S06 [OC03,OC04] [TI01,TI03] Provider and acquisition failures preserve recoverability within fixed deadlines**
   - **Given** injected stalled native load/dispose calls, a missing/corrupt model, a denied network request, interrupted
@@ -278,4 +279,35 @@ url | https://github.com/leehack/llamadart/blob/v0.8.22/lib/src/backends/llama_c
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-09 04:28 UTC – design-change
+
+#### DESIGN CHANGE
+
+The pinned immutable Hugging Face model source returns302 to its signed CDN URL. Categorical acquisition redirect
+refusal prevents the required explicit download. Follow at most three redirects manually, validating HTTPS/host and
+rejecting userinfo/fragment before the existing network check and request. Signed query strings are permitted for
+artifact CDN URLs and never exposed in failures. Automatic redirects and HTTP embedding-provider redirects remain
+refused. Exact source, size, SHA-256, policy authority, temporary-file ownership and atomic publication are unchanged.
+The Constraints phrase "disables redirects" means automatic redirects for acquisition; TI03's redirect failure case
+covers unsafe/missing/exhausted redirect targets. No task proof command, selector or scenario tag changes.
+
+Old:
+```text
+  - **Then** exact bytes return `reused` without a network check/request; otherwise the check precedes each request,
+    redirects are refused, bytes stream to an operation-unique sibling temporary file, and exact size plus SHA-256 are
+    required before a downloaded file is published and returned
+```
+
+New:
+```text
+  - **Then** exact bytes return `reused` without a network check/request; otherwise the check precedes each request,
+    including at most three manually followed HTTPS redirects with a non-empty host and no userinfo or fragment;
+    automatic redirects remain disabled, unsafe/missing targets and exhausted redirects fail closed, bytes stream to
+    an operation-unique sibling temporary file, and exact size plus SHA-256 are required before publication
+```
+
+#### ADR
+
+Amend public ADR-050 Implementation Notes with this model-acquisition transport rule. The root re-attests OC03/S05
+against the existing pinned artifact and network-policy requirements; the independent S03 reviewer must review this
+amendment and the bounded code/test correction before story acceptance.

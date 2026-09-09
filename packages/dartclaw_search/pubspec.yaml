@@ -16,9 +16,10 @@ environment:
 resolution: workspace
 
 dependencies:
-  crypto: ^3.0.6
+  crypto: ^3.0.7
   dartclaw_kernel:
     path: ../dartclaw_kernel
+  llamadart: 0.8.22
 
 dev_dependencies:
   lints: ^6.1.0

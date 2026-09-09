@@ -18,9 +18,15 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Added
 
+- **Native and explicit HTTP embedding providers** – `dartclaw_search` can lazily load the checksum-verified default
+  EmbeddingGemma model in process, call an explicitly configured OpenAI-compatible endpoint with raw inputs, and
+  explicitly acquire the frozen default model through verified failure-atomic publication. Provider fingerprints exclude
+  paths and credentials, HTTP failures expose no request or response secrets, and native initialization and shutdown are
+  bounded.
+
 - **Hybrid search contract boundary** – `dartclaw_kernel` now owns validated vector, embedding and content-free
   diagnostic contracts with stable document/chunk identities. The new T1 `dartclaw_search` package has kernel as its only workspace dependency and uses
-  `crypto` for SHA-256 hashing; concrete storage and canonical corpus mapping remain in core.
+  `crypto` for SHA-256 hashing and pinned `llamadart` for local embeddings; concrete storage and canonical corpus mapping remain in core.
 
 - **PostgreSQL operator guide** – configuration, TLS posture, least-privilege provisioning, storage tiers, backups,
   backend switching, and decommissioning are documented in [PostgreSQL](docs/guide/postgresql.md).
@@ -43,9 +49,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - **Persisted lexical chunk identities** – memory and conversation rows now store a zero-based `chunk_index`, so
   repeated equal chunks retain their canonical position independently of backend row IDs or text.
-- **Search LOC ceiling rebaseline for fusion and synchronization** – `dartclaw_search/lib` measures 682 Dart lines
-  after adding authenticated weighted fusion, lexical fallback and source-rechecked vector reconciliation. The
-  ceiling is 682 with no added headroom.
+- **Search LOC ceiling rebaseline for fusion and synchronization** – `dartclaw_search/lib` measures 1,456 Dart lines
+  after adding embedding providers, authenticated fusion and vector reconciliation. The
+  ceiling is 1,456 with no added headroom.
 - **Core LOC ceiling rebaseline for canonical chunking and identities** – `dartclaw_core/lib` measures 30,428 Dart
   lines after deterministic heading/fence-aware memory chunking and persisted lexical ordinals. The ceiling is 30,428.
 

@@ -1,6 +1,7 @@
 import 'config_constraints.dart';
 import 'config_meta.dart';
 import 'governance_config.dart' show TurnLimitsConfig;
+import 'search_config.dart';
 import 'turn_limits_validation.dart';
 
 /// The refusal for a path [ConfigMeta] does not describe.
@@ -80,7 +81,84 @@ class ConfigValidator {
     _validateSpaceEventsRequirements(updates, currentValues, errors);
     _validateExecutionMode(updates, currentValues, errors);
     _validateTurnLimits(updates, currentValues, errors);
+    _validateEmbeddingRequirements(updates, currentValues, errors);
     return errors;
+  }
+
+  void _validateEmbeddingRequirements(
+    Map<String, dynamic> updates,
+    Map<String, dynamic> currentValues,
+    List<ValidationError> errors,
+  ) {
+    const prefix = 'search.embedding.';
+    if (!updates.keys.any((field) => field.startsWith(prefix))) return;
+    if (errors.any((error) => error.field == '${prefix}provider')) return;
+
+    final provider = _mergedValue<String>('${prefix}provider', updates, currentValues) ?? 'local';
+    final currentProvider = _mergedValue<String>('${prefix}provider', const {}, currentValues) ?? 'local';
+    final model = _mergedValue<String>('${prefix}model', updates, currentValues) ?? const EmbeddingConfig().model;
+    final endpoint = _mergedValue<String>('${prefix}endpoint', updates, currentValues);
+    final credential = _mergedValue<String>('${prefix}credential', updates, currentValues);
+
+    if (provider == 'local') {
+      if (model != const EmbeddingConfig().model) {
+        _addEmbeddingError(
+          errors,
+          field: '${prefix}model',
+          message: "Field '${prefix}model' must select ${const EmbeddingConfig().model} for local embeddings",
+        );
+      }
+      if (endpoint != null) {
+        _addEmbeddingError(
+          errors,
+          field: '${prefix}endpoint',
+          message: "Field '${prefix}endpoint' must be absent for local embeddings",
+        );
+      }
+      if (credential != null) {
+        _addEmbeddingError(
+          errors,
+          field: '${prefix}credential',
+          message: "Field '${prefix}credential' must be absent for local embeddings",
+        );
+      }
+      return;
+    }
+
+    if (provider != 'http') return;
+    final switchedToHttp = updates['${prefix}provider'] == 'http' && currentProvider != 'http';
+    if (model.trim().isEmpty || (switchedToHttp && !updates.containsKey('${prefix}model'))) {
+      _addEmbeddingError(
+        errors,
+        field: '${prefix}model',
+        message: "Field '${prefix}model' is required for HTTP embeddings",
+      );
+    }
+    if (!_isSafeEmbeddingEndpoint(endpoint)) {
+      _addEmbeddingError(
+        errors,
+        field: '${prefix}endpoint',
+        message:
+            "Field '${prefix}endpoint' must be an absolute HTTP(S) URI with a host and no userinfo, query, or fragment",
+      );
+    } else if (!isValidEmbeddingCredentialEndpoint(Uri.tryParse(endpoint!), credential)) {
+      _addEmbeddingError(
+        errors,
+        field: '${prefix}endpoint',
+        message:
+            "Field '${prefix}endpoint' must use HTTPS when '${prefix}credential' is configured, except for a literal loopback host",
+      );
+    }
+  }
+
+  void _addEmbeddingError(List<ValidationError> errors, {required String field, required String message}) {
+    if (errors.any((error) => error.field == field)) return;
+    errors.add(ValidationError(field: field, message: message));
+  }
+
+  bool _isSafeEmbeddingEndpoint(String? value) {
+    if (value == null) return false;
+    return isValidEmbeddingEndpoint(Uri.tryParse(value.trim()));
   }
 
   void _validateTurnLimits(

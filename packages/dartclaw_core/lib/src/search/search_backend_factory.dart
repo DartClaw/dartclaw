@@ -14,12 +14,15 @@ SearchBackend createSearchBackend({
   String defaultDepth = 'standard',
   String? workspaceDir,
   SearchIndexHealthProbe? indexHealthProbe,
+  SearchBackend? personalBackend,
 }) {
   final wikiSearch = workspaceDir == null ? null : WikiSearchSource(workspaceDir: workspaceDir);
   final fts5 = Fts5SearchBackend(index: index);
 
   late final SearchBackend personal;
-  if (backend == 'qmd' && qmdManager != null) {
+  if (personalBackend != null) {
+    personal = personalBackend;
+  } else if (backend == 'qmd' && qmdManager != null) {
     personal = QmdSearchBackend(
       manager: qmdManager,
       fallback: fts5,

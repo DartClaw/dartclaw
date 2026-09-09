@@ -2593,9 +2593,10 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "description": "Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required)",
+          "description": "Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required)",
           "enum": [
             "fts5",
+            "hybrid",
             "qmd"
           ],
           "type": "string"
@@ -2603,6 +2604,41 @@
         "default_depth": {
           "description": "Effort a query spends when the caller names none: fast, standard or deep. (restart required)",
           "type": "string"
+        },
+        "embedding": {
+          "additionalProperties": false,
+          "properties": {
+            "credential": {
+              "description": "Named generic API-key credential for the HTTP embedding provider. (file-only, not settable via API or CLI)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "endpoint": {
+              "description": "Absolute HTTP(S) endpoint used only by the HTTP embedding provider. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "model": {
+              "description": "Managed model selector for local embeddings, or the explicitly selected remote model for HTTP embeddings. (restart required)",
+              "type": "string"
+            },
+            "provider": {
+              "description": "Embedding implementation used by hybrid search. Defaults to local. (restart required)",
+              "enum": [
+                "http",
+                "local"
+              ],
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
         },
         "providers": {
           "additionalProperties": {

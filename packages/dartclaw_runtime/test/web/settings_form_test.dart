@@ -569,6 +569,20 @@ void main() {
       expect(File(configPath).readAsStringSync(), before);
     });
 
+    test('a handcrafted Memory submission cannot persist an embedding credential reference', () async {
+      final before = File(configPath).readAsStringSync();
+      final response = await post(buildSurface(), {
+        settingsSectionFormField: 'memory',
+        'search.embedding.credential': 'missing-reference',
+      });
+      final body = await response.readAsString();
+
+      expect(response.statusCode, 200);
+      expect(body, contains("Field 'search.embedding.credential' is read-only"));
+      expect(body, isNot(contains('missing-reference')));
+      expect(File(configPath).readAsStringSync(), before);
+    });
+
     test('a request without admin access is refused before anything is read or written', () async {
       final before = File(configPath).readAsStringSync();
       final registry = PageRegistry()..register(SettingsPage(settingsSurface: buildSurface()));

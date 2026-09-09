@@ -48,6 +48,8 @@ class MemoryStatusService {
   final PromptMemoryStatusReader? promptMemoryStatusReader;
   final WikiSourceCounter? wikiSourceCounter;
   final ScheduleService? scheduleService;
+  final Future<int?> Function()? memoryMissingVectorCount;
+  final Future<int?> Function()? conversationMissingVectorCount;
   final WorkspaceFileReader _workspaceFiles;
 
   new({
@@ -60,6 +62,8 @@ class MemoryStatusService {
     this.promptMemoryStatusReader,
     this.wikiSourceCounter,
     this.scheduleService,
+    this.memoryMissingVectorCount,
+    this.conversationMissingVectorCount,
   }) : _workspaceFiles = WorkspaceFileReader(workspaceDir);
 
   /// Returns the complete memory status response.
@@ -411,6 +415,8 @@ class MemoryStatusService {
         : counts.whereType<int>().fold<int>(0, (sum, count) => sum + count);
     final indexArchived = await _countSearchEntries('archive');
     final dbSizeBytes = _getSearchDbSize();
+    final memoryUnembeddedCount = await _readMissingVectorCount(memoryMissingVectorCount);
+    final conversationUnembeddedCount = await _readMissingVectorCount(conversationMissingVectorCount);
 
     return {
       'backend': config.search.backend,
@@ -428,11 +434,23 @@ class MemoryStatusService {
       'action': evidence == null ? 'Stop DartClaw, then run dartclaw rebuild-index.' : evidence.action,
       'indexEntries': indexEntries,
       'indexArchived': indexArchived,
+      'memoryUnembeddedCount': memoryUnembeddedCount,
+      'conversationUnembeddedCount': conversationUnembeddedCount,
       'dbSizeBytes': dbSizeBytes,
       'qmdConfig': config.search.backend == 'qmd'
           ? {'host': config.search.qmdHost, 'port': config.search.qmdPort}
           : null,
     };
+  }
+
+  Future<int?> _readMissingVectorCount(Future<int?> Function()? reader) async {
+    if (config.search.backend != 'hybrid' || reader == null) return null;
+    try {
+      return await reader();
+    } on Object catch (error) {
+      _log.fine('Vector coverage count failed: $error');
+      return null;
+    }
   }
 
   Future<int?> _countSearchEntries(String role) async {

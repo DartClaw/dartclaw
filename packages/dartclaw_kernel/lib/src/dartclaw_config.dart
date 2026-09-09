@@ -19,6 +19,7 @@ import 'config_meta.dart';
 import 'config_numeric_bounds.dart';
 import 'config_validator.dart' show unknownConfigFieldMessage;
 import 'context_config.dart';
+import 'credential_registry.dart';
 import 'credentials_config.dart';
 import 'database_config.dart';
 import 'duration_parser.dart' show tryParseDuration;
@@ -183,6 +184,9 @@ class DartclawConfig {
 
   /// searchDbPath.
   String get searchDbPath => p.join(server.dataDir, 'search.db');
+
+  /// Retained vector projection database path.
+  String get vectorsDbPath => p.join(server.dataDir, 'vectors.db');
 
   /// dartclawDbPath.
   String get dartclawDbPath => p.join(server.dataDir, 'dartclaw.db');

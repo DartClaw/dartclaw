@@ -32,6 +32,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         WorkerState;
 
 export 'src/channel_test_helpers.dart' show TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
+export 'src/callback_embedding_provider.dart' show CallbackEmbeddingProvider;
 export 'src/codex_harness_test_helpers.dart'
     show
         defaultCommandProbe,

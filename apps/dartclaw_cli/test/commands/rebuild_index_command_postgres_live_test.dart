@@ -8,7 +8,7 @@ import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory, CallbackEmbeddingProvider;
 import 'package:test/test.dart';
 
 import '../../../../packages/dartclaw_core/test/storage/postgres_live_support.dart';
@@ -22,6 +22,84 @@ void main() {
     server: ServerConfig(dataDir: temp.path),
     database: DatabaseConfig(backend: DatabaseBackendKind.postgres, ftsLanguage: language),
   );
+
+  test('hybrid PostgreSQL rebuild reuses both corpora, recovers failures and clears empty sources', () async {
+    await withPostgresBackend((backend, namespace) async {
+      final settings = DartclawConfig(
+        server: ServerConfig(dataDir: temp.path),
+        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+        search: const SearchConfig(backend: 'hybrid'),
+      );
+      await seedCanonicalMemory(
+        settings.workspaceDir,
+        topics: {
+          'preferences': ['memoryneedle likes tea'],
+        },
+      );
+      final sessions = SessionService(baseDir: settings.sessionsDir);
+      final messages = MessageService(baseDir: settings.sessionsDir);
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'conversationneedle likes coffee');
+      await messages.dispose();
+      var embedded = 0;
+      var failEmbedding = true;
+      EmbeddingProvider provider() => CallbackEmbeddingProvider(
+        embedDocuments: (documents) async {
+          if (failEmbedding) throw const FileSystemException('model unavailable');
+          embedded += documents.length;
+          return [
+            for (final _ in documents) [1.0, 0.0],
+          ];
+        },
+      );
+
+      final degraded = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
+      expect(degraded.code, 0);
+      final degradedData = jsonDecode(degraded.lines.single) as Map<String, dynamic>;
+      expect(degradedData['memoryUnembeddedCount'], 1);
+      expect(degradedData['conversationUnembeddedCount'], 1);
+      expect(degradedData['vectorDegradedCorpora'], ['memory', 'conversation']);
+      expect(
+        await PostgresFtsIndex(
+          backend,
+          table: PostgresFtsTable.memoryChunks,
+          language: 'english',
+        ).search('memoryneedle', userId: 'owner'),
+        isNotEmpty,
+      );
+      expect(
+        await PostgresFtsIndex(
+          backend,
+          table: PostgresFtsTable.conversationChunks,
+          language: 'english',
+        ).search('conversationneedle', userId: 'owner'),
+        isNotEmpty,
+      );
+
+      failEmbedding = false;
+      final recovered = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
+      expect(recovered.code, 0);
+      final recoveredData = jsonDecode(recovered.lines.single) as Map<String, dynamic>;
+      expect(recoveredData['memoryUnembeddedCount'], 0);
+      expect(recoveredData['conversationUnembeddedCount'], 0);
+      expect(embedded, 2);
+      expect((await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner')), hasLength(1));
+      expect(
+        (await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'owner')),
+        hasLength(1),
+      );
+      expect((await _run(settings, namespace, json: true, embeddingProviderFactory: provider)).code, 0);
+      expect(embedded, 2, reason: 'a second lexical publication must reuse matching vector rows');
+
+      await seedCanonicalMemory(settings.workspaceDir);
+      await Directory(settings.sessionsDir).delete(recursive: true);
+      final cleared = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
+      expect(cleared.code, 0);
+      expect(await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner'), isEmpty);
+      expect(await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'owner'), isEmpty);
+      expect(_databaseFiles(temp), isEmpty);
+    });
+  });
 
   test('transactional rebuild retains prior rows on every pre-publication failure', () async {
     await withPostgresBackend((backend, namespace) async {
@@ -164,6 +242,7 @@ Future<({int code, List<String> lines})> _run(
   DartclawConfig config,
   String namespace, {
   CanonicalIndexReconciler? reconciler,
+  EmbeddingProvider Function()? embeddingProviderFactory,
   bool json = false,
 }) async {
   final lines = <String>[];
@@ -177,6 +256,7 @@ Future<({int code, List<String> lines})> _run(
         writeLine: lines.add,
         exitFn: (value) => code = value,
         indexReconciler: reconciler,
+        embeddingProviderFactory: embeddingProviderFactory,
         taskBackendFactory: (_) => PostgresBackend.open(dsn: dsn, poolSize: 3, namespace: namespace),
       ),
     );

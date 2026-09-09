@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show createConfiguredEmbeddingProvider, resolveDatabaseDsn;
+import 'package:dartclaw_search/dartclaw_search.dart';
 
 import 'config_loader.dart';
 
@@ -14,6 +15,8 @@ class RebuildIndexCommand extends Command<void> {
   final CanonicalIndexReconciler? _indexReconciler;
   final void Function(int) _exitFn;
   final DatabaseBackendFactory? _taskBackendFactory;
+  final DatabaseBackendFactory? _vectorBackendFactory;
+  final EmbeddingProvider Function()? _embeddingProviderFactory;
 
   new({
     DartclawConfig? config,
@@ -21,11 +24,15 @@ class RebuildIndexCommand extends Command<void> {
     CanonicalIndexReconciler? indexReconciler,
     void Function(int)? exitFn,
     DatabaseBackendFactory? taskBackendFactory,
+    DatabaseBackendFactory? vectorBackendFactory,
+    EmbeddingProvider Function()? embeddingProviderFactory,
   }) : _config = config,
        _writeLine = writeLine,
        _indexReconciler = indexReconciler,
        _exitFn = exitFn ?? exit,
-       _taskBackendFactory = taskBackendFactory {
+       _taskBackendFactory = taskBackendFactory,
+       _vectorBackendFactory = vectorBackendFactory,
+       _embeddingProviderFactory = embeddingProviderFactory {
     argParser.addFlag('json', negatable: false, help: 'Output the rebuild result as JSON');
   }
 
@@ -51,6 +58,9 @@ class RebuildIndexCommand extends Command<void> {
     final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     DatabaseBackend? backend;
     DatabaseBackend? conversationBackend;
+    DatabaseBackend? vectorBackend;
+    EmbeddingProvider? embeddingProvider;
+    final hybrid = config.search.backend == 'hybrid';
     MessageService? messages;
     var failed = false;
     try {
@@ -72,7 +82,16 @@ class RebuildIndexCommand extends Command<void> {
               auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
             );
         backend = await factory(config.dartclawDbPath);
+        if (hybrid) {
+          await PostgresSchemaGate.preflightVectorExtension(
+            backend,
+            databaseIdentity: 'configured PostgreSQL database',
+          );
+        }
         await prepareAuthoritativeStore(backend, storeName: 'dartclaw.db');
+        if (hybrid) {
+          await PostgresSchemaGate.prepareVectorProjection(backend, databaseIdentity: 'configured PostgreSQL database');
+        }
         final language = config.database.ftsLanguage;
         await validatePostgresFtsLanguage(backend, language);
         target = TransactionalRebuildTarget(
@@ -116,10 +135,46 @@ class RebuildIndexCommand extends Command<void> {
       }
       final sessions = SessionService(baseDir: config.sessionsDir);
       messages = MessageService(baseDir: config.sessionsDir);
-      final conversation = await ConversationIndexProjection(
-        sessions: sessions,
-        messages: messages,
-      ).rebuild(conversationIndex);
+      final conversationProjection = ConversationIndexProjection(sessions: sessions, messages: messages);
+      final conversation = await conversationProjection.rebuild(conversationIndex);
+      final vectorCounts = <String, int?>{};
+      final vectorDegradations = <String>[];
+      if (hybrid) {
+        await corpusService.authenticate(manifest);
+        if (!await conversationProjection.authenticateComplete()) {
+          throw StateError('Conversation source changed during index reconciliation');
+        }
+        final postgres = config.database.backend == DatabaseBackendKind.postgres;
+        final vectorStore = postgres
+            ? backend!
+            : vectorBackend = await (_vectorBackendFactory ?? SqliteBackend.open)(config.vectorsDbPath);
+        if (!postgres) await SqliteSchemaGate.prepareVectors(vectorStore, storeName: 'vectors.db');
+        embeddingProvider = _embeddingProviderFactory?.call() ?? createConfiguredEmbeddingProvider(config);
+        final memoryIndex = postgres
+            ? PostgresFtsIndex(backend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
+            : SqliteFtsIndex(conversationBackend!, table: SqliteFtsTable.memoryChunks);
+        for (final corpus in [
+          (name: 'memory', index: memoryIndex, table: VectorTable.memoryChunks),
+          (name: 'conversation', index: conversationIndex, table: VectorTable.conversationChunks),
+        ]) {
+          final synchronizer = VectorSynchronizer(
+            lexicalIndex: corpus.index,
+            vectorIndex: postgres
+                ? PostgresVectorIndex(vectorStore, table: corpus.table)
+                : SqliteVectorIndex(vectorStore, table: corpus.table),
+            embeddingProvider: embeddingProvider,
+            sourceLayer: corpus.name,
+          );
+          try {
+            final vectors = await synchronizer.rebuild(userId: 'owner');
+            vectorCounts['${corpus.name}UnembeddedCount'] = vectors.unembeddedCount;
+            if (vectors.degradations.isNotEmpty) vectorDegradations.add(corpus.name);
+          } on Exception {
+            vectorCounts['${corpus.name}UnembeddedCount'] = null;
+            vectorDegradations.add(corpus.name);
+          }
+        }
+      }
       if (json) {
         write(
           jsonEncode({
@@ -130,6 +185,8 @@ class RebuildIndexCommand extends Command<void> {
             'reconciled': preflight.status == MemoryPreflightStatus.reconciled,
             'conversationMessages': conversation.messageCount,
             'conversationSessions': conversation.sessionCount,
+            ...vectorCounts,
+            if (vectorDegradations.isNotEmpty) 'vectorDegradedCorpora': vectorDegradations,
           }),
         );
       } else {
@@ -141,6 +198,18 @@ class RebuildIndexCommand extends Command<void> {
           'Rebuilt conversation index: ${conversation.messageCount} messages from '
           '${conversation.sessionCount} sessions',
         );
+        if (hybrid) {
+          write(
+            'Unembedded chunks: memory=${vectorCounts['memoryUnembeddedCount'] ?? 'unavailable'}, '
+            'conversation=${vectorCounts['conversationUnembeddedCount'] ?? 'unavailable'}',
+          );
+          if (vectorDegradations.isNotEmpty) {
+            write(
+              'Lexical indexes are current; vector recovery is incomplete. '
+              '${config.search.embedding.provider == EmbeddingProviderKind.local ? 'Run dartclaw search download-model, then retry rebuild-index.' : 'Check the configured embedding endpoint and retry rebuild-index.'}',
+            );
+          }
+        }
       }
     } on StorageException catch (error) {
       if (config.database.backend != DatabaseBackendKind.postgres) rethrow;
@@ -155,12 +224,20 @@ class RebuildIndexCommand extends Command<void> {
         await messages?.dispose();
       } finally {
         try {
-          await conversationBackend?.close();
+          try {
+            await embeddingProvider?.dispose();
+          } finally {
+            await vectorBackend?.close();
+          }
         } finally {
           try {
-            await backend?.close();
+            await conversationBackend?.close();
           } finally {
-            await corpusService.close();
+            try {
+              await backend?.close();
+            } finally {
+              await corpusService.close();
+            }
           }
         }
       }

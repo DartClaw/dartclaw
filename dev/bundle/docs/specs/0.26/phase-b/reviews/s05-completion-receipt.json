@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1",
+  "story": "S05",
+  "fis": "s05-runtime-activation-for-memory-and-conversations.md",
+  "plan": "plan.json",
+  "snapshot": "bcdb3ee1d471+697c14e16a8f",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ bcdb3ee1d471+697c14e16a8f",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 102.136,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_kernel/test/search_providers_config_test.dart packages/dartclaw_kernel/test/config_meta_test.dart packages/dartclaw_kernel/test/config_validator_test.dart packages/dartclaw_runtime/test/config/config_serializer_test.dart packages/dartclaw_runtime/test/web/settings_form_test.dart && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && dart run dev/tools/render_config_reference.dart --check",
+      "exit": 0,
+      "duration": 3.122,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_activation_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_backend_selection_test.dart",
+      "exit": 0,
+      "duration": 1.386,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_memory_hybrid_lifecycle_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_recovery_order_test.dart",
+      "exit": 0,
+      "duration": 1.119,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/conversation_indexer_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_conversation_hybrid_test.dart",
+      "exit": 0,
+      "duration": 1.14,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/composed_search_backend_test.dart packages/dartclaw_runtime/test/memory/memory_status_service_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_lifecycle_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_conversation_hybrid_test.dart",
+      "exit": 0,
+      "duration": 1.6,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/search_download_model_command_test.dart apps/dartclaw_cli/test/commands/rebuild_index_command_test.dart apps/dartclaw_cli/test/commands/rebuild_index_conversation_test.dart apps/dartclaw_cli/test/runner_test.dart",
+      "exit": 0,
+      "duration": 2.255,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

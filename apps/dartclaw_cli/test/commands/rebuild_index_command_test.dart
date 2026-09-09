@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' hide DatabaseConfig;
 import 'package:test/test.dart';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory, PostgresVectorSchemaTestBackend;
 
 void main() {
   late Directory tempDir;
@@ -47,6 +47,48 @@ void main() {
     expect(output.last, contains('database.credential'));
     expect(File(config.searchDbPath).existsSync(), isFalse);
     expect(File(IndexHealthStore(workspaceDir: config.workspaceDir).path).existsSync(), isFalse);
+  });
+
+  test('hybrid PostgreSQL refusal precedes authoritative preparation and never opens SQLite vectors', () async {
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+      search: const SearchConfig(backend: 'hybrid'),
+    );
+    final backend = PostgresVectorSchemaTestBackend.current(extensionAvailable: false);
+    var providerConstructed = false;
+    var vectorFileOpened = false;
+    int? code;
+    final runner = DartclawRunner()
+      ..addCommand(
+        RebuildIndexCommand(
+          config: config,
+          writeLine: output.add,
+          exitFn: (value) => code = value,
+          taskBackendFactory: (_) async => backend,
+          vectorBackendFactory: (_) async {
+            vectorFileOpened = true;
+            throw StateError('PostgreSQL must not open a SQLite vector file');
+          },
+          embeddingProviderFactory: () {
+            providerConstructed = true;
+            throw StateError('Unavailable pgvector must refuse before provider construction');
+          },
+        ),
+      );
+
+    await runner.run(['rebuild-index']);
+
+    expect(code, 1);
+    expect(output.last, contains('public'));
+    expect(output.last, contains('vector'));
+    expect(backend.executed, isEmpty);
+    expect(backend.queries, hasLength(1));
+    expect(backend.queries.single.sql, contains('pg_catalog.pg_extension'));
+    expect(providerConstructed, isFalse);
+    expect(vectorFileOpened, isFalse);
+    expect(File(config.searchDbPath).existsSync(), isFalse);
+    expect(File(config.vectorsDbPath).existsSync(), isFalse);
   });
 
   test('bootstraps and rebuilds an empty canonical corpus', () async {

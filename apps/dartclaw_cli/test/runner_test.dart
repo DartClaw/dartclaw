@@ -77,6 +77,7 @@ void main() {
         'projects',
         'rebuild-index',
         'runners',
+        'search',
         'secrets',
         'serve',
         'service',
@@ -94,7 +95,7 @@ void main() {
       });
     });
 
-    test('S01 lean runner mounts exactly the standalone command set', () async {
+    test('lean runner mounts exactly the standalone command set', () async {
       final lean = buildDartclawWorkflowRunner();
       expect(lean.commands.keys.toSet(), {
         'init',

@@ -225,10 +225,17 @@
         "S03",
         "S04"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s05-runtime-activation-for-memory-and-conversations.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06"
+      ],
+      "owner": "root",
       "scope": "Connect both hybrid corpus instances to their existing runtime, source lifecycle and rebuild paths. Add validated embedding configuration and model-acquisition activation while retaining FTS defaults and working QMD deprecation.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",

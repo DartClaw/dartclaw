@@ -33,6 +33,9 @@ class ConfigSerializer {
     } catch (_) {
       githubConfig = null; // Extension absent or malformed — omit GitHub fields from serialized view.
     }
+    final embeddingEndpoint = config.search.embedding.endpoint;
+    final embeddingCredential = config.search.embedding.credential;
+    final embeddingEndpointValid = isValidEmbeddingCredentialEndpoint(embeddingEndpoint, embeddingCredential);
     return {
       'port': config.server.port,
       'host': config.server.host,
@@ -101,7 +104,15 @@ class ConfigSerializer {
         'identifierPreservation': config.context.identifierPreservation.toJson(),
         'identifierInstructions': config.context.identifierInstructions,
       },
-      'search': {'backend': config.search.backend},
+      'search': {
+        'backend': config.search.backend,
+        'embedding': {
+          'provider': config.search.embedding.provider.name,
+          'model': config.search.embedding.model,
+          'endpoint': embeddingEndpointValid ? embeddingEndpoint.toString() : null,
+          'credential': embeddingEndpointValid ? embeddingCredential : null,
+        },
+      },
       'database': {
         'backend': config.database.backend.name,
         'url': config.database.url == null ? null : '***',

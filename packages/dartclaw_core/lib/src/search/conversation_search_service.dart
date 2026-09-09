@@ -1,6 +1,14 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+/// Searches one owner's conversation corpus.
+typedef ConversationSearchQuery = Future<List<SearchResult>> Function(
+  String query, {
+  required String userId,
+  required int limit,
+  SearchDiagnosticsSink? diagnostics,
+});
+
 /// One scored conversation-message search hit with persisted provenance.
 final class ConversationHit {
   /// Creates a conversation hit.
@@ -37,18 +45,23 @@ final class ConversationSearchService {
   static final _log = Logger('ConversationSearchService');
 
   /// Creates a service over one conversation index instance.
-  const new({required this.index, this.userId = 'owner'});
+  const new({required this.index, this.query, this.userId = 'owner'});
 
   /// Derived conversation index.
   final FullTextIndex index;
+
+  /// Optional query implementation used instead of the lexical index.
+  final ConversationSearchQuery? query;
 
   /// Instance owner scope used for every query.
   final String userId;
 
   /// Returns best-first matching persisted messages, or empty when unavailable.
-  Future<List<ConversationHit>> search(String query, {int limit = 20}) async {
+  Future<List<ConversationHit>> search(String query, {int limit = 20, SearchDiagnosticsSink? diagnostics}) async {
     try {
-      final results = await index.search(query, userId: userId, limit: limit);
+      final results =
+          await (this.query?.call(query, userId: userId, limit: limit, diagnostics: diagnostics) ??
+              index.search(query, userId: userId, limit: limit));
       return results
           .map(
             (result) => ConversationHit(

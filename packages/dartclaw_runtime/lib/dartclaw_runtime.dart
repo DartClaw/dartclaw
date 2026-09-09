@@ -35,6 +35,8 @@ export 'src/execution_policy_resolver.dart' show ExecutionPolicyException, Execu
 export 'src/security/security_exports.dart' show buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
 export 'src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
+export 'src/runtime/embedding_configuration.dart'
+    show checkEmbeddingNetworkAccess, createConfiguredEmbeddingProvider, defaultEmbeddingModelPath;
 
 export 'src/api/api_exports.dart';
 export 'src/alerts/alerts_exports.dart';

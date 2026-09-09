@@ -61,6 +61,10 @@ void main() {
         'search.qmd.host',
         'search.qmd.port',
         'search.default_depth',
+        'search.embedding.provider',
+        'search.embedding.model',
+        'search.embedding.endpoint',
+        'search.embedding.credential',
         'mcp_servers',
         'logging.file',
         'logging.redact_patterns',
@@ -222,6 +226,9 @@ void main() {
       expect(ConfigMeta.fields['workflow.runtime_artifacts_retention.prune_after_days']!.min, 0);
       expect(ConfigMeta.fields['context.warning_threshold']!.min, 50);
       expect(ConfigMeta.fields['context.warning_threshold']!.max, 99);
+      expect(ConfigMeta.fields['search.backend']!.allowedValues, ['fts5', 'hybrid', 'qmd']);
+      expect(ConfigMeta.fields['search.embedding.provider']!.allowedValues, ['local', 'http']);
+      expect(ConfigMeta.fields['search.embedding.credential']!.mutability, ConfigMutability.readonly);
       expect(ConfigMeta.fields['context.compact_instructions']!.nullable, true);
     });
 
@@ -323,6 +330,7 @@ void main() {
           'channels',
           // Secret material.
           'credentials',
+          'search.embedding.credential',
           'search.providers',
           'database.url',
           'database.credential',

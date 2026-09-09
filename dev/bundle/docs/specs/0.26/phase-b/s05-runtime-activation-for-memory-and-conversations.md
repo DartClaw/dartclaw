@@ -396,4 +396,16 @@ file | ../dartclaw-public/packages/dartclaw_runtime/lib/src/mcp/web_fetch_tool.d
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-09 05:15 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+
+The focused runtime/CLI checks use real SQLite and narrow PostgreSQL refusal/order seams. Successful PostgreSQL hybrid rebuild, retained-vector reuse, recovery and empty-source clearing extend the existing `apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart` and run in the final combined campaign against the prepared pgvector server. This follows the owner’s instruction to reserve heavy/live verification for the end and avoids a second SQL emulator. The existing deferred command now carries the Phase B task owner as well. Its completion requires a real successful run; no fake is claimed as that evidence.
+
+### Run: 2026-09-09 07:10 UTC – observations
+
+#### ASSUMPTIONS (AUTO_MODE)
+
+The newly added MemoryStatusService count-reader callbacks accept Future<int?> rather than requiring a non-null int. This compatible widening lets the existing nullable StorageWiring readers be passed directly; previously valid Future<int> callbacks remain valid, and the external status/count behavior is unchanged. Normal unavailable counts no longer require throwing and catching an exception.
+
+A focused real-PostgreSQL runtime fixture now supplements the existing CLI live rebuild proof: packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart. It proves one provider, the shared PostgreSQL backend, both populated vector corpora and no SQLite storage. Its tagged execution is explicitly retained for the final combined pgvector campaign; static analysis is not a live pass.

@@ -14,6 +14,8 @@ void main() {
   late SqliteBackend backend;
   late FullTextIndex index;
   late ConversationIndexer indexer;
+  late List<_VectorSynchronization> vectorSynchronizations;
+  late Future<void> Function(Iterable<String> documentIds, {required String userId}) vectorCallback;
 
   setUp(() async {
     root = Directory.systemTemp.createTempSync('conversation_indexer_');
@@ -22,7 +24,21 @@ void main() {
     backend = SqliteBackend(sqlite3.openInMemory());
     await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
     index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
-    indexer = ConversationIndexer(index: index, sessions: sessions, messages: messages);
+    vectorSynchronizations = [];
+    vectorCallback = (documentIds, {required userId}) async {
+      final ids = documentIds.toList(growable: false);
+      final presentIds = (await index.fetch(
+        ids,
+        userId: userId,
+      )).map((document) => document.id).toList(growable: false);
+      vectorSynchronizations.add(_VectorSynchronization(ids: ids, userId: userId, presentIds: presentIds));
+    };
+    indexer = ConversationIndexer(
+      index: index,
+      sessions: sessions,
+      messages: messages,
+      synchronizeVectors: (documentIds, {required userId}) => vectorCallback(documentIds, userId: userId),
+    );
     sessions.registerObserver(indexer);
     messages.registerObserver(indexer);
   });
@@ -66,6 +82,50 @@ void main() {
     expect(Directory('${root.path}/${user.id}').existsSync(), isFalse);
     expect(await index.search('delete', userId: 'owner'), isEmpty);
     expect((await index.search('keep', userId: 'owner')).single.id, retained.id);
+  });
+
+  test('append and clear synchronize the matching IDs after each lexical mutation', () async {
+    final session = await sessions.createSession();
+    final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'vector lifecycle');
+    await indexer.idle;
+
+    expect(vectorSynchronizations, [
+      _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: [message.id]),
+    ]);
+
+    await messages.clearMessages(session.id);
+    await indexer.idle;
+
+    expect(vectorSynchronizations.last, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
+  });
+
+  test('archive, resume, and delete synchronize IDs without needing deleted NDJSON', () async {
+    final session = await sessions.createSession();
+    final message = await messages.insertMessage(
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'retained transcript',
+    );
+    await indexer.idle;
+    vectorSynchronizations.clear();
+
+    await sessions.updateSessionType(session.id, SessionType.archive);
+    await indexer.idle;
+    expect(vectorSynchronizations.single, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
+
+    vectorSynchronizations.clear();
+    await sessions.updateSessionType(session.id, SessionType.user);
+    await indexer.idle;
+    expect(
+      vectorSynchronizations.single,
+      _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: [message.id]),
+    );
+
+    vectorSynchronizations.clear();
+    await sessions.deleteSession(session.id);
+    await indexer.idle;
+    expect(Directory('${root.path}/${session.id}').existsSync(), isFalse);
+    expect(vectorSynchronizations.single, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
   });
 
   test('allowed deletion with malformed metadata still removes indexed rows', () async {
@@ -126,37 +186,47 @@ void main() {
     expect(await index.fetch([message.id], userId: 'owner'), isEmpty);
     expect((await index.fetch([message.id], userId: 'other')).single.chunks, ['other marker']);
     expect((await memory.fetch(['memory'], userId: 'owner')).single.chunks, ['memory marker']);
+    expect(vectorSynchronizations.last.ids, [message.id]);
   });
 
-  test('index failure does not fail persistence and is logged once', () async {
-    final failingRoot = Directory.systemTemp.createTempSync('conversation_index_failure_');
-    final failingSessions = SessionService(baseDir: failingRoot.path);
-    final failingMessages = MessageService(baseDir: failingRoot.path);
-    final failingIndexer = ConversationIndexer(
-      index: _ThrowingIndex(),
-      sessions: failingSessions,
-      messages: failingMessages,
-    );
-    failingSessions.registerObserver(failingIndexer);
-    failingMessages.registerObserver(failingIndexer);
+  test('vector failure preserves persistence and lexical state without blocking the queue', () async {
+    var attempts = 0;
+    vectorCallback = (documentIds, {required userId}) async {
+      attempts++;
+      if (attempts == 1) throw StateError('vector unavailable');
+    };
     final records = <LogRecord>[];
     final priorLevel = Logger.root.level;
     Logger.root.level = Level.ALL;
     final subscription = Logger.root.onRecord.listen(records.add);
     addTearDown(() async {
-      await failingIndexer.idle;
-      await failingMessages.dispose();
       await subscription.cancel();
       Logger.root.level = priorLevel;
-      failingRoot.deleteSync(recursive: true);
     });
-    final session = await failingSessions.createSession();
+    final session = await sessions.createSession();
 
-    final message = await failingMessages.insertMessage(sessionId: session.id, role: 'user', content: 'durable');
-    await failingIndexer.idle;
+    final first = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'durable one');
+    final second = await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'durable two');
+    await indexer.idle;
 
-    expect((await failingMessages.getMessages(session.id)).single.id, message.id);
+    expect((await messages.getMessages(session.id)).map((message) => message.id), [first.id, second.id]);
+    expect((await index.fetch([first.id, second.id], userId: 'owner')).map((document) => document.id).toSet(), {
+      first.id,
+      second.id,
+    });
+    expect(attempts, 2);
     expect(records.where((record) => record.loggerName == 'ConversationIndexer'), hasLength(1));
+  });
+
+  test('lexical failure skips vector synchronization and leaves persistence intact', () async {
+    final session = await sessions.createSession();
+    await backend.close();
+
+    final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'lexical unavailable');
+    await indexer.idle;
+
+    expect((await messages.getMessages(session.id)).single.id, message.id);
+    expect(vectorSynchronizations, isEmpty);
   });
 
   group('ConversationSearchService', () {
@@ -171,40 +241,90 @@ void main() {
       expect(hit.role, 'assistant');
       expect(hit.createdAt, message.createdAt.toUtc());
       expect(hit.text, message.content);
-      expect(await ConversationSearchService(index: _ThrowingIndex()).search('anything'), isEmpty);
+      await backend.close();
+      expect(await ConversationSearchService(index: index).search('anything'), isEmpty);
+    });
+
+    test('injected query preserves provenance, source order, score, owner, limit, and diagnostics', () async {
+      final expectedDiagnostics = SearchDiagnostics(candidates: const [], unembeddedCount: 2);
+      SearchDiagnostics? receivedDiagnostics;
+      late String receivedQuery;
+      late String receivedUserId;
+      late int receivedLimit;
+      late SearchDiagnosticsSink? receivedSink;
+      final firstTimestamp = DateTime.parse('2026-01-02T03:04:05+02:00');
+      final secondTimestamp = DateTime.utc(2025, 12, 1);
+      final sourceResults = [
+        SearchResult(
+          id: 'message-b',
+          chunk: 'second-ranked score shape',
+          chunkIndex: 0,
+          metadata: const {'session_id': 'session-b', 'role': 'assistant'},
+          timestamp: firstTimestamp,
+          score: 7,
+        ),
+        SearchResult(
+          id: 'message-a',
+          chunk: 'first-ranked score shape',
+          chunkIndex: 0,
+          metadata: const {'session_id': 'session-a', 'role': 'user'},
+          timestamp: secondTimestamp,
+          score: -3,
+        ),
+      ];
+      void sink(SearchDiagnostics diagnostics) => receivedDiagnostics = diagnostics;
+      final service = ConversationSearchService(
+        index: index,
+        userId: 'tenant-a',
+        query: (query, {required userId, required limit, diagnostics}) async {
+          receivedQuery = query;
+          receivedUserId = userId;
+          receivedLimit = limit;
+          receivedSink = diagnostics;
+          diagnostics?.call(expectedDiagnostics);
+          return sourceResults;
+        },
+      );
+
+      final hits = await service.search('ranking shape', limit: 2, diagnostics: sink);
+
+      expect(receivedQuery, 'ranking shape');
+      expect(receivedUserId, 'tenant-a');
+      expect(receivedLimit, 2);
+      expect(receivedSink, same(sink));
+      expect(receivedDiagnostics, same(expectedDiagnostics));
+      expect(hits.map((hit) => hit.messageId), ['message-b', 'message-a']);
+      expect(hits.map((hit) => hit.sessionId), ['session-b', 'session-a']);
+      expect(hits.map((hit) => hit.role), ['assistant', 'user']);
+      expect(hits.map((hit) => hit.createdAt), [firstTimestamp.toUtc(), secondTimestamp]);
+      expect(hits.map((hit) => hit.text), ['second-ranked score shape', 'first-ranked score shape']);
+      expect(hits.map((hit) => hit.score), [7, -3]);
     });
   });
 }
 
-final class _ThrowingIndex implements FullTextIndex {
-  Never _fail() => throw StateError('index unavailable');
+final class _VectorSynchronization {
+  const new({required this.ids, required this.userId, required this.presentIds});
+
+  final List<String> ids;
+  final String userId;
+  final List<String> presentIds;
 
   @override
-  Future<int> count({required String userId, Map<String, String> metadata = const {}}) async => _fail();
+  bool operator ==(Object other) =>
+      other is _VectorSynchronization &&
+      _listEquals(ids, other.ids) &&
+      userId == other.userId &&
+      _listEquals(presentIds, other.presentIds);
 
   @override
-  Future<void> delete(Iterable<String> ids, {required String userId}) async => _fail();
+  int get hashCode => Object.hash(Object.hashAll(ids), userId, Object.hashAll(presentIds));
+}
 
-  @override
-  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) async => _fail();
-
-  @override
-  Future<List<SearchResult>> listRecent({required String userId, int limit = 20}) async => _fail();
-
-  @override
-  Future<void> replaceAll(Iterable<SearchDocument> documents, {required String userId}) async => _fail();
-
-  @override
-  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) async =>
-      _fail();
-
-  @override
-  Future<void> upsert(
-    Iterable<SearchDocument> documents, {
-    required String userId,
-    Set<String> retire = const {},
-  }) async => _fail();
-
-  @override
-  Future<void> verifyIntegrity() async => _fail();
+bool _listEquals(List<String> left, List<String> right) {
+  if (left.length != right.length) return false;
+  for (var i = 0; i < left.length; i++) {
+    if (left[i] != right[i]) return false;
+  }
+  return true;
 }

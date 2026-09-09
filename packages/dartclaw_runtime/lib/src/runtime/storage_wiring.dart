@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show SqliteWorkflowRunRepository, WorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
@@ -20,6 +21,8 @@ class StorageWiring {
     required EventBus eventBus,
     DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
+    DatabaseBackendFactory? vectorBackendFactory,
+    EmbeddingProvider Function()? embeddingProviderFactory,
     required ExitFn exitFn,
     this.personalMemoryEnabled = true,
     this.serving = false,
@@ -32,6 +35,8 @@ class StorageWiring {
   }) : _eventBus = eventBus,
        _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
+       _vectorBackendFactory = vectorBackendFactory,
+       _embeddingProviderFactory = embeddingProviderFactory,
        _exitFn = exitFn,
        _qmdManagerFactory = qmdManagerFactory,
        _injectedIndexReconciler = indexReconciler,
@@ -42,6 +47,8 @@ class StorageWiring {
   final EventBus _eventBus;
   final DatabaseBackendFactory? _searchBackendFactory;
   final DatabaseBackendFactory? _taskBackendFactory;
+  final DatabaseBackendFactory? _vectorBackendFactory;
+  final EmbeddingProvider Function()? _embeddingProviderFactory;
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
   final bool serving;
@@ -59,6 +66,8 @@ class StorageWiring {
   late MessageService _messages;
   DatabaseBackend? _searchBackend;
   DatabaseBackend? _taskBackend;
+  DatabaseBackend? _vectorBackend;
+  EmbeddingProvider? _embeddingProvider;
   late TaskRepository _taskRepository;
   late AgentExecutionRepository _agentExecutionRepository;
   late WorkflowStepExecutionRepository _workflowStepExecutionRepository;
@@ -78,6 +87,10 @@ class StorageWiring {
   ConversationIndexProjection? _conversationProjection;
   ConversationIndexer? _conversationIndexer;
   ConversationSearchService? _conversationSearch;
+  HybridSearch? _memoryHybridSearch;
+  HybridSearch? _conversationHybridSearch;
+  VectorSynchronizer? _memoryVectorSynchronizer;
+  VectorSynchronizer? _conversationVectorSynchronizer;
   var _memoryIndexRebuilt = false;
   TemporalKnowledgeGraphService? _kg;
   late KvService _kvService;
@@ -175,7 +188,14 @@ class StorageWiring {
           },
         );
       }
+      if (personalMemoryEnabled && _hybridEnabled && _usesPostgres) {
+        await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: _postgresDatabaseIdentity);
+        _ensureEmbeddingProvider();
+      }
       await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
+      if (personalMemoryEnabled && _hybridEnabled && _usesPostgres) {
+        await PostgresSchemaGate.prepareVectorProjection(backend, databaseIdentity: _postgresDatabaseIdentity);
+      }
       if (personalMemoryEnabled && _usesPostgres) {
         await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
         await _wirePostgresIndex(backend);
@@ -205,6 +225,7 @@ class StorageWiring {
       _workflowRunRepository = SqliteWorkflowRunRepository(backend);
     } catch (e, st) {
       await _interlock?.release();
+      await _discardHybridRuntime();
       try {
         await _searchBackend?.close();
       } catch (closeErr) {
@@ -361,6 +382,19 @@ class StorageWiring {
       _searchBackend = SqliteBackend.openInMemory();
       await SqliteSchemaGate.prepareSearch(_searchBackend!, storeName: 'in-memory search.db');
     }
+
+    if (_hybridEnabled) _ensureEmbeddingProvider();
+  }
+
+  void _ensureEmbeddingProvider() {
+    if (_embeddingProvider != null) return;
+    try {
+      _embeddingProvider =
+          _embeddingProviderFactory?.call() ??
+          createConfiguredEmbeddingProvider(config, credentials: _credentialRegistry);
+    } on Object catch (error, stackTrace) {
+      _log.warning('Embedding provider setup failed; hybrid retrieval is unavailable', error, stackTrace);
+    }
   }
 
   Future<void> _wirePostgresIndex(DatabaseBackend backend) async {
@@ -412,21 +446,42 @@ class StorageWiring {
           )
         : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.conversationChunks);
 
-    if (_memoryIndexRebuilt) {
+    var conversationIndexCurrent = false;
+    if (_memoryIndexRebuilt || _hybridEnabled) {
       try {
         await _conversationProjection!.rebuild(conversationIndex);
+        conversationIndexCurrent = await _conversationProjection!.authenticateComplete();
       } on Object catch (error, stackTrace) {
         _log.severe('Conversation index re-projection failed after memory rebuild', error, stackTrace);
       }
     }
+    await _activateHybrid(
+      memoryIndex: memoryIndex,
+      conversationIndex: conversationIndex,
+      conversationIndexCurrent: conversationIndexCurrent,
+    );
     final indexer = _conversationIndexer = ConversationIndexer(
       index: conversationIndex,
       sessions: _sessions,
       messages: _messages,
+      synchronizeVectors: _conversationVectorSynchronizer == null
+          ? null
+          : (documentIds, {required userId}) async {
+              try {
+                final result = await _conversationVectorSynchronizer!.synchronize(documentIds, userId: userId);
+                _logVectorDegradations(result);
+              } on Object catch (error, stackTrace) {
+                _log.warning(
+                  'Conversation vector reconciliation failed; the lexical mutation remains current',
+                  error,
+                  stackTrace,
+                );
+              }
+            },
     );
     _messages.registerObserver(indexer);
     _sessions.registerObserver(indexer);
-    _conversationSearch = ConversationSearchService(index: conversationIndex);
+    _conversationSearch = ConversationSearchService(index: conversationIndex, query: _conversationHybridSearch?.search);
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -452,8 +507,12 @@ class StorageWiring {
       defaultDepth: config.search.defaultDepth,
       workspaceDir: config.workspaceDir,
       indexHealthProbe: _probeIndexHealth,
+      personalBackend: _memoryHybridSearch == null
+          ? null
+          : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
     );
     memoryCorpus.registerPostCommitProjection((projection, result) async {
+      List<SearchDocument>? publishedDocuments;
       try {
         if (_searchUnavailable) throw StateError('persistent search index is unavailable');
         if (!projection.isComplete) {
@@ -483,6 +542,7 @@ class StorageWiring {
           canonicalRevision: result.collectionRevision,
           canonicalFingerprint: result.fingerprint,
         );
+        publishedDocuments = documents;
       } on Object catch (error) {
         try {
           await indexHealth?.recordDegraded(
@@ -498,7 +558,144 @@ class StorageWiring {
           );
         }
       }
+      final synchronizer = _memoryVectorSynchronizer;
+      if (synchronizer == null || publishedDocuments == null) return;
+      try {
+        final synchronization = projection.isComplete
+            ? await synchronizer.rebuild(userId: 'owner')
+            : await synchronizer.synchronize({
+                ...publishedDocuments.map((document) => document.id),
+                ...projection.priorRecordIds,
+              }, userId: 'owner');
+        _logVectorDegradations(synchronization);
+      } on Object catch (error, stackTrace) {
+        _log.warning('Memory vector reconciliation failed; lexical memory remains current', error, stackTrace);
+      }
     });
+  }
+
+  Future<void> _activateHybrid({
+    required FullTextIndex memoryIndex,
+    required FullTextIndex conversationIndex,
+    required bool conversationIndexCurrent,
+  }) async {
+    final provider = _embeddingProvider;
+    if (!_hybridEnabled || provider == null || _searchUnavailable) {
+      if (_hybridEnabled) await _discardHybridRuntime();
+      return;
+    }
+
+    try {
+      final DatabaseBackend backend;
+      if (_usesPostgres) {
+        backend = _taskBackend!;
+      } else {
+        backend = _vectorBackend = await (_vectorBackendFactory ?? SqliteBackend.open)(config.vectorsDbPath);
+        await SqliteSchemaGate.prepareVectors(backend, storeName: 'vectors.db');
+      }
+      final memoryVectorIndex = _usesPostgres
+          ? PostgresVectorIndex(backend, table: VectorTable.memoryChunks)
+          : SqliteVectorIndex(backend, table: VectorTable.memoryChunks);
+      final conversationVectorIndex = _usesPostgres
+          ? PostgresVectorIndex(backend, table: VectorTable.conversationChunks)
+          : SqliteVectorIndex(backend, table: VectorTable.conversationChunks);
+      _memoryHybridSearch = HybridSearch(
+        lexicalIndex: memoryIndex,
+        vectorIndex: memoryVectorIndex,
+        embeddingProvider: provider,
+        sourceLayer: 'memory',
+      );
+      _conversationHybridSearch = HybridSearch(
+        lexicalIndex: conversationIndex,
+        vectorIndex: conversationVectorIndex,
+        embeddingProvider: provider,
+        sourceLayer: 'conversation',
+      );
+      _memoryVectorSynchronizer = VectorSynchronizer(
+        lexicalIndex: memoryIndex,
+        vectorIndex: memoryVectorIndex,
+        embeddingProvider: provider,
+        sourceLayer: 'memory',
+      );
+      _conversationVectorSynchronizer = VectorSynchronizer(
+        lexicalIndex: conversationIndex,
+        vectorIndex: conversationVectorIndex,
+        embeddingProvider: provider,
+        sourceLayer: 'conversation',
+      );
+    } on Object catch (error, stackTrace) {
+      _log.warning('Vector store setup failed; hybrid retrieval is unavailable', error, stackTrace);
+      await _discardHybridRuntime();
+      return;
+    }
+
+    try {
+      final health = await _probeIndexHealth();
+      if (health.isCurrent(health.canonicalRevision, health.canonicalFingerprint)) {
+        _logVectorDegradations(await _memoryVectorSynchronizer!.rebuild(userId: 'owner'));
+      }
+    } on Object catch (error, stackTrace) {
+      _log.warning('Memory vector recovery failed; lexical memory remains available', error, stackTrace);
+    }
+    if (conversationIndexCurrent) {
+      try {
+        _logVectorDegradations(await _conversationVectorSynchronizer!.rebuild(userId: 'owner'));
+      } on Object catch (error, stackTrace) {
+        _log.warning('Conversation vector recovery failed; lexical conversations remain available', error, stackTrace);
+      }
+    }
+  }
+
+  /// Searches personal memory only when hybrid retrieval and current-index evidence are available.
+  Future<List<SearchResult>?> inspectMemorySearch(
+    String query, {
+    int limit = 20,
+    SearchDiagnosticsSink? diagnostics,
+  }) async {
+    final hybrid = _memoryHybridSearch;
+    if (hybrid == null) return null;
+    final buffered = <SearchDiagnostics>[];
+    final guarded = await ComposedSearchBackend.queryCurrentIndex<List<SearchResult>>(
+      query: () => hybrid.search(query, userId: 'owner', limit: limit, diagnostics: buffered.add),
+      indexHealthProbe: _probeIndexHealth,
+    );
+    final results = guarded.result;
+    if (results == null) return null;
+    if (diagnostics != null) {
+      for (final value in buffered) {
+        diagnostics(value);
+      }
+    }
+    return results;
+  }
+
+  /// Counts current memory chunks without usable vectors, or returns null when hybrid is unavailable.
+  Future<int?> memoryMissingVectorCount() => _missingVectorCount(_memoryVectorSynchronizer);
+
+  /// Counts current conversation chunks without usable vectors, or returns null when hybrid is unavailable.
+  Future<int?> conversationMissingVectorCount() => _missingVectorCount(_conversationVectorSynchronizer);
+
+  Future<int?> _missingVectorCount(VectorSynchronizer? synchronizer) async {
+    if (synchronizer == null) return null;
+    try {
+      return await synchronizer.missingCount(userId: 'owner');
+    } on Object catch (error, stackTrace) {
+      _log.warning('Vector completeness count failed', error, stackTrace);
+      return null;
+    }
+  }
+
+  void _logVectorDegradations(VectorSynchronizationResult result) {
+    for (final degradation in result.degradations) {
+      if (degradation.reason == 'embeddingFailure') {
+        final recovery = config.search.embedding.provider == EmbeddingProviderKind.local
+            ? 'Run dartclaw search download-model, then dartclaw rebuild-index.'
+            : 'Check the configured embedding endpoint, then run dartclaw rebuild-index.';
+        _log.warning('${degradation.layer} vector reconciliation could not embed current text. $recovery');
+      } else {
+        _log.warning('${degradation.layer} vector reconciliation degraded: ${degradation.reason}');
+      }
+    }
   }
 
   Future<void> dispose() async {
@@ -511,10 +708,52 @@ class StorageWiring {
 
   Future<void> closeBackends() async {
     await _conversationIndexer?.idle;
-    _interlock?.beginShutdown();
-    await _taskBackend?.close();
-    await _interlock?.release();
-    await _searchBackend?.close();
+    Object? failure;
+    StackTrace? failureStack;
+    Future<void> close(Future<void> Function() action) async {
+      try {
+        await action();
+      } on Object catch (error, stackTrace) {
+        failure ??= error;
+        failureStack ??= stackTrace;
+      }
+    }
+
+    await close(() async => _embeddingProvider?.dispose());
+    _embeddingProvider = null;
+    await close(() async => _vectorBackend?.close());
+    _vectorBackend = null;
+    try {
+      _interlock?.beginShutdown();
+    } on Object catch (error, stackTrace) {
+      failure ??= error;
+      failureStack ??= stackTrace;
+    }
+    await close(() async => _taskBackend?.close());
+    await close(() async => _interlock?.release());
+    await close(() async => _searchBackend?.close());
+    if (failure case final error?) Error.throwWithStackTrace(error, failureStack!);
+  }
+
+  Future<void> _discardHybridRuntime() async {
+    _memoryHybridSearch = null;
+    _conversationHybridSearch = null;
+    _memoryVectorSynchronizer = null;
+    _conversationVectorSynchronizer = null;
+    final provider = _embeddingProvider;
+    _embeddingProvider = null;
+    final vectorBackend = _vectorBackend;
+    _vectorBackend = null;
+    try {
+      await provider?.dispose();
+    } on Object catch (error, stackTrace) {
+      _log.warning('Embedding provider cleanup failed', error, stackTrace);
+    }
+    try {
+      await vectorBackend?.close();
+    } on Object catch (error, stackTrace) {
+      _log.warning('Vector database cleanup failed', error, stackTrace);
+    }
   }
 
   Future<void> _noticeInactiveStore() async {
@@ -630,6 +869,14 @@ class StorageWiring {
   }
 
   bool get _usesPostgres => config.database.backend == DatabaseBackendKind.postgres;
+
+  String get _postgresDatabaseIdentity {
+    final database = config.database;
+    return database.credential ??
+        (database.urlEnvVars.isEmpty ? 'configured PostgreSQL database' : database.urlEnvVars.join(', '));
+  }
+
+  bool get _hybridEnabled => config.search.backend == 'hybrid';
 }
 
 /// Resolves one configured database reference without opening a connection.

@@ -67,7 +67,8 @@
   },
   {
     "owners": [
-      "S09/TI08"
+      "S09/TI08",
+      "Phase B S05/TI06"
     ],
     "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart",
     "status": "pending-final-combined-gate"
@@ -138,6 +139,14 @@
       "S10/TI03"
     ],
     "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/postgres_sanctioned_clients_live_test.dart",
+    "status": "pending-final-combined-gate"
+  },
+  {
+    "owners": [
+      "Phase B S05/TI02",
+      "Phase B S05/TI05"
+    ],
+    "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart",
     "status": "pending-final-combined-gate"
   }
 ]

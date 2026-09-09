@@ -482,6 +482,8 @@ class SchedulingWiring {
       },
       corpusStatusReader: _storage.memoryCorpus.statusSnapshot,
       promptMemoryStatusReader: _behavior?.promptMemoryProjection,
+      memoryMissingVectorCount: _storage.memoryMissingVectorCount,
+      conversationMissingVectorCount: _storage.conversationMissingVectorCount,
       wikiSourceCounter: () async {
         final scan = await WikiSearchSource(workspaceDir: config.workspaceDir).listScan();
         return scan.degraded ? null : scan.results.length;

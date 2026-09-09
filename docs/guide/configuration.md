@@ -217,7 +217,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
 | `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
-| `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
+| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
 | `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
 | `database.url` | null or string |  | PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
@@ -502,8 +502,12 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
 | `scheduling.mutation.approval` | string | one of "none", "operator" | Who commits a job the agent writes through schedule_upsert. none commits and loads it at once; operator parks it until it is approved or rejected on the Scheduling page. The jobs API and the page always commit. (restart required) |
 | **search** |  |  |  |
-| `search.backend` | string | one of "fts5", "qmd" | Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required) |
+| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
 | `search.default_depth` | string |  | Effort a query spends when the caller names none: fast, standard or deep. (restart required) |
+| `search.embedding.credential` | null or string |  | Named generic API-key credential for the HTTP embedding provider. (file-only, not settable via API or CLI) |
+| `search.embedding.endpoint` | null or string |  | Absolute HTTP(S) endpoint used only by the HTTP embedding provider. (restart required) |
+| `search.embedding.model` | string |  | Managed model selector for local embeddings, or the explicitly selected remote model for HTTP embeddings. (restart required) |
+| `search.embedding.provider` | string | one of "http", "local" | Embedding implementation used by hybrid search. Defaults to local. (restart required) |
 | `search.providers.<name>.api_key` | string |  | Vendor API key, normally an environment reference such as ${BRAVE_API_KEY}. Exactly one of it and credential is required — an entry with neither, or both, is skipped. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.credential` | null or string |  | Name of a credentials.<name> api-key entry to authenticate with, from the config file or the named credential store. Exactly one of it and api_key is required; an unknown name, a github-token entry or a blank value skips the provider. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.enabled` | boolean |  | Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI) |

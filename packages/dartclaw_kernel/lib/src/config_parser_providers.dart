@@ -108,6 +108,7 @@ SearchConfig _parseSearch(
   var qmdHost = defaults.qmdHost;
   var qmdPort = defaults.qmdPort;
   var defaultDepth = defaults.defaultDepth;
+  var embedding = defaults.embedding;
 
   final searchMap = _sectionMap('search', yaml, warns);
   if (searchMap != null) {
@@ -133,6 +134,11 @@ SearchConfig _parseSearch(
     }
     final depth = readString('default_depth', searchMap, warns);
     if (depth != null) defaultDepth = depth;
+
+    final embeddingMap = readMap('embedding', searchMap, warns);
+    if (embeddingMap != null) {
+      embedding = _parseEmbedding(embeddingMap, defaults.embedding, credentials, warns);
+    }
 
     final providersMap = readMap('providers', searchMap, warns);
     if (providersMap != null) {
@@ -177,13 +183,116 @@ SearchConfig _parseSearch(
     }
   }
 
+  if (backend == 'qmd') {
+    addConfigAdvisory(
+      warns,
+      'search.backend qmd is deprecated and will be removed in the next milestone; use hybrid instead.',
+    );
+  }
+
   return SearchConfig(
     backend: backend,
     qmdHost: qmdHost,
     qmdPort: qmdPort,
     defaultDepth: defaultDepth,
     providers: providers,
+    embedding: embedding,
   );
+}
+
+EmbeddingConfig _parseEmbedding(
+  Map<String, dynamic> map,
+  EmbeddingConfig defaults,
+  CredentialsConfig credentials,
+  List<String> warns,
+) {
+  final providerName = readString(
+    'provider',
+    map,
+    warns,
+    defaultValue: defaults.provider.name,
+    warnKey: 'search.embedding.provider',
+  );
+  final provider = EmbeddingProviderKind.values.where((value) => value.name == providerName).firstOrNull;
+  if (provider == null) {
+    warns.add('Invalid search.embedding.provider — using default');
+    return defaults;
+  }
+
+  final rawModel = readString('model', map, warns, warnKey: 'search.embedding.model');
+  final model = rawModel?.trim();
+  final rawEndpoint = readString('endpoint', map, warns, warnKey: 'search.embedding.endpoint');
+  final rawCredential = readString('credential', map, warns, warnKey: 'search.embedding.credential');
+
+  if (provider == EmbeddingProviderKind.local) {
+    var valid = true;
+    if (model != null && model != defaults.model) {
+      warns.add('Invalid search.embedding.model: local supports only ${defaults.model} — using default');
+      valid = false;
+    }
+    if (rawEndpoint != null) {
+      warns.add('Invalid search.embedding.endpoint: must be absent for local provider');
+      valid = false;
+    }
+    if (rawCredential != null) {
+      warns.add('Invalid search.embedding.credential: must be absent for local provider');
+      valid = false;
+    }
+    return valid ? EmbeddingConfig(model: model ?? defaults.model) : defaults;
+  }
+
+  var valid = true;
+  if (!map.containsKey('model') || model == null || model.isEmpty) {
+    warns.add('Invalid search.embedding.model: http requires an explicitly present non-empty model');
+    valid = false;
+  }
+  final endpoint = _parseEmbeddingEndpoint(rawEndpoint);
+  if (endpoint == null) {
+    warns.add(
+      'Invalid search.embedding.endpoint: http requires an absolute HTTP(S) URI with a host and no userinfo, query, '
+      'or fragment',
+    );
+    valid = false;
+  }
+  final credential = _validateEmbeddingCredential(rawCredential, credentials, warns);
+  if (rawCredential != null && credential == null) valid = false;
+  if (endpoint != null && credential != null && !isValidEmbeddingCredentialEndpoint(endpoint, credential)) {
+    warns.add('Invalid search.embedding.endpoint: a credential requires HTTPS except for a literal loopback host');
+    valid = false;
+  }
+
+  if (!valid) {
+    return const EmbeddingConfig(provider: EmbeddingProviderKind.http, model: '');
+  }
+  return EmbeddingConfig(
+    provider: EmbeddingProviderKind.http,
+    model: model!,
+    endpoint: endpoint,
+    credential: credential,
+  );
+}
+
+Uri? _parseEmbeddingEndpoint(String? value) {
+  if (value == null) return null;
+  final uri = Uri.tryParse(value.trim());
+  return isValidEmbeddingEndpoint(uri) ? uri : null;
+}
+
+String? _validateEmbeddingCredential(String? raw, CredentialsConfig credentials, List<String> warns) {
+  if (raw == null) return null;
+  final name = raw.trim();
+  final entry = name.isEmpty ? null : CredentialRegistry(credentials: credentials).namedEntry(name);
+  final problem = switch (entry) {
+    null => 'must name a configured credentials entry',
+    CredentialEntry(isApiKeyCredential: false) => 'must name an api_key credential',
+    CredentialEntry(secret: final secret) when secret.trim().isEmpty => 'must resolve to a non-empty value',
+    _ => null,
+  };
+  if (problem != null) {
+    warns.add('Invalid search.embedding.credential: $problem');
+    return null;
+  }
+  return name;
 }
 
 /// The value a `search.providers.<id>.credential` reference resolves to, or

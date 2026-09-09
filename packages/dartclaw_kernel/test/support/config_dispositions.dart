@@ -180,6 +180,7 @@ const _membershipLiteralResiduals = <String, List<String>>{
     "config_parser.dart|if (trimmedCompletionAction == 'review' || trimmedCompletionAction == 'accept') {",
   ],
   'database.url syntax': ["config_parser_providers.dart|if (key.toLowerCase() != 'password') continue;"],
+  'search.backend': ["config_parser_providers.dart|if (backend == 'qmd') {"],
   'search.qmd.host syntax': [
     "config_parser_providers.dart|if (normalized == '[::1]') normalized = '::1';",
     "config_parser_providers.dart|if (normalized == 'localhost' || normalized == '::1') return normalized;",

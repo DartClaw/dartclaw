@@ -148,7 +148,14 @@ export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersCo
 export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/scheduling_config.dart' show ScheduleMutationApproval, SchedulingConfig;
-export 'src/search_config.dart' show SearchConfig, SearchProviderEntry;
+export 'src/search_config.dart'
+    show
+        EmbeddingConfig,
+        EmbeddingProviderKind,
+        SearchConfig,
+        SearchProviderEntry,
+        isValidEmbeddingCredentialEndpoint,
+        isValidEmbeddingEndpoint;
 export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
 export 'src/storage_exceptions.dart'
     show

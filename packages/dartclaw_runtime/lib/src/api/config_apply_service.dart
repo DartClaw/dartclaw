@@ -202,6 +202,10 @@ Map<String, dynamic> currentConfigValues(DartclawConfig config) {
     githubConfig = null; // Extension absent or malformed — omit GitHub fields from config view.
   }
   return {
+    'search.embedding.provider': config.search.embedding.provider.name,
+    'search.embedding.model': config.search.embedding.model,
+    'search.embedding.endpoint': config.search.embedding.endpoint?.toString(),
+    'search.embedding.credential': config.search.embedding.credential,
     'governance.turn_limits.stall_timeout': config.governance.turnLimits.stallTimeout,
     'governance.turn_limits.turn_timeout': config.governance.turnLimits.turnTimeout,
     'channels.google_chat.enabled': googleChatConfig.enabled,

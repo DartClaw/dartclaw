@@ -26,6 +26,8 @@ dependencies:
     path: ../../packages/dartclaw_core
   dartclaw_workflow:
     path: ../../packages/dartclaw_workflow
+  dartclaw_search:
+    path: ../../packages/dartclaw_search
   dartclaw_runtime:
     path: ../../packages/dartclaw_runtime
   dartclaw_google_chat:

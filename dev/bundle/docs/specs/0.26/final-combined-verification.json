@@ -871,9 +871,9 @@
     ]
   },
   "claudeRelevanceRouting": {
-    "recordedAt": "2026-09-09 19:26 CEST",
+    "recordedAt": "2026-09-09 19:29 CEST",
     "authorization": "Go ahead and use claude",
-    "status": "local-verification-and-live-canary-passed-calibration-pending",
+    "status": "local-verification-and-canary-passed-calibration-blocked-by-automatic-review",
     "primaryProvider": "codex",
     "primaryModel": "gpt-5.5",
     "relevanceModel": "claude/claude-haiku-4-5-20251001",
@@ -904,7 +904,10 @@
       ".agent_temp/0.26-relevance/claude-route-code-review.md",
       ".agent_temp/0.26-relevance/claude-route-security-review.md",
       ".agent_temp/0.26-relevance/local-route-receipt.json",
-      ".agent_temp/0.26-relevance/local-credential-receipt.json"
+      ".agent_temp/0.26-relevance/local-credential-receipt.json",
+      ".agent_temp/0.26-relevance/calibration-approval-block.json",
+      ".agent_temp/0.26-relevance/claude-export-approval-context.json",
+      ".agent_temp/0.26-relevance/source-native-input-provenance.json"
     ],
     "localVerification": {
       "workspacePassed": 11964,
@@ -930,6 +933,13 @@
       ".agent_temp/0.26-relevance/verification06/receipt.json",
       ".agent_temp/0.26-relevance/verification07/receipt.json",
       ".agent_temp/0.26-relevance/verification08/receipt.json"
-    ]
+    ],
+    "sourceRevision": "994620afda933500f7b4053d6965e410b88b126a",
+    "calibration": {
+      "status": "not-started",
+      "automaticReviewRejections": 2,
+      "reason": "Visible permission to use Claude was judged insufficiently specific for exporting document/query-derived passages. Recovered preceding approval question explicitly disclosed query/passage export, but automatic review treated the retrieved conversation as untrusted authorization evidence.",
+      "requiredApproval": "Explicit permission in a new user message to send calibration queries and candidate passages to Claude."
+    }
   }
 }

@@ -97,7 +97,7 @@ That calibration met its stop condition. The maintainer subsequently authorized 
 whether retrieved passages contain the requested information before publishing semantic results. Local checks passed:
 11,953 tests, 44 configured skips, PostgreSQL contracts, fitness gates and both builds. Restricted checks refuse current Codex,
 which lacks complete work-tool interception. The maintainer approved routing checks to Claude while retaining Codex as
-primary; three synthetic live checks pass. Representative calibration, candidate sealing and unseen acceptance remain pending.
+primary; three live checks and full local verification pass. Calibration awaits explicit payload-export approval from automatic review.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B

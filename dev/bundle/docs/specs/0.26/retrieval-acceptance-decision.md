@@ -81,6 +81,9 @@ formatting, analysis, architecture/fitness gates and both AOT builds. Source byt
 Code and security reviews found no remaining defects. Runtime measures 67,399 lines; the reviewed proportional-band
 ceiling is 68,899 after safe in-scope reduction was exhausted.
 No representative live relevance calibration, candidate seal, exposed rerun or new unseen holdout has run yet.
+Automatic approval review blocked the calibration command before execution twice. It requires a new explicit
+approval to send calibration queries and candidate passages to Claude; it declined the recovered preceding approval
+question as authorization evidence. No calibration payload was sent. The verified implementation is `994620af`.
 
 ## Independent unseen holdout protocol
 

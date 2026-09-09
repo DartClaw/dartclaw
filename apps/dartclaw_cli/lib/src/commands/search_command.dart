@@ -7,9 +7,11 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show checkEmbeddingNetwo
 import 'package:dartclaw_search/dartclaw_search.dart';
 
 import 'config_loader.dart';
+import 'search_inspect_command.dart';
 
 class SearchCommand extends Command<void> {
-  new({SearchDownloadModelCommand? downloadModel}) {
+  new({SearchDownloadModelCommand? downloadModel, SearchInspectCommand? inspect}) {
+    addSubcommand(inspect ?? SearchInspectCommand());
     addSubcommand(downloadModel ?? SearchDownloadModelCommand());
   }
 

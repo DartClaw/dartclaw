@@ -621,6 +621,10 @@ TurnTrace (turns table)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
+Each tool record may retain immutable `sourceLocators` from a correlated successful memory-search result, with exact
+first-return deduplication and a 50-locator cap. Legacy records default to `[]`; this uses the existing JSON envelope
+and adds no column or source replay store.
+
 **Multi-service co-location note**: `dartclaw.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. SqliteSchemaGate.prepareTasks applies WAL and foreign-key connection settings before classification. Wiring opens through DatabaseBackendFactory and owns closure; repositories do not close shared backends.
 
 ### Instance-local Recovery and Dedup

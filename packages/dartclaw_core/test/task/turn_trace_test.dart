@@ -2,6 +2,41 @@ import 'package:dartclaw_core/dartclaw_core.dart' show ToolCallRecord, TurnTrace
 import 'package:test/test.dart';
 
 void main() {
+  test('returned locators are immutable values and legacy traces remain readable', () {
+    final sources = ['a', 'b'];
+    final record = ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: sources);
+    sources.add('mutated');
+    expect(record.sourceLocators, ['a', 'b']);
+    expect(() => record.sourceLocators.clear(), throwsUnsupportedError);
+    final same = ToolCallRecord.fromJson(record.toJson());
+    expect(same, record);
+    expect(same.hashCode, record.hashCode);
+    expect(
+      ToolCallRecord.fromJson({
+        ...record.toJson(),
+        'sourceLocators': ['b', 'a'],
+      }),
+      isNot(record),
+    );
+    for (final malformed in [
+      null,
+      'a',
+      [1],
+      ['a', ' '],
+    ]) {
+      expect(ToolCallRecord.fromJson({...record.toJson(), 'sourceLocators': malformed}).sourceLocators, isEmpty);
+    }
+    final legacy = record.toJson()..remove('sourceLocators');
+    expect(ToolCallRecord.fromJson(legacy).sourceLocators, isEmpty);
+    final trace = TurnTrace(
+      id: 'id',
+      sessionId: 's',
+      startedAt: DateTime.utc(2026),
+      endedAt: DateTime.utc(2026),
+      toolCalls: [record],
+    );
+    expect(TurnTrace.fromJson(trace.toJson()).toolCalls.single.sourceLocators, ['a', 'b']);
+  });
   final start = DateTime.utc(2026, 3, 24, 10, 0, 0);
   final end = DateTime.utc(2026, 3, 24, 10, 0, 5);
 

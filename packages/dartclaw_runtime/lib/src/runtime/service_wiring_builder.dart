@@ -103,6 +103,8 @@ DartclawServer _composeRuntimeServer(
     providerStatus: providerStatus,
     memoryFile: storage.memoryFile,
     memoryStatusService: scheduling.memoryStatusService,
+    inspectMemorySearch: storage.inspectMemorySearch,
+    conversationSearch: storage.conversationSearch,
     memoryPruner: scheduling.memoryPruner,
     memoryIndex: storage.memoryIndex,
     searchBackend: storage.searchBackend,

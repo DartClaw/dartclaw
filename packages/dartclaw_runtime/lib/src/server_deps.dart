@@ -148,6 +148,8 @@ class ServerObservabilityDeps {
   final ProviderStatusService? providerStatus;
   final MemoryFileService? memoryFile;
   final MemoryStatusService? memoryStatusService;
+  final MemoryInspectionQuery? inspectMemorySearch;
+  final ConversationSearchService? conversationSearch;
   final MemoryPruner? memoryPruner;
   final FullTextIndex? memoryIndex;
   final SearchBackend? searchBackend;
@@ -174,6 +176,8 @@ class ServerObservabilityDeps {
     this.providerStatus,
     this.memoryFile,
     this.memoryStatusService,
+    this.inspectMemorySearch,
+    this.conversationSearch,
     this.memoryPruner,
     this.memoryIndex,
     this.searchBackend,

@@ -154,6 +154,20 @@ void main() {
     expect(page3.traces, hasLength(1));
   });
 
+  test('source locators round trip through the existing tool_calls column', () async {
+    final record = ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: ['one', 'two']);
+    await service.insert(_makeTrace(id: 'sources', toolCalls: [record]));
+    expect((await service.query()).traces.single.toolCalls.single, record);
+    final stored = jsonDecode(
+      db.select("SELECT tool_calls FROM turns WHERE id = 'sources'").single['tool_calls'] as String,
+    ) as Map<String, dynamic>;
+    final records = stored['records'] as List;
+    expect((records.single as Map)['sourceLocators'], ['one', 'two']);
+    (records.single as Map).remove('sourceLocators');
+    db.execute("UPDATE turns SET tool_calls = ? WHERE id = 'sources'", [jsonEncode(stored)]);
+    expect((await service.query()).traces.single.toolCalls.single.sourceLocators, isEmpty);
+  });
+
   test('summary aggregates token sums, duration, tool call count, trace count', () async {
     final toolCalls = [
       ToolCallRecord(name: 'bash', success: true, durationMs: 100),

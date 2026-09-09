@@ -26,6 +26,7 @@ import 'api/event_bus_sse_bridge.dart';
 import 'api/github_webhook.dart';
 import 'api/goal_routes.dart';
 import 'api/memory_routes.dart';
+import 'api/search_inspection_routes.dart';
 import 'api/project_routes.dart';
 import 'api/provider_routes.dart';
 import 'api/session_routes.dart';
@@ -551,6 +552,13 @@ class DartclawServer {
   }
 
   void _mountMemoryRoutes(Router router) {
+    router.mount(
+      '/',
+      searchInspectionRoutes(
+        inspectMemory: _observability.inspectMemorySearch,
+        conversations: _observability.conversationSearch,
+      ).call,
+    );
     final memStatus = _observability.memoryStatusService;
     final wp = _core.config?.workspaceDir;
     if (memStatus != null && wp != null) {

@@ -51,6 +51,18 @@ void main() {
     await backend.close();
   });
 
+  test('trace API retains only the correlated bounded source list after storage', () async {
+    final locators = List.generate(50, (i) => 'locator-$i');
+    await traceService.insert(
+      _makeTrace(
+        id: 'sources',
+        toolCalls: [ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: locators)],
+      ),
+    );
+    final body = await client.expectJsonObject('GET', '/api/traces/sources');
+    expect(((body['toolCalls'] as List).single as Map)['sourceLocators'], locators);
+  });
+
   group('GET /api/traces', () {
     test('returns empty traces and zero summary when no data', () async {
       final response = await client.expectResponse('GET', '/api/traces', status: 200);

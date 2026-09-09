@@ -148,7 +148,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 31226,
+  'dartclaw_core': 31260,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,

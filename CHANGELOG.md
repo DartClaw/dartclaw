@@ -18,6 +18,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Added
 
+- **Search inspection and source provenance** – authenticated `search inspect` exposes bounded memory and conversation ranking evidence. Turn traces retain up to 50 exact returned memory locators per successful search call.
+
 - **Hybrid retrieval activation** – `search.backend: hybrid` shares one configured embedding provider across memory and conversation indexes. `search download-model` acquires the verified local model; `rebuild-index` reuses retained vectors and reports separate unembedded counts. FTS remains the default.
 
 - **Derived vector storage** – SQLite and PostgreSQL retain separate memory and conversation embeddings with owner-scoped ranking, atomic updates and explicit compatibility checks. PostgreSQL hybrid activation requires administrator-provisioned pgvector.
@@ -51,7 +53,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
-- **Vector storage LOC ceilings** – core measures 31,226 Dart lines and shared testing helpers measure 3,764; their ceilings match those measurements without added headroom.
+- **Vector storage LOC ceilings** – core measures 31,260 Dart lines and shared testing helpers measure 3,764; their ceilings match those measurements without added headroom.
 
 - **Persisted lexical chunk identities** – memory and conversation rows now store a zero-based `chunk_index`, so
   repeated equal chunks retain their canonical position independently of backend row IDs or text.

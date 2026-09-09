@@ -258,9 +258,14 @@
       "dependsOn": [
         "S05"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s06-retrieval-inspection-and-turn-source-provenance.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
       "owner": null,
       "scope": "Expose bounded operator inspection of both corpora and retain the exact locators returned by successful search tool invocations in existing turn traces, without expanding ordinary agent payloads.",
       "sourceRefs": [
@@ -281,7 +286,7 @@
       "dependsOn": [
         "S05"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s07-native-packaging-and-platform-proof-harness.md",
       "completedTaskIds": [],
       "owner": null,
@@ -306,7 +311,7 @@
       "dependsOn": [
         "S05"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s08-sealed-retrieval-evaluation-harness.md",
       "completedTaskIds": [],
       "owner": null,

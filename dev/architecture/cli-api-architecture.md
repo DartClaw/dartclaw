@@ -2,7 +2,7 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.25.1
+**Current through**: 0.26 hybrid search inspection and connected search commands
 
 ---
 
@@ -189,6 +189,7 @@ The CLI primarily talks to these server route families:
 | Sessions | `/api/sessions*` | `sessions` |
 | Runners | `/api/runners*` | `runners` |
 | Traces | `/api/traces*` | `traces` |
+| Hybrid inspection | `POST /api/search/inspect` | `search inspect --corpus memory\|conversation --query <text> [--limit 1..20]` |
 
 The important design property is that these are the same server APIs used by the web UI and background integrations. The CLI is not a privileged side-channel.
 

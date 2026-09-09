@@ -291,7 +291,7 @@ void main() {
       expect(receivedQuery, 'ranking shape');
       expect(receivedUserId, 'tenant-a');
       expect(receivedLimit, 2);
-      expect(receivedSink, same(sink));
+      expect(receivedSink, isNotNull);
       expect(receivedDiagnostics, same(expectedDiagnostics));
       expect(hits.map((hit) => hit.messageId), ['message-b', 'message-a']);
       expect(hits.map((hit) => hit.sessionId), ['session-b', 'session-a']);

@@ -667,6 +667,17 @@ void main() {
       await taskBackend.close();
     });
 
+    test('search inspection shares authentication and reports missing wiring after authentication', () async {
+      final uri = Uri.parse('http://localhost/api/search/inspect');
+      final body = jsonEncode({'corpus': 'memory', 'query': 'needle'});
+      expect((await server.handler(Request('POST', uri, body: body))).statusCode, 401);
+      final response = await server.handler(
+        Request('POST', uri, body: body, headers: {'authorization': 'Bearer test-token'}),
+      );
+      expect(response.statusCode, 503);
+      expect((jsonDecode(await response.readAsString()) as Map)['error']['code'], 'SEARCH_INSPECTION_UNAVAILABLE');
+    });
+
     test('task routes are mounted behind auth middleware', () async {
       final response = await server.handler(Request('GET', Uri.parse('http://localhost/api/tasks')));
 

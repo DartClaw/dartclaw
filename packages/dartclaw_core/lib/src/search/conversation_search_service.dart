@@ -14,6 +14,7 @@ final class ConversationHit {
   /// Creates a conversation hit.
   const new({
     required this.messageId,
+    this.chunkIndex = 0,
     required this.sessionId,
     required this.role,
     required this.createdAt,
@@ -23,6 +24,9 @@ final class ConversationHit {
 
   /// Persisted message identity.
   final String messageId;
+
+  /// Zero-based chunk identity retained from the index.
+  final int chunkIndex;
 
   /// Parent session identity.
   final String sessionId;
@@ -59,13 +63,20 @@ final class ConversationSearchService {
   /// Returns best-first matching persisted messages, or empty when unavailable.
   Future<List<ConversationHit>> search(String query, {int limit = 20, SearchDiagnosticsSink? diagnostics}) async {
     try {
+      final buffered = <SearchDiagnostics>[];
       final results =
-          await (this.query?.call(query, userId: userId, limit: limit, diagnostics: diagnostics) ??
+          await (this.query?.call(
+                query,
+                userId: userId,
+                limit: limit,
+                diagnostics: diagnostics == null ? null : buffered.add,
+              ) ??
               index.search(query, userId: userId, limit: limit));
-      return results
+      final hits = results
           .map(
             (result) => ConversationHit(
               messageId: result.id,
+              chunkIndex: result.chunkIndex,
               sessionId: result.metadata['session_id']!,
               role: result.metadata['role']!,
               createdAt: result.timestamp.toUtc(),
@@ -74,6 +85,10 @@ final class ConversationSearchService {
             ),
           )
           .toList(growable: false);
+      for (final evidence in buffered) {
+        diagnostics?.call(evidence);
+      }
+      return hits;
     } catch (error, stackTrace) {
       _log.warning('Conversation search failed: $error', error, stackTrace);
       return const [];

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1",
+  "story": "S06",
+  "fis": "s06-retrieval-inspection-and-turn-source-provenance.md",
+  "plan": "plan.json",
+  "snapshot": "3f3150e45601+6d2931ed2557",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 3f3150e45601+6d2931ed2557",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 109.049,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/task/turn_trace_test.dart packages/dartclaw_core/test/storage/turn_trace_service_test.dart packages/dartclaw_runtime/test/api/trace_routes_test.dart",
+      "exit": 0,
+      "duration": 1.314,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/turn_guard_evaluator_test.dart",
+      "exit": 0,
+      "duration": 0.914,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/api/search_inspection_routes_test.dart packages/dartclaw_runtime/test/server_test.dart",
+      "exit": 0,
+      "duration": 1.355,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/commands/search_inspect_command_test.dart apps/dartclaw_cli/test/runner_test.dart",
+      "exit": 0,
+      "duration": 1.988,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

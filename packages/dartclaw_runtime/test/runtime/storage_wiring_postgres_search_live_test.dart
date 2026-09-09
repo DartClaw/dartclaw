@@ -230,10 +230,7 @@ void main() {
         final searched = await _callTool(runtime.server!, 'memory_search', {'query': 'celestialdurability'});
         expect(searched['results'], isEmpty);
         expect(searched['degradedLayers'], contains('memory'));
-        expect(
-          searched['degradations'],
-          contains(containsPair('reason', 'indexNotCurrent')),
-        );
+        expect(searched['degradations'], contains(containsPair('reason', 'indexNotCurrent')));
 
         final statusResponse = await runtime.server!.handler(
           Request('GET', Uri.parse('http://localhost/api/memory/status')),

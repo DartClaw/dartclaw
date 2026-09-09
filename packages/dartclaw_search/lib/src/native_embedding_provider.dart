@@ -129,25 +129,19 @@ final class NativeEmbeddingProvider implements EmbeddingProvider {
     }
 
     final raw = _initialize();
-    late final Future<_NativeEmbeddingEngine> bounded;
-    bounded = raw
+    final bounded = raw
         .timeout(
           _initializationTimeout,
           onTimeout: () {
             _poisoned = true;
-            unawaited(
-              raw.then<void>((lateEngine) => _disposeLateEngine(lateEngine), onError: (Object _, StackTrace _) {}),
-            );
+            unawaited(raw.then<void>(_disposeLateEngine, onError: (Object _, StackTrace _) {}));
             throw const _EmbeddingFailure('Native embedding initialization timed out');
           },
         )
         .then((engine) async {
-          if (_disposed) {
-            await _disposeLateEngine(engine);
-            throw const _EmbeddingFailure('Native embedding provider is disposed');
-          }
-          _engine = engine;
-          return engine;
+          if (!_disposed) return _engine = engine;
+          await _disposeLateEngine(engine);
+          throw const _EmbeddingFailure('Native embedding provider is disposed');
         });
     _initialization = bounded;
     try {
@@ -166,12 +160,7 @@ final class NativeEmbeddingProvider implements EmbeddingProvider {
     final file = File(_modelPath);
     try {
       if (!await file.exists()) throw const _EmbeddingFailure('Native embedding model is unavailable');
-      final stat = await file.stat();
-      if (stat.type != FileSystemEntityType.file) {
-        throw const _EmbeddingFailure('Native embedding model is unavailable');
-      }
-      final actual = await sha256.bind(file.openRead()).first;
-      if (actual.toString() != _expectedSha256) {
+      if ((await sha256.bind(file.openRead()).first).toString() != _expectedSha256) {
         throw const _EmbeddingFailure('Native embedding model verification failed');
       }
     } on _EmbeddingFailure {

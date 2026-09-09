@@ -170,7 +170,7 @@ void main() {
     await fixture.wireHarness(fixture.fakeFactory(['claude', 'codex']));
 
     final executions = fixture.harnessWiring!.executions;
-    expect(executions.snapshot.configuredWorkers, 2);
+    expect(executions.snapshot.configuredWorkers, 3);
 
     final claudeLease = await executions.acquire(fixture.executionRequest(providerId: 'claude', sessionId: 'claude-1'));
     final codexLease = await executions.acquire(fixture.executionRequest(providerId: 'codex', sessionId: 'codex-1'));
@@ -184,13 +184,21 @@ void main() {
     expect(executions.snapshot.activeWorkers, 2);
     expect(
       await executions.acquire(
-        fixture.executionRequest(providerId: 'claude', sessionId: 'claude-2', admission: ExecutionAdmission.failFast),
+        fixture.executionRequest(providerId: 'codex', sessionId: 'codex-2', admission: ExecutionAdmission.failFast),
       ),
       isNull,
     );
+    final secondClaudeLease = await executions.acquire(
+      fixture.executionRequest(providerId: 'claude', sessionId: 'claude-2'),
+    );
+    addTearDown(() => secondClaudeLease?.release());
+    expect(secondClaudeLease!.runner.providerId, 'claude');
+    expect(executions.snapshot.activeWorkers, 3);
+
+    await codexLease.release();
     expect(
       await executions.acquire(
-        fixture.executionRequest(providerId: 'codex', sessionId: 'codex-2', admission: ExecutionAdmission.failFast),
+        fixture.executionRequest(providerId: 'claude', sessionId: 'claude-3', admission: ExecutionAdmission.failFast),
       ),
       isNull,
     );
@@ -213,7 +221,7 @@ void main() {
     await fixture.wireHarness(fixture.fakeFactory(['claude', 'codex']));
 
     final executions = fixture.harnessWiring!.executions;
-    expect(executions.snapshot.configuredWorkers, 2);
+    expect(executions.snapshot.configuredWorkers, 3);
     final claudeLease = await executions.acquire(
       fixture.executionRequest(providerId: 'claude', sessionId: 'claude-task'),
     );

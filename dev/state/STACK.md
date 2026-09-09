@@ -44,6 +44,16 @@
 | `sqlite3` | Raw SQLite3 bindings – search index (FTS5), tasks. No ORM |
 | `postgres` | PostgreSQL driver and connection pool, owned by `dartclaw_core` |
 
+### Search
+
+| Component | Purpose |
+|-----------|---------|
+| `dartclaw_search` | Kernel-only workspace dependency; provider lifecycle, weighted RRF and incremental vector synchronization |
+| `llamadart` 0.8.22 / native v0.3.0 | In-process embedding generation; verified native libraries bundled with both CLI binaries |
+| EmbeddingGemma 300M Q8_0 | Separately acquired, SHA-256-verified default local model; query/document preprocessing belongs to the native provider |
+| OpenAI-compatible HTTP embeddings | Explicit endpoint/model and optional generic credential; raw input leaves DartClaw for endpoint-owned preprocessing |
+| `pgvector` | Optional administrator-provisioned PostgreSQL vector extension in `public`; the runtime uses qualified types/operators |
+
 ### Google Chat
 
 | Package | Purpose |
@@ -99,7 +109,7 @@ DartClaw built-in workflows reference AndThen-owned skills by canonical names su
 | Service | Purpose | Notes |
 |---------|---------|-------|
 | Docker | Agent container isolation | `debian:bookworm-slim`, `network:none`, `cap-drop=ALL`, non-root user |
-| SQLite3 | Embedded database | `search.db` (FTS5, derived), `dartclaw.db` (authoritative) |
+| SQLite3 | Embedded database | `search.db` (replaceable lexical projection), `vectors.db` (retained derived vectors), `dartclaw.db` (authoritative) |
 | Instance-local files | Turn recovery and webhook dedup | `turn_state.json` (synchronous atomic JSON), `webhook_deliveries/` (exclusive delivery markers) |
 | PostgreSQL | Opt-in authoritative database | Version 14+, one pool; default maximum five connections |
 
@@ -117,5 +127,5 @@ Workspace-wide `analysis_options.yaml`:
 | `dart format` | Code formatting | 120-char page width |
 | `dart analyze` | Static analysis | Strict mode enabled |
 | `dart test` | Test runner | Four-layer pyramid (unit/integration/acceptance/E2E) |
-| `dart build cli` | AOT compilation + native build hooks | Produces `bin/dartclaw` + bundled `lib/libsqlite3.*` |
+| `dart build cli` | AOT compilation + native build hooks | Produces both CLI bundles with SQLite and selected native embedding libraries under `lib/` |
 | `dart pub` | Package management | Workspace-aware |

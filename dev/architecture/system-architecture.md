@@ -2,8 +2,8 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 vector projection stores, PostgreSQL serving interlock, backend-switch notices, and
-filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 native hybrid retrieval, memory and conversation vector projections, PostgreSQL serving
+interlock, retrieval inspection and bounded turn-source provenance. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -601,11 +601,17 @@ An alert's type, severity and content are host-decided throughout; no alert path
 #### Memory & Search
 
 ```
-canonical topic + archive + observation + learning roles ──► search.db (FTS5 projection, rebuildable)
+canonical memory ─────────────► memory lexical projection ──┐
+chat-facing message NDJSON ───► conversation lexical projection ─┤──► weighted RRF results
+                                  │                            │
+                                  └─► provider embeddings ─► corpus-specific vector projection
 ```
 
 Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
-union that `dartclaw rebuild-index` restores.
+union that `dartclaw rebuild-index` restores. Each corpus has its own `VectorSynchronizer`; it reuses only vectors whose
+content hash and embedding-provider fingerprint still match, retires stale identities, and authenticates the source
+again before publication. Provider or vector failure leaves the lexical projection current and reports unembedded
+counts and a structured degradation.
 
 | Component | File | Role |
 |-----------|------|------|
@@ -614,10 +620,20 @@ union that `dartclaw rebuild-index` restores.
 | `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
 | `FullTextIndex` / `VectorIndex` / `EmbeddingProvider` | `packages/dartclaw_kernel/lib/src/` | Owner-scoped lexical, vector and embedding contracts with stable chunk identity |
 | `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
+| `PostgresFtsIndex` | `packages/dartclaw_core/lib/src/search/postgres_fts_index.dart` | Language-aware PostgreSQL lexical projection |
+| `SqliteVectorIndex` / `PostgresVectorIndex` | `packages/dartclaw_core/lib/src/search/vector_index.dart` | Corpus-fixed vector storage and owner-scoped cosine ranking |
 | `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
 | `SqliteBackend` / `SqliteSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and derived-index rebuild gate |
 | `Fts5SearchBackend` | `packages/dartclaw_core/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
-| `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
+| `HybridSearch` / `VectorSynchronizer` | `packages/dartclaw_search/lib/src/` | Fixed 0.25/0.75 weighted RRF and incremental vector lifecycle over injected indexes |
+| `NativeEmbeddingProvider` / `HttpEmbeddingProvider` | `packages/dartclaw_search/lib/src/` | Verified local EmbeddingGemma or explicit raw-input HTTP embedding boundary |
+| `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Deprecated opt-in QMD path retained through 0.26 |
+
+`fts5` remains the zero-model default. `hybrid` composes the two current corpus projections through `dartclaw_search`.
+The local provider applies the EmbeddingGemma query/document conventions and fingerprints the verified model and
+preprocessing contract. The HTTP provider sends raw query or document input to an explicitly configured endpoint,
+whose service owns preprocessing; its endpoint and model form a separate fingerprint and trust boundary. QMD still
+works in 0.26 with a deprecation warning and is removed in the following milestone.
 
 Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
@@ -629,7 +645,7 @@ requiring separate `memory_search`, temporal-KG, and wiki reads. Design rational
 
 At call time the tool fans out retrieval across:
 
-- FTS5/QMD memory search, using the configured search backend;
+- configured FTS5, built-in hybrid, or deprecated QMD memory search;
 - temporal-KG facts and timelines for query-derived entity candidates;
 - wiki/source documents exposed through the knowledge layer.
 
@@ -728,6 +744,9 @@ Design rationale: [ADR-009 (Internal MCP Server)](../adrs/009-internal-mcp-serve
 
 DartClaw uses a Dart pub workspace with strict dependency layering.
 
+The shipped `packages/` inventory contains 13 packages. The application and non-shipping fitness member bring the
+root workspace to 15 members; `dev/package_tiers.txt` is the sole dependency-direction authority.
+
 ### Dependency DAG
 
 ```
@@ -739,12 +758,12 @@ dartclaw_whatsapp    → core, kernel
 dartclaw_signal      → core, kernel
 dartclaw_google_chat → core, kernel
 dartclaw_testing     → core, kernel
-dartclaw_client      → (none)
+dartclaw_client      → kernel
 dartclaw             → client, kernel
 dartclaw_acp         → core, kernel
 dartclaw_bridge      → (none)
-dartclaw_runtime      → bridge, core, kernel, workflow, all channels
-dartclaw_cli         → acp, client, core, kernel, workflow, runtime, google_chat
+dartclaw_runtime      → bridge, core, kernel, search, workflow, all channels
+dartclaw_cli         → acp, client, core, kernel, search, workflow, runtime, google_chat
 ```
 
 The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client` and `dartclaw_kernel` — and nothing from the runtime. Embedding the runtime means depending on `dartclaw_core` and friends directly (ADR-008).
@@ -754,7 +773,7 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
 | `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
-| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, `SqliteBackend` and SQLite repositories, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, SQLite/PostgreSQL backends and repositories, lexical/vector index implementations, QMD compatibility, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
 | `dartclaw_search` | Hybrid retrieval composition and embedding providers over injected indexes | T1 package depending only on kernel contracts; owns no canonical corpus or database driver |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
 | `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
@@ -1018,8 +1037,8 @@ search unavailable. Runtime disposal and shutdown close the owned task and searc
 2.  Config notifier (`ConfigNotifier`) for reloadable sections
 3.  File services (SessionService, MessageService, KvService)
 4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/turn_state.json)
-5.  Search backends (FTS5, optional QMD)
-6.  Memory services (MemoryFileService, FullTextIndex, SelfImprovementService)
+5.  Search backends (FTS5; optional built-in hybrid or deprecated QMD)
+6.  Memory services and corpus synchronization (MemoryFileService, lexical/vector indexes, embedding provider, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)
 8.  Container managers (per-profile: workspace, restricted)
 9.  Primary provider harness and `TurnRunner`

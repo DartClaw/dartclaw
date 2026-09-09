@@ -2,7 +2,9 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.26 bounded retrieval provenance, hybrid inspection, worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 bounded retrieval provenance, two-corpus hybrid inspection and degradation diagnostics,
+worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The
+authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -336,6 +338,10 @@ Authenticated `POST /api/search/inspect` and connected `search inspect` expose m
 and typed ranking evidence. Memory inspection requires unchanged current-index health before and after the query;
 unavailable diagnostics return 503 without hits. Snippets are capped at 240 Unicode scalars, scores retain backend
 order/sign, and diagnostic contributions remain positive. Normal agent retrieval payloads remain compact.
+
+Each candidate reports nullable one-based keyword/vector ranks, the frozen 0.25/0.75 weighted-RRF contributions and
+their positive fused sum. Diagnostics also report that corpus's current unembedded count and structured fallback or
+stale-vector degradations. They contain no raw query, document body, vector, credential or provider error text.
 
 
 ## 6. Structured Logging

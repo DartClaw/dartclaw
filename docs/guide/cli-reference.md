@@ -39,6 +39,7 @@ Top-level command families:
 - `jobs`
 - `projects`
 - `rebuild-index`
+- `search`
 - `service`
 - `sessions`
 - `serve`
@@ -476,7 +477,42 @@ dartclaw tasks review <task-id> --action push_back --comment "Tighten the API er
 dartclaw tasks review <task-id> --action accept --json
 ```
 
-## Tokens and Index
+## Search and Index
+
+### `search download-model`
+
+```bash
+dartclaw search download-model
+dartclaw search download-model --json
+```
+
+Downloads and verifies the one supported local embedding model,
+`embeddinggemma-300M-Q8_0.gguf`, under `<data_dir>/models`. Exact existing bytes are reused. New bytes are streamed to a
+temporary file and published only after their size and checksum match; an interrupted or invalid download is not
+published. DartClaw does not download the model during startup. The result includes the model's licence and reports
+whether verified bytes were reused or downloaded.
+
+If acquisition fails, check network access and disk space, then run the same command again. A missing or corrupt model
+does not make DartClaw switch providers automatically.
+
+### `search inspect`
+
+```bash
+dartclaw search inspect --corpus memory --query "release policy"
+dartclaw search inspect --corpus conversation --query "release policy" --limit 10
+dartclaw search inspect --corpus memory --query "release policy" --json
+```
+
+Queries the authenticated running server for hybrid ranking evidence. `--corpus` is required and accepts `memory` or
+`conversation`; `--query` must be nonblank; `--limit` defaults to 20 and accepts 1–20. Human output shows each result's
+locator or session/message identity, role, score and bounded snippet, then each considered candidate's lexical rank,
+vector rank, two contributions, fused score and source layer. It ends with the selected corpus's unembedded count and
+any degradation. `--json` preserves the API response described in
+[Web UI & API Reference](web-ui-and-api.md#inspect-search-ranking).
+
+Inspection returns the connected-command server or authentication exit code when the server cannot be reached or
+access is refused. A `503` response means hybrid inspection is unavailable; use memory status and the rebuild recovery
+below rather than treating an empty inspection as healthy.
 
 ### `token show`
 
@@ -497,12 +533,23 @@ dartclaw rebuild-index
 dartclaw rebuild-index --json
 ```
 
-Rebuilds the backend memory index from the canonical memory corpus. On SQLite, the command builds and completely
-validates a fresh sibling index before replacing `search.db`; on PostgreSQL, it publishes the rebuilt projection in one
-transaction. Active topics, archive, observations, and learnings retain stable role-aware locators and canonical entry identities. Source entry timestamps determine recent ordering;
-undated entries sort oldest. Its result reports the canonical revision, row count, and health. A failure preserves the
-prior index on either backend and records degraded health with a retry action. Stop DartClaw before running the command and leave it stopped until rebuilding completes; the command does
-not coordinate with a live server.
+Rebuilds memory from the canonical corpus and conversations from session NDJSON. On SQLite, the command builds and
+completely validates a fresh sibling lexical index before replacing `search.db`; on PostgreSQL, it publishes the rebuilt
+lexical projection in one transaction. Active topics, archive, observations, and learnings retain stable role-aware
+locators and canonical entry identities. Source entry timestamps determine recent ordering; undated entries sort
+oldest. The result reports the canonical revision, memory row count and health, plus conversation message and session
+counts. If there are no chat-facing sessions, the command produces an empty conversation index and clears stale rows.
+
+With `search.backend: hybrid`, the command then reconciles memory and conversation vectors in the separate SQLite
+`vectors.db` or PostgreSQL `memory_vectors` and `conversation_vectors` tables. Human output reports both unembedded
+counts. JSON output adds `conversationMessages`, `conversationSessions`, `memoryUnembeddedCount`,
+`conversationUnembeddedCount`, and `vectorDegradedCorpora` when vector recovery is incomplete. A vector failure leaves
+the rebuilt lexical indexes current: repair the managed local model with `dartclaw search download-model`, or correct
+the explicit HTTP endpoint, then retry the rebuild.
+
+A lexical rebuild failure preserves the prior index on either backend and records degraded health with a retry action.
+Stop DartClaw before running the command and leave it stopped until rebuilding completes; the command does not
+coordinate with a live server.
 
 ## Traces
 

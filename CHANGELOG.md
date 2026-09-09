@@ -14,9 +14,22 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
-## [Unreleased]
+## [0.26.0] - Unreleased
 
 ### Added
+
+- **SQLite and PostgreSQL storage** – SQLite remains the default; PostgreSQL adds an opt-in deployment database with
+  explicit schema compatibility gates and language-aware memory, conversation and knowledge-graph search. The same
+  owner-scoped storage contracts cover both backends. Conversation search projects chat-facing session messages from
+  their existing NDJSON source and follows deletion, archive and resume operations.
+
+- **Verified native packaging** – both existing binaries include the selected native embedding libraries alongside
+  SQLite. Release builds verify cached archive sizes and SHA-256 hashes before native compilation, support explicit
+  online acquisition, and use one complete library set per target. The model is acquired separately.
+
+- **Retrieval evaluation tools** – a sealed English/Swedish corpus evaluates keyword, vector and hybrid retrieval for
+  both searchable corpora and database backends. The harness records quality, timing, isolation and input hashes;
+  separate native probes record actual process exit and failure behavior.
 
 - **Search inspection and source provenance** – authenticated `search inspect` exposes bounded memory and conversation ranking evidence. Turn traces retain up to 50 exact returned memory locators per successful search call.
 
@@ -53,6 +66,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **QMD deprecated** – the opt-in QMD backend still works in 0.26. Built-in hybrid search replaces it; removal is scheduled for the following milestone.
+
 - **Vector storage LOC ceilings** – core measures 31,260 Dart lines and shared testing helpers measure 3,764; their ceilings match those measurements without added headroom.
 
 - **Persisted lexical chunk identities** – memory and conversation rows now store a zero-based `chunk_index`, so
@@ -60,15 +75,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - **Search LOC ceiling rebaseline for fusion and synchronization** – `dartclaw_search/lib` measures 1,456 Dart lines
   after adding embedding providers, authenticated fusion and vector reconciliation. The
   ceiling is 1,456 with no added headroom.
-- **Core LOC ceiling rebaseline for canonical chunking and identities** – `dartclaw_core/lib` measures 30,428 Dart
-  lines after deterministic heading/fence-aware memory chunking and persisted lexical ordinals. The ceiling is 30,428.
-
 - **Outbound MCP plain-HTTP loopback exemption narrowed** – the shared literal rule now accepts only `localhost`,
   `127.0.0.1`, and `::1`; other `127.0.0.0/8` addresses such as `127.0.0.2` require HTTPS when TLS is required.
 
-- **Core LOC ceiling rebaseline for storage and conversation search** – `dartclaw_core/lib` measures 30,314 Dart
-  lines after integrating PostgreSQL storage and search, serving ownership, and conversation projection/lifecycle
-  support. The ceiling is 30,314 with no added headroom.
 - Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
 
 ---

@@ -412,6 +412,12 @@ Counts are nullable when evidence is unavailable. Observation `usageKind` is `ex
 its warning is `none`, `active`, or `unknown`. The warning is informational – status never deletes observations or blocks writes by aggregate
 usage alone.
 
+The `index` object includes `memoryUnembeddedCount` and `conversationUnembeddedCount`. With hybrid search, zero means
+the corpus is fully represented by usable vectors, a positive value is the number of current chunks still missing one,
+and `null` means the count could not be read. Both are `null` when hybrid search is inactive. `health`, `reason`, and
+`action` describe the lexical memory projection; follow the action and the stopped-runtime `dartclaw rebuild-index`
+path when it is degraded.
+
 #### Read memory file
 
 ```
@@ -427,6 +433,41 @@ POST /api/memory/prune
 ```
 
 Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
+
+### Search
+
+#### Inspect search ranking
+
+```
+POST /api/search/inspect
+Content-Type: application/json
+
+{"corpus":"memory","query":"release policy","limit":20}
+```
+
+This authenticated operator endpoint accepts `memory` or `conversation`, a nonblank query, and an optional integer
+limit from 1 to 20. It returns the selected corpus, ordered results with bounded snippets and canonical locator or
+session/message provenance, and diagnostics:
+
+```json
+{
+  "corpus": "memory",
+  "results": [],
+  "diagnostics": {
+    "candidates": [],
+    "unembeddedCount": 0,
+    "degradations": []
+  }
+}
+```
+
+Each candidate names `documentId`, `chunkIndex`, `keywordRank`, `vectorRank`, `keywordContribution`,
+`vectorContribution`, `fusedScore`, and `sourceLayer`. This evidence explains the returned hybrid order; it is bounded
+to the request and does not expose stored vectors. `unembeddedCount` applies only to the requested corpus.
+
+Invalid bodies return `400 INVALID_INPUT`. If hybrid inspection, its current-index evidence, or a corpus service is
+unavailable, the endpoint returns `503 SEARCH_INSPECTION_UNAVAILABLE` rather than an empty success. The CLI owner for
+this endpoint is `dartclaw search inspect`.
 
 ### Traces
 

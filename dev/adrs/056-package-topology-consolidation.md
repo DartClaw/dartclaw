@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted – 2026-08-21
+Accepted – 2026-08-21. Implemented through 0.26; the tier file now governs 13 shipped packages.
 
 **Related:** [ADR-010](010-package-split-models.md), [ADR-014](014-sdk-package-decomposition.md),
 [ADR-020](020-package-decomposition-phase-2.md), [ADR-034](034-enforced-package-dependency-direction.md),
@@ -56,11 +56,10 @@ Three edges are forbidden and enforced:
    `DartclawRuntime.build(..., harnessRegistrars:)`; the CLI supplies `AcpHarnessRegistrar`, so the runtime never
    discovers the adapter.
 
-The S29 graph is transitional: `dartclaw_acp` currently implements the generic `HarnessRegistrar` contract owned by
-today's `dartclaw_server`, so the adapter declares that downward composition-contract edge while the server carries no
-ACP edge. Before S36 enforces the milestone-close tiers, it relocates that generic contract below the runtime tier;
-the adapter then depends on kernel and core only. This relocation preserves the approved inversion while making the
-first and third forbidden edges simultaneously true at milestone close.
+The transitional graph placed `HarnessRegistrar` in the former server package. The completed topology owns that
+generic contract below the runtime tier: `dartclaw_acp` depends on kernel and core, the CLI supplies its registrar, and
+`dartclaw_runtime` carries no ACP edge. This preserves the approved inversion while making the first and third
+forbidden edges consequences of the tier order.
 
 The executable dependency map and production-import fitness check reject additions to these sets. They are exact
 contracts, not allowlists intended to grow casually.
@@ -69,12 +68,12 @@ contracts, not allowlists intended to grow casually.
 
 Topology changes use expand → migrate → contract:
 
-1. S33 expands the bottom tier by forming `dartclaw_kernel` from models, config and security.
-2. S34 migrates storage into core.
-3. S35 migrates channel-owned tendrils into the three channel packages.
-4. S36 relocates the generic harness-registration contract below the runtime tier, then contracts the host tier by
-   renaming the server package to runtime and leaving a thin CLI.
-5. S89 confirms the bridge's standing destination and packaging contract.
+1. The bottom tier formed `dartclaw_kernel` from models, config and security.
+2. Storage moved into core.
+3. Channel-owned code moved into the three channel packages.
+4. The generic harness-registration contract moved below the runtime tier, the server package became runtime, and the
+   CLI remained the thin composition root.
+5. The bridge retained its standing destination and hook-free packaging contract.
 
 Every relocation is a behaviour-preserving `git mv`. A move is not mixed with functional changes. Each landed slice
 runs the full CI-equivalent gate, including formatting, analysis, tests, architecture checks and fitness checks.
@@ -160,10 +159,11 @@ all and stays legal, which is how all nine of its consumers already reach it. Th
 depend on `dartclaw_testing`, and the per-edge table it replaced enforced that by enumeration. Placement now
 carries it, with no exception entry.
 
-The 0.26 Phase B search boundary raises the workspace ceiling to **13 packages under `packages/` plus one
-application**. `dartclaw_search` sits on T1 beside core and depends only on the T0 kernel contracts; concrete database
-indexes and canonical corpus mapping remain in core. The root `workspace:` list holds **15** members because
-`dev/fitness` (`dartclaw_fitness`) is a member outside `packages/`. `dartclaw_bridge` still counts as its own package.
+The 0.26 search boundary establishes **13 packages** under `packages/`. `dartclaw_search` sits on T1 beside core and
+depends only on the T0 kernel contracts; concrete database indexes and canonical corpus mapping remain in core. The
+root `workspace:` list holds **15** members because the CLI application and `dev/fitness` (`dartclaw_fitness`) sit
+outside `packages/`. `dartclaw_bridge` still counts as one of the 13 packages. `dev/package_tiers.txt` is the current
+dependency authority for all 15 workspace members.
 
 `dartclaw_server` is renamed `dartclaw_runtime` throughout, including the barrel, the release version file and every
 gate key; only the package identifier changed, and no Dart symbol was renamed.

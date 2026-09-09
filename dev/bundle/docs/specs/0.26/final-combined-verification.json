@@ -1,0 +1,647 @@
+{
+  "schemaVersion": "1",
+  "milestone": "0.26",
+  "acceptance": "Combined acceptance pending. Story receipts are implementation checkpoints, not heavy/live/platform evidence.",
+  "sourceRevision": "Bind the actual frozen source commit in every executed receipt.",
+  "coverageRule": "No implicit deduplication: acceptance records name exact covered IDs/Phase A indices and prove the same assertions ran. A later causal fix invalidates affected results only. Missing, skipped, historical or emulated evidence cannot become a native/live pass.",
+  "phaseA": [
+    {
+      "owners": ["S07/TI05", "S08/TI08"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S07/TI06", "S09/TI03", "S13/TI02"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_schema_gate_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S07/TI07"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S08/TI07"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_backend_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI02"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart --name \"language validation\"",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI04"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/postgres_fts_index_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI05"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/knowledge/postgres_fact_search_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI06"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/index_reconciler_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI07"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_search_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S09/TI08", "Phase B S05/TI06"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/rebuild_index_command_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S10/TI01", "S10/TI02"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_interlock_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S10/TI03", "S10/TI05"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_interlock_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S10/TI04", "S15/TI03", "S15/S02", "S10/S07"],
+      "command": "dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S10/TI06"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/integration/postgres_serve_run_probe_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S11/TI06"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && (cd packages/dartclaw_core && dart test --run-skipped -t integration --reporter=failures-only --file-reporter=json:../../build/postgres-contract/verify.json test/storage/contract/postgres_backend_contract_test.dart) && dart run dev/tools/contract_groups_check.dart --manifest packages/dartclaw_core/test/storage/contract/contract_groups.json --expect shared,postgres --report build/postgres-contract/verify.json",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S11/TI08"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && bash dev/tools/postgres_contract.sh",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S13/TI03"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/search/conversation_index_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S15/TI05"],
+      "command": "bash dev/tools/parallels_windows.sh powershell dev/tools/run_windows_tests.ps1 packages/dartclaw_core/test/storage/turn_state_store_test.dart packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["S10/TI03"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/postgres_sanctioned_clients_live_test.dart",
+      "status": "pending-final-combined-gate"
+    },
+    {
+      "owners": ["Phase B S05/TI02", "Phase B S05/TI05"],
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart",
+      "status": "pending-final-combined-gate"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "source": "phaseA",
+      "sourceIndex": 0,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-01/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 1,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-02/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 2,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-03/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 3,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-04/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 4,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-05/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 5,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-06/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 6,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-07/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 7,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-08/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 8,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-09/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 9,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-10/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 10,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-11/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-additions"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 11,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-12/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-additions"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 12,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value; Docker Desktop/OrbStack available",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-13/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["desktop-runtime-integration"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 13,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value; Docker Desktop/OrbStack available",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-14/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["desktop-runtime-integration"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 14,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-15/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 15,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-16/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 16,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-17/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-additions"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 17,
+      "environment": "Windows guest using isolated Dart SDK and repository Parallels helper",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-18/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["windows-stores"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 18,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-19/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-contract"]
+    },
+    {
+      "source": "phaseA",
+      "sourceIndex": 19,
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "receiptPath": ".agent_temp/0.26-final/phase-a-20/receipt.json",
+      "acceptancePredicate": "Original owner/command obligation must execute with exit 0 and no skipped required cases, or be explicitly covered by a recorded superset command with matching assertions.",
+      "coveredBy": ["postgres-additions"]
+    }
+  ],
+  "obligations": [
+    {
+      "id": "dependencies",
+      "category": "build",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/dependencies/receipt.json",
+      "acceptancePredicate": "Exit 0; both committed lockfiles unchanged; generated runtime/workflow assets exist.",
+      "command": "dart pub get --enforce-lockfile && dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile && dart run dev/tools/embed_assets.dart"
+    },
+    {
+      "id": "format",
+      "category": "format",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/format/receipt.json",
+      "acceptancePredicate": "Exit 0; retain exact command, source revision, elapsed time, output and non-skipped counts.",
+      "command": "dart format --line-length=120 --output=none --set-exit-if-changed ."
+    },
+    {
+      "id": "analysis",
+      "category": "analysis",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/analysis/receipt.json",
+      "acceptancePredicate": "Exit 0 with zero errors, warnings and infos.",
+      "command": "dart analyze --fatal-infos"
+    },
+    {
+      "id": "workspace",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/workspace/receipt.json",
+      "acceptancePredicate": "Exit 0 for every workspace member. Record pass/skip counts and each skipped case; map platform/live cases to separate actual evidence. No excluded test may be claimed as passed.",
+      "command": "bash dev/tools/test_workspace.sh"
+    },
+    {
+      "id": "architecture",
+      "category": "architecture",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/architecture/receipt.json",
+      "acceptancePredicate": "Exit 0; all architecture checks pass on the 13-package graph and actual LOC ceilings.",
+      "command": "dart run dev/tools/arch_check.dart"
+    },
+    {
+      "id": "fitness",
+      "category": "architecture",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/fitness/receipt.json",
+      "acceptancePredicate": "Exit 0 across the complete fitness suite, including workflow/config schema, version and config-reference checks.",
+      "command": "bash dev/tools/fitness/run_all.sh"
+    },
+    {
+      "id": "config-drift",
+      "category": "config-drift",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/config-drift/receipt.json",
+      "acceptancePredicate": "Covered only by a successful fitness receipt explicitly showing config schema, workflow schema and generated-reference drift commands; otherwise run those exact commands separately."
+    },
+    {
+      "id": "postgres-contract",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/postgres-contract/receipt.json",
+      "acceptancePredicate": "Exit 0; SQLite and PostgreSQL required shared/postgres contract groups present in JSON; zero skipped live cases. Preserve build/postgres-contract/postgres.json and group-check output. This is the same proof as entry 15 with postgres.json rather than verify.json.",
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && bash dev/tools/postgres_contract.sh",
+      "coversPhaseAIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 18]
+    },
+    {
+      "id": "postgres-additions",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/postgres-additions/receipt.json",
+      "acceptancePredicate": "Exit 0 with every selected live fixture executed and no skips; includes both vector schema/index files beyond the original deferred array.",
+      "command": "test -n \"$DARTCLAW_TEST_POSTGRES_URL\" && dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/storage/postgres_interlock_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_postgres_interlock_live_test.dart packages/dartclaw_core/test/search/conversation_index_postgres_live_test.dart packages/dartclaw_core/test/search/postgres_vector_index_live_test.dart packages/dartclaw_core/test/storage/postgres_schema_gate_vector_live_test.dart packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart",
+      "coversPhaseAIndices": [10, 11, 16, 19]
+    },
+    {
+      "id": "postgres-security",
+      "category": "security",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/postgres-security/receipt.json",
+      "acceptancePredicate": "Actual workspace, postgres-contract and postgres-additions receipts prove least-privilege operation, schema refusal, TLS/credential posture, interlock failures and owner isolation; independent security review confirms these exact assertions and no raw DSN in retained output."
+    },
+    {
+      "id": "fts-tenant-mutation",
+      "category": "security",
+      "owners": ["Phase A S09/TI04"],
+      "environment": "Isolated worktree from frozen source with the single PostgreSQL listRecent tenant predicate removed",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/fts-tenant-mutation/receipt.json",
+      "acceptancePredicate": "The unmodified postgres_fts_index_live_test.dart passes in postgres-contract; its isolated tenant-predicate mutant fails specifically at the exact ordered owner chunk assertion. Retain diff, test command, nonzero exit and assertion output; no unrelated failure qualifies."
+    },
+    {
+      "id": "desktop-runtime-integration",
+      "category": "container",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value; Docker Desktop/OrbStack available",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/desktop-runtime-integration/receipt.json",
+      "acceptancePredicate": "Exit 0; actual container fixtures plus crash/serve probes execute without skips. Record engine/version, host OS, date, pass counts and dedicated provider prerequisite result. Synthetic upstream fixtures are not real-provider proofs.",
+      "command": "dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/integration/",
+      "coversPhaseAIndices": [12, 13]
+    },
+    {
+      "id": "linux-runtime-integration",
+      "category": "container",
+      "owners": ["Combined A+B"],
+      "environment": "native Linux arm64 guest, same frozen source, Linux Docker; record engine/OS/date and prerequisites",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/linux-runtime-integration/receipt.json",
+      "acceptancePredicate": "Same runtime integration directory on Linux Docker, exit 0 with prerequisites present and no skipped required cases; retain engine/host/date/counts. Desktop results cannot cover this obligation.",
+      "command": "dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/integration/"
+    },
+    {
+      "id": "runtime-additional-integration",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/runtime-additional-integration/receipt.json",
+      "acceptancePredicate": "Exit 0; retain exact command, source revision, elapsed time, output and non-skipped counts. server_builder_integration_test.dart is covered by workflow-live and must not be repeated independently.",
+      "command": "dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_runtime/test/runtime/turn_limits_wiring_integration_test.dart"
+    },
+    {
+      "id": "core-provider-integration",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision; authenticated Claude CLI and isolated synthetic fixtures",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/core-provider-integration/receipt.json",
+      "acceptancePredicate": "Exit 0; retain exact command, source revision, elapsed time, output and non-skipped counts. The real direct_bridge_test.dart provider proof is covered by workflow-live; retain its exact non-skipped result there.",
+      "command": "dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_core/test/channel/thread_binding_lifecycle_integration_test.dart"
+    },
+    {
+      "id": "cli-signal-integration",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/cli-signal-integration/receipt.json",
+      "acceptancePredicate": "The same-revision workflow-live receipt must show reload_trigger_service_sigusr1_test.dart actually executed with exit 0 and no skip. Run this standalone command only if that exact coverage is absent.",
+      "command": "dart test --run-skipped -t integration --reporter=failures-only apps/dartclaw_cli/test/commands/reload_trigger_service_sigusr1_test.dart",
+      "coveredBy": ["workflow-live"]
+    },
+    {
+      "id": "acp-live",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision; installed Goose and optional Vibe target",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/acp-live/receipt.json",
+      "acceptancePredicate": "Exit 0 with required guarded Goose refusal exercised. Record Vibe availability and its explicit optional result; do not represent absent Vibe as executed.",
+      "command": "DARTCLAW_LIVE_ACP_PROBES=1 dart test --run-skipped -t integration --reporter=failures-only packages/dartclaw_acp"
+    },
+    {
+      "id": "workflow-components",
+      "category": "workflow",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/workflow-components/receipt.json",
+      "acceptancePredicate": "Exit 0; retain exact command, source revision, elapsed time, output and non-skipped counts.",
+      "command": "dart test --reporter=failures-only -t component packages/dartclaw_workflow"
+    },
+    {
+      "id": "workflow-live",
+      "category": "workflow",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision; authenticated providers; DARTCLAW_LOCAL_GH_STUB names a run-owned directory containing only an executable gh stub returning 127",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/workflow-live/receipt.json",
+      "acceptancePredicate": "Exit 0 with actual provider canaries and final successful child tasks. Prove GitHub capability disabled and local bare remotes used. Preserve host authentication; no remote push/PR or channel message is authorized.",
+      "command": "env -u GH_TOKEN -u GITHUB_TOKEN PATH=\"$DARTCLAW_LOCAL_GH_STUB:$PATH\" bash dev/testing/profiles/workflow-live/run.sh --full",
+      "coversTestFiles": ["packages/dartclaw_core/test/integration/direct_bridge_test.dart", "packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart", "apps/dartclaw_cli/test/commands/reload_trigger_service_sigusr1_test.dart", "packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart", "packages/dartclaw_runtime/test/integration/turn_governance_integration_test.dart"]
+    },
+    {
+      "id": "windows-stores",
+      "category": "integration",
+      "owners": ["Combined A+B"],
+      "environment": "Windows guest using isolated Dart SDK and repository Parallels helper",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/windows-stores/receipt.json",
+      "acceptancePredicate": "Both local-store suites actually run and pass. Record Windows host architecture and SDK. An ARM64 host does not qualify the Windows x64 release artifact.",
+      "command": "bash dev/tools/parallels_windows.sh powershell dev/tools/run_windows_tests.ps1 packages/dartclaw_core/test/storage/turn_state_store_test.dart packages/dartclaw_core/test/storage/webhook_delivery_store_test.dart",
+      "coversPhaseAIndices": [17]
+    },
+    {
+      "id": "native-macos-arm64",
+      "category": "native-platform",
+      "owners": ["Phase B S07"],
+      "environment": "Native macos-arm64 runner with DARTCLAW_NATIVE_ARCHIVE_CACHE and DARTCLAW_EMBEDDING_MODEL_PATH pointing to verified inputs",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/native-macos-arm64/receipt.json",
+      "acceptancePredicate": "Exit 0 and schema-v1 result pass for the exact source revision; two archive hashes and identical full native library manifests; verified model/native hashes; natural success and four failure-process exits; no forced termination; cold initialization+first embed <=60000ms and dispose <=10000ms; finite equal-dimensional vectors and exact two-document batch order. Emulated x64 execution must be labeled and cannot satisfy a native-runner obligation.",
+      "command": "dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target macos-arm64 --evidence build/native-embedding-macos-arm64.json"
+    },
+    {
+      "id": "native-linux-arm64",
+      "category": "native-platform",
+      "owners": ["Phase B S07"],
+      "environment": "Native linux-arm64 runner with DARTCLAW_NATIVE_ARCHIVE_CACHE and DARTCLAW_EMBEDDING_MODEL_PATH pointing to verified inputs",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/native-linux-arm64/receipt.json",
+      "acceptancePredicate": "Exit 0 and schema-v1 result pass for the exact source revision; two archive hashes and identical full native library manifests; verified model/native hashes; natural success and four failure-process exits; no forced termination; cold initialization+first embed <=60000ms and dispose <=10000ms; finite equal-dimensional vectors and exact two-document batch order. Emulated x64 execution must be labeled and cannot satisfy a native-runner obligation.",
+      "command": "dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target linux-arm64 --evidence build/native-embedding-linux-arm64.json"
+    },
+    {
+      "id": "native-linux-x64",
+      "category": "native-platform",
+      "owners": ["Phase B S07"],
+      "environment": "Native linux-x64 runner with DARTCLAW_NATIVE_ARCHIVE_CACHE and DARTCLAW_EMBEDDING_MODEL_PATH pointing to verified inputs",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/native-linux-x64/receipt.json",
+      "acceptancePredicate": "Exit 0 and schema-v1 result pass for the exact source revision; two archive hashes and identical full native library manifests; verified model/native hashes; natural success and four failure-process exits; no forced termination; cold initialization+first embed <=60000ms and dispose <=10000ms; finite equal-dimensional vectors and exact two-document batch order. Emulated x64 execution must be labeled and cannot satisfy a native-runner obligation.",
+      "command": "dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target linux-x64 --evidence build/native-embedding-linux-x64.json"
+    },
+    {
+      "id": "native-windows-x64",
+      "category": "native-platform",
+      "owners": ["Phase B S07"],
+      "environment": "Native windows-x64 runner with DARTCLAW_NATIVE_ARCHIVE_CACHE and DARTCLAW_EMBEDDING_MODEL_PATH pointing to verified inputs",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/native-windows-x64/receipt.json",
+      "acceptancePredicate": "Exit 0 and schema-v1 result pass for the exact source revision; two archive hashes and identical full native library manifests; verified model/native hashes; natural success and four failure-process exits; no forced termination; cold initialization+first embed <=60000ms and dispose <=10000ms; finite equal-dimensional vectors and exact two-document batch order. Emulated x64 execution must be labeled and cannot satisfy a native-runner obligation.",
+      "command": "dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target windows-x64 --evidence build/native-embedding-windows-x64.json"
+    },
+    {
+      "id": "both-binaries",
+      "category": "build",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision; verified native cache",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/both-binaries/receipt.json",
+      "acceptancePredicate": "Exit 0; both bin/dartclaw and bin/dartclaw-workflow run --version at 0.26.0 from packaged layout, with VERSION and identical complete native libraries; no probe/model/share sidecar. A same-revision native-macos-arm64 receipt may cover the build invocation when explicitly mapped.",
+      "command": "bash dev/tools/build.sh"
+    },
+    {
+      "id": "packaging-heavy-test",
+      "category": "build",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision; verified native cache",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/packaging-heavy-test/receipt.json",
+      "acceptancePredicate": "Exit 0 including the actual AOT/native test that story-local completion deferred; no skipped real-build case.",
+      "command": "dart test --run-skipped --reporter=failures-only apps/dartclaw_cli/test/tool/build_tool_test.dart"
+    },
+    {
+      "id": "five-target-matrix",
+      "category": "release",
+      "owners": ["Combined A+B"],
+      "environment": "Five native release runners, including build-only macOS x64; external workflow dispatch remains unauthorized",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/five-target-matrix/receipt.json",
+      "acceptancePredicate": "Both binaries built and packaged for macOS arm64/x64, Linux arm64/x64 and Windows x64; exact checksums/layout/Windows installer smoke. Must refer to frozen source. Remote workflow dispatch/CI remains unrun under current authority; partial local builds are recorded separately."
+    },
+    {
+      "id": "heldout",
+      "category": "heldout",
+      "owners": ["Phase B S08"],
+      "environment": "macOS arm64 with dedicated PostgreSQL 16/pgvector database; restricted runtime role in DARTCLAW_TEST_POSTGRES_URL; never log its value; frozen native model in DARTCLAW_TEST_EMBEDDING_MODEL",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/heldout/receipt.json",
+      "acceptancePredicate": "Exit 0; report.json status pass, exactly 144 complete slices, every gate passes, no violations or owner/corpus leaks; artifact-sha256.txt covers report, three evaluator sources, five frozen inputs and actual model bytes. Retain measured p95/cold metrics and environment. Never retune settings, inputs, judgments or tolerances after results.",
+      "command": "dart run apps/dartclaw_cli/tool/retrieval_evaluation.dart --model-path \"$DARTCLAW_TEST_EMBEDDING_MODEL\" --output-dir .agent_temp/0.26-final/retrieval-evaluation"
+    },
+    {
+      "id": "ui-smoke",
+      "category": "ui",
+      "owners": ["Combined A+B"],
+      "environment": "Fresh same-revision plain profile server on localhost:3335 and browser screenshots",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/ui-smoke/receipt.json",
+      "acceptancePredicate": "Execute TC-01 through TC-31 and R-01 through R-14 from dev/testing/UI-SMOKE-TEST.md, retaining each outcome and screenshots. Use test channels only; no real channel messages. Required state/setup must exist before a case can pass."
+    },
+    {
+      "id": "ui-storage-fixtures",
+      "category": "ui",
+      "owners": ["Phase A S14/TI06", "Phase A S15"],
+      "environment": "Fresh and adopted visual profile data from same source",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/ui-storage-fixtures/receipt.json",
+      "acceptancePredicate": "Exercise Phase A S14 fresh/adopted seed behavior and S15 inactive-store/leftover messaging. Retain fixtures, outputs and screenshots; no historical UI result substitutes."
+    },
+    {
+      "id": "review-correctness",
+      "category": "review",
+      "owners": ["Combined A+B"],
+      "environment": "Independent reviewer on frozen A+B source",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/review-correctness/receipt.json",
+      "acceptancePredicate": "Independent combined code and gap review against both PRDs and all Phase B FIS outcomes; storage/search/source-locator and lifecycle coverage proved before verdict. Retain findings and verdict. Every actionable finding must be fixed and causally invalidated evidence rerun before acceptance."
+    },
+    {
+      "id": "review-security",
+      "category": "review",
+      "owners": ["Combined A+B"],
+      "environment": "Independent reviewer on frozen A+B source",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/review-security/receipt.json",
+      "acceptancePredicate": "Independent combined security review: database TLS/credentials/schema/tenancy, source authentication, HTTP trust boundary, native artifact publication and failure containment. Retain findings and verdict. Every actionable finding must be fixed and causally invalidated evidence rerun before acceptance."
+    },
+    {
+      "id": "review-release",
+      "category": "review",
+      "owners": ["Combined A+B"],
+      "environment": "Independent reviewer on frozen A+B source",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/review-release/receipt.json",
+      "acceptancePredicate": "Independent combined release/lean-design review: frozen evaluator authority and metrics, native packaging/process proof, docs/version/manifest completeness and no speculative scope. Retain findings and verdict. Every actionable finding must be fixed and causally invalidated evidence rerun before acceptance."
+    },
+    {
+      "id": "version",
+      "category": "version",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/version/receipt.json",
+      "acceptancePredicate": "All 13 package pubspecs, CLI, runtime constant, Homebrew/Scoop concrete pins, CHANGELOG heading and generated schema identify 0.26.0. May be covered explicitly by same-revision fitness output.",
+      "command": "bash dev/tools/check_versions.sh 0.26.0 && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check"
+    },
+    {
+      "id": "documentation",
+      "category": "docs",
+      "owners": ["Combined A+B"],
+      "environment": "Public guides/architecture/state and private milestone record",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/documentation/receipt.json",
+      "acceptancePredicate": "Operator and contributor records agree with both corpora and actual local/HTTP/storage/failure contracts; current markers and feature comparison updated; no premature platform/heldout/combined acceptance claim. Private docs/specs/0.25.2/prd.md remains byte-identical to the S09 snapshot."
+    },
+    {
+      "id": "whitespace",
+      "category": "format",
+      "owners": ["Combined A+B"],
+      "environment": "macOS arm64 integration checkout, direct Dart SDK, frozen source revision",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/whitespace/receipt.json",
+      "acceptancePredicate": "Exit 0 and own changes committed on feat/0.26; preserve unrelated work.",
+      "command": "git diff --check"
+    },
+    {
+      "id": "lifecycle",
+      "category": "release",
+      "owners": ["Combined A+B"],
+      "environment": "Local repositories after all other locally executable pre-cleanup obligations and independent reviews pass",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/lifecycle/receipt.json",
+      "acceptancePredicate": "Consolidate both phases and adjacent/interlude outcomes into private docs/specs/0.26/prd.md; move unfinished future work; only then prune that milestone to prd.md and remove public dev/bundle. Do not touch private 0.25.2 or commit private changes. Record unresolved external/native-runner gates truthfully."
+    },
+    {
+      "id": "external-release",
+      "category": "release",
+      "owners": ["Combined A+B"],
+      "environment": "Operator-managed GitHub CI/rulesets, merge/tag/publication",
+      "status": "pending-final-combined-gate",
+      "receiptPath": ".agent_temp/0.26-final/external-release/receipt.json",
+      "acceptancePredicate": "Unrun under current authorization: no push, merge to main, tag, release publication or settings changes. Exact-head Checks and named required jobs/ruleset confirmation remain external prerequisites; local CI-equivalent evidence is not a remote pass."
+    }
+  ]
+}

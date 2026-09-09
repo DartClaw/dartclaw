@@ -83,6 +83,7 @@ The CLI entry points are:
 - `runners`
 - `traces`
 - `jobs`
+- `search`
 
 Local process/lifecycle command families coexist with them:
 
@@ -124,6 +125,7 @@ Connected mode is the default for:
 - `workflow cancel`
 - `workflow retry`
 - all `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, and `jobs` commands
+- `search inspect`
 
 In connected mode:
 
@@ -192,6 +194,12 @@ The CLI primarily talks to these server route families:
 | Hybrid inspection | `POST /api/search/inspect` | `search inspect --corpus memory\|conversation --query <text> [--limit 1..20]` |
 
 The important design property is that these are the same server APIs used by the web UI and background integrations. The CLI is not a privileged side-channel.
+
+Search inspection is opt-in diagnostic presentation over the runtime's existing corpus query owners. It returns
+bounded result identity and provenance with nullable lexical/vector ranks, fixed weighted-RRF contributions,
+unembedded count and structured degradations. It does not widen normal agent retrieval payloads. Memory inspection
+also authenticates one unchanged canonical-index fingerprint around the query; unavailable or changing state returns
+`503 SEARCH_INSPECTION_UNAVAILABLE` without hits.
 
 The `/api/scheduling/jobs*` and `/api/scheduling/tasks*` handlers are likewise not the scheduling-mutation authority. Cron validation, the fresh read of `scheduling.jobs`, the modify-write and the restart-pending marker all live in `ScheduleMutationService` (`dartclaw_runtime/lib/src/scheduling/schedule_mutation.dart`); the routes map its outcome onto their status and error codes, and the `schedule_upsert` agent tool consumes the same seam. Neither surface can drift from the other's cron rule, and neither writes `scheduling.jobs` on its own. A written job takes effect only at the next restart: `ScheduleService` takes its job list at construction, which is why every write records the restart marker and why `schedule_list` reports what the running server actually loaded rather than what config says.
 
@@ -276,6 +284,7 @@ Not every CLI command is server-backed. Some remain intentionally local:
 | `sessions cleanup` | Local maintenance against the filesystem/data directory |
 | `token *` | Local gateway token management |
 | `rebuild-index` | Local rebuild of the derived search index |
+| `search download-model` | Download and checksum the one managed local embedding model without requiring a server |
 | `serve` / `service` / `init` | Process and installation lifecycle |
 | `doctor` | Shared setup diagnostics, value-free storage audit, health and container probes; optional directory creation |
 
@@ -299,6 +308,8 @@ apps/dartclaw_cli/lib/src/commands/
   runners/
   traces/
   jobs/
+  search_command.dart
+  search_inspect_command.dart
 
 packages/dartclaw_runtime/lib/src/api/
   workflow_routes.dart
@@ -307,6 +318,7 @@ packages/dartclaw_runtime/lib/src/api/
   project_routes.dart
   session_routes.dart
   trace_routes.dart
+  search_inspection_routes.dart
   chat_command_handler.dart
   github_webhook.dart
 ```

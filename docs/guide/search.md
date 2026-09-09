@@ -71,13 +71,98 @@ values, and omitted count.
 
 Built-in full-text search using SQLite FTS5 with BM25 ranking. Zero external dependencies. Handles indexing automatically via database triggers.
 
-### QMD Hybrid Search (Opt-in)
+### Built-in Hybrid Search (Opt-in)
 
-QMD adds vector search for semantic matching. DartClaw manages the QMD daemon lifecycle and supports stable QMD 2.5.3
-or later 2.x releases. Startup uses QMD's explicit global `index`, verifies `collection show memory` maps to the exact workspace
-with the recursive `**/*.md` mask, then completes both the initial update and embedding pass. Queries use QMD's structured
-REST contract; daemon binding is restricted to literal loopback hosts (`localhost`, `127.x.x.x`, or `::1`), and shutdown
-uses `qmd mcp stop`.
+Built-in hybrid search combines the current full-text results with semantic matches for both memory and conversation
+search. Enable it with the managed local provider:
+
+```yaml
+search:
+  backend: hybrid
+  embedding:
+    provider: local
+    model: embeddinggemma-300M-Q8_0.gguf
+```
+
+The local provider accepts only this model. DartClaw reads it from
+`<data_dir>/models/embeddinggemma-300M-Q8_0.gguf`; the setting is a managed selector, not a path. Acquire it explicitly:
+
+```bash
+dartclaw search download-model
+```
+
+The command checks the exact size and checksum. It reuses matching bytes and otherwise downloads to a temporary file,
+verifies it, and publishes it only after verification. Starting DartClaw never downloads a model automatically. The
+command reports the Gemma licence that governs the model.
+
+If the model is absent or corrupt, native loading fails, or embedding a query or document fails, lexical search remains
+available and the affected result reports vector degradation. A native provider whose initialization times out is not
+retried inside that server process; correct the model or native installation and restart DartClaw. There is no hidden
+retry or automatic switch to HTTP.
+
+#### Explicit HTTP Provider
+
+To use a local HTTP outpost or cloud embedding service, select it explicitly and name its model and absolute endpoint.
+The credential is an optional named generic API key:
+
+```bash
+dartclaw secrets set embeddings-service --type api-key
+```
+
+```yaml
+search:
+  backend: hybrid
+  embedding:
+    provider: http
+    model: provider-model-name
+    endpoint: https://embeddings.example/v1/embeddings
+    credential: embeddings-service
+```
+
+The endpoint receives raw query and document text in the OpenAI-compatible `input` field, so that text leaves DartClaw
+and enters the endpoint's trust boundary. The endpoint owns model-specific preprocessing. DartClaw does not add the
+EmbeddingGemma query/document prefixes, infer behavior from the model name, or select HTTP automatically. It does not
+log or serialize the resolved credential value. A credential requires HTTPS except for a literal loopback endpoint.
+
+#### Inspection and Recovery
+
+Inspect each corpus independently through the running server:
+
+```bash
+dartclaw search inspect --corpus memory --query "release policy" --limit 20
+dartclaw search inspect --corpus conversation --query "release policy" --limit 20
+```
+
+The command reports the returned sources and scores, the full-text and vector ranks and contributions for considered
+candidates, the selected corpus's unembedded count, and any degradation. Limits are bounded from 1 to 20. Use `--json`
+for the same structured response.
+
+`GET /api/memory/status` reports separate `memoryUnembeddedCount` and `conversationUnembeddedCount` values under
+`index`. Zero means every current chunk has a usable vector for the selected provider; a positive value identifies work
+still to reconcile; `null` means the count is unavailable or hybrid search is inactive.
+
+Stop DartClaw and run `dartclaw rebuild-index` after enabling hybrid search, changing the HTTP provider identity,
+repairing the local model, or recovering from vector degradation. The command rebuilds both lexical corpora, then
+reconciles their vectors. Its human output reports both unembedded counts. JSON output uses
+`memoryUnembeddedCount`, `conversationUnembeddedCount`, and `vectorDegradedCorpora` when recovery is incomplete.
+
+On SQLite, `search.db` is the replaceable lexical projection and `vectors.db` is the separate retained vector store.
+On PostgreSQL, `memory_vectors` and `conversation_vectors` hold the two corpus-specific vector projections. PostgreSQL
+hybrid search requires administrator-provisioned pgvector; see [PostgreSQL](postgresql.md#provisioning). These stores are
+derived and can be rebuilt from canonical memory and session NDJSON.
+
+SQLite full-text search matches `unicode61` tokens without stemming. PostgreSQL full-text search applies the configured
+Snowball stemming. Semantic matches come from embeddings and can match related wording that shares no lexical token.
+Hybrid search combines the lexical and semantic rankings while preserving each corpus's canonical result identity.
+
+### QMD Hybrid Search (Deprecated)
+
+QMD is deprecated in 0.26 but remains working during this milestone; the following milestone removes it. Existing QMD
+deployments can continue to use its vector search for semantic matching. DartClaw manages the daemon lifecycle and
+supports stable QMD 2.5.3 or later 2.x releases. Startup uses QMD's explicit global `index`, verifies
+`collection show memory` maps to the exact workspace with the recursive `**/*.md` mask, then completes both the initial
+update and embedding pass. Queries use QMD's structured REST contract; daemon binding is restricted to literal loopback
+hosts (`localhost`, `127.x.x.x`, or `::1`), and shutdown uses `qmd mcp stop`.
 
 ```yaml
 search:
@@ -103,14 +188,14 @@ If startup reports that the existing `memory` collection uses the legacy `*.md` 
 
 With the [PostgreSQL backend](postgresql.md), one deployment-level `database.fts_language` setting drives memory,
 conversation, and knowledge-graph fact search. Changing it requires a restart followed by `dartclaw rebuild-index`
-for the stored memory and conversation vectors. Knowledge-graph facts use the new language on their next query after
-restart. The wiki stays file-backed and is searched live, and tasks are never indexed.
+for the stored memory and conversation search projections. Knowledge-graph facts use the new language on their next
+query after restart. The wiki stays file-backed and is searched live, and tasks are never indexed.
 
 PostgreSQL uses Snowball stemming for regular inflections. For example, Swedish `springa` can match `springer`, but
 the irregular English `sprang` does not match `springa`. Mixed-language content can be mis-stemmed because every
 document uses the configured deployment language. PostgreSQL does not fold diacritics where FTS5 does, and a query
 made only of stopwords returns no matches. Quoted phrases and `-word` negation use PostgreSQL web-search query syntax.
-It uses core PostgreSQL and requires no extension.
+FTS-only operation uses core PostgreSQL and requires no extension; built-in hybrid search also requires pgvector.
 
 SQLite keeps its existing FTS5 behavior unchanged, including `unicode61` tokenization without stemming.
 
@@ -125,8 +210,9 @@ System messages, attachments, and task, cron, logical-agent and archived session
 the source of truth. Indexing failures are logged without interrupting message persistence.
 
 Deleting or clearing a session removes its indexed messages. Archiving removes them from search while retaining the
-files; resuming a chat-facing session restores them. This release exposes the query interface to Dart integrations
-through `ConversationSearchService`, with message/session IDs, role, timestamp, text and score.
+files; resuming a chat-facing session restores them. Dart integrations use `ConversationSearchService`, and operators
+can inspect the corpus with `dartclaw search inspect --corpus conversation`, including message/session IDs, role,
+timestamp, text, score and hybrid ranking evidence.
 
 SQLite matches sanitized exact terms with `unicode61`, without stemming or prefix queries. PostgreSQL uses
 `database.fts_language` for stemming, shared with memory and knowledge-graph search. After changing that language,

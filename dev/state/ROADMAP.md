@@ -78,21 +78,25 @@ work is parked on `parked/s64-workflow-schema`.
 
 > **Numbering policy (owner, 2026-09-03):** a version number is assigned only when work on a milestone starts. Planned milestones are referred to by name and slug (their private spec directory) until then. Canonical sequencing and detail: `dartclaw-private/docs/ROADMAP.md`.
 
-### 0.26 — Pluggable Database Backend & Multi-Language Search
+### 0.26 – Pluggable Database Backend & Hybrid Search
 
-**Status 2026-09-09 – Phase A delivered on feat/0.26; Phase B implementation launched.** This is an implementation checkpoint; final
-combined Phase A + Phase B verification remains pending.
+**Status – 0.26.0 release candidate on `feat/0.26`; combined verification pending.** All 17 Phase A
+stories and the eight Phase B implementation stories are accepted. The guides, 0.26.0 version pins and pending verification manifest are in place.
 
-All 17 Phase A story receipts and their reviews are retained in checkpoint `007ab8d48220f07b429f647a3d23dc802bc82141`. The nine-story Phase B bundle is reviewed and validated for implementation. Combined live/platform/retrieval/release verification remains pending.
+Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
+full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B
+adds built-in hybrid retrieval for memory and conversation messages, local verified EmbeddingGemma or an explicitly
+configured HTTP provider, retained vectors, authenticated ranking inspection and bounded turn source provenance.
+QMD remains functional but deprecated in 0.26; removal belongs to the following milestone.
 
-Phase A delivers the `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap and
-compatibility gate, `FullTextIndex` with language-aware PostgreSQL search, credential-referenced database access, TLS
-posture, filesystem-backed instance-local state, backend-switch safety, and the dual-backend contract suite. Phase B
-remains native hybrid search (`dartclaw_search`, ADR-050). The plan bundle was regenerated against 0.25 on 2026-09-03
-(15 stories) plus the two workflow-schema stories deferred from 0.25.
+The combined evidence manifest is `dev/bundle/docs/specs/0.26/final-combined-verification.json`. It retains every
+Phase A deferred obligation and adds native packaging, sealed retrieval, full integration, UI and independent reviews.
+The accepted Phase A checkpoint remains `007ab8d48220f07b429f647a3d23dc802bc82141`; story receipts establish
+implementation acceptance only. The release record is CHANGELOG § 0.26.0.
 
-**External gate:** the operator's GitHub ruleset step for the exact `PostgreSQL contract` check is pending; follow `dev/guidelines/RELEASE_PREPARATION.md`.
-No remote CI confirmation is recorded at this checkpoint.
+**External gates remain unrun:** exact-commit remote CI, the operator-managed ruleset including `PostgreSQL contract`,
+the five-target release-workflow dry run, tagging and publication. Local evidence cannot establish these results.
+See `dev/guidelines/RELEASE_PREPARATION.md`.
 
 ### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 

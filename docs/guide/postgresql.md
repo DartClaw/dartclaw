@@ -7,8 +7,8 @@ that need a separately operated relational database or PostgreSQL language-aware
 ## When to Use It
 
 PostgreSQL 14 or newer is required. One deployment uses one database backend at a time, and a PostgreSQL
-deployment uses one database and one connection pool. DartClaw relies only on core PostgreSQL features; it requires
-no extension.
+deployment uses one database and one connection pool. FTS-only operation relies on core PostgreSQL features and needs
+no extension. Built-in hybrid search additionally requires pgvector in the `public` schema.
 
 Choose PostgreSQL when its operating model is a good fit for your deployment. It moves authoritative relational data
 to a separately administered service, so backups, access control, retention, and availability become shared concerns
@@ -103,6 +103,19 @@ CREATE SCHEMA IF NOT EXISTS dartclaw AUTHORIZATION dartclaw;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 ```
 
+For `search.backend: hybrid`, the administrator must also install pgvector in `public` before DartClaw starts:
+
+```sql
+CREATE EXTENSION vector WITH SCHEMA public;
+```
+
+DartClaw qualifies the required `public.vector` type, functions, and operator while creating `memory_vectors` and
+`conversation_vectors` in the application schema. Keep the runtime role non-superuser and least-privilege: it needs to
+use the administrator-installed extension and own its application schema, but it does not need extension-creation,
+database-creation, role-creation, replication, or superuser rights. If pgvector is absent or inaccessible, hybrid
+startup refuses the vector projection and tells the operator to have an administrator install it. FTS-only deployments
+do not run this extension gate.
+
 Managed services may provide the database or restrict administrator statements. Apply the equivalent provider steps
 so the runtime role owns its schema and can create and use DartClaw's current objects there, without superuser or
 database-creation rights. DartClaw logs one startup warning if the runtime role is a superuser and continues.
@@ -127,8 +140,8 @@ recovery first and then fails closed without serving.
 
 `database.fts_language` is one deployment-level PostgreSQL text-search configuration for memory documents,
 conversation messages, and knowledge-graph facts. Changing it requires a restart and then
-`dartclaw rebuild-index` for the stored memory and conversation vectors. Knowledge-graph facts use the new language
-on their next query after restart. The wiki remains file-backed and is searched live. Tasks are never indexed.
+`dartclaw rebuild-index` for the stored memory and conversation search projections. Knowledge-graph facts use the new
+language on their next query after restart. The wiki remains file-backed and is searched live. Tasks are never indexed.
 
 PostgreSQL search has these limits:
 
@@ -139,8 +152,10 @@ PostgreSQL search has these limits:
 - A query containing only stopwords returns no matches.
 - Quoted phrases and `-word` negation use PostgreSQL web-search query syntax.
 
-See [Search & Memory](search.md#postgresql-language-aware-search-opt-in) for how this relates to SQLite FTS5 and QMD,
-and [CLI Reference](cli-reference.md#rebuild-index) for rebuild output and options.
+Semantic matches from built-in hybrid search use embeddings rather than these lexical stemming rules. Inspect memory
+and conversation independently with `dartclaw search inspect`; the response separates lexical and vector ranking
+evidence. See [Search & Memory](search.md#postgresql-language-aware-search-opt-in) for the full comparison and
+[CLI Reference](cli-reference.md#rebuild-index) for rebuild output and options.
 
 ## Operations and Backups
 
@@ -164,7 +179,8 @@ the selected database.
 | Store | SQLite deployment | PostgreSQL deployment | Back up? | What is lost without it |
 |---|---|---|---|---|
 | Authoritative relational store | `<data_dir>/dartclaw.db` | Configured PostgreSQL database | Yes | Tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts |
-| Derived search projections | `<data_dir>/search.db` | Memory and conversation search tables in PostgreSQL | No | Search availability until rebuilt from canonical memory and session NDJSON |
+| Derived lexical search projections | `<data_dir>/search.db` | Memory and conversation search tables in PostgreSQL | No | Lexical search availability until rebuilt from canonical memory and session NDJSON |
+| Derived vector projections | `<data_dir>/vectors.db` | `memory_vectors` and `conversation_vectors` in PostgreSQL | No | Semantic matches until rebuilt from canonical memory and session NDJSON |
 | Turn recovery | `<data_dir>/turn_state.json` | Same local file | No | Recovery context for turns interrupted by a crash |
 | Webhook deduplication | `<data_dir>/webhook_deliveries/` | Same local directory | No | Recent reservation and delivery markers; duplicate delivery suppression may be lost |
 | Sessions | `<data_dir>/sessions/` | Same local directory | Yes | Session metadata, conversation history, and the source for conversation-index rebuilds |
@@ -207,3 +223,5 @@ For a retired SQLite store, retain or securely remove `dartclaw.db` after the sa
 | PostgreSQL is unreachable at boot | Restore network, DNS, credentials, or the database service, then restart; DartClaw does not serve after the failure |
 | Lock recovery enters quarantine | Storage remains unavailable until ownership, PostgreSQL version, and current schema are revalidated; correct the reported condition and restart after a terminal failure |
 | Schema compatibility is refused | Back up the named store, then reset or recreate it for this release, or restore a compatible backup |
+| Hybrid startup reports that pgvector is unavailable | Ask an administrator to run `CREATE EXTENSION vector WITH SCHEMA public`; do not grant the runtime role superuser rights |
+| Vector recovery remains incomplete | Correct the local model or HTTP endpoint, stop DartClaw, and run `dartclaw rebuild-index`; lexical search remains available |

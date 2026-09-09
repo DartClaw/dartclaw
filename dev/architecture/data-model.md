@@ -2,9 +2,9 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 vector projection stores, conversation-message indexing, PostgreSQL serving interlock,
-backend-switch notices, language-aware search, and filesystem-backed instance-local state. The authoritative SQLite
-store is `dartclaw.db`.
+**Current through**: 0.26 memory and conversation hybrid projections, embedding-fingerprint lifecycle, PostgreSQL
+serving interlock, language-aware search, bounded turn-source provenance, and filesystem-backed instance-local state.
+The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -399,7 +399,9 @@ SearchDocument
 └── timestamp: DateTime
 ```
 
-**Storage**: SQLite `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table); PostgreSQL database → `memory_chunks.content_tsv` with a language-neutral GIN index
+**Storage**: SQLite `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table) and separate `vectors.db`
+→ `memory_vectors`; PostgreSQL database → `memory_chunks.content_tsv` plus optional `memory_vectors` using
+`public.vector`
 **Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
 and deletion audit. Only searchable topic, archive, observation, and learning entries project into the selected memory
 index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
@@ -421,8 +423,9 @@ persisted message UUID; metadata contains `session_id` and `role`, and its times
 System messages, message metadata, attachments, and non-chat session types are excluded. Every operation uses the
 instance-owner scope (`user_id = 'owner'`), independently of the memory corpus.
 
-**Storage**: SQLite `search.db` holds `conversation_chunks` and its external-content `conversation_chunks_fts` table.
-PostgreSQL holds `conversation_chunks` with `content_tsv` and a GIN index. Named projection columns are `message_id`,
+**Storage**: SQLite `search.db` holds `conversation_chunks` and its external-content `conversation_chunks_fts` table;
+separate `vectors.db` holds `conversation_vectors`. PostgreSQL holds `conversation_chunks` with `content_tsv` and a
+GIN index plus optional `conversation_vectors` using `public.vector`. Named lexical projection columns are `message_id`,
 `user_id`, `text`, `chunk_index`, `session_id`, `role`, and `created_at`; `chunk_index` is the stable zero-based
 position in the document, while integer `id` is only the database row identity.
 **Source of truth**: `sessions/<id>/messages.ndjson`. Post-append observers enqueue indexing without delaying or failing
@@ -820,6 +823,8 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Session archived** | Type changes to `archive`; NDJSON is preserved and conversation rows are removed. Returning to a chat-facing type restores them. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
 | **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
+| **Memory or chat-facing message changes** | The corpus lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
+| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile memory and conversation independently without changing either canonical source. |
 | **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
 
 ---
@@ -844,10 +849,14 @@ dartclaw_core       (kernel + sqlite3 + postgres)
      │                                  SqliteBackend, PostgresBackend,
      │                                  relational repositories via DatabaseBackend,
      │                                  SqliteFtsIndex, PostgresFtsIndex,
+     │                                  SqliteVectorIndex, PostgresVectorIndex,
      │                                  SqliteSchemaGate, PostgresSchemaGate,
      │                                  TurnStateStore, WebhookDeliveryStore (files),
      │                                  TurnTraceService,
      │                                  TaskEventService
+     │
+dartclaw_search     (kernel + llamadart) HybridSearch, VectorSynchronizer,
+                                        NativeEmbeddingProvider, HttpEmbeddingProvider
      │
 dartclaw_workflow   (kernel + core)     WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
@@ -855,7 +864,7 @@ dartclaw_workflow   (kernel + core)     WorkflowRegistry, WorkflowDefinition/Ste
      │                                  WorkflowRunRepository + SqliteWorkflowRunRepository,
      │                                  WorkflowMaterializer
      │
-dartclaw_runtime    (kernel + core + workflow, shelf)
+dartclaw_runtime    (kernel + core + search + workflow, shelf)
                                         StorageWiring, TaskService (wraps repository),
      ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,
      │                                  ProjectService (implementation), TaskEventRecorder,

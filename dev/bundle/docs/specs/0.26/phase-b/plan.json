@@ -349,10 +349,15 @@
         "S07",
         "S08"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s09-hybrid-operations-and-milestone-release-preparation.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
+      "owner": "root",
       "scope": "Finish operator/developer documentation and architecture/state alignment, prepare the milestone version and release record, and bind every deferred A+B verification obligation for combined acceptance. Consolidation and pruning follow actual final results.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr8-configuration-and-operator-guidance"

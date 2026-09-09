@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1",
+  "story": "S09",
+  "fis": "s09-hybrid-operations-and-milestone-release-preparation.md",
+  "plan": "plan.json",
+  "snapshot": "71935b095b87+356c81cb8512",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 71935b095b87+356c81cb8512",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 118.181,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "bash -c 'set -eu; rg -q \"search download-model\" docs/guide/cli-reference.md; rg -q \"search inspect\" docs/guide/cli-reference.md; rg -q \"embeddinggemma-300M-Q8_0.gguf\" docs/guide/search.md; rg -q \"<data_dir>/models\" docs/guide/search.md; rg -q \"memoryUnembeddedCount\" docs/guide/web-ui-and-api.md; rg -q \"conversationUnembeddedCount\" docs/guide/web-ui-and-api.md; rg -qi \"raw input|raw query|raw document\" docs/guide/search.md; rg -qi \"leaves DartClaw|sent to.*endpoint\" docs/guide/search.md; rg -qi \"QMD.*deprecated|deprecated.*QMD\" docs/guide/search.md; rg -q \"vectors.db\" docs/guide/search.md; rg -qi \"CREATE EXTENSION vector\" docs/guide/postgresql.md; rg -qi \"public.*vector|vector.*public\" docs/guide/postgresql.md; for key in search.embedding.provider search.embedding.model search.embedding.endpoint search.embedding.credential; do rg -q \"$key\" docs/guide/configuration.md; done; ! rg -q \"search\\.embedding\\.(path|checksum|fingerprint|dimension|timeout|retry)\" docs/guide/configuration.md; dart run dev/tools/render_config_reference.dart --check; dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check'",
+      "exit": 0,
+      "duration": 1.104,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "bash -c 'set -eu; dart run dev/tools/arch_check.dart; for f in dev/architecture/system-architecture.md dev/architecture/data-model.md dev/architecture/configuration-architecture.md dev/architecture/cli-api-architecture.md dev/architecture/observability-operations-architecture.md; do rg -q \"^\\*\\*Current through\\*\\*: 0\\.26\" \"$f\"; done; rg -qi \"superseded.*ADR-050\" dev/adrs/004-vector-search-approach.md; rg -qi \"0\\.26.*deprecat|deprecat.*0\\.26\" dev/adrs/004-vector-search-approach.md dev/adrs/050-native-hybrid-search.md; rg -qi \"13 packages|package count.*13\" dev/adrs/056-package-topology-consolidation.md; rg -q \"^\\| Embedding Provider \\|\" dev/state/UBIQUITOUS_LANGUAGE.md; rg -q \"^\\| Vector Index \\|\" dev/state/UBIQUITOUS_LANGUAGE.md; rg -q \"^\\| Hybrid Search \\|\" dev/state/UBIQUITOUS_LANGUAGE.md; rg -q \"050-native-hybrid-search\" dev/state/DECISIONS.md; rg -qi \"llamadart|embeddinggemma\" dev/state/STACK.md; rg -qi \"0\\.26.*hybrid|hybrid.*0\\.26\" ../dartclaw-private/docs/specs/feature-comparison.md; ! rg -q \"(packages/|package:)dartclaw_(storage|server|config|models|security)\\b\" dev/architecture/system-architecture.md dev/architecture/data-model.md dev/architecture/configuration-architecture.md dev/architecture/cli-api-architecture.md dev/architecture/observability-operations-architecture.md'",
+      "exit": 0,
+      "duration": 0.372,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "bash -c 'set -eu; manifest=dev/bundle/docs/specs/0.26/final-combined-verification.json; prior=../dartclaw-private/docs/specs/0.26/deferred-live-platform-proofs.json; cmp -s ../dartclaw-private/docs/specs/0.26/final-combined-verification.json \"$manifest\"; jq -e --slurpfile prior \"$prior\" '\\''.phaseA == $prior[0] and (([.evidenceBindings[] | select(.source == \"phaseA\") | .sourceIndex] | sort) == [range(0; ($prior[0] | length))]) and ([.evidenceBindings[] | has(\"environment\") and has(\"receiptPath\") and has(\"acceptancePredicate\")] | all) and ([.obligations[] | .status == \"pending-final-combined-gate\"] | all) and ([.obligations[] | has(\"owners\") and has(\"environment\") and has(\"receiptPath\") and has(\"acceptancePredicate\")] | all) and (([.obligations[].category] | unique) | contains([\"analysis\",\"architecture\",\"build\",\"config-drift\",\"container\",\"docs\",\"format\",\"heldout\",\"integration\",\"native-platform\",\"release\",\"review\",\"security\",\"ui\",\"version\",\"workflow\"]))'\\'' \"$manifest\" >/dev/null; for target in macos-arm64 linux-arm64 linux-x64 windows-x64; do command=\"dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target $target --evidence build/native-embedding-$target.json\"; jq -e --arg command \"$command\" '\\''([.obligations[] | select(.command == $command)] | length) == 1'\\'' \"$manifest\" >/dev/null; done; jq -e '\\''([.obligations[] | select(.command == \"dart run apps/dartclaw_cli/tool/retrieval_evaluation.dart --model-path \\\"$DARTCLAW_TEST_EMBEDDING_MODEL\\\" --output-dir .agent_temp/0.26-final/retrieval-evaluation\")] | length) == 1'\\'' \"$manifest\" >/dev/null'",
+      "exit": 0,
+      "duration": 0.031,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "bash -c 'set -eu; bash dev/tools/check_versions.sh 0.26.0; dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check; dart run dev/tools/render_config_reference.dart --check; dart test --reporter=failures-only apps/dartclaw_cli/test/tool/release_binaries_workflow_test.dart; private_section=$(awk '\\''/^### 0\\.26/{p=1} p && /^### / && !/^### 0\\.26/{exit} p'\\'' ../dartclaw-private/docs/ROADMAP.md); public_section=$(awk '\\''/^### 0\\.26/{p=1} p && /^### / && !/^### 0\\.26/{exit} p'\\'' dev/state/ROADMAP.md); changelog_section=$(awk '\\''/^## \\[0\\.26\\.0\\]/{p=1} p && /^## \\[/ && !/^## \\[0\\.26\\.0\\]/{exit} p'\\'' CHANGELOG.md); for section in \"$private_section\" \"$public_section\"; do printf \"%s\\n\" \"$section\" | rg -qi \"combined.*pending|pending.*combined\"; ! printf \"%s\\n\" \"$section\" | rg -qi \"combined.*(passed|accepted)|held.?out.*pass|platform.*pass|Status.*release-ready|Status.*released|Status.*tagged\"; done; printf \"%s\\n\" \"$changelog_section\" | rg -qi \"hybrid\"; printf \"%s\\n\" \"$changelog_section\" | rg -qi \"memory.*conversation|conversation.*memory\"; printf \"%s\\n\" \"$changelog_section\" | rg -qi \"QMD.*deprecat|deprecat.*QMD\"; ! printf \"%s\\n\" \"$changelog_section\" | rg -qi \"held.?out.*pass|platform.*pass|combined.*(passed|accepted)\"; cmp -s ../dartclaw-private/.agent_temp/0.26-final/s09-prep/0.25.2-prd.before ../dartclaw-private/docs/specs/0.25.2/prd.md'",
+      "exit": 0,
+      "duration": 2.381,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

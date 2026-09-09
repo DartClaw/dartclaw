@@ -2,7 +2,11 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.26 PostgreSQL database configuration, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL database and native/HTTP embedding configuration, versioned schema `$id`, the
+offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections,
+capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
+and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
+form, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -99,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Search backend | `backend` (fts5/qmd), `qmd.host`, `qmd.port`, `defaultDepth` |
+| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
@@ -729,7 +733,7 @@ This is the **field-level** view — `ConfigMeta` mutability, which is what `PAT
 | `alerts.*` (targets, cooldowns, thresholds) | `logging.level`, `logging.format` |
 | | `governance.*` (turn limits, budgets, stall detection) |
 | | `container.*` |
-| | `search.backend`, `search.qmd.*` |
+| | `search.backend`, `search.qmd.*`, `search.embedding.*` |
 | | `database.*` |
 | | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 | | `harness.*`, `knowledge.*`, `workflow.*`, `mcp_servers.*` |
@@ -815,6 +819,12 @@ provisioning remains with explicit store writers.
 Credentials follow a reference-based model. The `credentials:` config section may hold a literal but should normally
 reference environment variables; `dartclaw secrets` keeps named values outside `dartclaw.yaml` entirely. Consumers
 resolve a credential name at runtime rather than embedding its value in their own config.
+
+`search.embedding.provider: local` accepts only the managed EmbeddingGemma model and rejects endpoint or credential
+fields. `provider: http` requires an explicit endpoint and non-empty model; its optional `credential` names a generic
+API-key entry. Query and document bodies are sent as raw OpenAI-compatible `input`, so the endpoint owns preprocessing
+and is an explicit trust boundary. Provider kind, normalized endpoint/model or verified local model identity, and
+input convention form the vector fingerprint; the fingerprint is derived runtime identity, not configuration.
 
 `database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
 mutually exclusive with `database.url`.
@@ -1030,7 +1040,7 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 |---------|-------------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (fts5/qmd), QMD connection |
+| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, and the four `search.embedding.*` provider fields |
 | `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |

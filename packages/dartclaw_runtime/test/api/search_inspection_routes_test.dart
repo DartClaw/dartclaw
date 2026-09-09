@@ -243,9 +243,6 @@ void main() {
         config: config,
         eventBus: EventBus(),
         exitFn: (code) => throw StateError('$code'),
-        searchRelevanceTurn: (_, schema) async => {
-          for (final key in (schema['properties'] as Map).keys) key as String: true,
-        },
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedQuery: (_) async {
             entered.complete();

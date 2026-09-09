@@ -2683,13 +2683,6 @@
             "null",
             "object"
           ]
-        },
-        "relevance_model": {
-          "description": "Provider and model for hybrid-search relevance checks, written as provider/model. Null inherits the primary agent route. (restart required)",
-          "type": [
-            "null",
-            "string"
-          ]
         }
       },
       "type": [

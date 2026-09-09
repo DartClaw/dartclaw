@@ -100,12 +100,6 @@ class SearchConfig {
   /// Embedding provider settings used when [backend] is `hybrid`.
   final EmbeddingConfig embedding;
 
-  /// Provider and model used to judge hybrid-search relevance.
-  ///
-  /// Null inherits the primary agent route. A configured value uses
-  /// `provider/model` shorthand and does not inherit primary-agent effort.
-  final String? relevanceModel;
-
   /// Creates a [SearchConfig] value.
   const new({
     this.backend = 'fts5',
@@ -114,7 +108,6 @@ class SearchConfig {
     this.defaultDepth = 'standard',
     this.providers = const {},
     this.embedding = const EmbeddingConfig(),
-    this.relevanceModel,
   });
 
   /// Default configuration.
@@ -129,8 +122,7 @@ class SearchConfig {
           qmdPort == other.qmdPort &&
           defaultDepth == other.defaultDepth &&
           const MapEquality<String, SearchProviderEntry>().equals(providers, other.providers) &&
-          embedding == other.embedding &&
-          relevanceModel == other.relevanceModel;
+          embedding == other.embedding;
 
   @override
   int get hashCode => Object.hash(
@@ -140,6 +132,5 @@ class SearchConfig {
     defaultDepth,
     const MapEquality<String, SearchProviderEntry>().hash(providers),
     embedding,
-    relevanceModel,
   );
 }

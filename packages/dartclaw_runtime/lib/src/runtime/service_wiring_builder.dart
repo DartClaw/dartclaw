@@ -31,7 +31,6 @@ final class _WiringContext {
   /// refuses, while the ones that merely may have one read [serverRefGetter].
   DartclawServer? _serverRef;
   late TurnManager _serverTurns;
-  SearchRelevanceRunner? _searchRelevanceRunner;
 
   /// The provider entries the composed harness registrars declared, bound once
   /// the harness is wired.
@@ -59,7 +58,6 @@ final class _WiringContext {
 
   void bindServer(DartclawServer server) => _serverRef = server;
   void bindTurns(TurnManager turns) => _serverTurns = turns;
-  void bindSearchRelevanceRunner(SearchRelevanceRunner runner) => _searchRelevanceRunner = runner;
 
   DartclawServer? Function() get serverRefGetter =>
       () => _serverRef;
@@ -67,11 +65,6 @@ final class _WiringContext {
       () => _serverRef ?? (throw StateError('This runtime composed no server'));
   TurnManager Function() get turnManagerGetter =>
       () => _serverTurns;
-  Future<Map<String, dynamic>> runSearchRelevanceTurn(String prompt, Map<String, dynamic> outputSchema) =>
-      (_searchRelevanceRunner ?? (throw StateError('This runtime composed no search relevance turn'))).run(
-        prompt,
-        outputSchema,
-      );
 }
 
 /// Composes the turn manager the rest of the assembly threads through.

@@ -178,20 +178,21 @@ Neither corpus nor backend may be dropped to reduce scope. Optional UI or replay
 
 #### FR7: Sealed Retrieval Evaluation
 
-**Description**: Measure the actual retrieval pipeline with frozen, privacy-safe Swedish/English judgments.
+**Description**: Measure actual passage retrieval with versioned Swedish/English judgments. The owner-approved
+[protocol-2 correction](../search-contract-correction.md) supersedes the original answer-sufficiency/empty-result rule.
 
 **Acceptance Criteria**:
 - [ ] Use separate calibration data: the historical 24-document/16-query fixture plus frozen calibration negatives. Freeze weights, vector acceptance threshold, fingerprint and candidate limit before observing held-out scores; choose keyword/vector weights from 0.5/0.5, 0.25/0.75 or 0.1/0.9, retaining both contributions and k=60.
-- [ ] The held-out fixture has at least 50 queries across exact-keyword, vocabulary-mismatch, named-entity, temporal, relational and no-result families, and reports memory/conversation and Swedish/English slices. The prepared fixture has 60 queries and SHA-256 `2635bb02da1f8dddd67e9b9f22795cc32dbee34588d642b573bdf00b8ec7b9a3`.
-- [ ] Run actual SQLite FTS5 and PostgreSQL keyword retrieval, vector retrieval and hybrid retrieval. Report hit@1, recall@5, precision@5, MRR and warm-query p95 latency per backend/mode/corpus/language/family. Metrics are macro-averaged over queries within each slice; positive precision uses denominator five. MRR uses the returned top-five list (reported explicitly as MRR@5). Empty relevance sets have recall/MRR not applicable and a separate correct-empty rate.
+- [ ] The held-out fixture has at least 50 queries across exact-keyword, vocabulary-mismatch, named-entity, temporal, relational and answer-absent families, and reports memory/conversation and Swedish/English slices. The original 60-query fixture and hash remain historical. Protocol 2 uses separately versioned `retrieval-v2.json` as exposed regression evidence, not an unseen holdout.
+- [ ] Run actual SQLite FTS5 and PostgreSQL keyword retrieval, vector retrieval and hybrid retrieval. Report hit@1, recall@5, precision@5, MRR and warm-query p95 latency per backend/mode/corpus/language/family. Ranking metrics are macro-averaged over nonempty passage-relevance judgments within each slice; positive precision uses denominator five. MRR uses the returned top-five list (MRR@5). Record positive and expected-empty query counts. Empty denominators yield null. Correct-empty rate uses only explicit `expectEmpty` probes; answer absence alone does not require an empty ranking.
 - [ ] On each backend, hybrid strictly improves vocabulary-mismatch hit@1 and MRR over keyword-only, including separately for memory and conversations.
 - [ ] For every other positive family, hybrid hit@1, recall@5, precision@5 and MRR trail the better constituent by at most 0.10 absolute over ten queries. Each five-query corpus slice has at most 0.20 absolute regression. Hit@1 therefore permits at most one fewer success per family or corpus slice.
-- [ ] All ten no-result queries return no hits. Any foreign-owner or wrong-corpus result fails independently of aggregate scores. Wiki-over-raw ordering has a separate exact composition test.
+- [ ] Every fixed, independently justified `expectEmpty` no-match probe returns no hits. Other answer-absent queries retain visible diagnostic results and are not mechanically relabeled as positives. Any foreign-owner or wrong-corpus result fails independently of aggregate scores. Wiki-over-raw ordering has a separate exact composition test.
 - [ ] Use the same model, candidate limit, cutoff, warm-up and repetition settings for all three retrieval modes on each backend. Record hardware, artifact hashes, cold initialization, warm-up, repetitions and candidate limit. Latency is reported against the measured environment without an invented hardware-independent SLA.
 - [ ] A failed held-out gate requires causal implementation remediation or an explicit product decision. It never authorizes changing judgments, tuning against held-out questions or loosening tolerances after scores are known.
 
 **Inputs / Outputs**: Frozen documents/queries/judgments, selected settings and real backend pipelines → reproducible metric report and pass/fail evidence.
-**Validation**: Fixture and settings hashes, independent calibration/held-out sets, backend-native scorers and slice completeness are checked before scoring.
+**Validation**: Fixture/settings hashes, declared evidence scope, backend-native scorers and slice completeness are checked before scoring. Prospective passage judgments are independently reviewed before protocol-2 measurements. Historical failed reports remain unchanged; exposed regression results never establish unseen acceptance.
 **Error Handling**: Missing backend/model/platform or incomplete slices are a failed/blocked gate, not omitted rows reported as success.
 **Priority**: Must / P0
 

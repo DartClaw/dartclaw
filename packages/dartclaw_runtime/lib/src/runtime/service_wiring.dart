@@ -7,7 +7,6 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' as config_tools;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_search/dartclaw_search.dart' show SearchRelevanceTurn;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProcessRunner,
@@ -105,9 +104,6 @@ class DartclawRuntime {
   /// Provider-side continuity reset, or `null` in a lifecycle-only composition.
   final SessionResetService? resetService;
 
-  /// Schema-bound relevance judgment, or `null` in a lifecycle-only composition.
-  final SearchRelevanceTurn? searchRelevanceTurn;
-
   /// Agent-authored learnings and error records, available only to the connected server runtime.
   final SelfImprovementService? selfImprovement;
   final QmdManager? qmdManager;
@@ -171,7 +167,6 @@ class DartclawRuntime {
     required this.scheduleService,
     required this.kvService,
     required this.resetService,
-    required this.searchRelevanceTurn,
     required this.selfImprovement,
     required this.qmdManager,
     required this.channelManager,
@@ -677,17 +672,6 @@ class _RuntimeAssembly {
     _wireRestartSentinel(ctx);
     final providerStatus = await _wireProviderStatus(ctx, harness, security);
     ctx.bindTurns(_composeTurns(config, ctx, storage, harness, security));
-    final relevanceRoute = SearchRelevanceRunner.resolveRoute(config);
-    ctx.bindSearchRelevanceRunner(
-      SearchRelevanceRunner(
-        sessions: storage.sessions,
-        turns: ctx._serverTurns,
-        providerId: relevanceRoute.providerId,
-        model: relevanceRoute.model,
-        effort: relevanceRoute.effort,
-        executionPolicy: harness.policyResolver.resolveForPrimary(providerId: relevanceRoute.providerId),
-      ),
-    );
     // One-shot clients must not acknowledge the serving runtime's turn records.
     if (!headless && harness.executions.primary != null) {
       await ctx._serverTurns.detectAndCleanOrphanedTurns();
@@ -869,7 +853,6 @@ class _RuntimeAssembly {
       taskBackendFactory: taskBackendFactory,
       credentialRegistry: _credentialRegistry(ctx),
       auditLogger: ctx.auditLogger,
-      searchRelevanceTurn: ctx.runSearchRelevanceTurn,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
       serving: !headless,

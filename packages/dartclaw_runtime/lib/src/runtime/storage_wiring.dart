@@ -32,7 +32,6 @@ class StorageWiring {
     CanonicalIndexReconciler? indexReconciler,
     CredentialRegistry? credentialRegistry,
     GuardAuditLogger? auditLogger,
-    SearchRelevanceTurn? searchRelevanceTurn,
   }) : _eventBus = eventBus,
        _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
@@ -42,8 +41,7 @@ class StorageWiring {
        _qmdManagerFactory = qmdManagerFactory,
        _injectedIndexReconciler = indexReconciler,
        _credentialRegistry = credentialRegistry ?? CredentialRegistry(credentials: config.credentials),
-       _auditLogger = auditLogger,
-       _searchRelevanceTurn = searchRelevanceTurn;
+       _auditLogger = auditLogger;
 
   final DartclawConfig config;
   final EventBus _eventBus;
@@ -61,7 +59,6 @@ class StorageWiring {
   final CanonicalIndexReconciler? _injectedIndexReconciler;
   final CredentialRegistry _credentialRegistry;
   final GuardAuditLogger? _auditLogger;
-  final SearchRelevanceTurn? _searchRelevanceTurn;
 
   static final _log = Logger('StorageWiring');
 
@@ -588,11 +585,6 @@ class StorageWiring {
       return;
     }
 
-    final relevanceTurn = _searchRelevanceTurn;
-    if (relevanceTurn == null) {
-      throw StateError('Hybrid search requires a runtime search relevance turn');
-    }
-
     try {
       final DatabaseBackend backend;
       if (_usesPostgres) {
@@ -611,14 +603,12 @@ class StorageWiring {
         lexicalIndex: memoryIndex,
         vectorIndex: memoryVectorIndex,
         embeddingProvider: provider,
-        relevanceFilter: SearchRelevanceFilter(judge: relevanceTurn),
         sourceLayer: 'memory',
       );
       _conversationHybridSearch = HybridSearch(
         lexicalIndex: conversationIndex,
         vectorIndex: conversationVectorIndex,
         embeddingProvider: provider,
-        relevanceFilter: SearchRelevanceFilter(judge: relevanceTurn),
         sourceLayer: 'conversation',
       );
       _memoryVectorSynchronizer = VectorSynchronizer(

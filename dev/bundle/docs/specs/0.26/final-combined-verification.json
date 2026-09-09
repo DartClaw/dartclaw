@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "milestone": "0.26",
-  "acceptance": "BLOCKED: original sealed retrieval no-result failures remain preserved. Answer-relevance correction passes local code verification; live calibration, candidate seal and independently unseen holdout remain pending. Native x64 and external release gates remain unavailable. Implementation stories A17+B9 accepted; milestone acceptance and lifecycle cleanup blocked.",
+  "acceptance": "BLOCKED for milestone release: search contract correction and protocol-2 exposed regression pass local verification. Original v1 failures remain historical; generative relevance/Claude calibration requirements are superseded. Independent unseen holdout, native x64/five-target qualification and external release/CI remain outstanding.",
   "sourceRevision": "0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a",
   "coverageRule": "No implicit deduplication: acceptance records name exact covered IDs/Phase A indices and prove the same assertions ran. A later causal fix invalidates affected results only. Missing, skipped, historical or emulated evidence cannot become a native/live pass.",
   "phaseA": [
@@ -941,5 +941,270 @@
       "reason": "Visible permission to use Claude was judged insufficiently specific for exporting document/query-derived passages. Recovered preceding approval question explicitly disclosed query/passage export, but automatic review treated the retrieved conversation as untrusted authorization evidence.",
       "requiredApproval": "Explicit permission in a new user message to send calibration queries and candidate passages to Claude."
     }
+  },
+  "searchContractCorrection": {
+    "recordedAt": "2026-09-09 21:13 CEST",
+    "status": "implementation-and-local-regression-verified",
+    "contract": "search-contract-correction.md",
+    "scope": "exposed-regression; not unseen acceptance",
+    "sourceBaseline": "dfc3247952a92e5a8865defe9a04346a71320221",
+    "sourceHashes": {
+      ".dartclaw/dartclaw.yaml": "ccb949dab7961bdf3a88b30124d595c1531c69bdce229e6e02f200044248f4c6",
+      "CHANGELOG.md": "130e390380d52753c6f08b3bce0b56dd8c78b4669d4f9d8f49984f4123616006",
+      "apps/dartclaw_cli/CLAUDE.md": "346088bca89c43d0394a743c2597b20e7e67708bfc89c7c01a1dcef58d50864c",
+      "apps/dartclaw_cli/test/tool/retrieval_evaluation_pipeline_test.dart": "45f80285bb7609ebfedfc5fa1928f51ba642de29f8a7c812454947185c3b057a",
+      "apps/dartclaw_cli/test/tool/retrieval_evaluation_test.dart": "386dcd56fccba36db769f14f29c03890d3415f2796993091c55f348fb9fe5ccc",
+      "apps/dartclaw_cli/test/tool/retrieval_evaluation_test_support.dart": "0d3209e0bab2768fc29bfa8591e6b19f29a633272206102e48a9471762f4387e",
+      "apps/dartclaw_cli/tool/retrieval_evaluation.dart": "d16fe6a56f0d4a3cc89fe7c501a05611b61e14be8f0cad044f6b9addc8a164aa",
+      "apps/dartclaw_cli/tool/retrieval_evaluation/evaluation.dart": "f3c3be82065db3bd615734048604d1f35e4ea40c64539aae22a382e5755dae93",
+      "apps/dartclaw_cli/tool/retrieval_evaluation/pipeline.dart": "c6b9d5a5b80701febec8d657f13e701d6d4e1f9ba425da63ab89d9453b01958c",
+      "apps/dartclaw_cli/tool/retrieval_evaluation/relevance_runtime.dart": null,
+      "dev/adrs/050-native-hybrid-search.md": "db18b27a918d95382ff430fa2c13bd930a408ea469c240984823b89d574a69f0",
+      "dev/architecture/configuration-architecture.md": "d5c4fa1d7165f0e42ae05cbdd548b11d7ed7a8ea555fa29fb0062bdfcf31e61e",
+      "dev/architecture/system-architecture.md": "7cb01695c06983c6dfffee82203335f152e2bc06e8664f9f4d13608db100aef8",
+      "dev/bundle/docs/specs/0.26/phase-b/prd.md": "b3c3c22d8caec379710f3785190aa52572333eb61d67ad79d16d51b0d137bbb4",
+      "dev/bundle/docs/specs/0.26/phase-b/s08-sealed-retrieval-evaluation-harness.md": "6e337aa245bfdb62e4332222b026b777d42f999e15b7af86fa27d3cfbfe3f14b",
+      "dev/bundle/docs/specs/0.26/retrieval-acceptance-decision.md": "bf07cb3a582a75af36812fa6ad97f4823b96c57bafae6651f5768d8d620144a8",
+      "dev/bundle/docs/specs/0.26/search-contract-correction.md": "afa0b12dd33a74e4c945922591944d908a8f8fa660cf1abc10ec98992d2d2826",
+      "dev/state/DECISIONS.md": "2d95dc6d2fdb8786579c86d9dae945525a22ea02a082a61fea498660cce2c9ad",
+      "dev/state/PROMPT-SURFACES.md": "9528f9a331ecf0da8d54aba9210f00c0e1fa8c53365ae76e3bb5a1702527d543",
+      "dev/state/ROADMAP.md": "c421a31d11ea6903dce6f4b85caac009392fe58d99172e837047c4b9d4c22256",
+      "dev/testing/retrieval/retrieval-v2.json": "3136f0d76532ebaffefa729173e2cb2c6d4b96e348fcf661a59840a4e28a8d42",
+      "dev/tools/arch_check.dart": "49285c27ee27e3f3689613f40c83139ff15f4d145e1aadaf773d4c7ae9472208",
+      "docs/guide/configuration.md": "80b0422e4b83600d33857d929e9ce74b9c810557528dbd0562afd33b922146f9",
+      "docs/guide/search.md": "4ae44be41b5736bc02548e484b29bcb4a13d331f9b0605d680eaf94458eb2334",
+      "packages/dartclaw/test/goldens/config_advisory_baseline.txt": "d8b13fae2e332a56131a7787b669628b3580e732105eb955d42b6fa12beedc3e",
+      "packages/dartclaw_kernel/CLAUDE.md": "15f6f933e0363bbb69a680c0cc560d5347e0e8ca323d082e1a715ae1e8b74ff2",
+      "packages/dartclaw_kernel/lib/src/config_meta/server_fields.dart": "23c2898b72aafa0ab16d295acd77d84b04b7cb61e0d71daa3605151bbc9179a3",
+      "packages/dartclaw_kernel/lib/src/config_parser_providers.dart": "5dfc5328a0eb895de5ab4efcab05892359b54c59157c247ad5965c5e7009a7df",
+      "packages/dartclaw_kernel/lib/src/config_validator.dart": "da59a1957df13bc2b44e1e9b8e15a7e02d9defcbfcafef14ca798741e11321b9",
+      "packages/dartclaw_kernel/lib/src/search_config.dart": "e9e526f3b7cdbcae60070ec95b736dc70c804e20e5e5b7c10e3d5d1e61bac9f0",
+      "packages/dartclaw_kernel/test/config_meta_test.dart": "e5269e0fa821a7b0a767ae205f6459c4971d884d808a59a822ecb6620f3a82bc",
+      "packages/dartclaw_kernel/test/config_validator_test.dart": "ee721bb93c5e75854b5351e168c410b94a17be49c2b18d8a494ed207a7c885db",
+      "packages/dartclaw_kernel/test/search_providers_config_test.dart": "b769a1a0c371f35b48d1c0fe99e5fa4c2a6f1035a791305b6cf8424777dfe3f8",
+      "packages/dartclaw_runtime/CLAUDE.md": "8ac30928c9011db2e45298aa35b24bdb00f7f7d56ae7c9a303d8480c4bbfa810",
+      "packages/dartclaw_runtime/lib/src/config/config_serializer.dart": "e0414c748ec31d74adbd284a57dbd06ae6ab32919d1eac47472bdbf2d8347808",
+      "packages/dartclaw_runtime/lib/src/execution_models.dart": "d8a89f7ffe66a61fef02f136559b2f17d90ba63596b4374ed724c8a6da4873a0",
+      "packages/dartclaw_runtime/lib/src/runtime/harness_wiring.dart": "57bff184731b3a3e258e19ddba6c8215695cfd8dbded5cd585516045d9a7f17f",
+      "packages/dartclaw_runtime/lib/src/runtime/harness_wiring_worker_options.dart": null,
+      "packages/dartclaw_runtime/lib/src/runtime/runtime_exports.dart": "7afeb44c87abeb53edcf12c0e9a518a9117397e4f5f34653c6c18d53b413dc89",
+      "packages/dartclaw_runtime/lib/src/runtime/search_relevance_runner.dart": null,
+      "packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart": "20f048681134b80ee9e0fb960871234cad37f3f0252fd7b9c9e5bc92c17fae14",
+      "packages/dartclaw_runtime/lib/src/runtime/service_wiring_builder.dart": "1179464f0e91a49b5b681cc1f36e1af026c5b8817bdcffc1a711d279823105e9",
+      "packages/dartclaw_runtime/lib/src/runtime/service_wiring_result.dart": "28bb8ed46c87173a8367065b6129e1f617f926fcbd6a0e2fc3877742a778c5af",
+      "packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart": "079518493eea7d6583060d8793bcf984fa36797d768eb7f2b21985784a39a93e",
+      "packages/dartclaw_runtime/lib/src/turn_manager.dart": "809bae6294384ebd6db4b4f8897bbde1415609b4d491e76c85de50269640f984",
+      "packages/dartclaw_runtime/lib/src/turn_runner.dart": "9f5fd94230a873f7a8c02587acba8942faeea8a3377c15f27af7057d7fc568e9",
+      "packages/dartclaw_runtime/test/api/search_inspection_routes_test.dart": "33883145a65199a45bd7a461385eb7df29e1a8315c7ab4c6f067e683bbbe5aad",
+      "packages/dartclaw_runtime/test/config/config_serializer_test.dart": "f903e08cd069be8abfc4cdfc7aef659357651451c3ff6e01e592c79494bd2e96",
+      "packages/dartclaw_runtime/test/runtime/channel_wiring_test.dart": "ed000eec8a9cad8ebe058599499c9663342f10be77a18dc5b17e36b8af5fc251",
+      "packages/dartclaw_runtime/test/runtime/dartclaw_runtime_test.dart": "b9217037b5500680daa086fa03252af687e70d55a82d55668ec4f6ac8fe700b4",
+      "packages/dartclaw_runtime/test/runtime/headless_runtime_test.dart": "63961add07f37d76aee08e247d2b7dbb242d2e136f805b09627489595f8a2e98",
+      "packages/dartclaw_runtime/test/runtime/search_relevance_runner_test.dart": null,
+      "packages/dartclaw_runtime/test/runtime/search_relevance_settlement_test.dart": null,
+      "packages/dartclaw_runtime/test/runtime/storage_wiring_conversation_hybrid_test.dart": "a3e0af0a8ea7c36c0d309f9dbaaa0a5a599345921496e418b75e4d2531af5325",
+      "packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_activation_test.dart": "d01a6368fc2940133a565945bafdefecf9b610ed014e957e0cf6b7b4a66c135d",
+      "packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_lifecycle_test.dart": "5b26b6ee9772e0438ea42d7ff336da8d56bdf39a13dc7af2fce4171a32d26f6a",
+      "packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart": "fdc5a6cd41331451e6f2c95425f66b8c077b207f4a113f73d220facaf6e5e935",
+      "packages/dartclaw_runtime/test/runtime/storage_wiring_memory_hybrid_lifecycle_test.dart": "eafed4163b3b3bb528904e8429357e136a442219f0c90986975c44a682f1c58f",
+      "packages/dartclaw_runtime/test/search/hybrid_wiki_composition_test.dart": "6f7dd35cca8097c60ec5e1b0ce922dce8150d2daa1563f3ceb2ddd4e9e7ecf71",
+      "packages/dartclaw_runtime/test/session_turn_manager_test_support.dart": "a83f694fed5497b67be9eea23b2cc7ad2eba853926f0ace65a212649ca49f5ac",
+      "packages/dartclaw_runtime/test/task/task_executor_test_support.dart": "9d995c3890b3cc31e8b9775d2ae1c360a94ce75d9537d71833579ac17be6926a",
+      "packages/dartclaw_runtime/test/turn_contract_threading_test.dart": "a6e9486c754c41ab86d2ec48bd6092484771faa14fd9093a042cfc20e8936e48",
+      "packages/dartclaw_runtime/test/turn_manager_execution_policy_test.dart": "de019a4d2f8b2f52c519c33cb36262b06d55bb5653ba4788e0e7b9d885e3489e",
+      "packages/dartclaw_search/README.md": "f2c57b87bad93de43c6296fd76cee564c6b014e845eb7a7f341799a8adc14850",
+      "packages/dartclaw_search/lib/dartclaw_search.dart": "7d37c9bb0d4303a5a685202cebd50bbab0596f036a306913bfcfef83cc2f43b4",
+      "packages/dartclaw_search/lib/src/hybrid_search.dart": "1d5ca47ed742ce68a9eb83ce2819c27515555519da329f8a8b608909405f4ed3",
+      "packages/dartclaw_search/lib/src/search_relevance_filter.dart": null,
+      "packages/dartclaw_search/test/hybrid_search_test.dart": "d34cd924be557adc8f11fc90fd1aefcdcef802b4b6bfbc8aaf75ef5172ee4580",
+      "packages/dartclaw_search/test/search_relevance_filter_test.dart": null,
+      "packages/dartclaw_search/test/search_test_support.dart": "abbe172ac1cacbbc5b16061ed0d00181c5072dcba1028efa313f51bbc406c918",
+      "schemas/dartclaw.schema.json": "8ed3d0001ea94414de69ac725c8f4ab626d6730869fe76f39fe69672871ae4f1"
+    },
+    "verification": {
+      "receipt": ".agent_temp/0.26-search-remediation/verification02/receipt.json",
+      "sha256": "f205662e9e07ae4946c7f25bb8484734f521b784ccc0bda8221e7c0e59f4514d",
+      "workspacePassed": 11931,
+      "configuredSkips": 44,
+      "checks": [
+        {
+          "name": "dependencies",
+          "command": [
+            "dart",
+            "pub",
+            "get",
+            "--enforce-lockfile"
+          ],
+          "startedAt": "2026-09-09T19:07:59.563223+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 0.194
+        },
+        {
+          "name": "mascot-dependencies",
+          "command": [
+            "dart",
+            "pub",
+            "get",
+            "--directory",
+            "dev/tools/mascot_favicon",
+            "--enforce-lockfile"
+          ],
+          "startedAt": "2026-09-09T19:07:59.757750+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 0.082
+        },
+        {
+          "name": "assets",
+          "command": [
+            "dart",
+            "run",
+            "dev/tools/embed_assets.dart"
+          ],
+          "startedAt": "2026-09-09T19:07:59.840112+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 0.189
+        },
+        {
+          "name": "format",
+          "command": [
+            "dart",
+            "format",
+            "--line-length=120",
+            "--output=none",
+            "--set-exit-if-changed",
+            "."
+          ],
+          "startedAt": "2026-09-09T19:08:00.029163+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 6.012
+        },
+        {
+          "name": "analyze",
+          "command": [
+            "dart",
+            "analyze",
+            "--fatal-infos"
+          ],
+          "startedAt": "2026-09-09T19:08:06.041301+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 5.57
+        },
+        {
+          "name": "workspace-tests",
+          "command": [
+            "bash",
+            "dev/tools/test_workspace.sh"
+          ],
+          "startedAt": "2026-09-09T19:08:11.612229+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 175.025
+        },
+        {
+          "name": "postgres-contract",
+          "command": [
+            "bash",
+            "dev/tools/postgres_contract.sh"
+          ],
+          "startedAt": "2026-09-09T19:11:06.639896+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 40.274
+        },
+        {
+          "name": "postgres-hybrid",
+          "command": [
+            "dart",
+            "test",
+            "--run-skipped",
+            "-t",
+            "integration",
+            "--reporter=failures-only",
+            "packages/dartclaw_runtime/test/runtime/storage_wiring_hybrid_postgres_live_test.dart"
+          ],
+          "startedAt": "2026-09-09T19:11:46.914949+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 2.846
+        },
+        {
+          "name": "architecture",
+          "command": [
+            "dart",
+            "run",
+            "dev/tools/arch_check.dart"
+          ],
+          "startedAt": "2026-09-09T19:11:49.761799+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 0.302
+        },
+        {
+          "name": "fitness",
+          "command": [
+            "bash",
+            "dev/tools/fitness/run_all.sh"
+          ],
+          "startedAt": "2026-09-09T19:11:50.064416+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 38.692
+        },
+        {
+          "name": "aot-build",
+          "command": [
+            "bash",
+            "dev/tools/build.sh"
+          ],
+          "startedAt": "2026-09-09T19:12:28.757328+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 30.735
+        },
+        {
+          "name": "diff-check",
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "startedAt": "2026-09-09T19:12:59.492646+00:00",
+          "exitCode": 0,
+          "elapsedSeconds": 0.023
+        }
+      ],
+      "retainedFailedAttempt": ".agent_temp/0.26-search-remediation/verification01/receipt.json",
+      "incident": "Three new evaluator tests assumed repository-root cwd; corrected explicit source paths and reran root/package tests plus full gate."
+    },
+    "evaluation": {
+      "report": ".agent_temp/0.26-search-remediation/evaluation01/results/report.json",
+      "sha256": "1caf87dd99bbfd3e3959b3af542db332ab448badde3e88888de758516858eb19",
+      "fixtureSha256": "3136f0d76532ebaffefa729173e2cb2c6d4b96e348fcf661a59840a4e28a8d42",
+      "sliceCount": 144,
+      "gateCount": 122,
+      "passedGates": 122,
+      "generativeTurns": 0,
+      "sourcePreservedDuringMeasurement": true,
+      "hybridWarmP95SliceRangeMs": [
+        6.904,
+        77.266
+      ]
+    },
+    "queryPlans": {
+      "path": ".agent_temp/0.26-search-remediation/postgres-explain-probe.json",
+      "sha256": "62b059975c913aacdbb81bc8e0279c019d02ea3fa1b5fd5e405bfeb3badd8cdc",
+      "documentsPerCorpus": 256,
+      "dimensions": 768,
+      "vectorExecutionMs": [
+        1.104,
+        1.152
+      ],
+      "fullTextExecutionMs": [
+        0.116,
+        0.075
+      ],
+      "planner": "Sequential scans at this synthetic size; production GIN and owner/model/dimension B-tree indexes present. No ANN added."
+    },
+    "independentReview": {
+      "path": ".agent_temp/0.26-search-remediation/final-review.md",
+      "sha256": "a1f75b0354903f0180ebf6b1cf48fee75b98b930f4dc91bcf2e9c4128ae03430",
+      "verdict": "Ready"
+    },
+    "historicalEvidence": "All 144 historical input/evidence files preserved; prior failures not rewritten.",
+    "remainingAcceptance": "Independent unseen holdout, native x64/five-target and external release/CI requirements remain. No push, merge, release or private commit."
   }
 }

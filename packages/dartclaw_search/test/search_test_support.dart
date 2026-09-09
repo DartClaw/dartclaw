@@ -168,7 +168,7 @@ final class FakeVectorIndex implements VectorIndex {
 }
 
 final class FakeEmbeddingProvider implements EmbeddingProvider {
-  new({this.modelFingerprint = 'model-v1', this.queryVector = const [1], this.documentVectors});
+  new({this.modelFingerprint = 'model-v1', this.queryVector = const [1], this.documentVectors, this.beforeQueryResult});
 
   @override
   final String modelFingerprint;
@@ -180,11 +180,13 @@ final class FakeEmbeddingProvider implements EmbeddingProvider {
   int documentCalls = 0;
   bool failQuery = false;
   bool failDocuments = false;
+  Future<void> Function()? beforeQueryResult;
   void Function()? afterDocumentEmbedding;
 
   @override
   Future<List<double>> embedQuery(String query) async {
     queryCalls++;
+    await beforeQueryResult?.call();
     if (failQuery) throw StateError('query embedding failed');
     return queryVector;
   }
@@ -206,12 +208,6 @@ final class FakeEmbeddingProvider implements EmbeddingProvider {
   @override
   Future<void> dispose() async {}
 }
-
-SearchRelevanceFilter allRelevantFilter() => SearchRelevanceFilter(
-  judge: (_, outputSchema) async => {
-    for (final ordinal in (outputSchema['properties']! as Map<String, dynamic>).keys) ordinal: true,
-  },
-);
 
 SearchDocument document(String id, List<String> chunks, {Map<String, String> metadata = const {}}) =>
     SearchDocument(id: id, chunks: chunks, metadata: metadata, timestamp: DateTime.utc(2026, 1, 2));

@@ -1,5 +1,12 @@
 # Retrieval acceptance decision
 
+Current decision: the owner approved the [search contract correction](search-contract-correction.md). Ordinary
+hybrid retrieval and RRF remain; the answer judge and Claude calibration are superseded. Protocol-2 regression
+judgments were independently reviewed before measurement. All 122 gates across 144 slices pass; 11,931 workspace
+tests pass with 44 configured skips, PostgreSQL integration and both AOT builds pass. Independent code/security
+review is Ready. See `final-combined-verification.json`, `searchContractCorrection`. The records below describe earlier decisions, whose
+original failures remain valid under their original contract. Unseen and platform acceptance remain separate.
+
 Status: root-cause relevance fix authorized on 2026-09-09 after calibration reached its stop condition.
 Authorization: "Ok, please proceed with this and fix the root problem so all this works as intended."
 Calibration authorization: "Please proceed with this."

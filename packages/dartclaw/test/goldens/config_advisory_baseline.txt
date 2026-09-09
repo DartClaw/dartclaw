@@ -795,8 +795,6 @@
   [blocking] Invalid type for port: "bool" — using default
 === search.qmd.port#type-string ===
   [blocking] Invalid type for port: "String" — using default
-=== search.relevance_model#type-nonstring ===
-  THREW: search.relevance_model must be a provider/model string
 === security#scalar ===
   [blocking] Invalid type for security: "int" — using defaults
 === security.bash_step#scalar ===

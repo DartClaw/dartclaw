@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:test/test.dart';
 
@@ -27,7 +29,6 @@ void main() {
         ],
       ),
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -55,7 +56,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: FakeEmbeddingProvider(modelFingerprint: 'model-conversation'),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'conversation',
     );
     SearchDiagnostics? diagnostics;
@@ -99,7 +99,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -124,14 +123,14 @@ void main() {
     expect(() => results.add(results.first), throwsUnsupportedError);
   });
 
-  test('filters all fused candidates before applying the requested result limit', () async {
+  test('returns highest-ranked topical context without answer certification', () async {
     final lexical = FakeFullTextIndex(
       documents: [
-        document('nearby', ['related but does not answer']),
+        document('nearby', ['related topical context that does not answer the question']),
         document('answer', ['contains the requested fact']),
       ],
       searchResults: [
-        lexicalResult('nearby', 'related but does not answer', 0, 0),
+        lexicalResult('nearby', 'related topical context that does not answer the question', 0, 0),
         lexicalResult('answer', 'contains the requested fact', 0, 0),
       ],
     );
@@ -139,7 +138,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: FakeVectorIndex(),
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(judge: (_, _) async => {'0': false, '1': true}),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -153,40 +151,32 @@ void main() {
       },
     );
 
-    expect(results.single.id, 'answer');
-    expect(diagnostics!.candidates.single.documentId, 'answer');
-    expect(diagnostics!.candidates.single.keywordRank, 2);
+    expect(results.single.id, 'nearby');
+    expect(diagnostics!.candidates.single.documentId, 'nearby');
+    expect(diagnostics!.candidates.single.keywordRank, 1);
   });
 
-  test('authenticates merged candidates before invoking relevance judgment', () async {
+  test('authenticates merged candidates before returning results', () async {
     final lexical = FakeFullTextIndex(
       documents: [
         document('changed', ['current text']),
       ],
       searchResults: [lexicalResult('changed', 'stale text', 0, 0)],
     );
-    var judgeCalls = 0;
     final search = HybridSearch(
       lexicalIndex: lexical,
       vectorIndex: FakeVectorIndex(),
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(
-        judge: (_, _) async {
-          judgeCalls++;
-          return const {};
-        },
-      ),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
 
     expect(await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value), isEmpty);
-    expect(judgeCalls, 0);
     expect(diagnostics!.candidates, isEmpty);
     expect(diagnostics!.degradations, isEmpty);
   });
 
-  test('re-authenticates judged survivors and publishes fresh metadata only for unchanged text', () async {
+  test('authenticates current source content after asynchronous hybrid retrieval', () async {
     final lexical = FakeFullTextIndex(
       documents: [
         document('deleted', ['delete me']),
@@ -199,122 +189,75 @@ void main() {
         lexicalResult('current', 'keep me', 0, 0, metadata: const {'revision': 'before'}),
       ],
     );
+    final embeddingStarted = Completer<void>();
+    final continueEmbedding = Completer<void>();
+    final provider = FakeEmbeddingProvider(
+      beforeQueryResult: () async {
+        embeddingStarted.complete();
+        await continueEmbedding.future;
+      },
+    );
     final search = HybridSearch(
       lexicalIndex: lexical,
       vectorIndex: FakeVectorIndex(),
-      embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(
-        judge: (_, _) async {
-          lexical.documents.remove('deleted');
-          lexical.documents['edited'] = document('edited', ['changed after judgment began']);
-          lexical.documents['current'] = document('current', ['keep me'], metadata: const {'revision': 'after'});
-          return {'0': true, '1': true, '2': true};
-        },
-      ),
+      embeddingProvider: provider,
       sourceLayer: 'conversation',
     );
     SearchDiagnostics? diagnostics;
 
-    final results = await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value);
+    final pending = search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value);
+    await embeddingStarted.future;
+    lexical.documents.remove('deleted');
+    lexical.documents['edited'] = document('edited', ['changed while retrieval was in flight']);
+    lexical.documents['current'] = document('current', ['keep me'], metadata: const {'revision': 'after'});
+    continueEmbedding.complete();
+    final results = await pending;
 
     expect(results.map((result) => result.id), ['current']);
     expect(results.single.metadata, {'revision': 'after'});
     expect(diagnostics!.candidates.map((candidate) => candidate.documentId), ['current']);
   });
 
-  test('refreshes the lexical fallback after relevance failure', () async {
+  test('freshly authenticates lexical fallback after asynchronous embedding failure', () async {
     final lexical = FakeFullTextIndex(
       documents: [
         document('deleted', ['delete me']),
         document('edited', ['edit me']),
-        document('first', ['keep first'], metadata: const {'revision': 'before'}),
-        document('second', ['keep second'], metadata: const {'revision': 'before'}),
+        document('current', ['keep me'], metadata: const {'revision': 'before'}),
       ],
       searchResults: [
         lexicalResult('deleted', 'delete me', 0, 10),
         lexicalResult('edited', 'edit me', 0, 9),
-        lexicalResult('first', 'keep first', 0, 8, metadata: const {'revision': 'before'}),
-        lexicalResult('second', 'keep second', 0, 7, metadata: const {'revision': 'before'}),
+        lexicalResult('current', 'keep me', 0, 8, metadata: const {'revision': 'before'}),
       ],
     );
+    final embeddingStarted = Completer<void>();
+    final continueEmbedding = Completer<void>();
+    final provider = FakeEmbeddingProvider(
+      beforeQueryResult: () async {
+        embeddingStarted.complete();
+        await continueEmbedding.future;
+      },
+    )..failQuery = true;
     final search = HybridSearch(
       lexicalIndex: lexical,
       vectorIndex: FakeVectorIndex(),
-      embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(
-        judge: (_, _) async {
-          lexical.documents.remove('deleted');
-          lexical.documents['edited'] = document('edited', ['changed after judgment began']);
-          lexical.documents['first'] = document('first', ['keep first'], metadata: const {'revision': 'after'});
-          lexical.documents['second'] = document('second', ['keep second'], metadata: const {'revision': 'after'});
-          throw StateError('judge failed');
-        },
-      ),
+      embeddingProvider: provider,
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
 
-    final results = await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value);
+    final pending = search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value);
+    await embeddingStarted.future;
+    lexical.documents.remove('deleted');
+    lexical.documents['edited'] = document('edited', ['changed while retrieval was in flight']);
+    lexical.documents['current'] = document('current', ['keep me'], metadata: const {'revision': 'after'});
+    continueEmbedding.complete();
+    final results = await pending;
 
-    expect(results.map((result) => (result.id, result.score, result.metadata['revision'])), [
-      ('first', 8, 'after'),
-      ('second', 7, 'after'),
-    ]);
-    expect(diagnostics!.degradations.single.reason, 'relevanceFailure');
-    expect(diagnostics!.candidates.map((candidate) => (candidate.documentId, candidate.keywordRank)), [
-      ('first', 3),
-      ('second', 4),
-    ]);
-  });
-
-  test('fails closed when the relevance fallback cannot be refreshed', () async {
-    final lexical = FakeFullTextIndex(
-      documents: [
-        document('a', ['alpha']),
-      ],
-      searchResults: [lexicalResult('a', 'alpha', 0, 7)],
-    );
-    final search = HybridSearch(
-      lexicalIndex: lexical,
-      vectorIndex: FakeVectorIndex(),
-      embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(
-        judge: (_, _) async {
-          lexical.failFetch = true;
-          throw StateError('judge failed');
-        },
-      ),
-      sourceLayer: 'memory',
-    );
-    SearchDiagnostics? diagnostics;
-
-    expect(await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value), isEmpty);
-    expect(diagnostics!.candidates, isEmpty);
-    expect(diagnostics!.degradations.map((degradation) => degradation.reason), [
-      'relevanceFailure',
-      'vectorAuthenticationFailure',
-    ]);
-  });
-
-  test('reports an empty relevance selection as healthy', () async {
-    final lexical = FakeFullTextIndex(
-      documents: [
-        document('a', ['alpha']),
-      ],
-      searchResults: [lexicalResult('a', 'alpha', 0, 7)],
-    );
-    final search = HybridSearch(
-      lexicalIndex: lexical,
-      vectorIndex: FakeVectorIndex(),
-      embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: SearchRelevanceFilter(judge: (_, _) async => {'0': false}),
-      sourceLayer: 'memory',
-    );
-    SearchDiagnostics? diagnostics;
-
-    expect(await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value), isEmpty);
-    expect(diagnostics!.candidates, isEmpty);
-    expect(diagnostics!.degradations, isEmpty);
+    expect(results.map((result) => (result.id, result.score, result.metadata['revision'])), [('current', 8, 'after')]);
+    expect(diagnostics!.degradations.single.reason, 'embeddingFailure');
+    expect(diagnostics!.candidates.single.keywordRank, 3);
   });
 
   test('semantic failure preserves lexical scores and order and reports typed degradation', () async {
@@ -331,7 +274,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: provider,
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'conversation',
     );
     SearchDiagnostics? diagnostics;
@@ -366,7 +308,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: provider,
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -391,7 +332,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -418,7 +358,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -442,7 +381,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: provider,
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -470,7 +408,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: vectors,
       embeddingProvider: FakeEmbeddingProvider(queryVector: [double.nan]),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     SearchDiagnostics? diagnostics;
@@ -495,7 +432,6 @@ void main() {
       lexicalIndex: lexical,
       vectorIndex: FakeVectorIndex(records: [record('a', 0, alphaHash)]),
       embeddingProvider: provider,
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     var mappingCalls = 0;
@@ -524,7 +460,6 @@ void main() {
         lexicalIndex: FakeFullTextIndex(),
         vectorIndex: FakeVectorIndex(),
         embeddingProvider: FakeEmbeddingProvider(),
-        relevanceFilter: allRelevantFilter(),
         sourceLayer: 'wiki',
       ),
       throwsArgumentError,
@@ -533,7 +468,6 @@ void main() {
       lexicalIndex: FakeFullTextIndex(),
       vectorIndex: FakeVectorIndex(),
       embeddingProvider: FakeEmbeddingProvider(),
-      relevanceFilter: allRelevantFilter(),
       sourceLayer: 'memory',
     );
     await expectLater(search.search('query', userId: ''), throwsArgumentError);

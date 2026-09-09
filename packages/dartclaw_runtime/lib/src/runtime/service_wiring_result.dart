@@ -4,7 +4,6 @@ part of 'service_wiring.dart';
 extension DartclawRuntimeExecutionStack on DartclawRuntime {
   ExecutionCoordinator get requireExecutions => executions ?? _absent('executions');
   SessionResetService get requireResetService => resetService ?? _absent('resetService');
-  SearchRelevanceTurn get requireSearchRelevanceTurn => searchRelevanceTurn ?? _absent('searchRelevanceTurn');
   SelfImprovementService get requireSelfImprovement =>
       selfImprovement ??
       (throw StateError('DartclawRuntime.selfImprovement is composed only for the connected server runtime.'));
@@ -45,7 +44,6 @@ DartclawRuntime _assembleRuntime(
     scheduleService: scheduling?.scheduleService,
     kvService: storage.kvService,
     resetService: harness?.resetService,
-    searchRelevanceTurn: harness == null ? null : ctx.runSearchRelevanceTurn,
     selfImprovement: harness?.selfImprovement,
     qmdManager: storage.qmdManager,
     channelManager: channel?.channelManager,

@@ -5,7 +5,6 @@ import 'retrieval_evaluation/pipeline.dart';
 
 export 'retrieval_evaluation/evaluation.dart';
 export 'retrieval_evaluation/pipeline.dart';
-export 'retrieval_evaluation/relevance_runtime.dart';
 
 Future<void> main(List<String> arguments) async {
   try {

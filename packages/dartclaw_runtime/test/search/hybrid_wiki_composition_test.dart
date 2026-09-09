@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_search/dartclaw_search.dart'
-    show HybridSearch, HybridSearchBackend, SearchRelevanceFilter, VectorSynchronizer;
+import 'package:dartclaw_search/dartclaw_search.dart' show HybridSearch, HybridSearchBackend, VectorSynchronizer;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -87,9 +86,6 @@ A needle synthesis of personal preferences.
               lexicalIndex: index,
               vectorIndex: vectors,
               embeddingProvider: provider,
-              relevanceFilter: SearchRelevanceFilter(
-                judge: (_, schema) async => {for (final key in (schema['required'] as List).cast<String>()) key: true},
-              ),
               sourceLayer: 'memory',
             ),
             toMemoryResult: MemoryIndexProjection.toSearchResult,

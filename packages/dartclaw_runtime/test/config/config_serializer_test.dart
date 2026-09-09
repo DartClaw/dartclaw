@@ -33,7 +33,6 @@ void main() {
 
       expect(json['search'], {
         'backend': 'fts5',
-        'relevanceModel': null,
         'embedding': {
           'provider': 'local',
           'model': 'embeddinggemma-300M-Q8_0.gguf',
@@ -156,7 +155,6 @@ void main() {
       final json = serializer.toJson(config, runtime: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
       expect(json['search'], {
         'backend': 'hybrid',
-        'relevanceModel': null,
         'embedding': {
           'provider': 'http',
           'model': 'remote-model',
@@ -184,14 +182,6 @@ void main() {
       expect(((json['search'] as Map<String, dynamic>)['embedding'] as Map<String, dynamic>)['endpoint'], isNull);
       expect(encoded, isNot(contains('uri-secret')));
       expect(encoded, isNot(contains('query-secret')));
-    });
-
-    test('serializes the dedicated relevance model route', () {
-      const config = DartclawConfig(search: SearchConfig(relevanceModel: 'claude/sonnet'));
-
-      final json = serializer.toJson(config, runtime: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
-
-      expect((json['search'] as Map<String, dynamic>)['relevanceModel'], 'claude/sonnet');
     });
 
     test('directly constructed credentialed public HTTP config is not serialized as usable', () {

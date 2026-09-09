@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'search_relevance_filter.dart';
-
 part 'current_corpus_inventory.dart';
 part 'vector_synchronizer.dart';
 
@@ -21,19 +19,16 @@ final class HybridSearch {
     required FullTextIndex lexicalIndex,
     required VectorIndex vectorIndex,
     required EmbeddingProvider embeddingProvider,
-    required SearchRelevanceFilter relevanceFilter,
     required String sourceLayer,
   }) : _lexicalIndex = lexicalIndex,
        _vectorIndex = vectorIndex,
        _embeddingProvider = embeddingProvider,
-       _relevanceFilter = relevanceFilter,
        _sourceLayer = _validateSourceLayer(sourceLayer),
        _inventory = _CurrentCorpusInventory(lexicalIndex: lexicalIndex, vectorIndex: vectorIndex);
 
   final FullTextIndex _lexicalIndex;
   final VectorIndex _vectorIndex;
   final EmbeddingProvider _embeddingProvider;
-  final SearchRelevanceFilter _relevanceFilter;
   final String _sourceLayer;
   final _CurrentCorpusInventory _inventory;
 
@@ -129,43 +124,7 @@ final class HybridSearch {
       );
     }
 
-    final judgmentInputs = authenticatedRanked.map((candidate) => candidate.scoredResult).toList(growable: false);
-    List<SearchResult> relevant;
-    try {
-      relevant = await _relevanceFilter.filter(query, judgmentInputs);
-    } on Object {
-      return _fallback(
-        lexical,
-        userId,
-        limit,
-        diagnostics,
-        reason: 'relevanceFailure',
-        degradations: _staleDegradations(staleCount),
-      );
-    }
-
-    final byIdentity = {
-      for (final candidate in authenticatedRanked)
-        VectorIdentity(documentId: candidate.result.id, chunkIndex: candidate.result.chunkIndex): candidate,
-    };
-    final judged = [
-      for (final result in relevant) byIdentity[VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex)]!,
-    ];
-    List<_FusedCandidate> current;
-    try {
-      current = await _authenticateCandidates(judged, userId);
-    } on Object {
-      return _fallback(
-        lexical,
-        userId,
-        limit,
-        diagnostics,
-        reason: 'vectorAuthenticationFailure',
-        degradations: _staleDegradations(staleCount),
-      );
-    }
-
-    final selected = current.take(limit).toList(growable: false);
+    final selected = authenticatedRanked.take(limit).toList(growable: false);
     if (diagnostics != null) {
       diagnostics(
         SearchDiagnostics(

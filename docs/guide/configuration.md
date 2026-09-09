@@ -513,7 +513,6 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `search.providers.<name>.enabled` | boolean |  | Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI) |
 | `search.qmd.host` | string |  | Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required) |
 | `search.qmd.port` | integer | 1–65535 | TCP port the qmd daemon listens on. Default 8181. (restart required) |
-| `search.relevance_model` | null or string |  | Provider and model for hybrid-search relevance checks, written as provider/model. Null inherits the primary agent route. (restart required) |
 | **security** |  |  |  |
 | `security.bash_step.env_allowlist` | array |  | Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required) |
 | `security.bash_step.extra_strip_patterns` | array |  | Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required) |
@@ -604,13 +603,9 @@ Do not put an `output_schema` on the built-in `search` agent: DartClaw's own `co
 
 #### Provider authentication
 
-Hybrid retrieval uses `agent.provider`, `agent.model` and `agent.effort` by default to check whether candidate passages
-contain the requested information. `search.relevance_model` can instead select one explicit `provider/model` route;
-that route uses no inherited primary effort and must have a configured provider entry and credential. DartClaw never
-switches providers automatically. The check adds model cost and latency and sends the query and passages to the
-selected relevance provider even when `search.embedding.provider` is `local`. Failed checks retain lexical fallback
-with `relevanceFailure`.
-See [Search](search.md#built-in-hybrid-search-opt-in) for bounds and recovery behavior.
+Hybrid retrieval uses the configured embedding provider and does not start a generative agent or require an agent
+credential. The local embedding provider needs no credential; the HTTP provider uses only
+`search.embedding.credential`. See [Search](search.md#built-in-hybrid-search-opt-in) for bounds and recovery behavior.
 
 `providers.<id>.auth` selects which credential DartClaw presents for that provider. It takes three values:
 

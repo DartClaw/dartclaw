@@ -332,14 +332,6 @@ const Map<String, FieldMeta> _serverFields = {
     mutability: ConfigMutability.restart,
     description: 'Effort a query spends when the caller names none: fast, standard or deep.',
   ),
-  'search.relevance_model': FieldMeta(
-    yamlPath: 'search.relevance_model',
-    jsonKey: 'search.relevanceModel',
-    type: ConfigFieldType.string,
-    mutability: ConfigMutability.restart,
-    description: 'Provider and model for hybrid-search relevance checks, written as provider/model. Null inherits the primary agent route.',
-    nullable: true,
-  ),
   'search.embedding.provider': FieldMeta(
     yamlPath: 'search.embedding.provider',
     jsonKey: 'search.embedding.provider',

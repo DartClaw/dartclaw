@@ -9,7 +9,6 @@ export 'src/default_embedding_model_acquirer.dart'
 export 'src/embedding_providers.dart' show HttpEmbeddingProvider, NativeEmbeddingProvider, NetworkAccessCheck;
 export 'src/hybrid_search.dart' show HybridSearch, VectorSynchronizationResult, VectorSynchronizer;
 export 'src/hybrid_search_backend.dart' show HybridSearchBackend;
-export 'src/search_relevance_filter.dart' show SearchRelevanceFilter, SearchRelevanceTurn;
 
 export 'package:dartclaw_kernel/dartclaw_kernel.dart'
     show

@@ -142,13 +142,9 @@ int _maxCeilingFor(int loc) {
 // Reviewed necessity, 2026-09-09 (ADR-050):
 //   dartclaw_search 682 -> 1456 (measured 1456, no headroom). Providers and authenticated weighted
 //   fusion and source-rechecked vector synchronization complete the search-contract surface.
-// Reviewed relevance correction, 2026-09-09 (ADR-050): measured kernel 19944,
-// search 1614 and testing 3770. The shared decoder moves out of core; search
-// owns the bounded judgment and refreshed fallback; the fake exposes the
-// fail-closed tool capability. Ceilings use _maxCeilingFor on those measurements.
-// Reviewed Claude relevance routing, 2026-09-09 (ADR-050): runtime measures
-// 67399 after preserving exact worker options and awaited lease settlement.
-// No safe in-scope reduction remains; _maxCeilingFor sets 68899.
+// Search contract correction, 2026-09-09 (ADR-050): removal of the production
+// judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
+// down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -158,8 +154,8 @@ const _libLocCeilings = <String, int>{
   'dartclaw_core': 31260,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 68899,
-  'dartclaw_search': 2152,
+  'dartclaw_runtime': 68666,
+  'dartclaw_search': 1994,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,

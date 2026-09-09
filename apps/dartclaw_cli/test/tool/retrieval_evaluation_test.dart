@@ -1,8 +1,19 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../tool/retrieval_evaluation.dart';
+import 'retrieval_evaluation_test_support.dart';
 
 void main() {
+  late String repositoryRoot;
+
+  setUpAll(() async {
+    repositoryRoot = await resolveRetrievalEvaluationRepositoryRoot();
+  });
+
   test('positive metrics use unique documents, a fixed precision denominator, and supplied order', () {
     final query = _query('q', relevant: {'a', 'b'});
 
@@ -20,26 +31,41 @@ void main() {
     expect(nearestRankP95([1001, 1002]), 1.002);
   });
 
-  test('slice matrix is complete and no-result metrics remain null', () {
+  test('mixed slices expose positive and expected-empty denominators independently', () {
     final queries = _queries();
     final observations = _observations(queries);
 
     final rows = buildSliceRows(queries, observations);
 
     expect(rows, hasLength(144));
-    final noResult = rows.firstWhere(
+    final mixed = rows.firstWhere(
       (row) =>
           row.backend == 'sqlite' &&
           row.mode == 'keyword' &&
           row.corpus == 'memory' &&
           row.language == 'en' &&
-          row.family == 'no-result',
+          row.family == 'answer-absent',
     );
-    expect(noResult.hitAt1, isNull);
-    expect(noResult.recallAt5, isNull);
-    expect(noResult.precisionAt5, isNull);
-    expect(noResult.mrrAt5, isNull);
-    expect(noResult.correctEmptyRate, 1);
+    expect((mixed.queryCount, mixed.positiveQueryCount, mixed.expectedEmptyQueryCount), (3, 2, 1));
+    expect((mixed.hitAt1, mixed.recallAt5, mixed.precisionAt5, mixed.mrrAt5), (1.0, 1.0, 1.0, 1.0));
+    expect(mixed.correctEmptyRate, 1);
+    expect(mixed.emptyResultRate, closeTo(1 / 3, 1e-12));
+
+    final diagnosticOnly = rows.firstWhere(
+      (row) =>
+          row.backend == 'sqlite' &&
+          row.mode == 'keyword' &&
+          row.corpus == 'conversation' &&
+          row.language == 'en' &&
+          row.family == 'answer-absent',
+    );
+    expect((diagnosticOnly.positiveQueryCount, diagnosticOnly.expectedEmptyQueryCount), (0, 0));
+    expect(diagnosticOnly.hitAt1, isNull);
+    expect(diagnosticOnly.recallAt5, isNull);
+    expect(diagnosticOnly.precisionAt5, isNull);
+    expect(diagnosticOnly.mrrAt5, isNull);
+    expect(diagnosticOnly.correctEmptyRate, isNull);
+    expect(diagnosticOnly.emptyResultRate, 1);
   });
 
   test('strict lift and exact family and corpus tolerance boundaries pass', () {
@@ -56,15 +82,31 @@ void main() {
       gates.singleWhere((row) => row.id == 'corpus-family-regression/sqlite/memory/exact-keyword/hitAt1').observed,
       closeTo(0.20, 1e-12),
     );
+    final noMatch = gates.singleWhere((row) => row.id == 'no-match/sqlite/keyword');
+    expect((noMatch.observed, noMatch.threshold, noMatch.passed), (1, 1, true));
   });
 
-  test('equality lift, beyond-tolerance loss, no-result hit, and leaks fail independently', () {
+  test('answer absence does not force empty while an explicit no-match hit fails', () {
+    final queries = _queries();
+    final allowed = buildGateRows(queries, _observations(queries, unlabeledReturn: true));
+    expect(allowed.where((row) => !row.passed), isEmpty);
+
+    final failures = {
+      for (final row in buildGateRows(
+        queries,
+        _observations(queries, noMatchFailure: true),
+      ).where((row) => !row.passed))
+        row.id,
+    };
+    expect(failures, contains('no-match/sqlite/keyword'));
+  });
+
+  test('equality lift, beyond-tolerance loss, and leaks fail independently', () {
     final queries = _queries();
     final observations = _observations(
       queries,
       vocabularyLift: false,
       exactHybridMisses: 2,
-      noResultFailure: true,
       foreignOwnerCount: 1,
       wrongCorpusCount: 1,
     );
@@ -74,11 +116,55 @@ void main() {
     expect(failures, contains('vocabulary-lift/sqlite/memory/hitAt1'));
     expect(failures, contains('family-regression/sqlite/all/exact-keyword/hitAt1'));
     expect(failures, contains('corpus-family-regression/sqlite/memory/exact-keyword/hitAt1'));
-    expect(failures, contains('no-result/sqlite/keyword'));
     expect(failures, contains('owner-isolation/sqlite/keyword'));
     expect(failures, contains('corpus-isolation/sqlite/keyword'));
   });
+
+  test('version 2 fixture preserves historical assets and loads explicit no-match semantics', () {
+    final fixture = RetrievalAssetBundle(p.join(repositoryRoot, 'dev/testing/retrieval')).verifyAndLoad();
+
+    expect((fixture.documents.length, fixture.queries.length), (32, 60));
+    expect(fixture.queries.where((query) => query.expectEmpty).map((query) => query.id), ['q54']);
+    expect(fixture.queries.singleWhere((query) => query.id == 'q51').relevantDocumentIds, {'m01'});
+    expect(fixture.queries.singleWhere((query) => query.id == 'q56').relevantDocumentIds, isEmpty);
+    expect(fixture.queries.singleWhere((query) => query.id == 'q56').expectEmpty, isFalse);
+  });
+
+  test('fixture rejects missing booleans, malformed labels, unknown IDs, and contradictory no-match labels', () {
+    final source = jsonDecode(
+      File(p.join(repositoryRoot, 'dev/testing/retrieval/retrieval-v2.json')).readAsStringSync(),
+    );
+
+    final missingBool = _copyFixture(source);
+    (missingBool['queries']! as List<dynamic>).first.remove('expectEmpty');
+    expect(() => parseRetrievalFixture(missingBool), throwsA(isA<FormatException>()));
+
+    final malformedLabels = _copyFixture(source);
+    (malformedLabels['queries']! as List<dynamic>).first['relevantDocumentIds'] = 'm01';
+    expect(() => parseRetrievalFixture(malformedLabels), throwsA(isA<FormatException>()));
+
+    final emptyPositiveLabels = _copyFixture(source);
+    (emptyPositiveLabels['queries']! as List<dynamic>).first['relevantDocumentIds'] = <String>[];
+    expect(() => parseRetrievalFixture(emptyPositiveLabels), throwsA(isA<FormatException>()));
+
+    final unknownId = _copyFixture(source);
+    (unknownId['queries']! as List<dynamic>).first['relevantDocumentIds'] = ['missing'];
+    expect(() => parseRetrievalFixture(unknownId), throwsA(isA<FormatException>()));
+
+    final contradictoryNoMatch = _copyFixture(source);
+    final q54 = (contradictoryNoMatch['queries']! as List<dynamic>).singleWhere((query) => query['id'] == 'q54');
+    q54['relevantDocumentIds'] = ['m01'];
+    expect(() => parseRetrievalFixture(contradictoryNoMatch), throwsA(isA<FormatException>()));
+
+    final noNoMatch = _copyFixture(source);
+    for (final query in noNoMatch['queries']! as List<dynamic>) {
+      query['expectEmpty'] = false;
+    }
+    expect(() => parseRetrievalFixture(noNoMatch), throwsA(isA<FormatException>()));
+  });
 }
+
+Map<String, dynamic> _copyFixture(Object? source) => jsonDecode(jsonEncode(source)) as Map<String, dynamic>;
 
 List<EvaluationQuery> _queries() => [
   for (final family in evaluationFamilies)
@@ -90,9 +176,10 @@ List<EvaluationQuery> _queries() => [
         language: index.isEven ? 'en' : 'sv',
         family: family,
         text: 'literal query $index',
-        relevantDocumentIds: family == 'no-result'
-            ? const {}
-            : {for (var relevant = 0; relevant < 5; relevant++) '$family-$index-result-$relevant'},
+        relevantDocumentIds: family != 'answer-absent' || (index >= 1 && index <= 5)
+            ? {for (var relevant = 0; relevant < 5; relevant++) '$family-$index-result-$relevant'}
+            : const {},
+        expectEmpty: family == 'answer-absent' && index == 0,
       ),
 ];
 
@@ -100,7 +187,8 @@ List<RankingObservation> _observations(
   List<EvaluationQuery> queries, {
   bool vocabularyLift = true,
   int exactHybridMisses = 1,
-  bool noResultFailure = false,
+  bool noMatchFailure = false,
+  bool unlabeledReturn = false,
   int foreignOwnerCount = 0,
   int wrongCorpusCount = 0,
 }) => [
@@ -116,7 +204,8 @@ List<RankingObservation> _observations(
             mode,
             vocabularyLift: vocabularyLift,
             exactHybridMisses: exactHybridMisses,
-            noResultFailure: noResultFailure && backend == 'sqlite' && mode == 'keyword',
+            noMatchFailure: noMatchFailure && backend == 'sqlite' && mode == 'keyword',
+            unlabeledReturn: unlabeledReturn,
           ),
           warmMicros: 1000 + query.id.length,
           foreignOwnerCount: backend == 'sqlite' && mode == 'keyword' && query.id == 'exact-keyword-0'
@@ -133,9 +222,11 @@ Iterable<String> _ranking(
   String mode, {
   required bool vocabularyLift,
   required int exactHybridMisses,
-  required bool noResultFailure,
+  required bool noMatchFailure,
+  required bool unlabeledReturn,
 }) {
-  if (query.family == 'no-result') return noResultFailure && query.id.endsWith('-0') ? ['unexpected'] : const [];
+  if (query.expectEmpty) return noMatchFailure ? ['unexpected'] : const [];
+  if (query.relevantDocumentIds.isEmpty) return unlabeledReturn ? ['diagnostic-context'] : const [];
   if (query.family == 'vocabulary-mismatch') {
     if (mode == 'keyword' || (mode == 'hybrid' && !vocabularyLift)) return const [];
     return query.relevantDocumentIds;
@@ -155,4 +246,5 @@ EvaluationQuery _query(String id, {required Set<String> relevant}) => Evaluation
   family: 'exact-keyword',
   text: 'literal',
   relevantDocumentIds: relevant,
+  expectEmpty: false,
 );

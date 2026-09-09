@@ -43,7 +43,6 @@ Beyond that block and the single-line skill-activation convention consumed by `S
 
 | Surface | Model is asked to produce | Output contract | Validating / consuming component |
 |---------|---------------------------|-----------------|----------------------------------|
-| `packages/dartclaw_search/lib/src/search_relevance_filter.dart#SearchRelevanceFilter` (including kernel `renderOutputSchemaContract`) | One boolean per authenticated candidate: whether that passage supplies the information requested by the query | `declared schema` (one required boolean per ordinal; closed object) | `SearchRelevanceFilter` calls kernel `validateOutputSchema` once; runtime `SearchRelevanceRunner` selects native reply or shared strict `decodeOutputSchemaJson` from the reservation before execution. Missing native payload, malformed JSON and duplicate members fail; `HybridSearch` rechecks surviving source text before publication |
 
 ## `dartclaw_runtime` – task execution
 

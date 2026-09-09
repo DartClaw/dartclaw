@@ -66,22 +66,15 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
-- **Hybrid answer relevance** – memory and conversation candidates are checked for the requested information through
-  the primary agent before publication, or through the explicit `search.relevance_model: provider/model` route when
-  configured. A dedicated route does not inherit the primary agent's effort. Fixed ranking is preserved and sources
-  are rechecked after the model turn. A completed check waits for provider settlement and worker-capacity release
-  before returning, so sequential checks work with one configured worker.
-  Unsupported tool interception refuses the turn before startup; failures use only freshly verified lexical content.
-  Queries add model cost and latency even with local embeddings; failed checks report `relevanceFailure` and retain
-  lexical fallback. Explicit tool allowlists now reach worker construction and prevent reuse of broader workers.
-
-- **Claude relevance routing LOC baseline** – exact worker model/effort construction and awaited capacity release
-  bring runtime to 67,399 Dart lines. Review found no further safe in-scope reduction; the existing proportional-band
-  rule sets its ceiling to 68,899.
-- **Relevance correction LOC baseline** – the shared strict decoder moves from core to kernel, the search package owns
-  bounded relevance selection and refreshed fallback, and the testing fake exposes the fail-closed tool capability.
-  Measured kernel/search/testing LOC is 19,944/1,614/3,770; the existing proportional-band rule sets their ceilings to
-  21,444/2,152/5,026. Core remains below its existing ceiling after the decoder move.
+- **Agent-independent hybrid retrieval** – full-text and vector candidates are combined with weighted RRF and
+  returned after current-source verification. The interim generative answer judge and `search.relevance_model`
+  setting are removed. Search requires only its embedding provider and database, not agent credentials or worker
+  capacity. Fresh lexical fallback, explicit tool-policy enforcement and execution-capacity cleanup are retained.
+  Runtime/search LOC ceilings ratchet down to 68,666/1,994 after removal (measured 67,166/1,496).
+- **Retrieval evaluation contract** – protocol 2 measures useful passage relevance separately from answer
+  sufficiency. Explicit no-match probes retain empty-result gates; unanswered queries alone do not. Positive ranking
+  tolerances and zero owner/corpus leakage remain unchanged. Original fixtures and failed reports stay historical;
+  the separately versioned fixture is exposed regression evidence, not unseen acceptance.
 
 - **Reported session cost** – missing provider cost is no longer treated as zero. Session cost is unavailable when
   any turn lacks reported cost, including older records without cost-presence evidence; reported zero remains zero.

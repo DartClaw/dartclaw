@@ -81,7 +81,7 @@ work is parked on `parked/s64-workflow-schema`.
 ### 0.26 – Pluggable Database Backend & Hybrid Search
 
 **Status – implementation complete; combined acceptance blocked.** All 17 Phase A stories and all nine Phase B
-stories are accepted on `feat/0.26`. The sealed retrieval evaluation completed 144 slices: 118 of 122 gates passed;
+stories are accepted on `feat/0.26`. The original v1 retrieval evaluation completed 144 slices: 118 of 122 gates passed;
 vector and hybrid no-result gates failed on both databases (1/10 empty results each, required 10/10). Frozen inputs
 and thresholds remain unchanged. Native x64 release qualification is still unavailable locally. Version pins remain
 0.26.0 Unreleased; the plan/spec bundle is retained until acceptance permits consolidation.
@@ -93,11 +93,11 @@ on 2026-09-09. It preserves the failed evaluation and current requirements; chan
 a separate decision, followed by an independently unseen holdout before acceptance. The independently reviewed
 32-document/60-query calibration completed with the same four no-result failures. Positive-best cosine `0.3066`
 overlaps negative maximum `0.5997`, ruling out a scalar cutoff that retains every positive and rejects every negative.
-That calibration met its stop condition. The maintainer subsequently authorized a relevance correction: judge
-whether retrieved passages contain the requested information before publishing semantic results. Local checks passed:
-11,953 tests, 44 configured skips, PostgreSQL contracts, fitness gates and both builds. Restricted checks refuse current Codex,
-which lacks complete work-tool interception. The maintainer approved routing checks to Claude while retaining Codex as
-primary; three live checks and full local verification pass. Calibration awaits explicit payload-export approval from automatic review.
+The later answer judge is superseded by the owner's [contract correction](../bundle/docs/specs/0.26/search-contract-correction.md):
+restore ordinary hybrid retrieval, remove the generative dependency, distinguish passage relevance from answer
+sufficiency, and retain ranking/isolation checks. Remediation passes independent review, all 122 protocol-2 regression
+gates across 144 slices, 11,931 workspace tests (44 configured skips), PostgreSQL integration and both AOT builds.
+Original failed evidence, unseen acceptance and platform/release qualifications remain separate.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B

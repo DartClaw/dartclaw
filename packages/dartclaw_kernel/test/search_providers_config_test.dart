@@ -4,34 +4,6 @@ import 'package:test/test.dart';
 import 'support/load_config.dart';
 
 void main() {
-  test('accepts an explicit relevance model route', () {
-    final config = loadYaml('search:\n  relevance_model: " Claude / sonnet "\n');
-
-    expect(config.search.relevanceModel, 'claude/sonnet');
-    expect(config.warnings, isEmpty);
-  });
-
-  test('accepts an explicit null relevance route as primary inheritance', () {
-    final config = loadYaml('search:\n  relevance_model: null\n');
-
-    expect(config.search.relevanceModel, isNull);
-    expect(config.warnings, isEmpty);
-  });
-
-  test('refuses an invalid relevance route instead of falling back to the primary model', () {
-    for (final value in ['sonnet', 'openai/gpt-5', 'claude/', 'claude/sonnet/extra', '   ']) {
-      expect(
-        () => loadYaml('search:\n  relevance_model: "$value"\n'),
-        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('provider/model'))),
-        reason: value,
-      );
-    }
-    expect(
-      () => loadYaml('search:\n  relevance_model: 42\n'),
-      throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('provider/model string'))),
-    );
-  });
-
   group('search.embedding config', () {
     test('defaults to supported local embeddings and derives the retained vector path', () {
       final config = loadNoFile();
@@ -222,10 +194,6 @@ void main() {
       expect(first, same);
       expect(first.hashCode, same.hashCode);
       expect(first, isNot(const SearchConfig(backend: 'hybrid')));
-      expect(
-        first,
-        isNot(SearchConfig(backend: 'hybrid', embedding: first.embedding, relevanceModel: 'claude/sonnet')),
-      );
     });
   });
 

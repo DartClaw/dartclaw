@@ -35,9 +35,6 @@ void main() {
         config: config,
         eventBus: EventBus(),
         exitFn: (code) => throw StateError('Unexpected exit $code'),
-        searchRelevanceTurn: (_, schema) async => {
-          for (final key in (schema['properties'] as Map).keys) key as String: true,
-        },
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedQuery: (_) async {
             queryCalls++;
@@ -93,9 +90,6 @@ void main() {
       config: config,
       eventBus: EventBus(),
       exitFn: (code) => throw StateError('Unexpected exit $code'),
-      searchRelevanceTurn: (_, schema) async => {
-        for (final key in (schema['properties'] as Map).keys) key as String: true,
-      },
       embeddingProviderFactory: () =>
           CallbackEmbeddingProvider(embedQuery: (_) => throw StateError('A stale index must not be queried')),
     );
@@ -131,9 +125,6 @@ void main() {
         config: config,
         eventBus: EventBus(),
         exitFn: (code) => throw StateError('Unexpected exit $code'),
-        searchRelevanceTurn: (_, schema) async => {
-          for (final key in (schema['properties'] as Map).keys) key as String: true,
-        },
         taskBackendFactory: (_) async => taskBackend = SqliteBackend.openInMemory(),
         searchBackendFactory: (path) async => searchBackend = await SqliteBackend.open(path),
         vectorBackendFactory: (path) async => vectorBackend = await SqliteBackend.open(path),

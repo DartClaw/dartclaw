@@ -1,6 +1,6 @@
 # ADR-050: Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost
 
-**Status:** Accepted – 2026-07-25; amended 2026-09-09 for answer relevance. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; final held-out and platform acceptance remain separate release gates.
+**Status:** Accepted – 2026-07-25; amended 2026-09-09 to restore agent-independent retrieval. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; final held-out and platform acceptance remain separate release gates.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-004](004-vector-search-approach.md) (superseded – QMD outpost), [ADR-045](045-pluggable-database-backend.md) (`FullTextIndex`/`VectorIndex` seams; this ADR delivers its former Phase 3), [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (bundled-native-library shipping precedent), [ADR-034](034-enforced-package-dependency-direction.md) (dependency direction), [ADR-002](002-file-based-storage.md) (search index is derived/rebuildable)
@@ -34,7 +34,7 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 4. **Vector storage:** SQLite backend = float32 BLOB column + brute-force cosine in Dart (no vector extension; defensible far beyond memory-corpus scale; preserves ADR-045's "no in-database vector path on SQLite"). PostgreSQL backend = **`pgvector`** – delivering ADR-045's former Phase 3 now that the embedding source exists.
 5. **Fusion:** Dart-side weighted RRF with frozen constants: `k=60`, keyword weight `0.25`, vector weight `0.75`, vector cutoff `0.20`, and at most 20 candidates from each constituent. Deterministic ties use keyword rank, vector rank, document ID and chunk ordinal. The constants are not configuration; set membership remains the cross-backend parity contract.
 6. **Pipeline:** embed-on-write with graceful keyword-only degradation when the embedder is unavailable (loud log + visible unembedded counter, never a hard error); content-hash + embedder-fingerprint incremental re-embedding; heading-scored code-fence-safe chunker as the single chunking owner. Index stays derived + rebuildable (ADR-002).
-7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking. The answer-relevance amendment below adds a bounded selection through the existing harness; it does not change candidate scores/order or add a resident model.
+7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking. Retrieval is independent of generative agents; answer sufficiency belongs to the caller.
 8. **QMD retirement:** `search.backend: qmd` emits a deprecation warning in 0.26; `QmdManager`, `QmdSearchBackend`, the factory branch and docs are removed one milestone later.
 
 The schedule is exact: 0.24 keeps QMD fully supported and assigns it no canonical-memory authority; 0.26 Phase B emits
@@ -45,7 +45,7 @@ the deprecation warning; the following milestone removes the implementation.
 
 ### Positive
 
-- **Semantic + hybrid search becomes built-in** on both database backends. Native embedding generation needs no Node.js or outpost; answer relevance uses the configured primary agent's existing harness.
+- **Semantic + hybrid search becomes built-in** on both database backends. Native embedding generation needs no Node.js or outpost; retrieval creates no generative model turn.
 - **Swedish/multilingual semantic recall independent of keyword stemming** – embeddings sidestep morphology; the spike fixture shows exactly the FTS5-`unicode61` failure categories going from 0.00 to 1.00.
 - **Proven shipping model** – native libs ride the ADR-048 `dart build cli` bundle; one per-target build, inspectable `lib/` siblings.
 - **Storage stays injected** – the search package composes the lexical/vector seams that 0.26 Phase A already builds.
@@ -68,37 +68,21 @@ the deprecation warning; the following milestone removes the implementation.
 - SEB/MTEB(Scandinavian) tension remains recorded: the board favors qwen3-embedding-0.6B among small models, while the spike fixture favored embeddinggemma-300M. Local mode accepts only the verified EmbeddingGemma artifact; an explicit HTTP provider selects its own model and rebuilds derived vectors under a different fingerprint.
 - FTS5 keyword search remains the zero-config default; hybrid activates only when a model is present.
 
-## Amendment (0.26): answer relevance
+## Amendment (0.26): retrieval and answer sufficiency
 
-Representative calibration found overlapping cosine scores: retaining every positive required a cutoff at or below
-0.3066, while rejecting every negative required one above 0.5997. Similar subject matter does not establish that a
-passage supplies the requested fact. The owner authorized fixing this mechanism on 2026-09-09; the frozen embedding,
-fusion and quality requirements remain unchanged.
+The answer-relevance amendment was superseded by the owner's explicit correction on 2026-09-09. Its premise
+conflated missing answer evidence with an empty retrieval ranking. The bounded generative judge and its routing
+configuration are removed; keyword/vector retrieval and weighted RRF remain the production mechanism.
 
-`SearchRelevanceFilter` owns a closed boolean decision for each authenticated candidate. It sends at most 40 passages
-and 64 KiB of encoded prompt/schema input to one model turn, preserves RRF order, and validates the selection through
-kernel's output-schema authority. `HybridSearch` rechecks surviving source text after the awaited judgment, before
-returning results. A failed judgment retains lexical fallback with `relevanceFailure`; it is never successful empty
-selection.
+Search returns useful authorized, current passages. A passage can provide useful context without independently
+answering the question. The answering caller decides whether the evidence supports an answer. Reranking remains
+out of scope until measured retrieval benefit justifies its latency and resource cost.
 
-Runtime owns execution through the existing primary provider/model/effort route by default. The optional
-`search.relevance_model: provider/model` setting selects one dedicated route without inheriting primary effort; it
-requires an explicitly configured provider and never causes an automatic switch. Either route uses a fresh
-logical-agent session: no work tools, no personal-memory prefill, fail-fast worker admission and a 30-second turn timeout. Native structured replies are
-required when selected by the reserved turn. Other providers use the existing logical-agent strict JSON contract,
-sharing its decoder and rejecting prose, fences and duplicate members. No native readback capability is inferred;
-[ADR-031](031-native-first-structured-outputs.md)'s workflow policy remains unchanged.
-
-An empty tool declaration is insufficient on a provider that only intercepts approval requests. Runtime requires
-the actual harness's complete tool-interception capability alongside its mandatory deny-all guard before starting
-the relevance worker. Claude's pre-tool hooks support this contract; current Codex and ACP harnesses refuse it.
-Refusal remains a visible relevance failure, with no automatic provider switch. Every lexical fallback is rechecked
-against current corpus content; failure to verify current content cannot publish the old snapshot.
-
-Hybrid queries consequently incur model latency and cost, and send selected passages across the selected relevance
-provider's trust boundary even with local embeddings. FTS remains model-free. Quality evidence must pin this provider,
-model and prompt as well as the embedding identity. Calibration, a sealed candidate evaluation and the independent
-unseen holdout remain separate from implementation acceptance.
+[The corrective contract](../bundle/docs/specs/0.26/search-contract-correction.md) defines prospective protocol 2
+passage judgments, explicit bounded no-match probes and unchanged positive-ranking/isolation gates. Original
+frozen assets and failed protocol-1 results remain historical evidence. Revised exposed regression results are
+not unseen acceptance. PostgreSQL uses exact pgvector cosine over a filtered subset, not HNSW; that choice remains
+proportional to the personal corpus and can be revisited with measured query-plan and corpus-growth evidence.
 
 ## Alternatives Considered
 

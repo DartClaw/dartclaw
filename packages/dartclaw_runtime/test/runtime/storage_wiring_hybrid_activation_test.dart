@@ -77,13 +77,12 @@ void main() {
     }
   });
 
-  test('startup reuses both retained SQLite vector corpora across runtime reconstruction', () async {
+  test('hybrid composes, queries, and reuses both SQLite corpora with no generative harness', () async {
     final value = config();
     await seed(value);
     var embeddings = 0;
     var providers = 0;
     var disposals = 0;
-    var judgments = 0;
     final vectorPaths = <String>[];
     Future<void> startAndClose() async {
       final wiring = StorageWiring(
@@ -106,14 +105,9 @@ void main() {
             dispose: () async => disposals++,
           );
         },
-        searchRelevanceTurn: (prompt, schema) async {
-          judgments++;
-          return _keepAllRelevant(prompt, schema);
-        },
       );
       await wiring.wire();
       try {
-        final judgmentsBeforeSearch = judgments;
         expect(await wiring.memoryMissingVectorCount(), 0);
         expect(await wiring.conversationMissingVectorCount(), 0);
         expect((await wiring.inspectMemorySearch('memoryneedle'))!.single.chunk, contains('memoryneedle'));
@@ -121,7 +115,6 @@ void main() {
           (await wiring.conversationSearch.search('conversationneedle')).single.text,
           contains('conversationneedle'),
         );
-        expect(judgments, judgmentsBeforeSearch + 2, reason: 'Both corpus filters use the deferred runtime turn');
       } finally {
         await wiring.dispose();
       }
@@ -154,7 +147,6 @@ void main() {
       config: value,
       eventBus: EventBus(),
       exitFn: (code) => throw StateError('Unexpected exit $code'),
-      searchRelevanceTurn: _keepAllRelevant,
     );
     await wiring.wire();
     try {
@@ -209,12 +201,7 @@ void main() {
       ),
     );
     await seed(value);
-    final wiring = StorageWiring(
-      config: value,
-      eventBus: EventBus(),
-      searchRelevanceTurn: _keepAllRelevant,
-      exitFn: (code) => throw StateError('Exit $code'),
-    );
+    final wiring = StorageWiring(config: value, eventBus: EventBus(), exitFn: (code) => throw StateError('Exit $code'));
     try {
       await wiring.wire();
       expect(await wiring.memoryMissingVectorCount(), 0);
@@ -269,7 +256,3 @@ final class _Exit implements Exception {
   const new(this.code);
   final int code;
 }
-
-Future<Map<String, dynamic>> _keepAllRelevant(String _, Map<String, dynamic> schema) async => {
-  for (final key in (schema['required'] as List).cast<String>()) key: true,
-};

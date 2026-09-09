@@ -292,7 +292,6 @@ void main() {
     scheduleTurnCompletion(worker, responseText: '{"answer":"host-checked"}');
 
     final turnId = await runner.reserveTurn(session.id, outputSchema: schema, outputSchemaWhenSupported: true);
-    expect(runner.reservedTurnUsesNativeStructuredOutput(session.id, turnId), isFalse);
     runner.executeTurn(session.id, turnId, const [
       {'role': 'user', 'content': 'Return structured output'},
     ]);
@@ -315,7 +314,6 @@ void main() {
     scheduleTurnCompletion(worker, result: const TurnResult(structuredOutput: {'answer': 'provider-enforced'}));
 
     final turnId = await runner.reserveTurn(session.id, outputSchema: schema, outputSchemaWhenSupported: true);
-    expect(runner.reservedTurnUsesNativeStructuredOutput(session.id, turnId), isTrue);
     runner.executeTurn(session.id, turnId, const [
       {'role': 'user', 'content': 'Return structured output'},
     ]);

@@ -12,6 +12,12 @@ _Authored against public `3396754b6501` on `feat/0.26`; commands and `packages/.
 actually improves Swedish/English retrieval on both corpora and database backends without tuning against held-out
 results.
 
+**Owner-approved correction (2026-09-09, ADR-050)**: [Protocol 2](../search-contract-correction.md)
+supersedes conflicting v1 wording below, including the original Pinned Evaluation Contract and proof descriptions.
+The original five sealed assets remain historical. `retrieval-v2.json` is a separately versioned exposed regression
+fixture with passage-relevance judgments and explicit `expectEmpty` probes. It cannot establish unseen acceptance.
+Retrieval and its evaluator require no generative-agent runtime, model configuration or credentials.
+
 **Expected Outcomes**:
 
 - [OC01] One command evaluates keyword, vector and hybrid retrieval through the real SQLite and PostgreSQL pipelines
@@ -19,7 +25,7 @@ results.
 - [OC02] The report contains complete, reproducible quality and warm-latency slices with the exact frozen metric
   definitions and every numerical quality gate decided from machine-readable evidence.
 - [OC03] Held-out inputs and selected settings remain byte-identical to their pre-score versions, and missing
-  infrastructure, incomplete slices, no-result hits or isolation leaks fail instead of disappearing from the report.
+  infrastructure, incomplete slices, explicit no-match hits or isolation leaks fail instead of disappearing from the report.
 - [OC04] The first native embedding measurement includes lazy model verification and initialization, while reported
   performance remains measured-environment evidence rather than a portable SLA.
 
@@ -153,11 +159,12 @@ contributions/fused score remain positive; the evaluator performs no negation or
     cosine stand-in, evaluator fusion, score-based re-sort or raw metadata shortcut can satisfy the scenario
 
 - **S03 [OC02] [TI01,TI02] Every backend/mode/corpus/language/family slice is explicit and mathematically stable**
-  - **Given** positive judgments with one or more relevant document IDs and empty-relevance no-result judgments
+  - **Given** passage-relevance judgments, answer-absent queries and independently declared `expectEmpty` probes
   - **When** rankings and raw query durations are aggregated
   - **Then** the evaluator emits exactly the 144 pinned rows in stable order, deduplicates repeated chunks by document
-    ID before top-five metrics, uses the fixed denominator five and macro formulas above, reports relevance metrics as
-    null for no-result rows, and calculates nearest-rank warm p95 from unrounded samples
+    ID before top-five metrics, uses the fixed denominator five and macro formulas over nonempty judgments, reports
+    positiveQueryCount and expectedEmptyQueryCount, returns null for absent denominators, computes correct-empty only
+    for explicit probes, and calculates nearest-rank warm p95 from unrounded samples
 
 - **S04 [OC02,OC03] [TI01] Exact quality tolerances decide the report without post-score adjustment**
   - **Given** constituent and hybrid rankings at, immediately inside and immediately outside each PRD tolerance
@@ -166,11 +173,11 @@ contributions/fused score remain positive; the evaluator performs no negation or
     backend/family/metric; 0.10 family and 0.20 corpus-family regressions pass at equality and fail beyond it; every
     failed comparison appears in `gateRows` and `violations`; no input, setting or tolerance is rewritten
 
-- **S05 [OC03] [TI01,TI02] No-result and isolation failures cannot hide behind aggregate quality**
-  - **Given** ten no-result queries plus a returned document belonging to a foreign owner or the other corpus
+- **S05 [OC03] [TI01,TI02] Explicit no-match and isolation failures cannot hide behind aggregate quality**
+  - **Given** explicit no-match probes, other answer-absent queries, and a returned foreign-owner or wrong-corpus document
   - **When** any backend/mode ranking is validated
-  - **Then** all ten no-result rankings must be empty for that backend/mode, owner and corpus leaks are counted
-    separately, and any nonzero count fails the run even when every positive aggregate passes
+  - **Then** only explicit `expectEmpty` probes require an empty ranking; answer absence alone imposes no such rule.
+    Probe counts come from the fixture. Owner and corpus leaks fail independently even when all ranking gates pass.
 
 - **S06 [OC02,OC04] [TI02] [runtime] Timing and provenance describe the measured execution only**
   - **Given** a synchronously constructed, not-yet-initialized `NativeEmbeddingProvider` and the frozen protocol
@@ -334,4 +341,95 @@ file | docs/specs/0.26/phase-b/s04-hybrid-fusion-and-incremental-synchronization
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-09 18:43 UTC – design-change
+
+#### DESIGN CHANGE
+
+Owner-approved agent-independent retrieval and prospective evaluation contract; original evidence remains historical.
+
+#### ADR
+
+ADR-050; ../search-contract-correction.md.
+
+Old:
+```text
+actually improves Swedish/English retrieval on both corpora and database backends without tuning against held-out
+results.
+```
+
+New:
+```text
+actually improves Swedish/English retrieval on both corpora and database backends without tuning against held-out
+results.
+
+**Owner-approved correction (2026-09-09, ADR-050)**: [Protocol 2](../search-contract-correction.md)
+supersedes conflicting v1 wording below, including the original Pinned Evaluation Contract and proof descriptions.
+The original five sealed assets remain historical. `retrieval-v2.json` is a separately versioned exposed regression
+fixture with passage-relevance judgments and explicit `expectEmpty` probes. It cannot establish unseen acceptance.
+Retrieval and its evaluator require no generative-agent runtime, model configuration or credentials.
+```
+
+Old:
+```text
+infrastructure, incomplete slices, no-result hits or isolation leaks fail instead of disappearing from the report.
+```
+
+New:
+```text
+infrastructure, incomplete slices, explicit no-match hits or isolation leaks fail instead of disappearing from the report.
+```
+
+Old:
+```text
+  - **Given** positive judgments with one or more relevant document IDs and empty-relevance no-result judgments
+```
+
+New:
+```text
+  - **Given** passage-relevance judgments, answer-absent queries and independently declared `expectEmpty` probes
+```
+
+Old:
+```text
+    ID before top-five metrics, uses the fixed denominator five and macro formulas above, reports relevance metrics as
+    null for no-result rows, and calculates nearest-rank warm p95 from unrounded samples
+```
+
+New:
+```text
+    ID before top-five metrics, uses the fixed denominator five and macro formulas over nonempty judgments, reports
+    positiveQueryCount and expectedEmptyQueryCount, returns null for absent denominators, computes correct-empty only
+    for explicit probes, and calculates nearest-rank warm p95 from unrounded samples
+```
+
+Old:
+```text
+**S05 [OC03] [TI01,TI02] No-result and isolation failures cannot hide behind aggregate quality**
+```
+
+New:
+```text
+**S05 [OC03] [TI01,TI02] Explicit no-match and isolation failures cannot hide behind aggregate quality**
+```
+
+Old:
+```text
+  - **Given** ten no-result queries plus a returned document belonging to a foreign owner or the other corpus
+```
+
+New:
+```text
+  - **Given** explicit no-match probes, other answer-absent queries, and a returned foreign-owner or wrong-corpus document
+```
+
+Old:
+```text
+  - **Then** all ten no-result rankings must be empty for that backend/mode, owner and corpus leaks are counted
+    separately, and any nonzero count fails the run even when every positive aggregate passes
+```
+
+New:
+```text
+  - **Then** only explicit `expectEmpty` probes require an empty ranking; answer absence alone imposes no such rule.
+    Probe counts come from the fixture. Owner and corpus leaks fail independently even when all ranking gates pass.
+```

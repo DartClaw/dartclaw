@@ -222,15 +222,6 @@ class TurnRunner implements core.TurnRunner {
   @override
   bool isActiveTurn(String sessionId, String turnId) => _activeTurns[sessionId]?.turnId == turnId;
 
-  /// Whether the reserved turn retained its schema for provider-native enforcement.
-  bool reservedTurnUsesNativeStructuredOutput(String sessionId, String turnId) {
-    final context = _activeTurns[sessionId];
-    if (context == null || context.turnId != turnId) {
-      throw StateError('Turn $turnId is not actively reserved for session $sessionId');
-    }
-    return context.outputSchema != null;
-  }
-
   @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
     _evictExpiredOutcomes();

@@ -103,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, optional `relevanceModel` (`provider/model`), and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
+| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
@@ -826,9 +826,8 @@ API-key entry. Query and document bodies are sent as raw OpenAI-compatible `inpu
 and is an explicit trust boundary. Provider kind, normalized endpoint/model or verified local model identity, and
 input convention form the vector fingerprint; the fingerprint is derived runtime identity, not configuration.
 
-Hybrid answer relevance uses `agent.provider`, `agent.model`, `agent.effort` and the primary execution placement through
-the existing runtime. This is separate from the embedding identity: local embeddings still send the query and selected
-passages to the primary agent's provider. No separate relevance provider or score-tuning configuration is introduced.
+Hybrid retrieval is independent of `agent.provider`, model, effort and execution placement. The embedding
+configuration above is its only model boundary; it creates no generative-agent turn or relevance-worker route.
 
 `database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
 mutually exclusive with `database.url`.
@@ -1044,7 +1043,7 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 |---------|-------------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, explicit relevance model route, and the four `search.embedding.*` provider fields |
+| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, and the four `search.embedding.*` provider fields |
 | `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |

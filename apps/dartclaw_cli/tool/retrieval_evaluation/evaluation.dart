@@ -15,11 +15,12 @@ const evaluationFamilies = [
   'named-entity',
   'temporal',
   'relational',
-  'no-result',
+  'answer-absent',
 ];
 const positiveComparisonFamilies = ['exact-keyword', 'named-entity', 'temporal', 'relational'];
 
-const heldoutSha256 = '2635bb02da1f8dddd67e9b9f22795cc32dbee34588d642b573bdf00b8ec7b9a3';
+const historicalHeldoutSha256 = '2635bb02da1f8dddd67e9b9f22795cc32dbee34588d642b573bdf00b8ec7b9a3';
+const retrievalV2Sha256 = '3136f0d76532ebaffefa729173e2cb2c6d4b96e348fcf661a59840a4e28a8d42';
 const selectedSettingsSha256 = '32bf711292532f51313404072d61ff6443660a5c578cd0095574de94a8303a1a';
 const calibrationNegativesSha256 = '2df62c960c83ffe5485f81ae22ec63acd0ddf6f54292e52837f1531edd08bb46';
 const calibrationSummarySha256 = '2c360ad1802a116e54ed4c3b020344bc179615fe71952d48dfb4c3eefb5ff97a';
@@ -44,6 +45,7 @@ final class EvaluationQuery {
     required this.family,
     required this.text,
     required this.relevantDocumentIds,
+    required this.expectEmpty,
   });
 
   final String id;
@@ -53,6 +55,7 @@ final class EvaluationQuery {
   final String family;
   final String text;
   final Set<String> relevantDocumentIds;
+  final bool expectEmpty;
 }
 
 final class RetrievalFixture {
@@ -136,11 +139,14 @@ final class SliceRow {
     required this.language,
     required this.family,
     required this.queryCount,
+    required this.positiveQueryCount,
+    required this.expectedEmptyQueryCount,
     required this.hitAt1,
     required this.recallAt5,
     required this.precisionAt5,
     required this.mrrAt5,
     required this.correctEmptyRate,
+    required this.emptyResultRate,
     required this.warmP95Ms,
   });
 
@@ -150,11 +156,14 @@ final class SliceRow {
   final String language;
   final String family;
   final int queryCount;
+  final int positiveQueryCount;
+  final int expectedEmptyQueryCount;
   final double? hitAt1;
   final double? recallAt5;
   final double? precisionAt5;
   final double? mrrAt5;
   final double? correctEmptyRate;
+  final double emptyResultRate;
   final double warmP95Ms;
 
   Map<String, Object?> toJson() => {
@@ -164,11 +173,14 @@ final class SliceRow {
     'language': language,
     'family': family,
     'queryCount': queryCount,
+    'positiveQueryCount': positiveQueryCount,
+    'expectedEmptyQueryCount': expectedEmptyQueryCount,
     'hitAt1': _rounded(hitAt1),
     'recallAt5': _rounded(recallAt5),
     'precisionAt5': _rounded(precisionAt5),
     'mrrAt5': _rounded(mrrAt5),
     'correctEmptyRate': _rounded(correctEmptyRate),
+    'emptyResultRate': _rounded(emptyResultRate),
     'warmP95Ms': _rounded(warmP95Ms),
   };
 }
@@ -194,26 +206,11 @@ List<SliceRow> buildSliceRows(List<EvaluationQuery> queries, List<RankingObserva
             if (selected.isEmpty) {
               throw StateError('evaluation slice is incomplete: $backend/$mode/$corpus/$language/$family');
             }
-            if (family == 'no-result') {
-              rows.add(
-                SliceRow(
-                  backend: backend,
-                  mode: mode,
-                  corpus: corpus,
-                  language: language,
-                  family: family,
-                  queryCount: selected.length,
-                  hitAt1: null,
-                  recallAt5: null,
-                  precisionAt5: null,
-                  mrrAt5: null,
-                  correctEmptyRate: _mean(selected.map((item) => item.documentIds.isEmpty ? 1 : 0)),
-                  warmP95Ms: nearestRankP95(selected.map((item) => item.warmMicros)),
-                ),
-              );
-              continue;
-            }
-            final metrics = selected
+            final positives = selected
+                .where((item) => item.query.relevantDocumentIds.isNotEmpty)
+                .toList(growable: false);
+            final expectedEmpty = selected.where((item) => item.query.expectEmpty).toList(growable: false);
+            final metrics = positives
                 .map((item) => calculatePositiveMetrics(item.query, item.documentIds))
                 .toList(growable: false);
             rows.add(
@@ -224,11 +221,16 @@ List<SliceRow> buildSliceRows(List<EvaluationQuery> queries, List<RankingObserva
                 language: language,
                 family: family,
                 queryCount: selected.length,
-                hitAt1: _mean(metrics.map((item) => item.hitAt1)),
-                recallAt5: _mean(metrics.map((item) => item.recallAt5)),
-                precisionAt5: _mean(metrics.map((item) => item.precisionAt5)),
-                mrrAt5: _mean(metrics.map((item) => item.mrrAt5)),
-                correctEmptyRate: null,
+                positiveQueryCount: positives.length,
+                expectedEmptyQueryCount: expectedEmpty.length,
+                hitAt1: metrics.isEmpty ? null : _mean(metrics.map((item) => item.hitAt1)),
+                recallAt5: metrics.isEmpty ? null : _mean(metrics.map((item) => item.recallAt5)),
+                precisionAt5: metrics.isEmpty ? null : _mean(metrics.map((item) => item.precisionAt5)),
+                mrrAt5: metrics.isEmpty ? null : _mean(metrics.map((item) => item.mrrAt5)),
+                correctEmptyRate: expectedEmpty.isEmpty
+                    ? null
+                    : _mean(expectedEmpty.map((item) => item.documentIds.isEmpty ? 1 : 0)),
+                emptyResultRate: _mean(selected.map((item) => item.documentIds.isEmpty ? 1 : 0)),
                 warmP95Ms: nearestRankP95(selected.map((item) => item.warmMicros)),
               ),
             );
@@ -330,20 +332,20 @@ List<GateRow> buildGateRows(List<EvaluationQuery> queries, List<RankingObservati
       }
     }
     for (final mode in evaluationModes) {
-      final noResults = observations
-          .where((item) => item.backend == backend && item.mode == mode && item.query.family == 'no-result')
+      final noMatches = observations
+          .where((item) => item.backend == backend && item.mode == mode && item.query.expectEmpty)
           .toList(growable: false);
-      final emptyCount = noResults.where((item) => item.documentIds.isEmpty).length;
+      final emptyCount = noMatches.where((item) => item.documentIds.isEmpty).length;
       rows.add(
         GateRow(
-          id: 'no-result/$backend/$mode',
+          id: 'no-match/$backend/$mode',
           backend: backend,
           mode: mode,
-          family: 'no-result',
+          family: 'answer-absent',
           observed: emptyCount.toDouble(),
-          threshold: 10,
+          threshold: noMatches.length.toDouble(),
           comparison: 'equalTo',
-          passed: noResults.length == 10 && emptyCount == 10,
+          passed: emptyCount == noMatches.length,
         ),
       );
       final modeRows = observations.where((item) => item.backend == backend && item.mode == mode);
@@ -437,11 +439,22 @@ double _aggregateMetric(
 }
 
 void _validateObservationMatrix(List<EvaluationQuery> queries, List<RankingObservation> observations) {
-  final queryIds = queries.map((query) => query.id).toSet();
-  if (queryIds.length != queries.length) throw StateError('evaluation query IDs must be unique');
+  final queriesById = {for (final query in queries) query.id: query};
+  if (queriesById.length != queries.length) throw StateError('evaluation query IDs must be unique');
+  if (!queries.any((query) => query.expectEmpty)) throw StateError('evaluation requires at least one no-match query');
   final keys = <String>{};
   for (final item in observations) {
-    if (!queryIds.contains(item.query.id)) throw StateError('observation references an unknown query');
+    final expectedQuery = queriesById[item.query.id];
+    if (expectedQuery == null) throw StateError('observation references an unknown query');
+    if (item.query.tenant != expectedQuery.tenant ||
+        item.query.corpus != expectedQuery.corpus ||
+        item.query.language != expectedQuery.language ||
+        item.query.family != expectedQuery.family ||
+        item.query.text != expectedQuery.text ||
+        item.query.expectEmpty != expectedQuery.expectEmpty ||
+        !_sameSet(item.query.relevantDocumentIds, expectedQuery.relevantDocumentIds)) {
+      throw StateError('observation query dimensions do not match the fixture: ${item.query.id}');
+    }
     final key = '${item.backend}/${item.mode}/${item.query.id}';
     if (!keys.add(key)) throw StateError('duplicate evaluation observation: $key');
   }
@@ -462,7 +475,8 @@ final class RetrievalAssetBundle {
       'calibration-negatives.json': calibrationNegativesSha256,
       'calibration-summary.md': calibrationSummarySha256,
       'selected-settings.json': selectedSettingsSha256,
-      'heldout.json': heldoutSha256,
+      'heldout.json': historicalHeldoutSha256,
+      'retrieval-v2.json': retrievalV2Sha256,
     };
     for (final entry in expected.entries) {
       final file = File(p.join(directory, entry.key));
@@ -491,24 +505,35 @@ final class RetrievalAssetBundle {
     _expectSetting(settings, 'minimumCosine', 0.2);
     _expectSetting(settings, 'candidateLimit', 20);
     _expectSetting(settings, 'evaluationTopK', 5);
-    _expectSetting(settings, 'heldOutSha256', heldoutSha256);
+    _expectSetting(settings, 'heldOutSha256', historicalHeldoutSha256);
     _expectSetting(settings, 'calibrationNegativesSha256', calibrationNegativesSha256);
 
-    final heldout = _jsonObject(File(p.join(directory, 'heldout.json')));
-    final rawDocuments = heldout['documents'];
-    final rawQueries = heldout['queries'];
-    if (rawDocuments is! List || rawDocuments.length != 32 || rawQueries is! List || rawQueries.length != 60) {
-      throw const FormatException('Held-out fixture count is invalid');
-    }
-    final documents = rawDocuments.map(_parseDocument).toList(growable: false);
-    final queries = rawQueries.map(_parseQuery).toList(growable: false);
-    _validateHeldoutShape(documents, queries);
+    final fixture = parseRetrievalFixture(jsonDecode(File(p.join(directory, 'retrieval-v2.json')).readAsStringSync()));
     return RetrievalFixture(
-      documents: List.unmodifiable(documents),
-      queries: List.unmodifiable(queries),
+      documents: fixture.documents,
+      queries: fixture.queries,
       settings: Map.unmodifiable(settings),
     );
   }
+}
+
+RetrievalFixture parseRetrievalFixture(Object? value) {
+  if (value is! Map<String, dynamic> || value['protocolVersion'] != 2) {
+    throw const FormatException('Retrieval fixture protocol version is invalid');
+  }
+  final rawDocuments = value['documents'];
+  final rawQueries = value['queries'];
+  if (rawDocuments is! List || rawDocuments.length != 32 || rawQueries is! List || rawQueries.length != 60) {
+    throw const FormatException('Retrieval fixture count is invalid');
+  }
+  final documents = rawDocuments.map(_parseDocument).toList(growable: false);
+  final queries = rawQueries.map(_parseQuery).toList(growable: false);
+  _validateFixtureShape(documents, queries);
+  return RetrievalFixture(
+    documents: List.unmodifiable(documents),
+    queries: List.unmodifiable(queries),
+    settings: const {},
+  );
 }
 
 Map<String, Object?> _jsonObject(File file) {
@@ -518,7 +543,7 @@ Map<String, Object?> _jsonObject(File file) {
 }
 
 EvaluationDocument _parseDocument(Object? value) {
-  if (value is! Map<String, dynamic>) throw const FormatException('Held-out document shape is invalid');
+  if (value is! Map<String, dynamic>) throw const FormatException('Retrieval document shape is invalid');
   return EvaluationDocument(
     id: _requiredString(value, 'id'),
     tenant: _requiredString(value, 'tenant'),
@@ -529,11 +554,13 @@ EvaluationDocument _parseDocument(Object? value) {
 }
 
 EvaluationQuery _parseQuery(Object? value) {
-  if (value is! Map<String, dynamic>) throw const FormatException('Held-out query shape is invalid');
+  if (value is! Map<String, dynamic>) throw const FormatException('Retrieval query shape is invalid');
   final relevant = value['relevantDocumentIds'];
+  final expectEmpty = value['expectEmpty'];
   if (relevant is! List || relevant.any((item) => item is! String || item.isEmpty)) {
-    throw const FormatException('Held-out relevance shape is invalid');
+    throw const FormatException('Retrieval relevance shape is invalid');
   }
+  if (expectEmpty is! bool) throw const FormatException('Retrieval expectEmpty is invalid');
   return EvaluationQuery(
     id: _requiredString(value, 'id'),
     tenant: _requiredString(value, 'tenant'),
@@ -542,19 +569,22 @@ EvaluationQuery _parseQuery(Object? value) {
     family: _requiredString(value, 'family'),
     text: _requiredString(value, 'query'),
     relevantDocumentIds: Set.unmodifiable(relevant.cast<String>()),
+    expectEmpty: expectEmpty,
   );
 }
 
 String _requiredString(Map<String, dynamic> value, String key) {
   final selected = value[key];
-  if (selected is! String || selected.isEmpty) throw FormatException('Held-out $key is invalid');
+  if (selected is! String || selected.isEmpty) throw FormatException('Retrieval $key is invalid');
   return selected;
 }
 
-void _validateHeldoutShape(List<EvaluationDocument> documents, List<EvaluationQuery> queries) {
+void _validateFixtureShape(List<EvaluationDocument> documents, List<EvaluationQuery> queries) {
   final documentIds = documents.map((item) => item.id).toSet();
   final queryIds = queries.map((item) => item.id).toSet();
-  if (documentIds.length != 32 || queryIds.length != 60) throw const FormatException('Held-out identities are invalid');
+  if (documentIds.length != 32 || queryIds.length != 60) {
+    throw const FormatException('Retrieval identities are invalid');
+  }
   if (documents.any(
         (item) =>
             !evaluationCorpora.contains(item.corpus) ||
@@ -568,39 +598,47 @@ void _validateHeldoutShape(List<EvaluationDocument> documents, List<EvaluationQu
             !evaluationFamilies.contains(item.family) ||
             item.tenant != 'fixture-owner',
       )) {
-    throw const FormatException('Held-out dimensions are invalid');
+    throw const FormatException('Retrieval dimensions are invalid');
   }
   if (documents.where((item) => item.tenant == 'fixture-owner').length != 30 ||
       documents.where((item) => item.tenant == 'other-owner').length != 2) {
-    throw const FormatException('Held-out owner fixtures are invalid');
+    throw const FormatException('Retrieval owner fixtures are invalid');
   }
   for (final family in evaluationFamilies) {
     if (queries.where((item) => item.family == family).length != 10) {
-      throw const FormatException('Held-out family counts are invalid');
+      throw const FormatException('Retrieval family counts are invalid');
     }
   }
   for (final corpus in evaluationCorpora) {
     for (final language in evaluationLanguages) {
       for (final family in evaluationFamilies) {
         if (!queries.any((item) => item.corpus == corpus && item.language == language && item.family == family)) {
-          throw const FormatException('Held-out slice matrix is incomplete');
+          throw const FormatException('Retrieval slice matrix is incomplete');
         }
       }
     }
   }
   final documentsById = {for (final item in documents) item.id: item};
+  if (!queries.any((query) => query.expectEmpty)) {
+    throw const FormatException('Retrieval fixture requires at least one expected-empty query');
+  }
   for (final query in queries) {
-    if ((query.family == 'no-result') != query.relevantDocumentIds.isEmpty) {
-      throw const FormatException('Held-out relevance families are invalid');
+    if (query.relevantDocumentIds.isEmpty && query.family != 'answer-absent') {
+      throw const FormatException('Retrieval relevance families are invalid');
+    }
+    if (query.expectEmpty && query.relevantDocumentIds.isNotEmpty) {
+      throw const FormatException('Expected-empty query cannot have relevant documents');
     }
     for (final id in query.relevantDocumentIds) {
       final document = documentsById[id];
       if (document == null || document.tenant != query.tenant || document.corpus != query.corpus) {
-        throw const FormatException('Held-out relevance identity is invalid');
+        throw const FormatException('Retrieval relevance identity is invalid');
       }
     }
   }
 }
+
+bool _sameSet(Set<String> left, Set<String> right) => left.length == right.length && left.containsAll(right);
 
 void _expectSetting(Map<String, Object?> settings, String key, Object expected) {
   if (settings[key] != expected) throw FormatException('Frozen retrieval setting is invalid: $key');

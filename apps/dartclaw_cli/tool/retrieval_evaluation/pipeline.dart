@@ -10,7 +10,6 @@ import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:path/path.dart' as p;
 
 import 'evaluation.dart';
-import 'relevance_runtime.dart';
 
 final class RetrievalEvaluationUsage implements Exception {
   const new(this.message);
@@ -19,12 +18,11 @@ final class RetrievalEvaluationUsage implements Exception {
 }
 
 final class RetrievalEvaluationArguments {
-  const new _({required this.checkAssets, this.modelPath, this.outputDirectory, this.runtimeConfigPath});
+  const new _({required this.checkAssets, this.modelPath, this.outputDirectory});
 
   final bool checkAssets;
   final String? modelPath;
   final String? outputDirectory;
-  final String? runtimeConfigPath;
 
   static RetrievalEvaluationArguments parse(List<String> arguments) {
     if (arguments.length == 1 && arguments.single == '--check-assets') {
@@ -32,10 +30,9 @@ final class RetrievalEvaluationArguments {
     }
     String? modelPath;
     String? outputDirectory;
-    String? runtimeConfigPath;
     for (var index = 0; index < arguments.length; index++) {
       final name = arguments[index];
-      if (!const {'--model-path', '--output-dir', '--runtime-config'}.contains(name)) {
+      if (!const {'--model-path', '--output-dir'}.contains(name)) {
         throw RetrievalEvaluationUsage(_usage);
       }
       if (++index >= arguments.length || arguments[index].isEmpty) throw RetrievalEvaluationUsage(_usage);
@@ -45,25 +42,15 @@ final class RetrievalEvaluationArguments {
       } else if (name == '--output-dir') {
         if (outputDirectory != null) throw RetrievalEvaluationUsage(_usage);
         outputDirectory = arguments[index];
-      } else {
-        if (runtimeConfigPath != null) throw RetrievalEvaluationUsage(_usage);
-        runtimeConfigPath = arguments[index];
       }
     }
-    if (modelPath == null || outputDirectory == null || runtimeConfigPath == null || arguments.length != 6) {
+    if (modelPath == null || outputDirectory == null || arguments.length != 4) {
       throw RetrievalEvaluationUsage(_usage);
     }
-    return RetrievalEvaluationArguments._(
-      checkAssets: false,
-      modelPath: modelPath,
-      outputDirectory: outputDirectory,
-      runtimeConfigPath: runtimeConfigPath,
-    );
+    return RetrievalEvaluationArguments._(checkAssets: false, modelPath: modelPath, outputDirectory: outputDirectory);
   }
 
-  static const _usage =
-      'Usage: retrieval_evaluation.dart --check-assets | '
-      '--model-path <path> --output-dir <path> --runtime-config <path>';
+  static const _usage = 'Usage: retrieval_evaluation.dart --check-assets | --model-path <path> --output-dir <path>';
 }
 
 final class EvaluationProjectionCounts {
@@ -125,19 +112,16 @@ final class EvaluationBackendPipeline {
     required this.backendName,
     required DatabaseBackend vectorBackend,
     required EmbeddingProvider embeddingProvider,
-    required SearchRelevanceFilter relevanceFilter,
     required Future<void> Function() close,
     required FullTextIndex Function(String language, String corpus) lexicalFactory,
   }) : _vectorBackend = vectorBackend,
        _provider = embeddingProvider,
-       _relevanceFilter = relevanceFilter,
        _close = close,
        _lexicalFactory = lexicalFactory;
 
   final String backendName;
   final DatabaseBackend _vectorBackend;
   final EmbeddingProvider _provider;
-  final SearchRelevanceFilter _relevanceFilter;
   final Future<void> Function() _close;
   final FullTextIndex Function(String language, String corpus) _lexicalFactory;
 
@@ -151,7 +135,6 @@ final class EvaluationBackendPipeline {
   static Future<EvaluationBackendPipeline> openSqlite({
     required String directory,
     required EmbeddingProvider embeddingProvider,
-    required SearchRelevanceFilter relevanceFilter,
   }) async {
     final root = Directory(directory)..createSync(recursive: true);
     final lexical = await SqliteBackend.open(p.join(root.path, 'search.db'));
@@ -164,7 +147,6 @@ final class EvaluationBackendPipeline {
         backendName: 'sqlite',
         vectorBackend: vectors,
         embeddingProvider: embeddingProvider,
-        relevanceFilter: relevanceFilter,
         lexicalFactory: (_, corpus) => SqliteFtsIndex(
           lexical,
           table: corpus == 'memory' ? SqliteFtsTable.memoryChunks : SqliteFtsTable.conversationChunks,
@@ -192,7 +174,6 @@ final class EvaluationBackendPipeline {
   static Future<EvaluationBackendPipeline> openPostgresql({
     required String dsn,
     required EmbeddingProvider embeddingProvider,
-    required SearchRelevanceFilter relevanceFilter,
   }) async {
     final namespace =
         'dc_eval_${DateTime.now().microsecondsSinceEpoch}_${math.Random().nextInt(1 << 20).toRadixString(16)}';
@@ -213,7 +194,6 @@ final class EvaluationBackendPipeline {
         backendName: 'postgresql',
         vectorBackend: scoped,
         embeddingProvider: embeddingProvider,
-        relevanceFilter: relevanceFilter,
         lexicalFactory: (language, corpus) => PostgresFtsIndex(
           scoped!,
           table: corpus == 'memory' ? PostgresFtsTable.memoryChunks : PostgresFtsTable.conversationChunks,
@@ -273,14 +253,12 @@ final class EvaluationBackendPipeline {
       vectorIndex: memoryVectors,
       embeddingProvider: _provider,
       sourceLayer: 'memory',
-      relevanceFilter: _relevanceFilter,
     );
     _conversationHybrid = HybridSearch(
       lexicalIndex: conversation,
       vectorIndex: conversationVectors,
       embeddingProvider: _provider,
       sourceLayer: 'conversation',
-      relevanceFilter: _relevanceFilter,
     );
     final memorySynchronizer = VectorSynchronizer(
       lexicalIndex: memory,
@@ -374,7 +352,7 @@ final class EvaluationBackendPipeline {
         ),
       );
     }
-    return _relevanceFilter.filter(query, results);
+    return List.unmodifiable(results);
   }
 
   Future<void> close() => _close();
@@ -400,13 +378,7 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
   final identities = <String, ({String tenant, String corpus})>{
     for (final document in fixture.documents) document.id: (tenant: document.tenant, corpus: document.corpus),
   };
-  EvaluationRelevanceRuntime? relevance;
   try {
-    relevance = await EvaluationRelevanceRuntime.open(
-      configPath: arguments.runtimeConfigPath!,
-      directory: '${output.path}-runtime',
-    );
-    protocol['relevance'] = relevance.provenance;
     for (final backend in evaluationBackends) {
       final provider = ObservedEmbeddingProvider(
         NativeEmbeddingProvider(
@@ -429,13 +401,8 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
             ? await EvaluationBackendPipeline.openSqlite(
                 directory: p.join(output.parent.path, '.retrieval-evaluation-sqlite-$pid'),
                 embeddingProvider: provider,
-                relevanceFilter: relevance.filter,
               )
-            : await EvaluationBackendPipeline.openPostgresql(
-                dsn: postgresDsn,
-                embeddingProvider: provider,
-                relevanceFilter: relevance.filter,
-              );
+            : await EvaluationBackendPipeline.openPostgresql(dsn: postgresDsn, embeddingProvider: provider);
         for (final language in evaluationLanguages) {
           totals += await pipeline.prepareLanguage(language, fixture.documents);
           for (final query in fixture.queries.where((item) => item.language == language)) {
@@ -488,10 +455,6 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
         await provider.dispose();
       }
     }
-    final completedRuntime = relevance;
-    protocol['relevance'] = await completedRuntime.close();
-    relevance = null;
-    requireCompleteEvaluationRelevanceAccounting(protocol['relevance']);
     final slices = buildSliceRows(fixture.queries, observations);
     final gates = buildGateRows(fixture.queries, observations);
     final violations = [
@@ -519,24 +482,16 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
     stdout.writeln('Retrieval evaluation: FAIL (${violations.length} violations)');
     return 1;
   } on Object {
-    final failedRuntime = relevance;
-    relevance = null;
-    if (failedRuntime != null) {
-      try {
-        protocol['relevance'] = await failedRuntime.close();
-      } on Object {
-        protocol['relevance'] = failedRuntime.provenance;
-      }
-    }
     await _writeFailure(output, protocol, environment, 'evaluation-incomplete', modelPath: arguments.modelPath!);
-    stderr.writeln('Retrieval evaluation could not complete; check relevance runtime, embeddings and database setup.');
+    stderr.writeln('Retrieval evaluation could not complete; check embeddings and database setup.');
     return 1;
-  } finally {
-    await relevance?.close();
   }
 }
 
 Future<Map<String, Object?>> _protocol(Map<String, Object?> settings) async => {
+  'protocolVersion': 2,
+  'contract': 'passage relevance; answer sufficiency separate',
+  'fixtureStatus': 'exposed-regression',
   'rrfK': settings['rrfK'],
   'keywordWeight': settings['keywordWeight'],
   'vectorWeight': settings['vectorWeight'],
@@ -546,7 +501,8 @@ Future<Map<String, Object?>> _protocol(Map<String, Object?> settings) async => {
   'warmupCount': 1,
   'repetitions': 1,
   'postgresLanguages': {'en': 'english', 'sv': 'swedish'},
-  'fixtureSha256': heldoutSha256,
+  'fixtureSha256': retrievalV2Sha256,
+  'historicalHeldoutSha256': historicalHeldoutSha256,
   'settingsSha256': selectedSettingsSha256,
   'calibrationFixtureSha256': calibrationFixtureSha256,
   'calibrationNegativesSha256': calibrationNegativesSha256,
@@ -611,17 +567,20 @@ Future<void> writeEvaluationArtifacts(
   );
 }
 
-Future<Map<String, String>> collectEvaluationArtifactHashes(String modelPath, {bool requireModel = true}) async {
+Future<Map<String, String>> collectEvaluationArtifactHashes(
+  String modelPath, {
+  bool requireModel = true,
+  String repositoryRoot = '.',
+}) async {
   final files = <String, File>{
-    'apps/dartclaw_cli/tool/retrieval_evaluation.dart': File('apps/dartclaw_cli/tool/retrieval_evaluation.dart'),
-    'apps/dartclaw_cli/tool/retrieval_evaluation/evaluation.dart': File(
-      'apps/dartclaw_cli/tool/retrieval_evaluation/evaluation.dart',
+    'apps/dartclaw_cli/tool/retrieval_evaluation.dart': File(
+      p.join(repositoryRoot, 'apps/dartclaw_cli/tool/retrieval_evaluation.dart'),
     ),
     'apps/dartclaw_cli/tool/retrieval_evaluation/pipeline.dart': File(
-      'apps/dartclaw_cli/tool/retrieval_evaluation/pipeline.dart',
+      p.join(repositoryRoot, 'apps/dartclaw_cli/tool/retrieval_evaluation/pipeline.dart'),
     ),
-    'apps/dartclaw_cli/tool/retrieval_evaluation/relevance_runtime.dart': File(
-      'apps/dartclaw_cli/tool/retrieval_evaluation/relevance_runtime.dart',
+    'apps/dartclaw_cli/tool/retrieval_evaluation/evaluation.dart': File(
+      p.join(repositoryRoot, 'apps/dartclaw_cli/tool/retrieval_evaluation/evaluation.dart'),
     ),
     for (final name in [
       'calibration-fixture.dart.txt',
@@ -629,8 +588,9 @@ Future<Map<String, String>> collectEvaluationArtifactHashes(String modelPath, {b
       'calibration-summary.md',
       'selected-settings.json',
       'heldout.json',
+      'retrieval-v2.json',
     ])
-      'dev/testing/retrieval/$name': File('dev/testing/retrieval/$name'),
+      'dev/testing/retrieval/$name': File(p.join(repositoryRoot, 'dev/testing/retrieval/$name')),
   };
   final model = File(modelPath);
   if (FileSystemEntity.typeSync(model.path, followLinks: false) == FileSystemEntityType.file) {

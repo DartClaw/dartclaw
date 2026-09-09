@@ -122,7 +122,6 @@ void main() {
 
     expect(runtime.harness, isNotNull);
     expect(runtime.executions, isNotNull);
-    expect(runtime.requireSearchRelevanceTurn, same(runtime.searchRelevanceTurn));
     expect(runtime.workflowRegistry, isNotNull);
     expect(runtime.workflowService, isNotNull);
     expect(runtime.taskService, isNotNull);
@@ -152,7 +151,6 @@ void main() {
 
     expect(runtime.server, isNotNull);
     expect(runtime.scheduleService, isNotNull);
-    expect(runtime.requireSearchRelevanceTurn, same(runtime.searchRelevanceTurn));
   });
 
   test('production composition gives the manager and primary runner the configured turn limits', () async {

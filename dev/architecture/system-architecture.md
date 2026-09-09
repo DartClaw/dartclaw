@@ -607,19 +607,10 @@ chat-facing message NDJSON ───► conversation lexical projection ─┤�
                                   └─► provider embeddings ─► corpus-specific vector projection
 ```
 
-Hybrid candidates pass one schema-bound answer-relevance judgment before top-K publication. `SearchRelevanceFilter`
-owns its prompt, closed boolean schema and rank-preserving selection. Runtime's `SearchRelevanceRunner` resolves either
-the full primary provider/model/effort route or one explicit `search.relevance_model` provider/model route with no
-inherited effort. It runs through TurnManager in a fresh logical session with no work tools or personal-memory prefill,
-a 30-second timeout and fail-fast worker admission. Returning a result waits for provider settlement and release of the
-worker lease. Native and strict host-validated reply paths are selected from the reserved turn's
-actual schema decision; a missing native payload never falls back to text. Kernel's output-schema decoder and
-validator are shared with schema-bound logical agents.
-
-At most 40 authenticated chunks and 64 KiB of encoded relevance input enter that turn. Surviving sources are fetched
-again before publication; changed/deleted text is omitted. Model or contract failure retains lexical fallback with
-`relevanceFailure`. FTS-only searches remain model-free; hybrid queries use the selected relevance provider's data
-boundary, cost and latency even when embeddings run locally. There is no automatic provider switch.
+Hybrid search authenticates lexical/vector candidates against current owner-scoped content, combines their ranks
+through weighted RRF and selects top-K. Search adds no generative-agent session, credential requirement or model
+judgment. Answer sufficiency is the caller's responsibility. Query embedding and database I/O remain asynchronous;
+source verification prevents stale candidates or fallback snapshots from being published after those awaits.
 
 Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
 union that `dartclaw rebuild-index` restores. Each corpus has its own `VectorSynchronizer`; it reuses only vectors whose

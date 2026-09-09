@@ -54,7 +54,7 @@ void main() {
       );
 
       final degraded = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
-      expect(degraded.code, 0);
+      expect(degraded.code, 0, reason: degraded.lines.join('\n'));
       final degradedData = jsonDecode(degraded.lines.single) as Map<String, dynamic>;
       expect(degradedData['memoryUnembeddedCount'], 1);
       expect(degradedData['conversationUnembeddedCount'], 1);
@@ -155,7 +155,12 @@ void main() {
           canonicalFingerprint: manifest.fingerprint,
         );
         expect(evidence.state, IndexHealthState.degraded);
-        expect(evidence.failureStage, stage.name);
+        expect(evidence.failureStage, switch (stage) {
+          IndexReconcileTransition.populated => 'populate',
+          IndexReconcileTransition.validated => 'validate',
+          IndexReconcileTransition.beforeSwap => 'swap',
+          _ => throw StateError('Uncovered failure stage'),
+        });
       }
       final result = await _run(settings, namespace);
       expect(result.code, 0);

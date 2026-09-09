@@ -33,7 +33,7 @@ void main() {
     expect(search.sql.indexOf('public.vector_dims'), lessThan(search.sql.indexOf('OPERATOR(public.<=>)')));
     expect(
       search.sql,
-      allOf(contains('public.vector_dims'), contains('public.l2_norm'), contains('OPERATOR(public.<=>)')),
+      allOf(contains('public.vector_dims'), contains('public.vector_norm'), contains('OPERATOR(public.<=>)')),
     );
     expect(search.sql, isNot(contains('private-id')));
     expect(search.parameters, ['[1.0,2.0]', 'owner', 'model', 2, 2, 20]);

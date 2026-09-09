@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 part 'support/config_dispositions.dart';
+part 'support/config_meta_helpers.dart';
 
 void main() {
   group('ConfigMeta', () {
@@ -1182,62 +1183,6 @@ String _maskNonCode(String source) {
 Future<String> _packageLibDir() async {
   final libUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_kernel/dartclaw_kernel.dart'));
   return p.dirname(libUri!.toFilePath());
-}
-
-/// Words a description contributes beyond a restatement of its own key.
-Set<String> _informativeWords(String description, String yamlPath) {
-  const filler = {
-    'a',
-    'an',
-    'the',
-    'and',
-    'or',
-    'of',
-    'to',
-    'for',
-    'in',
-    'on',
-    'is',
-    'it',
-    'its',
-    'be',
-    'as',
-    'at',
-    'by',
-    'with',
-    'this',
-    'that',
-    'when',
-    'while',
-    'whether',
-    'which',
-    'how',
-    'what',
-    'per',
-    'use',
-    'used',
-    'uses',
-    'set',
-    'sets',
-    'value',
-    'values',
-    'default',
-    'defaults',
-    'config',
-    'configured',
-    'configuration',
-    'option',
-    'setting',
-    'settings',
-  };
-  final pathWords = yamlPath.toLowerCase().split(RegExp('[^a-z0-9]+')).where((word) => word.isNotEmpty).toSet();
-  return description
-      .toLowerCase()
-      .split(RegExp('[^a-z0-9]+'))
-      .where((word) => word.isNotEmpty)
-      .toSet()
-      .difference(pathWords)
-      .difference(filler);
 }
 
 Map<String, EntryFieldMeta> _entryFieldsOf(ConfigEntryShape? shape) => switch (shape) {

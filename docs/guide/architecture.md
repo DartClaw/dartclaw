@@ -105,7 +105,7 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw's public package tree contains twelve packages under `packages/` plus a CLI app. The repo-wide Dart workspace
+DartClaw's public package tree contains thirteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
 also includes the development-only `dev/fitness` package. Each public package has a focused role:
 
 ```
@@ -114,8 +114,10 @@ packages/
                          guards, classification, and deterministic utilities.
 
   dartclaw_core/         Runtime and persistence authority: agent harnesses,
-                         channel interfaces, events, file and SQLite
-                         persistence, FTS5/QMD search, and workflow/task seams.
+                         channel interfaces, events, SQLite/PostgreSQL storage,
+                         lexical/vector indexes, and workflow/task seams.
+
+  dartclaw_search/       Native embedding provider for local hybrid search.
 
   dartclaw_acp/          ACP harness adapter and registrar composed by the CLI.
 
@@ -155,7 +157,7 @@ The key boundaries are simple: `dartclaw_kernel` has no workspace dependency, ru
 
 ## Storage Design
 
-DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite is used for derived indexes and relational data** (search index, tasks).
+DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite (default) or PostgreSQL stores relational data and derived search indexes**. Backend selection does not copy or migrate data between them.
 
 ### File-Based Storage
 
@@ -200,10 +202,12 @@ DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fai
 
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
+| `search.db` | Memory and conversation lexical/vector indexes | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
 | `dartclaw.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
 
 Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
+
+PostgreSQL stores the corresponding relational data and derived indexes in the configured database. It uses native full-text search and pgvector for hybrid retrieval; startup validates the schema and required capabilities. See [PostgreSQL](postgresql.md) for setup and backend-switch behavior.
 
 ### Crash Recovery
 
@@ -215,9 +219,9 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The selected derived search index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
 
-For more detail on memory configuration, see the [Search guide](search.md).
+Hybrid search combines lexical matches with local embeddings for both memory and conversation messages. Embedding failure degrades to lexical retrieval, with degradation reported to callers. For configuration and rebuild behavior, see the [Search guide](search.md).
 
 ## Turn Orchestration
 

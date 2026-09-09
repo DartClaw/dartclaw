@@ -310,7 +310,11 @@ final class NativeEmbeddingPlatformGate {
           (metrics['disposeMs'] as int? ?? 10001) <= 10000 &&
           (metrics['vectorDimension'] as int? ?? 0) > 0 &&
           metrics['documentCardinality'] == 2;
-      final passed = timingPass && records.every((record) => record['result'] == 'pass');
+      final linuxOpenMp = Platform.isLinux ? await _linuxOpenMpEvidence(loaderLibrary) : null;
+      final passed =
+          timingPass &&
+          records.every((record) => record['result'] == 'pass') &&
+          (linuxOpenMp == null || linuxOpenMp['resolved'] == true);
       evidence = {
         'schemaVersion': '1',
         'target': target,
@@ -334,7 +338,7 @@ final class NativeEmbeddingPlatformGate {
         'releaseArchives': packageEvidence,
         'metrics': metrics,
         'failureCases': records.skip(1).toList(),
-        if (Platform.isLinux) 'linuxOpenMp': await _linuxOpenMpEvidence(loaderLibrary),
+        'linuxOpenMp': ?linuxOpenMp,
         'result': passed ? 'pass' : 'fail',
       };
       if (!validateNativeEmbeddingEvidence(evidence)) {
@@ -368,6 +372,13 @@ bool validateNativeEmbeddingEvidence(Map<String, Object?> evidence) {
     'result',
   };
   if (!evidence.keys.toSet().containsAll(topLevel) || evidence['schemaVersion'] != '1') return false;
+  final target = evidence['target'];
+  if (target is String && target.startsWith('linux-')) {
+    final openMp = evidence['linuxOpenMp'];
+    if (openMp is! Map<String, Object?> || openMp['library'] != 'libgomp.so.1' || openMp['resolved'] != true) {
+      return false;
+    }
+  }
   final archives = evidence['releaseArchives'];
   final failures = evidence['failureCases'];
   if (archives is! List || archives.length != 2 || failures is! List || failures.length != 4) return false;

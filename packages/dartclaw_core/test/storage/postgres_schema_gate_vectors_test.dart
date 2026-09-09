@@ -35,7 +35,7 @@ void main() {
       final capability = backend.queries.singleWhere((call) => call.sql.contains('CAST(CAST'));
       expect(
         capability.sql,
-        allOf(contains('public.vector'), contains('public.vector_dims'), contains('public.l2_norm')),
+        allOf(contains('public.vector'), contains('public.vector_dims'), contains('public.vector_norm')),
       );
       expect(capability.sql, contains('OPERATOR(public.<=>)'));
       expect(capability.parameters, everyElement(anyOf('[1,0]', '[1.0,0.0]')));

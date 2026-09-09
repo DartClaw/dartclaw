@@ -69,7 +69,7 @@ abstract final class PostgresSchemaGate {
           SELECT CAST(CAST(? AS public.vector) AS text) AS cast_value,
                  public.vector_dims(CAST(? AS public.vector)) AS dimensions,
                  CAST(? AS public.vector) OPERATOR(public.<=>) CAST(? AS public.vector) AS distance,
-                 public.l2_norm(CAST(? AS public.vector)) AS norm
+                 public.vector_norm(CAST(? AS public.vector)) AS norm
         ''',
         const ['[1,0]', '[1,0]', '[1,0]', '[1,0]', '[1,0]'],
       );
@@ -82,7 +82,7 @@ abstract final class PostgresSchemaGate {
       }
     } on StorageException {
       throw _vectorExtensionRefusal(databaseIdentity, [
-        'public.vector cast, public.vector_dims, public.l2_norm or public.<=> is unavailable to the runtime role',
+        'public.vector cast, public.vector_dims, public.vector_norm or public.<=> is unavailable to the runtime role',
       ]);
     } on FormatException {
       throw _vectorExtensionRefusal(databaseIdentity, ['public.vector capability checks returned an invalid result']);

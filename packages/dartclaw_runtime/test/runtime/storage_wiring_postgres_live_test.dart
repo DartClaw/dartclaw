@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -34,6 +35,7 @@ void main() {
     try {
       final config = DartclawConfig(
         agent: const AgentConfig(provider: 'claude'),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
         providers: ProvidersConfig(
           entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
         ),
@@ -61,6 +63,7 @@ void main() {
         resolvedAssets: const ResolvedAssets.embedded(),
         headless: true,
         runWorkflowSkillsBootstrap: false,
+        providerAuthPreflight: FakeProviderAuthPreflight(),
       );
       final task = await runtime.taskService.create(id: 'pg-task', title: 'Postgres', description: 'round trip');
       expect((await runtime.taskService.get(task.id))?.title, 'Postgres');

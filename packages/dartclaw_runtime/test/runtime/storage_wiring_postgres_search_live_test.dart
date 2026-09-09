@@ -18,6 +18,8 @@ import '../../../dartclaw_core/test/storage/postgres_live_support.dart';
 const _configuredDsn = 'postgresql://runtime:RuntimeSearchSecretX9@injected.invalid/dartclaw';
 
 void main() {
+  setUpAll(initEmbeddedTemplates);
+  tearDownAll(resetTemplates);
   test('unknown PostgreSQL language aborts before search services are composed', () async {
     await withPostgresBackend((backend, _) async {
       final dataDir = Directory.systemTemp.createTempSync('postgres_runtime_language_');
@@ -154,7 +156,7 @@ void main() {
     });
   });
 
-  test('failed PostgreSQL reconciliation keeps the prior persistent index available', () async {
+  test('failed PostgreSQL reconciliation retains prior rows without serving stale memory', () async {
     await withPostgresBackend((backend, _) async {
       final dataDir = Directory.systemTemp.createTempSync('postgres_runtime_reconcile_');
       final config = _config(dataDir, _configuredDsn);
@@ -175,7 +177,13 @@ void main() {
         SearchDocument(
           id: 'prior-persistent-row',
           chunks: const ['The prior celestialdurability record remains searchable.'],
-          metadata: const {'source': 'memory/prior.md', 'role': 'observation', 'provenance': 'runtime-live-fixture'},
+          metadata: const {
+            'source': 'memory/prior.md',
+            'role': 'observation',
+            'provenance': 'runtime-live-fixture',
+            'entry_id': 'prior-persistent-row',
+            'entry_revision': '1',
+          },
           timestamp: DateTime.utc(2026, 9, 9),
         ),
       ], userId: 'owner');
@@ -216,14 +224,15 @@ void main() {
           providerAuthPreflight: FakeProviderAuthPreflight(),
         );
 
+        final priorRows = await persistentIndex.search('celestialdurability', userId: 'owner');
+        expect(priorRows.map((row) => row.id), ['prior-persistent-row']);
+        expect(priorRows.single.chunk, contains('prior celestialdurability record'));
         final searched = await _callTool(runtime.server!, 'memory_search', {'query': 'celestialdurability'});
-        final results = searched['results'] as List<dynamic>;
-        expect(results, hasLength(1));
+        expect(searched['results'], isEmpty);
+        expect(searched['degradedLayers'], contains('memory'));
         expect(
-          results.single,
-          isA<Map<String, dynamic>>()
-              .having((result) => result['locator'], 'locator', 'prior-persistent-row')
-              .having((result) => result['snippet'], 'snippet', contains('prior celestialdurability record')),
+          searched['degradations'],
+          contains(containsPair('reason', 'indexNotCurrent')),
         );
 
         final statusResponse = await runtime.server!.handler(

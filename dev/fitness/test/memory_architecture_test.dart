@@ -131,6 +131,50 @@ void main() {
       });
     }
 
+    test('nested return and inferred callback contracts still require their service caller', () {
+      const barrel = (
+        path: 'packages/dartclaw_core/lib/dartclaw_core.dart',
+        source:
+            "export 'src/search/conversation.dart' show "
+            'FixtureConversationHit, FixtureConversationQuery, FixtureConversationService;',
+      );
+      const declaration = (
+        path: 'packages/dartclaw_core/lib/src/search/conversation.dart',
+        source: '''
+typedef FixtureConversationQuery = Future<List<SearchResult>> Function(String query);
+final class FixtureConversationHit {}
+final class FixtureConversationService {
+  const FixtureConversationService({this.query});
+  final FixtureConversationQuery? query;
+  Future<List<FixtureConversationHit>> search(String query) async => [];
+}
+''',
+      );
+
+      expect(
+        scanUnconsumedMemoryApi(const [
+          barrel,
+          declaration,
+          (
+            path: 'packages/dartclaw_runtime/lib/src/search.dart',
+            source:
+                'final service = FixtureConversationService(query: backend.search); '
+                "service.search('needle');",
+          ),
+        ]),
+        isEmpty,
+      );
+
+      final withoutCaller = scanUnconsumedMemoryApi(const [
+        barrel,
+        declaration,
+        (path: 'packages/dartclaw_runtime/lib/src/search.dart', source: 'final Object? unrelated = null;'),
+      ]);
+      expect(withoutCaller, hasLength(3));
+      expect(withoutCaller, anyElement(contains('FixtureConversationHit')));
+      expect(withoutCaller, anyElement(contains('FixtureConversationQuery')));
+    });
+
     test('every exported core, storage, and server memory API has a production consumer', () {
       final root = findRepoRoot();
       final files = productionDartFiles(root)
@@ -406,10 +450,36 @@ bool _returnedContractHasProductionCaller(
 ) {
   final declaration = files.where((file) => file.path == declarationPath).firstOrNull;
   if (declaration == null) return false;
-  final methods = RegExp('(?:Future\\s*<\\s*)?${RegExp.escape(symbol)}\\s*>?\\s+([a-zA-Z_]\\w*)\\s*\\(')
-      .allMatches(declaration.source)
-      .map((match) => match.group(1)!);
-  return methods.any(consumerTokens.contains);
+  final methods = RegExp(
+    r'^\s*([a-zA-Z_]\w*(?:\s*<[^\n;{=]+>)?\??)\s+([a-zA-Z_]\w*)\s*\(',
+    multiLine: true,
+  ).allMatches(declaration.source);
+  for (final method in methods) {
+    final returnType = method.group(1)!;
+    final methodName = method.group(2)!;
+    if (_codeIdentifiers(returnType).contains(symbol) && consumerTokens.contains(methodName)) return true;
+  }
+
+  final callbackFields = RegExp(
+    '^\\s*(?:late\\s+)?final\\s+${RegExp.escape(symbol)}\\??\\s+([a-zA-Z_]\\w*)\\s*;',
+    multiLine: true,
+  ).allMatches(declaration.source);
+  final classPattern = RegExp(r'\b(?:(?:abstract|base|final|interface|sealed)\s+)*class\s+([a-zA-Z_]\w*)');
+  for (final field in callbackFields) {
+    final fieldName = field.group(1)!;
+    final owners = classPattern.allMatches(declaration.source.substring(0, field.start)).toList(growable: false);
+    if (owners.isEmpty) continue;
+    final owner = owners.last;
+    final nextClass = classPattern.firstMatch(declaration.source.substring(field.end));
+    final classEnd = nextClass == null ? declaration.source.length : field.end + nextClass.start;
+    final classSource = declaration.source.substring(owner.start, classEnd);
+    if (RegExp('\\bthis\\.${RegExp.escape(fieldName)}\\b').hasMatch(classSource) &&
+        consumerTokens.contains(owner.group(1)!) &&
+        consumerTokens.contains(fieldName)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 String? _memoryBarrelPackage(String path) => switch (path) {

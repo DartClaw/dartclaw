@@ -173,6 +173,7 @@ void main() {
       'model': {'basename': 'model.gguf'},
       'releaseArchives': [{}, {}],
       'metrics': {'coldFirstEmbedMs': 1},
+      'linuxOpenMp': {'library': 'libgomp.so.1', 'resolved': false},
       'failureCases': [
         for (final operation in ['missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure'])
           {
@@ -187,6 +188,12 @@ void main() {
       ],
       'result': 'pass',
     };
+    expect(validateNativeEmbeddingEvidence(evidence), isFalse);
+    (evidence['linuxOpenMp'] as Map<String, Object?>)['resolved'] = true;
+    expect(validateNativeEmbeddingEvidence(evidence), isTrue);
+    evidence['target'] = 'windows-x64';
+    (evidence['platform'] as Map<String, Object?>)['os'] = 'windows';
+    evidence.remove('linuxOpenMp');
     expect(validateNativeEmbeddingEvidence(evidence), isTrue);
     (evidence['failureCases'] as List).removeLast();
     expect(validateNativeEmbeddingEvidence(evidence), isFalse);

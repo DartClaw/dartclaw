@@ -180,9 +180,26 @@ void main() {
           await backend.query('SELECT pg_terminate_backend(?) AS terminated', [pid]);
           await _eventually(() => fatalCalls == 1);
           await Future<void>.delayed(const Duration(milliseconds: 100));
+          // Join the fatal recovery future inside its error zone.
+          try {
+            await runtime!.shutdown();
+          } on _RuntimeExit {
+            // The injected exit was already observed by this zone.
+          }
+          runtime = null;
         }, (error, _) => zoneErrors.add(error));
         expect(fatalCalls, 1);
-        expect(zoneErrors, [isA<_RuntimeExit>().having((error) => error.code, 'code', 1)]);
+        expect(zoneErrors.whereType<_RuntimeExit>(), [isA<_RuntimeExit>().having((error) => error.code, 'code', 1)]);
+        expect(
+          zoneErrors.where((error) => error is! _RuntimeExit),
+          everyElement(
+            isA<StorageConnectionException>().having(
+              (error) => error.message,
+              'quarantined background work',
+              contains('ownership recovery is pending'),
+            ),
+          ),
+        );
         expect(
           records.map((record) => record.message.toString()),
           contains(contains('ownership could not be recovered within the allowed budget')),

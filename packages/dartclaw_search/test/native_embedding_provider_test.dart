@@ -159,6 +159,38 @@ void main() {
     expect(disposals, 1);
   });
 
+  test('shutdown owns one disposal while concurrent queries await initialization', () async {
+    final loading = Completer<void>();
+    final loadStarted = Completer<void>();
+    var embeds = 0;
+    var disposals = 0;
+    final provider = createProvider(
+      loadModel: (_) {
+        loadStarted.complete();
+        return loading.future;
+      },
+      embed: (_) async {
+        embeds++;
+        return [1, 2];
+      },
+      dispose: () async => disposals++,
+    );
+
+    final first = provider.embedQuery('first');
+    final second = provider.embedQuery('second');
+    final firstFailure = expectLater(first, throwsA(hasSafeMessage('provider is disposed')));
+    final secondFailure = expectLater(second, throwsA(hasSafeMessage('provider is disposed')));
+    await loadStarted.future;
+    final shutdown = provider.dispose();
+    loading.complete();
+
+    await Future.wait([shutdown, firstFailure, secondFailure]);
+    expect(embeds, 0);
+    expect(disposals, 1);
+    await provider.dispose();
+    expect(disposals, 1);
+  });
+
   test('dispose is terminal and reports a sanitized bounded timeout', () async {
     final disposal = Completer<void>();
     final provider = createProvider(dispose: () => disposal.future, shutdownTimeout: const Duration(milliseconds: 20));

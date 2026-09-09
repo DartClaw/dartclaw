@@ -21,6 +21,9 @@ const _injectedDsn = 'postgresql://runtime:SqliteFreeProbeSecretX9@injected.inva
 const _webhookSecret = 'signed-webhook-probe-secret';
 
 void main() {
+  setUpAll(initEmbeddedTemplates);
+  tearDownAll(resetTemplates);
+
   test('PostgreSQL serve build, turn, signed webhook, and shutdown perform zero SQLite opens', () async {
     await withPostgresBackend((backend, _) async {
       final dataDir = Directory.systemTemp.createTempSync('postgres_serve_probe_');
@@ -53,7 +56,9 @@ void main() {
         );
         final server = runtime.server!;
 
-        final createResponse = await server.handler(Request('POST', Uri.parse('http://localhost/api/sessions')));
+        final createResponse = await server.handler(
+          Request('POST', Uri.parse('http://localhost/api/sessions'), headers: const {'host': 'localhost'}),
+        );
         expect(createResponse.statusCode, 201);
         final session = jsonDecode(await createResponse.readAsString()) as Map<String, dynamic>;
         final sessionId = session['id'] as String;
@@ -62,11 +67,11 @@ void main() {
           Request(
             'POST',
             Uri.parse('http://localhost/api/sessions/$sessionId/send'),
-            headers: const {'content-type': 'application/json'},
+            headers: const {'host': 'localhost', 'content-type': 'application/json'},
             body: jsonEncode({'message': 'Prove the PostgreSQL runtime turn.'}),
           ),
         );
-        expect(sendResponse.statusCode, 200);
+        expect(sendResponse.statusCode, 200, reason: await sendResponse.readAsString());
         await harness.turnInvoked;
         harness.emit(DeltaEvent('PostgreSQL turn complete.'));
         harness.completeSuccess();
@@ -80,6 +85,7 @@ void main() {
             'POST',
             Uri.parse('http://localhost/webhook/github'),
             headers: {
+              'host': 'localhost',
               'content-type': 'application/json',
               'x-github-event': 'ping',
               'x-github-delivery': 'postgres-serve-probe-delivery',

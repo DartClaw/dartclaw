@@ -122,27 +122,38 @@ final class NativeEmbeddingProvider implements EmbeddingProvider {
     if (loaded != null) return loaded;
 
     final existing = _initialization;
-    if (existing != null) return existing;
+    if (existing != null) {
+      final engine = await existing;
+      _requireAvailable();
+      return engine;
+    }
 
     final raw = _initialize();
     late final Future<_NativeEmbeddingEngine> bounded;
-    bounded = raw.timeout(
-      _initializationTimeout,
-      onTimeout: () {
-        _poisoned = true;
-        unawaited(raw.then<void>((lateEngine) => _disposeLateEngine(lateEngine), onError: (Object _, StackTrace _) {}));
-        throw const _EmbeddingFailure('Native embedding initialization timed out');
-      },
-    );
+    bounded = raw
+        .timeout(
+          _initializationTimeout,
+          onTimeout: () {
+            _poisoned = true;
+            unawaited(
+              raw.then<void>((lateEngine) => _disposeLateEngine(lateEngine), onError: (Object _, StackTrace _) {}),
+            );
+            throw const _EmbeddingFailure('Native embedding initialization timed out');
+          },
+        )
+        .then((engine) async {
+          if (_disposed) {
+            await _disposeLateEngine(engine);
+            throw const _EmbeddingFailure('Native embedding provider is disposed');
+          }
+          _engine = engine;
+          return engine;
+        });
     _initialization = bounded;
     try {
       final engine = await bounded;
-      if (_disposed) {
-        await _disposeLateEngine(engine);
-        throw const _EmbeddingFailure('Native embedding provider is disposed');
-      }
-      _engine = engine;
       _initialization = null;
+      _requireAvailable();
       return engine;
     } catch (error) {
       if (!_poisoned && identical(_initialization, bounded)) _initialization = null;
@@ -205,7 +216,7 @@ final class NativeEmbeddingProvider implements EmbeddingProvider {
     final initializing = _initialization;
     if (_engine == null && initializing != null) {
       try {
-        _engine = await initializing.timeout(_remaining(_shutdownTimeout, stopwatch, 'Native embedding shutdown'));
+        await initializing.timeout(_remaining(_shutdownTimeout, stopwatch, 'Native embedding shutdown'));
       } on TimeoutException {
         throw const _EmbeddingFailure('Native embedding shutdown timed out');
       } catch (_) {}

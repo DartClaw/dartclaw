@@ -170,10 +170,10 @@ final class PostgresVectorIndex implements VectorIndex {
           SELECT document_id, chunk_index, content_hash, embedding
           FROM ${_table.tableName}
           WHERE user_id = ? AND model_fingerprint = ? AND dimension = ?
-            AND public.vector_dims(embedding) = ? AND public.l2_norm(embedding) > 0
+            AND public.vector_dims(embedding) = ? AND public.vector_norm(embedding) > 0
         )
         SELECT document_id, chunk_index, content_hash,
-               1 - (embedding OPERATOR(public.<=>) query_vector.embedding) AS score
+               1 - (candidates.embedding OPERATOR(public.<=>) query_vector.embedding) AS score
         FROM candidates CROSS JOIN query_vector
         ORDER BY score DESC, document_id, chunk_index
         LIMIT ?

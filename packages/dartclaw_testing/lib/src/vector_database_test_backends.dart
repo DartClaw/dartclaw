@@ -318,7 +318,7 @@ final class PostgresVectorTestBackend implements DatabaseBackend {
       sql,
       RegExp(
         r'WHERE\s+user_id = \?\s+AND model_fingerprint = \?\s+AND dimension = \?'
-        r'\s+AND public\.vector_dims\(embedding\) = \?\s+AND public\.l2_norm\(embedding\) > 0',
+        r'\s+AND public\.vector_dims\(embedding\) = \?\s+AND public\.vector_norm\(embedding\) > 0',
         caseSensitive: false,
       ),
       'vector search predicates',

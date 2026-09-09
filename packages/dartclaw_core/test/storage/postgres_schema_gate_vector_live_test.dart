@@ -17,7 +17,7 @@ void main() {
         FROM pg_catalog.pg_roles
         WHERE rolname = current_user
       ''')).single;
-      expect(role, {'rolsuper': false, 'rolcreatedb': false, 'rolcreaterole': false});
+      expect(role, {'rolsuper': 0, 'rolcreatedb': 0, 'rolcreaterole': 0});
       await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: backend.databaseIdentity);
       final extension = (await backend.query('''
         SELECT namespace.nspname AS extension_schema,
@@ -28,7 +28,7 @@ void main() {
         JOIN pg_catalog.pg_roles owner ON owner.oid = extension.extowner
         WHERE extension.extname = 'vector'
       ''')).single;
-      expect(extension, {'extension_schema': 'public', 'runtime_owns_extension': false});
+      expect(extension, {'extension_schema': 'public', 'runtime_owns_extension': 0});
       expect(
         (await backend.query("SELECT current_schema() AS app_schema, current_setting('search_path') AS search_path"))
             .single,

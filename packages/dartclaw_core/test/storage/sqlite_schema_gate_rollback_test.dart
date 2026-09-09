@@ -75,7 +75,7 @@ void main() {
         manifestFingerprint: 'fingerprint-11',
         healthStore: health,
         populate: (tx) async {
-          await tx.execute("INSERT INTO memory_chunks (text, source) VALUES ('rebuilt', 'canonical')");
+          await tx.execute("INSERT INTO memory_chunks (text, chunk_index, source) VALUES ('rebuilt', 0, 'canonical')");
         },
         authenticateComplete: () async => true,
       );

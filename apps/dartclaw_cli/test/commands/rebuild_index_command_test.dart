@@ -85,12 +85,10 @@ void main() {
     final dbPath = p.join(tempDir.path, 'search.db');
     final seededDb = sqlite3.open(dbPath);
     await SqliteSchemaGate.prepareSearch(SqliteBackend(seededDb), storeName: 'search.db');
-    seededDb.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
-      'stale searchable row',
-      'legacy-memory',
-      DateTime(2026).toIso8601String(),
-      'legacy-memory',
-    ]);
+    seededDb.execute(
+      'INSERT INTO memory_chunks (text, chunk_index, source, created_at, locator) VALUES (?, ?, ?, ?, ?)',
+      ['stale searchable row', 0, 'legacy-memory', DateTime(2026).toIso8601String(), 'legacy-memory'],
+    );
     seededDb.close();
     final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
 

@@ -328,6 +328,7 @@ const _searchTables = [
   SchemaTable('memory_chunks', [
     SchemaColumn('id', 'INTEGER', primaryKey: true),
     SchemaColumn('text', 'TEXT', notNull: true),
+    SchemaColumn('chunk_index', 'INTEGER', notNull: true),
     SchemaColumn('source', 'TEXT', notNull: true),
     SchemaColumn('category', 'TEXT'),
     SchemaColumn('created_at', 'TEXT', notNull: true, defaultValue: 'datetime(\'now\')'),
@@ -343,6 +344,7 @@ const _searchTables = [
     SchemaColumn('message_id', 'TEXT', notNull: true),
     SchemaColumn('user_id', 'TEXT', notNull: true),
     SchemaColumn('text', 'TEXT', notNull: true),
+    SchemaColumn('chunk_index', 'INTEGER', notNull: true),
     SchemaColumn('session_id', 'TEXT', notNull: true),
     SchemaColumn('role', 'TEXT', notNull: true),
     SchemaColumn('created_at', 'TEXT', notNull: true),
@@ -350,7 +352,8 @@ const _searchTables = [
 ];
 
 const _searchBootstrap = [
-  '''CREATE TABLE memory_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, source TEXT NOT NULL,
+  '''CREATE TABLE memory_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL, source TEXT NOT NULL,
     category TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), user_id TEXT NOT NULL DEFAULT 'owner',
     role TEXT NOT NULL DEFAULT 'memory', provenance TEXT NOT NULL DEFAULT 'unknown', locator TEXT, entry_id TEXT,
     entry_revision INTEGER)''',
@@ -363,7 +366,7 @@ const _searchBootstrap = [
     INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid, body) VALUES('delete', old.id, old.text);
     INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
   '''CREATE TABLE conversation_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL,
-    user_id TEXT NOT NULL, text TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    user_id TEXT NOT NULL, text TEXT NOT NULL, chunk_index INTEGER NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
     created_at TEXT NOT NULL)''',
   '''CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(body, content='conversation_chunks', content_rowid='id')''',
   '''CREATE TRIGGER conversation_chunks_ai AFTER INSERT ON conversation_chunks BEGIN

@@ -41,13 +41,10 @@ void main() {
   }
 
   void seed({required String text, required String source, String? category, DateTime? createdAt}) {
-    db.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      text,
-      source,
-      category,
-      (createdAt ?? DateTime(2026)).toIso8601String(),
-      source,
-    ]);
+    db.execute(
+      'INSERT INTO memory_chunks (text, chunk_index, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?, ?)',
+      [text, 0, source, category, (createdAt ?? DateTime(2026)).toIso8601String(), source],
+    );
   }
 
   Future<List<MemorySearchResult>> search(String query) async =>

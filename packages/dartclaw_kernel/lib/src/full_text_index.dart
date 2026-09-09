@@ -33,6 +33,9 @@ final class SearchResult {
   /// Matching document chunk.
   final String chunk;
 
+  /// Zero-based position of [chunk] within its document.
+  final int chunkIndex;
+
   /// Opaque document metadata.
   final Map<String, String> metadata;
 
@@ -46,11 +49,13 @@ final class SearchResult {
   new({
     required this.id,
     required this.chunk,
+    required this.chunkIndex,
     Map<String, String> metadata = const {},
     required this.timestamp,
     required this.score,
   }) : metadata = Map.unmodifiable(metadata) {
     if (id.isEmpty) throw ArgumentError.value(id, 'id', 'must not be empty');
+    if (chunkIndex < 0) throw ArgumentError.value(chunkIndex, 'chunkIndex', 'must not be negative');
   }
 }
 

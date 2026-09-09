@@ -25,6 +25,7 @@ final class PostgresFtsTable {
     idColumn: 'locator',
     legacyIdFallbackColumn: 'source',
     textColumn: 'text',
+    chunkIndexColumn: 'chunk_index',
     timestampColumn: 'created_at',
     userColumn: 'user_id',
     contentTsvColumn: 'content_tsv',
@@ -47,6 +48,7 @@ final class PostgresFtsTable {
     rowIdColumn: 'id',
     idColumn: 'message_id',
     textColumn: 'text',
+    chunkIndexColumn: 'chunk_index',
     timestampColumn: 'created_at',
     userColumn: 'user_id',
     contentTsvColumn: 'content_tsv',
@@ -62,6 +64,7 @@ final class PostgresFtsTable {
     required this.idColumn,
     this.legacyIdFallbackColumn,
     required this.textColumn,
+    required this.chunkIndexColumn,
     required this.timestampColumn,
     required this.userColumn,
     required this.contentTsvColumn,
@@ -78,6 +81,7 @@ final class PostgresFtsTable {
       idColumn,
       ?legacyIdFallbackColumn,
       textColumn,
+      chunkIndexColumn,
       timestampColumn,
       userColumn,
       contentTsvColumn,
@@ -112,6 +116,9 @@ final class PostgresFtsTable {
 
   /// Stored chunk-text column.
   final String textColumn;
+
+  /// Persisted zero-based chunk-position column.
+  final String chunkIndexColumn;
 
   /// Stored source-timestamp column.
   final String timestampColumn;
@@ -168,6 +175,7 @@ final class PostgresFtsIndex implements FullTextIndex {
     final rows = await _backend.query(
       '''
       SELECT $_idExpression AS document_id, ${_table.textColumn} AS chunk,
+             ${_table.chunkIndexColumn} AS chunk_index,
              ${_table.timestampColumn} AS document_timestamp,
              ${_metadataSelection()},
              ts_rank(${_table.contentTsvColumn}, websearch_to_tsquery(?::regconfig, ?)) AS rank
@@ -197,6 +205,7 @@ final class PostgresFtsIndex implements FullTextIndex {
     final rows = await _backend.query(
       '''
       SELECT $_idExpression AS document_id, ${_table.textColumn} AS chunk,
+             ${_table.chunkIndexColumn} AS chunk_index,
              ${_table.timestampColumn} AS document_timestamp,
              ${_metadataSelection()}
       FROM ${_table.baseTable}
@@ -221,7 +230,7 @@ final class PostgresFtsIndex implements FullTextIndex {
              ${_metadataSelection()}
       FROM ${_table.baseTable}
       WHERE ${_table.userColumn} = ? AND $_idExpression IN ($placeholders)
-      ORDER BY ${_table.rowIdColumn}
+      ORDER BY $_idExpression, ${_table.chunkIndexColumn}
     ''',
       [userId, ...requested],
     );
@@ -367,6 +376,7 @@ final class PostgresFtsIndex implements FullTextIndex {
   Future<void> _insert(DatabaseBackend backend, Iterable<SearchDocument> documents, String userId) async {
     final columns = [
       _table.textColumn,
+      _table.chunkIndexColumn,
       _table.idColumn,
       _table.timestampColumn,
       _table.userColumn,
@@ -382,9 +392,10 @@ final class PostgresFtsIndex implements FullTextIndex {
     );
     try {
       for (final document in documents) {
-        for (final chunk in document.chunks) {
+        for (final (chunkIndex, chunk) in document.chunks.indexed) {
           await statement.execute([
             chunk,
+            chunkIndex,
             document.id,
             document.timestamp.toIso8601String(),
             userId,
@@ -402,6 +413,7 @@ final class PostgresFtsIndex implements FullTextIndex {
   SearchResult _result(Map<String, Object?> row, {required double score}) => SearchResult(
     id: row['document_id'] as String,
     chunk: row['chunk'] as String,
+    chunkIndex: row['chunk_index'] as int,
     metadata: _metadata(row),
     timestamp: DateTime.parse(row['document_timestamp'] as String),
     score: score,

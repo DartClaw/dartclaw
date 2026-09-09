@@ -37,13 +37,17 @@ related: []
 
 Dart macros and pattern matching roadmap synthesis.
 ''');
-    db.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Dart macros and pattern matching raw note.',
-      'MEMORY.md',
-      'general',
-      DateTime(2026).toIso8601String(),
-      'MEMORY.md',
-    ]);
+    db.execute(
+      'INSERT INTO memory_chunks (text, chunk_index, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        'Dart macros and pattern matching raw note.',
+        0,
+        'MEMORY.md',
+        'general',
+        DateTime(2026).toIso8601String(),
+        'MEMORY.md',
+      ],
+    );
   });
 
   tearDown(() async {

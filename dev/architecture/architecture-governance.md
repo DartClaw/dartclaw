@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.25; kernel formation, storage absorption, the downward-only per-package LOC ceilings and the two defect-class grep gates.
+**Current through**: 0.26 search-package boundary and package-count ceiling.
 
 ---
 
@@ -145,7 +145,7 @@ intent should remain documented here:
 |---|---:|---|
 | Per-package `lib/` LOC ceiling | one recorded number per member, in `_libLocCeilings`, re-baselined against the measured value the check reports | A downward ratchet by default; a reviewed raise requires measured necessity, exhausted safe reductions, the proportional-band ceiling, and a CHANGELOG rationale |
 | LOC band | `min(400, ceiling ~/ 4)` | The slack a ceiling may carry above actual. Proportional under the constant, capped by it above: a flat `400` is inert in the shrink direction for any package smaller than itself — the 45-line umbrella could shrink to zero and pass. The band is what makes "a ceiling only goes down" checkable from a single snapshot rather than from history |
-| Workspace package count | `<= 12` | Keep the count of directories under `packages/` exact, with `dartclaw_bridge` counted as its own package |
+| Workspace package count | `<= 13` | Keep the count under `packages/` exact, including `dartclaw_search` and `dartclaw_bridge` |
 
 Ceilings are recorded in code because they are executable policy; the intent
 belongs here. Lowering one is routine and belongs in the change that shrank the

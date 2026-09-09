@@ -18,4 +18,5 @@ workspace:
   - packages/dartclaw_signal
   - packages/dartclaw_testing
   - packages/dartclaw_runtime
+  - packages/dartclaw_search
   - apps/dartclaw_cli

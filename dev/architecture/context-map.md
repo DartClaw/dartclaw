@@ -7,7 +7,7 @@ integrate them. Canonical source for context **ids** used by architecture/domain
 **Path**: brownfield – derived from observed code structure, `dev/architecture/*.md`, package `AGENTS.md` boundary
 rules, and the existing UL. **Current through**: 0.26 database backend seam and goal tracer slice.
 
-> **Contexts are linguistic boundaries, not packages.** DartClaw has 12 packages, including the standing
+> **Contexts are linguistic boundaries, not packages.** DartClaw has 13 packages, including `dartclaw_search` and the standing
 > zero-dependency `dartclaw_bridge`, plus one app and 15 contexts. The mapping is many-to-many. `dartclaw_runtime` alone
 > hosts eight contexts, while `dartclaw_core` hosts runtime fragments and the SQLite adapters for several contexts. See
 > [Observed Structure vs. Contexts](#observed-structure-vs-contexts).

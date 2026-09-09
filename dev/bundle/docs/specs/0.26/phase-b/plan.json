@@ -106,10 +106,15 @@
       "id": "S01",
       "name": "Search contracts and canonical chunk identities",
       "dependsOn": [],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s01-search-contracts-and-canonical-chunk-identities.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
+      "owner": "implementer_b_s01_contracts",
       "scope": "Establish the injectable search contracts, approved package boundary and deterministic memory chunk identities consumed by the parallel implementations. Preserve existing source membership and lexical behavior outside the required chunking change.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",

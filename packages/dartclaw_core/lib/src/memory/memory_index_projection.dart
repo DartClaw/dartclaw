@@ -21,10 +21,7 @@ abstract final class MemoryIndexProjection {
     String? entryId,
     int? entryRevision,
   }) {
-    final normalized = MemoryFileService.stripMarkdown(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
-    final chunks = MemoryFileService.splitParagraphs(normalized)
-        .where((chunk) => chunk.trim().isNotEmpty)
-        .toList(growable: false);
+    final chunks = _chunks(text);
     if (chunks.isEmpty) return null;
     return SearchDocument(
       id: locator ?? source,
@@ -163,4 +160,94 @@ abstract final class MemoryIndexProjection {
   /// Counts independently stored chunks across [documents].
   static int chunkCount(Iterable<SearchDocument> documents) =>
       documents.fold(0, (count, document) => count + document.chunks.length);
+
+  static List<String> _chunks(String markdown) {
+    const targetChars = 500;
+    final lines = markdown.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    final chunks = <String>[];
+    final headings = <String>[];
+    final prose = <String>[];
+    var headingNeedsContent = false;
+
+    String headingContext() => headings.where((heading) => heading.isNotEmpty).join('\n');
+
+    void addProse(String raw) {
+      final cleaned = MemoryFileService.stripMarkdown(raw);
+      if (cleaned.isEmpty) return;
+      final context = headingContext();
+      final prefix = context.isEmpty ? '' : '$context\n\n';
+      final available = targetChars - prefix.length;
+      final pieces = MemoryFileService.splitParagraphs(cleaned, maxChars: available > 0 ? available : targetChars);
+      for (final piece in pieces) {
+        final trimmed = piece.trim();
+        if (trimmed.isNotEmpty) chunks.add('$prefix$trimmed');
+      }
+      if (context.isNotEmpty) headingNeedsContent = false;
+    }
+
+    void flushProse() {
+      if (prose.isEmpty) return;
+      addProse(prose.join('\n'));
+      prose.clear();
+    }
+
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      final fence = _fenceOpening(line);
+      if (fence != null) {
+        flushProse();
+        final fenced = <String>[line];
+        while (++index < lines.length) {
+          final candidate = lines[index];
+          fenced.add(candidate);
+          if (_closesFence(candidate, fence)) break;
+        }
+        final context = headingContext();
+        chunks.add(context.isEmpty ? fenced.join('\n') : '$context\n\n${fenced.join('\n')}');
+        if (context.isNotEmpty) headingNeedsContent = false;
+        continue;
+      }
+
+      final heading = _atxHeading(line);
+      if (heading != null) {
+        flushProse();
+        while (headings.length >= heading.level) {
+          headings.removeLast();
+        }
+        while (headings.length < heading.level - 1) {
+          headings.add('');
+        }
+        headings.add(heading.text);
+        headingNeedsContent = true;
+        continue;
+      }
+      prose.add(line);
+    }
+    flushProse();
+    if (headingNeedsContent) {
+      final context = headingContext();
+      if (context.isNotEmpty) chunks.add(context);
+    }
+    return chunks;
+  }
+
+  static ({String marker, int length})? _fenceOpening(String line) {
+    final match = RegExp(r'^ {0,3}(`{3,}|~{3,}).*$').firstMatch(line);
+    final run = match?.group(1);
+    if (run == null) return null;
+    return (marker: run[0], length: run.length);
+  }
+
+  static bool _closesFence(String line, ({String marker, int length}) fence) {
+    final match = RegExp(r'^ {0,3}(`+|~+)[ \t]*$').firstMatch(line);
+    final run = match?.group(1);
+    return run != null && run[0] == fence.marker && run.length >= fence.length;
+  }
+
+  static ({int level, String text})? _atxHeading(String line) {
+    final match = RegExp(r'^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$').firstMatch(line);
+    if (match == null) return null;
+    final raw = (match.group(2) ?? '').replaceFirst(RegExp(r'[ \t]+#+[ \t]*$'), '');
+    return (level: match.group(1)!.length, text: MemoryFileService.stripMarkdown(raw));
+  }
 }

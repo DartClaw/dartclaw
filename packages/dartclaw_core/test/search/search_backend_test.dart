@@ -98,8 +98,9 @@ void main() {
 }
 
 void _seed(Database db, {required String text, required String source}) {
-  db.execute('INSERT INTO memory_chunks (text, source, created_at, locator) VALUES (?, ?, ?, ?)', [
+  db.execute('INSERT INTO memory_chunks (text, chunk_index, source, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
     text,
+    0,
     source,
     DateTime(2026).toIso8601String(),
     source,

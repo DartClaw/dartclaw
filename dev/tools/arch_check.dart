@@ -135,27 +135,30 @@ int _maxCeilingFor(int loc) {
 // Reviewed necessity, 2026-09-09 (ADR-045):
 //   dartclaw_core 29862 -> 30314 (measured 30314, no headroom). Conversation
 //   indexing adds its projection, lifecycle observers and search service.
+// Reviewed necessity, 2026-09-09 (ADR-050):
+//   dartclaw_core 30314 -> 30428 (measured 30428, no headroom). Persisted chunk
+//   ordinals and deterministic canonical Markdown chunking complete the shared
+//   lexical identity contract.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 30314,
+  'dartclaw_core': 30428,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,
+  'dartclaw_search': 16,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 3984,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25632,
 };
-// 2026-08-22: ratcheted 13 -> 12 when storage was absorbed into core, and the
-// package count is recorded again here at the tier order's close. The ceiling
-// equals the shipped package count, with no spare slot for an unreviewed
-// boundary. `dartclaw_bridge` counts as its own package: the combined
-// core+bridge target is not decided, so this records the actual state.
-const _workspacePackageCeiling = 12;
+// 2026-09-09: raised 12 -> 13 for the ADR-050 hybrid-search package. The
+// ceiling equals the shipped package count, with no spare slot for an
+// unreviewed boundary. `dartclaw_bridge` counts as its own package.
+const _workspacePackageCeiling = 13;
 
 final class _CheckResult {
   final String name;

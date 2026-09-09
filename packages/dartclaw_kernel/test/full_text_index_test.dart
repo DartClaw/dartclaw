@@ -9,6 +9,7 @@ void main() {
     final result = SearchResult(
       id: 'entry',
       chunk: 'original',
+      chunkIndex: 0,
       metadata: metadata,
       timestamp: DateTime.utc(2026),
       score: -1,
@@ -22,5 +23,12 @@ void main() {
     expect(() => document.chunks[0] = 'changed', throwsUnsupportedError);
     expect(() => document.metadata['source'] = 'changed', throwsUnsupportedError);
     expect(() => result.metadata['source'] = 'changed', throwsUnsupportedError);
+  });
+
+  test('search results require a non-negative persisted chunk position', () {
+    expect(
+      () => SearchResult(id: 'entry', chunk: 'text', chunkIndex: -1, timestamp: DateTime.utc(2026), score: 0),
+      throwsArgumentError,
+    );
   });
 }

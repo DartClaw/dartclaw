@@ -9,6 +9,7 @@ final class SqliteFtsTable {
     idColumn: 'locator',
     legacyIdFallbackColumn: 'source',
     textColumn: 'text',
+    chunkIndexColumn: 'chunk_index',
     timestampColumn: 'created_at',
     userColumn: 'user_id',
     metadataColumns: const {
@@ -29,6 +30,7 @@ final class SqliteFtsTable {
     ftsTable: 'conversation_chunks_fts',
     idColumn: 'message_id',
     textColumn: 'text',
+    chunkIndexColumn: 'chunk_index',
     timestampColumn: 'created_at',
     userColumn: 'user_id',
     metadataColumns: const {'session_id': 'session_id', 'role': 'role'},
@@ -42,6 +44,7 @@ final class SqliteFtsTable {
     required this.idColumn,
     this.legacyIdFallbackColumn,
     required this.textColumn,
+    required this.chunkIndexColumn,
     required this.timestampColumn,
     required this.userColumn,
     required Map<String, String> metadataColumns,
@@ -56,6 +59,7 @@ final class SqliteFtsTable {
       idColumn,
       ?legacyIdFallbackColumn,
       textColumn,
+      chunkIndexColumn,
       timestampColumn,
       userColumn,
       ...this.metadataColumns.keys,
@@ -88,6 +92,9 @@ final class SqliteFtsTable {
 
   /// Stored chunk-text column.
   final String textColumn;
+
+  /// Persisted zero-based chunk-position column.
+  final String chunkIndexColumn;
 
   /// Stored source-timestamp column.
   final String timestampColumn;
@@ -137,6 +144,7 @@ final class SqliteFtsIndex implements FullTextIndex {
     final rows = await _backend.query(
       '''
       SELECT $_idExpression AS document_id, ${_table.textColumn} AS chunk,
+             ${_table.chunkIndexColumn} AS chunk_index,
              ${_table.timestampColumn} AS document_timestamp,
              ${_metadataSelection()}, rank
       FROM ${_table.baseTable}
@@ -155,6 +163,7 @@ final class SqliteFtsIndex implements FullTextIndex {
     final rows = await _backend.query(
       '''
       SELECT $_idExpression AS document_id, ${_table.textColumn} AS chunk,
+             ${_table.chunkIndexColumn} AS chunk_index,
              ${_table.timestampColumn} AS document_timestamp,
              ${_metadataSelection()}
       FROM ${_table.baseTable}
@@ -179,7 +188,7 @@ final class SqliteFtsIndex implements FullTextIndex {
              ${_metadataSelection()}
       FROM ${_table.baseTable}
       WHERE ${_table.userColumn} = ? AND $_idExpression IN ($placeholders)
-      ORDER BY rowid
+      ORDER BY $_idExpression, ${_table.chunkIndexColumn}
     ''',
       [userId, ...requested],
     );
@@ -308,6 +317,7 @@ final class SqliteFtsIndex implements FullTextIndex {
   Future<void> _insert(DatabaseBackend backend, Iterable<SearchDocument> documents, String userId) async {
     final columns = [
       _table.textColumn,
+      _table.chunkIndexColumn,
       _table.idColumn,
       _table.timestampColumn,
       _table.userColumn,
@@ -319,9 +329,10 @@ final class SqliteFtsIndex implements FullTextIndex {
     );
     try {
       for (final document in documents) {
-        for (final chunk in document.chunks) {
+        for (final (chunkIndex, chunk) in document.chunks.indexed) {
           await statement.execute([
             chunk,
+            chunkIndex,
             document.id,
             document.timestamp.toIso8601String(),
             userId,
@@ -337,6 +348,7 @@ final class SqliteFtsIndex implements FullTextIndex {
   SearchResult _result(Map<String, Object?> row, {required double score}) => SearchResult(
     id: row['document_id'] as String,
     chunk: row['chunk'] as String,
+    chunkIndex: row['chunk_index'] as int,
     metadata: _metadata(row),
     timestamp: DateTime.parse(row['document_timestamp'] as String),
     score: score,

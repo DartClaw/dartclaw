@@ -1,0 +1,24 @@
+name: dartclaw_search
+description: Hybrid search composition and embedding providers for DartClaw.
+publish_to: none
+version: 0.25.2
+repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_search
+homepage: https://github.com/DartClaw/dartclaw
+issue_tracker: https://github.com/DartClaw/dartclaw/issues
+topics:
+  - ai
+  - search
+  - embeddings
+
+environment:
+  sdk: ^3.13.0
+
+resolution: workspace
+
+dependencies:
+  dartclaw_kernel:
+    path: ../dartclaw_kernel
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.0

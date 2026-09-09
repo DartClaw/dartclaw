@@ -378,7 +378,7 @@ Goal
 ```
 SearchDocument
 ├── id: String (canonical entry UUID)
-├── chunks: List<String>
+├── chunks: List<String> (persisted with a zero-based `chunk_index`)
 ├── metadata: Map<String, String>
 │   ├── source, role, provenance
 │   └── category?, entry_id?, entry_revision?
@@ -409,7 +409,8 @@ instance-owner scope (`user_id = 'owner'`), independently of the memory corpus.
 
 **Storage**: SQLite `search.db` holds `conversation_chunks` and its external-content `conversation_chunks_fts` table.
 PostgreSQL holds `conversation_chunks` with `content_tsv` and a GIN index. Named projection columns are `message_id`,
-`user_id`, `text`, `session_id`, `role`, and `created_at`; the integer `id` is the database row identity.
+`user_id`, `text`, `chunk_index`, `session_id`, `role`, and `created_at`; `chunk_index` is the stable zero-based
+position in the document, while integer `id` is only the database row identity.
 **Source of truth**: `sessions/<id>/messages.ndjson`. Post-append observers enqueue indexing without delaying or failing
 message persistence. The same serialized queue removes rows after clear, successful deletion, or archival and restores
 them when a session becomes chat-facing again. Index failures are logged and later rebuilds reconcile missed work.

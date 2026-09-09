@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1",
+  "story": "S01",
+  "fis": "s01-search-contracts-and-canonical-chunk-identities.md",
+  "plan": "plan.json",
+  "snapshot": "a5d84152b7e0+ae3d73b1206d",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ a5d84152b7e0+ae3d73b1206d",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 98.551,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_kernel/test/vector_search_contract_test.dart packages/dartclaw_kernel/test/full_text_index_test.dart",
+      "exit": 0,
+      "duration": 0.976,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/sqlite_fts_index_test.dart packages/dartclaw_core/test/storage/sqlite_schema_gate_search_test.dart && dart analyze --fatal-infos packages/dartclaw_core",
+      "exit": 0,
+      "duration": 2.07,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/memory/memory_index_projection_test.dart",
+      "exit": 0,
+      "duration": 0.632,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart pub workspace list | rg -q 'packages/dartclaw_search' && dart run dev/tools/arch_check.dart && dart test --reporter=failures-only dev/fitness/test/dependency_direction_test.dart && rg -q 'packages/dartclaw_search' dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md && rg -q '13 packages under' dev/adrs/056-package-topology-consolidation.md",
+      "exit": 0,
+      "duration": 1.068,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

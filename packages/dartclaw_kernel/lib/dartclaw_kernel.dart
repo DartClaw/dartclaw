@@ -4,6 +4,16 @@ library;
 export 'src/models.dart'
     show Session, SessionType, Message, MemorySearchResult, MemorySearchDegradation, MemorySearchOutcome;
 export 'src/full_text_index.dart' show FullTextIndex, SearchDocument, SearchResult;
+export 'src/vector_search.dart'
+    show
+        EmbeddingProvider,
+        SearchDiagnostics,
+        SearchDiagnosticsSink,
+        SearchRankEvidence,
+        VectorIdentity,
+        VectorIndex,
+        VectorMatch,
+        VectorRecord;
 export 'src/agent_definition.dart' show AgentDefinition;
 export 'src/output_schema.dart'
     show OutputSchemaViolation, parseOutputSchema, renderOutputSchemaContract, validateOutputSchema;

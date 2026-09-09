@@ -606,7 +606,7 @@ union that `dartclaw rebuild-index` restores.
 | `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
 | `SelfImprovementService` | `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
 | `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
-| `FullTextIndex` | `packages/dartclaw_kernel/lib/src/full_text_index.dart` | Corpus-agnostic, user-scoped full-text document port |
+| `FullTextIndex` / `VectorIndex` / `EmbeddingProvider` | `packages/dartclaw_kernel/lib/src/` | Owner-scoped lexical, vector and embedding contracts with stable chunk identity |
 | `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
 | `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
 | `SqliteBackend` / `SqliteSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and derived-index rebuild gate |
@@ -727,6 +727,7 @@ DartClaw uses a Dart pub workspace with strict dependency layering.
 ```
 dartclaw_kernel      → no workspace dependencies
 dartclaw_core        → kernel
+dartclaw_search      → kernel
 dartclaw_workflow    → core, kernel
 dartclaw_whatsapp    → core, kernel
 dartclaw_signal      → core, kernel
@@ -748,6 +749,7 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 |---------|------|----------------|
 | `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
 | `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, `SqliteBackend` and SQLite repositories, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_search` | Hybrid retrieval composition and embedding providers over injected indexes | T1 package depending only on kernel contracts; owns no canonical corpus or database driver |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
 | `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |

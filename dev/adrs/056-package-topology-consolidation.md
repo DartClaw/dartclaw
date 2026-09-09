@@ -28,6 +28,7 @@ dependencies are omitted.
 |---------|----------------|----------------------------------------------------|
 | `dartclaw_kernel` | Models, configuration, guards, audit primitives, shared utilities | none |
 | `dartclaw_core` | Runtime primitives, storage, shared channel bases | `dartclaw_kernel` |
+| `dartclaw_search` | Hybrid retrieval composition and embedding providers | `dartclaw_kernel` |
 | `dartclaw_whatsapp` | WhatsApp integration | `dartclaw_kernel`, `dartclaw_core` |
 | `dartclaw_signal` | Signal integration | `dartclaw_kernel`, `dartclaw_core` |
 | `dartclaw_google_chat` | Google Chat integration | `dartclaw_kernel`, `dartclaw_core` |
@@ -159,10 +160,10 @@ all and stays legal, which is how all nine of its consumers already reach it. Th
 depend on `dartclaw_testing`, and the per-edge table it replaced enforced that by enumeration. Placement now
 carries it, with no exception entry.
 
-The workspace holds **12 packages under `packages/` plus one application** at this milestone's close, and the
-package-count ceiling records that number — it counts `packages/` alone. The root `workspace:` list holds **14**
-members, because `dev/fitness` (`dartclaw_fitness`) is a member and sits outside `packages/`. `dartclaw_bridge` is counted as its own package: S89 is unresolved, so this records the actual
-state rather than assuming the combined core+bridge target.
+The 0.26 Phase B search boundary raises the workspace ceiling to **13 packages under `packages/` plus one
+application**. `dartclaw_search` sits on T1 beside core and depends only on the T0 kernel contracts; concrete database
+indexes and canonical corpus mapping remain in core. The root `workspace:` list holds **15** members because
+`dev/fitness` (`dartclaw_fitness`) is a member outside `packages/`. `dartclaw_bridge` still counts as its own package.
 
 `dartclaw_server` is renamed `dartclaw_runtime` throughout, including the barrel, the release version file and every
 gate key; only the package identifier changed, and no Dart symbol was renamed.

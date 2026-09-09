@@ -180,14 +180,15 @@ void main() {
         manifestRevision: 1,
         manifestFingerprint: 'corpora',
         healthStore: health,
-        populate: (tx) => tx.execute("INSERT INTO memory_chunks(text, source) VALUES ('memory', 'source')"),
+        populate: (tx) =>
+            tx.execute("INSERT INTO memory_chunks(text, chunk_index, source) VALUES ('memory', 0, 'source')"),
         authenticateComplete: () async => true,
         corpora: [
           SqliteSearchCorpusRebuild(
             populate: (tx) async {
               await tx.execute(
-                'INSERT INTO conversation_chunks(message_id, user_id, text, session_id, role, created_at) '
-                "VALUES ('message', 'owner', 'conversation', 'session', 'user', '2026-09-08T00:00:00Z')",
+                'INSERT INTO conversation_chunks(message_id, user_id, text, chunk_index, session_id, role, created_at) '
+                "VALUES ('message', 'owner', 'conversation', 0, 'session', 'user', '2026-09-08T00:00:00Z')",
               );
               if (failConversation) throw StateError('conversation source failed');
             },
@@ -236,7 +237,9 @@ void main() {
           manifestFingerprint: 'fingerprint-11',
           healthStore: health,
           populate: (tx) async {
-            await tx.execute("INSERT INTO memory_chunks(text, source) VALUES ('replacement', 'canonical')");
+            await tx.execute(
+              "INSERT INTO memory_chunks(text, chunk_index, source) VALUES ('replacement', 0, 'canonical')",
+            );
             if (injectFailure && failure == 'commit') await tx.execute('INSERT INTO child VALUES (1)');
           },
           authenticateComplete: () async => true,
@@ -324,8 +327,9 @@ void main() {
             manifestFingerprint: 'fingerprint-7',
             healthStore: health,
             populate: (tx) => tx
-                .execute('INSERT INTO memory_chunks (text, source, user_id) VALUES (?, ?, ?)', [
+                .execute('INSERT INTO memory_chunks (text, chunk_index, source, user_id) VALUES (?, ?, ?, ?)', [
                   'reconstructed content',
+                  0,
                   'canonical',
                   'owner',
                 ])
@@ -406,7 +410,9 @@ void main() {
               manifestFingerprint: 'fingerprint-9',
               healthStore: health,
               populate: (tx) async {
-                await tx.execute("INSERT INTO memory_chunks (text, source) VALUES ('partial', 'canonical')");
+                await tx.execute(
+                  "INSERT INTO memory_chunks (text, chunk_index, source) VALUES ('partial', 0, 'canonical')",
+                );
                 if (failure == 'populate') throw StateError('populate failed');
               },
               authenticateComplete: () async => failure != 'authenticate',

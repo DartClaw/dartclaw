@@ -165,6 +165,35 @@ void main() {
       expect(await index.count(userId: 'owner', metadata: const {'entry_revision': '07'}), 0);
     });
 
+    test('repeated equal chunks retain their persisted zero-based positions', () async {
+      await index.upsert([
+        _document('memory', 'unused', chunks: const ['same text', 'middle', 'same text']),
+      ], userId: 'owner');
+
+      final hits = await index.search('same', userId: 'owner');
+      expect(hits.map((result) => (result.id, result.chunkIndex, result.chunk)), [
+        ('memory', 0, 'same text'),
+        ('memory', 2, 'same text'),
+      ]);
+      expect((await index.fetch(['memory'], userId: 'owner')).single.chunks, ['same text', 'middle', 'same text']);
+
+      final conversations = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+      await conversations.upsert([
+        SearchDocument(
+          id: 'message',
+          chunks: const ['same text', 'middle', 'same text'],
+          metadata: const {'session_id': 'session', 'role': 'assistant'},
+          timestamp: DateTime.utc(2026),
+        ),
+      ], userId: 'owner');
+      expect((await conversations.search('same', userId: 'owner')).map((result) => result.chunkIndex), [0, 2]);
+      expect((await conversations.fetch(['message'], userId: 'owner')).single.chunks, [
+        'same text',
+        'middle',
+        'same text',
+      ]);
+    });
+
     test('conversation descriptor isolates tenants and the memory corpus', () async {
       final conversations = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
       SearchDocument conversation(String text) => SearchDocument(

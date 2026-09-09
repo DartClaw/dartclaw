@@ -34,6 +34,77 @@ void main() {
       );
     });
 
+    test('keeps nested heading context while splitting prose at stable boundaries', () {
+      final repeated = 'Repeated paragraph.';
+      final longLine = List.generate(80, (index) => 'word$index').join(' ');
+      final firstLine = 'a' * 300;
+      final secondLine = 'b' * 300;
+      final crlf =
+          '# Parent\r\n\r\n'
+          '$repeated\r\n\r\n'
+          '## Child\r\n\r\n'
+          '$longLine\r\n\r\n'
+          '$repeated\r\n\r\n'
+          '### Lines\r\n\r\n'
+          '$firstLine\r\n'
+          '$secondLine';
+      final lf = crlf.replaceAll('\r\n', '\n');
+
+      SearchDocument project(String text) => MemoryIndexProjection.document(
+        text: text,
+        source: 'topic/general/entry-1',
+        category: 'general',
+        createdAt: DateTime.utc(2026),
+      )!;
+
+      final incremental = project(crlf);
+      final rebuilt = project(lf);
+      final corpusRebuilt = MemoryIndexProjection.documents(_corpus(topicContent: lf)).first;
+
+      expect(incremental.chunks, rebuilt.chunks);
+      expect(incremental.chunks, corpusRebuilt.chunks);
+      expect(incremental.chunks, [
+        'Parent\n\n$repeated',
+        startsWith('Parent\nChild\n\nword0 word1'),
+        startsWith('Parent\nChild\n\n'),
+        'Parent\nChild\n\n$repeated',
+        'Parent\nChild\nLines\n\n$firstLine',
+        'Parent\nChild\nLines\n\n$secondLine',
+      ]);
+      expect(incremental.chunks.where((chunk) => chunk.endsWith(repeated)), hasLength(2));
+      expect(incremental.chunks.every((chunk) => chunk.length <= 500), isTrue);
+      expect(incremental.metadata, rebuilt.metadata);
+      expect(incremental.timestamp, rebuilt.timestamp);
+    });
+
+    test('keeps backtick, tilde, unclosed, and oversized fenced blocks indivisible', () {
+      final oversizedLine = 'x' * 700;
+      final document = MemoryIndexProjection.document(
+        text:
+            '# Code\r\n\r\n'
+            '```dart\r\n'
+            'final marked = **raw**;\r\n'
+            '```\r\n\r\n'
+            '~~~text\r\n'
+            '$oversizedLine\r\n'
+            '~~~\r\n\r\n'
+            '## Draft\r\n\r\n'
+            '```sh\r\n'
+            r'echo `still raw`',
+        source: 'topic/code/entry-1',
+        category: 'code',
+        createdAt: DateTime.utc(2026),
+      )!;
+
+      expect(document.chunks, [
+        'Code\n\n```dart\nfinal marked = **raw**;\n```',
+        'Code\n\n~~~text\n$oversizedLine\n~~~',
+        'Code\nDraft\n\n```sh\necho `still raw`',
+      ]);
+      expect(document.chunks[1].length, greaterThan(500));
+      expect(document.chunks.where((chunk) => chunk.contains(oversizedLine)), hasLength(1));
+    });
+
     test('projects only searchable canonical roles with complete identity', () {
       final documents = MemoryIndexProjection.documents(_corpus());
 
@@ -58,6 +129,7 @@ void main() {
         SearchResult(
           id: '11111111-1111-4111-8111-111111111111',
           chunk: 'Dart is a client-optimized language',
+          chunkIndex: 0,
           metadata: const {
             'source': '11111111-1111-4111-8111-111111111111',
             'category': 'general',
@@ -101,6 +173,7 @@ void main() {
       SearchResult result(String role, Map<String, String> extra) => SearchResult(
         id: 'native',
         chunk: 'text',
+        chunkIndex: 0,
         metadata: {'source': 'native', 'role': role, 'provenance': 'unknown', ...extra},
         timestamp: DateTime.utc(2026),
         score: 0,
@@ -118,8 +191,8 @@ void main() {
   });
 }
 
-CanonicalMemoryCorpus _corpus() {
-  final topic = _entry('11111111-1111-4111-8111-111111111111', 'Topic fact', 'manual:topic');
+CanonicalMemoryCorpus _corpus({String topicContent = 'Topic fact'}) {
+  final topic = _entry('11111111-1111-4111-8111-111111111111', topicContent, 'manual:topic');
   final archive = _entry('22222222-2222-4222-8222-222222222222', 'Archive fact', 'manual:archive');
   final learning = CanonicalMemoryLearning(
     id: '33333333-3333-4333-8333-333333333333',

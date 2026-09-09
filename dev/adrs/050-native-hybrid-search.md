@@ -25,7 +25,9 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 
 **Build `dartclaw_search`: built-in hybrid memory search (keyword + vector + weighted RRF) composing the ADR-045 seams, with embedding generation behind an `EmbeddingProvider` seam. Retire QMD via a deprecation window.**
 
-1. **New package `dartclaw_search`** (~1–1.5k LOC): depends on contract packages only (ADR-034 allowlist edges added with rationale); concrete `FullTextIndex`/`VectorIndex` implementations are injected. The package isolates the llamadart native-asset dependency from the core graph.
+1. **New package `dartclaw_search`** (~1–1.5k LOC): sits on T1 and depends only on `dartclaw_kernel`; concrete
+   `FullTextIndex`/`VectorIndex` implementations are injected. The package isolates the llamadart native-asset dependency from
+   the core graph, while core retains concrete database indexes and canonical corpus mapping.
 2. **Primary embedding source: in-process llamadart** (pinned exact version), default model **embeddinggemma-300M Q8_0** (768-dim, multilingual; QMD's own default – known quality baseline; fixture-validated for Swedish). Model is a one-time pinned-URL + checksum download, honoring the network-gating posture.
 3. **Fallback + escape hatch: OpenAI-compatible HTTP provider** (~100 LOC; base URL + optional API key) covering local outposts (llama.cpp `llama-server`, Ollama, LM Studio) and – as **documented, explicit opt-in** (owner-accepted 2026-07-25) – cloud endpoints (Voyage/OpenAI/Gemini). Default remains local; user docs carry the data-leaves-trust-boundary caveat.
 4. **Vector storage:** SQLite backend = float32 BLOB column + brute-force cosine in Dart (no vector extension; defensible far beyond memory-corpus scale; preserves ADR-045's "no in-database vector path on SQLite"). PostgreSQL backend = **`pgvector`** – delivering ADR-045's former Phase 3 now that the embedding source exists.

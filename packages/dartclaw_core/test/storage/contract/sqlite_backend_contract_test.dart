@@ -101,8 +101,9 @@ Future<ContractBackend> _openSqliteContract() async {
             manifestFingerprint: 'contract',
             healthStore: health,
             populate: (tx) => tx
-                .execute('INSERT INTO memory_chunks (text, source, user_id) VALUES (?, ?, ?)', [
+                .execute('INSERT INTO memory_chunks (text, chunk_index, source, user_id) VALUES (?, ?, ?, ?)', [
                   'reconstructed orchid',
+                  0,
                   'contract',
                   'u-alpha',
                 ])

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1",
+  "story": "S08",
+  "fis": "s08-sealed-retrieval-evaluation-harness.md",
+  "plan": "plan.json",
+  "snapshot": "1c41ebb6e823+2e913c808669",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 1c41ebb6e823+2e913c808669",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 108.324,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/retrieval_evaluation_test.dart && dart run apps/dartclaw_cli/tool/retrieval_evaluation.dart --check-assets",
+      "exit": 0,
+      "duration": 4.035,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/retrieval_evaluation_pipeline_test.dart && dart analyze --fatal-infos apps/dartclaw_cli/tool/retrieval_evaluation.dart apps/dartclaw_cli/test/tool",
+      "exit": 0,
+      "duration": 2.558,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_runtime/test/search/hybrid_wiki_composition_test.dart",
+      "exit": 0,
+      "duration": 0.847,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

@@ -311,9 +311,13 @@
       "dependsOn": [
         "S05"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s08-sealed-retrieval-evaluation-harness.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03"
+      ],
       "owner": null,
       "scope": "Commit the frozen calibration/held-out inputs and a reproducible evaluator over the real backend pipelines, with exact metric/slice/tolerance checks and retained settings provenance. Heavy held-out execution belongs to the final combined gate.",
       "sourceRefs": [

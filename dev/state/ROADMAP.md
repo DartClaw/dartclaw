@@ -4,6 +4,8 @@
 
 ## Active Milestone
 
+Current execution is **0.26 on `feat/0.26`**. The 0.25.2 section below retains its preceding release-preparation record.
+
 ### 0.25.2 – Deployment feedback and workflow fixes
 
 **Status: release-ready, awaiting tag on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06),
@@ -12,7 +14,7 @@ unreleased; pins at 0.25.2; record in the private patch PRD
 on the main lane, final-text delivery, provider-enforced logical-agent schemas, `pool_size` default 2 and
 harness-owned continuity reset. Three follow-on features shipped on the branch and are consolidated in the PRD:
 operator approval for chat-driven scheduling writes (`c2057657`), model-free file-only shell jobs (`16917bc8`) and
-channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`. 0.26 waits behind this patch.
+channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`.
 
 The workflow follow-up restores Claude user-plugin inheritance with declared tool filtering, projectless inline
 output roots, Codex probe/worker isolation parity and safe capability mirroring from custom `CODEX_HOME`
@@ -80,6 +82,8 @@ work is parked on `parked/s64-workflow-schema`.
 
 **Status 2026-09-09 – Phase A delivered on feat/0.26; Phase B pending.** This is an implementation checkpoint; final
 combined Phase A + Phase B verification remains pending.
+
+All 17 Phase A story receipts and their reviews are retained in checkpoint `007ab8d48220f07b429f647a3d23dc802bc82141`. Phase B planning is in progress.
 
 Phase A delivers the `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap and
 compatibility gate, `FullTextIndex` with language-aware PostgreSQL search, credential-referenced database access, TLS

@@ -505,9 +505,16 @@
         "S14",
         "S15"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s12-operator-and-developer-documentation.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06"
+      ],
       "owner": null,
       "scope": "Ship Phase A documentation: a public PostgreSQL deployment guide covering env/named credential references, TLS, administrator provisioning plus runtime-role SQL, pool sizing, backup/restore, third-party data processing, backend switching and decommissioning, search/reindex behavior, schema compatibility/reset guidance, and the storage-tiers-at-a-glance table (dartclaw.db, search.db, filesystem turn-state and webhook-dedup stores, file-based authoritative stores). Regenerate docs/guide/configuration.md from the schema (adding the database.* keys to the curated core list within the 90-key budget) rather than editing it. Synchronize data-model.md, security-architecture.md, configuration-architecture.md, and the Database Backend / Full-Text Index (two instances) / Schema Compatibility Gate glossary entries against the 0.25 package names. At Phase A completion update private ROADMAP and canonical STATE to mark 0.26 Phase A delivered with Phase B pending.",
       "sourceRefs": [

@@ -18,6 +18,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Added
 
+- **PostgreSQL operator guide** – configuration, TLS posture, least-privilege provisioning, storage tiers, backups,
+  backend switching, and decommissioning are documented in [PostgreSQL](docs/guide/postgresql.md).
+
 - **PostgreSQL serving interlock** – one serving process owns each database. Lost ownership blocks storage until
   reacquisition and revalidation; startup preserves orphan-turn evidence until the active-store gate succeeds.
   Backend switches transfer no data and report inactive stores through a read-only, best-effort probe.

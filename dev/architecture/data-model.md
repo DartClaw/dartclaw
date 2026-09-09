@@ -118,6 +118,19 @@ documents while preserving unopened members. Startup authenticates the complete 
 publishing the manifest or healthy derived-index state. A missing manifest is rebuilt from canonical Markdown; a
 semantic mismatch triggers stopped-edit reconciliation or fails closed before index publication.
 
+### Database Backend
+
+`DatabaseBackend`, `DatabaseStatement`, and `DatabaseBackendFactory` are port types in `dartclaw_kernel`.
+`dartclaw_core` provides `SqliteBackend` and `PostgresBackend` for authoritative relational repositories, plus
+`SqliteFtsIndex` and `PostgresFtsIndex` as the two `FullTextIndex` implementations. The composition root in
+`dartclaw_runtime` selects and opens them through `StorageWiring.wire()`.
+
+A PostgreSQL deployment uses one database and one pool for its authoritative repositories and search projections.
+Tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts are authoritative. Memory and
+conversation search rows are derived: the memory layer rebuilds from validated canonical memory, while the
+conversation layer rebuilds from session NDJSON. Knowledge-graph facts remain authoritative rows and apply
+`database.fts_language` at query time.
+
 ---
 
 ## Domain Models
@@ -804,32 +817,33 @@ dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBa
                                         execution repository ports, deterministic utilities
      ▲
      │
-dartclaw_core       (kernel + sqlite3)  SessionService, MessageService, KvService,
+dartclaw_core       (kernel + sqlite3 + postgres)
+                                        SessionService, MessageService, KvService,
      ▲                                  MemoryFileService, Task*, Goal*, EventBus,
      │                                  ThreadBindingStore, ProjectService (interface),
      │                                  HarnessFactory, harness interfaces,
-     │                                  SqliteBackend, SqliteTaskRepository,
-     │                                  SqliteGoalRepository (via DatabaseBackend),
-     │                                  SqliteAgentExecutionRepository,
-     │                                  SqliteWorkflowStepExecutionRepository,
-     │                                  SqliteFtsIndex, SqliteSchemaGate,
+     │                                  SqliteBackend, PostgresBackend,
+     │                                  relational repositories via DatabaseBackend,
+     │                                  SqliteFtsIndex, PostgresFtsIndex,
+     │                                  SqliteSchemaGate, PostgresSchemaGate,
      │                                  TurnStateStore, WebhookDeliveryStore (files),
      │                                  TurnTraceService,
      │                                  TaskEventService
      │
-dartclaw_workflow   (core)              WorkflowRegistry, WorkflowDefinition/Step/Loop,
+dartclaw_workflow   (kernel + core)     WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
      │                                  WorkflowContext, schema presets, built-in skills,
      │                                  WorkflowRunRepository + SqliteWorkflowRunRepository,
      │                                  WorkflowMaterializer
      │
-dartclaw_runtime     (shelf, http)       TaskService (wraps repository),
+dartclaw_runtime    (kernel + core + workflow, shelf)
+                                        StorageWiring, TaskService (wraps repository),
      ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,
      │                                  ProjectService (implementation), TaskEventRecorder,
      │                                  BudgetEnforcer, PauseController, ScopeReconciler,
      │                                  EmergencyStopHandler
      │
-dartclaw_cli        (args)              CLI runner, loopback API client, connected
+dartclaw_cli        (runtime + args)    CLI runner, loopback API client, connected
                                         operations (`workflow`, `tasks`, `config`,
                                         `projects`, `sessions`, `runners`, `traces`,
                                         `jobs`), plus local lifecycle/maintenance
@@ -918,6 +932,8 @@ Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: 
 | Scenario | Recovery |
 |----------|---------|
 | Derived memory or conversation index stale or missing | `dartclaw rebuild-index` reconstructs both projections from validated canonical memory and session NDJSON. An incompatible PostgreSQL schema is refused before rebuild; back up, then recreate the store or restore a compatible one. |
+| PostgreSQL database lost or damaged | Restore it with the provider backup workflow or `pg_restore` from a verified `pg_dump` archive. |
+| PostgreSQL compatibility refusal | Back up the named database, then recreate it for this release or restore a compatible backup. |
 | `dartclaw.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | PostgreSQL interlock lost | Storage calls refuse during recovery. Reacquire the lock and revalidate the server version and current schema before access resumes; terminal failure requires correcting the reported condition and restarting. |
 | `turn_state.json` corrupted/deleted | Invalid content is quarantined at open and recovery starts empty; a missing file starts empty. In-flight sessions may miss a recovery notice. Leftover `state.db` is ignored. |

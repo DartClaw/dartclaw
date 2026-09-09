@@ -99,6 +99,21 @@ If QMD becomes unreachable or a query fails, DartClaw falls back to FTS5 and rep
 If startup reports that the existing `memory` collection uses the legacy `*.md` mask, run
 `qmd --index index collection remove memory`, then restart DartClaw. Startup recreates the collection with `**/*.md`.
 
+### PostgreSQL Language-Aware Search (Opt-in)
+
+With the [PostgreSQL backend](postgresql.md), one deployment-level `database.fts_language` setting drives memory,
+conversation, and knowledge-graph fact search. Changing it requires a restart followed by `dartclaw rebuild-index`
+for the stored memory and conversation vectors. Knowledge-graph facts use the new language on their next query after
+restart. The wiki stays file-backed and is searched live, and tasks are never indexed.
+
+PostgreSQL uses Snowball stemming for regular inflections. For example, Swedish `springa` can match `springer`, but
+the irregular English `sprang` does not match `springa`. Mixed-language content can be mis-stemmed because every
+document uses the configured deployment language. PostgreSQL does not fold diacritics where FTS5 does, and a query
+made only of stopwords returns no matches. Quoted phrases and `-word` negation use PostgreSQL web-search query syntax.
+It uses core PostgreSQL and requires no extension.
+
+SQLite keeps its existing FTS5 behavior unchanged, including `unicode61` tokenization without stemming.
+
 ### Memory Curation
 
 Curated personal memory changes through one path. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. The opt-in `memory-curation` job (`memory.curation.enabled`) is a scheduled caller of that same path, bounded to the entries its own run snapshot showed it. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1",
+  "story": "S12",
+  "fis": "s12-operator-and-developer-documentation.md",
+  "plan": "plan.json",
+  "snapshot": "3c4a82256c98+1811d69bbeb5",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ 3c4a82256c98+1811d69bbeb5",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 88.882,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "bash -c 'rg -q '\"'\"'\\$\\{DARTCLAW_DATABASE_URL\\}'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'credential:'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'backend: postgres'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'pool_size'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'fts_language'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'verify-full'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'sslmode=disable'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'CREATE ROLE'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'superuser'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'PostgreSQL 14'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'data processor'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'snapshot'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'at.rest'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'dartclaw rebuild-index'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'turn_state\\.json'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'webhook_deliveries/'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'dartclaw\\.db'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'never transfer|no data is transferred|transfers no data'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'abandoned|could not verify'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'reset|recreate'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'restore'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'sprang'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'diacritic'\"'\"' docs/guide/postgresql.md && rg -qi '\"'\"'second .*serve|advisory lock|already (held|serving)'\"'\"' docs/guide/postgresql.md && ! rg -qi '\"'\"'automatic(ally)? upgrad|upgraded in place|migrates your data'\"'\"' docs/guide/postgresql.md && ! rg -q '\"'\"'://[A-Za-z0-9_.-]+:[^<*$@/ ][^@/ ]*@'\"'\"' docs/guide/postgresql.md && rg -q '\"'\"'postgresql\\.md'\"'\"' docs/guide/README.md docs/guide/deployment.md && rg -qi '\"'\"'postgresql'\"'\"' <(awk '\"'\"'/^## \\[Unreleased\\]/,/^## \\[0/'\"'\"' CHANGELOG.md) && (cd docs/guide && for f in $(rg --no-filename -oN '\"'\"'\\]\\(([^)#: ]+\\.md)'\"'\"' -r '\"'\"'$1'\"'\"' postgresql.md README.md | sort -u); do test -e \"$f\" || { echo \"missing $f\"; exit 1; }; done)'",
+      "exit": 0,
+      "duration": 0.113,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "bash -c 'for k in database.backend database.url database.credential database.pool_size database.fts_language; do rg -q \"^$k  # \" dev/tools/config_reference_core_keys.txt || exit 1; done && test \"$(grep -cv '\"'\"'^\\s*#\\|^\\s*$'\"'\"' dev/tools/config_reference_core_keys.txt)\" -le 90 && dart run dev/tools/render_config_reference.dart --check && dart run packages/dartclaw_kernel/tool/generate_config_schema.dart --check && test \"$(rg -c '\"'\"'^\\| \\x60database\\.'\"'\"' <(awk '\"'\"'/^### Core Config/,/^### Full Config Reference/'\"'\"' docs/guide/configuration.md))\" = 5 && bash dev/tools/fitness/test_render_config_reference.sh'",
+      "exit": 0,
+      "duration": 3.778,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "bash -c 'rg -q '\"'\"'^### PostgreSQL Language-Aware Search'\"'\"' docs/guide/search.md && rg -q '\"'\"'fts_language'\"'\"' docs/guide/search.md && rg -q '\"'\"'rebuild-index'\"'\"' <(awk '\"'\"'/^### PostgreSQL Language-Aware Search/,/^### Memory Curation|^## /'\"'\"' docs/guide/search.md) && rg -qi '\"'\"'diacritic'\"'\"' docs/guide/search.md && rg -qi '\"'\"'sprang|irregular'\"'\"' docs/guide/search.md && rg -q '\"'\"'postgresql\\.md'\"'\"' docs/guide/search.md && test \"$(rg -n '\"'\"'^### PostgreSQL Language-Aware Search'\"'\"' docs/guide/search.md | cut -d: -f1)\" -lt \"$(rg -n '\"'\"'^### Memory Curation'\"'\"' docs/guide/search.md | cut -d: -f1)\" && ! rg -q '\"'\"'S0[0-9]|S1[0-9]|TI0[0-9]|story S'\"'\"' docs/guide/search.md docs/guide/postgresql.md docs/guide/README.md'",
+      "exit": 0,
+      "duration": 0.037,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "bash -c 'rg -q '\"'\"'^### Database Backend'\"'\"' dev/architecture/data-model.md && rg -q '\"'\"'PostgresBackend'\"'\"' dev/architecture/data-model.md && rg -qi '\"'\"'pg_dump|provider backup'\"'\"' dev/architecture/data-model.md && ! rg -q '\"'\"'core \\+ storage|\\(runtime \\+ sqlite3\\)'\"'\"' dev/architecture/data-model.md && rg -q '\"'\"'Database Connection Egress'\"'\"' dev/architecture/security-architecture.md && rg -q '\"'\"'verify-full'\"'\"' dev/architecture/security-architecture.md && rg -qi '\"'\"'DSN'\"'\"' <(awk '\"'\"'/^### MessageRedactor/,/^## /'\"'\"' dev/architecture/security-architecture.md) && rg -q '\"'\"'^\\| \\x60database\\x60 \\| \\x60DatabaseConfig\\x60 \\| \\x60restart\\x60'\"'\"' dev/architecture/configuration-architecture.md && rg -q '\"'\"'database\\.\\*'\"'\"' <(awk '\"'\"'/^### What.s Hot-Reloadable/,/^### Restart Banner/'\"'\"' dev/architecture/configuration-architecture.md) && rg -q '\"'\"'database\\.credential'\"'\"' dev/architecture/configuration-architecture.md && rg -q '\"'\"'^\\*\\*Current through\\*\\*: 0\\.26'\"'\"' dev/architecture/data-model.md dev/architecture/configuration-architecture.md && ! rg -q '\"'\"'(packages/|package:)dartclaw_(storage|server|config|models|security)\\b'\"'\"' dev/architecture/data-model.md dev/architecture/security-architecture.md dev/architecture/configuration-architecture.md docs/guide/postgresql.md && ! rg -q '\"'\"'S0[0-9]|S1[0-9]|TI0[0-9]|story S'\"'\"' dev/architecture/data-model.md dev/architecture/security-architecture.md dev/architecture/configuration-architecture.md'",
+      "exit": 0,
+      "duration": 0.062,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI05 Verify",
+      "kind": "run",
+      "command": "bash -c 'rg -q '\"'\"'^\\| Database Backend \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md && rg -q '\"'\"'^\\| Schema Compatibility Gate \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md && rg -q '\"'\"'user_id'\"'\"' <(rg '\"'\"'^\\| Full-Text Index \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md) && rg -qi '\"'\"'conversation'\"'\"' <(rg '\"'\"'^\\| Full-Text Index \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md) && rg -qi '\"'\"'not a global'\"'\"' <(rg '\"'\"'^\\| Full-Text Index \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md) && rg -qi '\"'\"'reset|recreate'\"'\"' <(rg '\"'\"'^\\| Schema Compatibility Gate \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md) && rg -q '\"'\"'^\\| Instance-Local Store \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md && rg -q '\"'\"'turn_state\\.json'\"'\"' <(rg '\"'\"'^\\| Instance-Local Store \\|'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md) && rg -q \"^- $(date +%Y-%m-%d):\" dev/state/UBIQUITOUS_LANGUAGE.md && ! rg -q '\"'\"'dartclaw-private|(packages/|package:)dartclaw_(storage|server|config|models|security)\\b|S1[0-9]|story S'\"'\"' dev/state/UBIQUITOUS_LANGUAGE.md'",
+      "exit": 0,
+      "duration": 0.047,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI06 Verify",
+      "kind": "run",
+      "command": "bash -c 'rg -q '\"'\"'Phase A delivered'\"'\"' ../dartclaw-private/docs/ROADMAP.md && rg -qi '\"'\"'Phase B pending'\"'\"' ../dartclaw-private/docs/ROADMAP.md && rg -q '\"'\"'^### 0[.]26 .*Pluggable Database Backend & Multi-Language Search'\"'\"' dev/state/ROADMAP.md && rg -qi '\"'\"'Phase A delivered'\"'\"' <(awk '\"'\"'/^### 0[.]26 .*Pluggable Database Backend & Multi-Language Search/{f=1;next} /^### /{f=0} f'\"'\"' dev/state/ROADMAP.md) && rg -qi '\"'\"'Phase B pending'\"'\"' <(awk '\"'\"'/^### 0[.]26 .*Pluggable Database Backend & Multi-Language Search/{f=1;next} /^### /{f=0} f'\"'\"' dev/state/ROADMAP.md) && rg -q '\"'\"'PostgreSQL contract'\"'\"' dev/state/ROADMAP.md && rg -qi '\"'\"'RELEASE_PREPARATION|confirmed'\"'\"' <(rg '\"'\"'PostgreSQL contract'\"'\"' dev/state/ROADMAP.md) && ! rg -qi '\"'\"'0\\.26 (complete|released|shipped)'\"'\"' dev/state/ROADMAP.md ../dartclaw-private/docs/ROADMAP.md && ! git diff -U0 -- dev/state/ROADMAP.md | rg '\"'\"'^\\+'\"'\"' | rg -q '\"'\"'dartclaw-private/'\"'\"' && git diff --check && git -C ../dartclaw-private diff --check'",
+      "exit": 0,
+      "duration": 0.107,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

@@ -78,7 +78,17 @@ work is parked on `parked/s64-workflow-schema`.
 
 ### 0.26 — Pluggable Database Backend & Multi-Language Search
 
-Next. `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap + compatibility gate, `FullTextIndex` with language-aware search on PostgreSQL, credential-reference `DATABASE_URL`, TLS fail-closed, dual-backend contract suite; then Phase B native hybrid search (`dartclaw_search`, ADR-050). Plan bundle regenerated against 0.25 on 2026-09-03 (15 stories) plus the two workflow-schema stories deferred from 0.25 (S16/S17, formerly S63/S64).
+**Status 2026-09-09 – Phase A delivered on feat/0.26; Phase B pending.** This is an implementation checkpoint; final
+combined Phase A + Phase B verification remains pending.
+
+Phase A delivers the `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap and
+compatibility gate, `FullTextIndex` with language-aware PostgreSQL search, credential-referenced database access, TLS
+posture, filesystem-backed instance-local state, backend-switch safety, and the dual-backend contract suite. Phase B
+remains native hybrid search (`dartclaw_search`, ADR-050). The plan bundle was regenerated against 0.25 on 2026-09-03
+(15 stories) plus the two workflow-schema stories deferred from 0.25.
+
+**External gate:** the operator's GitHub ruleset step for the exact `PostgreSQL contract` check is pending; follow `dev/guidelines/RELEASE_PREPARATION.md`.
+No remote CI confirmation is recorded at this checkpoint.
 
 ### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 

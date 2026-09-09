@@ -276,6 +276,9 @@ so. The store is the answer for a secret that had nowhere better to live than a 
 `dartclaw secrets audit` to see which of your secrets are in which place; it exits non-zero on any finding, so it can
 gate a deploy.
 
+For an opt-in database deployment, [PostgreSQL](postgresql.md#configuration) shows both supported connection-reference
+forms and the required operating posture.
+
 `dartclaw deploy secrets` belongs to the superseded `deploy` path and is unchanged — prefer `dartclaw secrets set`.
 
 ## Egress Firewall

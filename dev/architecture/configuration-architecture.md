@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.26 versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 PostgreSQL database configuration, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator and kernel/channel loader constraint derivation, the declared per-section reload tiers, the alerts re-cut, the registry-versus-loader disposition table, the schema-driven settings form, the fatal load sweep for undescribed config paths, the published `dartclaw.schema.json` artifact and its drift gate, the dead-config-key removal with its tolerated-legacy upgrade map, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -730,6 +730,7 @@ This is the **field-level** view — `ConfigMeta` mutability, which is what `PAT
 | | `governance.*` (turn limits, budgets, stall detection) |
 | | `container.*` |
 | | `search.backend`, `search.qmd.*` |
+| | `database.*` |
 | | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 | | `harness.*`, `knowledge.*`, `workflow.*`, `mcp_servers.*` |
 
@@ -814,6 +815,9 @@ provisioning remains with explicit store writers.
 Credentials follow a reference-based model. The `credentials:` config section may hold a literal but should normally
 reference environment variables; `dartclaw secrets` keeps named values outside `dartclaw.yaml` entirely. Consumers
 resolve a credential name at runtime rather than embedding its value in their own config.
+
+`database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
+mutually exclusive with `database.url`.
 
 ### CredentialsConfig
 
@@ -1027,6 +1031,7 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
 | `search` | `SearchConfig` | `restart` | No | Backend (fts5/qmd), QMD connection |
+| `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |
 | `workflow` | `WorkflowConfig` | `restart` | No | Workflow workspace directory |

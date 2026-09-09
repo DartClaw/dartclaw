@@ -154,6 +154,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- Workflow progress stays inside the workflow page and is removed when navigating to another page.
+
 - **Standalone workflows no longer initialize personal memory.** Headless startup skips memory preflight, indexing,
   search and self-improvement, and workflow harnesses receive no DartClaw memory callbacks or retrieval hints.
   Invalid personal-memory data cannot block standalone workflow execution, and unrelated queued tasks stay queued.

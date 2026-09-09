@@ -80,8 +80,11 @@ work is parked on `parked/s64-workflow-schema`.
 
 ### 0.26 – Pluggable Database Backend & Hybrid Search
 
-**Status – 0.26.0 release candidate on `feat/0.26`; combined verification pending.** All 17 Phase A
-stories and the eight Phase B implementation stories are accepted. The guides, 0.26.0 version pins and pending verification manifest are in place.
+**Status – implementation complete; combined acceptance blocked.** All 17 Phase A stories and all nine Phase B
+stories are accepted on `feat/0.26`. The sealed retrieval evaluation completed 144 slices: 118 of 122 gates passed;
+vector and hybrid no-result gates failed on both databases (1/10 empty results each, required 10/10). Frozen inputs
+and thresholds remain unchanged. Native x64 release qualification is still unavailable locally. Version pins remain
+0.26.0 Unreleased; the plan/spec bundle is retained until acceptance permits consolidation.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B

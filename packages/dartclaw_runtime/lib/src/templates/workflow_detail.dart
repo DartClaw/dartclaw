@@ -260,6 +260,7 @@ String workflowProgressFragment(WorkflowProgressPresentation progress, {bool out
     templateLoader.source('workflow_detail'),
     fragment: 'workflowProgress',
     context: {
+      'progressFragmentOnly': true,
       'hasStepCount': progress.hasStepCount,
       'completedSteps': progress.completedSteps,
       'totalSteps': progress.totalSteps,

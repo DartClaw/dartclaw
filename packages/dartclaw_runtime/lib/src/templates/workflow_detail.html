@@ -133,7 +133,7 @@
   </div>
 </li>
 
-<div tl:fragment="workflowProgress" id="workflow-progress" data-workflow-progress=""
+<div tl:fragment="workflowProgress" tl:if="${progressFragmentOnly}" id="workflow-progress" data-workflow-progress=""
      tl:attr="hx-swap-oob=${outOfBand}">
   <div tl:if="${hasStepCount}" class="meter">
     <div class="meter-fill" tl:classappend="${meterFillClass}" tl:attr="style='width: ' + ${progressPercent} + '%'"></div>

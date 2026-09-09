@@ -271,6 +271,8 @@ void main() {
         );
         final live = workflowProgressFragment(presentation, outOfBand: true);
 
+        expect('id="workflow-progress"'.allMatches(full), hasLength(1));
+        expect('id="workflow-progress"'.allMatches(live), hasLength(1));
         expect(_progressFragment(full), _progressFragment(live).replaceFirst(' hx-swap-oob="outerHTML"', ''));
       }
     });

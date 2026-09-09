@@ -100,7 +100,8 @@ extension TurnRunnerExecution on TurnRunner {
         'cache_write_tokens': 0,
         'total_tokens': 0,
         'effective_tokens': 0,
-        'estimated_cost_usd': 0.0,
+        'estimated_cost_usd': null,
+        'cost_reported_turn_count': 0,
         'turn_count': 0,
       };
     }
@@ -109,7 +110,7 @@ extension TurnRunnerExecution on TurnRunner {
     final outputTokens = result.outputTokens;
     final cacheReadTokens = result.cacheReadTokens;
     final cacheWriteTokens = result.cacheWriteTokens;
-    final costUsd = _worker.supportsCostReporting ? result.costUsd ?? 0.0 : 0.0;
+    final reportedCostUsd = _worker.supportsCostReporting ? result.costUsd : null;
     final existingProvider = switch (costData['provider']) {
       final String value when value.trim().isNotEmpty => value,
       _ => null,
@@ -127,7 +128,12 @@ extension TurnRunnerExecution on TurnRunner {
     costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
     costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
     costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
-    costData['estimated_cost_usd'] = (costData['estimated_cost_usd'] as num).toDouble() + costUsd;
+    final accumulatedCostUsd = (costData['estimated_cost_usd'] as num?)?.toDouble();
+    costData['estimated_cost_usd'] = reportedCostUsd == null
+        ? accumulatedCostUsd
+        : (accumulatedCostUsd ?? 0) + reportedCostUsd;
+    costData['cost_reported_turn_count'] =
+        ((costData['cost_reported_turn_count'] as num?)?.toInt() ?? 0) + (reportedCostUsd == null ? 0 : 1);
     costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
     costData['provider'] = existingProvider ?? provider;
 

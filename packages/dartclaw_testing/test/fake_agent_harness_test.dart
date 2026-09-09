@@ -4,6 +4,11 @@ import 'package:test/test.dart';
 
 void main() {
   group('FakeAgentHarness', () {
+    test('opts into complete work-tool interception only when configured', () {
+      expect(FakeAgentHarness().supportsNoWorkTools, isFalse);
+      expect(FakeAgentHarness(supportsNoWorkTools: true).supportsNoWorkTools, isTrue);
+    });
+
     test('records turn inputs and completes successfully', () async {
       final harness = FakeAgentHarness(supportsProviderSessionResume: true);
       final turnFuture = harness.turn(

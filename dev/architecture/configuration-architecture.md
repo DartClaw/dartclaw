@@ -826,6 +826,10 @@ API-key entry. Query and document bodies are sent as raw OpenAI-compatible `inpu
 and is an explicit trust boundary. Provider kind, normalized endpoint/model or verified local model identity, and
 input convention form the vector fingerprint; the fingerprint is derived runtime identity, not configuration.
 
+Hybrid answer relevance uses `agent.provider`, `agent.model`, `agent.effort` and the primary execution placement through
+the existing runtime. This is separate from the embedding identity: local embeddings still send the query and selected
+passages to the primary agent's provider. No separate relevance provider or score-tuning configuration is introduced.
+
 `database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
 mutually exclusive with `database.url`.
 

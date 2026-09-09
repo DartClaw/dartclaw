@@ -66,6 +66,20 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Hybrid answer relevance** – memory and conversation candidates are checked for the requested information through
+  the primary agent before publication. Fixed ranking is preserved and sources are rechecked after the model turn.
+  Unsupported tool interception refuses the turn before startup; failures use only freshly verified lexical content.
+  Queries add model cost and latency even with local embeddings; failed checks report `relevanceFailure` and retain
+  lexical fallback. Explicit tool allowlists now reach worker construction and prevent reuse of broader workers.
+
+- **Relevance correction LOC baseline** – the shared strict decoder moves from core to kernel, the search package owns
+  bounded relevance selection and refreshed fallback, and the testing fake exposes the fail-closed tool capability.
+  Measured kernel/search/testing LOC is 19,944/1,614/3,770; the existing proportional-band rule sets their ceilings to
+  21,444/2,152/5,026. Core remains below its existing ceiling after the decoder move.
+
+- **Reported session cost** – missing provider cost is no longer treated as zero. Session cost is unavailable when
+  any turn lacks reported cost, including older records without cost-presence evidence; reported zero remains zero.
+
 - **QMD deprecated** – the opt-in QMD backend still works in 0.26. Built-in hybrid search replaces it; removal is scheduled for the following milestone.
 
 - **Vector storage LOC ceilings** – core measures 31,260 Dart lines and shared testing helpers measure 3,764; their ceilings match those measurements without added headroom.

@@ -229,6 +229,13 @@ class TurnManager implements core.TurnManager {
   bool isActiveTurn(String sessionId, String turnId) =>
       _executions.runners.any((runner) => runner.isActiveTurn(sessionId, turnId));
 
+  /// Whether the reserved turn retained its schema for provider-native enforcement.
+  bool reservedTurnUsesNativeStructuredOutput(String sessionId, String turnId) {
+    final runner = _reservedTurnRunners[turnId];
+    if (runner == null) throw StateError('Turn $turnId is not reserved by this manager');
+    return runner.reservedTurnUsesNativeStructuredOutput(sessionId, turnId);
+  }
+
   @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) {
     final retained = _executions.recentOutcome(sessionId, turnId);
@@ -271,6 +278,7 @@ class TurnManager implements core.TurnManager {
         taskId: taskId,
         isHumanInput: isHumanInput,
         agentName: agentName,
+        allowedTools: allowedTools,
       ),
     );
     final runner = lease.runner;
@@ -526,6 +534,7 @@ class TurnManager implements core.TurnManager {
     String? taskId,
     required bool isHumanInput,
     String? agentName,
+    List<String>? allowedTools,
   }) async {
     final session = await _sessions?.getSession(sessionId);
     final provider = session?.provider ?? _primary.providerId;
@@ -553,6 +562,7 @@ class TurnManager implements core.TurnManager {
         isHumanInput: isHumanInput,
         taskId: taskId,
         logicalAgentId: isLogicalAgent || boundChannel ? agentName : null,
+        allowedTools: allowedTools,
       ),
     );
     if (lease != null) return lease;

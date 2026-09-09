@@ -33,6 +33,7 @@ The interface has three main areas:
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
+- **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
 - **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. During streaming the button changes to stop.

@@ -538,6 +538,9 @@ class FakeTaskWorker implements AgentHarness {
   bool get supportsStructuredOutput => structuredOutputSupported;
 
   @override
+  bool get supportsNoWorkTools => false;
+
+  @override
   bool get supportsProviderSessionResume => providerSessionResumeSupported;
 
   @override

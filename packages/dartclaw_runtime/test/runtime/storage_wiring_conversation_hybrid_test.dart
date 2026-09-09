@@ -104,11 +104,16 @@ Future<StorageWiring> _wire(DartclawConfig config, EventBus eventBus, EmbeddingP
     searchBackendFactory: SqliteBackend.open,
     taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
     embeddingProviderFactory: () => provider,
+    searchRelevanceTurn: _keepAllRelevant,
     exitFn: (code) => throw StateError('unexpected exit $code'),
   );
   await wiring.wire();
   return wiring;
 }
+
+Future<Map<String, dynamic>> _keepAllRelevant(String _, Map<String, dynamic> schema) async => {
+  for (final key in (schema['required'] as List).cast<String>()) key: true,
+};
 
 Future<void> _waitFor(Future<bool> Function() condition) async {
   for (var attempt = 0; attempt < 100; attempt++) {

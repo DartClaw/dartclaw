@@ -1,5 +1,79 @@
 part of 'service_wiring.dart';
 
+/// Cross-cutting deps threaded through the assembly's `_wireXxx` methods.
+///
+/// Late slots (serverRef, serverTurns) are bound via setters as construction
+/// proceeds; closures capture them via getters so late-binding order is
+/// preserved across method boundaries.
+final class _WiringContext {
+  final EventBus eventBus;
+  final ConfigNotifier configNotifier;
+  final String dataDir;
+  final int port;
+  final ResolvedAssets resolvedAssets;
+  final String? builtInSkillsSourceDir;
+  final MessageRedactor messageRedactor;
+  final GuardAuditLogger auditLogger;
+
+  /// Dedicated subscription credential stores, read per use so a re-issued
+  /// token reaches the next spawn or mediated request without a restart.
+  final SubscriptionCredentialStore subscriptions;
+
+  /// One refresh authority per dedicated Codex store for the whole process.
+  ///
+  /// Single-flight is a property of this instance, so a second one would be a
+  /// second refresher — exactly what the design forbids. Every DartClaw lane
+  /// that touches the store shares this one.
+  final CodexRefreshAuthority codexRefresh;
+
+  /// Bound when the server is composed. A headless build composes none, so the
+  /// surfaces that need one resolve through [composedServerGetter], which
+  /// refuses, while the ones that merely may have one read [serverRefGetter].
+  DartclawServer? _serverRef;
+  late TurnManager _serverTurns;
+  SearchRelevanceRunner? _searchRelevanceRunner;
+
+  /// The provider entries the composed harness registrars declared, bound once
+  /// the harness is wired.
+  ///
+  /// The probe lane resolves through these so a registrar-owned provider is
+  /// probed under its own credential isolation rather than DartClaw's
+  /// first-party arm. A lane that has not wired a harness yet — the staged
+  /// headless provider-auth preflight — composed no registrar either, so an
+  /// empty map is the honest answer rather than a missing one.
+  Map<String, ProviderEntry> registeredProviderEntries = const {};
+
+  /// The credential overlay those registrations present, bound with them.
+  Map<String, String>? Function(String, Map<String, String>)? registrarCredentialOverlay;
+  new({
+    required this.eventBus,
+    required this.configNotifier,
+    required this.dataDir,
+    required this.port,
+    required this.resolvedAssets,
+    required this.builtInSkillsSourceDir,
+    required this.messageRedactor,
+    required this.subscriptions,
+    required this.codexRefresh,
+  }) : auditLogger = GuardAuditLogger(dataDir: dataDir);
+
+  void bindServer(DartclawServer server) => _serverRef = server;
+  void bindTurns(TurnManager turns) => _serverTurns = turns;
+  void bindSearchRelevanceRunner(SearchRelevanceRunner runner) => _searchRelevanceRunner = runner;
+
+  DartclawServer? Function() get serverRefGetter =>
+      () => _serverRef;
+  DartclawServer Function() get composedServerGetter =>
+      () => _serverRef ?? (throw StateError('This runtime composed no server'));
+  TurnManager Function() get turnManagerGetter =>
+      () => _serverTurns;
+  Future<Map<String, dynamic>> runSearchRelevanceTurn(String prompt, Map<String, dynamic> outputSchema) =>
+      (_searchRelevanceRunner ?? (throw StateError('This runtime composed no search relevance turn'))).run(
+        prompt,
+        outputSchema,
+      );
+}
+
 /// Composes the turn manager the rest of the assembly threads through.
 ///
 /// Built before the server because scheduling, the task layer and the restart

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'search_relevance_filter.dart';
+
 part 'current_corpus_inventory.dart';
 part 'vector_synchronizer.dart';
 
@@ -19,16 +21,19 @@ final class HybridSearch {
     required FullTextIndex lexicalIndex,
     required VectorIndex vectorIndex,
     required EmbeddingProvider embeddingProvider,
+    required SearchRelevanceFilter relevanceFilter,
     required String sourceLayer,
   }) : _lexicalIndex = lexicalIndex,
        _vectorIndex = vectorIndex,
        _embeddingProvider = embeddingProvider,
+       _relevanceFilter = relevanceFilter,
        _sourceLayer = _validateSourceLayer(sourceLayer),
        _inventory = _CurrentCorpusInventory(lexicalIndex: lexicalIndex, vectorIndex: vectorIndex);
 
   final FullTextIndex _lexicalIndex;
   final VectorIndex _vectorIndex;
   final EmbeddingProvider _embeddingProvider;
+  final SearchRelevanceFilter _relevanceFilter;
   final String _sourceLayer;
   final _CurrentCorpusInventory _inventory;
 
@@ -52,8 +57,7 @@ final class HybridSearch {
       queryVector = await _embeddingProvider.embedQuery(query);
       if (!_validVector(queryVector)) throw const FormatException('invalid query vector');
     } on Object {
-      await _reportFallback(lexical, userId, limit, diagnostics, reason: 'embeddingFailure');
-      return List.unmodifiable(lexical.take(limit));
+      return _fallback(lexical, userId, limit, diagnostics, reason: 'embeddingFailure');
     }
 
     List<VectorMatch> matches;
@@ -65,8 +69,7 @@ final class HybridSearch {
         limit: _candidateLimit,
       );
     } on Object {
-      await _reportFallback(lexical, userId, limit, diagnostics, reason: 'vectorSearchFailure');
-      return List.unmodifiable(lexical.take(limit));
+      return _fallback(lexical, userId, limit, diagnostics, reason: 'vectorSearchFailure');
     }
 
     final eligibleMatches = <VectorMatch>[];
@@ -80,8 +83,7 @@ final class HybridSearch {
     try {
       authenticated = await _inventory.selected(eligibleMatches.map((match) => match.documentId), userId: userId);
     } on Object {
-      await _reportFallback(lexical, userId, limit, diagnostics, reason: 'vectorAuthenticationFailure');
-      return List.unmodifiable(lexical.take(limit));
+      return _fallback(lexical, userId, limit, diagnostics, reason: 'vectorAuthenticationFailure');
     }
 
     final currentByIdentity = {for (final chunk in authenticated.chunks) chunk.identity: chunk};
@@ -113,17 +115,63 @@ final class HybridSearch {
     }
 
     final ranked = candidates.values.toList(growable: false)..sort(_compareCandidates);
-    final selected = ranked.take(limit).toList(growable: false);
+    List<_FusedCandidate> authenticatedRanked;
+    try {
+      authenticatedRanked = await _authenticateCandidates(ranked, userId);
+    } on Object {
+      return _fallback(
+        lexical,
+        userId,
+        limit,
+        diagnostics,
+        reason: 'vectorAuthenticationFailure',
+        degradations: _staleDegradations(staleCount),
+      );
+    }
+
+    final judgmentInputs = authenticatedRanked.map((candidate) => candidate.scoredResult).toList(growable: false);
+    List<SearchResult> relevant;
+    try {
+      relevant = await _relevanceFilter.filter(query, judgmentInputs);
+    } on Object {
+      return _fallback(
+        lexical,
+        userId,
+        limit,
+        diagnostics,
+        reason: 'relevanceFailure',
+        degradations: _staleDegradations(staleCount),
+      );
+    }
+
+    final byIdentity = {
+      for (final candidate in authenticatedRanked)
+        VectorIdentity(documentId: candidate.result.id, chunkIndex: candidate.result.chunkIndex): candidate,
+    };
+    final judged = [
+      for (final result in relevant) byIdentity[VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex)]!,
+    ];
+    List<_FusedCandidate> current;
+    try {
+      current = await _authenticateCandidates(judged, userId);
+    } on Object {
+      return _fallback(
+        lexical,
+        userId,
+        limit,
+        diagnostics,
+        reason: 'vectorAuthenticationFailure',
+        degradations: _staleDegradations(staleCount),
+      );
+    }
+
+    final selected = current.take(limit).toList(growable: false);
     if (diagnostics != null) {
-      final degradations = <MemorySearchDegradation>[
-        if (staleCount > 0)
-          MemorySearchDegradation(layer: _sourceLayer, reason: 'staleVector', omittedCount: staleCount),
-      ];
       diagnostics(
         SearchDiagnostics(
           candidates: selected.map((candidate) => candidate.evidence(_sourceLayer)),
           unembeddedCount: await _diagnosticMissingCount(userId),
-          degradations: degradations,
+          degradations: _staleDegradations(staleCount),
         ),
       );
     }
@@ -136,26 +184,59 @@ final class HybridSearch {
     return _inventory.missingCount(userId: userId, modelFingerprint: _embeddingProvider.modelFingerprint);
   }
 
-  Future<void> _reportFallback(
+  Future<List<SearchResult>> _fallback(
     List<SearchResult> lexical,
     String userId,
     int limit,
     SearchDiagnosticsSink? diagnostics, {
     required String reason,
+    List<MemorySearchDegradation> degradations = const [],
   }) async {
-    if (diagnostics == null) return;
-    final selected = lexical.take(limit).toList(growable: false);
-    diagnostics(
-      SearchDiagnostics(
-        candidates: [
-          for (var index = 0; index < selected.length; index++)
-            _FusedCandidate(result: selected[index], keywordRank: index + 1).evidence(_sourceLayer),
-        ],
-        unembeddedCount: await _diagnosticMissingCount(userId),
-        degradations: [MemorySearchDegradation(layer: _sourceLayer, reason: reason)],
-      ),
-    );
+    final fallbackDegradations = [...degradations, MemorySearchDegradation(layer: _sourceLayer, reason: reason)];
+    final candidates = [
+      for (var index = 0; index < lexical.length; index++)
+        _FusedCandidate(result: lexical[index], keywordRank: index + 1),
+    ];
+    List<_FusedCandidate> current;
+    try {
+      current = await _authenticateCandidates(candidates, userId);
+    } on Object {
+      current = const [];
+      if (reason != 'vectorAuthenticationFailure') {
+        fallbackDegradations.add(MemorySearchDegradation(layer: _sourceLayer, reason: 'vectorAuthenticationFailure'));
+      }
+    }
+    final selected = current.take(limit).toList(growable: false);
+    if (diagnostics != null) {
+      diagnostics(
+        SearchDiagnostics(
+          candidates: selected.map((candidate) => candidate.evidence(_sourceLayer)),
+          unembeddedCount: await _diagnosticMissingCount(userId),
+          degradations: fallbackDegradations,
+        ),
+      );
+    }
+    return List.unmodifiable(selected.map((candidate) => candidate.result));
   }
+
+  Future<List<_FusedCandidate>> _authenticateCandidates(List<_FusedCandidate> candidates, String userId) async {
+    final snapshot = await _inventory.selected(candidates.map((candidate) => candidate.result.id), userId: userId);
+    final currentByIdentity = {for (final chunk in snapshot.chunks) chunk.identity: chunk};
+    return [
+      for (final candidate in candidates)
+        if (currentByIdentity[VectorIdentity(documentId: candidate.result.id, chunkIndex: candidate.result.chunkIndex)]
+            case final chunk? when chunk.text == candidate.result.chunk)
+          _FusedCandidate(
+            result: chunk.result(candidate.result.score),
+            keywordRank: candidate.keywordRank,
+            vectorRank: candidate.vectorRank,
+          ),
+    ];
+  }
+
+  List<MemorySearchDegradation> _staleDegradations(int staleCount) => [
+    if (staleCount > 0) MemorySearchDegradation(layer: _sourceLayer, reason: 'staleVector', omittedCount: staleCount),
+  ];
 
   static List<SearchResult> _deduplicate(List<SearchResult> results) {
     final seen = <VectorIdentity>{};

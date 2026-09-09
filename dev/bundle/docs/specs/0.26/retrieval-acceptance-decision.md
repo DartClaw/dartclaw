@@ -1,6 +1,7 @@
 # Retrieval acceptance decision
 
-Status: approved calibration completed on 2026-09-09; its stop condition is met. A separate mechanism/scope decision is required.
+Status: root-cause relevance fix authorized on 2026-09-09 after calibration reached its stop condition.
+Authorization: "Ok, please proceed with this and fix the root problem so all this works as intended."
 Calibration authorization: "Please proceed with this."
 The original frozen evaluator, selected settings and failed release acceptance remain unchanged.
 Integration source for the diagnosis: `930f72c4332ea2a06c97f88d64a29b79d678f625`.
@@ -31,7 +32,7 @@ exposed evaluation negatives. This is an observed limitation of cosine-based rel
 choosing a new threshold. Changing RRF weights cannot make vector-only retrieval empty or eliminate a surviving
 vector candidate when the lexical ranking is empty.
 
-## Approved decision
+## Approved calibration decision
 
 Keep 0.26 release acceptance blocked and explicitly reopen calibration under a second, separately versioned
 protocol. Preserve the current relevance and no-result requirements. Permit experiments only on calibration data;
@@ -49,6 +50,30 @@ Alternative considered and declined: leave the protocol closed and keep the feat
 implementation defect is found.
 Shipping the failed gate, reclassifying its negatives as relevant, or raising the threshold against exposed questions
 would change the accepted product contract and is not part of either option.
+
+## Authorized relevance correction
+
+After calibration proved that no scalar cutoff can meet the existing requirements, the maintainer authorized
+fixing the root problem. This supersedes the preceding calibration decision's prohibition on investigating and
+implementing a new relevance mechanism. It does not relax the frozen quality gates or the holdout protocol.
+
+The correction adds one bounded model judgment over authenticated candidate passages, before selecting the top
+results. It asks whether each passage contains the requested information, preserves candidate order, and uses the
+existing runtime execution and output-schema authorities. ADR-050 records the mechanism and its additional model
+latency, cost and provider trust boundary. Existing embeddings and retrieval settings remain unchanged.
+
+Local verification completed on 2026-09-09: 11,953 workspace tests passed with 44 configured skips; PostgreSQL
+contracts and both-corpus relevance wiring, formatting, analysis, architecture/fitness gates and both AOT builds passed.
+The source stayed unchanged during the final run. Code and security reviews closed with zero findings after two
+remediation rounds. Earlier failed runs remain retained, including a shared-catalog DDL race resolved by serializing
+the destructive PostgreSQL test suites without removing tests or assertions.
+
+Runtime refuses providers without complete tool interception before starting an empty-policy worker. Claude supports
+the guarded turn, while current Codex and ACP harnesses refuse it. Lexical fallback re-authenticates current content;
+evaluation requires explicit model/auth selection and seals terminal outcomes and complete reported-cost evidence.
+The maintainer's choice of using configured Claude for
+relevance checks while keeping Codex primary is pending. No live relevance calibration, candidate seal, original
+exposed evaluation, or new unseen holdout has run for this correction.
 
 ## Independent unseen holdout protocol
 

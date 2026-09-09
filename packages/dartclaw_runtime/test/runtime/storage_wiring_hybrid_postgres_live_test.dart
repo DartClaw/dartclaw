@@ -40,6 +40,7 @@ void main() {
       var vectorFactoryCalls = 0;
       var searchFactoryCalls = 0;
       var providerDisposals = 0;
+      var judgments = 0;
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
@@ -59,11 +60,16 @@ void main() {
           providers++;
           return CallbackEmbeddingProvider(dispose: () async => providerDisposals++);
         },
+        searchRelevanceTurn: (_, schema) async {
+          judgments++;
+          return {for (final key in (schema['properties'] as Map).keys) key as String: true};
+        },
         exitFn: (code) => throw StateError('Unexpected exit $code'),
       );
       try {
         await wiring.wire();
 
+        expect(judgments, 0);
         expect(vectorFactoryCalls, 0);
         expect(taskFactoryCalls, 1);
         expect(providers, 1);
@@ -73,6 +79,7 @@ void main() {
         final memoryHits = await wiring.inspectMemorySearch('memoryneedle');
         expect(memoryHits!.single.chunk, contains('memoryneedle'));
         expect((await wiring.conversationSearch.search('conversationneedle')).single.messageId, message.id);
+        expect(judgments, 2, reason: 'both PostgreSQL corpora must use the injected relevance turn');
 
         final memoryRows = await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner');
         final conversationRows = await PostgresVectorIndex(

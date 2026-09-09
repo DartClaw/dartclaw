@@ -55,15 +55,16 @@ final class ExecutionRequest {
 
   /// Host-owned directory and process variables fixed when this worker is built.
   ///
-  /// Either value makes the worker execution-scoped: a later execution cannot
-  /// safely reuse a harness whose process environment or mounts were fixed for
-  /// this request. Workflow workers are also execution-scoped because their
-  /// native grants and strict empty-allowlist posture are fixed at construction.
+  /// Any value makes the worker execution-scoped: a later execution cannot
+  /// safely reuse a harness whose process environment, mounts, native grants,
+  /// or strict allowlist posture were fixed for this request. Workflow workers
+  /// are always execution-scoped because omitted policy still grants their
+  /// default provider-native tools at construction.
   final String? artifactsDir;
   final Map<String, String>? spawnEnvironment;
 
   bool get hasExecutionScopedConstructionInputs =>
-      surface == ExecutionSurface.workflow || artifactsDir != null || spawnEnvironment != null;
+      surface == ExecutionSurface.workflow || allowedTools != null || artifactsDir != null || spawnEnvironment != null;
 
   ExecutionRequest _route({String? providerId, ExecutionPolicy? policy}) {
     return ExecutionRequest(

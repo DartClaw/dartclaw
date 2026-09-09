@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' as config_tools;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_search/dartclaw_search.dart' show SearchRelevanceTurn;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ProcessRunner,
@@ -104,6 +105,9 @@ class DartclawRuntime {
   /// Provider-side continuity reset, or `null` in a lifecycle-only composition.
   final SessionResetService? resetService;
 
+  /// Schema-bound relevance judgment, or `null` in a lifecycle-only composition.
+  final SearchRelevanceTurn? searchRelevanceTurn;
+
   /// Agent-authored learnings and error records, available only to the connected server runtime.
   final SelfImprovementService? selfImprovement;
   final QmdManager? qmdManager;
@@ -167,6 +171,7 @@ class DartclawRuntime {
     required this.scheduleService,
     required this.kvService,
     required this.resetService,
+    required this.searchRelevanceTurn,
     required this.selfImprovement,
     required this.qmdManager,
     required this.channelManager,
@@ -471,73 +476,6 @@ class DartclawRuntime {
   }
 }
 
-/// Cross-cutting deps threaded through the assembly's `_wireXxx` methods.
-///
-/// Late slots (serverRef, serverTurns) are bound via setters as construction
-/// proceeds; closures capture them via getters so late-binding order is
-/// preserved across method boundaries.
-final class _WiringContext {
-  final EventBus eventBus;
-  final ConfigNotifier configNotifier;
-  final String dataDir;
-  final int port;
-  final ResolvedAssets resolvedAssets;
-  final String? builtInSkillsSourceDir;
-  final MessageRedactor messageRedactor;
-  final GuardAuditLogger auditLogger;
-
-  /// Dedicated subscription credential stores, read per use so a re-issued
-  /// token reaches the next spawn or mediated request without a restart.
-  final SubscriptionCredentialStore subscriptions;
-
-  /// One refresh authority per dedicated Codex store for the whole process.
-  ///
-  /// Single-flight is a property of this instance, so a second one would be a
-  /// second refresher — exactly what the design forbids. Every DartClaw lane
-  /// that touches the store shares this one.
-  final CodexRefreshAuthority codexRefresh;
-
-  /// Bound when the server is composed. A headless build composes none, so the
-  /// surfaces that need one resolve through [composedServerGetter], which
-  /// refuses, while the ones that merely may have one read [serverRefGetter].
-  DartclawServer? _serverRef;
-  late TurnManager _serverTurns;
-
-  /// The provider entries the composed harness registrars declared, bound once
-  /// the harness is wired.
-  ///
-  /// The probe lane resolves through these so a registrar-owned provider is
-  /// probed under its own credential isolation rather than DartClaw's
-  /// first-party arm. A lane that has not wired a harness yet — the staged
-  /// headless provider-auth preflight — composed no registrar either, so an
-  /// empty map is the honest answer rather than a missing one.
-  Map<String, ProviderEntry> registeredProviderEntries = const {};
-
-  /// The credential overlay those registrations present, bound with them.
-  Map<String, String>? Function(String, Map<String, String>)? registrarCredentialOverlay;
-  new({
-    required this.eventBus,
-    required this.configNotifier,
-    required this.dataDir,
-    required this.port,
-    required this.resolvedAssets,
-    required this.builtInSkillsSourceDir,
-    required this.messageRedactor,
-    required this.subscriptions,
-    required this.codexRefresh,
-  }) : auditLogger = GuardAuditLogger(dataDir: dataDir);
-
-  void bindServer(DartclawServer server) => _serverRef = server;
-  void bindTurns(TurnManager turns) => _serverTurns = turns;
-
-  DartclawServer? Function() get serverRefGetter =>
-      () => _serverRef;
-  DartclawServer Function() get composedServerGetter =>
-      () => _serverRef ?? (throw StateError('This runtime composed no server'));
-  TurnManager Function() get turnManagerGetter =>
-      () => _serverTurns;
-}
-
 /// Composes domain wiring modules and the final server.
 class _RuntimeAssembly {
   /// Not final: [_correctPostureIfDowngraded] settles an inferred posture
@@ -739,6 +677,16 @@ class _RuntimeAssembly {
     _wireRestartSentinel(ctx);
     final providerStatus = await _wireProviderStatus(ctx, harness, security);
     ctx.bindTurns(_composeTurns(config, ctx, storage, harness, security));
+    ctx.bindSearchRelevanceRunner(
+      SearchRelevanceRunner(
+        sessions: storage.sessions,
+        turns: ctx._serverTurns,
+        providerId: harness.defaultProviderId,
+        model: config.agent.model,
+        effort: config.agent.effort,
+        executionPolicy: harness.policyResolver.resolveForPrimary(providerId: harness.defaultProviderId),
+      ),
+    );
     // One-shot clients must not acknowledge the serving runtime's turn records.
     if (!headless && harness.executions.primary != null) {
       await ctx._serverTurns.detectAndCleanOrphanedTurns();
@@ -920,6 +868,7 @@ class _RuntimeAssembly {
       taskBackendFactory: taskBackendFactory,
       credentialRegistry: _credentialRegistry(ctx),
       auditLogger: ctx.auditLogger,
+      searchRelevanceTurn: ctx.runSearchRelevanceTurn,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
       serving: !headless,

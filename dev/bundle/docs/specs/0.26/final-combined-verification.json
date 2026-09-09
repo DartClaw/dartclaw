@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "milestone": "0.26",
-  "acceptance": "FAILED: sealed retrieval no-result gates failed for vector and hybrid on both databases. Native x64 and external release gates remain unavailable. Implementation stories A17+B9 accepted; milestone acceptance and lifecycle cleanup blocked.",
+  "acceptance": "BLOCKED: original sealed retrieval no-result failures remain preserved. Answer-relevance correction passes local code verification; provider routing, live calibration, candidate seal and independently unseen holdout remain pending. Native x64 and external release gates remain unavailable. Implementation stories A17+B9 accepted; milestone acceptance and lifecycle cleanup blocked.",
   "sourceRevision": "0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a",
   "coverageRule": "No implicit deduplication: acceptance records name exact covered IDs/Phase A indices and prove the same assertions ran. A later causal fix invalidates affected results only. Missing, skipped, historical or emulated evidence cannot become a native/live pass.",
   "phaseA": [
@@ -801,5 +801,73 @@
       ".agent_temp/0.26-recalibration/format-final.log"
     ],
     "nextDecision": "Explicit answer-relevance mechanism investigation or reduced/deferred hybrid release scope. Neither authorized by the completed calibration. Current requirements and all outstanding native x64/remote release gates remain unchanged."
+  },
+  "searchRelevanceCorrection": {
+    "recordedAt": "2026-09-09 18:00 CEST",
+    "status": "implemented-local-verification-passed-live-routing-pending",
+    "sourceRevision": "9b0cec9d9312180dcff314e1ab509a64f8239860",
+    "sourceBinding": ".agent_temp/0.26-relevance/verification05/receipt.json records all changed/untracked file hashes before and after the successful run; both sets match. Subsequent edits only record this outcome in project documents.",
+    "authorization": "Maintainer authorized the root relevance correction on 2026-09-09. No provider-routing answer has been received; no automatic switch is made.",
+    "decisionRecord": "dev/bundle/docs/specs/0.26/retrieval-acceptance-decision.md",
+    "mechanism": "One bounded schema-validated answer-relevance judgment after candidate authentication, before top-K; original ranking order preserved. Fresh authenticated lexical fallback on failure. Complete work-tool interception required from the actual harness; Claude qualifies, current Codex/ACP refuse before worker startup.",
+    "verification": {
+      "workspacePassed": 11953,
+      "workspaceSkipped": 44,
+      "workspacePackages": 15,
+      "postgresContract": "passed; 33 SQLite and 70 PostgreSQL tests, no skipped selected cases",
+      "postgresHybrid": "passed; both corpora invoke relevance filter",
+      "format": "passed",
+      "analysis": "passed",
+      "architecture": "passed",
+      "fitness": "passed",
+      "aotBuilds": [
+        "dartclaw",
+        "dartclaw-workflow"
+      ],
+      "sourcePreservedDuringRun": true,
+      "temporaryDatabaseRemoved": true,
+      "containerRestoredStopped": true,
+      "codeReview": "Ready; zero findings",
+      "securityReview": "Ready; zero findings",
+      "remediationRounds": 2
+    },
+    "accounting": "Sealed evaluation evidence records actual terminal status, provider, configured model, token/cache counts, duration, tool counts, and reported cost. Missing/partial/legacy cost remains unavailable; actual zero remains zero. Any hybrid degradation aborts measurement.",
+    "requiredGateFixtureFix": "Core PostgreSQL contract suites now run serially because their destructive DDL shares catalogs with integrity inspection. verification04 retains the observed missing-OID failure; verification05 passes every selected test without changing assertions.",
+    "preservation": {
+      "frozenRetrievalAssetsUnchanged": true,
+      "originalFailedReportSha256": "14297ea7265e404b55deacae022e3567e09cc21423883565c2eabdacaa5fbdf5",
+      "calibrationSha256": "fb3e0782c2f3334ffa25b5ab120d722058b122abe079072e49737b7782bdb737",
+      "calibrationReportSha256": "f8da3720f9963ed6cf429796e3d9642447cce9e0881e6225174ddd8863a66d42"
+    },
+    "pending": [
+      "Maintainer choice: use Claude only for relevance checks while retaining Codex as primary, or keep Codex only and leave hybrid acceptance blocked.",
+      "If approved, implement explicit routing and pin the actual relevance model/auth configuration before live calibration.",
+      "Representative live relevance calibration and outcome/cost review.",
+      "Candidate sealing before one permitted original exposed evaluation.",
+      "Demonstrated access isolation and independent custody before authoring or running an unseen holdout.",
+      "Native x64 and external release qualifications remain outstanding."
+    ],
+    "priorEvidenceScope": "The 38 original obligations and 20 Phase A mappings remain intact with their historical receipts. Prior live runtime/provider/UI receipts do not qualify the newly added relevance path. Local code verification is not retrieval-quality or release acceptance.",
+    "evidencePaths": [
+      ".agent_temp/0.26-relevance/authorization-receipt.json",
+      ".agent_temp/0.26-relevance/design.md",
+      ".agent_temp/0.26-relevance/code-review.md",
+      ".agent_temp/0.26-relevance/code-closure01.md",
+      ".agent_temp/0.26-relevance/security-review.md",
+      ".agent_temp/0.26-relevance/security-closure01.md",
+      ".agent_temp/0.26-relevance/security-accounting-closure01.md",
+      ".agent_temp/0.26-relevance/security-accounting-closure02.md",
+      ".agent_temp/0.26-relevance/verification05/receipt.json",
+      ".agent_temp/0.26-relevance/verification05/workspace-summary.json",
+      ".agent_temp/0.26-relevance/verification05-postgres.json",
+      ".agent_temp/0.26-relevance/preservation-final.json",
+      ".agent_temp/0.26-relevance/private-outcome-receipt.json"
+    ],
+    "retainedIncompleteRuns": [
+      ".agent_temp/0.26-relevance/verification01/receipt.json",
+      ".agent_temp/0.26-relevance/verification02/receipt.json",
+      ".agent_temp/0.26-relevance/verification03/receipt.json",
+      ".agent_temp/0.26-relevance/verification04/receipt.json"
+    ]
   }
 }

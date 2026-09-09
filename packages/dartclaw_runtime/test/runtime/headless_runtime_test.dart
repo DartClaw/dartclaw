@@ -163,6 +163,8 @@ steps:
     expect(searchFactoryCalls, 0);
     expect(runtime.selfImprovement, isNull);
     expect(runtime.qmdManager, isNull);
+    expect(runtime.searchRelevanceTurn, isNull);
+    expect(() => runtime.requireSearchRelevanceTurn, throwsStateError);
     expect(memory.readAsBytesSync(), before);
     expectNoPersonalMemoryArtifacts(config);
   });
@@ -575,8 +577,123 @@ steps:
 
     expect(captured, isEmpty);
     expect(wired.requireExecutions.primary, isNull);
+    expect(wired.requireSearchRelevanceTurn, same(wired.searchRelevanceTurn));
     expect(wired.requireExecutions.snapshot.providers['claude']!.configured, 1);
     expect(wired.requireExecutions.snapshot.availableWorkers, 1);
+  });
+
+  test('standalone relevance turns retain hidden diagnostics, accounting, and release their worker', () async {
+    FakeAgentHarness? relevanceWorker;
+    final factory = HarnessFactory()
+      ..register('claude', (config) {
+        final worker = FakeAgentHarness(supportsStructuredOutput: true, supportsNoWorkTools: true);
+        if (config.cwd != '/') relevanceWorker = worker;
+        return worker;
+      });
+    final cfg = fixture.config(
+      agent: const AgentConfig(provider: 'claude', model: 'fixture-model', effort: 'high'),
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
+      ),
+    );
+    final wired = await fixture.runtime(cfg, harnessFactory: factory);
+    const schema = {
+      'type': 'object',
+      'properties': {
+        '0': {'type': 'boolean'},
+      },
+      'required': ['0'],
+      'additionalProperties': false,
+    };
+
+    final judgment = wired.requireSearchRelevanceTurn('judge one passage', schema);
+    await waitFor(() => relevanceWorker?.hasPendingTurn ?? false);
+    relevanceWorker!.completeSuccess(const TurnResult(structuredOutput: {'0': true}, inputTokens: 7, outputTokens: 3));
+
+    expect(await judgment, {'0': true});
+    await waitFor(() => wired.requireExecutions.snapshot.availableWorkers == 1);
+    final logicalSessions = await wired.sessionService.listSessions(type: SessionType.logicalAgent);
+    expect(logicalSessions, hasLength(1));
+    expect(logicalSessions.single.type.isChatFacing, isFalse);
+    expect((await wired.messageService.getMessages(logicalSessions.single.id)).single.content, '{"0":true}');
+    final usage = (await File(
+      p.join(tempDir.path, 'usage.jsonl'),
+    ).readAsLines()).map((line) => jsonDecode(line) as Map<String, dynamic>);
+    expect(
+      usage,
+      contains(
+        allOf(
+          containsPair('session_id', logicalSessions.single.id),
+          containsPair('agent_name', 'search-relevance'),
+          containsPair('input_tokens', 7),
+          containsPair('output_tokens', 3),
+        ),
+      ),
+    );
+    expect(relevanceWorker?.lastModel, 'fixture-model');
+    expect(relevanceWorker?.lastEffort, 'high');
+    expect(relevanceWorker?.lastMaxTurns, 4);
+    expect(relevanceWorker?.lastOutputSchema, schema);
+  });
+
+  test('standalone relevance turns fail fast when primary-provider capacity is occupied', () async {
+    FakeAgentHarness? relevanceWorker;
+    final factory = HarnessFactory()
+      ..register('claude', (config) {
+        final worker = FakeAgentHarness(supportsStructuredOutput: true, supportsNoWorkTools: true);
+        if (config.cwd != '/') relevanceWorker = worker;
+        return worker;
+      });
+    final cfg = fixture.config(
+      providers: ProvidersConfig(
+        entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
+      ),
+    );
+    final wired = await fixture.runtime(cfg, harnessFactory: factory);
+    const schema = {'type': 'object'};
+
+    final first = wired.requireSearchRelevanceTurn('first judgment', schema);
+    await waitFor(() => relevanceWorker?.hasPendingTurn ?? false);
+
+    await expectLater(wired.requireSearchRelevanceTurn('second judgment', schema), throwsA(isA<BusyTurnException>()));
+    expect(wired.requireExecutions.snapshot.providers['claude']!.queued, 0);
+
+    relevanceWorker!.completeSuccess(const TurnResult(structuredOutput: {}));
+    expect(await first, isEmpty);
+  });
+
+  test('standalone relevance refuses an incapable primary alias before provider startup', () async {
+    FakeAgentHarness? refusedWorker;
+    final factory = HarnessFactory()
+      ..register('codex-alias', (config) {
+        final worker = FakeAgentHarness();
+        if (config.cwd != '/') refusedWorker = worker;
+        return worker;
+      });
+    final cfg = fixture.config(
+      agent: const AgentConfig(provider: 'codex-alias'),
+      providers: ProvidersConfig(
+        entries: {'codex-alias': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 1)},
+      ),
+    );
+    final wired = await fixture.runtime(cfg, harnessFactory: factory);
+
+    await expectLater(
+      wired.requireSearchRelevanceTurn('judge', const {'type': 'object'}),
+      throwsA(
+        isA<UnsupportedHarnessCapabilityException>()
+            .having((error) => error.provider, 'provider', 'codex-alias')
+            .having((error) => error.capability, 'capability', AgentHarness.noWorkToolsCapability),
+      ),
+    );
+
+    expect(refusedWorker?.startCalled, isFalse);
+    expect(refusedWorker?.turnCallCount, 0);
+    expect(refusedWorker?.disposeCalled, isTrue);
+    expect(wired.requireExecutions.snapshot.providers['codex-alias']!.active, 0);
+    expect(wired.requireExecutions.snapshot.providers['codex-alias']!.queued, 0);
+    expect(wired.requireExecutions.snapshot.availableWorkers, 1);
+    expect(await wired.sessionService.listSessions(type: SessionType.logicalAgent), hasLength(1));
   });
 
   test('standalone capacity is scoped to referenced providers', () async {

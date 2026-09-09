@@ -603,6 +603,11 @@ Do not put an `output_schema` on the built-in `search` agent: DartClaw's own `co
 
 #### Provider authentication
 
+Hybrid retrieval uses `agent.provider`, `agent.model` and `agent.effort` to check whether candidate passages contain the
+requested information. This adds model cost and latency and sends the query and passages to that provider even when
+`search.embedding.provider` is `local`. Failed checks retain lexical fallback with `relevanceFailure`.
+See [Search](search.md#built-in-hybrid-search-opt-in) for bounds and recovery behavior.
+
 `providers.<id>.auth` selects which credential DartClaw presents for that provider. It takes three values:
 
 | Value | Behavior |

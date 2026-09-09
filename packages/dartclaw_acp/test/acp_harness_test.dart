@@ -77,6 +77,7 @@ void main() {
     );
 
     expect(harness.supportsStructuredOutput, isFalse);
+    expect(harness.supportsNoWorkTools, isFalse);
     expect(process.capturedStdinJson.length, sentBeforeTurn);
     expect(process.capturedStdinJson.where((message) => message['method'] == 'session/new'), isEmpty);
     expect(process.capturedStdinJson.where((message) => message['method'] == 'session/prompt'), isEmpty);

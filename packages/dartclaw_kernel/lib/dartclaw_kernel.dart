@@ -16,7 +16,12 @@ export 'src/vector_search.dart'
         VectorRecord;
 export 'src/agent_definition.dart' show AgentDefinition;
 export 'src/output_schema.dart'
-    show OutputSchemaViolation, parseOutputSchema, renderOutputSchemaContract, validateOutputSchema;
+    show
+        decodeOutputSchemaJson,
+        OutputSchemaViolation,
+        parseOutputSchema,
+        renderOutputSchemaContract,
+        validateOutputSchema;
 export 'src/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
 export 'src/channel_type.dart' show ChannelType;
 export 'src/container_config.dart' show ContainerConfig;

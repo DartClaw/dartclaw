@@ -207,6 +207,12 @@ final class FakeEmbeddingProvider implements EmbeddingProvider {
   Future<void> dispose() async {}
 }
 
+SearchRelevanceFilter allRelevantFilter() => SearchRelevanceFilter(
+  judge: (_, outputSchema) async => {
+    for (final ordinal in (outputSchema['properties']! as Map<String, dynamic>).keys) ordinal: true,
+  },
+);
+
 SearchDocument document(String id, List<String> chunks, {Map<String, String> metadata = const {}}) =>
     SearchDocument(id: id, chunks: chunks, metadata: metadata, timestamp: DateTime.utc(2026, 1, 2));
 

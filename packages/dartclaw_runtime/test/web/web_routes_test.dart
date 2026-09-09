@@ -35,6 +35,7 @@ String _sessionCostPayload({
     'output_tokens': outputTokens,
     'total_tokens': totalTokens,
     'estimated_cost_usd': estimatedCostUsd,
+    'cost_reported_turn_count': turnCount,
     'turn_count': turnCount,
   };
   if (provider != null) {
@@ -727,6 +728,7 @@ void main() {
       expect(body, contains('>3<'));
       expect(body, contains('>7<'));
       expect(body, contains('>10<'));
+      expect(body, contains('cost unavailable'));
     });
 
     test('renders Claude cost totals and cached token data from session usage records', () async {

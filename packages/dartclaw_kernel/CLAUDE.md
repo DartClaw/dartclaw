@@ -60,7 +60,8 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 ## Shared data
 
 - Value types are immutable, use `const` constructors where possible, and provide `copyWith` when mutation is needed.
-- `output_schema.dart` holds the closed JSON Schema subset `AgentDefinition.outputSchema` is expressed in: the
+- `output_schema.dart` holds the closed JSON Schema subset `AgentDefinition.outputSchema` is expressed in: the strict
+  single-value decoder (`decodeOutputSchemaJson`, rejecting duplicate members without retaining rejected source), the
   deep-close transform (`parseOutputSchema`, rejecting unenforceable keywords at config load), the hard first-violation
   validator (`validateOutputSchema`, never warns, never repairs) and the persona contract renderer. It validates this
   package's own value type, so it lives here; the enforcement site is core's `LogicalAgentSessionService`.

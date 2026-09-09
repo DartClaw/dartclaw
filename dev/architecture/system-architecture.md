@@ -602,10 +602,22 @@ An alert's type, severity and content are host-decided throughout; no alert path
 
 ```
 canonical memory ─────────────► memory lexical projection ──┐
-chat-facing message NDJSON ───► conversation lexical projection ─┤──► weighted RRF results
+chat-facing message NDJSON ───► conversation lexical projection ─┤──► weighted RRF candidates
                                   │                            │
                                   └─► provider embeddings ─► corpus-specific vector projection
 ```
+
+Hybrid candidates pass one schema-bound answer-relevance judgment before top-K publication. `SearchRelevanceFilter`
+owns its prompt, closed boolean schema and rank-preserving selection. Runtime's `SearchRelevanceRunner` uses the primary
+agent through TurnManager in a fresh logical session with no work tools or personal-memory prefill, a 30-second timeout
+and fail-fast worker admission. Native and strict host-validated reply paths are selected from the reserved turn's
+actual schema decision; a missing native payload never falls back to text. Kernel's output-schema decoder and
+validator are shared with schema-bound logical agents.
+
+At most 40 authenticated chunks and 64 KiB of encoded relevance input enter that turn. Surviving sources are fetched
+again before publication; changed/deleted text is omitted. Model or contract failure retains lexical fallback with
+`relevanceFailure`. FTS-only searches remain model-free; hybrid queries inherit the primary provider's data boundary,
+cost and latency even when embeddings run locally.
 
 Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
 union that `dartclaw rebuild-index` restores. Each corpus has its own `VectorSynchronizer`; it reuses only vectors whose

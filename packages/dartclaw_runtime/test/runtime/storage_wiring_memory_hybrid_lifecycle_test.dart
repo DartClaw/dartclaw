@@ -112,6 +112,9 @@ Future<StorageWiring> _wire(DartclawConfig config, EventBus eventBus, EmbeddingP
     searchBackendFactory: SqliteBackend.open,
     taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
     embeddingProviderFactory: () => provider,
+    searchRelevanceTurn: (_, schema) async => {
+      for (final key in (schema['properties'] as Map).keys) key as String: true,
+    },
     exitFn: (code) => throw StateError('unexpected exit $code'),
   );
   await wiring.wire();

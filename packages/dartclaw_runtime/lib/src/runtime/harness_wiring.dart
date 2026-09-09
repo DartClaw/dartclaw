@@ -12,6 +12,8 @@ import 'storage_wiring.dart';
 import 'security_wiring.dart';
 import 'provider_resolution.dart' show sanitizeProviderRequestEnvironment;
 
+part 'harness_wiring_guards.dart';
+
 /// Constructs and exposes harness-layer services.
 ///
 /// Owns agent definitions, primary + worker harnesses, execution capacity, token service,
@@ -901,12 +903,12 @@ class HarnessWiring {
           }
           throw WorkerCreationException(verdict.message);
         }
-        final workflowAllowedTools = request.surface == ExecutionSurface.workflow && request.allowedTools != null
-            ? List<String>.unmodifiable(request.allowedTools!)
-            : null;
-        final workflowNativeGrants = request.surface == ExecutionSurface.workflow
-            ? (workflowAllowedTools ?? _undeclaredStepNativeGrants)
-            : null;
+        final executionAllowedTools = request.allowedTools == null
+            ? null
+            : List<String>.unmodifiable(request.allowedTools!);
+        final nativeGrants =
+            executionAllowedTools ??
+            (request.surface == ExecutionSurface.workflow ? _undeclaredStepNativeGrants : null);
         final bridgedMcpTools = _bridgedMcpToolsFor(
           agentId: request.logicalAgentId,
           allowedTools: request.allowedTools,
@@ -934,8 +936,9 @@ class HarnessWiring {
           }
         }
         final containerManager = lease?.container;
-        final workerFilter = TaskToolFilterGuard(denyEmptyAllowlist: request.surface == ExecutionSurface.workflow)
-          ..allowedTools = workflowAllowedTools;
+        final workerFilter = TaskToolFilterGuard(
+          denyEmptyAllowlist: request.surface == ExecutionSurface.workflow || executionAllowedTools != null,
+        )..allowedTools = executionAllowedTools;
         final workerGuardChain = _buildRunnerGuardChain(
           _security.guardChain,
           workerFilter,
@@ -967,7 +970,7 @@ class HarnessWiring {
               harnessConfig: workerHarnessConfig,
               providerOptions: entry.options,
               // Native allow rules supplement the task's guard policy.
-              declaredCanonicalTools: workflowNativeGrants,
+              declaredCanonicalTools: nativeGrants,
               declaredWritableRoots: [?request.artifactsDir],
               containerManager: containerManager,
               guardChain: workerGuardChain,
@@ -979,6 +982,20 @@ class HarnessWiring {
               prepareSubscriptionHome: _subscriptionHomeFor(request.providerId),
             ),
           );
+          try {
+            AgentHarness.requireNoWorkToolsSupport(
+              workerHarness,
+              provider: request.providerId,
+              emptyToolPolicyRequired: executionAllowedTools?.isEmpty ?? false,
+            );
+          } on UnsupportedHarnessCapabilityException catch (error, stackTrace) {
+            try {
+              await workerHarness.dispose();
+            } catch (disposeError, disposeStackTrace) {
+              _log.warning('Failed to dispose refused ${request.providerId} worker', disposeError, disposeStackTrace);
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          }
           _wireCompactionCallbacks(workerHarness);
           final runner = buildRunner(
             harness: workerHarness,
@@ -1035,7 +1052,7 @@ class HarnessWiring {
   /// The tool policy authorizing an execution, before any canonical or
   /// servability filtering — `null` when the execution carries none at all.
   Set<String>? _requestedToolPolicy({String? agentId, List<String>? allowedTools}) =>
-      (agentId == null ? null : _agentMap[agentId])?.allowedTools ?? allowedTools?.toSet();
+      allowedTools?.toSet() ?? (agentId == null ? null : _agentMap[agentId])?.allowedTools;
 
   /// The bridged-MCP grant for a workflow step, derived by the one owner of the
   /// deny set and the servable set.
@@ -1391,24 +1408,6 @@ List<String> workerDisallowedTools({
   if (containerProfile == null) return hostDisallowedTools;
   return [...userDisallowedTools, 'WebFetch', 'WebSearch'];
 }
-
-/// Creates a per-runner [GuardChain] layering the runner's [filter] after all
-/// guards of [base].
-///
-/// Each runner (primary and worker) requires its own chain so that mutating
-/// [filter] policies for one runner does not affect others. The base guard
-/// list is tracked live: a guards.* hot-reload ([GuardChain.replaceGuards] on
-/// [base]) reaches every runner chain while the filter survives the rebuild.
-/// When [base] is null, configured tool policy remains active independently of
-/// the optional security-guard bundle.
-GuardChain _buildRunnerGuardChain(GuardChain? base, TaskToolFilterGuard filter, ToolPolicyCascade cascade) =>
-    GuardChain.layered(
-      base: base,
-      guards: [
-        if (base == null) ToolPolicyGuard(cascade: cascade),
-        filter,
-      ],
-    );
 
 /// Why [providerId] cannot present the credential selected for it, or `null`
 /// when it can — the credential half of every execution-admission verdict.

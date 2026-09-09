@@ -93,7 +93,11 @@ on 2026-09-09. It preserves the failed evaluation and current requirements; chan
 a separate decision, followed by an independently unseen holdout before acceptance. The independently reviewed
 32-document/60-query calibration completed with the same four no-result failures. Positive-best cosine `0.3066`
 overlaps negative maximum `0.5997`, ruling out a scalar cutoff that retains every positive and rejects every negative.
-The approved stop condition is met; no new candidate or unseen holdout has been consumed.
+That calibration met its stop condition. The maintainer subsequently authorized a relevance correction: judge
+whether retrieved passages contain the requested information before publishing semantic results. Local checks passed:
+11,953 tests, 44 configured skips, PostgreSQL contracts, fitness gates and both builds. Restricted checks refuse current Codex,
+which lacks complete work-tool interception. Routing checks to Claude while retaining Codex as primary awaits the
+maintainer's choice. No corrected-model calibration, candidate seal, exposed rerun or unseen holdout has occurred.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B

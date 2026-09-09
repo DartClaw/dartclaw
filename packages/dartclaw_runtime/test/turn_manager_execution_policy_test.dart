@@ -63,6 +63,21 @@ void main() {
       executionPolicy: executionPolicy ?? const ExecutionPolicy.host(),
     );
 
+    test('reports the reserved structured-output channel without a primary fallback', () async {
+      final turns = singleHarnessTurns();
+      addTearDown(turns.executions.dispose);
+      final turnId = await turns.reserveTurn(
+        's1',
+        outputSchema: const {'type': 'object'},
+        outputSchemaWhenSupported: true,
+      );
+      expect(turns.reservedTurnUsesNativeStructuredOutput('s1', turnId), isFalse);
+      expect(() => turns.reservedTurnUsesNativeStructuredOutput('s1', 'unknown-turn'), throwsStateError);
+      final outcome = turns.waitForOutcome('s1', turnId);
+      turns.releaseTurn('s1', turnId);
+      await expectLater(outcome, throwsStateError);
+    });
+
     test('a container-backed harness is not reported as running on the host', () {
       // The policy is the runner's reported placement, its reuse identity, and
       // the never-cache-container predicate — omitting it mislabels all three.
@@ -195,7 +210,11 @@ void main() {
       return (coordinator, requests);
     }
 
-    Future<ExecutionRequest> requestFor(String sessionId, {String agentName = 'main'}) async {
+    Future<ExecutionRequest> requestFor(
+      String sessionId, {
+      String agentName = 'main',
+      List<String>? allowedTools,
+    }) async {
       final (coordinator, requests) = recordingCoordinator();
       final turns = TurnManager.fromCoordinator(
         turnLimits: const TurnLimitsConfig.defaults(),
@@ -204,7 +223,7 @@ void main() {
         policyResolver: resolverFor(containersEnabled: false),
       );
       addTearDown(turns.executions.dispose);
-      final turnId = await turns.reserveTurn(sessionId, agentName: agentName);
+      final turnId = await turns.reserveTurn(sessionId, agentName: agentName, allowedTools: allowedTools);
       final outcome = turns.waitForOutcome(sessionId, turnId);
       turns.releaseTurn(sessionId, turnId);
       await expectLater(outcome, throwsStateError);
@@ -229,6 +248,14 @@ void main() {
       expect(request.surface, ExecutionSurface.logicalAgent);
       expect(request.admission, ExecutionAdmission.failFast);
       expect(request.logicalAgentId, 'ana');
+    });
+
+    test('a turn carries its explicit tool policy into execution construction', () async {
+      final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+      final request = await requestFor(session.id, agentName: 'ana', allowedTools: const []);
+
+      expect(request.allowedTools, isEmpty);
     });
 
     test('a main channel turn requests exactly what it does today', () async {

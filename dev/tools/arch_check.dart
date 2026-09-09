@@ -142,6 +142,10 @@ int _maxCeilingFor(int loc) {
 // Reviewed necessity, 2026-09-09 (ADR-050):
 //   dartclaw_search 682 -> 1456 (measured 1456, no headroom). Providers and authenticated weighted
 //   fusion and source-rechecked vector synchronization complete the search-contract surface.
+// Reviewed relevance correction, 2026-09-09 (ADR-050): measured kernel 19944,
+// search 1614 and testing 3770. The shared decoder moves out of core; search
+// owns the bounded judgment and refreshed fallback; the fake exposes the
+// fail-closed tool capability. Ceilings use _maxCeilingFor on those measurements.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -150,11 +154,11 @@ const _libLocCeilings = <String, int>{
   'dartclaw_client': 625,
   'dartclaw_core': 31260,
   'dartclaw_google_chat': 7509,
-  'dartclaw_kernel': 19920,
+  'dartclaw_kernel': 21444,
   'dartclaw_runtime': 67371,
-  'dartclaw_search': 1456,
+  'dartclaw_search': 2152,
   'dartclaw_signal': 1796,
-  'dartclaw_testing': 3764,
+  'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25632,
 };

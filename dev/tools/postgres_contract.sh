@@ -21,7 +21,8 @@ dart run "$root_dir/dev/tools/contract_groups_check.dart" --manifest "$manifest"
 
 (
   cd "$root_dir/packages/dartclaw_core"
-  dart test --run-skipped -t integration --reporter=failures-only --file-reporter=json:"$postgres_report" test/storage/contract/postgres_backend_contract_test.dart test/storage/postgres_backend_live_test.dart test/storage/postgres_schema_gate_live_test.dart test/search/postgres_fts_index_live_test.dart test/knowledge/postgres_fact_search_live_test.dart test/storage/index_reconciler_postgres_live_test.dart
+  # These suites drop schema objects while integrity checks inspect shared PostgreSQL catalogs.
+  dart test --run-skipped -t integration --reporter=failures-only --concurrency=1 --file-reporter=json:"$postgres_report" test/storage/contract/postgres_backend_contract_test.dart test/storage/postgres_backend_live_test.dart test/storage/postgres_schema_gate_live_test.dart test/search/postgres_fts_index_live_test.dart test/knowledge/postgres_fact_search_live_test.dart test/storage/index_reconciler_postgres_live_test.dart
 )
 
 (

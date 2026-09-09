@@ -84,6 +84,22 @@ search:
     model: embeddinggemma-300M-Q8_0.gguf
 ```
 
+Hybrid search checks whether each candidate passage supplies the requested information before returning it. A passage
+about the same subject can therefore be omitted when it does not answer the question. This check preserves the search
+ranking and uses your configured `agent.provider`, `agent.model` and `agent.effort`; it adds a model call and its cost
+and latency. Local embeddings do not make the whole query local: the query and candidate passages reach that agent's
+provider. FTS-only search makes no relevance model call.
+
+The check admits at most 40 passages and 64 KiB of encoded prompt/schema input. It has no work tools or personal-memory
+prefill, uses a separate worker slot, and bounds the model turn to 30 seconds. Exhausted capacity, oversized input,
+invalid output, unsupported tool interception or a failed model turn returns lexical fallback with `relevanceFailure`
+in the diagnostics. A successful empty selection means no candidate supplied the requested information. Source edits or deletions during the check cannot
+publish the old passage, including on fallback. If current content cannot be verified, no stale fallback is returned.
+
+The relevance worker requires complete tool interception. Claude supplies this through its mandatory pre-tool hooks;
+the current Codex and ACP harnesses do not. Those providers refuse the relevance turn before startup and report the
+degradation above. DartClaw does not silently switch providers.
+
 The local provider accepts only this model. DartClaw reads it from
 `<data_dir>/models/embeddinggemma-300M-Q8_0.gguf`; the setting is a managed selector, not a path. Acquire it explicitly:
 

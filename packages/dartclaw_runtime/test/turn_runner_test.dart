@@ -1735,6 +1735,7 @@ void main() {
       'total_tokens',
       'effective_tokens',
       'estimated_cost_usd',
+      'cost_reported_turn_count',
       'turn_count',
       'provider',
     });
@@ -1745,7 +1746,8 @@ void main() {
     expect(usageData['total_tokens'], 5);
     expect(usageData['cache_read_tokens'], 0);
     expect(usageData['effective_tokens'], 5);
-    expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(usageData['estimated_cost_usd'], isNull);
+    expect(usageData['cost_reported_turn_count'], 0);
     expect(usageData['turn_count'], 1);
   });
 
@@ -1837,6 +1839,7 @@ void main() {
       'total_tokens',
       'effective_tokens',
       'estimated_cost_usd',
+      'cost_reported_turn_count',
       'turn_count',
       'provider',
     });
@@ -1848,7 +1851,8 @@ void main() {
     expect(costData['cache_read_tokens'], 12);
     // Turn 1: 2+1+(5*0.1~/1=0) = 3. Turn 2: 3+4+(7*0.1~/1=0) = 7. Accumulated = 10.
     expect(costData['effective_tokens'], 10);
-    expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(costData['estimated_cost_usd'], isNull);
+    expect(costData['cost_reported_turn_count'], 0);
     expect(costData['turn_count'], 2);
   });
 
@@ -1879,52 +1883,6 @@ void main() {
     expect(costData['effective_tokens'], 500);
     expect(costData['cache_read_tokens'], 1000);
     expect(costData['cache_write_tokens'], 200);
-  });
-
-  test('preserves the first provider written for a session cost record', () async {
-    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
-    final claudeWorker = FakeAgentHarness();
-    addTearDown(() async => codexWorker.dispose());
-    addTearDown(() async => claudeWorker.dispose());
-    final codexRunner = _buildRunner(
-      harness: codexWorker,
-      messages: messages,
-      workspaceDir: workspaceDir,
-      sessions: sessions,
-      turnState: turnState,
-      kvService: kvService,
-      providerId: 'codex',
-    );
-    final claudeRunner = _buildRunner(
-      harness: claudeWorker,
-      messages: messages,
-      workspaceDir: workspaceDir,
-      sessions: sessions,
-      turnState: turnState,
-      kvService: kvService,
-      providerId: 'claude',
-    );
-    final session = await sessions.getOrCreateMainSession();
-
-    scheduleTurnCompletion(
-      codexWorker,
-      result: turnResult(inputTokens: 1, outputTokens: 1, totalCostUsd: 0.10, cachedInputTokens: 3),
-    );
-    final codexTurnId = await codexRunner.startTurn(session.id, [
-      {'role': 'user', 'content': 'codex'},
-    ]);
-    await codexRunner.waitForOutcome(session.id, codexTurnId);
-
-    scheduleTurnCompletion(claudeWorker, result: turnResult(inputTokens: 2, outputTokens: 2, totalCostUsd: 0.20));
-    final claudeTurnId = await claudeRunner.startTurn(session.id, [
-      {'role': 'user', 'content': 'claude'},
-    ]);
-    await claudeRunner.waitForOutcome(session.id, claudeTurnId);
-
-    final costData = await readSessionCost(kvService, session.id);
-    expect(costData['provider'], 'codex');
-    expect(costData['cache_read_tokens'], 3);
-    expect(costData['turn_count'], 2);
   });
 
   test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {

@@ -261,7 +261,7 @@ final class NativeEmbeddingPlatformGate {
       );
 
       final basePackage = packages[archiveNames.first]!;
-      final loaderLibrary = _selectLoaderLibrary(await _nativeLibraryFiles(basePackage));
+      final loaderLibrary = selectNativeLoaderLibrary(await _nativeLibraryFiles(basePackage));
       final cases = <ProbeCase>[];
       for (final operation in ['success', 'missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure']) {
         final package = Directory(_join(outerStage.path, 'case-$operation'));
@@ -450,11 +450,16 @@ Future<List<File>> _nativeLibraryFiles(Directory package) async {
   return native;
 }
 
-File _selectLoaderLibrary(List<File> files) {
-  files.sort((left, right) => left.path.compareTo(right.path));
+File selectNativeLoaderLibrary(List<File> files, {String? operatingSystem}) {
+  final os = operatingSystem ?? Platform.operatingSystem;
+  final basename = switch (os) {
+    'windows' => 'llamadart.dll',
+    'macos' => 'libllamadart.dylib',
+    _ => 'libllamadart.so',
+  };
   return files.firstWhere(
-    (file) => file.uri.pathSegments.last.toLowerCase().contains('llama'),
-    orElse: () => files.first,
+    (file) => file.uri.pathSegments.last.toLowerCase() == basename,
+    orElse: () => throw StateError('Release archive omitted $basename'),
   );
 }
 

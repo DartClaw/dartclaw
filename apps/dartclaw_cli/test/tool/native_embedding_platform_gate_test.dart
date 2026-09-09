@@ -199,6 +199,23 @@ void main() {
     expect(validateNativeEmbeddingEvidence(evidence), isFalse);
   });
 
+  test('linux failure probes select the exact FFI entry library', () {
+    final selected = selectNativeLoaderLibrary([
+      File('/release/lib/libllama-common.so'),
+      File('/release/lib/libllamadart.so.0'),
+      File('/release/lib/libllamadart.so'),
+    ], operatingSystem: 'linux');
+
+    expect(p.basename(selected.path), 'libllamadart.so');
+    expect(
+      () => selectNativeLoaderLibrary([
+        File('/release/lib/libllama-common.so'),
+        File('/release/lib/libllamadart.so.0'),
+      ], operatingSystem: 'linux'),
+      throwsStateError,
+    );
+  });
+
   test('probe proves document batch order with per-document production calls and never calls exit', () {
     final source = File(p.join(_repoRoot(), 'apps', 'dartclaw_cli', 'tool', 'native_embedding_probe.dart'))
         .readAsStringSync();

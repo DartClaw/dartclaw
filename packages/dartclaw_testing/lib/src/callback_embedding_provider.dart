@@ -24,7 +24,10 @@ final class CallbackEmbeddingProvider implements EmbeddingProvider {
 
   @override
   Future<List<List<double>>> embedDocuments(List<String> documents) async =>
-      await _embedDocuments?.call(documents) ?? [for (final _ in documents) const [1, 0]];
+      await _embedDocuments?.call(documents) ??
+      [
+        for (final _ in documents) const [1, 0],
+      ];
 
   @override
   Future<void> dispose() async => await _dispose?.call();

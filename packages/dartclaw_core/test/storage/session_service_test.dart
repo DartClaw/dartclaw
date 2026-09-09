@@ -402,6 +402,20 @@ void main() {
   });
 
   group('deleteSession', () {
+    test('registered observer sees persisted type changes and allowed deletes only', () async {
+      final observer = _SessionObserver();
+      sessions.registerObserver(observer);
+      final user = await sessions.createSession();
+      final channel = await sessions.createSession(type: SessionType.channel);
+
+      await sessions.updateSessionType(user.id, SessionType.archive);
+      await sessions.deleteSession(user.id);
+      await expectLater(sessions.deleteSession(channel.id), throwsStateError);
+
+      expect(observer.typeChanges, [(user.id, SessionType.user, SessionType.archive)]);
+      expect(observer.deleting, [user.id]);
+    });
+
     test('deletes session directory', () async {
       final session = await sessions.createSession();
       final result = await sessions.deleteSession(session.id);
@@ -456,4 +470,17 @@ void main() {
       expect(result, equals(1));
     });
   });
+}
+
+final class _SessionObserver implements SessionServiceObserver {
+  final typeChanges = <(String, SessionType, SessionType)>[];
+  final deleting = <String>[];
+
+  @override
+  void onSessionDeleting(String sessionId) => deleting.add(sessionId);
+
+  @override
+  void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {
+    typeChanges.add((sessionId, oldType, newType));
+  }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show Message;
 import 'package:test/test.dart';
 
 void main() {
@@ -224,6 +225,21 @@ void main() {
   });
 
   group('clearMessages', () {
+    test('registered observer receives persisted append and cleared identities', () async {
+      final observer = _MessageObserver();
+      messages.registerObserver(observer);
+      final session = await sessions.createSession();
+      final first = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'First');
+      final second = await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'Second');
+
+      await messages.clearMessages(session.id);
+
+      expect(observer.appended, [first.id, second.id]);
+      expect(observer.cleared.single.$1, session.id);
+      expect(observer.cleared.single.$2, [first.id, second.id]);
+      expect(await messages.getMessages(session.id), isEmpty);
+    });
+
     test('resets cached cursor state', () async {
       final session = await sessions.createSession();
       await messages.insertMessage(sessionId: session.id, role: 'user', content: 'First');
@@ -235,4 +251,15 @@ void main() {
       expect(reset.cursor, equals(1));
     });
   });
+}
+
+final class _MessageObserver implements MessageServiceObserver {
+  final appended = <String>[];
+  final cleared = <(String, List<String>)>[];
+
+  @override
+  void onMessageAppended(Message message) => appended.add(message.id);
+
+  @override
+  void onMessagesCleared(String sessionId, List<String> messageIds) => cleared.add((sessionId, messageIds));
 }

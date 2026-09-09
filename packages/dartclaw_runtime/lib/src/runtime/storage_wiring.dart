@@ -74,6 +74,11 @@ class StorageWiring {
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
   FullTextIndex? _memoryIndex;
+  FullTextIndex? _conversationIndex;
+  ConversationIndexProjection? _conversationProjection;
+  ConversationIndexer? _conversationIndexer;
+  ConversationSearchService? _conversationSearch;
+  var _memoryIndexRebuilt = false;
   TemporalKnowledgeGraphService? _kg;
   late KvService _kvService;
   late SqliteWorkflowRunRepository _workflowRunRepository;
@@ -99,6 +104,9 @@ class StorageWiring {
   MemoryFileService get memoryFile => _memoryFile ?? _missingPersonalMemory('memoryFile');
   MemoryFileService? get personalMemoryFile => _memoryFile;
   FullTextIndex get memoryIndex => _memoryIndex ?? _missingPersonalMemory('memoryIndex');
+  FullTextIndex get conversationIndex => _conversationIndex ?? _missingPersonalMemory('conversationIndex');
+  ConversationSearchService get conversationSearch =>
+      _conversationSearch ?? _missingPersonalMemory('conversationSearch');
   TemporalKnowledgeGraphService get kg => _kg ?? _missingPersonalMemory('kg');
   KvService get kvService => _kvService;
   SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
@@ -113,10 +121,12 @@ class StorageWiring {
 
     _sessions = SessionService(baseDir: config.sessionsDir, eventBus: _eventBus);
     _messages = MessageService(baseDir: config.sessionsDir);
-    await _sessions.getOrCreateMainSession();
 
     if (personalMemoryEnabled) {
+      _conversationProjection = ConversationIndexProjection(sessions: _sessions, messages: _messages);
       await _wirePersonalMemoryBeforeTaskStorage();
+    } else {
+      await _sessions.getOrCreateMainSession();
     }
 
     final turnStatePath = p.join(config.server.dataDir, 'turn_state.json');
@@ -214,6 +224,7 @@ class StorageWiring {
 
     if (personalMemoryEnabled) {
       await _wirePersonalMemoryAfterTaskStorage();
+      await _sessions.getOrCreateMainSession();
     }
 
     _kvService = KvService(filePath: config.kvPath);
@@ -287,6 +298,15 @@ class StorageWiring {
             await memoryCorpus.authenticate(manifest);
             return true;
           },
+          corpora: [
+            SqliteSearchCorpusRebuild(
+              populate: (tx) async {
+                final index = SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.conversationChunks);
+                await _conversationProjection!.populate(index);
+              },
+              authenticateComplete: _conversationProjection!.authenticateComplete,
+            ),
+          ],
         ),
       );
     } on SchemaIncompatibleException catch (e, st) {
@@ -307,6 +327,7 @@ class StorageWiring {
           canonicalFingerprint: manifest.fingerprint,
           authenticateComplete: () => memoryCorpus.authenticate(manifest),
         );
+        _memoryIndexRebuilt = recovery.rebuilt;
         _log.info(
           'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
           '(${recovery.rowCount} rows)',
@@ -361,6 +382,7 @@ class StorageWiring {
         canonicalFingerprint: manifest.fingerprint,
         authenticateComplete: () => _memoryCorpus!.authenticate(manifest),
       );
+      _memoryIndexRebuilt = recovery.rebuilt;
       _log.info(
         'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
         '(${recovery.rowCount} rows)',
@@ -382,6 +404,29 @@ class StorageWiring {
     final memoryIndex = _memoryIndex ??= _usesPostgres
         ? PostgresFtsIndex(_taskBackend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
         : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
+    final conversationIndex = _conversationIndex = _usesPostgres
+        ? PostgresFtsIndex(
+            _taskBackend!,
+            table: PostgresFtsTable.conversationChunks,
+            language: config.database.ftsLanguage,
+          )
+        : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.conversationChunks);
+
+    if (_memoryIndexRebuilt) {
+      try {
+        await _conversationProjection!.rebuild(conversationIndex);
+      } on Object catch (error, stackTrace) {
+        _log.severe('Conversation index re-projection failed after memory rebuild', error, stackTrace);
+      }
+    }
+    final indexer = _conversationIndexer = ConversationIndexer(
+      index: conversationIndex,
+      sessions: _sessions,
+      messages: _messages,
+    );
+    _messages.registerObserver(indexer);
+    _sessions.registerObserver(indexer);
+    _conversationSearch = ConversationSearchService(index: conversationIndex);
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -465,6 +510,7 @@ class StorageWiring {
   }
 
   Future<void> closeBackends() async {
+    await _conversationIndexer?.idle;
     _interlock?.beginShutdown();
     await _taskBackend?.close();
     await _interlock?.release();

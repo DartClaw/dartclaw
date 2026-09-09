@@ -34,7 +34,8 @@ void main() {
       );
       final initial = await _run(settings, namespace);
       expect(initial.code, 0);
-      expect(initial.lines.last, 'Rebuilt index: 3 entries at collection revision 2; health=healthy');
+      expect(initial.lines[2], 'Rebuilt index: 3 entries at collection revision 2; health=healthy');
+      expect(initial.lines.last, 'Rebuilt conversation index: 0 messages from 0 sessions');
       final index = PostgresFtsIndex(backend, table: PostgresFtsTable.memoryChunks, language: 'english');
       await seedCanonicalMemory(
         settings.workspaceDir,
@@ -81,7 +82,7 @@ void main() {
       final result = await _run(settings, namespace);
       expect(result.code, 0);
       expect(
-        result.lines.last,
+        result.lines[2],
         'Rebuilt index: 4 entries at collection revision ${manifest.collectionRevision}; health=healthy',
       );
       expect(
@@ -101,6 +102,8 @@ void main() {
         'indexedRows': 4,
         'health': 'healthy',
         'reconciled': false,
+        'conversationMessages': 0,
+        'conversationSessions': 0,
       });
     });
   });
@@ -119,7 +122,7 @@ void main() {
     });
   });
 
-  test('rebuild applies a changed memory language while preserving output shape', () async {
+  test('rebuild applies a changed language to memory and conversation search', () async {
     await withPostgresBackend((backend, namespace) async {
       final english = config();
       await seedCanonicalMemory(
@@ -128,13 +131,28 @@ void main() {
           'activity': ['hunden springer snabbt'],
         },
       );
+      final sessions = SessionService(baseDir: english.sessionsDir);
+      final messages = MessageService(baseDir: english.sessionsDir);
+      final session = await sessions.createSession();
+      await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'hunden springer snabbt');
+      await messages.dispose();
       expect((await _run(english, namespace)).code, 0);
       final swedishIndex = PostgresFtsIndex(backend, table: PostgresFtsTable.memoryChunks, language: 'swedish');
+      final swedishConversation = PostgresFtsIndex(
+        backend,
+        table: PostgresFtsTable.conversationChunks,
+        language: 'swedish',
+      );
       expect(await swedishIndex.search('springa', userId: 'owner'), isEmpty);
+      expect(await swedishConversation.search('springa', userId: 'owner'), isEmpty);
       final result = await _run(config(language: 'swedish'), namespace);
       expect(result.code, 0);
-      expect(result.lines.last, 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
+      expect(result.lines[2], 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
+      expect(result.lines.last, 'Rebuilt conversation index: 1 messages from 1 sessions');
       expect((await swedishIndex.search('springa', userId: 'owner')).map((hit) => hit.chunk), [
+        'hunden springer snabbt',
+      ]);
+      expect((await swedishConversation.search('springa', userId: 'owner')).map((hit) => hit.chunk), [
         'hunden springer snabbt',
       ]);
       expect(_databaseFiles(temp), isEmpty);

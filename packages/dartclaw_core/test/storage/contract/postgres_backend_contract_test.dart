@@ -79,7 +79,7 @@ Future<ContractBackend> _openPostgresContract() async {
       await backend.execute('CREATE TABLE operator_notes (note text)');
       await backend.execute("INSERT INTO operator_notes VALUES ('keep')");
     },
-    bootstrapStatementCount: SchemaIdentity.tasks.bootstrapStatements.length + 5,
+    bootstrapStatementCount: SchemaIdentity.tasks.bootstrapStatements.length + 8,
     prepareWithFailure: (statementNumber) async {
       final failing = FailingDatabaseBackend(backend, failAt: statementNumber);
       await PostgresSchemaGate.prepare(failing, databaseIdentity: backend.databaseIdentity);
@@ -119,8 +119,12 @@ Future<void> _verifyPostgresRequiredSchema(DatabaseBackend backend) async {
   final tables = tableRows.map((row) => row['table_name']).whereType<String>().toSet();
   final indexes = indexRows.map((row) => row['indexname']).whereType<String>().toSet();
   final marker = await backend.query('SELECT id, epoch FROM dartclaw_schema');
-  if (!_sameSet(tables, {...requiredTaskTables, 'memory_chunks'}) ||
-      !_sameSet(indexes, {...requiredTaskIndexes, 'memory_chunks_content_tsv_idx'}) ||
+  if (!_sameSet(tables, {...requiredTaskTables, 'memory_chunks', 'conversation_chunks'}) ||
+      !_sameSet(indexes, {
+        ...requiredTaskIndexes,
+        'memory_chunks_content_tsv_idx',
+        'conversation_chunks_content_tsv_idx',
+      }) ||
       marker.length != 1 ||
       marker.single['id'] != 1 ||
       marker.single['epoch'] != SchemaIdentity.currentEpoch) {

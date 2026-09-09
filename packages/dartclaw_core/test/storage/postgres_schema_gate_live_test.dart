@@ -24,16 +24,18 @@ void main() {
         expect(names, contains(table.name));
       }
       expect((await backend.query('SELECT id, epoch FROM dartclaw_schema')).single, {'id': 1, 'epoch': 1});
-      final vector = await backend.query('''
+      for (final table in ['memory_chunks', 'conversation_chunks']) {
+        final vector = await backend.query('''
         SELECT column_name, data_type, is_nullable FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name = 'memory_chunks' AND column_name = 'content_tsv'
+        WHERE table_schema = current_schema() AND table_name = '$table' AND column_name = 'content_tsv'
       ''');
-      expect(vector.single, {'column_name': 'content_tsv', 'data_type': 'tsvector', 'is_nullable': 'NO'});
-      final gin = await backend.query('''
+        expect(vector.single, {'column_name': 'content_tsv', 'data_type': 'tsvector', 'is_nullable': 'NO'});
+        final gin = await backend.query('''
         SELECT indexdef FROM pg_indexes
-        WHERE schemaname = current_schema() AND indexname = 'memory_chunks_content_tsv_idx'
+        WHERE schemaname = current_schema() AND indexname = '${table}_content_tsv_idx'
       ''');
-      expect(gin.single['indexdef'], contains('USING gin (content_tsv)'));
+        expect(gin.single['indexdef'], contains('USING gin (content_tsv)'));
+      }
       expect(
         await backend.query('''
         SELECT column_name FROM information_schema.columns
@@ -71,7 +73,7 @@ void main() {
           SELECT table_name FROM information_schema.tables
           WHERE table_schema = current_schema() AND table_name LIKE ANY (
             ARRAY['tasks', 'goals', 'agent_executions', 'workflow_%', 'task_%', 'turns', 'kg_facts',
-                  'memory_chunks', 'dartclaw_schema'])
+                  'memory_chunks', 'conversation_chunks', 'dartclaw_schema'])
         ''');
         expect(owned, isEmpty, reason: 'failure at statement $failAt');
         failing.disableFailure();
@@ -104,6 +106,17 @@ void main() {
         expect(await _searchCatalog(backend), before);
       });
     }
+  });
+
+  test('missing conversation GIN index refuses without repair', () async {
+    await withPostgresBackend((backend, _) async {
+      await PostgresSchemaGate.prepare(backend, databaseIdentity: backend.databaseIdentity);
+      await backend.execute('DROP INDEX conversation_chunks_content_tsv_idx');
+      final before = await _searchCatalog(backend);
+      final error = await _refusal(backend);
+      expect(error.differences, contains('missing or mismatched index conversation_chunks_content_tsv_idx'));
+      expect(await _searchCatalog(backend), before);
+    });
   });
 
   test('incompatible marker and structure refuse without mutation', () async {
@@ -157,10 +170,10 @@ Future<List<Map<String, Object?>>> _catalog(PostgresBackend backend) => backend.
 ''');
 
 Future<List<Map<String, Object?>>> _searchCatalog(PostgresBackend backend) => backend.query('''
-  SELECT 'column' AS kind, column_name AS name, data_type || ':' || is_nullable AS definition
-  FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'memory_chunks'
+  SELECT 'column' AS kind, table_name || '.' || column_name AS name, data_type || ':' || is_nullable AS definition
+  FROM information_schema.columns WHERE table_schema = current_schema() AND table_name IN ('memory_chunks', 'conversation_chunks')
   UNION ALL
   SELECT 'index', indexname, indexdef FROM pg_indexes
-  WHERE schemaname = current_schema() AND tablename = 'memory_chunks'
+  WHERE schemaname = current_schema() AND tablename IN ('memory_chunks', 'conversation_chunks')
   ORDER BY kind, name
 ''');

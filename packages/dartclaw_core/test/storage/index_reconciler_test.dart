@@ -27,6 +27,7 @@ void main() {
     ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
     expect(result.rowCount, 0);
+    expect(result.rebuilt, isTrue);
     expect(result.health.state, IndexHealthState.healthy);
     expect(result.health.indexRevision, 7);
     final db = sqlite3.open(targetPath);
@@ -104,6 +105,7 @@ void main() {
       authenticateComplete: () async => authenticated++,
     );
     expect((current.rowCount, authenticated), (1, 1));
+    expect(current.rebuilt, isFalse);
 
     final db = sqlite3.open(targetPath);
     db.execute("UPDATE memory_chunks SET text = 'tampered'");
@@ -115,6 +117,7 @@ void main() {
       canonicalFingerprint: 'fingerprint-7',
       authenticateComplete: () async => authenticated++,
     );
+    expect(repaired.rebuilt, isTrue);
     expect((repaired.rowCount, authenticated), (1, 1));
     final repairedDb = sqlite3.open(targetPath);
     expect(repairedDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');

@@ -13,15 +13,33 @@ import '../events/event_bus.dart';
 import 'atomic_write.dart';
 import 'uuid_validation.dart';
 
+/// Receives synchronous notifications around authoritative session mutations.
+abstract interface class SessionServiceObserver {
+  /// Called after a type change has been persisted.
+  void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType);
+
+  /// Called after delete protection passes and before the session directory is removed.
+  void onSessionDeleting(String sessionId);
+}
+
 /// Manages session CRUD operations backed by NDJSON file storage.
 class SessionService {
   final String baseDir;
   final EventBus? eventBus;
   final RepoLock _repoLock;
+  SessionServiceObserver? _observer;
   static const _uuid = Uuid();
   static final _log = Logger('SessionService');
 
-  new({required this.baseDir, this.eventBus, RepoLock? repoLock}) : _repoLock = repoLock ?? RepoLock();
+  new({required this.baseDir, this.eventBus, RepoLock? repoLock, SessionServiceObserver? observer})
+    : _repoLock = repoLock ?? RepoLock(),
+      _observer = observer;
+
+  /// Registers the sole session mutation observer.
+  void registerObserver(SessionServiceObserver observer) {
+    if (_observer != null) throw StateError('A session service observer is already registered');
+    _observer = observer;
+  }
 
   Future<Session> createSession({
     SessionType type = SessionType.user,
@@ -246,6 +264,7 @@ class SessionService {
     final session = Session.fromJson(json);
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
     await atomicWriteJson(metaFile, updated.toJson());
+    _notify(() => _observer?.onSessionTypeChanged(id, session.type, type));
     return updated;
   }
 
@@ -304,6 +323,7 @@ class SessionService {
       if (e is StateError) rethrow;
       // Malformed meta — allow delete
     }
+    _notify(() => _observer?.onSessionDeleting(id));
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
     await _removeMappingsForSessionIdLocked(id);
@@ -316,6 +336,14 @@ class SessionService {
       ),
     );
     return 1;
+  }
+
+  void _notify(void Function() notification) {
+    try {
+      notification();
+    } catch (error, stackTrace) {
+      _log.warning('Session observer failed: $error', error, stackTrace);
+    }
   }
 
   Future<void> _removeMappingsForSessionIdLocked(String id) async {

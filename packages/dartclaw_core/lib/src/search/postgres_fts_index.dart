@@ -41,6 +41,20 @@ final class PostgresFtsTable {
     integerMetadata: const {'entry_revision'},
   );
 
+  /// The conversation-message schema prepared by [PostgresSchemaGate].
+  static final conversationChunks = PostgresFtsTable(
+    baseTable: 'conversation_chunks',
+    rowIdColumn: 'id',
+    idColumn: 'message_id',
+    textColumn: 'text',
+    timestampColumn: 'created_at',
+    userColumn: 'user_id',
+    contentTsvColumn: 'content_tsv',
+    contentTsvIndex: 'conversation_chunks_content_tsv_idx',
+    metadataColumns: const {'session_id': 'session_id', 'role': 'role'},
+    requiredMetadata: const {'session_id', 'role'},
+  );
+
   /// Creates a validated table descriptor.
   new({
     required this.baseTable,

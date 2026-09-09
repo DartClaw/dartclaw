@@ -20,6 +20,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         PromptStrategy,
         ProjectService,
         SessionService,
+        SessionServiceObserver,
         Task,
         TaskArtifact,
         TaskRepository,

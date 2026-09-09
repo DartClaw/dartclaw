@@ -57,7 +57,7 @@ Content is truncated to 50KB before classification.
 
 ## Memory Search
 
-Memory search combines the rebuildable FTS5 projection of canonical topic, archive, observation, and learning roles with a separately merged
+Memory search combines the rebuildable full-text projection of canonical topic, archive, observation, and learning roles with a separately merged
 file lookup over synthesized `wiki/` pages. For when those stores actually get written – and why a fresh instance returns
 no results – see [How the Knowledge Layer Fills](workspace.md#how-the-knowledge-layer-fills).
 
@@ -102,3 +102,22 @@ If startup reports that the existing `memory` collection uses the legacy `*.md` 
 ### Memory Curation
 
 Curated personal memory changes through one path. `memory_apply` accepts one closed add/revise/merge/remove change set against the current collection revision; invalid or stale sets leave canonical memory and the derived index unchanged. The opt-in `memory-curation` job (`memory.curation.enabled`) is a scheduled caller of that same path, bounded to the entries its own run snapshot showed it. `memory_observe` records journal observations and bounded learnings without granting authority to rewrite curated personal memory.
+
+## Conversation Search
+
+DartClaw indexes user and assistant message text from user, main and channel sessions separately from memory.
+System messages, attachments, and task, cron, logical-agent and archived sessions are excluded. Session NDJSON remains
+the source of truth. Indexing failures are logged without interrupting message persistence.
+
+Deleting or clearing a session removes its indexed messages. Archiving removes them from search while retaining the
+files; resuming a chat-facing session restores them. This release exposes the query interface to Dart integrations
+through `ConversationSearchService`, with message/session IDs, role, timestamp, text and score.
+
+SQLite matches sanitized exact terms with `unicode61`, without stemming or prefix queries. PostgreSQL uses
+`database.fts_language` for stemming, shared with memory and knowledge-graph search. After changing that language,
+rebuild to update stored conversation and memory text vectors.
+
+Stop DartClaw, then run `dartclaw rebuild-index` to rebuild both memory and conversation indexes. Its existing memory
+summary is followed by `Rebuilt conversation index: N messages from M sessions`; `--json` adds `conversationMessages`
+and `conversationSessions`. No chat-facing sessions means an empty conversation index, clearing any stale rows.
+A memory-index rebuild also restores conversation rows from NDJSON when it replaces the SQLite search file.

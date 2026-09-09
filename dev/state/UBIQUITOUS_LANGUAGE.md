@@ -172,8 +172,8 @@
 | Temporal Knowledge Graph | Time-scoped fact store (`entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at`) with contradiction detection. Entities are canonicalized before storage | knowledge base, triple store |
 | Knowledge Inbox | Drop-folder ingestion path whose files move through the fixed states `inbox`, `processed`, `quarantine`, `skipped` | upload folder, import queue |
 | Knowledge Hub | Operator-facing browse/search surface over the knowledge layers (`all`, `wiki`, `kg`, `memory`, `inbox`) | knowledge UI, memory browser |
-| Search Index | Rebuildable FTS5 projection of canonical topic, archive, observation, and learning entries. QMD Markdown search is opt-in; audit entries are never indexed | source of truth, search database |
-| Full-Text Index | `FullTextIndex` abstraction over backend-native FTS (FTS5 `bm25()` / PostgreSQL `tsvector`). Search, upsert, and delete all carry the tenancy (`user_id`) dimension – the multi-user isolation mechanism (ADR-045) | FTS layer, search abstraction |
+| Search Index | Rebuildable backend-native projections of canonical memory and chat-facing conversation messages in separate tables. Memory audit entries and non-chat messages are excluded; QMD Markdown search remains opt-in | source of truth, search database |
+| Full-Text Index | `FullTextIndex` port over SQLite FTS5 or PostgreSQL text search, instantiated separately for memory and conversation messages. Every operation carries `user_id`; current projections use the instance-owner identity (ADR-045) | FTS layer, search abstraction |
 | QMD | Optional external hybrid-embedding search daemon managed as a subprocess over loopback HTTP. Never a hard dependency – the search backend falls back to FTS5 when QMD is unreachable | search daemon, embeddings service |
 | citation packet | Compact synthesized response where each claim carries source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet |
 | `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a citation packet | context engine tool, research outpost, search summary |
@@ -267,6 +267,7 @@
 
 ## Changelog
 
+- 2026-09-09: Full-Text Index and Search Index now name separate memory and conversation corpora and their owner scope.
 - 2026-09-08: Added Authoritative Store and its `dartclaw.db` SQLite filename; `tasks.db` is the retired name.
 - 2026-08-25: Added Named Credential Store under `provider-mediation` for the 0.24.3 credential and secrets CLI contract.
 - 2026-08-20: Split the overloaded "health" term: Health Status is now stated as the single projection of the host Worker's lifecycle, and Provider Availability is registered beside it as the separately derived provider-mediation term, with an Overloaded Terms row demarcating the two.

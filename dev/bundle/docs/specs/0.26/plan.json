@@ -530,9 +530,19 @@
         "S14",
         "S15"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s13-conversation-message-index-rider.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
       "owner": null,
       "scope": "Rider (owner, 2026-08-07). Index session messages into a dedicated second FullTextIndex instance (own table, never mixed with the memory corpus) on both backends. sessions/<id>/messages.ndjson written by MessageService.insertMessage remains the sole authoritative store; the index is a derived, rebuildable projection. Define the one shared chat-facing predicate over SessionType (user, main, channel; task, cron, logicalAgent, archive excluded). Write-through indexing at append; full rebuild from NDJSON via dartclaw rebuild-index under FR2's derived-store policy; cleanup on both session deletion (SessionMaintenanceService) and archive-reset (SessionResetService); user_id tenancy populated with the instance-owner identity. PostgreSQL applies fts_language (Swedish acceptance on regular inflections); SQLite keeps unicode61 sanitized-term matching without stemming or prefix queries. Expose a service-layer search path returning scored hits with session/message provenance, sized for the 0.27 Chat milestone's Cmd+K conversation search; no UI, endpoint, or agent tool. Includes doc sync: data-model.md, user-guide search/workspace sections, glossary. Excludes Cross-Session Recall.",
       "sourceRefs": [

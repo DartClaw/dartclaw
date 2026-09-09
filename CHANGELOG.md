@@ -37,9 +37,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - **Outbound MCP plain-HTTP loopback exemption narrowed** – the shared literal rule now accepts only `localhost`,
   `127.0.0.1`, and `::1`; other `127.0.0.0/8` addresses such as `127.0.0.2` require HTTPS when TLS is required.
 
-- **Core LOC ceiling rebaseline for PostgreSQL storage** – `dartclaw_core/lib` measures 29,862 Dart lines after
-  integrating the pool backend, schema gate, full-text search, serving interlock and inactive-store probe.
-  The ceiling is 29,862 with no added headroom.
+- **Core LOC ceiling rebaseline for storage and conversation search** – `dartclaw_core/lib` measures 30,314 Dart
+  lines after integrating PostgreSQL storage and search, serving ownership, and conversation projection/lifecycle
+  support. The ceiling is 30,314 with no added headroom.
 - Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
 
 ---

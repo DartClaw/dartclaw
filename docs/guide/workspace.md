@@ -24,16 +24,21 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
       README.md      # Wiki conventions and provenance guidance
     HEARTBEAT.md     # Periodic checklist (human-maintained)
     .gitignore       # Created or supplemented if git sync enabled
-  sessions/          # Per-session message history (NDJSON)
+  sessions/          # Authoritative per-session message history (NDJSON)
   logs/              # Daily logs and structured logs
   agents/
     search/
       sessions/      # Search agent session store (isolated)
   kv.json            # Key-value store (cost tracking, etc.)
-  search.db          # SQLite FTS5 search index
+  search.db          # SQLite memory and conversation FTS5 indexes (rebuildable)
 ```
 
 This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), the authoritative database (`dartclaw.db`), turn recovery (`turn_state.json`), webhook dedup markers (`webhook_deliveries/`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
+
+Conversation indexing reads eligible user and assistant messages from `sessions/<id>/messages.ndjson`.
+Memory and conversation rows share `search.db` on SQLite, or the configured PostgreSQL database, in separate tables.
+With DartClaw stopped, `dartclaw rebuild-index` reconstructs both projections without rewriting the message files.
+See [Conversation Search](search.md#conversation-search) for inclusion and lifecycle rules.
 
 ## Behavior Files
 

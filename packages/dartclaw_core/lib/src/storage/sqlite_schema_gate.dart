@@ -47,6 +47,7 @@ final class SqliteSearchRebuild {
     required this.healthStore,
     this.populate,
     this.authenticateComplete,
+    this.corpora = const [],
   });
 
   /// Canonical collection revision projected by [populate].
@@ -65,6 +66,21 @@ final class SqliteSearchRebuild {
 
   /// Confirms that the source still matches the projected manifest.
   final Future<bool> Function()? authenticateComplete;
+
+  /// Complete derived corpora populated and authenticated in list order.
+  final List<SqliteSearchCorpusRebuild> corpora;
+}
+
+/// One complete corpus source used while rebuilding the shared search store.
+final class SqliteSearchCorpusRebuild {
+  /// Creates a corpus rebuild pair.
+  const new({required this.populate, required this.authenticateComplete});
+
+  /// Populates this corpus through the active transaction handle.
+  final Future<void> Function(DatabaseBackend tx) populate;
+
+  /// Confirms the authoritative source still matches what was populated.
+  final Future<bool> Function() authenticateComplete;
 }
 
 /// Classifies and prepares SQLite schemas before repository construction.
@@ -209,9 +225,15 @@ abstract final class SqliteSchemaGate {
 
     var stage = 'unavailable-source';
     try {
-      final populate = rebuild.populate;
-      final authenticate = rebuild.authenticateComplete;
-      if (populate == null || authenticate == null) {
+      if ((rebuild.populate == null) != (rebuild.authenticateComplete == null)) {
+        throw StateError('complete supported rebuild inputs are unavailable');
+      }
+      final corpora = [
+        if (rebuild.populate != null && rebuild.authenticateComplete != null)
+          SqliteSearchCorpusRebuild(populate: rebuild.populate!, authenticateComplete: rebuild.authenticateComplete!),
+        ...rebuild.corpora,
+      ];
+      if (corpora.isEmpty) {
         throw StateError('complete supported rebuild inputs are unavailable');
       }
       stage = 'record-rebuilding';
@@ -231,10 +253,14 @@ abstract final class SqliteSchemaGate {
         await tx.execute(_markerTableSql);
         await tx.execute(_markerRowSql);
         stage = 'populate';
-        await populate(tx);
+        for (final corpus in corpora) {
+          await corpus.populate(tx);
+        }
         stage = 'authenticate';
-        if (!await authenticate()) {
-          throw StateError('derived rebuild source changed before completion');
+        for (final corpus in corpora) {
+          if (!await corpus.authenticateComplete()) {
+            throw StateError('derived rebuild source changed before completion');
+          }
         }
         stage = 'publish';
         await rebuild.healthStore.recordHealthy(

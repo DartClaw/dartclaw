@@ -132,13 +132,16 @@ int _maxCeilingFor(int loc) {
 // Reviewed necessity, 2026-09-09 (ADR-045):
 //   dartclaw_core 29759 -> 29862 (measured 29862, no headroom). Serving ownership
 //   adds the private recovery guard and read-only inactive-store probe.
+// Reviewed necessity, 2026-09-09 (ADR-045):
+//   dartclaw_core 29862 -> 30314 (measured 30314, no headroom). Conversation
+//   indexing adds its projection, lifecycle observers and search service.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 29862,
+  'dartclaw_core': 30314,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,

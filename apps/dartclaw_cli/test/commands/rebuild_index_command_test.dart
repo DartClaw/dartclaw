@@ -52,10 +52,11 @@ void main() {
   test('bootstraps and rebuilds an empty canonical corpus', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     await runCommand(config);
-    expect(output, hasLength(3));
+    expect(output, hasLength(4));
     expect(output.first, contains('must remain stopped'));
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
-    expect(output.last, contains('Rebuilt index: 0 entries'));
+    expect(output[2], contains('Rebuilt index: 0 entries'));
+    expect(output.last, 'Rebuilt conversation index: 0 messages from 0 sessions');
   });
 
   test('--json emits only the machine-readable reconciled outcome', () async {
@@ -73,6 +74,8 @@ void main() {
       'indexedRows': 0,
       'health': 'healthy',
       'reconciled': false,
+      'conversationMessages': 0,
+      'conversationSessions': 0,
     });
   });
 
@@ -115,9 +118,10 @@ void main() {
 
     await runner.run(['rebuild-index']);
 
-    expect(output, hasLength(3));
+    expect(output, hasLength(4));
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
-    expect(output.last, contains('Rebuilt index: 3 entries at collection revision 2'));
+    expect(output[2], contains('Rebuilt index: 3 entries at collection revision 2'));
+    expect(output.last, 'Rebuilt conversation index: 0 messages from 0 sessions');
 
     final db = sqlite3.open(dbPath);
     final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
@@ -155,7 +159,7 @@ void main() {
 
     await runCommand(config);
 
-    expect(output.last, 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
+    expect(output[2], 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
     final backend = await SqliteBackend.open(config.searchDbPath);
     try {
       expect(await backend.query('SELECT id, epoch FROM dartclaw_schema'), [
@@ -222,7 +226,7 @@ void main() {
     expect(rows.map((row) => row['text']), expectedTexts);
     expect(rows.every((row) => row['source'] == row['locator'] && row['category'] == 'project'), isTrue);
     expect(rows.map((row) => row['created_at']).toSet(), {DateTime.utc(2026, 2, 23, 10).toIso8601String()});
-    expect(output.last, contains('Rebuilt index: ${expectedTexts.length} entries'));
+    expect(output[2], contains('Rebuilt index: ${expectedTexts.length} entries'));
     db.close();
   });
 
@@ -256,7 +260,7 @@ void main() {
     expect((current.role, current.source == current.locator, current.category), ('topic', true, 'preferences'));
     expect((archived.role, archived.source == archived.locator, archived.category), ('archive', true, 'project'));
     expect((learning.role, learning.source == learning.locator, learning.category), ('learning', true, null));
-    expect(output.last, contains('Rebuilt index: 3 entries'));
+    expect(output[2], contains('Rebuilt index: 3 entries'));
     db.close();
   });
 

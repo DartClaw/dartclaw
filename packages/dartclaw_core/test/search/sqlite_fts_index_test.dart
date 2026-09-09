@@ -165,6 +165,44 @@ void main() {
       expect(await index.count(userId: 'owner', metadata: const {'entry_revision': '07'}), 0);
     });
 
+    test('conversation descriptor isolates tenants and the memory corpus', () async {
+      final conversations = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+      SearchDocument conversation(String text) => SearchDocument(
+        id: 'shared',
+        chunks: [text],
+        metadata: const {'session_id': 'session', 'role': 'user'},
+        timestamp: DateTime.utc(2026),
+      );
+      await conversations.upsert([conversation('owner conversation')], userId: 'owner');
+      await conversations.upsert([conversation('other conversation')], userId: 'other');
+
+      expect((await conversations.search('conversation', userId: 'owner')).single.chunk, 'owner conversation');
+      expect((await conversations.fetch(['shared'], userId: 'other')).single.chunks, ['other conversation']);
+      expect(await conversations.count(userId: 'owner', metadata: const {'session_id': 'session'}), 1);
+      expect(await index.count(userId: 'owner'), 0);
+
+      await conversations.delete(['shared'], userId: 'owner');
+      expect(await conversations.fetch(['shared'], userId: 'owner'), isEmpty);
+      expect((await conversations.fetch(['shared'], userId: 'other')).single.chunks, ['other conversation']);
+      await conversations.replaceAll(const [], userId: 'other');
+      expect(await conversations.count(userId: 'other'), 0);
+    });
+
+    test('conversation descriptor keeps SQLite exact-term matching', () async {
+      final conversations = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+      await conversations.upsert([
+        SearchDocument(
+          id: 'swedish',
+          chunks: const ['hunden springer snabbt'],
+          metadata: const {'session_id': 'session', 'role': 'assistant'},
+          timestamp: DateTime.utc(2026),
+        ),
+      ], userId: 'owner');
+
+      expect(await conversations.search('springa', userId: 'owner'), isEmpty);
+      expect((await conversations.search('springer', userId: 'owner')).single.id, 'swedish');
+    });
+
     test('verifyIntegrity detects FTS5 shadow corruption', () async {
       await index.upsert([_document('stored', 'searchable')], userId: 'owner');
       await index.verifyIntegrity();

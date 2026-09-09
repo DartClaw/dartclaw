@@ -23,6 +23,18 @@ final class SqliteFtsTable {
     integerMetadata: const {'entry_revision'},
   );
 
+  /// The conversation-message schema prepared by [SqliteSchemaGate].
+  static final conversationChunks = SqliteFtsTable(
+    baseTable: 'conversation_chunks',
+    ftsTable: 'conversation_chunks_fts',
+    idColumn: 'message_id',
+    textColumn: 'text',
+    timestampColumn: 'created_at',
+    userColumn: 'user_id',
+    metadataColumns: const {'session_id': 'session_id', 'role': 'role'},
+    requiredMetadata: const {'session_id', 'role'},
+  );
+
   /// Creates a validated table descriptor.
   new({
     required this.baseTable,

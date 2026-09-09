@@ -5,10 +5,10 @@ import 'package:test/test.dart';
 import 'schema_fixtures.dart';
 
 void main() {
-  test('manifests describe the released 0.25 fixtures exactly', () async {
+  test('manifests describe released task fixtures and the current search schema exactly', () async {
     expect(SchemaIdentity.tasks.tables, hasLength(10));
     expect(SchemaIdentity.tasks.indexes, hasLength(21));
-    expect(SchemaIdentity.search.sqliteObjects, hasLength(4));
+    expect(SchemaIdentity.search.sqliteObjects, hasLength(8));
 
     for (final fixture in [TasksSchemaFixture.released025, TasksSchemaFixture.upgraded024]) {
       final database = sqlite3.openInMemory();
@@ -26,22 +26,42 @@ void main() {
     final database = sqlite3.openInMemory();
     final backend = SqliteBackend(database);
     createReleased025SearchSchema(database);
-    _expectExactManifest(database, SchemaIdentity.search);
-
     final inspection = await SqliteSchemaGate.inspect(backend, SchemaIdentity.search, storeName: 'search.db');
-
-    expect(inspection.state, SqliteSchemaState.releasedUnmarked, reason: '${inspection.differences}');
-    expect(inspection.differences, isEmpty);
+    expect(inspection.state, SqliteSchemaState.incompatible);
+    expect(inspection.differences, contains('missing table conversation_chunks'));
+    expect(
+      inspection.differences,
+      containsAll([
+        'missing or mismatched table conversation_chunks_fts',
+        'missing or mismatched trigger conversation_chunks_ai',
+        'missing or mismatched trigger conversation_chunks_ad',
+        'missing or mismatched trigger conversation_chunks_au',
+      ]),
+    );
     await backend.close();
+
+    final currentDatabase = sqlite3.openInMemory();
+    final currentBackend = SqliteBackend(currentDatabase);
+    for (final sql in SchemaIdentity.search.bootstrapStatements) {
+      currentDatabase.execute(sql);
+    }
+    _expectExactManifest(currentDatabase, SchemaIdentity.search);
+
+    final currentInspection = await SqliteSchemaGate.inspect(
+      currentBackend,
+      SchemaIdentity.search,
+      storeName: 'search.db',
+    );
+    expect(currentInspection.state, SqliteSchemaState.releasedUnmarked, reason: '${currentInspection.differences}');
+    expect(currentInspection.differences, isEmpty);
+    await currentBackend.close();
   });
 }
 
 void _expectExactManifest(Database database, SchemaIdentity identity, {bool orphan = false}) {
   final objects = database.select("SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
   expect(
-    objects
-        .where((row) => row['type'] == 'table' && !(row['name'] as String).startsWith('memory_chunks_fts'))
-        .map((row) => row['name']),
+    objects.where((row) => row['type'] == 'table' && !_isFtsTable(row['name'] as String)).map((row) => row['name']),
     unorderedEquals(identity.tables.map((table) => table.name)),
   );
   for (final table in identity.tables) {
@@ -75,8 +95,15 @@ void _expectExactManifest(Database database, SchemaIdentity identity, {bool orph
   }
   expect(
     objects
-        .where((row) => row['type'] == 'trigger' || row['name'] == 'memory_chunks_fts')
+        .where(
+          (row) =>
+              row['type'] == 'trigger' ||
+              row['name'] == 'memory_chunks_fts' ||
+              row['name'] == 'conversation_chunks_fts',
+        )
         .map((row) => (row['type'], row['name'], row['tbl_name'])),
     unorderedEquals(identity.sqliteObjects.map((object) => (object.type, object.name, object.table))),
   );
 }
+
+bool _isFtsTable(String name) => name.startsWith('memory_chunks_fts') || name.startsWith('conversation_chunks_fts');

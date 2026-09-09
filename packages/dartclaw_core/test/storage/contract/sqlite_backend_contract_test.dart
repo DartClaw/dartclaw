@@ -181,7 +181,7 @@ String _snapshot(Database database) {
   final data = <String, Object?>{};
   for (final row in objects.where((row) => row['type'] == 'table')) {
     final name = row['name'] as String;
-    if (name.startsWith('memory_chunks_fts')) continue;
+    if (name.startsWith('memory_chunks_fts') || name.startsWith('conversation_chunks_fts')) continue;
     data[name] = database.select('SELECT * FROM "$name"').map((item) => item.values.toList()).toList();
   }
   return jsonEncode({'objects': objects.map((row) => row.values.toList()).toList(), 'data': data});

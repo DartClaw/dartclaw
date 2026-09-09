@@ -276,7 +276,7 @@ final class IndexHealthStore {
 /// Outcome of one complete fresh-sibling reconciliation.
 final class IndexReconcileResult {
   /// Creates a successful reconciliation result.
-  const new({required this.revision, required this.rowCount, required this.health});
+  const new({required this.revision, required this.rowCount, required this.health, this.rebuilt = false});
 
   /// Canonical revision projected.
   final int revision;
@@ -286,6 +286,9 @@ final class IndexReconcileResult {
 
   /// Published healthy evidence.
   final IndexHealthEvidence health;
+
+  /// Whether reconciliation reconstructed and published the index.
+  final bool rebuilt;
 }
 
 /// Rebuilds the derived index from one captured canonical corpus and publishes it atomically.
@@ -466,7 +469,12 @@ final class CanonicalIndexReconciler {
           return rowCount;
         },
       );
-      return IndexReconcileResult(revision: canonicalRevision, rowCount: rowCount, health: publishedHealth!);
+      return IndexReconcileResult(
+        revision: canonicalRevision,
+        rowCount: rowCount,
+        health: publishedHealth!,
+        rebuilt: true,
+      );
     } catch (error, stackTrace) {
       try {
         await healthStore.recordDegraded(

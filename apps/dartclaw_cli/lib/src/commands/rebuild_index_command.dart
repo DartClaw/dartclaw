@@ -33,7 +33,7 @@ class RebuildIndexCommand extends Command<void> {
   String get name => 'rebuild-index';
 
   @override
-  String get description => 'Rebuild the memory search index offline (stop DartClaw first)';
+  String get description => 'Rebuild the memory and conversation search indexes offline (stop DartClaw first)';
 
   @override
   Future<void> run() async {
@@ -50,6 +50,8 @@ class RebuildIndexCommand extends Command<void> {
 
     final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     DatabaseBackend? backend;
+    DatabaseBackend? conversationBackend;
+    MessageService? messages;
     var failed = false;
     try {
       final preflight = await MemoryPreflight(
@@ -100,6 +102,24 @@ class RebuildIndexCommand extends Command<void> {
         canonicalFingerprint: manifest.fingerprint,
         authenticateComplete: () => corpusService.authenticate(manifest),
       );
+      final FullTextIndex conversationIndex;
+      if (config.database.backend == DatabaseBackendKind.postgres) {
+        conversationIndex = PostgresFtsIndex(
+          backend!,
+          table: PostgresFtsTable.conversationChunks,
+          language: config.database.ftsLanguage,
+        );
+      } else {
+        conversationBackend = await SqliteBackend.open(config.searchDbPath);
+        await SqliteSchemaGate.prepareSearch(conversationBackend, storeName: 'search.db');
+        conversationIndex = SqliteFtsIndex(conversationBackend, table: SqliteFtsTable.conversationChunks);
+      }
+      final sessions = SessionService(baseDir: config.sessionsDir);
+      messages = MessageService(baseDir: config.sessionsDir);
+      final conversation = await ConversationIndexProjection(
+        sessions: sessions,
+        messages: messages,
+      ).rebuild(conversationIndex);
       if (json) {
         write(
           jsonEncode({
@@ -108,12 +128,18 @@ class RebuildIndexCommand extends Command<void> {
             'health': result.health.state.name,
             // The human path reads this off the preflight report; the JSON path had no way to see it.
             'reconciled': preflight.status == MemoryPreflightStatus.reconciled,
+            'conversationMessages': conversation.messageCount,
+            'conversationSessions': conversation.sessionCount,
           }),
         );
       } else {
         write(
           'Rebuilt index: ${result.rowCount} entries at collection revision ${result.revision}; '
           'health=${result.health.state.name}',
+        );
+        write(
+          'Rebuilt conversation index: ${conversation.messageCount} messages from '
+          '${conversation.sessionCount} sessions',
         );
       }
     } on StorageException catch (error) {
@@ -126,9 +152,17 @@ class RebuildIndexCommand extends Command<void> {
       failed = true;
     } finally {
       try {
-        await backend?.close();
+        await messages?.dispose();
       } finally {
-        await corpusService.close();
+        try {
+          await conversationBackend?.close();
+        } finally {
+          try {
+            await backend?.close();
+          } finally {
+            await corpusService.close();
+          }
+        }
       }
     }
     if (failed) _exitFn(1);

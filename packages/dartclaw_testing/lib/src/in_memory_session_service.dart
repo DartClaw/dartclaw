@@ -7,7 +7,9 @@ class InMemorySessionService implements SessionService {
   static const protectedTypes = {SessionType.main, SessionType.channel, SessionType.cron, SessionType.task};
 
   /// Creates an in-memory session service.
-  new({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator}) : _idGenerator = idGenerator;
+  new({this.baseDir = ':memory:', this.eventBus, String Function()? idGenerator, SessionServiceObserver? observer})
+    : _idGenerator = idGenerator,
+      _observer = observer;
 
   @override
   final String baseDir;
@@ -16,9 +18,16 @@ class InMemorySessionService implements SessionService {
   final EventBus? eventBus;
 
   final String Function()? _idGenerator;
+  SessionServiceObserver? _observer;
   final Map<String, Session> _sessionsById = <String, Session>{};
   final Map<String, String> _sessionKeys = <String, String>{};
   int _nextSessionNumber = 1;
+
+  @override
+  void registerObserver(SessionServiceObserver observer) {
+    if (_observer != null) throw StateError('A session service observer is already registered');
+    _observer = observer;
+  }
 
   @override
   Future<Session> createSession({
@@ -166,6 +175,7 @@ class InMemorySessionService implements SessionService {
     }
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
     _sessionsById[id] = updated;
+    _notify(() => _observer?.onSessionTypeChanged(id, session.type, type));
     return updated;
   }
 
@@ -202,6 +212,7 @@ class InMemorySessionService implements SessionService {
       throw StateError('Cannot delete ${session.type.name} session');
     }
 
+    _notify(() => _observer?.onSessionDeleting(id));
     _sessionsById.remove(id);
     _sessionKeys.removeWhere((_, sessionId) => sessionId == id);
     eventBus?.fire(
@@ -213,6 +224,12 @@ class InMemorySessionService implements SessionService {
       ),
     );
     return 1;
+  }
+
+  void _notify(void Function() notification) {
+    try {
+      notification();
+    } catch (_) {}
   }
 
   String _createId() {

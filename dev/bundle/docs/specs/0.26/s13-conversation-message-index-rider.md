@@ -294,3 +294,30 @@ Owner scheduling override: the updated Verify commands prove local implementatio
 #### DRIFT
 
 - spec-stale: TI08 Verify target repaired | Stale targets: – | `cmd: rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md` → `cmd: bash -c 'rg -q "conversation_chunks" dev/architecture/data-model.md && rg -q "^## Conversation Search" docs/guide/search.md && rg -qi "conversation" docs/guide/workspace.md && rg -q "conversation" <(rg "^\| Full-Text Index" dev/state/UBIQUITOUS_LANGUAGE.md) && ! rg -q "S13|story S" dev/architecture/data-model.md docs/guide/search.md'`
+
+### Run: 2026-09-08 23:44 UTC – observations
+
+Implementation mechanism reconciliation: MessageService.getMessages performs an asynchronous NDJSON read, but the synchronous before-delete notification returns before SessionService removes the directory. Queuing a later source read can therefore miss every message ID. The deletion task instead obtains the existing owner-scoped conversation rows through count/listRecent, selects session_id metadata, and deletes those IDs within the same serialized indexing chain. Each conversation document has one chunk. This uses the landed port without another parser or awaited indexing in authoritative deletion. Rebuild remains NDJSON-only; all acceptance outcomes, protected-session refusal and tenancy requirements remain binding. Test queued append followed by deletion. Producer and consumer execute in separate worktrees from accepted S10 b685c46beebb; one integrated S13 gate follows.
+
+### Run: 2026-09-09 00:23 UTC – observations
+
+#### IMPLEMENTATION NOTES
+
+- The final integration includes an outer `DartclawRuntime.build` proof over raw persisted message/session fixtures, followed by persisted conversation-row inspection. Direct StorageWiring tests additionally cover memory rebuild, fast-path preservation and in-memory fallback. No production exposure or test-only capture was added.
+- The producer worktree lacked a native asset map and loaded Apple SQLite 3.51, which refused the intentional shadow-table corruption used by two existing tests. The unchanged corruption and reconciler suites passed on the integrated main checkout using bundled SQLite 3.53 (28 tests). No assertions or production safeguards were weakened.
+- Conversation projection/lifecycle support adds 449 core library lines. The required measured core ceiling is 30,311 with zero added headroom, recorded in the architecture gate and CHANGELOG. The newly landed dual-backend contract's PostgreSQL inventory and DDL failure loop include the conversation table/index and three bootstrap statements.
+- Live PostgreSQL and full/platform verification remain assigned to the final combined A+B gate. Focused local story evidence does not satisfy those pending obligations.
+
+### Run: 2026-09-09 00:33 UTC – observations
+
+#### REVIEW CLOSURE
+
+- Replaced the PostgreSQL memory-table singleton assumption with a named table lookup. The targeted live bootstrap/reopen test reproduced `Too many elements` before the fix; after it, bootstrap/reopen and missing conversation GIN-index refusal both passed. The remaining live suite and platform/full obligations stay in the final combined gate.
+- Refused incomplete legacy memory callback pairs before accepting any conversation rebuild source; both missing-callback cases preserve the store and produce degraded health. The owning suite passed 12 tests.
+- Updated the remaining backup/rebuild summaries for both corpora and corrected direct channel/cron deletion protection. Final measured core LOC is 30,314 (452 added), with no headroom; this supersedes the pre-review 30,311 measurement.
+
+### Run: 2026-09-09 00:43 UTC – observations
+
+#### IMPLEMENTATION NOTES
+
+- The first actual completion replay refused on two stale SQLite fixture assumptions: the historical search schema lacked the new conversation corpus, and the contract snapshot excluded only memory FTS virtual/shadow tables. The historical fixture remains unchanged and is now asserted incompatible; the current two-corpus schema is checked exactly. The snapshot retains both corpora's base rows and all object DDL while excluding their derived FTS tables. Both owning suites passed (34 tests), with focused analyzer and diff checks clean. The refused receipt is retained as `reviews/s13-failed-receipt-01.json`; final live/platform obligations remain deferred to the combined milestone gate.

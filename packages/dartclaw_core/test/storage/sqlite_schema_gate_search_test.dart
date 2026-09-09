@@ -25,7 +25,7 @@ void main() {
       expect(store.database.select('PRAGMA schema_version').single.values.single, (schemaVersion as int) + 1);
       await store.close();
 
-      final released = _SearchStore.released();
+      final released = _SearchStore.currentUnmarked();
       final releasedBefore = _snapshot(released.database);
       await SqliteSchemaGate.prepareSearch(released.backend, storeName: 'search.db');
       expect(await released.state(), SqliteSchemaState.current);
@@ -35,7 +35,7 @@ void main() {
 
     test('classifies each missing FTS object without changing the store', () async {
       for (final object in SchemaIdentity.search.sqliteObjects) {
-        final store = _SearchStore.released();
+        final store = _SearchStore.currentUnmarked();
         store.database.execute('DROP ${object.type.toUpperCase()} "${object.name}"');
         final before = _snapshot(store.database);
 
@@ -49,7 +49,7 @@ void main() {
     });
 
     test('each existing FTS object declaration property is required', () async {
-      final store = _SearchStore.released();
+      final store = _SearchStore.currentUnmarked();
       final before = _snapshot(store.database);
       for (final object in SchemaIdentity.search.sqliteObjects) {
         for (final changed in [
@@ -116,6 +116,99 @@ void main() {
           root.deleteSync(recursive: true);
         }
       }
+    });
+
+    test('incomplete memory source refuses even with a complete conversation source', () async {
+      for (final missing in ['populate', 'authenticate']) {
+        final root = Directory.systemTemp.createTempSync('schema_gate_incomplete_memory_');
+        final health = IndexHealthStore(workspaceDir: root.path);
+        final store = _SearchStore.legacy();
+        final before = _snapshot(store.database);
+        var conversationCalls = 0;
+
+        await expectLater(
+          SqliteSchemaGate.prepareSearch(
+            store.backend,
+            storeName: 'search.db',
+            rebuild: SqliteSearchRebuild(
+              manifestRevision: 7,
+              manifestFingerprint: 'incomplete-$missing',
+              healthStore: health,
+              populate: missing == 'authenticate' ? (_) async => fail('must refuse before population') : null,
+              authenticateComplete: missing == 'populate'
+                  ? () async {
+                      fail('must refuse before authentication');
+                    }
+                  : null,
+              corpora: [
+                SqliteSearchCorpusRebuild(
+                  populate: (_) async => conversationCalls++,
+                  authenticateComplete: () async {
+                    conversationCalls++;
+                    return true;
+                  },
+                ),
+              ],
+            ),
+          ),
+          throwsA(
+            isA<SchemaIncompatibleException>().having(
+              (error) => error.toString(),
+              'stage',
+              contains('unavailable-source'),
+            ),
+          ),
+        );
+
+        expect(conversationCalls, 0, reason: missing);
+        expect(_snapshot(store.database), before, reason: missing);
+        final evidence = await health.read(canonicalRevision: 7, canonicalFingerprint: 'incomplete-$missing');
+        expect(evidence.state, IndexHealthState.degraded, reason: missing);
+        expect(evidence.failureStage, 'unavailable-source', reason: missing);
+        await store.close();
+        root.deleteSync(recursive: true);
+      }
+    });
+
+    test('released memory-only schema is incompatible and rebuilds both corpora atomically', () async {
+      final root = Directory.systemTemp.createTempSync('schema_gate_corpora_');
+      final health = IndexHealthStore(workspaceDir: root.path);
+      final store = _SearchStore.released025();
+      final before = _snapshot(store.database);
+      var failConversation = true;
+      final rebuild = SqliteSearchRebuild(
+        manifestRevision: 1,
+        manifestFingerprint: 'corpora',
+        healthStore: health,
+        populate: (tx) => tx.execute("INSERT INTO memory_chunks(text, source) VALUES ('memory', 'source')"),
+        authenticateComplete: () async => true,
+        corpora: [
+          SqliteSearchCorpusRebuild(
+            populate: (tx) async {
+              await tx.execute(
+                'INSERT INTO conversation_chunks(message_id, user_id, text, session_id, role, created_at) '
+                "VALUES ('message', 'owner', 'conversation', 'session', 'user', '2026-09-08T00:00:00Z')",
+              );
+              if (failConversation) throw StateError('conversation source failed');
+            },
+            authenticateComplete: () async => true,
+          ),
+        ],
+      );
+
+      expect((await store.state()), SqliteSchemaState.incompatible);
+      await expectLater(
+        SqliteSchemaGate.prepareSearch(store.backend, storeName: 'search.db', rebuild: rebuild),
+        throwsA(isA<SchemaIncompatibleException>()),
+      );
+      expect(_snapshot(store.database), before);
+      failConversation = false;
+      await SqliteSchemaGate.prepareSearch(store.backend, storeName: 'search.db', rebuild: rebuild);
+      expect(await store.state(), SqliteSchemaState.current);
+      expect(store.database.select('SELECT text FROM memory_chunks').single['text'], 'memory');
+      expect(store.database.select('SELECT text FROM conversation_chunks').single['text'], 'conversation');
+      await store.close();
+      root.deleteSync(recursive: true);
     });
 
     test('healthy publication and commit failures preserve prior contents and retry cleanly', () async {
@@ -376,7 +469,15 @@ final class _SearchStore {
     return _SearchStore(database);
   }
 
-  factory released() {
+  factory currentUnmarked() {
+    final database = sqlite3.openInMemory();
+    for (final sql in SchemaIdentity.search.bootstrapStatements) {
+      database.execute(sql);
+    }
+    return _SearchStore(database);
+  }
+
+  factory released025() {
     final database = sqlite3.openInMemory();
     createReleased025SearchSchema(database);
     return _SearchStore(database);
@@ -428,7 +529,7 @@ String _snapshot(Database database) {
   final data = <String, Object?>{};
   for (final row in objects.where((row) => row['type'] == 'table')) {
     final name = row['name'] as String;
-    if (name.startsWith('memory_chunks_fts')) continue;
+    if (name.contains('_fts')) continue;
     data[name] = database.select('SELECT * FROM "$name"').map((item) => item.values.toList()).toList();
   }
   return jsonEncode({'objects': objects.map((row) => row.values.toList()).toList(), 'data': data});

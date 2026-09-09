@@ -338,6 +338,15 @@ const _searchTables = [
     SchemaColumn('entry_id', 'TEXT'),
     SchemaColumn('entry_revision', 'INTEGER'),
   ]),
+  SchemaTable('conversation_chunks', [
+    SchemaColumn('id', 'INTEGER', primaryKey: true),
+    SchemaColumn('message_id', 'TEXT', notNull: true),
+    SchemaColumn('user_id', 'TEXT', notNull: true),
+    SchemaColumn('text', 'TEXT', notNull: true),
+    SchemaColumn('session_id', 'TEXT', notNull: true),
+    SchemaColumn('role', 'TEXT', notNull: true),
+    SchemaColumn('created_at', 'TEXT', notNull: true),
+  ]),
 ];
 
 const _searchBootstrap = [
@@ -353,6 +362,17 @@ const _searchBootstrap = [
   '''CREATE TRIGGER memory_chunks_au AFTER UPDATE ON memory_chunks BEGIN
     INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid, body) VALUES('delete', old.id, old.text);
     INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
+  '''CREATE TABLE conversation_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL, text TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    created_at TEXT NOT NULL)''',
+  '''CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(body, content='conversation_chunks', content_rowid='id')''',
+  '''CREATE TRIGGER conversation_chunks_ai AFTER INSERT ON conversation_chunks BEGIN
+    INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
+  '''CREATE TRIGGER conversation_chunks_ad AFTER DELETE ON conversation_chunks BEGIN
+    INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) VALUES('delete', old.id, old.text); END''',
+  '''CREATE TRIGGER conversation_chunks_au AFTER UPDATE ON conversation_chunks BEGIN
+    INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) VALUES('delete', old.id, old.text);
+    INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
 ];
 
 const _searchObjects = [
@@ -384,9 +404,45 @@ const _searchObjects = [
         'memory_chunks_fts, rowid, body) VALUES(\'delete\', old.id, old.text); '
         'INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
   ),
+  SqliteSchemaObject(
+    'table',
+    'conversation_chunks_fts',
+    'conversation_chunks_fts',
+    'CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(body, content=\'conversation_chunks\', '
+        'content_rowid=\'id\')',
+  ),
+  SqliteSchemaObject(
+    'trigger',
+    'conversation_chunks_ai',
+    'conversation_chunks',
+    'CREATE TRIGGER conversation_chunks_ai AFTER INSERT ON conversation_chunks BEGIN '
+        'INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
+  ),
+  SqliteSchemaObject(
+    'trigger',
+    'conversation_chunks_ad',
+    'conversation_chunks',
+    'CREATE TRIGGER conversation_chunks_ad AFTER DELETE ON conversation_chunks BEGIN '
+        'INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) '
+        'VALUES(\'delete\', old.id, old.text); END',
+  ),
+  SqliteSchemaObject(
+    'trigger',
+    'conversation_chunks_au',
+    'conversation_chunks',
+    'CREATE TRIGGER conversation_chunks_au AFTER UPDATE ON conversation_chunks BEGIN '
+        'INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) '
+        'VALUES(\'delete\', old.id, old.text); '
+        'INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
+  ),
 ];
 
 const _searchDrops = [
+  'DROP TRIGGER IF EXISTS conversation_chunks_ai',
+  'DROP TRIGGER IF EXISTS conversation_chunks_ad',
+  'DROP TRIGGER IF EXISTS conversation_chunks_au',
+  'DROP TABLE IF EXISTS conversation_chunks_fts',
+  'DROP TABLE IF EXISTS conversation_chunks',
   'DROP TRIGGER IF EXISTS memory_chunks_ai',
   'DROP TRIGGER IF EXISTS memory_chunks_ad',
   'DROP TRIGGER IF EXISTS memory_chunks_au',

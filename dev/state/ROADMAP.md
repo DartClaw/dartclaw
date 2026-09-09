@@ -88,8 +88,12 @@ and thresholds remain unchanged. Native x64 release qualification is still unava
 
 Focused diagnosis reproduced the same four gates without changing inputs or settings. Stored cosine scores match
 direct embeddings; calibration batching and model parameters produce identical vectors. No causal implementation
-fix was found. The [calibration reopening proposal](../bundle/docs/specs/0.26/retrieval-acceptance-decision.md)
-preserves the failed evaluation and requires a maintainer decision plus an independently unseen holdout.
+fix was found. The maintainer approved [representative calibration](../bundle/docs/specs/0.26/retrieval-acceptance-decision.md)
+on 2026-09-09. It preserves the failed evaluation and current requirements; changed mechanisms or settings require
+a separate decision, followed by an independently unseen holdout before acceptance. The independently reviewed
+32-document/60-query calibration completed with the same four no-result failures. Positive-best cosine `0.3066`
+overlaps negative maximum `0.5997`, ruling out a scalar cutoff that retains every positive and rejects every negative.
+The approved stop condition is met; no new candidate or unseen holdout has been consumed.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B

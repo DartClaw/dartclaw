@@ -677,7 +677,7 @@
       "result": "No main merge, tag, release publication, settings change or remote workflow dispatch performed. Exact-head remote CI and ruleset confirmation unrun. One verification-agent test-branch push violated authorization; branch deleted by fixture teardown and no PR created. See executionIncident."
     }
   ],
-  "recordedAt": "2026-09-09 13:55 CEST",
+  "recordedAt": "2026-09-09 15:35 CEST",
   "evidenceBase": "Paths are relative to the public checkout; ../dartclaw-private paths identify local private evidence that was not copied or published.",
   "executionIncident": {
     "repository": "DartClaw/workflow-test-todo-app",
@@ -736,7 +736,70 @@
       ".agent_temp/0.26-search-diagnosis/frozen-run01/report.json",
       ".agent_temp/0.26-search-diagnosis/frozen-run01/receipt.json"
     ],
-    "verification": "Independent focused tests: 24 passed, exit 0; independent code review: zero findings; proposal review: two sequencing/custody findings resolved in one round, independent closure passed. This validates the proposal text; calibration reopening and release acceptance remain unapproved. Workspace format: 1991 files, 0 changes; analyze --fatal-infos: no issues. Heavy unaffected suites not repeated. Existing source-mapped evidence remains authoritative; failed acceptance and missing native x64/remote gates remain unchanged.",
-    "sourceMapping": "Production, application, build tooling, workflow, package and lockfile sources are byte-identical to final implementation 0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a. This continuation changes only public diagnosis/decision records. Private manifest and PRD remain untouched; this proposal has not been accepted or exported back to canonical records."
+    "verification": "Historical snapshot before the later calibration approval: Independent focused tests: 24 passed, exit 0; independent code review: zero findings; proposal review: two sequencing/custody findings resolved in one round, independent closure passed. This validates the proposal text; calibration reopening and release acceptance remain unapproved. Workspace format: 1991 files, 0 changes; analyze --fatal-infos: no issues. Heavy unaffected suites not repeated. Existing source-mapped evidence remains authoritative; failed acceptance and missing native x64/remote gates remain unchanged.",
+    "sourceMapping": "Historical snapshot before the later calibration approval: Production, application, build tooling, workflow, package and lockfile sources are byte-identical to final implementation 0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a. This continuation changes only public diagnosis/decision records. Private manifest and PRD remain untouched; this proposal has not been accepted or exported back to canonical records."
+  },
+  "searchCalibration": {
+    "recordedAt": "2026-09-09 15:35 CEST",
+    "status": "stopped-mechanism-or-scope-decision-required",
+    "sourceRevision": "5368a4bec94ac86c3d6b412eb676fec6d2865b15",
+    "productionChanges": false,
+    "authorization": "Maintainer approved representative calibration on 2026-09-09; recorded in both canonical private PRDs without private commit. Changes to mechanism, settings or scope remain separately unapproved.",
+    "decisionRecord": "dev/bundle/docs/specs/0.26/retrieval-acceptance-decision.md",
+    "inputSha256": "fb3e0782c2f3334ffa25b5ab120d722058b122abe079072e49737b7782bdb737",
+    "reportSha256": "f8da3720f9963ed6cf429796e3d9642447cce9e0881e6225174ddd8863a66d42",
+    "measurements": {
+      "documents": 32,
+      "queries": 60,
+      "slices": 144,
+      "gates": 122,
+      "passedGates": 118,
+      "failedGates": 4,
+      "rankings": 360,
+      "keywordCorrectEmptyPerBackend": 10,
+      "vectorCorrectEmptyPerBackend": 1,
+      "hybridCorrectEmptyPerBackend": 1,
+      "noResultQueries": 10,
+      "foreignOwnerLeaks": 0,
+      "wrongCorpusLeaks": 0,
+      "unembeddedPerBackend": 0,
+      "minimumBestRelevantCosine": 0.306599693193539,
+      "maximumNoResultCandidateCosine": 0.5997379651580476
+    },
+    "result": "One completed run with unchanged settings fails four no-result gates on both backends. No scalar cutoff can retain at least one relevant result for every calibration positive while rejecting all no-result candidates. Approved stop condition met. No candidate selected, no threshold/model/judgment changed after scoring, no exposed evaluation rerun and no unseen holdout authored or consumed.",
+    "preservation": {
+      "allBeforeAfterHashesIdentical": true,
+      "originalFailedReportSha256": "14297ea7265e404b55deacae022e3567e09cc21423883565c2eabdacaa5fbdf5",
+      "temporaryRoleRemoved": true,
+      "containerRestoredStopped": true
+    },
+    "verification": "Independent scoreblind judgment review approved after one bounded wording correction. Runner review findings closed; failure checks pass with normal and optimized Python. Dart input-hash and safe-error checks pass. Workspace format: 1991 files, zero changes; analyze --fatal-infos and explicit runner analysis: no issues. Actual native measurement completed with exit 1 for the four quality failures, not infrastructure failure. Heavy unaffected suites remain source-mapped, not repeated. Independent result review: PASS, zero findings; this confirms evidence integrity and the stop conclusion, not retrieval acceptance.",
+    "evidencePaths": [
+      ".agent_temp/0.26-recalibration/authorization-receipt.json",
+      ".agent_temp/0.26-recalibration/freeze-receipt.json",
+      ".agent_temp/0.26-recalibration/calibration-frozen.json",
+      ".agent_temp/0.26-recalibration/calibration-frozen.sha256",
+      ".agent_temp/0.26-recalibration/judgment-review.md",
+      ".agent_temp/0.26-recalibration/judgment-review-closure.md",
+      ".agent_temp/0.26-recalibration/native-provenance.md",
+      ".agent_temp/0.26-recalibration/source-native-input-provenance.json",
+      ".agent_temp/0.26-recalibration/runner-review.md",
+      ".agent_temp/0.26-recalibration/runner-guard-checks.json",
+      ".agent_temp/0.26-recalibration/launcher-guard-checks.json",
+      ".agent_temp/0.26-recalibration/launcher-optimized-checks.json",
+      ".agent_temp/0.26-recalibration/run01/receipt.json",
+      ".agent_temp/0.26-recalibration/run01/results/report.json",
+      ".agent_temp/0.26-recalibration/run01/results/artifact-sha256.txt",
+      ".agent_temp/0.26-recalibration/measurement-summary.json",
+      ".agent_temp/0.26-recalibration/format.log",
+      ".agent_temp/0.26-recalibration/analyze.log",
+      ".agent_temp/0.26-recalibration/runner-analyze.log",
+      ".agent_temp/0.26-recalibration/private-outcome-receipt.json",
+      ".agent_temp/0.26-recalibration/result-review.md",
+      ".agent_temp/0.26-recalibration/verification-receipt.json",
+      ".agent_temp/0.26-recalibration/artifact-sha256.txt",
+      ".agent_temp/0.26-recalibration/format-final.log"
+    ],
+    "nextDecision": "Explicit answer-relevance mechanism investigation or reduced/deferred hybrid release scope. Neither authorized by the completed calibration. Current requirements and all outstanding native x64/remote release gates remain unchanged."
   }
 }

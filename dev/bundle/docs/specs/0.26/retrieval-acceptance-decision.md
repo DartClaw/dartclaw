@@ -1,7 +1,9 @@
 # Retrieval acceptance decision
 
-Status: proposed, pending maintainer decision. Recorded 2026-09-09. This proposal does not change the PRD,
-frozen evaluator, selected settings, or release acceptance. Integration source: `930f72c4332ea2a06c97f88d64a29b79d678f625`.
+Status: approved calibration completed on 2026-09-09; its stop condition is met. A separate mechanism/scope decision is required.
+Calibration authorization: "Please proceed with this."
+The original frozen evaluator, selected settings and failed release acceptance remain unchanged.
+Integration source for the diagnosis: `930f72c4332ea2a06c97f88d64a29b79d678f625`.
 
 ## Diagnosis
 
@@ -29,7 +31,7 @@ exposed evaluation negatives. This is an observed limitation of cosine-based rel
 choosing a new threshold. Changing RRF weights cannot make vector-only retrieval empty or eliminate a surviving
 vector candidate when the lexical ranking is empty.
 
-## Proposed decision
+## Approved decision
 
 Keep 0.26 release acceptance blocked and explicitly reopen calibration under a second, separately versioned
 protocol. Preserve the current relevance and no-result requirements. Permit experiments only on calibration data;
@@ -43,7 +45,8 @@ already selected and sealed using calibration evidence alone. Its result cannot 
 that candidate in favor of another under the same protocol. Changing a candidate after that result requires a new
 approved calibration decision and another unseen holdout.
 
-Alternative: leave the protocol closed and keep the feature blocked until a causal implementation defect is found.
+Alternative considered and declined: leave the protocol closed and keep the feature blocked until a causal
+implementation defect is found.
 Shipping the failed gate, reclassifying its negatives as relevant, or raising the threshold against exposed questions
 would change the accepted product contract and is not part of either option.
 
@@ -98,6 +101,53 @@ would change the accepted product contract and is not part of either option.
    future reopening requires a new decision and another independently unseen holdout.
 
 ## Evidence and release consequences
+
+### Approved calibration outcome
+
+The separately authored calibration contains 32 documents and 60 queries. A reviewer checked all judgments without
+scores, corrected one unsupported relationship in a positive question, then approved the revised set. The input was
+frozen at 2026-09-09 15:09 CEST with SHA-256
+`fb3e0782c2f3334ffa25b5ab120d722058b122abe079072e49737b7782bdb737` before measurement.
+
+One completed run used the unchanged production implementation at `5368a4bec94ac86c3d6b412eb676fec6d2865b15`,
+with the original model, settings, projections, backend pipelines and metric/gate authority. It produced 144 slices,
+122 gates and 360 rankings. Both backends embedded all 32 documents, with zero unembedded records or owner/corpus
+leaks. Of the 122 gates, 118 passed, including every positive-quality and isolation gate. The four vector/hybrid
+no-result gates failed:
+
+| Backend | Keyword correct-empty | Vector correct-empty | Hybrid correct-empty |
+|---|---:|---:|---:|
+| SQLite | 10/10 | 1/10 | 1/10 |
+| PostgreSQL | 10/10 | 1/10 | 1/10 |
+
+The weakest positive's best relevant cosine is `0.306599693193539`; the strongest no-result candidate scores
+`0.5997379651580476`. These direct bounds are identical on both backends. Keeping at least one relevant result for
+every positive requires a cutoff at or below the former; rejecting every no-result candidate requires one above the
+latter. No scalar cutoff can do both. All positives have a relevant candidate above the current `0.20` cutoff.
+This is a feasibility bound, not a threshold sweep or a proposed setting.
+
+For example, a question asks the colour of train 543. The matching passage gives train 543's departure time and
+platform, but no colour. Its high similarity (`0.5997`) reflects the shared topic without supplying the requested
+fact. A valid paraphrase about the owner of an accounting-service endpoint migration scores only `0.3066`.
+
+**Stop here under the approved decision.** No candidate was selected; no mechanism, threshold, model or judgment
+was changed after scoring. The original exposed evaluation was not rerun in this calibration attempt. No new unseen
+holdout was authored or consumed. The original failed report and all five frozen assets remain byte-identical.
+The temporary restricted PostgreSQL login was removed and the fixture container restored to stopped state.
+
+The next product choice is separate: investigate an explicit answer-relevance check, or reduce/defer the hybrid
+feature's release scope. The recommended next investigation is a bounded relevance check using the existing model
+harness, evaluated on calibration before any production commitment. It would add model latency and cost; neither its
+quality nor acceptable overhead has been demonstrated. ADR-050 and the Phase B PRD currently exclude additional
+retrieval stages, so this investigation requires explicit authorization. The current requirements and release block
+remain in force; a successful future candidate still needs the independent unseen holdout protocol above.
+
+Calibration evidence is under `.agent_temp/0.26-recalibration/`: the frozen input and seal, scoreblind judgment review
+and closure, native provenance, runner review and failure checks, `run01/receipt.json`, `run01/results/report.json`,
+and `measurement-summary.json`. The completed failed report's SHA-256 is
+`f8da3720f9963ed6cf429796e3d9642447cce9e0881e6225174ddd8863a66d42`.
+
+### Preserved diagnosis and remaining release gates
 
 Focused artifacts are under `.agent_temp/0.26-search-diagnosis/`: `score_probe.dart`, `score-probe.json`,
 `calibration_parity_probe.dart`, `calibration-parity.json`, `score-path.md`, and `embedding-contract.md`.

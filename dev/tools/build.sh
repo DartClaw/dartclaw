@@ -6,6 +6,9 @@ BUILD_DIR="$ROOT_DIR/build"
 VERSION_FILE="$ROOT_DIR/packages/dartclaw_runtime/lib/src/version.dart"
 TARGET="${DARTCLAW_RELEASE_TARGET:-}"
 SKIP_COMPILE="${DARTCLAW_BUILD_SKIP_COMPILE:-}"
+NATIVE_MANIFEST="${DARTCLAW_NATIVE_MANIFEST:-$ROOT_DIR/dev/native_artifacts.json}"
+NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-}"
+NATIVE_ALLOW_DOWNLOAD="${DARTCLAW_NATIVE_ALLOW_DOWNLOAD:-}"
 
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
 cleanup() {
@@ -80,7 +83,7 @@ compile_binary() {
   fi
 
   local cli_stage="$stage_root/cli-$binary_name"
-  (cd "$ROOT_DIR/apps/dartclaw_cli" && dart build cli -t "bin/$entry_point.dart" -o "$cli_stage")
+  (cd "$native_workspace/apps/dartclaw_cli" && dart build cli -t "bin/$entry_point.dart" -o "$cli_stage")
   cp "$cli_stage/bundle/bin/$entry_point" "$BUILD_DIR/bin/$binary_name"
   if [[ ! -d "$BUILD_DIR/lib" ]]; then
     cp -R "$cli_stage/bundle/lib" "$BUILD_DIR/lib"
@@ -116,6 +119,34 @@ release_arch="$(arch_name)"
 if [[ -n "$TARGET" ]]; then
   release_os="$(target_os_name "$TARGET")"
   release_arch="$(target_arch_name "$TARGET")"
+fi
+release_target="$release_os-$release_arch"
+if [[ -z "$NATIVE_CACHE" ]]; then
+  echo "DARTCLAW_NATIVE_ARCHIVE_CACHE is required for release builds" >&2
+  exit 1
+fi
+prepare_args=(
+  --manifest "$NATIVE_MANIFEST"
+  --target "$release_target"
+  --cache "$NATIVE_CACHE"
+  --stage-parent "$stage_root"
+  --hook-root-only
+)
+if [[ "$NATIVE_ALLOW_DOWNLOAD" == "1" ]]; then
+  prepare_args+=(--allow-download)
+fi
+echo "==> Verifying native archive for $release_target"
+native_hook_root="$(cd "$ROOT_DIR" && dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart "${prepare_args[@]}")"
+
+if [[ -z "$SKIP_COMPILE" ]]; then
+  native_workspace="$stage_root/workspace"
+  dart run "$ROOT_DIR/dev/tools/stage_native_build_workspace.dart" \
+    --source "$ROOT_DIR" \
+    --destination "$native_workspace" \
+    --hook-root "$native_hook_root" \
+    --release v0.3.0 \
+    --repository https://github.com/leehack/llamadart-native
+  (cd "$native_workspace" && dart pub get --offline --enforce-lockfile)
 fi
 : > "$BUILD_DIR/SHA256SUMS.txt"
 for binary_name in dartclaw dartclaw-workflow; do

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1",
+  "story": "S07",
+  "fis": "s07-native-packaging-and-platform-proof-harness.md",
+  "plan": "plan.json",
+  "snapshot": "c4f5cf4577ed+89f3797d6187",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ c4f5cf4577ed+89f3797d6187",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 117.327,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/native_artifact_preparation_test.dart",
+      "exit": 0,
+      "duration": 1.271,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/native_packaging_contract_test.dart apps/dartclaw_cli/test/tool/build_tool_test.dart",
+      "exit": 0,
+      "duration": 16.556,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/native_embedding_platform_gate_test.dart",
+      "exit": 0,
+      "duration": 8.361,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI04 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/release_binaries_workflow_test.dart",
+      "exit": 0,
+      "duration": 0.638,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

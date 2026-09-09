@@ -20,6 +20,9 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.runs_on }}
+    env:
+      DARTCLAW_NATIVE_ARCHIVE_CACHE: ${{ runner.temp }}/dartclaw-native-cache
+      DARTCLAW_EMBEDDING_MODEL_PATH: ${{ runner.temp }}/embeddinggemma-300M-Q8_0.gguf
     strategy:
       fail-fast: false
       matrix:
@@ -50,8 +53,37 @@ jobs:
         with:
           sdk: 3.13.0
 
+      - name: Install Linux native dependency
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgomp1
+
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
+
+      - name: Prepare verified native archive
+        if: runner.os != 'Windows'
+        run: |
+          dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart \
+            --target "${{ matrix.target }}" \
+            --cache "$DARTCLAW_NATIVE_ARCHIVE_CACHE" \
+            --stage-parent "$RUNNER_TEMP" \
+            --allow-download
+
+      - name: Prepare verified native archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart `
+            --target "${{ matrix.target }}" `
+            --cache "$env:DARTCLAW_NATIVE_ARCHIVE_CACHE" `
+            --stage-parent "$env:RUNNER_TEMP" `
+            --allow-download
+
+      - name: Prepare verified embedding model
+        if: matrix.target != 'macos-x64'
+        run: dart run apps/dartclaw_cli/tool/prepare_native_embedding_model.dart --destination "${{ env.DARTCLAW_EMBEDDING_MODEL_PATH }}"
 
       # Windows builds run the generator directly; every other target gets both
       # steps from build.sh. The bridge must exist before the generator runs.
@@ -108,7 +140,7 @@ jobs:
           }
 
       - name: Build standalone binary
-        if: runner.os != 'Windows'
+        if: matrix.target == 'macos-x64'
         run: bash dev/tools/build.sh
         env:
           DARTCLAW_RELEASE_TARGET: ${{ matrix.target }}
@@ -118,10 +150,14 @@ jobs:
         shell: pwsh
         run: ./dev/tools/build_windows_test.ps1
 
-      - name: Build Windows standalone binary
+      - name: Prove native embedding package
+        if: runner.os != 'Windows' && matrix.target != 'macos-x64'
+        run: dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target "${{ matrix.target }}" --evidence "build/native-embedding-${{ matrix.target }}.json"
+
+      - name: Prove native embedding package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./dev/tools/build_windows.ps1 -ReleaseTarget windows-x64
+        run: dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target windows-x64 --evidence build/native-embedding-windows-x64.json
 
       - name: Test native Windows process lifecycle
         if: runner.os == 'Windows'
@@ -147,6 +183,14 @@ jobs:
             build/dartclaw-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
             build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}
             build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
+
+      - name: Upload native embedding evidence
+        if: matrix.target != 'macos-x64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-embedding-${{ matrix.target }}
+          if-no-files-found: error
+          path: build/native-embedding-${{ matrix.target }}.json
 
   windows-installer:
     name: Test Windows installer

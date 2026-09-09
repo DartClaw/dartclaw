@@ -1,8 +1,10 @@
 @Tags(['slow'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -72,103 +74,147 @@ void main() {
     if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
   });
 
-  test('workflow-only: produces both archives with the excluded libraries absent', () async {
-    final result = await Process.run('bash', [buildScript], workingDirectory: repoRoot);
-    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+  test(
+    'workflow-only: produces both archives with the excluded libraries absent',
+    () async {
+      final result = await Process.run('bash', [buildScript], workingDirectory: repoRoot);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
-    final full = File(p.join(buildDir.path, 'bin', 'dartclaw')).readAsBytesSync();
-    final lean = File(p.join(buildDir.path, 'bin', 'dartclaw-workflow')).readAsBytesSync();
-    final fullText = String.fromCharCodes(full);
-    final leanText = String.fromCharCodes(lean);
-    const excludedLibraries = [
-      'package:shelf/',
-      'package:shelf_router/',
-      'package:shelf_static/',
-      'package:dartclaw_client/',
-      'package:dartclaw_runtime/src/server.dart',
-      'package:dartclaw_runtime/src/api/',
-      'package:dartclaw_runtime/src/web/',
-      'package:dartclaw_runtime/src/auth/auth_middleware.dart',
-      'package:dartclaw_runtime/src/runtime/channel_wiring.dart',
-      'package:dartclaw_whatsapp/src/whatsapp_channel.dart',
-      'package:dartclaw_whatsapp/src/gowa_manager.dart',
-      'package:dartclaw_signal/src/signal_channel.dart',
-      'package:dartclaw_signal/src/signal_cli_manager.dart',
-      'package:dartclaw_google_chat/src/google_chat_channel.dart',
-      'package:dartclaw_google_chat/src/google_chat_webhook.dart',
-      'package:dartclaw_google_chat/src/workspace_events_manager.dart',
-    ];
-    for (final marker in excludedLibraries) {
-      expect(fullText.contains(marker), isTrue, reason: 'Positive control: $marker');
-      expect(leanText.contains(marker), isFalse, reason: 'Lean retains $marker');
-    }
-    expect(lean.length, lessThan(full.length));
-    print('Binary bytes: full=${full.length}, lean=${lean.length}');
-    for (final name in ['serve', 'workflow']) {
-      final refused = Process.runSync(p.join(buildDir.path, 'bin', 'dartclaw-workflow'), [name]);
-      expect(refused.exitCode, 64);
-      expect(refused.stderr, contains('Could not find a command named "$name".'));
-    }
-    for (final binaryName in ['dartclaw', 'dartclaw-workflow']) {
-      final archive = p.join(buildDir.path, '$binaryName-v$version-${_hostOsName()}-${_hostArchName()}.tar.gz');
-      final archiveSha = '$archive.sha256';
-      final sums = p.join(buildDir.path, 'SHA256SUMS.txt');
-      final binaryPath = p.join(buildDir.path, 'bin', binaryName);
-      expect(File(binaryPath).existsSync(), isTrue);
-      expect(File(archive).existsSync(), isTrue);
-      expect(File(archiveSha).existsSync(), isTrue);
-      expect(File(sums).existsSync(), isTrue);
-      expect(
-        buildDir.listSync().whereType<File>().any((file) => p.basename(file.path).startsWith('dartclaw-assets-')),
-        isFalse,
-      );
+      final full = File(p.join(buildDir.path, 'bin', 'dartclaw')).readAsBytesSync();
+      final lean = File(p.join(buildDir.path, 'bin', 'dartclaw-workflow')).readAsBytesSync();
+      final fullText = String.fromCharCodes(full);
+      final leanText = String.fromCharCodes(lean);
+      const excludedLibraries = [
+        'package:shelf/',
+        'package:shelf_router/',
+        'package:shelf_static/',
+        'package:dartclaw_client/',
+        'package:dartclaw_runtime/src/server.dart',
+        'package:dartclaw_runtime/src/api/',
+        'package:dartclaw_runtime/src/web/',
+        'package:dartclaw_runtime/src/auth/auth_middleware.dart',
+        'package:dartclaw_runtime/src/runtime/channel_wiring.dart',
+        'package:dartclaw_whatsapp/src/whatsapp_channel.dart',
+        'package:dartclaw_whatsapp/src/gowa_manager.dart',
+        'package:dartclaw_signal/src/signal_channel.dart',
+        'package:dartclaw_signal/src/signal_cli_manager.dart',
+        'package:dartclaw_google_chat/src/google_chat_channel.dart',
+        'package:dartclaw_google_chat/src/google_chat_webhook.dart',
+        'package:dartclaw_google_chat/src/workspace_events_manager.dart',
+      ];
+      for (final marker in excludedLibraries) {
+        expect(fullText.contains(marker), isTrue, reason: 'Positive control: $marker');
+        expect(leanText.contains(marker), isFalse, reason: 'Lean retains $marker');
+      }
+      expect(lean.length, lessThan(full.length));
+      print('Binary bytes: full=${full.length}, lean=${lean.length}');
+      for (final name in ['serve', 'workflow']) {
+        final refused = Process.runSync(p.join(buildDir.path, 'bin', 'dartclaw-workflow'), [name]);
+        expect(refused.exitCode, 64);
+        expect(refused.stderr, contains('Could not find a command named "$name".'));
+      }
+      for (final binaryName in ['dartclaw', 'dartclaw-workflow']) {
+        final archive = p.join(buildDir.path, '$binaryName-v$version-${_hostOsName()}-${_hostArchName()}.tar.gz');
+        final archiveSha = '$archive.sha256';
+        final sums = p.join(buildDir.path, 'SHA256SUMS.txt');
+        final binaryPath = p.join(buildDir.path, 'bin', binaryName);
+        expect(File(binaryPath).existsSync(), isTrue);
+        expect(File(archive).existsSync(), isTrue);
+        expect(File(archiveSha).existsSync(), isTrue);
+        expect(File(sums).existsSync(), isTrue);
+        expect(
+          buildDir.listSync().whereType<File>().any((file) => p.basename(file.path).startsWith('dartclaw-assets-')),
+          isFalse,
+        );
 
-      final retiredCommand = Process.runSync(binaryPath, ['assets']);
-      expect(retiredCommand.exitCode, 64);
-      expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
+        final retiredCommand = Process.runSync(binaryPath, ['assets']);
+        expect(retiredCommand.exitCode, 64);
+        expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
 
-      final entries = _tarEntries(archive);
-      expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/', 'lib/${_hostLibraryName()}']));
-      expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
+        final entries = _tarEntries(archive);
+        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/', 'lib/${_hostLibraryName()}']));
+        expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
 
-      final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
-      expect(File(archiveSha).readAsStringSync().trim(), checksumLine);
-      expect(File(sums).readAsLinesSync(), contains(checksumLine));
-      expect(File(sums).readAsLinesSync(), hasLength(2));
-      final versionResult = Process.runSync(binaryPath, ['--version']);
-      expect(versionResult.exitCode, 0);
-      expect((versionResult.stdout as String).trim(), dartclawVersion);
+        final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
+        expect(File(archiveSha).readAsStringSync().trim(), checksumLine);
+        expect(File(sums).readAsLinesSync(), contains(checksumLine));
+        expect(File(sums).readAsLinesSync(), hasLength(2));
+        final versionResult = Process.runSync(binaryPath, ['--version']);
+        expect(versionResult.exitCode, 0);
+        expect((versionResult.stdout as String).trim(), dartclawVersion);
 
-      // Regression guard for the bundled-SQLite migration: a binary built without
-      // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
-      // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
-      // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
-      final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
-      addTearDown(() => smokeDir.deleteSync(recursive: true));
-      final smokeWorkspace = p.join(smokeDir.path, 'workspace');
-      Directory(smokeWorkspace).createSync(recursive: true);
-      await seedCanonicalMemory(
-        smokeWorkspace,
-        topics: const {
-          'general': ['Bundled sqlite smoke entry'],
-        },
-      );
-      final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
-      File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
+        // Regression guard for the bundled-SQLite migration: a binary built without
+        // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
+        // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
+        // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
+        final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
+        addTearDown(() => smokeDir.deleteSync(recursive: true));
+        final smokeWorkspace = p.join(smokeDir.path, 'workspace');
+        Directory(smokeWorkspace).createSync(recursive: true);
+        await seedCanonicalMemory(
+          smokeWorkspace,
+          topics: const {
+            'general': ['Bundled sqlite smoke entry'],
+          },
+        );
+        final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
+        File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
 
-      final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
-      expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
-      expect(rebuild.stdout, contains('Rebuilt index:'));
-    }
-  }, timeout: const Timeout(Duration(minutes: 15)));
+        final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
+        expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
+        expect(rebuild.stdout, contains('Rebuilt index:'));
+      }
+    },
+    skip: Platform.environment['DARTCLAW_NATIVE_ARCHIVE_CACHE'] == null
+        ? 'A real release build requires the verified native archive cache.'
+        : false,
+    timeout: const Timeout(Duration(minutes: 15)),
+  );
 
   test('produces target-stamped stub archives without a bundled library', () {
+    final fixture = Directory.systemTemp.createTempSync('dartclaw-native-build-stub');
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final cache = Directory(p.join(fixture.path, 'cache'))..createSync();
+    final manifest = File(p.join(fixture.path, 'manifest.json'));
+    final bytes = utf8.encode('tiny native archive for a compile-free packaging test');
+    final digest = sha256.convert(bytes).toString();
+    final artifacts = <String, Object?>{};
+    for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
+      final bundle = target == 'macos-x64' ? 'macos-x86_64' : target;
+      final archive = 'llamadart-native-$bundle-v0.3.0.tar.gz';
+      File(p.join(cache.path, archive)).writeAsBytesSync(bytes);
+      artifacts[target] = {
+        'bundle': bundle,
+        'archive': archive,
+        'url': 'https://example.test/$archive',
+        'size': bytes.length,
+        'sha256': digest,
+      };
+    }
+    manifest.writeAsStringSync(
+      jsonEncode({
+        'release': 'v0.3.0',
+        'repository': 'https://example.test/native',
+        'model': {
+          'basename': 'tiny-model.gguf',
+          'url': 'https://example.test/tiny-model.gguf',
+          'size': bytes.length,
+          'sha256': digest,
+        },
+        'artifacts': artifacts,
+      }),
+    );
     for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
       final result = Process.runSync(
         'bash',
         [buildScript],
         workingDirectory: repoRoot,
-        environment: {'DARTCLAW_RELEASE_TARGET': target, 'DARTCLAW_BUILD_SKIP_COMPILE': '1'},
+        environment: {
+          'DARTCLAW_RELEASE_TARGET': target,
+          'DARTCLAW_BUILD_SKIP_COMPILE': '1',
+          'DARTCLAW_NATIVE_ARCHIVE_CACHE': cache.path,
+          'DARTCLAW_NATIVE_MANIFEST': manifest.path,
+        },
       );
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 

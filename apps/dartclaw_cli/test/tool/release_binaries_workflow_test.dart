@@ -47,10 +47,7 @@ void main() {
     ]);
 
     expect(buildStep('Build standalone binary')['run'], 'bash dev/tools/build.sh');
-    expect(
-      buildStep('Build Windows standalone binary')['run'],
-      './dev/tools/build_windows.ps1 -ReleaseTarget windows-x64',
-    );
+    expect(buildStep('Build standalone binary')['if'], "matrix.target == 'macos-x64'");
     final smoke = buildStep('Smoke-test Windows release artifact');
     expect(smoke['run'], contains('-ArtifactPath "build/dartclaw-v\$env:DARTCLAW_VERSION-windows-x64.zip"'));
     expect(smoke['run'], contains('-SkipProviders'));
@@ -67,6 +64,10 @@ void main() {
       r'build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256',
     ]);
     expect(buildSteps.any((step) => '${step['uses']}'.startsWith('softprops/action-gh-release@')), isFalse);
+
+    final evidenceUpload = buildStep('Upload native embedding evidence');
+    expect(evidenceUpload['if'], "matrix.target != 'macos-x64'");
+    expect((evidenceUpload['with'] as YamlMap)['name'], r'native-embedding-${{ matrix.target }}');
   });
 
   test('fresh release checkouts generate embedded assets before platform builds', () {
@@ -79,9 +80,39 @@ void main() {
 
     final generateIndex = stepNames.indexOf('Generate embedded assets');
     expect(generateIndex, lessThan(stepNames.indexOf('Build standalone binary')));
-    expect(generateIndex, lessThan(stepNames.indexOf('Build Windows standalone binary')));
+    expect(generateIndex, lessThan(stepNames.indexOf('Prove native embedding package (Windows)')));
     expect(buildStep('Generate embedded assets')['if'], "runner.os == 'Windows'");
     expect(buildStep('Generate embedded assets')['run'], 'dart run dev/tools/embed_assets.dart');
+  });
+
+  test('four native runners own package proof while macOS x64 remains build-only', () {
+    final env = buildJob['env'] as YamlMap;
+    expect(env['DARTCLAW_NATIVE_ARCHIVE_CACHE'], r'${{ runner.temp }}/dartclaw-native-cache');
+    expect(env['DARTCLAW_EMBEDDING_MODEL_PATH'], r'${{ runner.temp }}/embeddinggemma-300M-Q8_0.gguf');
+
+    final posixGate = buildStep('Prove native embedding package');
+    expect(posixGate['if'], "runner.os != 'Windows' && matrix.target != 'macos-x64'");
+    expect(
+      posixGate['run'],
+      contains(
+        r'dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target "${{ matrix.target }}" --evidence "build/native-embedding-${{ matrix.target }}.json"',
+      ),
+    );
+    final windowsGate = buildStep('Prove native embedding package (Windows)');
+    expect(windowsGate['if'], "runner.os == 'Windows'");
+    expect(
+      windowsGate['run'],
+      'dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target windows-x64 --evidence build/native-embedding-windows-x64.json',
+    );
+
+    final names = buildSteps.map((step) => step['name']).toList();
+    expect(names.indexOf('Install Linux native dependency'), lessThan(names.indexOf('Install dependencies')));
+    expect(buildStep('Install Linux native dependency')['run'], contains('apt-get install --yes libgomp1'));
+    expect(names.indexOf('Prepare verified native archive'), lessThan(names.indexOf('Prove native embedding package')));
+    expect(
+      names.indexOf('Prepare verified embedding model'),
+      lessThan(names.indexOf('Prove native embedding package')),
+    );
   });
 
   test('installer gates one atomic publication job', () {

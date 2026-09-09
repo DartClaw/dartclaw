@@ -41,10 +41,22 @@ function Assert-NoSystemSqliteOverride {
 function Assert-WindowsReleaseLayout {
   param(
     [Parameter(Mandatory)][string]$Root,
-    [string]$BinaryName = 'dartclaw'
+    [string]$BinaryName = 'dartclaw',
+    [string]$NativeLibraryRoot = ''
   )
 
-  $expected = @('VERSION', "bin/$BinaryName.exe", 'lib/sqlite3.dll')
+  $expected = @('VERSION', "bin/$BinaryName.exe")
+  if ($NativeLibraryRoot) {
+    $nativePrefix = $NativeLibraryRoot.TrimEnd('\') + '\'
+    $expected += @(Get-ChildItem -LiteralPath $NativeLibraryRoot -Recurse -File | ForEach-Object {
+        'lib/' + $_.FullName.Substring($nativePrefix.Length).Replace('\', '/')
+      })
+  } else {
+    $expected += 'lib/sqlite3.dll'
+  }
+  if ('lib/sqlite3.dll' -notin $expected) {
+    throw 'Windows artifact validation failed: native library set omitted lib/sqlite3.dll.'
+  }
   foreach ($relativePath in $expected) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
       throw "Windows artifact validation failed: missing $relativePath."
@@ -170,6 +182,56 @@ if ($MyInvocation.InvocationName -ne '.') {
 
   $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-windows-build-$([guid]::NewGuid())"
   try {
+    New-Item -ItemType Directory -Path $tempRoot | Out-Null
+    $cacheDirectory = $env:DARTCLAW_NATIVE_ARCHIVE_CACHE
+    if (-not $cacheDirectory) {
+      throw 'DARTCLAW_NATIVE_ARCHIVE_CACHE must name the verified native archive cache.'
+    }
+    $manifestPath = if ($env:DARTCLAW_NATIVE_MANIFEST) {
+      $env:DARTCLAW_NATIVE_MANIFEST
+    } else {
+      Join-Path $script:RootDir 'dev/native_artifacts.json'
+    }
+    $preparer = Join-Path $script:RootDir 'apps/dartclaw_cli/tool/native_artifact_preparation.dart'
+    $prepareArgs = @(
+      'run', $preparer,
+      '--manifest', $manifestPath,
+      '--target', $ReleaseTarget,
+      '--cache', $cacheDirectory,
+      '--stage-parent', $tempRoot,
+      '--hook-root-only'
+    )
+    if ($env:DARTCLAW_NATIVE_ALLOW_DOWNLOAD -eq '1') {
+      $prepareArgs += '--allow-download'
+    }
+    $nativeHookRoot = (& dart @prepareArgs | Select-Object -Last 1).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $nativeHookRoot) {
+      throw 'Windows native archive preparation failed.'
+    }
+
+    $nativeManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $releaseWorkspace = Join-Path $tempRoot 'workspace'
+    & dart run (Join-Path $script:RootDir 'dev/tools/stage_native_build_workspace.dart') `
+      --source $script:RootDir `
+      --destination $releaseWorkspace `
+      --hook-root $nativeHookRoot `
+      --release $nativeManifest.release `
+      --repository $nativeManifest.repository
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Windows release workspace staging failed.'
+    }
+    Push-Location $releaseWorkspace
+    try {
+      & dart pub get --offline --enforce-lockfile
+      if ($LASTEXITCODE -ne 0) {
+        throw 'Windows staged release dependency resolution failed.'
+      }
+    } finally {
+      Pop-Location
+    }
+    $cliDir = Join-Path $releaseWorkspace 'apps/dartclaw_cli'
+    $nativeLibraryRoot = Join-Path $tempRoot 'native-libraries'
+
     foreach ($binary in @(
         @{ Name = 'dartclaw'; Entry = 'dartclaw' },
         @{ Name = 'dartclaw-workflow'; Entry = 'dartclaw_workflow' }
@@ -190,24 +252,26 @@ if ($MyInvocation.InvocationName -ne '.') {
       $bundle = Join-Path $cliStage 'bundle'
       $compiledExecutable = Join-Path $bundle "bin/$entryName.exe"
       Assert-WindowsBuildBundle -Root $bundle -BinaryName $entryName
+      if (-not (Test-Path -LiteralPath $nativeLibraryRoot)) {
+        Copy-Item -LiteralPath (Join-Path $bundle 'lib') -Destination $nativeLibraryRoot -Recurse
+      }
       Invoke-WindowsExecutableSmoke -Executable $compiledExecutable -BinaryName $binaryName
       Invoke-WindowsBundledSqliteCheck -Executable $compiledExecutable -BinaryName $binaryName
 
       $stage = Join-Path $tempRoot "$binaryName-stage"
       $extracted = Join-Path $tempRoot "$binaryName-extracted"
       New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
-      New-Item -ItemType Directory -Path (Join-Path $stage 'lib') -Force | Out-Null
       Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $version -NoNewline
       Copy-Item -LiteralPath $compiledExecutable -Destination (Join-Path $stage "bin/$binaryName.exe")
-      Copy-Item -LiteralPath (Join-Path $bundle 'lib/sqlite3.dll') -Destination (Join-Path $stage 'lib/sqlite3.dll')
-      Assert-WindowsReleaseLayout -Root $stage -BinaryName $binaryName
+      Copy-Item -LiteralPath $nativeLibraryRoot -Destination (Join-Path $stage 'lib') -Recurse
+      Assert-WindowsReleaseLayout -Root $stage -BinaryName $binaryName -NativeLibraryRoot $nativeLibraryRoot
 
       $archiveName = "$binaryName-v$version-windows-x64.zip"
       $archive = Join-Path $buildDir $archiveName
       Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive
       Expand-Archive -LiteralPath $archive -DestinationPath $extracted
 
-      Assert-WindowsReleaseLayout -Root $extracted -BinaryName $binaryName
+      Assert-WindowsReleaseLayout -Root $extracted -BinaryName $binaryName -NativeLibraryRoot $nativeLibraryRoot
       $extractedExecutable = Join-Path $extracted "bin/$binaryName.exe"
       Invoke-WindowsExecutableSmoke -Executable $extractedExecutable -BinaryName $binaryName
       Invoke-WindowsBundledSqliteCheck -Executable $extractedExecutable -BinaryName $binaryName

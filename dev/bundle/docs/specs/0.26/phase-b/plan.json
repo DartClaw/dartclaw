@@ -286,9 +286,14 @@
       "dependsOn": [
         "S05"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s07-native-packaging-and-platform-proof-harness.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
       "owner": null,
       "scope": "Integrate pinned, checksum-verified native assets into both existing binary distributions and offline builds. Supply the actual platform/failure probes and final-gate commands, preserving one binary flavor.",
       "sourceRefs": [

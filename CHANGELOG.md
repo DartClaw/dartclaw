@@ -18,6 +18,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Added
 
+- **Derived vector storage** – SQLite and PostgreSQL retain separate memory and conversation embeddings with owner-scoped ranking, atomic updates and explicit compatibility checks. PostgreSQL hybrid activation requires administrator-provisioned pgvector.
+
 - **Native and explicit HTTP embedding providers** – `dartclaw_search` can lazily load the checksum-verified default
   EmbeddingGemma model in process, call an explicitly configured OpenAI-compatible endpoint with raw inputs, and
   explicitly acquire the frozen default model through verified failure-atomic publication. Provider fingerprints exclude
@@ -46,6 +48,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   superuser and points operators to the two-role least-privilege model.
 
 ### Changed
+
+- **Vector storage LOC ceilings** – core measures 31,173 Dart lines and shared testing helpers measure 3,732; their ceilings match those measurements without added headroom.
 
 - **Persisted lexical chunk identities** – memory and conversation rows now store a zero-based `chunk_index`, so
   repeated equal chunks retain their canonical position independently of backend row IDs or text.

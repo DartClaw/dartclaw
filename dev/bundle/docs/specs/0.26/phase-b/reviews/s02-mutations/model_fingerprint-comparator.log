@@ -1,0 +1,26 @@
++0 -1: PostgreSQL VectorIndex contract round-trips float32 records and isolates owner, corpus, fingerprint, and dimension [E]
+  Bad state: Unexpected vector search predicates SQL:         WITH query_vector AS MATERIALIZED (
+            SELECT CAST(? AS public.vector) AS embedding
+          ), candidates AS MATERIALIZED (
+            SELECT document_id, chunk_index, content_hash, embedding
+            FROM memory_vectors
+            WHERE user_id = ? AND model_fingerprint <> ? AND dimension = ?
+              AND public.vector_dims(embedding) = ? AND public.l2_norm(embedding) > 0
+          )
+          SELECT document_id, chunk_index, content_hash,
+                 1 - (embedding OPERATOR(public.<=>) query_vector.embedding) AS score
+          FROM candidates CROSS JOIN query_vector
+          ORDER BY score DESC, document_id, chunk_index
+          LIMIT ?
+        
+  package:dartclaw_testing/src/vector_database_test_backends.dart 647:32  _requireSql
+  package:dartclaw_testing/src/vector_database_test_backends.dart 317:5   PostgresVectorTestBackend._validateSearchSql
+  package:dartclaw_testing/src/vector_database_test_backends.dart 214:7   PostgresVectorTestBackend.query
+  package:dartclaw_testing/src/vector_database_test_backends.dart 41:22   RecordingDatabaseBackend.query
+  package:dartclaw_core/src/search/vector_index.dart 165:33               PostgresVectorIndex.search
+  packages/dartclaw_core/test/search/vector_index_contract.dart 45:46     runVectorIndexContract.<fn>.<fn>
+  
++0 -1: Some tests failed.
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

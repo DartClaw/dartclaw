@@ -2,7 +2,8 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 PostgreSQL serving interlock, backend-switch notices, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 vector projection stores, PostgreSQL serving interlock, backend-switch notices, and
+filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -403,8 +404,8 @@ Storage mechanisms follow the selected backend and each access pattern:
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **SQLite** (`search.db`, `dartclaw.db`) | FTS5 search index, tasks/goals/artifacts | Relational queries, full-text search | `search.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
-| **PostgreSQL** (configured database) | Authoritative relational data and derived memory full-text vectors | Pooled transactions and language-aware full-text search | Relational rows: **authoritative**. Memory search: derived. |
+| **SQLite** (`search.db`, `vectors.db`, `dartclaw.db`) | Lexical/vector search projections, tasks/goals/artifacts | Relational queries, full-text and direct cosine search | `search.db` and `vectors.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
+| **PostgreSQL** (configured database) | Authoritative relational data and derived lexical/vector projections | Pooled transactions, language-aware full-text search and pgvector cosine search | Relational rows: **authoritative**. Search projections: derived. |
 | **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
 
 The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
@@ -415,7 +416,12 @@ owning another queue or issuing transaction SQL. Runtime and CLI open stores thr
 with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
 WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
 
-`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The PostgreSQL search path uses persistent full-text vectors; canonical memory and index-health evidence stay in local files.
+`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses
+one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current
+schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The
+optional PostgreSQL vector projection uses the same pool after read-only public-pgvector preflight and authoritative
+schema validation. SQLite keeps embeddings in a separate `vectors.db`, so lexical publication cannot discard reusable
+vectors. Canonical memory and index-health evidence stay in local files.
 
 Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens the active backend.
 PostgreSQL acquires its dedicated session interlock before the schema gate. Language validation and derived-index

@@ -189,6 +189,20 @@ abstract final class SqliteSchemaGate {
     await _rebuildSearch(backend, inspection, rebuild);
   }
 
+  /// Prepares the separate derived vector store or refuses incompatible state.
+  static Future<void> prepareVectors(DatabaseBackend backend, {required String storeName}) async {
+    final inspection = await inspect(backend, SchemaIdentity.vectors, storeName: storeName);
+    switch (inspection.state) {
+      case SqliteSchemaState.empty:
+        await _bootstrap(backend, SchemaIdentity.vectors);
+      case SqliteSchemaState.current:
+        return;
+      case SqliteSchemaState.releasedUnmarked:
+      case SqliteSchemaState.incompatible:
+        throw _vectorRefusal(inspection);
+    }
+  }
+
   static Future<void> _bootstrap(DatabaseBackend backend, SchemaIdentity identity) {
     return backend.transaction((tx) async {
       for (final sql in identity.bootstrapStatements) {
@@ -385,6 +399,15 @@ abstract final class SqliteSchemaGate {
       foundEpoch: inspection.foundEpoch,
       differences: [...inspection.differences, ...extra],
       action: 'Run dartclaw rebuild-index while DartClaw is stopped, or restore supported rebuild sources.',
+    );
+  }
+
+  static SchemaIncompatibleException _vectorRefusal(SqliteSchemaInspection inspection) {
+    return SchemaIncompatibleException(
+      storeName: inspection.storeName,
+      foundEpoch: inspection.foundEpoch,
+      differences: inspection.differences,
+      action: 'Stop DartClaw, reset only ${inspection.storeName}, then rebuild the derived vector projection.',
     );
   }
 

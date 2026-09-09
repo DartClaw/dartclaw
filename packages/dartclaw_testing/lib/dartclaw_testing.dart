@@ -64,3 +64,9 @@ export 'src/in_memory_workflow_step_execution_repository.dart' show InMemoryWork
 export 'src/null_io_sink.dart' show NullIoSink;
 export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;
+export 'src/vector_database_test_backends.dart'
+    show
+        FailingVectorMutationBackend,
+        PostgresVectorSchemaTestBackend,
+        PostgresVectorTestBackend,
+        RecordingDatabaseBackend;

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1",
+  "story": "S02",
+  "fis": "s02-sqlite-and-postgresql-vector-projections.md",
+  "plan": "plan.json",
+  "snapshot": "a91120e7d0a9+6ec6f98a6674",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ a91120e7d0a9+6ec6f98a6674",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 97.351,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/storage/sqlite_schema_gate_vectors_test.dart packages/dartclaw_core/test/storage/postgres_schema_gate_vectors_test.dart",
+      "exit": 0,
+      "duration": 0.795,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/sqlite_vector_index_test.dart",
+      "exit": 0,
+      "duration": 0.54,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI03 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_core/test/search/postgres_vector_index_test.dart && dart analyze --fatal-infos packages/dartclaw_core",
+      "exit": 0,
+      "duration": 1.509,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

@@ -73,6 +73,7 @@ export 'src/storage/subscription_credential_store.dart' show SubscriptionCredent
 export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
 export 'src/search/postgres_fts_index.dart' show PostgresFtsIndex, PostgresFtsTable, validatePostgresFtsLanguage;
 export 'src/search/sqlite_fts_index.dart' show SqliteFtsIndex, SqliteFtsTable;
+export 'src/search/vector_index.dart' show VectorTable, SqliteVectorIndex, PostgresVectorIndex;
 export 'src/search/conversation_index_projection.dart' show ConversationIndexProjection, ConversationProjectionResult;
 export 'src/search/conversation_indexer.dart' show ConversationIndexer;
 export 'src/search/conversation_search_service.dart' show ConversationHit, ConversationSearchService;

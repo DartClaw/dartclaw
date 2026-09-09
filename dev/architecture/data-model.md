@@ -2,7 +2,9 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 conversation-message indexing, PostgreSQL serving interlock, backend-switch notices, language-aware search, and filesystem-backed instance-local state. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.26 vector projection stores, conversation-message indexing, PostgreSQL serving interlock,
+backend-switch notices, language-aware search, and filesystem-backed instance-local state. The authoritative SQLite
+store is `dartclaw.db`.
 
 ---
 
@@ -11,7 +13,9 @@ Canonical reference for DartClaw's persistence landscape. Covers all storage mec
 **Files hold canonical documents; the selected database holds authoritative relational data and derived indexes.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search index → SQLite FTS5 or PostgreSQL `content_tsv` with a language-neutral GIN index (separate memory and conversation projections, rebuildable from canonical memory and session NDJSON via `dartclaw rebuild-index`)
+- Search indexes → SQLite FTS5 in `search.db` plus float32 embeddings in `vectors.db`, or PostgreSQL `content_tsv`
+  plus optional pgvector tables (separate memory and conversation projections, rebuildable from canonical memory and
+  session NDJSON via `dartclaw rebuild-index`)
 - Tasks, goals, artifacts, turn traces, task events → SQLite by default or PostgreSQL (authoritative; relational queries on status/type/goal)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
@@ -25,6 +29,13 @@ transactor delegates transaction ownership to the backend shared by its particip
 `database.backend: postgres` selects `PostgresBackend` in `dartclaw_core` on PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
 
 `PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when the namespace contains no tables. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN index; the configured deployment language is bound at query and projection time.
+
+Vector embeddings are derived data with an independent compatibility boundary. SQLite stores memory and conversation
+embeddings in a separate `vectors.db` as little-endian float32 blobs with explicit dimensions. PostgreSQL stores the
+same two owner-scoped corpora in `memory_vectors` and `conversation_vectors` through the existing application pool.
+Hybrid startup first verifies an administrator-installed pgvector extension in `public`; lexical-only preparation
+never queries the extension. An absent optional PostgreSQL vector projection is created only after the authoritative
+schema validates, while partial or incompatible vector objects refuse with derived-only recovery guidance.
 
 A serving PostgreSQL runtime acquires one database-wide session advisory lock on a dedicated connection before
 schema preparation. Headless workflows and one-shot maintenance commands do not acquire it. Losing ownership
@@ -50,6 +61,7 @@ startup, and SQLite files are neither adopted nor changed by PostgreSQL selectio
 ├── dartclaw.yaml                     # [YAML]   Config (live + reloadable + restart-required fields)
 ├── kv.json                           # [JSON]   Global key-value store
 ├── search.db                         # [SQLite] Memory and conversation FTS5 indexes (REBUILDABLE)
+├── vectors.db                        # [SQLite] Memory and conversation float32 vectors (REBUILDABLE)
 ├── dartclaw.db                          # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events + kg_facts (AUTHORITATIVE)
 ├── turn_state.json                   # [JSON]   Active turn recovery state (TRANSIENT)
 ├── webhook_deliveries/               # [JSON]   Per-delivery reservation and dedup markers
@@ -93,7 +105,7 @@ startup, and SQLite files are neither adopted nor changed by PostgreSQL selectio
 
 | Pattern | Storage | Write Method | Concurrency |
 |---------|-------|-------------|-------------|
-| **Relational queries** | SQLite `search.db` and `dartclaw.db`, or the configured PostgreSQL database | Backend prepared statements; PostgreSQL memory search uses `memory_chunks.content_tsv` | SQLite WAL (`dartclaw.db`) or single-thread (`search.db`); PostgreSQL pooled connections and transactions |
+| **Relational queries** | SQLite `search.db`, `vectors.db`, and `dartclaw.db`, or the configured PostgreSQL database | Backend prepared statements; PostgreSQL search uses `content_tsv` and optional pgvector projections | SQLite WAL (`dartclaw.db`) or single-thread (derived stores); PostgreSQL pooled connections and transactions |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `turn_state.json`, `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (turn state, meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Delivery markers** | `webhook_deliveries/<sha256-id>` | Exclusive claim, synchronous atomic commit, TTL purge | Instance-local pending/processed reservation |
@@ -122,8 +134,10 @@ semantic mismatch triggers stopped-edit reconciliation or fails closed before in
 
 `DatabaseBackend`, `DatabaseStatement`, and `DatabaseBackendFactory` are port types in `dartclaw_kernel`.
 `dartclaw_core` provides `SqliteBackend` and `PostgresBackend` for authoritative relational repositories, plus
-`SqliteFtsIndex` and `PostgresFtsIndex` as the two `FullTextIndex` implementations. The composition root in
-`dartclaw_runtime` selects and opens them through `StorageWiring.wire()`.
+SQLite/PostgreSQL implementations of `FullTextIndex` and `VectorIndex`. The vector implementations share fixed
+memory and conversation table descriptors, keep every mutation transactional and scope enumeration and ranking by
+owner. SQLite ranks finite equal-dimension candidates in Dart. PostgreSQL materializes fingerprint- and
+dimension-filtered candidates before applying the public-qualified cosine operator.
 
 A PostgreSQL deployment uses one database and one pool for its authoritative repositories and search projections.
 Tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts are authoritative. Memory and

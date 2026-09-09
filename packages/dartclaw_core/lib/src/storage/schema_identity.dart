@@ -101,6 +101,15 @@ final class SchemaIdentity {
     dropStatements: _searchDrops,
   );
 
+  /// Required identity for the derived vector store.
+  static const vectors = SchemaIdentity(
+    tables: _vectorTables,
+    indexes: _vectorIndexes,
+    sqliteObjects: [],
+    bootstrapStatements: _vectorBootstrap,
+    dropStatements: _vectorDrops,
+  );
+
   /// Required tables.
   final List<SchemaTable> tables;
 
@@ -451,5 +460,51 @@ const _searchDrops = [
   'DROP TRIGGER IF EXISTS memory_chunks_au',
   'DROP TABLE IF EXISTS memory_chunks_fts',
   'DROP TABLE IF EXISTS memory_chunks',
+  'DROP TABLE IF EXISTS dartclaw_schema',
+];
+
+const _vectorTables = [
+  SchemaTable('memory_vectors', [
+    SchemaColumn('user_id', 'TEXT', notNull: true, primaryKey: true),
+    SchemaColumn('document_id', 'TEXT', notNull: true, primaryKey: true),
+    SchemaColumn('chunk_index', 'INTEGER', notNull: true, primaryKey: true),
+    SchemaColumn('content_hash', 'TEXT', notNull: true),
+    SchemaColumn('model_fingerprint', 'TEXT', notNull: true),
+    SchemaColumn('dimension', 'INTEGER', notNull: true),
+    SchemaColumn('embedding', 'BLOB', notNull: true),
+  ]),
+  SchemaTable('conversation_vectors', [
+    SchemaColumn('user_id', 'TEXT', notNull: true, primaryKey: true),
+    SchemaColumn('document_id', 'TEXT', notNull: true, primaryKey: true),
+    SchemaColumn('chunk_index', 'INTEGER', notNull: true, primaryKey: true),
+    SchemaColumn('content_hash', 'TEXT', notNull: true),
+    SchemaColumn('model_fingerprint', 'TEXT', notNull: true),
+    SchemaColumn('dimension', 'INTEGER', notNull: true),
+    SchemaColumn('embedding', 'BLOB', notNull: true),
+  ]),
+];
+
+const _vectorIndexes = [
+  SchemaIndex('memory_vectors_lookup_idx', 'memory_vectors', ['user_id', 'model_fingerprint', 'dimension']),
+  SchemaIndex('conversation_vectors_lookup_idx', 'conversation_vectors', ['user_id', 'model_fingerprint', 'dimension']),
+];
+
+const _vectorBootstrap = [
+  '''CREATE TABLE memory_vectors (user_id TEXT NOT NULL, document_id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
+    content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL, dimension INTEGER NOT NULL, embedding BLOB NOT NULL,
+    PRIMARY KEY (user_id, document_id, chunk_index))''',
+  'CREATE INDEX memory_vectors_lookup_idx ON memory_vectors(user_id, model_fingerprint, dimension)',
+  '''CREATE TABLE conversation_vectors (user_id TEXT NOT NULL, document_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL, content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL,
+    dimension INTEGER NOT NULL, embedding BLOB NOT NULL, PRIMARY KEY (user_id, document_id, chunk_index))''',
+  '''CREATE INDEX conversation_vectors_lookup_idx
+    ON conversation_vectors(user_id, model_fingerprint, dimension)''',
+];
+
+const _vectorDrops = [
+  'DROP INDEX IF EXISTS conversation_vectors_lookup_idx',
+  'DROP TABLE IF EXISTS conversation_vectors',
+  'DROP INDEX IF EXISTS memory_vectors_lookup_idx',
+  'DROP TABLE IF EXISTS memory_vectors',
   'DROP TABLE IF EXISTS dartclaw_schema',
 ];

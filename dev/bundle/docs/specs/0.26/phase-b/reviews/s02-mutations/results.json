@@ -1,0 +1,44 @@
+[
+  {
+    "name": "user_id-comparator",
+    "exit": 1,
+    "falsified": true,
+    "log": "user_id-comparator.log"
+  },
+  {
+    "name": "model_fingerprint-comparator",
+    "exit": 1,
+    "falsified": true,
+    "log": "model_fingerprint-comparator.log"
+  },
+  {
+    "name": "dimension-comparator",
+    "exit": 1,
+    "falsified": true,
+    "log": "dimension-comparator.log"
+  },
+  {
+    "name": "reversed-tie",
+    "exit": 1,
+    "falsified": true,
+    "log": "reversed-tie.log"
+  },
+  {
+    "name": "sqlite-replace-without-transaction",
+    "exit": 1,
+    "falsified": true,
+    "log": "sqlite-replace-without-transaction.log"
+  },
+  {
+    "name": "validation-after-database",
+    "exit": 1,
+    "falsified": true,
+    "log": "validation-after-database.log"
+  },
+  {
+    "name": "manufactured-schema-indexes",
+    "exit": 1,
+    "falsified": true,
+    "log": "manufactured-schema-indexes.log"
+  }
+]

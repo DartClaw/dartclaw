@@ -1,0 +1,20 @@
++0 -2: packages/dartclaw_core/test/search/postgres_vector_index_test.dart: PostgreSQL VectorIndex contract rejects invalid queries [E]
+  Expected: ({int execute, int prepare, int query, int transaction}):<(execute: 0, prepare: 0, query: 0, transaction: 0)>
+    Actual: ({int execute, int prepare, int query, int transaction}):<(execute: 0, prepare: 0, query: 0, transaction: 1)>
+  
+  package:matcher                                                       expect
+  packages/dartclaw_core/test/search/vector_index_contract.dart 168:3   _expectNoDatabaseOperations
+  packages/dartclaw_core/test/search/vector_index_contract.dart 111:11  runVectorIndexContract.<fn>.<fn>
+  
++0 -2: packages/dartclaw_core/test/search/sqlite_vector_index_test.dart: SQLite VectorIndex contract rejects invalid queries [E]
+  Expected: ({int execute, int prepare, int query, int transaction}):<(execute: 0, prepare: 0, query: 0, transaction: 0)>
+    Actual: ({int execute, int prepare, int query, int transaction}):<(execute: 0, prepare: 0, query: 0, transaction: 1)>
+  
+  package:matcher                                                       expect
+  packages/dartclaw_core/test/search/vector_index_contract.dart 168:3   _expectNoDatabaseOperations
+  packages/dartclaw_core/test/search/vector_index_contract.dart 111:11  runVectorIndexContract.<fn>.<fn>
+  
++0 -2: Some tests failed.
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

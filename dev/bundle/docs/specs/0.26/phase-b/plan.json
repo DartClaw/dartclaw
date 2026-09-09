@@ -135,9 +135,13 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s02-sqlite-and-postgresql-vector-projections.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03"
+      ],
       "owner": "implementer_b_s02_vectors",
       "scope": "Implement the two derived vector stores, isolated mutations and ranking, current-object validation, optional projection bootstrap and administrator-extension refusal without changing authoritative data.",
       "sourceRefs": [

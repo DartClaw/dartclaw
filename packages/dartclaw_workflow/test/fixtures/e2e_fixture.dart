@@ -49,7 +49,7 @@ typedef _ProviderPreset = ({
 });
 
 const _ProviderPreset _codexPreset = (
-  workflowModel: 'gpt-5.4',
+  workflowModel: 'gpt-5.6-luna',
   // Test mapping, not the product recommendation (docs/guide/workflows.md keeps
   // sol): on sol the plan step's sub-agent fan-out ended the turn after the
   // first story spec (2026-09-01, twice); luna writes the bundle inline.

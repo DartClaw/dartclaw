@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1",
+  "story": "S04",
+  "fis": "s04-hybrid-fusion-and-incremental-synchronization.md",
+  "plan": "plan.json",
+  "snapshot": "cfd4e17bb7c9+eda5434032c0",
+  "outcome": "passed",
+  "reason": null,
+  "gate": {
+    "line": "Story-Gate: PASS @ cfd4e17bb7c9+eda5434032c0",
+    "verdict": "PASS"
+  },
+  "tiers": [
+    {
+      "tier": "fast",
+      "command": "dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli",
+      "exit": 0,
+      "duration": 95.672,
+      "status": "passed",
+      "reason": null
+    }
+  ],
+  "proofs": [
+    {
+      "id": "TI01 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_search/test/hybrid_search_test.dart",
+      "exit": 0,
+      "duration": 0.996,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    },
+    {
+      "id": "TI02 Verify",
+      "kind": "run",
+      "command": "dart test --reporter=failures-only packages/dartclaw_search/test/vector_synchronizer_test.dart && dart analyze --fatal-infos packages/dartclaw_search && dart run dev/tools/arch_check.dart",
+      "exit": 0,
+      "duration": 1.665,
+      "evidence": null,
+      "stamp": null,
+      "status": "passed"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "mutation": "exclusive-cutoff",
+    "exit": 1,
+    "log": ".agent_temp/0.26-execution/b-s04-mutations/exclusive-cutoff.log"
+  },
+  {
+    "mutation": "reversed-tie",
+    "exit": 1,
+    "log": ".agent_temp/0.26-execution/b-s04-mutations/reversed-tie.log"
+  },
+  {
+    "mutation": "constant-owner",
+    "exit": 1,
+    "log": ".agent_temp/0.26-execution/b-s04-mutations/constant-owner.log"
+  },
+  {
+    "mutation": "constant-fingerprint",
+    "exit": 1,
+    "log": ".agent_temp/0.26-execution/b-s04-mutations/constant-fingerprint.log"
+  }
+]

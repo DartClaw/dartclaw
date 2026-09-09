@@ -135,10 +135,10 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s02-sqlite-and-postgresql-vector-projections.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "implementer_b_s02_vectors",
       "scope": "Implement the two derived vector stores, isolated mutations and ranking, current-object validation, optional projection bootstrap and administrator-extension refusal without changing authoritative data.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery",
@@ -158,10 +158,10 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s03-native-and-http-embedding-providers.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "implementer_b_s03_providers",
       "scope": "Provide verified local-model acquisition, in-process embeddings and the explicit HTTP alternative with model identity, credential-safe failures and bounded lifecycle handling.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr2-local-and-opt-in-http-embeddings",
@@ -184,10 +184,13 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s04-hybrid-fusion-and-incremental-synchronization.md",
-      "completedTaskIds": [],
-      "owner": null,
+      "completedTaskIds": [
+        "TI01",
+        "TI02"
+      ],
+      "owner": "implementer_b_s04_fusion",
       "scope": "Deliver corpus-neutral hybrid ranking, opt-in diagnostic data and content/fingerprint-based synchronization over injected indexes. Reuse unchanged vectors, retire stale content and expose missing-vector counts with lexical degradation.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",

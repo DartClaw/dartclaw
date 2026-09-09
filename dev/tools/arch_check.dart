@@ -139,6 +139,9 @@ int _maxCeilingFor(int loc) {
 //   dartclaw_core 30314 -> 30428 (measured 30428, no headroom). Persisted chunk
 //   ordinals and deterministic canonical Markdown chunking complete the shared
 //   lexical identity contract.
+// Reviewed necessity, 2026-09-09 (ADR-050):
+//   dartclaw_search 16 -> 682 (measured 682, no headroom). Authenticated weighted
+//   fusion and source-rechecked vector synchronization complete the search-contract surface.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -149,7 +152,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 19920,
   'dartclaw_runtime': 67371,
-  'dartclaw_search': 16,
+  'dartclaw_search': 682,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 3984,
   'dartclaw_whatsapp': 1184,

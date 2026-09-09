@@ -1,0 +1,12 @@
++14 -1: packages/dartclaw_search/test/hybrid_search_test.dart: fuses authenticated lexical and vector candidates with fixed weighted RRF [E]
+  Expected: ['a', 'c', 'b']
+    Actual: MappedListIterable<SearchResult, String>:['a', 'b']
+     Which: at location [1] is 'b' instead of 'c'
+  
+  package:matcher                                              expect
+  packages/dartclaw_search/test/hybrid_search_test.dart 106:5  main.<fn>
+  
++22 -1: Some tests failed.
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

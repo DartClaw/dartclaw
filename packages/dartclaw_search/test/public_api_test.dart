@@ -36,5 +36,9 @@ void main() {
     expect(VectorIndex, isNotNull);
     expect(EmbeddingProvider, isNotNull);
     expect(SearchDiagnosticsSink, isNotNull);
+    expect(HybridSearch, isNotNull);
+    expect(HybridSearchBackend, isNotNull);
+    expect(VectorSynchronizer, isNotNull);
+    expect(VectorSynchronizationResult, isNotNull);
   });
 }

@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-09-09 04:59 CEST",
+  "phaseACheckpoint": "007ab8d48220f07b429f647a3d23dc802bc82141",
+  "baseline": "3396754b65010b3ecba348a0c766c54c321391e7",
+  "branch": "feat/0.26",
+  "plan": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+  "bundleReview": "READY",
+  "remainingReadinessFindings": 0,
+  "validation": {
+    "planExit": 0,
+    "fisCount": 9,
+    "fisExits": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "nonrunnable": [],
+    "unbound": [],
+    "violations": [],
+    "proofDryRunEnabled": true
+  },
+  "combinedAcceptance": "pending"
+}

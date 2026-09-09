@@ -4,7 +4,7 @@
 
 ## Active Milestone
 
-Current execution is **0.26 on `feat/0.26`**. The 0.25.2 section below retains its preceding release-preparation record.
+Current execution is **0.26 on `feat/0.26`**, governed by `dev/bundle/docs/specs/0.26/phase-b/plan.json`. The 0.25.2 section below retains its preceding release-preparation record.
 
 ### 0.25.2 – Deployment feedback and workflow fixes
 
@@ -80,10 +80,10 @@ work is parked on `parked/s64-workflow-schema`.
 
 ### 0.26 — Pluggable Database Backend & Multi-Language Search
 
-**Status 2026-09-09 – Phase A delivered on feat/0.26; Phase B pending.** This is an implementation checkpoint; final
+**Status 2026-09-09 – Phase A delivered on feat/0.26; Phase B implementation launched.** This is an implementation checkpoint; final
 combined Phase A + Phase B verification remains pending.
 
-All 17 Phase A story receipts and their reviews are retained in checkpoint `007ab8d48220f07b429f647a3d23dc802bc82141`. Phase B planning is in progress.
+All 17 Phase A story receipts and their reviews are retained in checkpoint `007ab8d48220f07b429f647a3d23dc802bc82141`. The nine-story Phase B bundle is reviewed and validated for implementation. Combined live/platform/retrieval/release verification remains pending.
 
 Phase A delivers the `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap and
 compatibility gate, `FullTextIndex` with language-aware PostgreSQL search, credential-referenced database access, TLS

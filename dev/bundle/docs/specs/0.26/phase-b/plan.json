@@ -1,0 +1,332 @@
+{
+  "schemaVersion": "2",
+  "prd": "dev/bundle/docs/specs/0.26/phase-b/prd.md",
+  "overview": {
+    "summary": "Complete native hybrid retrieval for both Phase A corpora through shared contracts, three parallel implementation surfaces, runtime integration, then independent inspection/packaging/evaluation work and operator release preparation. Per-story implementation acceptance is followed by one combined A+B live/platform/quality/release gate."
+  },
+  "sharedDecisions": [
+    {
+      "title": "Contracts, chunk identity and package boundary",
+      "description": "S01 owns the kernel VectorIndex/EmbeddingProvider/vector-record/diagnostic contracts and stable SearchResult chunk ordinal, plus the approved dartclaw_search package scaffold, explicit ADR-050/056 tier/count 13 amendment and existing canonical memory chunker seam. Concrete vector stores stay in core; search depends on kernel contracts and justified external packages, never core/drivers. Runtime injects the existing MemoryIndexProjection.toSearchResult conversion into the memory-facing hybrid adapter so the canonical mapper remains singular. Ordinary memory and conversation locators are unchanged. Fusion identity is documentId plus chunk ordinal within the injected owner/corpus scope. S01 pins exact signatures in its FIS before dependent code; subsequent specs bind to those signatures rather than inventing parallel ports. Pinned port contract: VectorIndex.search(List<double> queryVector, {required String userId, required String modelFingerprint, int limit = 20}) returns Future<List<VectorMatch>>; list({required String userId}) returns Future<List<VectorRecord>>; upsert(Iterable<VectorRecord> records, {required String userId, Set<VectorIdentity> retire = const {}}), delete(Iterable<VectorIdentity> identities, {required String userId}) and replaceAll(Iterable<VectorRecord> records, {required String userId}) return Future<void>. VectorIdentity is (documentId, chunkIndex); VectorRecord adds contentHash, modelFingerprint and immutable finite nonempty vector; VectorMatch carries documentId, chunkIndex, contentHash and finite score. EmbeddingProvider has String get modelFingerprint, Future<List<double>> embedQuery(String query), Future<List<List<double>>> embedDocuments(List<String> documents) and Future<void> dispose(). SearchResult gains required nonnegative chunkIndex. Diagnostic SearchRankEvidence carries documentId, chunkIndex, nullable keywordRank/vectorRank, keywordContribution, vectorContribution, fusedScore and sourceLayer; SearchDiagnostics carries candidates, unembeddedCount and existing MemorySearchDegradation values. SearchDiagnosticsSink is void Function(SearchDiagnostics). These decisions permit dependent FIS authoring in parallel while S01 finalizes; implementation still requires accepted S01.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06"
+      ]
+    },
+    {
+      "title": "Derived vector lifetime and schema authority",
+      "description": "S02 owns a separate derived SQLite vectors.db, preserving reusable vectors when the existing lexical search.db is atomically republished. PostgreSQL keeps two corpus-specific vector tables in the same deployment database/pool. Extend the existing schema authorities and required-object manifests. Lexical-only PostgreSQL needs no extension; hybrid preflights administrator-provisioned pgvector before a fresh authoritative bootstrap. A validated current authoritative namespace may bootstrap an entirely absent optional derived projection transactionally; partially present/incompatible vector objects refuse with derived reset guidance. Never install extensions, transform authoritative schemas or reset authoritative data. Variable-dimensional stored vectors are filtered for matching fingerprint and query dimensions before distance evaluation; no ANN index is needed. S02 consumer APIs: fixed VectorTable.memoryChunks/conversationChunks descriptors; SqliteVectorIndex(DatabaseBackend backend, {required VectorTable table}) and PostgresVectorIndex(DatabaseBackend backend, {required VectorTable table}). SqliteSchemaGate.prepareVectors(DatabaseBackend backend, {required String storeName}); PostgresSchemaGate.preflightVectorExtension(DatabaseBackend backend, {required String databaseIdentity}); PostgresSchemaGate.prepareVectorProjection(DatabaseBackend backend, {required String databaseIdentity}). Hybrid PostgreSQL ordering is vector preflight, existing authoritative prepare, then derived vector prepare; lexical-only invokes neither vector operation. SchemaIdentity.vectors owns memory_vectors and conversation_vectors; administrator installs vector in public, and runtime qualifies its type/functions/operators explicitly.",
+      "stories": [
+        "S02",
+        "S05",
+        "S07",
+        "S08",
+        "S09"
+      ]
+    },
+    {
+      "title": "One projection and synchronization owner",
+      "description": "S04 owns generic vector synchronization from the injected current lexical document corpus using content hashes and model fingerprints. S05 attaches it to the existing post-commit memory projection and the ConversationIndexer serialized lifecycle, retaining lexical session-deletion ID discovery. No second canonical mapper, shadow transcript reader or independent message persistence queue. Full rebuild publishes/authenticates the source-derived lexical corpus before reconciling retained vectors, reusing unchanged chunks and clearing stale/empty corpora. Vector hits are authenticated against current lexical identity/content so delayed or failed deletion cannot surface stale text, and a late embedding result cannot resurrect superseded content. Provider failures remain outside source persistence success. S04 consumer APIs: HybridSearch({required FullTextIndex lexicalIndex, required VectorIndex vectorIndex, required EmbeddingProvider embeddingProvider, required String sourceLayer}); Future<List<SearchResult>> search(String query, {required String userId, int limit=20, SearchDiagnosticsSink? diagnostics}); Future<int> missingCount({required String userId}). VectorSynchronizer accepts the same constructor ports/sourceLayer, exposes synchronize(Iterable<String> documentIds, {required String userId}) and rebuild({required String userId}), each returning Future<VectorSynchronizationResult> with embedded/reused/retired/unembedded counts and typed degradations; missingCount returns Future<int>. One private inventory calculation owns hashes/fingerprints/missing counts. HybridSearchBackend({required HybridSearch search, required MemorySearchResult Function(SearchResult result) toMemoryResult}) implements SearchBackend; its indexAfterWrite is a no-op since S05 wires synchronization at actual source lifecycle. Score convention: successful HybridSearch fusion returns SearchResult.score as the negative of the positive weighted fusedScore, with best-first order derived from descending positive fusedScore and existing deterministic ties. SearchRankEvidence contributions/fusedScore stay positive. Pure lexical fallback preserves the original lexical result scores and order. The canonical memory mapper and HybridSearchBackend do not negate scores again; this keeps existing lower-is-better ComposedSearchBackend ordering. Conversation/inspection expose backend-native result scores and diagnostics retain positive fusion evidence. S08 proves at least two differently ranked hybrid personal hits plus wiki and semantic-failure fallback through the real composer.",
+      "stories": [
+        "S01",
+        "S02",
+        "S04",
+        "S05",
+        "S08",
+        "S06"
+      ]
+    },
+    {
+      "title": "Embedding artifacts and frozen ranking settings",
+      "description": "Use llamadart exactly 0.8.22 with native v0.3.0 and the verified embeddinggemma-300M-Q8_0 GGUF from native-artifacts.json. The native provider uses the frozen Gemma query/document prefixes and model fingerprint inputs in selected-settings.json. RRF k=60, keyword weight 0.25 / vector weight 0.75, cosine cutoff 0.20 and candidate limit 20 were selected only on calibration before held-out scores; evaluation top-K 5. These are implementation constants, not additional tuning knobs. Do not silently retune on held-out failure. Native initialization is bounded to 60 seconds and shutdown to 10 seconds; reuse the existing 30-second worker-handshake mechanism where it suffices and prove actual failure paths. S03 consumer APIs: NativeEmbeddingProvider({required String modelPath, required String expectedSha256, Duration initializationTimeout = 60s, Duration shutdownTimeout = 10s}); HttpEmbeddingProvider({required Uri endpoint, required String model, required NetworkAccessCheck checkNetworkAccess, String? apiKey, HttpClientFactory? httpClientFactory, Duration requestTimeout = 30s}); DefaultEmbeddingModelAcquirer({required NetworkAccessCheck checkNetworkAccess, HttpClientFactory? httpClientFactory}).acquire({required String destinationPath}) returns ModelAcquisitionResult(path, status reused/downloaded). NetworkAccessCheck is Future<void> Function(Uri); S05 injects existing network policy and resolves credentials. No separate HTTP modelIdentity knob: endpoint plus model is its identity, native identity uses the configured expected SHA, which must match actual model bytes before embedding; Native fingerprints include the frozen Gemma prefix convention; generic HTTP fingerprints include a raw-input convention version. HTTP transmits raw query/document strings under the OpenAI-compatible input contract, with model-specific preprocessing owned by that explicitly configured endpoint; it never applies Gemma prefixes or model-name heuristics to arbitrary HTTP models. All fingerprints exclude secrets. Constructor timeouts are test seams, not operator knobs. Future.timeout bounds callers but does not kill dependency isolates; actual final failure probes must establish process termination before acceptance. Native construction is synchronous; embedQuery/embedDocuments share lazy bounded verify/load. Ordinary failed initialization clears that attempt for recovery on a later explicit query/write/rebuild after acquisition; initialization timeout poisons the provider so later calls cannot accumulate workers while an old private isolate might remain alive. Disposal is terminal. No background retry or duplicate runtime placeholder provider. HTTP endpoint validation in both S03 provider construction and S05 configuration requires an absolute HTTP(S) URI with a nonempty host and no userinfo, query, or fragment. Credentials are supplied only through the named credential seam. Reject before storing/serializing/fingerprinting/network use; validation errors never echo the rejected URI. Tests include a URI-embedded user/password and query credential and verify no secret output or request.",
+      "stories": [
+        "S03",
+        "S04",
+        "S05",
+        "S07",
+        "S08"
+      ]
+    },
+    {
+      "title": "Diagnostics and existing trace persistence",
+      "description": "S01/S04 supply typed opt-in constituent ranking evidence for either corpus. S06 exposes operator inspection and carries successful memory_search returned locators through the existing ToolResultEvent-to-ToolCallRecord-to-TurnTrace path and turns.tool_calls JSON column. Normal retrieval JSON stays compact. Correlate by tool ID and declared output shape; do not infer locators from inputs, snippets or later queries. Old records decode with empty locator lists; retain a bounded deduplicated list with no source text/vectors/credentials. Conversation diagnostics use its service/query boundary without adding the next milestone chat UI. Operator CLI ownership: S05 adds the search command family with explicit search download-model, using the S03 acquisition service; S06 adds search inspect for both corpora. Keep rebuild-index as the existing rebuild command, expose both corpus missing-vector counts, and reuse existing connection/config/network policies instead of adding parallel knobs. S05 config/status pins: SearchConfig.embedding is EmbeddingConfig(provider, model, endpoint, credential), YAML search.embedding.provider/model/endpoint/credential; provider local/http, default local with embeddinggemma-300M-Q8_0.gguf and null endpoint/credential. Local supports the pinned verified default artifact at the managed models path and forbids endpoint/credential; other models use explicit HTTP endpoint/model. Runtime exposes guarded StorageWiring.inspectMemorySearch, ConversationSearchService.search with optional SearchDiagnosticsSink diagnostics, per-corpus missing-count readers, and nullable existing /api/memory/status search.memoryUnembeddedCount/search.conversationUnembeddedCount via MemoryStatusService injected readers. S06 consumes these existing runtime/status boundaries. Exact status readers are Future<int?> StorageWiring.memoryMissingVectorCount() and conversationMissingVectorCount(), null when hybrid inactive/unavailable. ConversationSearchQuery matches HybridSearch.search; ConversationSearchService.search(String query, {int limit=20, SearchDiagnosticsSink? diagnostics}) applies its already-bound owner. Config serialization retains only credential references. S06 may add the bounded diagnostic query route and CLI, but no new status endpoint or chat UI. S06 operator contract: dartclaw search inspect --corpus memory|conversation --query TEXT [--limit 1..20] [--json], default limit20, existing ConnectedCommand config/server/token handling. Authenticated POST /api/search/inspect accepts closed {corpus, query, limit?}; returns {corpus, results, diagnostics}, with exact typed candidate evidence, current bounded source snippets/locators and no raw metadata/vectors. Invalid input400 INVALID_INPUT; inactive/unavailable hybrid503 SEARCH_INSPECTION_UNAVAILABLE. Trace ToolCallRecord.sourceLocators serializes as sourceLocators, empty by default, exact successful memory_search results[*].locator only, matched by pending invocation ID/name, deduplicated first-return order, cap existing maxMemorySearchResults(50); malformed/failed output yields empty without throwing. Memory inspection must use a guarded StorageWiring.inspectMemorySearch(String query, {int limit = 20, SearchDiagnosticsSink? diagnostics}) returning Future<List<SearchResult>?>, not a public raw hybrid getter. S05 extracts the existing before/query/after health block into static ComposedSearchBackend.queryCurrentIndex<T>({required Future<T> Function() query, SearchIndexHealthProbe? indexHealthProbe}) returning Future<({T? result, int? canonicalRevision, String? reason})>. Normal composition and inspection both call this one helper with the existing probe, preserving current/changed/unavailable/searchFailure semantics. Inspection buffers diagnostics until successful health authentication; unavailable result is null and S06 maps it to existing503 without stale hits or diagnostics. No new query service, health authority, or SearchBackend-wide signature change.",
+      "stories": [
+        "S01",
+        "S04",
+        "S05",
+        "S06",
+        "S08",
+        "S09"
+      ]
+    },
+    {
+      "title": "Execution and final verification ownership",
+      "description": "Use one focused independent story review, relevant implementation checks and actual standard fast-tier completion per story. Heavy live/PostgreSQL-pgvector, held-out, native/platform, full workspace/fitness, broad integration, UI screenshots and release checks execute once on the combined A+B result, with targeted reruns only for invalidated findings/checks. S07/S08 implement executable proof harnesses and declare deferred commands; S09 gathers them with every Phase A deferred manifest entry. Root owns combined acceptance, checkpoints, integration and commits. Phase A evidence is retained at its accepted commit and source FIS until combined consolidation. No private commit, push, main merge, tag or release publication. FIS authoring may proceed as soon as its required contracts are pinned: S07 consumes the existing two-binary build graph and pinned S03 provider/artifact API, so its spec does not wait for S05 prose. This changes authoring readiness only; all declared implementation dependencies remain binding.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "FR1",
+      "anchor": "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora"
+    },
+    {
+      "featureId": "FR3",
+      "anchor": "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery"
+    },
+    {
+      "featureId": "FR4",
+      "anchor": "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr4-backend-vector-storage-and-compatibility"
+    },
+    {
+      "featureId": "FR6",
+      "anchor": "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr6-native-distribution-and-failure-handling"
+    },
+    {
+      "featureId": "FR7",
+      "anchor": "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr7-sealed-retrieval-evaluation"
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Search contracts and canonical chunk identities",
+      "dependsOn": [],
+      "status": "spec-ready",
+      "fis": "s01-search-contracts-and-canonical-chunk-identities.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Establish the injectable search contracts, approved package boundary and deterministic memory chunk identities consumed by the parallel implementations. Preserve existing source membership and lexical behavior outside the required chunking change.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr6-native-distribution-and-failure-handling"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S02",
+      "name": "SQLite and PostgreSQL vector projections",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "spec-ready",
+      "fis": "s02-sqlite-and-postgresql-vector-projections.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Implement the two derived vector stores, isolated mutations and ranking, current-object validation, optional projection bootstrap and administrator-extension refusal without changing authoritative data.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr4-backend-vector-storage-and-compatibility"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S03",
+      "name": "Native and HTTP embedding providers",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "spec-ready",
+      "fis": "s03-native-and-http-embedding-providers.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Provide verified local-model acquisition, in-process embeddings and the explicit HTTP alternative with model identity, credential-safe failures and bounded lifecycle handling.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr2-local-and-opt-in-http-embeddings",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr6-native-distribution-and-failure-handling"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md",
+        "dev/bundle/docs/research/dart-native-hybrid-search/spike-llamadart-embeddings.md",
+        "dev/bundle/docs/specs/0.26/phase-b/native-artifacts.json",
+        "dev/bundle/docs/specs/0.26/phase-b/selected-settings.json"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S04",
+      "name": "Hybrid fusion and incremental synchronization",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "spec-ready",
+      "fis": "s04-hybrid-fusion-and-incremental-synchronization.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Deliver corpus-neutral hybrid ranking, opt-in diagnostic data and content/fingerprint-based synchronization over injected indexes. Reuse unchanged vectors, retire stale content and expose missing-vector counts with lexical degradation.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr5-retrieval-diagnostics-and-turn-provenance",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr7-sealed-retrieval-evaluation"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md",
+        "dev/bundle/docs/specs/0.26/phase-b/selected-settings.json",
+        "dev/bundle/docs/specs/0.26/phase-b/calibration-summary.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S05",
+      "name": "Runtime activation for memory and conversations",
+      "dependsOn": [
+        "S02",
+        "S03",
+        "S04"
+      ],
+      "status": "spec-ready",
+      "fis": "s05-runtime-activation-for-memory-and-conversations.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Connect both hybrid corpus instances to their existing runtime, source lifecycle and rebuild paths. Add validated embedding configuration and model-acquisition activation while retaining FTS defaults and working QMD deprecation.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr2-local-and-opt-in-http-embeddings",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr3-incremental-projection-and-recovery",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr4-backend-vector-storage-and-compatibility",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr8-configuration-and-operator-guidance"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S06",
+      "name": "Retrieval inspection and turn source provenance",
+      "dependsOn": [
+        "S05"
+      ],
+      "status": "spec-ready",
+      "fis": "s06-retrieval-inspection-and-turn-source-provenance.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Expose bounded operator inspection of both corpora and retain the exact locators returned by successful search tool invocations in existing turn traces, without expanding ordinary agent payloads.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr5-retrieval-diagnostics-and-turn-provenance",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr8-configuration-and-operator-guidance"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S07",
+      "name": "Native packaging and platform proof harness",
+      "dependsOn": [
+        "S05"
+      ],
+      "status": "spec-ready",
+      "fis": "s07-native-packaging-and-platform-proof-harness.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Integrate pinned, checksum-verified native assets into both existing binary distributions and offline builds. Supply the actual platform/failure probes and final-gate commands, preserving one binary flavor.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr6-native-distribution-and-failure-handling",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr8-configuration-and-operator-guidance"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md",
+        "dev/bundle/docs/research/dart-native-hybrid-search/spike-llamadart-embeddings.md",
+        "dev/bundle/docs/specs/0.26/phase-b/native-artifacts.json"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S08",
+      "name": "Sealed retrieval evaluation harness",
+      "dependsOn": [
+        "S05"
+      ],
+      "status": "spec-ready",
+      "fis": "s08-sealed-retrieval-evaluation-harness.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Commit the frozen calibration/held-out inputs and a reproducible evaluator over the real backend pipelines, with exact metric/slice/tolerance checks and retained settings provenance. Heavy held-out execution belongs to the final combined gate.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr1-hybrid-retrieval-for-two-corpora",
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr7-sealed-retrieval-evaluation"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md",
+        "dev/bundle/docs/specs/0.26/phase-b/selected-settings.json",
+        "dev/bundle/docs/specs/0.26/phase-b/calibration-summary.md",
+        "dev/bundle/docs/specs/0.26/phase-b/heldout.json",
+        "dev/bundle/docs/specs/0.26/phase-b/calibration-negatives.json"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S09",
+      "name": "Hybrid operations and milestone release preparation",
+      "dependsOn": [
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "status": "spec-ready",
+      "fis": "s09-hybrid-operations-and-milestone-release-preparation.md",
+      "completedTaskIds": [],
+      "owner": null,
+      "scope": "Finish operator/developer documentation and architecture/state alignment, prepare the milestone version and release record, and bind every deferred A+B verification obligation for combined acceptance. Consolidation and pruning follow actual final results.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.26/phase-b/prd.md#fr8-configuration-and-operator-guidance"
+      ],
+      "provenance": "dev/bundle/docs/specs/0.26/phase-b/plan.json",
+      "assetRefs": [
+        "dev/adrs/050-native-hybrid-search.md",
+        "dev/adrs/056-package-topology-consolidation.md",
+        "dev/bundle/docs/specs/0.26/phase-b/implementation-context.md",
+        "dev/bundle/docs/specs/0.26/deferred-live-platform-proofs.json"
+      ],
+      "sequencing": null
+    }
+  ]
+}

@@ -37,7 +37,7 @@ public guidance while preserving one auditable boundary between story-local prep
   selected native-runner commands and JSON evidence contract the combined manifest must retain verbatim.
 - `docs/specs/0.26/phase-b/s08-sealed-retrieval-evaluation-harness.md#pinned-evaluation-contract` – the only full
   held-out command, output paths and acceptance assertions; the command remains unrun until the final combined gate.
-- `docs/specs/0.26/deferred-live-platform-proofs.json:1` – all 19 Phase A owner/command pairs and their pending status;
+- `docs/specs/0.26/deferred-live-platform-proofs.json:1` – all 20 Phase A owner/command pairs and their pending status;
   the combined manifest must preserve every pair, with any deduplication justified by explicit coverage mapping.
 - `docs/specs/0.26/s09-language-aware-postgresql-memory-and-kg-search.md#constraints--gotchas` – existing lexical
   stemming/tokenization distinctions and PostgreSQL live suites that remain part of combined acceptance.
@@ -123,7 +123,7 @@ public guidance while preserving one auditable boundary between story-local prep
     publication, held-out pass, platform pass or combined acceptance
 
 - **S06 [OC04] [TI03,TI04] The combined manifest is complete before any heavy acceptance run**
-  - **Given** the 19 Phase A deferred entries, S07's four exact platform commands, S08's one sealed command, current
+  - **Given** the 20 Phase A deferred entries, S07's four exact platform commands, S08's one sealed command, current
     build/release guidance and all integrated A+B implementation
   - **When** S09 prepares the machine-readable manifest and story-local checks finish
   - **Then** every original owner and command is retained; additional obligations cover both binary builds, full
@@ -214,7 +214,7 @@ file | dev/tools/release_check.sh#main | local/remote release-preparation bounda
   native provider uses the frozen EmbeddingGemma query/document prefixes and includes that convention in its fingerprint.
 - PostgreSQL pgvector is optional derived-search infrastructure. Administrator installation occurs in `public`; runtime
   SQL qualifies vector types/functions/operators while using the application schema and a non-superuser role.
-- Preserve all 19 Phase A manifest owner/command pairs exactly. Do not collapse commands because their paths overlap;
+- Preserve all 20 Phase A manifest owner/command pairs exactly. Do not collapse commands because their paths overlap;
   deduplicate only when one recorded result demonstrably executed the same/superset command and lists covered IDs.
 - The authoring inventories under private `.agent_temp/0.26-execution/` are preparation facts only. The committed or
   exported manifest must derive its commands from current FIS, tests and release docs and must not depend on those files.
@@ -241,11 +241,11 @@ file | dev/tools/release_check.sh#main | local/remote release-preparation bounda
 
 - **TI03** One pending manifest accounts for every combined A+B obligation and evidence kind
   - Create private `docs/specs/0.26/final-combined-verification.json` and its byte-equivalent public export
-    `dev/bundle/docs/specs/0.26/final-combined-verification.json` from current sources. Embed the original 19-entry
+    `dev/bundle/docs/specs/0.26/final-combined-verification.json` from current sources. Embed the original 20-entry
     Phase A array unchanged and bind each indexed entry to its environment/receipt predicate; append S07/S08 plus all
     build, integration, security, container, workflow, UI, review, version and release-doc obligations with exact
     coverage/evidence rules. This is a transient milestone artifact, not a permanent release-ledger schema.
-  - **Verify**: `cmd: bash -c 'set -eu; manifest=dev/bundle/docs/specs/0.26/final-combined-verification.json; prior=../dartclaw-private/docs/specs/0.26/deferred-live-platform-proofs.json; cmp -s ../dartclaw-private/docs/specs/0.26/final-combined-verification.json "$manifest"; jq -e --slurpfile prior "$prior" '\''.phaseA == $prior[0] and (([.evidenceBindings[] | select(.source == "phaseA") | .sourceIndex] | sort) == [range(0; ($prior[0] | length))]) and ([.evidenceBindings[] | has("environment") and has("receiptPath") and has("acceptancePredicate")] | all) and ([.obligations[] | .status == "pending-final-combined-gate"] | all) and ([.obligations[] | has("owners") and has("environment") and has("receiptPath") and has("acceptancePredicate")] | all) and (([.obligations[].category] | unique) | contains(["analysis","architecture","build","config-drift","container","docs","format","heldout","integration","native-platform","release","review","security","ui","version","workflow"]))'\'' "$manifest" >/dev/null; for target in macos-arm64 linux-arm64 linux-x64 windows-x64; do command="dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target $target --evidence build/native-embedding-$target.json"; jq -e --arg command "$command" '\''([.obligations[] | select(.command == $command)] | length) == 1'\'' "$manifest" >/dev/null; done; jq -e '\''([.obligations[] | select(.command == "dart run apps/dartclaw_cli/tool/retrieval_evaluation.dart --model-path \"$DARTCLAW_TEST_EMBEDDING_MODEL\" --output-dir .agent_temp/0.26-final/retrieval-evaluation")] | length) == 1'\'' "$manifest" >/dev/null'` – structured task-local checks preserve every Phase A entry, bind all 19 receipts, require the four S07 commands and normalized S08 command exactly once, enumerate every required category/evidence field and confirm all new obligations remain pending without installing a public manifest-test owner
+  - **Verify**: `cmd: bash -c 'set -eu; manifest=dev/bundle/docs/specs/0.26/final-combined-verification.json; prior=../dartclaw-private/docs/specs/0.26/deferred-live-platform-proofs.json; cmp -s ../dartclaw-private/docs/specs/0.26/final-combined-verification.json "$manifest"; jq -e --slurpfile prior "$prior" '\''.phaseA == $prior[0] and (([.evidenceBindings[] | select(.source == "phaseA") | .sourceIndex] | sort) == [range(0; ($prior[0] | length))]) and ([.evidenceBindings[] | has("environment") and has("receiptPath") and has("acceptancePredicate")] | all) and ([.obligations[] | .status == "pending-final-combined-gate"] | all) and ([.obligations[] | has("owners") and has("environment") and has("receiptPath") and has("acceptancePredicate")] | all) and (([.obligations[].category] | unique) | contains(["analysis","architecture","build","config-drift","container","docs","format","heldout","integration","native-platform","release","review","security","ui","version","workflow"]))'\'' "$manifest" >/dev/null; for target in macos-arm64 linux-arm64 linux-x64 windows-x64; do command="dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target $target --evidence build/native-embedding-$target.json"; jq -e --arg command "$command" '\''([.obligations[] | select(.command == $command)] | length) == 1'\'' "$manifest" >/dev/null; done; jq -e '\''([.obligations[] | select(.command == "dart run apps/dartclaw_cli/tool/retrieval_evaluation.dart --model-path \"$DARTCLAW_TEST_EMBEDDING_MODEL\" --output-dir .agent_temp/0.26-final/retrieval-evaluation")] | length) == 1'\'' "$manifest" >/dev/null'` – structured task-local checks preserve every Phase A entry, bind all 20 receipts, require the four S07 commands and normalized S08 command exactly once, enumerate every required category/evidence field and confirm all new obligations remain pending without installing a public manifest-test owner
   - **SATISFIES**: S06, SC04
 
 - **TI04** The integrated tree is a locally coherent 0.26.0 release candidate without an acceptance claim

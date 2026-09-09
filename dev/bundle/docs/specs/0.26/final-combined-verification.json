@@ -692,5 +692,51 @@
     "phaseA": "Public checkpoint 007ab8d48220f07b429f647a3d23dc802bc82141 exported plan: 17 done",
     "phaseB": "Public dev/bundle/docs/specs/0.26/phase-b/plan.json: 9 done",
     "privateAuthoring": "Private source plans remain preparation state under one-way export; execution state is not synced back."
+  },
+  "searchDiagnosis": {
+    "recordedAt": "2026-09-09 14:27 CEST",
+    "sourceRevision": "930f72c4332ea2a06c97f88d64a29b79d678f625",
+    "status": "product-decision-required",
+    "productionChanges": false,
+    "decisionProposal": "dev/bundle/docs/specs/0.26/retrieval-acceptance-decision.md",
+    "result": "No causal implementation defect found in measured inputs, native execution, cosine storage or filtering. Original unchanged evaluation reproduced all 122 identical gate rows: 118 pass, four no-result failures. All five frozen assets and original failed report hashes unchanged. No threshold or judgment changed.",
+    "measurements": {
+      "negativeQueries": 10,
+      "falsePositiveQueries": 9,
+      "maximumStoredVsDirectCosineDelta": 1.8772336463079853e-09,
+      "falsePositiveMaximumCosineRange": [
+        0.22654326991153417,
+        0.5850747165593927
+      ],
+      "calibrationQueries": 26,
+      "calibrationDocuments": 24,
+      "maximumBatchOrModelParameterComponentDelta": 0.0
+    },
+    "evidencePaths": [
+      ".agent_temp/0.26-search-diagnosis/score-probe.json",
+      ".agent_temp/0.26-search-diagnosis/calibration-parity.json",
+      ".agent_temp/0.26-search-diagnosis/projection-parity.json",
+      ".agent_temp/0.26-search-diagnosis/calibration-provenance.md",
+      ".agent_temp/0.26-search-diagnosis/independent-code-review.md",
+      ".agent_temp/0.26-search-diagnosis/independent-doc-review.md",
+      ".agent_temp/0.26-search-diagnosis/independent-doc-closure.md",
+      ".agent_temp/0.26-search-diagnosis/frozen-run02/report.json",
+      ".agent_temp/0.26-search-diagnosis/frozen-run02/artifact-sha256.txt",
+      ".agent_temp/0.26-search-diagnosis/frozen-run02/receipt.json",
+      ".agent_temp/0.26-search-diagnosis/preservation-check.log",
+      ".agent_temp/0.26-search-diagnosis/verification-receipt.json",
+      ".agent_temp/0.26-search-diagnosis/artifact-sha256.txt",
+      ".agent_temp/0.26-search-diagnosis/probe-run-receipt.json",
+      ".agent_temp/0.26-search-diagnosis/format.log",
+      ".agent_temp/0.26-search-diagnosis/analyze.log"
+    ],
+    "retainedIncompleteEvidence": [
+      ".agent_temp/0.26-search-diagnosis/score-probe.log",
+      ".agent_temp/0.26-search-diagnosis/score-probe-run02.log",
+      ".agent_temp/0.26-search-diagnosis/frozen-run01/report.json",
+      ".agent_temp/0.26-search-diagnosis/frozen-run01/receipt.json"
+    ],
+    "verification": "Independent focused tests: 24 passed, exit 0; independent code review: zero findings; proposal review: two sequencing/custody findings resolved in one round, independent closure passed. This validates the proposal text; calibration reopening and release acceptance remain unapproved. Workspace format: 1991 files, 0 changes; analyze --fatal-infos: no issues. Heavy unaffected suites not repeated. Existing source-mapped evidence remains authoritative; failed acceptance and missing native x64/remote gates remain unchanged.",
+    "sourceMapping": "Production, application, build tooling, workflow, package and lockfile sources are byte-identical to final implementation 0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a. This continuation changes only public diagnosis/decision records. Private manifest and PRD remain untouched; this proposal has not been accepted or exported back to canonical records."
   }
 }

@@ -86,6 +86,11 @@ vector and hybrid no-result gates failed on both databases (1/10 empty results e
 and thresholds remain unchanged. Native x64 release qualification is still unavailable locally. Version pins remain
 0.26.0 Unreleased; the plan/spec bundle is retained until acceptance permits consolidation.
 
+Focused diagnosis reproduced the same four gates without changing inputs or settings. Stored cosine scores match
+direct embeddings; calibration batching and model parameters produce identical vectors. No causal implementation
+fix was found. The [calibration reopening proposal](../bundle/docs/specs/0.26/retrieval-acceptance-decision.md)
+preserves the failed evaluation and requires a maintainer decision plus an independently unseen holdout.
+
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B
 adds built-in hybrid retrieval for memory and conversation messages, local verified EmbeddingGemma or an explicitly

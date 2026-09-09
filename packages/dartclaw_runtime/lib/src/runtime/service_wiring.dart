@@ -677,14 +677,15 @@ class _RuntimeAssembly {
     _wireRestartSentinel(ctx);
     final providerStatus = await _wireProviderStatus(ctx, harness, security);
     ctx.bindTurns(_composeTurns(config, ctx, storage, harness, security));
+    final relevanceRoute = SearchRelevanceRunner.resolveRoute(config);
     ctx.bindSearchRelevanceRunner(
       SearchRelevanceRunner(
         sessions: storage.sessions,
         turns: ctx._serverTurns,
-        providerId: harness.defaultProviderId,
-        model: config.agent.model,
-        effort: config.agent.effort,
-        executionPolicy: harness.policyResolver.resolveForPrimary(providerId: harness.defaultProviderId),
+        providerId: relevanceRoute.providerId,
+        model: relevanceRoute.model,
+        effort: relevanceRoute.effort,
+        executionPolicy: harness.policyResolver.resolveForPrimary(providerId: relevanceRoute.providerId),
       ),
     );
     // One-shot clients must not acknowledge the serving runtime's turn records.

@@ -89,6 +89,8 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 
 ## Gotchas
 
+- `search.relevance_model` is optional `provider/model` shorthand. `ProviderIdentity.parseProviderModelShorthand` is the single syntax authority for load, API validation, runtime routing and evaluation; a declared invalid value is startup-fatal and never falls back to the primary route.
+
 - `lib/src/dartclaw_config.dart` is a `part` orchestrator; its parser and acceptance files share that library's imports.
 - Extension parser registrations are process-global. Tests clear them in setup and teardown.
 - `ConfigDelta.hasChanged` performs bidirectional prefix matching by contract.

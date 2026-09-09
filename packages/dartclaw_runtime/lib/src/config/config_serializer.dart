@@ -106,6 +106,7 @@ class ConfigSerializer {
       },
       'search': {
         'backend': config.search.backend,
+        'relevanceModel': config.search.relevanceModel,
         'embedding': {
           'provider': config.search.embedding.provider.name,
           'model': config.search.embedding.model,

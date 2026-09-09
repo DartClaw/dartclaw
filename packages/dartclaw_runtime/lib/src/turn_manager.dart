@@ -268,6 +268,7 @@ class TurnManager implements core.TurnManager {
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    ({String? model, String? effort})? workerProviderOptions,
     TurnOrigin? origin,
   }) async {
     final lease = await _sessionReservations.run(
@@ -278,6 +279,7 @@ class TurnManager implements core.TurnManager {
         taskId: taskId,
         isHumanInput: isHumanInput,
         agentName: agentName,
+        providerOptions: workerProviderOptions,
         allowedTools: allowedTools,
       ),
     );
@@ -324,23 +326,46 @@ class TurnManager implements core.TurnManager {
     final runner = _reservedTurnRunners[turnId] ?? _primary;
     runner.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     unawaited(
-      runner
-          .waitForExecutionSettled(sessionId, turnId)
-          .whenComplete(() async {
-            _reservedTurnRunners.remove(turnId);
-            await _reservedTurnLeases.remove(turnId)?.release();
-          })
-          .catchError((Object error, StackTrace stackTrace) {
-            _log.warning('Turn execution settlement failed', error, stackTrace);
-          }),
+      runner.waitForExecutionSettled(sessionId, turnId).whenComplete(() => _releaseReservedTurn(turnId)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        _log.warning('Turn execution settlement failed', error, stackTrace);
+      }),
     );
   }
 
   @override
   void releaseTurn(String sessionId, String turnId) {
-    final runner = _reservedTurnRunners.remove(turnId) ?? _primary;
+    final runner = _reservedTurnRunners[turnId] ?? _primary;
     runner.releaseTurn(sessionId, turnId);
-    unawaited(_reservedTurnLeases.remove(turnId)?.release());
+    unawaited(_releaseReservedTurn(turnId));
+  }
+
+  Future<void> _releaseReservedTurn(String turnId) async {
+    try {
+      await _reservedTurnLeases[turnId]?.release();
+    } finally {
+      _reservedTurnLeases.remove(turnId);
+      _reservedTurnRunners.remove(turnId);
+    }
+  }
+
+  /// Waits for provider settlement and release of the turn's execution capacity.
+  Future<void> waitForExecutionSettled(String sessionId, String turnId) async {
+    final runner = _reservedTurnRunners[turnId];
+    if (runner == null) {
+      if (recentOutcome(sessionId, turnId) != null) return;
+      throw ArgumentError('Unknown turnId: $turnId');
+    }
+    if (_reservedTurnLeases[turnId]?.request.sessionId != sessionId) {
+      throw ArgumentError('Unknown turnId: $turnId');
+    }
+    try {
+      await runner.waitForExecutionSettled(sessionId, turnId);
+    } finally {
+      await _releaseReservedTurn(turnId);
+    }
   }
 
   @override
@@ -534,6 +559,7 @@ class TurnManager implements core.TurnManager {
     String? taskId,
     required bool isHumanInput,
     String? agentName,
+    ({String? model, String? effort})? providerOptions,
     List<String>? allowedTools,
   }) async {
     final session = await _sessions?.getSession(sessionId);
@@ -562,6 +588,7 @@ class TurnManager implements core.TurnManager {
         isHumanInput: isHumanInput,
         taskId: taskId,
         logicalAgentId: isLogicalAgent || boundChannel ? agentName : null,
+        providerOptions: providerOptions,
         allowedTools: allowedTools,
       ),
     );

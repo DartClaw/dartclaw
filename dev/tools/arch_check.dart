@@ -146,6 +146,9 @@ int _maxCeilingFor(int loc) {
 // search 1614 and testing 3770. The shared decoder moves out of core; search
 // owns the bounded judgment and refreshed fallback; the fake exposes the
 // fail-closed tool capability. Ceilings use _maxCeilingFor on those measurements.
+// Reviewed Claude relevance routing, 2026-09-09 (ADR-050): runtime measures
+// 67399 after preserving exact worker options and awaited lease settlement.
+// No safe in-scope reduction remains; _maxCeilingFor sets 68899.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -155,7 +158,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_core': 31260,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 67371,
+  'dartclaw_runtime': 68899,
   'dartclaw_search': 2152,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,

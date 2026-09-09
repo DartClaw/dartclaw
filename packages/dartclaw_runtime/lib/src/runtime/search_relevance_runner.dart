@@ -5,7 +5,7 @@ import '../turn_manager.dart';
 
 /// Runs schema-bound search relevance judgments through the runtime's normal turn authority.
 final class SearchRelevanceRunner {
-  /// Creates a runner pinned to the primary provider, model, effort and placement.
+  /// Creates a runner pinned to its resolved provider, model, effort and placement.
   const new({
     required SessionService sessions,
     required TurnManager turns,
@@ -21,6 +21,28 @@ final class SearchRelevanceRunner {
        _executionPolicy = executionPolicy;
 
   static const _agentName = 'search-relevance';
+
+  /// Resolves the one relevance route from startup configuration.
+  ///
+  /// An explicit route selects its own provider and model and carries no
+  /// primary-agent effort. An omitted route inherits the complete primary lane.
+  static ({String providerId, String? model, String? effort}) resolveRoute(DartclawConfig config) {
+    final configured = config.search.relevanceModel;
+    if (configured == null) {
+      return (
+        providerId: ProviderIdentity.normalize(config.agent.provider),
+        model: config.agent.model,
+        effort: config.agent.effort,
+      );
+    }
+    final parsed = ProviderIdentity.parseProviderModelShorthand(configured);
+    if (parsed == null) {
+      throw const FormatException(
+        'search.relevance_model must name a supported provider and non-empty model as provider/model',
+      );
+    }
+    return (providerId: parsed.provider, model: parsed.model, effort: null);
+  }
 
   final SessionService _sessions;
   final TurnManager _turns;
@@ -54,6 +76,7 @@ final class SearchRelevanceRunner {
         promptScope: PromptScope.task,
         allowedTools: const [],
         readOnly: true,
+        workerProviderOptions: (model: _model, effort: _effort),
       );
       final usesNativeStructuredOutput = _turns.reservedTurnUsesNativeStructuredOutput(session.id, turnId);
       try {
@@ -68,6 +91,7 @@ final class SearchRelevanceRunner {
         );
       } catch (_) {
         _turns.releaseTurn(session.id, turnId);
+        await _turns.waitForExecutionSettled(session.id, turnId);
         turnId = null;
         rethrow;
       }
@@ -89,8 +113,9 @@ final class SearchRelevanceRunner {
       return decoded;
     } finally {
       final activeTurnId = turnId;
-      if (activeTurnId != null && _turns.isActiveTurn(session.id, activeTurnId)) {
-        await _turns.cancelTurn(session.id);
+      if (activeTurnId != null) {
+        if (_turns.isActiveTurn(session.id, activeTurnId)) await _turns.cancelTurn(session.id);
+        await _turns.waitForExecutionSettled(session.id, activeTurnId);
       }
     }
   }

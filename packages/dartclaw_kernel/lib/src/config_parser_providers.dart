@@ -109,6 +109,7 @@ SearchConfig _parseSearch(
   var qmdPort = defaults.qmdPort;
   var defaultDepth = defaults.defaultDepth;
   var embedding = defaults.embedding;
+  var relevanceModel = defaults.relevanceModel;
 
   final searchMap = _sectionMap('search', yaml, warns);
   if (searchMap != null) {
@@ -134,6 +135,24 @@ SearchConfig _parseSearch(
     }
     final depth = readString('default_depth', searchMap, warns);
     if (depth != null) defaultDepth = depth;
+
+    if (searchMap.containsKey('relevance_model')) {
+      final rawRelevanceModel = searchMap['relevance_model'];
+      if (rawRelevanceModel == null) {
+        relevanceModel = null;
+      } else {
+        if (rawRelevanceModel is! String) {
+          throw const FormatException('search.relevance_model must be a provider/model string');
+        }
+        final parsed = ProviderIdentity.parseProviderModelShorthand(rawRelevanceModel);
+        if (parsed == null) {
+          throw const FormatException(
+            'search.relevance_model must name a supported provider and non-empty model as provider/model',
+          );
+        }
+        relevanceModel = '${parsed.provider}/${parsed.model}';
+      }
+    }
 
     final embeddingMap = readMap('embedding', searchMap, warns);
     if (embeddingMap != null) {
@@ -197,6 +216,7 @@ SearchConfig _parseSearch(
     defaultDepth: defaultDepth,
     providers: providers,
     embedding: embedding,
+    relevanceModel: relevanceModel,
   );
 }
 

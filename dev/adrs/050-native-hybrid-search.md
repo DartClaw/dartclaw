@@ -81,8 +81,10 @@ kernel's output-schema authority. `HybridSearch` rechecks surviving source text 
 returning results. A failed judgment retains lexical fallback with `relevanceFailure`; it is never successful empty
 selection.
 
-Runtime owns execution through the existing primary provider/model and a fresh logical-agent session: no work tools,
-no personal-memory prefill, fail-fast worker admission and a 30-second turn timeout. Native structured replies are
+Runtime owns execution through the existing primary provider/model/effort route by default. The optional
+`search.relevance_model: provider/model` setting selects one dedicated route without inheriting primary effort; it
+requires an explicitly configured provider and never causes an automatic switch. Either route uses a fresh
+logical-agent session: no work tools, no personal-memory prefill, fail-fast worker admission and a 30-second turn timeout. Native structured replies are
 required when selected by the reserved turn. Other providers use the existing logical-agent strict JSON contract,
 sharing its decoder and rejecting prose, fences and duplicate members. No native readback capability is inferred;
 [ADR-031](031-native-first-structured-outputs.md)'s workflow policy remains unchanged.
@@ -93,7 +95,7 @@ the relevance worker. Claude's pre-tool hooks support this contract; current Cod
 Refusal remains a visible relevance failure, with no automatic provider switch. Every lexical fallback is rechecked
 against current corpus content; failure to verify current content cannot publish the old snapshot.
 
-Hybrid queries consequently incur model latency and cost, and send selected passages across the configured primary
+Hybrid queries consequently incur model latency and cost, and send selected passages across the selected relevance
 provider's trust boundary even with local embeddings. FTS remains model-free. Quality evidence must pin this provider,
 model and prompt as well as the embedding identity. Calibration, a sealed candidate evaluation and the independent
 unseen holdout remain separate from implementation acceptance.

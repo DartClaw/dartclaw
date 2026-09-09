@@ -103,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
+| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, optional `relevanceModel` (`provider/model`), and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
@@ -1044,7 +1044,7 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 |---------|-------------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, and the four `search.embedding.*` provider fields |
+| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, explicit relevance model route, and the four `search.embedding.*` provider fields |
 | `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |

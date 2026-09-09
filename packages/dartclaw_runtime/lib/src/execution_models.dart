@@ -20,6 +20,7 @@ final class ExecutionRequest {
     this.isHumanInput = false,
     this.taskId,
     this.logicalAgentId,
+    this.providerOptions,
     this.allowedTools,
     this.artifactsDir,
     this.spawnEnvironment,
@@ -46,6 +47,12 @@ final class ExecutionRequest {
   /// them.
   final String? logicalAgentId;
 
+  /// Exact provider options fixed when this worker is constructed.
+  ///
+  /// Null preserves the primary-lane defaults. A present record owns both
+  /// nullable fields, so a dedicated model can deliberately carry no effort.
+  final ({String? model, String? effort})? providerOptions;
+
   /// The tool policy already in force for this execution, when it carries one
   /// of its own rather than a logical agent's.
   ///
@@ -64,7 +71,11 @@ final class ExecutionRequest {
   final Map<String, String>? spawnEnvironment;
 
   bool get hasExecutionScopedConstructionInputs =>
-      surface == ExecutionSurface.workflow || allowedTools != null || artifactsDir != null || spawnEnvironment != null;
+      surface == ExecutionSurface.workflow ||
+      providerOptions != null ||
+      allowedTools != null ||
+      artifactsDir != null ||
+      spawnEnvironment != null;
 
   ExecutionRequest _route({String? providerId, ExecutionPolicy? policy}) {
     return ExecutionRequest(
@@ -76,6 +87,7 @@ final class ExecutionRequest {
       isHumanInput: isHumanInput,
       taskId: taskId,
       logicalAgentId: logicalAgentId,
+      providerOptions: providerOptions,
       allowedTools: allowedTools,
       artifactsDir: artifactsDir,
       spawnEnvironment: spawnEnvironment,

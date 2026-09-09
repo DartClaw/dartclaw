@@ -71,9 +71,16 @@ the destructive PostgreSQL test suites without removing tests or assertions.
 Runtime refuses providers without complete tool interception before starting an empty-policy worker. Claude supports
 the guarded turn, while current Codex and ACP harnesses refuse it. Lexical fallback re-authenticates current content;
 evaluation requires explicit model/auth selection and seals terminal outcomes and complete reported-cost evidence.
-The maintainer's choice of using configured Claude for
-relevance checks while keeping Codex primary is pending. No live relevance calibration, candidate seal, original
-exposed evaluation, or new unseen holdout has run for this correction.
+The maintainer approved Claude-only relevance routing: "Go ahead and use claude". The explicit
+`search.relevance_model` route keeps Codex primary and pins Claude without inheriting Codex effort. A synthetic live
+canary passed all three checks (answer present, answer absent, Swedish), with complete accounting and unchanged source.
+The first canary exposed a sequential-worker release race; the corrected path awaits the existing settlement and lease
+release before returning. The passing canary took 17.8–20.7 seconds per check and reported $0.146263 across three turns.
+The routed implementation then passed 11,964 workspace tests with 44 configured skips, PostgreSQL integration,
+formatting, analysis, architecture/fitness gates and both AOT builds. Source bytes stayed unchanged during verification.
+Code and security reviews found no remaining defects. Runtime measures 67,399 lines; the reviewed proportional-band
+ceiling is 68,899 after safe in-scope reduction was exhausted.
+No representative live relevance calibration, candidate seal, exposed rerun or new unseen holdout has run yet.
 
 ## Independent unseen holdout protocol
 

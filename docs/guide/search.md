@@ -86,9 +86,13 @@ search:
 
 Hybrid search checks whether each candidate passage supplies the requested information before returning it. A passage
 about the same subject can therefore be omitted when it does not answer the question. This check preserves the search
-ranking and uses your configured `agent.provider`, `agent.model` and `agent.effort`; it adds a model call and its cost
-and latency. Local embeddings do not make the whole query local: the query and candidate passages reach that agent's
-provider. FTS-only search makes no relevance model call.
+ranking and uses your configured `agent.provider`, `agent.model` and `agent.effort` by default. Set
+`search.relevance_model` to a `provider/model` value when the check needs a dedicated route. That provider must also
+have a `providers.<id>` entry with worker capacity and usable authentication. The dedicated route uses no reasoning
+effort unless the selected model defines its own default. There is no automatic provider switch.
+
+Each hybrid query adds a model call and its cost and latency. Local embeddings do not make the whole query local: the
+query and candidate passages reach the selected relevance provider. FTS-only search makes no relevance model call.
 
 The check admits at most 40 passages and 64 KiB of encoded prompt/schema input. It has no work tools or personal-memory
 prefill, uses a separate worker slot, and bounds the model turn to 30 seconds. Exhausted capacity, oversized input,

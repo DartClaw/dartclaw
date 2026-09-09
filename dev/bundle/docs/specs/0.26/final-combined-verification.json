@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "milestone": "0.26",
-  "acceptance": "BLOCKED: original sealed retrieval no-result failures remain preserved. Answer-relevance correction passes local code verification; provider routing, live calibration, candidate seal and independently unseen holdout remain pending. Native x64 and external release gates remain unavailable. Implementation stories A17+B9 accepted; milestone acceptance and lifecycle cleanup blocked.",
+  "acceptance": "BLOCKED: original sealed retrieval no-result failures remain preserved. Answer-relevance correction passes local code verification; live calibration, candidate seal and independently unseen holdout remain pending. Native x64 and external release gates remain unavailable. Implementation stories A17+B9 accepted; milestone acceptance and lifecycle cleanup blocked.",
   "sourceRevision": "0e6d6181c72a1105d3d67e8f4ce79a4f0f6ed52a",
   "coverageRule": "No implicit deduplication: acceptance records name exact covered IDs/Phase A indices and prove the same assertions ran. A later causal fix invalidates affected results only. Missing, skipped, historical or emulated evidence cannot become a native/live pass.",
   "phaseA": [
@@ -868,6 +868,68 @@
       ".agent_temp/0.26-relevance/verification02/receipt.json",
       ".agent_temp/0.26-relevance/verification03/receipt.json",
       ".agent_temp/0.26-relevance/verification04/receipt.json"
+    ]
+  },
+  "claudeRelevanceRouting": {
+    "recordedAt": "2026-09-09 19:26 CEST",
+    "authorization": "Go ahead and use claude",
+    "status": "local-verification-and-live-canary-passed-calibration-pending",
+    "primaryProvider": "codex",
+    "primaryModel": "gpt-5.5",
+    "relevanceModel": "claude/claude-haiku-4-5-20251001",
+    "claudeCliVersion": "2.1.266",
+    "mechanism": "One explicit search.relevance_model override, shared runtime/evaluator route; scoped nullable worker options prevent primary effort inheritance. Relevance waits for execution settlement and worker release.",
+    "canary": {
+      "passed": 3,
+      "elapsedMs": [
+        19501,
+        17842,
+        20682
+      ],
+      "reportedEstimatedCostUsd": 0.1462628,
+      "accountingComplete": true,
+      "sourcePreserved": true
+    },
+    "evidencePaths": [
+      ".agent_temp/0.26-relevance/claude-routing-authorization.json",
+      ".agent_temp/0.26-relevance/private-claude-authorization-receipt.json",
+      ".agent_temp/0.26-relevance/claude-canary01/report.json",
+      ".agent_temp/0.26-relevance/claude-canary02/report.json",
+      ".agent_temp/0.26-relevance/claude-canary02-receipt.json",
+      ".agent_temp/0.26-relevance/settlement-red02.log",
+      ".agent_temp/0.26-relevance/settlement-green01.log",
+      ".agent_temp/0.26-relevance/verification09/receipt.json",
+      ".agent_temp/0.26-relevance/verification09/workspace-summary.json",
+      ".agent_temp/0.26-relevance/verification09-postgres.json",
+      ".agent_temp/0.26-relevance/claude-route-code-review.md",
+      ".agent_temp/0.26-relevance/claude-route-security-review.md",
+      ".agent_temp/0.26-relevance/local-route-receipt.json",
+      ".agent_temp/0.26-relevance/local-credential-receipt.json"
+    ],
+    "localVerification": {
+      "workspacePassed": 11964,
+      "workspaceSkipped": 44,
+      "workspacePackages": 15,
+      "postgresContract": "passed",
+      "postgresHybrid": "passed; both corpora",
+      "format": "passed",
+      "analysis": "passed",
+      "architecture": "passed",
+      "fitness": "passed",
+      "aotBuilds": [
+        "dartclaw",
+        "dartclaw-workflow"
+      ],
+      "sourcePreservedDuringRun": true,
+      "runtimeLoc": 67399,
+      "runtimeLocCeiling": 68899,
+      "codeReview": "Ready; zero findings; reviewed LOC necessity",
+      "securityReview": "Ready; zero findings"
+    },
+    "retainedIncompleteRuns": [
+      ".agent_temp/0.26-relevance/verification06/receipt.json",
+      ".agent_temp/0.26-relevance/verification07/receipt.json",
+      ".agent_temp/0.26-relevance/verification08/receipt.json"
     ]
   }
 }

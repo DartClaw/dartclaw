@@ -13,6 +13,7 @@ import 'security_wiring.dart';
 import 'provider_resolution.dart' show sanitizeProviderRequestEnvironment;
 
 part 'harness_wiring_guards.dart';
+part 'harness_wiring_worker_options.dart';
 
 /// Constructs and exposes harness-layer services.
 ///
@@ -944,13 +945,16 @@ class HarnessWiring {
           workerFilter,
           _security.toolPolicyCascade,
         );
-        final workerHarnessConfig = _harnessConfig.copyWith(
+        final disallowedTools = workerDisallowedTools(
+          containerProfile: containerProfile,
+          hostDisallowedTools: _harnessConfig.disallowedTools,
+          userDisallowedTools: config.agent.disallowedTools,
+        );
+        final workerHarnessConfig = _workerHarnessOptions(
+          base: _harnessConfig,
+          providerOptions: request.providerOptions,
           appendSystemPrompt: workerPrompt,
-          disallowedTools: workerDisallowedTools(
-            containerProfile: containerProfile,
-            hostDisallowedTools: _harnessConfig.disallowedTools,
-            userDisallowedTools: config.agent.disallowedTools,
-          ),
+          disallowedTools: disallowedTools,
         );
         try {
           final providerEnvironment = buildProviderSpawnEnvironment(

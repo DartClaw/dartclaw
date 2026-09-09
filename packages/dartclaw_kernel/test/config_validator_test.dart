@@ -152,6 +152,11 @@ void main() {
         (updates: {'logging.format': 'xml'}, field: 'logging.format', messageContains: ['must be one of']),
         (updates: {'search.backend': 'elasticsearch'}, field: 'search.backend', messageContains: ['must be one of']),
         (
+          updates: {'search.relevance_model': 'sonnet'},
+          field: 'search.relevance_model',
+          messageContains: ['provider/model'],
+        ),
+        (
           updates: {'guards.content.classifier': 'openai'},
           field: 'guards.content.classifier',
           messageContains: ['must be one of'],
@@ -419,6 +424,11 @@ void main() {
         validator.validate({'search.embedding.model': '/tmp/arbitrary.gguf'}).single.field,
         'search.embedding.model',
       );
+    });
+
+    test('relevance model writes accept provider/model or null', () {
+      expect(validator.validate({'search.relevance_model': 'claude/sonnet'}), isEmpty);
+      expect(validator.validate({'search.relevance_model': null}), isEmpty);
     });
 
     test('credentialed embedding endpoint writes require HTTPS except for literal loopback hosts', () {

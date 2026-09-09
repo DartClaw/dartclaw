@@ -1,6 +1,7 @@
 import 'config_constraints.dart';
 import 'config_meta.dart';
 import 'governance_config.dart' show TurnLimitsConfig;
+import 'provider_identity.dart';
 import 'search_config.dart';
 import 'turn_limits_validation.dart';
 
@@ -82,7 +83,20 @@ class ConfigValidator {
     _validateExecutionMode(updates, currentValues, errors);
     _validateTurnLimits(updates, currentValues, errors);
     _validateEmbeddingRequirements(updates, currentValues, errors);
+    _validateRelevanceModel(updates, errors);
     return errors;
+  }
+
+  void _validateRelevanceModel(Map<String, dynamic> updates, List<ValidationError> errors) {
+    const field = 'search.relevance_model';
+    if (!updates.containsKey(field) || updates[field] == null || errors.any((error) => error.field == field)) return;
+    if (ProviderIdentity.parseProviderModelShorthand(updates[field] as String) != null) return;
+    errors.add(
+      const ValidationError(
+        field: field,
+        message: "Field 'search.relevance_model' must name a supported provider and non-empty model as provider/model",
+      ),
+    );
   }
 
   void _validateEmbeddingRequirements(

@@ -9,6 +9,38 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnOu
 import 'package:test/test.dart';
 
 void main() {
+  test('resolves a dedicated relevance model without inheriting the primary effort', () {
+    final route = SearchRelevanceRunner.resolveRoute(
+      const DartclawConfig(
+        agent: AgentConfig(provider: 'codex', model: 'gpt-primary', effort: 'high'),
+        search: SearchConfig(relevanceModel: 'claude/sonnet'),
+      ),
+    );
+
+    expect(route.providerId, 'claude');
+    expect(route.model, 'sonnet');
+    expect(route.effort, isNull);
+  });
+
+  test('inherits the complete primary route when no dedicated model is configured', () {
+    final route = SearchRelevanceRunner.resolveRoute(
+      const DartclawConfig(
+        agent: AgentConfig(provider: 'codex', model: 'gpt-primary', effort: 'high'),
+      ),
+    );
+
+    expect((route.providerId, route.model, route.effort), ('codex', 'gpt-primary', 'high'));
+  });
+
+  test('refuses an invalid directly constructed dedicated route', () {
+    expect(
+      () => SearchRelevanceRunner.resolveRoute(
+        const DartclawConfig(search: SearchConfig(relevanceModel: 'claude/sonnet/extra')),
+      ),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   late Directory root;
   late SessionService sessions;
   late MessageService messages;
@@ -203,6 +235,7 @@ final class _RelevanceOutcomeTurnManager extends TurnManager {
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    ({String? model, String? effort})? workerProviderOptions,
     TurnOrigin? origin,
   }) async {
     sessionAtReservation = await sessions.getSession(sessionId);
@@ -235,6 +268,9 @@ final class _RelevanceOutcomeTurnManager extends TurnManager {
 
   @override
   bool reservedTurnUsesNativeStructuredOutput(String sessionId, String turnId) => usesNativeStructuredOutput;
+
+  @override
+  Future<void> waitForExecutionSettled(String sessionId, String turnId) async {}
 
   @override
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {

@@ -234,6 +234,28 @@ void main() {
     }
   });
 
+  test('evaluation validates authentication and model on the dedicated relevance route', () {
+    final root = Directory.systemTemp.createTempSync('retrieval_runtime_dedicated_auth_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final source = File('${root.path}/runtime.yaml');
+    const base =
+        'agent:\n  provider: codex\n  model: gpt-primary\n  effort: high\n'
+        'search:\n  relevance_model: claude/fixture-judge\n'
+        'providers:\n  codex:\n    executable: codex\n    auth: auto\n'
+        '  claude:\n    executable: claude\n';
+
+    source.writeAsStringSync('$base    auth: auto\n');
+    expect(
+      () => loadEvaluationRuntimeConfig(source.path, '${root.path}/evaluation'),
+      throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('relevance provider'))),
+    );
+
+    source.writeAsStringSync('$base    auth: subscription\n');
+    final config = loadEvaluationRuntimeConfig(source.path, '${root.path}/evaluation');
+    final route = SearchRelevanceRunner.resolveRoute(config);
+    expect((route.providerId, route.model, route.effort), ('claude', 'fixture-judge', null));
+  });
+
   test('evaluation requires a pinned model before provider setup', () {
     final root = Directory.systemTemp.createTempSync('retrieval_runtime_model_');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -245,6 +267,65 @@ void main() {
       () => loadEvaluationRuntimeConfig(source.path, '${root.path}/evaluation'),
       throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('explicit model'))),
     );
+  });
+
+  test('production relevance turn leases the dedicated provider without the primary effort', () async {
+    final root = Directory.systemTemp.createTempSync('retrieval_runtime_route_');
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+    final workers = <FakeAgentHarness>[];
+    final launches = <HarnessFactoryConfig>[];
+    final factory = HarnessFactory()
+      ..register('claude', (config) {
+        final harness = FakeAgentHarness(supportsStructuredOutput: true, supportsNoWorkTools: true);
+        if (config.cwd != '/') {
+          launches.add(config);
+          workers.add(harness);
+        }
+        return harness;
+      });
+    final config = DartclawConfig(
+      agent: const AgentConfig(provider: 'codex', model: 'gpt-primary', effort: 'high'),
+      search: const SearchConfig(relevanceModel: 'claude/fixture-judge'),
+      providers: const ProvidersConfig(
+        entries: {
+          'codex': ProviderEntry(executable: 'codex', poolSize: 1),
+          'claude': ProviderEntry(executable: 'claude', poolSize: 1),
+        },
+      ),
+      server: ServerConfig(dataDir: root.path),
+    );
+    final staging = await DartclawRuntime.stageHeadless(
+      config,
+      dataDir: root.path,
+      runtimeCwd: root.path,
+      harnessFactory: factory,
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      stderrLine: (_) {},
+      exitFn: (code) => throw StateError('unexpected runtime exit $code'),
+      runWorkflowSkillsBootstrap: false,
+    );
+    final runtime = await staging.completeForExecution({'claude'});
+    addTearDown(runtime.shutdown);
+
+    final result = runtime.requireSearchRelevanceTurn('judge', const {
+      'type': 'object',
+      'properties': {
+        '0': {'type': 'boolean'},
+      },
+      'required': ['0'],
+      'additionalProperties': false,
+    });
+    await _waitFor(() => workers.isNotEmpty && workers.single.hasPendingTurn);
+
+    expect(launches.single.harnessConfig.model, 'fixture-judge');
+    expect(launches.single.harnessConfig.effort, isNull);
+    expect(workers.single.lastModel, 'fixture-judge');
+    expect(workers.single.lastEffort, isNull);
+    workers.single.completeSuccess(const TurnResult(structuredOutput: {'0': true}));
+    expect(await result, {'0': true});
   });
 
   test('evaluation refuses prior runtime state before provider setup', () async {

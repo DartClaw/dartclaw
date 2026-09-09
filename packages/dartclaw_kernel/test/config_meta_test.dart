@@ -62,6 +62,7 @@ void main() {
         'search.qmd.host',
         'search.qmd.port',
         'search.default_depth',
+        'search.relevance_model',
         'search.embedding.provider',
         'search.embedding.model',
         'search.embedding.endpoint',
@@ -230,6 +231,8 @@ void main() {
       expect(ConfigMeta.fields['search.backend']!.allowedValues, ['fts5', 'hybrid', 'qmd']);
       expect(ConfigMeta.fields['search.embedding.provider']!.allowedValues, ['local', 'http']);
       expect(ConfigMeta.fields['search.embedding.credential']!.mutability, ConfigMutability.readonly);
+      expect(ConfigMeta.fields['search.relevance_model']!.mutability, ConfigMutability.restart);
+      expect(ConfigMeta.fields['search.relevance_model']!.nullable, true);
       expect(ConfigMeta.fields['context.compact_instructions']!.nullable, true);
     });
 
@@ -701,7 +704,7 @@ void main() {
       expect(_reverseBoundDivergences, hasLength(1));
       expect(_agreeingBounds, hasLength(11));
       expect(_unenforcedStringDeclarations, hasLength(4));
-      expect(_inexpressibleDeclarations, hasLength(5));
+      expect(_inexpressibleDeclarations, hasLength(6));
 
       for (final section in _registryDispositions) {
         section.forEach(_expectDeclarationMatchesDisposition);
@@ -1048,6 +1051,15 @@ const _unenforcedStringDeclarations = <String, _DispositionRow>{
 /// min_feedback_delay` and `channels.google_chat.feedback.status_interval`,
 /// which run the same `tryParseDuration` over a `string` declaration.
 const _inexpressibleDeclarations = <String, _DispositionRow>{
+  'search.relevance_model': (
+    disposition: _Disposition.inexpressible,
+    min: null,
+    max: null,
+    allowedValues: null,
+    consequence:
+        'FieldMeta has no scalar string-pattern declaration, so the parser and write validator share '
+        'ProviderIdentity.parseProviderModelShorthand as the syntax authority.',
+  ),
   'governance.turn_limits.stall_timeout': (
     disposition: _Disposition.inexpressible,
     min: 0,

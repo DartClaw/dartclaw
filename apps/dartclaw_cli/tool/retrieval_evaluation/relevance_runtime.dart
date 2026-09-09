@@ -16,13 +16,13 @@ DartclawConfig loadEvaluationRuntimeConfig(String configPath, String dataDirecto
   if (config.database.backend != DatabaseBackendKind.sqlite) {
     throw const FormatException('The relevance runtime requires fresh local SQLite state');
   }
-  final provider = ProviderIdentity.normalize(config.agent.provider);
-  final auth = config.providers[provider]?.auth;
+  final route = SearchRelevanceRunner.resolveRoute(config);
+  final auth = config.providers[route.providerId]?.auth;
   // Explicit selection makes the runtime refuse missing credentials instead of probing ambient vendor login.
   if (auth != ProviderAuth.apiKey && auth != ProviderAuth.subscription) {
-    throw const FormatException('Evaluation requires explicit auth: api_key or subscription on its primary provider');
+    throw const FormatException('Evaluation requires explicit auth: api_key or subscription on its relevance provider');
   }
-  if (config.agent.model?.trim().isNotEmpty != true) {
+  if (route.model?.trim().isNotEmpty != true) {
     throw const FormatException('Evaluation requires an explicit model');
   }
   return config;
@@ -76,7 +76,7 @@ final class EvaluationRelevanceRuntime {
     }
     root.createSync(recursive: true);
     final config = loadEvaluationRuntimeConfig(configPath, root.path);
-    final provider = ProviderIdentity.normalize(config.agent.provider);
+    final route = SearchRelevanceRunner.resolveRoute(config);
     CredentialPreflight.enforce(config, Platform.environment);
     final staging = await DartclawRuntime.stageHeadless(
       config,
@@ -90,12 +90,12 @@ final class EvaluationRelevanceRuntime {
     );
     DartclawRuntime? runtime;
     try {
-      await staging.preflightProviderAuth({provider});
-      runtime = await staging.completeForExecution({provider});
+      await staging.preflightProviderAuth({route.providerId});
+      runtime = await staging.completeForExecution({route.providerId});
       return EvaluationRelevanceRuntime.capture(runtime, {
-        'provider': provider,
-        'model': config.agent.model,
-        'effort': config.agent.effort,
+        'provider': route.providerId,
+        'model': route.model,
+        'effort': route.effort,
         'configSha256': (await sha256.bind(File(configPath).openRead()).first).toString(),
       });
     } on Object {

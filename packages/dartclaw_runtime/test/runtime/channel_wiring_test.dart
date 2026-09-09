@@ -122,6 +122,7 @@ class _RecordingTurnManager extends TurnManager {
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    ({String? model, String? effort})? workerProviderOptions,
     TurnOrigin? origin,
   }) async {
     reserved.add((

@@ -865,6 +865,7 @@ class BusyOnceTurnManager extends TurnManager {
     PromptScope? promptScope,
     List<String>? allowedTools,
     bool readOnly = false,
+    ({String? model, String? effort})? workerProviderOptions,
     Duration? turnTimeout,
     TurnOrigin? origin,
   }) async {

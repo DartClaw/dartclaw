@@ -66,7 +66,11 @@ void main() {
     expect(buildSteps.any((step) => '${step['uses']}'.startsWith('softprops/action-gh-release@')), isFalse);
 
     final evidenceUpload = buildStep('Upload native embedding evidence');
-    expect(evidenceUpload['if'], "matrix.target != 'macos-x64'");
+    expect(
+      evidenceUpload['if'],
+      "always() && matrix.target != 'macos-x64'",
+      reason: 'Retain native gate evidence when a probe fails so diagnostics remain downloadable.',
+    );
     expect((evidenceUpload['with'] as YamlMap)['name'], r'native-embedding-${{ matrix.target }}');
   });
 

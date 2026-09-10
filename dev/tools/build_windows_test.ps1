@@ -65,6 +65,29 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     Assert-FailsWith -Message 'unexpected share/ sidecar' -Action { Assert-WindowsReleaseLayout -Root $tempRoot -BinaryName $binaryName }
     Remove-Item -LiteralPath (Join-Path $tempRoot 'share') -Recurse
 
+    $nativeNames = @('sqlite3.dll', 'llamadart.dll', 'llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
+    foreach ($name in $nativeNames) {
+      Set-Content -LiteralPath (Join-Path $rawBundle "lib/$name") -Value $name
+      Set-Content -LiteralPath (Join-Path $tempRoot "lib/$name") -Value $name
+    }
+    $moduleFiles = @(Get-WindowsRuntimeLibraryFiles -Root (Join-Path $rawBundle 'lib'))
+    $expectedModules = @('llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
+    if (@(Compare-Object ($moduleFiles.Name | Sort-Object) ($expectedModules | Sort-Object)).Count -ne 0) {
+      throw 'Backend staging must include module dependencies without duplicating the primary loaders.'
+    }
+    foreach ($module in $moduleFiles) {
+      Copy-Item -LiteralPath $module.FullName -Destination (Join-Path $tempRoot 'bin')
+    }
+    Assert-WindowsReleaseLayout -Root $tempRoot -BinaryName $binaryName -NativeLibraryRoot (Join-Path $rawBundle 'lib')
+    foreach ($name in $expectedModules) {
+      $modulePath = Join-Path $tempRoot "bin/$name"
+      Remove-Item -LiteralPath $modulePath
+      Assert-FailsWith -Message "missing bin/$name" -Action {
+        Assert-WindowsReleaseLayout -Root $tempRoot -BinaryName $binaryName -NativeLibraryRoot (Join-Path $rawBundle 'lib')
+      }
+      Copy-Item -LiteralPath (Join-Path $rawBundle "lib/$name") -Destination $modulePath
+    }
+
     $badSmoke = Join-Path $tempRoot 'bad-smoke.cmd'
     Set-Content -LiteralPath $badSmoke -Value '@exit /b 7'
     Assert-FailsWith -Message "$binaryName.exe --help smoke failed" -Action {

@@ -95,6 +95,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- Fix Windows native embedding backend discovery in release archives.
+
 - Release builds initialize native artifact paths in a supported workflow context. PostgreSQL CI provisions pgvector
   before exercising hybrid rebuilds.
 - Search inspection reports unavailable diagnostics instead of a zero when the unembedded count cannot be computed.

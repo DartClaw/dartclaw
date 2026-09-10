@@ -38,6 +38,13 @@ function Assert-NoSystemSqliteOverride {
   }
 }
 
+# llamadart discovers backend modules beside the executable; primary native assets remain in lib.
+function Get-WindowsRuntimeLibraryFiles {
+  param([Parameter(Mandatory)][string]$Root)
+
+  return @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -notin @('sqlite3.dll', 'llamadart.dll') })
+}
+
 function Assert-WindowsReleaseLayout {
   param(
     [Parameter(Mandatory)][string]$Root,
@@ -50,6 +57,9 @@ function Assert-WindowsReleaseLayout {
     $nativePrefix = $NativeLibraryRoot.TrimEnd('\') + '\'
     $expected += @(Get-ChildItem -LiteralPath $NativeLibraryRoot -Recurse -File | ForEach-Object {
         'lib/' + $_.FullName.Substring($nativePrefix.Length).Replace('\', '/')
+      })
+    $expected += @(Get-WindowsRuntimeLibraryFiles -Root $NativeLibraryRoot | ForEach-Object {
+        'bin/' + $_.Name
       })
   } else {
     $expected += 'lib/sqlite3.dll'
@@ -262,6 +272,9 @@ if ($MyInvocation.InvocationName -ne '.') {
       Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value $version -NoNewline
       Copy-Item -LiteralPath $compiledExecutable -Destination (Join-Path $stage "bin/$binaryName.exe")
       Copy-Item -LiteralPath $nativeLibraryRoot -Destination (Join-Path $stage 'lib') -Recurse
+      foreach ($runtimeLibrary in @(Get-WindowsRuntimeLibraryFiles -Root $nativeLibraryRoot)) {
+        Copy-Item -LiteralPath $runtimeLibrary.FullName -Destination (Join-Path $stage 'bin')
+      }
       Assert-WindowsReleaseLayout -Root $stage -BinaryName $binaryName -NativeLibraryRoot $nativeLibraryRoot
 
       $archiveName = "$binaryName-v$version-windows-x64.zip"

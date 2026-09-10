@@ -333,6 +333,21 @@ void main() {
     );
   });
 
+  test('native evidence binds executable-adjacent backend modules as well as native assets', () async {
+    final package = Directory.systemTemp.createTempSync('native-evidence-layout');
+    addTearDown(() => package.deleteSync(recursive: true));
+    Directory(p.join(package.path, 'lib')).createSync();
+    Directory(p.join(package.path, 'bin')).createSync();
+    for (final name in ['lib/llamadart.dll', 'lib/ggml-cpu.dll', 'bin/ggml-cpu.dll', 'bin/dartclaw.exe']) {
+      File(p.join(package.path, name)).writeAsStringSync(name);
+    }
+    final manifest = await nativeLibraryManifest(package);
+    expect(manifest.map((entry) => entry['path']), ['bin/ggml-cpu.dll', 'lib/ggml-cpu.dll', 'lib/llamadart.dll']);
+    expect(manifest[0]['sha256'], isNot(manifest[1]['sha256']));
+    File(p.join(package.path, 'bin/ggml-cpu.dll')).writeAsStringSync('changed backend');
+    expect((await nativeLibraryManifest(package))[0]['sha256'], isNot(manifest[0]['sha256']));
+  });
+
   test('linux failure probes select the exact FFI entry library', () {
     final selected = selectNativeLoaderLibrary([
       File('/release/lib/libllama-common.so'),

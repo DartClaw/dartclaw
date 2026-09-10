@@ -219,7 +219,7 @@ final class NativeEmbeddingPlatformGate {
         await extracted.create(recursive: true);
         final extraction = await Process.run('tar', ['-xf', archive.path, '-C', extracted.path]);
         if (extraction.exitCode != 0) throw StateError('Unable to extract release archive');
-        final libraries = await _libraryManifest(extracted);
+        final libraries = await nativeLibraryManifest(extracted);
         packages[archiveName] = extracted;
         packageEvidence.add({'basename': archiveName, 'sha256': await _sha256(archive), 'nativeLibraries': libraries});
       }
@@ -478,10 +478,20 @@ String _hostArchitecture() {
   return value;
 }
 
-Future<List<Map<String, Object?>>> _libraryManifest(Directory package) async {
+Future<List<Map<String, Object?>>> nativeLibraryManifest(Directory package) async {
   final libraryRoot = Directory(_join(package.path, 'lib'));
   if (!await libraryRoot.exists()) throw StateError('Release archive omitted native libraries');
   final files = await libraryRoot.list(recursive: true).where((entry) => entry is File).cast<File>().toList();
+  final binaryRoot = Directory(_join(package.path, 'bin'));
+  if (await binaryRoot.exists()) {
+    files.addAll(
+      await binaryRoot
+          .list()
+          .where((entry) => entry is File && entry.path.toLowerCase().endsWith('.dll'))
+          .cast<File>()
+          .toList(),
+    );
+  }
   files.sort((left, right) => left.path.compareTo(right.path));
   return [
     for (final file in files) {'path': _relativePath(package, file), 'sha256': await _sha256(file)},

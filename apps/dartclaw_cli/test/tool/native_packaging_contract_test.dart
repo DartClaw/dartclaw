@@ -108,7 +108,7 @@ void main() {
     );
   });
 
-  test('both packaging paths stage one full native library tree beside each binary', () {
+  test('packaging keeps native libraries discoverable from each binary', () {
     expect(RegExp(r'for binary_name in dartclaw dartclaw-workflow').hasMatch(posix), isTrue);
     expect(posix, contains(r'cp -R "$BUILD_DIR/lib" "$platform_stage/lib"'));
     expect(posix, isNot(contains('native_embedding_probe')));
@@ -121,6 +121,10 @@ void main() {
       windows,
       contains(r"Copy-Item -LiteralPath $nativeLibraryRoot -Destination (Join-Path $stage 'lib') -Recurse"),
     );
+    expect(windows, contains('function Get-WindowsRuntimeLibraryFiles'));
+    expect(windows, contains(r"Where-Object { $_.Name -notin @('sqlite3.dll', 'llamadart.dll') }"));
+    expect(windows, contains(r"Copy-Item -LiteralPath $runtimeLibrary.FullName -Destination (Join-Path $stage 'bin')"));
+    expect(windows, contains(r"'bin/' + $_.Name"));
     expect(windows, contains("throw 'Windows artifact validation failed: unexpected share/ sidecar.'"));
     expect(windows, isNot(contains('native_embedding_probe')));
     expect(windows, isNot(contains('embeddinggemma')));

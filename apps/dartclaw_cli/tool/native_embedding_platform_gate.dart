@@ -451,7 +451,7 @@ Future<void> _runReleaseBuild(String root, String target, String cache, String m
     ..['DARTCLAW_NATIVE_ARCHIVE_CACHE'] = cache
     ..['DARTCLAW_NATIVE_MANIFEST'] = manifestPath;
   final result = await Process.run(
-    Platform.isWindows ? 'powershell' : 'bash',
+    releaseBuildShell(),
     Platform.isWindows
         ? ['-NoProfile', '-File', _join(root, 'dev/tools/build_windows.ps1'), '-ReleaseTarget', target]
         : [_join(root, 'dev/tools/build.sh')],
@@ -460,6 +460,9 @@ Future<void> _runReleaseBuild(String root, String target, String cache, String m
   );
   if (result.exitCode != 0) throw StateError('Release build failed: ${_sanitize('${result.stderr}')}');
 }
+
+String releaseBuildShell({String? operatingSystem}) =>
+    (operatingSystem ?? Platform.operatingSystem) == 'windows' ? 'pwsh' : 'bash';
 
 String _hostArchitecture() {
   final result = Process.runSync(

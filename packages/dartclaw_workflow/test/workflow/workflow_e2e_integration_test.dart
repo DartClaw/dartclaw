@@ -357,7 +357,7 @@ void main() {
       String name, {
       String? githubToken,
       required _WorkflowE2eProcessRunner runProcess,
-      Map<String, String>? environment,
+      Map<String, String> environment = const {},
     }) {
       return _cloneTodoAppFixtureRepoWithRunner(
         p.join(tempDir.path, name),

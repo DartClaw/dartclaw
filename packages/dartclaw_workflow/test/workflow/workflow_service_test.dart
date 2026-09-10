@@ -1295,7 +1295,7 @@ void main() {
     autoCompleteNewTasks(createdTaskTitles);
 
     await workflowService.recoverIncompleteRuns();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await waitForRunStatus('recover-map-step', WorkflowRunStatus.completed);
 
     expect(createdTaskTitles, hasLength(1), reason: 'settled items 0 and 1 must not be replayed');
     final recovered = await workflowService.get('recover-map-step');

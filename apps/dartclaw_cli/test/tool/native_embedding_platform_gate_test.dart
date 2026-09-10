@@ -280,6 +280,14 @@ void main() {
     }
   });
 
+  test("Windows release build uses the workflow's PowerShell runtime", () {
+    expect(
+      releaseBuildShell(operatingSystem: 'windows'),
+      'pwsh',
+      reason: 'The native gate inherits the pwsh module path from its GitHub Actions step.',
+    );
+  });
+
   test('linux failure probes select the exact FFI entry library', () {
     final selected = selectNativeLoaderLibrary([
       File('/release/lib/libllama-common.so'),

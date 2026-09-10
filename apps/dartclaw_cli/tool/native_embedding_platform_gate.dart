@@ -80,6 +80,7 @@ final class NativeProbeObserver {
         'sanitizedError': payload?['error'] is String
             ? _sanitize(payload!['error'] as String)
             : _sanitize(result.stderrText),
+        if (result.stderrText.isNotEmpty) 'sanitizedStderr': _sanitize(result.stderrText, maxLength: 2000),
         'exitCode': result.exitCode,
         'processExitObserved': result.processExitObserved,
         'forcedTermination': result.forcedTermination,
@@ -565,10 +566,14 @@ Future<void> _writeEvidence(File destination, Map<String, Object?> evidence) asy
   await temporary.rename(destination.path);
 }
 
-String _sanitize(String value) {
-  var result = value.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-  result = result.replaceAll(RegExp(r'(?:[A-Za-z]:\\|/)[^ ]+'), '<path>');
-  if (result.length > 300) result = result.substring(0, 300);
+String _sanitize(String value, {int maxLength = 300}) {
+  var result = value.replaceAll(RegExp(r'''(["'])(?:[A-Za-z]:[\\/]|/).*?\1'''), '<path>');
+  result = result.replaceAllMapped(
+    RegExp(r'''(^|[\s("'=:])(?:[A-Za-z]:[\\/]|/)[^\r\n]*'''),
+    (match) => '${match[1]}<path>',
+  );
+  result = result.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+  if (result.length > maxLength) result = result.substring(0, maxLength);
   return result;
 }
 

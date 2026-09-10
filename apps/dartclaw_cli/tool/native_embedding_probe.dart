@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_search/dartclaw_search.dart';
+import 'package:llamadart/llamadart.dart' show LlamaEngine, LlamaLogLevel;
 
 Future<void> main(List<String> arguments) async {
   final modelPath = _value(arguments, '--model');
@@ -13,6 +14,10 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
+  LlamaEngine.configureLogging(
+    level: LlamaLogLevel.error,
+    handler: (record) => stderr.writeln(record.error ?? record.message),
+  );
   final provider = NativeEmbeddingProvider(modelPath: modelPath, expectedSha256: expectedSha256);
   final total = Stopwatch()..start();
   String operation = expectedFailure ?? 'coldFirstEmbed';

@@ -90,6 +90,51 @@ void main() {
     }
   });
 
+  test('observer retains native diagnostics alongside the public initialization error', () async {
+    final diagnostic = '${'backend initialization; ' * 20}DLL load error 126';
+    final records = await NativeProbeObserver(
+      runner: (executable, arguments, {required workingDirectory, required deadline, environment}) async =>
+          ObservedCommand(
+            exitCode: 1,
+            stdoutText: '{"result":"fail","error":"Native embedding initialization failed"}',
+            stderrText: '$diagnostic at C:\\Users\\person\\private\\llamadart.dll',
+            elapsed: const Duration(milliseconds: 10),
+            processExitObserved: true,
+            forcedTermination: false,
+          ),
+    ).observe([_cases().first]);
+
+    expect(records.single['sanitizedError'], 'Native embedding initialization failed');
+    expect(records.single['sanitizedStderr'], '$diagnostic at <path>');
+    expect(records.single['result'], 'fail');
+  });
+
+  test('native diagnostics redact paths containing spaces on both platforms', () async {
+    for (final (diagnostic, expected) in [
+      (r'DLL error at "C:\Users\Jane Doe\private\llamadart.dll"', 'DLL error at <path>'),
+      ("DLL error at '/Users/Jane Doe/private/libllamadart.dylib'", 'DLL error at <path>'),
+      (r'DLL error at C:\Users\Jane Doe\private\llamadart.dll', 'DLL error at <path>'),
+      ('DLL error at /Users/Jane Doe/private/libllamadart.dylib', 'DLL error at <path>'),
+      (
+        'Cannot resolve package:llamadart/llamadart at "/Users/Jane Doe/private/native.dylib": code 126',
+        'Cannot resolve package:llamadart/llamadart at <path>: code 126',
+      ),
+    ]) {
+      final records = await NativeProbeObserver(
+        runner: (executable, arguments, {required workingDirectory, required deadline, environment}) async =>
+            ObservedCommand(
+              exitCode: 1,
+              stdoutText: '{"result":"fail","error":"Native embedding initialization failed"}',
+              stderrText: diagnostic,
+              elapsed: const Duration(milliseconds: 10),
+              processExitObserved: true,
+              forcedTermination: false,
+            ),
+      ).observe([_cases().first]);
+      expect(records.single['sanitizedStderr'], expected);
+    }
+  });
+
   test('actual outer observer kills a stuck fake child and records forced termination', () async {
     final root = Directory.systemTemp.createTempSync('dartclaw-native-fake-child');
     addTearDown(() => root.deleteSync(recursive: true));

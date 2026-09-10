@@ -38,7 +38,7 @@ function Assert-NoSystemSqliteOverride {
   }
 }
 
-# llamadart discovers backend modules beside the executable; primary native assets remain in lib.
+# llamadart discovers backend modules beside the executable; SQLite and wrapper helpers do not belong there.
 function Get-WindowsRuntimeLibraryFiles {
   param([Parameter(Mandatory)][string]$Root)
 

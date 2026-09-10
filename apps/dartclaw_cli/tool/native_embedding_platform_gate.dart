@@ -270,16 +270,15 @@ final class NativeEmbeddingPlatformGate {
         final executable = File(_joinAll(package.path, ['bin', compiledProbe.uri.pathSegments.last]));
         await compiledProbe.copy(executable.path);
         var caseModelPath = modelPath;
-        final packageLoader = File(_join(package.path, _relativePath(basePackage, loaderLibrary)));
         if (operation == 'missingLibrary') {
-          await packageLoader.delete();
+          await prepareNativeLibraryFailure(package, corrupt: false);
         } else if (operation == 'absentModel') {
           caseModelPath = _join(package.path, 'absent-model.gguf');
         } else if (operation == 'corruptModel') {
           caseModelPath = _join(package.path, 'corrupt-model.gguf');
           await File(caseModelPath).writeAsString('not a model');
         } else if (operation == 'nativeLoadFailure') {
-          await packageLoader.writeAsString('invalid loader');
+          await prepareNativeLibraryFailure(package, corrupt: true);
         }
         final failure = operation != 'success';
         cases.add(
@@ -509,10 +508,23 @@ Future<List<File>> _nativeLibraryFiles(Directory package) async {
   return native;
 }
 
+Future<void> prepareNativeLibraryFailure(Directory package, {required bool corrupt, String? operatingSystem}) async {
+  final files = await package.list(recursive: true).where((entry) => entry is File).cast<File>().toList();
+  final loader = selectNativeLoaderLibrary(files, operatingSystem: operatingSystem);
+  final basename = loader.uri.pathSegments.last.toLowerCase();
+  for (final file in files.where((file) => file.uri.pathSegments.last.toLowerCase() == basename)) {
+    if (corrupt) {
+      await file.writeAsString('invalid loader');
+    } else {
+      await file.delete();
+    }
+  }
+}
+
 File selectNativeLoaderLibrary(List<File> files, {String? operatingSystem}) {
   final os = operatingSystem ?? Platform.operatingSystem;
   final basename = switch (os) {
-    'windows' => 'llamadart.dll',
+    'windows' => 'llama.dll',
     'macos' => 'libllamadart.dylib',
     _ => 'libllamadart.so',
   };

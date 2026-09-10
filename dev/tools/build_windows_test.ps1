@@ -73,7 +73,7 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     $moduleFiles = @(Get-WindowsRuntimeLibraryFiles -Root (Join-Path $rawBundle 'lib'))
     $expectedModules = @('llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
     if (@(Compare-Object ($moduleFiles.Name | Sort-Object) ($expectedModules | Sort-Object)).Count -ne 0) {
-      throw 'Backend staging must include module dependencies without duplicating the primary loaders.'
+      throw 'Backend staging must include module dependencies without duplicating SQLite or wrapper helpers.'
     }
     foreach ($module in $moduleFiles) {
       Copy-Item -LiteralPath $module.FullName -Destination (Join-Path $tempRoot 'bin')

@@ -348,6 +348,38 @@ void main() {
     expect((await nativeLibraryManifest(package))[0]['sha256'], isNot(manifest[0]['sha256']));
   });
 
+  test('Windows failure probes select core llama rather than the optional wrapper', () {
+    final selected = selectNativeLoaderLibrary([
+      File('/release/lib/llamadart.dll'),
+      File('/release/lib/llama.dll'),
+    ], operatingSystem: 'windows');
+    expect(p.basename(selected.path), 'llama.dll');
+  });
+
+  for (final corrupt in [false, true]) {
+    test('Windows native failure fixture ${corrupt ? 'corrupts' : 'removes'} every core library copy', () async {
+      final package = Directory.systemTemp.createTempSync('native-failure-copies');
+      addTearDown(() => package.deleteSync(recursive: true));
+      for (final relative in ['lib/llama.dll', 'bin/llama.dll', 'lib/llamadart.dll', 'lib/sqlite3.dll']) {
+        final file = File(p.join(package.path, relative));
+        file.parent.createSync(recursive: true);
+        file.writeAsStringSync(relative);
+      }
+      await prepareNativeLibraryFailure(package, corrupt: corrupt, operatingSystem: 'windows');
+      for (final relative in ['lib/llama.dll', 'bin/llama.dll']) {
+        final file = File(p.join(package.path, relative));
+        if (corrupt) {
+          expect(file.readAsStringSync(), 'invalid loader');
+        } else {
+          expect(file.existsSync(), isFalse);
+        }
+      }
+      for (final relative in ['lib/llamadart.dll', 'lib/sqlite3.dll']) {
+        expect(File(p.join(package.path, relative)).readAsStringSync(), relative);
+      }
+    });
+  }
+
   test('linux failure probes select the exact FFI entry library', () {
     final selected = selectNativeLoaderLibrary([
       File('/release/lib/libllama-common.so'),

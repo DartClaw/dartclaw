@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -128,6 +129,34 @@ void main() {
     expect(fixture.queries.singleWhere((query) => query.id == 'q51').relevantDocumentIds, {'m01'});
     expect(fixture.queries.singleWhere((query) => query.id == 'q56').relevantDocumentIds, isEmpty);
     expect(fixture.queries.singleWhere((query) => query.id == 'q56').expectEmpty, isFalse);
+  });
+
+  test('external fixture requires matching bytes and the existing schema', () {
+    final root = Directory.systemTemp.createTempSync('retrieval_external_fixture_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final source = File(p.join(repositoryRoot, 'dev/testing/retrieval/retrieval-v2.json'));
+    final fixtureFile = File(p.join(root.path, 'fixture.json'))..writeAsBytesSync(source.readAsBytesSync());
+    final fixtureHash = sha256.convert(fixtureFile.readAsBytesSync()).toString();
+    final assets = RetrievalAssetBundle(p.join(repositoryRoot, 'dev/testing/retrieval'));
+
+    final fixture = assets.verifyAndLoad(fixturePath: fixtureFile.path, fixtureSha256: fixtureHash);
+    expect((fixture.documents.length, fixture.queries.length), (32, 60));
+    expect(fixture.settings['rrfK'], 60);
+
+    fixtureFile.writeAsStringSync('${fixtureFile.readAsStringSync()}\n');
+    expect(
+      () => assets.verifyAndLoad(fixturePath: fixtureFile.path, fixtureSha256: fixtureHash),
+      throwsA(isA<FormatException>()),
+    );
+
+    final invalidSchema = jsonDecode(source.readAsStringSync()) as Map<String, dynamic>;
+    invalidSchema['protocolVersion'] = 3;
+    fixtureFile.writeAsStringSync(jsonEncode(invalidSchema));
+    final invalidSchemaHash = sha256.convert(fixtureFile.readAsBytesSync()).toString();
+    expect(
+      () => assets.verifyAndLoad(fixturePath: fixtureFile.path, fixtureSha256: invalidSchemaHash),
+      throwsA(isA<FormatException>()),
+    );
   });
 
   test('fixture rejects missing booleans, malformed labels, unknown IDs, and contradictory no-match labels', () {

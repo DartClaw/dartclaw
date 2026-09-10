@@ -1,5 +1,9 @@
 # Retrieval acceptance decision
 
+## Current independent-evaluation procedure
+
+Owner approved a pragmatic evaluation on 2026-09-10: keep search parameters fixed, use fresh author and reviewer sessions without prior fixtures or results, check overlap before scoring, and run the existing evaluator once. Record the tested code revision for traceability; do not freeze unrelated development. This supersedes the earlier administrator-exclusion, inaccessible-custodian and hard-isolation prerequisites below. Session separation is procedural rather than a claim that the coordinator cannot administer the environment. Preserve all original evidence and the first completed new result; do not tune parameters or revise judgments against its scores.
+
 Current decision: the owner approved the [search contract correction](search-contract-correction.md). Ordinary
 hybrid retrieval and RRF remain; the answer judge and Claude calibration are superseded. Protocol-2 regression
 judgments were independently reviewed before measurement. All 122 gates across 144 slices pass; 11,931 workspace

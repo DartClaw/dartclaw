@@ -18,21 +18,28 @@ final class RetrievalEvaluationUsage implements Exception {
 }
 
 final class RetrievalEvaluationArguments {
-  const new _({required this.checkAssets, this.modelPath, this.outputDirectory});
+  const new _({required this.checkAssets, this.modelPath, this.outputDirectory, this.fixturePath, this.fixtureSha256});
 
   final bool checkAssets;
   final String? modelPath;
   final String? outputDirectory;
+  final String? fixturePath;
+  final String? fixtureSha256;
 
   static RetrievalEvaluationArguments parse(List<String> arguments) {
-    if (arguments.length == 1 && arguments.single == '--check-assets') {
-      return const RetrievalEvaluationArguments._(checkAssets: true);
-    }
+    var checkAssets = false;
     String? modelPath;
     String? outputDirectory;
+    String? fixturePath;
+    String? fixtureSha256;
     for (var index = 0; index < arguments.length; index++) {
       final name = arguments[index];
-      if (!const {'--model-path', '--output-dir'}.contains(name)) {
+      if (name == '--check-assets') {
+        if (checkAssets) throw RetrievalEvaluationUsage(_usage);
+        checkAssets = true;
+        continue;
+      }
+      if (!const {'--model-path', '--output-dir', '--fixture-path', '--fixture-sha256'}.contains(name)) {
         throw RetrievalEvaluationUsage(_usage);
       }
       if (++index >= arguments.length || arguments[index].isEmpty) throw RetrievalEvaluationUsage(_usage);
@@ -42,15 +49,35 @@ final class RetrievalEvaluationArguments {
       } else if (name == '--output-dir') {
         if (outputDirectory != null) throw RetrievalEvaluationUsage(_usage);
         outputDirectory = arguments[index];
+      } else if (name == '--fixture-path') {
+        if (fixturePath != null) throw RetrievalEvaluationUsage(_usage);
+        fixturePath = arguments[index];
+      } else {
+        if (fixtureSha256 != null) throw RetrievalEvaluationUsage(_usage);
+        fixtureSha256 = arguments[index];
       }
     }
-    if (modelPath == null || outputDirectory == null || arguments.length != 4) {
+    if ((fixturePath == null) != (fixtureSha256 == null) ||
+        (fixtureSha256 != null && !RegExp(r'^[0-9a-f]{64}$').hasMatch(fixtureSha256))) {
       throw RetrievalEvaluationUsage(_usage);
     }
-    return RetrievalEvaluationArguments._(checkAssets: false, modelPath: modelPath, outputDirectory: outputDirectory);
+    if (checkAssets) {
+      if (modelPath != null || outputDirectory != null) throw RetrievalEvaluationUsage(_usage);
+    } else if (modelPath == null || outputDirectory == null) {
+      throw RetrievalEvaluationUsage(_usage);
+    }
+    return RetrievalEvaluationArguments._(
+      checkAssets: checkAssets,
+      modelPath: modelPath,
+      outputDirectory: outputDirectory,
+      fixturePath: fixturePath,
+      fixtureSha256: fixtureSha256,
+    );
   }
 
-  static const _usage = 'Usage: retrieval_evaluation.dart --check-assets | --model-path <path> --output-dir <path>';
+  static const _usage =
+      'Usage: retrieval_evaluation.dart (--check-assets | --model-path <path> --output-dir <path>) '
+      '[--fixture-path <path> --fixture-sha256 <lowercase-sha256>]';
 }
 
 final class EvaluationProjectionCounts {
@@ -364,11 +391,19 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
     throw const FileSystemException('Evaluation output directory must be empty');
   }
   output.createSync(recursive: true);
-  final protocol = await _protocol(fixture.settings);
+  final protocol = await _protocol(fixture.settings, arguments);
   final environment = _environment();
   final postgresDsn = Platform.environment['DARTCLAW_TEST_POSTGRES_URL'];
   if (postgresDsn == null || postgresDsn.isEmpty) {
-    await _writeFailure(output, protocol, environment, 'postgresql-unavailable', modelPath: arguments.modelPath!);
+    await _writeFailure(
+      output,
+      protocol,
+      environment,
+      'postgresql-unavailable',
+      modelPath: arguments.modelPath!,
+      fixturePath: arguments.fixturePath,
+      fixtureSha256: arguments.fixtureSha256,
+    );
     stderr.writeln('Retrieval evaluation requires DARTCLAW_TEST_POSTGRES_URL.');
     return 1;
   }
@@ -461,7 +496,11 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
       for (final row in gates)
         if (!row.passed) row.id,
     ];
-    final artifactHashes = await collectEvaluationArtifactHashes(arguments.modelPath!);
+    final artifactHashes = await collectEvaluationArtifactHashes(
+      arguments.modelPath!,
+      fixturePath: arguments.fixturePath,
+      fixtureSha256: arguments.fixtureSha256,
+    );
     protocol['artifactSha256'] = artifactHashes;
     protocol['modelSha256'] = artifactHashes['model/${p.basename(arguments.modelPath!)}'];
     final report = {
@@ -482,16 +521,24 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
     stdout.writeln('Retrieval evaluation: FAIL (${violations.length} violations)');
     return 1;
   } on Object {
-    await _writeFailure(output, protocol, environment, 'evaluation-incomplete', modelPath: arguments.modelPath!);
+    await _writeFailure(
+      output,
+      protocol,
+      environment,
+      'evaluation-incomplete',
+      modelPath: arguments.modelPath!,
+      fixturePath: arguments.fixturePath,
+      fixtureSha256: arguments.fixtureSha256,
+    );
     stderr.writeln('Retrieval evaluation could not complete; check embeddings and database setup.');
     return 1;
   }
 }
 
-Future<Map<String, Object?>> _protocol(Map<String, Object?> settings) async => {
+Future<Map<String, Object?>> _protocol(Map<String, Object?> settings, RetrievalEvaluationArguments arguments) async => {
   'protocolVersion': 2,
   'contract': 'passage relevance; answer sufficiency separate',
-  'fixtureStatus': 'exposed-regression',
+  'fixtureStatus': arguments.fixturePath == null ? 'exposed-regression' : 'independent-evaluation',
   'rrfK': settings['rrfK'],
   'keywordWeight': settings['keywordWeight'],
   'vectorWeight': settings['vectorWeight'],
@@ -501,7 +548,7 @@ Future<Map<String, Object?>> _protocol(Map<String, Object?> settings) async => {
   'warmupCount': 1,
   'repetitions': 1,
   'postgresLanguages': {'en': 'english', 'sv': 'swedish'},
-  'fixtureSha256': retrievalV2Sha256,
+  'fixtureSha256': arguments.fixtureSha256 ?? retrievalV2Sha256,
   'historicalHeldoutSha256': historicalHeldoutSha256,
   'settingsSha256': selectedSettingsSha256,
   'calibrationFixtureSha256': calibrationFixtureSha256,
@@ -535,8 +582,15 @@ Future<void> _writeFailure(
   Map<String, Object?> environment,
   String violation, {
   required String modelPath,
+  String? fixturePath,
+  String? fixtureSha256,
 }) async {
-  final artifactHashes = await collectEvaluationArtifactHashes(modelPath, requireModel: false);
+  final artifactHashes = await collectEvaluationArtifactHashes(
+    modelPath,
+    requireModel: false,
+    fixturePath: fixturePath,
+    fixtureSha256: fixtureSha256,
+  );
   protocol['artifactSha256'] = artifactHashes;
   protocol['modelSha256'] = artifactHashes['model/${p.basename(modelPath)}'];
   await writeEvaluationArtifacts(output, {
@@ -571,6 +625,8 @@ Future<Map<String, String>> collectEvaluationArtifactHashes(
   String modelPath, {
   bool requireModel = true,
   String repositoryRoot = '.',
+  String? fixturePath,
+  String? fixtureSha256,
 }) async {
   final files = <String, File>{
     'apps/dartclaw_cli/tool/retrieval_evaluation.dart': File(
@@ -601,6 +657,15 @@ Future<Map<String, String>> collectEvaluationArtifactHashes(
   final hashes = <String, String>{};
   for (final entry in files.entries) {
     hashes[entry.key] = (await sha256.bind(entry.value.openRead()).first).toString();
+  }
+  if (fixturePath != null) {
+    final fixture = File(fixturePath);
+    if (FileSystemEntity.typeSync(fixture.path, followLinks: false) != FileSystemEntityType.file) {
+      throw const FormatException('External retrieval fixture is missing');
+    }
+    final actual = (await sha256.bind(fixture.openRead()).first).toString();
+    if (actual != fixtureSha256) throw const FormatException('External retrieval fixture hash mismatch');
+    hashes['external/retrieval-fixture.json'] = actual;
   }
   return Map.unmodifiable(hashes);
 }

@@ -469,7 +469,10 @@ final class RetrievalAssetBundle {
 
   final String directory;
 
-  RetrievalFixture verifyAndLoad() {
+  RetrievalFixture verifyAndLoad({String? fixturePath, String? fixtureSha256}) {
+    if ((fixturePath == null) != (fixtureSha256 == null)) {
+      throw const FormatException('External retrieval fixture path and hash are required together');
+    }
     final expected = <String, String>{
       'calibration-fixture.dart.txt': calibrationFixtureSha256,
       'calibration-negatives.json': calibrationNegativesSha256,
@@ -508,7 +511,20 @@ final class RetrievalAssetBundle {
     _expectSetting(settings, 'heldOutSha256', historicalHeldoutSha256);
     _expectSetting(settings, 'calibrationNegativesSha256', calibrationNegativesSha256);
 
-    final fixture = parseRetrievalFixture(jsonDecode(File(p.join(directory, 'retrieval-v2.json')).readAsStringSync()));
+    final String fixtureJson;
+    if (fixturePath != null) {
+      final fixtureFile = File(fixturePath);
+      if (FileSystemEntity.typeSync(fixtureFile.path, followLinks: false) != FileSystemEntityType.file) {
+        throw const FormatException('External retrieval fixture is missing');
+      }
+      final bytes = fixtureFile.readAsBytesSync();
+      final actual = sha256.convert(bytes).toString();
+      if (actual != fixtureSha256) throw const FormatException('External retrieval fixture hash mismatch');
+      fixtureJson = utf8.decode(bytes);
+    } else {
+      fixtureJson = File(p.join(directory, 'retrieval-v2.json')).readAsStringSync();
+    }
+    final fixture = parseRetrievalFixture(jsonDecode(fixtureJson));
     return RetrievalFixture(
       documents: fixture.documents,
       queries: fixture.queries,

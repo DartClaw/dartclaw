@@ -16,10 +16,75 @@ void main() {
     repositoryRoot = await resolveRetrievalEvaluationRepositoryRoot();
   });
 
-  test('argument contract has only asset-check and local full-run modes', () {
+  test('argument contract keeps fixture selection paired and immutable', () {
     expect(RetrievalEvaluationArguments.parse(['--check-assets']).checkAssets, isTrue);
     final full = RetrievalEvaluationArguments.parse(['--output-dir', 'out', '--model-path', 'model.gguf']);
-    expect((full.checkAssets, full.modelPath, full.outputDirectory), (false, 'model.gguf', 'out'));
+    expect(
+      (full.checkAssets, full.modelPath, full.outputDirectory, full.fixturePath, full.fixtureSha256),
+      (false, 'model.gguf', 'out', null, null),
+    );
+    const fixtureHash = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    final external = RetrievalEvaluationArguments.parse([
+      '--model-path',
+      'model.gguf',
+      '--fixture-sha256',
+      fixtureHash,
+      '--output-dir',
+      'out',
+      '--fixture-path',
+      'fixture.json',
+    ]);
+    expect((external.fixturePath, external.fixtureSha256), ('fixture.json', fixtureHash));
+    expect(
+      RetrievalEvaluationArguments.parse([
+        '--check-assets',
+        '--fixture-path',
+        'fixture.json',
+        '--fixture-sha256',
+        fixtureHash,
+      ]).checkAssets,
+      isTrue,
+    );
+    for (final invalid in [
+      ['--model-path', 'model.gguf', '--output-dir', 'out', '--fixture-path', 'fixture.json'],
+      ['--model-path', 'model.gguf', '--output-dir', 'out', '--fixture-sha256', fixtureHash],
+      [
+        '--model-path',
+        'model.gguf',
+        '--output-dir',
+        'out',
+        '--fixture-path',
+        'one.json',
+        '--fixture-path',
+        'two.json',
+        '--fixture-sha256',
+        fixtureHash,
+      ],
+      [
+        '--model-path',
+        'model.gguf',
+        '--output-dir',
+        'out',
+        '--fixture-path',
+        'fixture.json',
+        '--fixture-sha256',
+        fixtureHash,
+        '--fixture-sha256',
+        fixtureHash,
+      ],
+      [
+        '--model-path',
+        'model.gguf',
+        '--output-dir',
+        'out',
+        '--fixture-path',
+        'fixture.json',
+        '--fixture-sha256',
+        fixtureHash.toUpperCase(),
+      ],
+    ]) {
+      expect(() => RetrievalEvaluationArguments.parse(invalid), throwsA(isA<RetrievalEvaluationUsage>()));
+    }
     expect(
       () => RetrievalEvaluationArguments.parse([
         '--model-path',
@@ -34,6 +99,47 @@ void main() {
     expect(
       () => RetrievalEvaluationArguments.parse(['--model-path', 'model.gguf', '--top-k', '7']),
       throwsA(isA<RetrievalEvaluationUsage>()),
+    );
+  });
+
+  test('infrastructure refusal records external fixture provenance', () async {
+    final root = Directory.systemTemp.createTempSync('retrieval_external_provenance_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final fixture = File(p.join(root.path, 'fixture.json'));
+    fixture.writeAsBytesSync(File(p.join(repositoryRoot, 'dev/testing/retrieval/retrieval-v2.json')).readAsBytesSync());
+    final fixtureHash = sha256.convert(fixture.readAsBytesSync()).toString();
+    final output = p.join(root.path, 'output');
+    final environment = Map<String, String>.of(Platform.environment)..remove('DARTCLAW_TEST_POSTGRES_URL');
+
+    final result = await Process.run(
+      Platform.resolvedExecutable,
+      [
+        'run',
+        'apps/dartclaw_cli/tool/retrieval_evaluation.dart',
+        '--model-path',
+        p.join(root.path, 'missing-model.gguf'),
+        '--output-dir',
+        output,
+        '--fixture-path',
+        fixture.path,
+        '--fixture-sha256',
+        fixtureHash,
+      ],
+      workingDirectory: repositoryRoot,
+      environment: environment,
+      includeParentEnvironment: false,
+    );
+
+    expect(result.exitCode, 1);
+    final report = jsonDecode(File(p.join(output, 'report.json')).readAsStringSync()) as Map<String, dynamic>;
+    final protocol = report['protocol'] as Map<String, dynamic>;
+    expect(report['violations'], ['postgresql-unavailable']);
+    expect(protocol['fixtureStatus'], 'independent-evaluation');
+    expect(protocol['fixtureSha256'], fixtureHash);
+    expect((protocol['artifactSha256'] as Map<String, dynamic>)['external/retrieval-fixture.json'], fixtureHash);
+    expect(
+      File(p.join(output, 'artifact-sha256.txt')).readAsStringSync(),
+      contains('$fixtureHash  external/retrieval-fixture.json'),
     );
   });
 

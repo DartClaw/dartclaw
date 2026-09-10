@@ -86,9 +86,21 @@ void main() {
   });
 
   test('four native runners own package proof while macOS x64 remains build-only', () {
-    final env = buildJob['env'] as YamlMap;
-    expect(env['DARTCLAW_NATIVE_ARCHIVE_CACHE'], r'${{ runner.temp }}/dartclaw-native-cache');
-    expect(env['DARTCLAW_EMBEDDING_MODEL_PATH'], r'${{ runner.temp }}/embeddinggemma-300M-Q8_0.gguf');
+    expect(
+      buildJob['env'],
+      isNull,
+      reason: 'runner.temp is unavailable while GitHub validates job-level env expressions',
+    );
+    final nativePaths = buildStep('Set native runtime paths');
+    expect(nativePaths['shell'], 'bash');
+    expect(
+      nativePaths['run'],
+      contains('echo "DARTCLAW_NATIVE_ARCHIVE_CACHE=\$RUNNER_TEMP/dartclaw-native-cache" >> "\$GITHUB_ENV"'),
+    );
+    expect(
+      nativePaths['run'],
+      contains('echo "DARTCLAW_EMBEDDING_MODEL_PATH=\$RUNNER_TEMP/embeddinggemma-300M-Q8_0.gguf" >> "\$GITHUB_ENV"'),
+    );
 
     final posixGate = buildStep('Prove native embedding package');
     expect(posixGate['if'], "runner.os != 'Windows' && matrix.target != 'macos-x64'");
@@ -108,6 +120,7 @@ void main() {
     final names = buildSteps.map((step) => step['name']).toList();
     expect(names.indexOf('Install Linux native dependency'), lessThan(names.indexOf('Install dependencies')));
     expect(buildStep('Install Linux native dependency')['run'], contains('apt-get install --yes libgomp1'));
+    expect(names.indexOf('Set native runtime paths'), lessThan(names.indexOf('Prepare verified native archive')));
     expect(names.indexOf('Prepare verified native archive'), lessThan(names.indexOf('Prove native embedding package')));
     expect(
       names.indexOf('Prepare verified embedding model'),

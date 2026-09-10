@@ -3,7 +3,7 @@ name: Checks
 #   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
 # then update both the SHA and the trailing # vX comment on the uses: line.
 # Resolve the PostgreSQL service pin with:
-#   docker buildx imagetools inspect postgres:14
+#   docker buildx imagetools inspect pgvector/pgvector:pg14
 
 on:
   push:
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:14@sha256:156f0b253fd61366d5fc2107ad45955027d5612f695a8436ce20167f3fa79bff # 14
+        image: pgvector/pgvector:pg14@sha256:fb27b00a92028f4749bf18f3d31b18fc62510258326486fb8900653ab2701252 # pg14
         env:
           POSTGRES_PASSWORD: dartclaw_ci
           POSTGRES_DB: dartclaw_test
@@ -170,6 +170,12 @@ jobs:
 
       - name: Generate embedded assets
         run: dart run dev/tools/embed_assets.dart
+
+      - name: Provision pgvector
+        run: >-
+          docker exec "${{ job.services.postgres.id }}"
+          psql --username postgres --dbname dartclaw_test --set ON_ERROR_STOP=1
+          --command 'CREATE EXTENSION vector WITH SCHEMA public'
 
       - name: PostgreSQL contract
         run: bash dev/tools/postgres_contract.sh

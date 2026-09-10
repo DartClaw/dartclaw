@@ -20,9 +20,6 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.runs_on }}
-    env:
-      DARTCLAW_NATIVE_ARCHIVE_CACHE: ${{ runner.temp }}/dartclaw-native-cache
-      DARTCLAW_EMBEDDING_MODEL_PATH: ${{ runner.temp }}/embeddinggemma-300M-Q8_0.gguf
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +44,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+
+      - name: Set native runtime paths
+        shell: bash
+        run: |
+          echo "DARTCLAW_NATIVE_ARCHIVE_CACHE=$RUNNER_TEMP/dartclaw-native-cache" >> "$GITHUB_ENV"
+          echo "DARTCLAW_EMBEDDING_MODEL_PATH=$RUNNER_TEMP/embeddinggemma-300M-Q8_0.gguf" >> "$GITHUB_ENV"
 
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1

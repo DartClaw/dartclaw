@@ -95,6 +95,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- Release builds initialize native artifact paths in a supported workflow context. PostgreSQL CI provisions pgvector
+  before exercising hybrid rebuilds.
 - Search inspection reports unavailable diagnostics instead of a zero when the unembedded count cannot be computed.
   The SDK diagnostic count is nullable; successful inspection responses still contain an integer.
 - PostgreSQL startup closes the task pool before releasing serving ownership. Transaction statement cleanup and

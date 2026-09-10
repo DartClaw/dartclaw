@@ -551,10 +551,18 @@ dart test --run-skipped -t integration packages/dartclaw_core
 Start PostgreSQL 14, point the live suites at it, and run the same explicit contract command as CI:
 
 ```bash
-docker run --rm --name dartclaw-postgres-contract \
+docker run -d --rm --name dartclaw-postgres-contract \
   -e POSTGRES_PASSWORD=dartclaw_dev \
   -e POSTGRES_DB=dartclaw_test \
-  -p 5432:5432 postgres:14
+  -p 5432:5432 pgvector/pgvector:pg14
+
+until docker exec dartclaw-postgres-contract pg_isready --username postgres --dbname dartclaw_test; do
+  sleep 1
+done
+
+docker exec dartclaw-postgres-contract \
+  psql --username postgres --dbname dartclaw_test --set ON_ERROR_STOP=1 \
+  --command 'CREATE EXTENSION vector WITH SCHEMA public'
 
 export DARTCLAW_TEST_POSTGRES_URL='postgres://postgres:dartclaw_dev@localhost:5432/dartclaw_test?sslmode=disable'
 bash dev/tools/postgres_contract.sh

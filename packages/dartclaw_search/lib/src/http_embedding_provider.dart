@@ -156,13 +156,7 @@ Future<List<int>> _readBoundedResponse(Stream<List<int>> response, {required Dur
 }
 
 Uri _validateEndpoint(Uri endpoint) {
-  final scheme = endpoint.scheme.toLowerCase();
-  if ((scheme != 'http' && scheme != 'https') ||
-      !endpoint.hasAuthority ||
-      endpoint.host.isEmpty ||
-      endpoint.userInfo.isNotEmpty ||
-      endpoint.hasQuery ||
-      endpoint.hasFragment) {
+  if (!isValidEmbeddingEndpoint(endpoint)) {
     throw ArgumentError('endpoint must be an absolute HTTP(S) URI without userinfo, query, or fragment');
   }
   return _normalizeEndpoint(endpoint);
@@ -189,7 +183,7 @@ String _requireHttpModel(String model) {
 String? _validateHttpCredential(Uri endpoint, String? apiKey) {
   if (apiKey == null) return null;
   if (apiKey.isEmpty) throw ArgumentError('apiKey must not be empty');
-  if (endpoint.scheme.toLowerCase() != 'https' && !isLoopbackHost(endpoint.host)) {
+  if (!isValidEmbeddingCredentialEndpoint(endpoint, apiKey)) {
     throw ArgumentError('apiKey requires HTTPS except for a literal loopback host');
   }
   return apiKey;

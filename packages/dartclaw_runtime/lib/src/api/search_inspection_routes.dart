@@ -65,6 +65,8 @@ Router searchInspectionRoutes({MemoryInspectionQuery? inspectMemory, Conversatio
         ];
       }
       final diagnostic = evidence!;
+      final unembeddedCount = diagnostic.unembeddedCount;
+      if (unembeddedCount == null) return unavailable();
       return jsonResponse(200, {
         'corpus': corpus,
         'results': results,
@@ -82,7 +84,7 @@ Router searchInspectionRoutes({MemoryInspectionQuery? inspectMemory, Conversatio
                 'sourceLayer': candidate.sourceLayer,
               },
           ],
-          'unembeddedCount': diagnostic.unembeddedCount,
+          'unembeddedCount': unembeddedCount,
           'degradations': diagnostic.degradations.map((value) => value.toJson()).toList(growable: false),
         },
       });

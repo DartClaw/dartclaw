@@ -71,14 +71,14 @@ final class _CurrentCorpusInventory {
     return snapshot.chunks.where((chunk) => !chunk.matches(eligible[chunk.identity], modelFingerprint)).length;
   }
 
-  Future<int> diagnosticMissingCount({required String userId, required String modelFingerprint}) async {
+  Future<int?> diagnosticMissingCount({required String userId, required String modelFingerprint}) async {
     try {
       return await missingCount(userId: userId, modelFingerprint: modelFingerprint);
     } on Object {
       try {
         return await _lexicalIndex.count(userId: userId);
       } on Object {
-        return 0;
+        return null;
       }
     }
   }

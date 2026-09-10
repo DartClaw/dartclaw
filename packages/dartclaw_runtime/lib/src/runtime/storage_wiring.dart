@@ -224,19 +224,16 @@ class StorageWiring {
       );
       _workflowRunRepository = SqliteWorkflowRunRepository(backend);
     } catch (e, st) {
-      await _interlock?.release();
-      await _discardHybridRuntime();
       try {
-        await _searchBackend?.close();
-      } catch (closeErr) {
-        _log.fine('Error closing search DB during taskDb failure cleanup', closeErr);
+        await closeBackends();
+      } on Object {
+        _log.warning('Storage cleanup failed after task database startup failure');
       }
       try {
-        await _taskBackend?.close();
-      } catch (closeErr) {
-        _log.fine('Error closing task DB during taskDb failure cleanup', closeErr);
+        await _turnStateStore.dispose();
+      } on Object {
+        _log.warning('Turn state cleanup failed after task database startup failure');
       }
-      await _turnStateStore.dispose();
       _log.severe('Cannot open task database at ${config.dartclawDbPath}', e, st);
       _exitFn(1);
     }

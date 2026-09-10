@@ -205,7 +205,7 @@ final class HybridSearch {
     ];
   }
 
-  Future<int> _diagnosticMissingCount(String userId) =>
+  Future<int?> _diagnosticMissingCount(String userId) =>
       _inventory.diagnosticMissingCount(userId: userId, modelFingerprint: _embeddingProvider.modelFingerprint);
 }
 

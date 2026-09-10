@@ -361,7 +361,11 @@ final class _PostgresTransaction implements DatabaseBackend {
   Future<void> _deactivate() async {
     _active = false;
     for (final statement in _statements) {
-      await statement._closeDirect();
+      try {
+        await statement._closeDirect();
+      } on Object {
+        PostgresBackend._log.warning('PostgreSQL transaction statement cleanup failed');
+      }
     }
   }
 }

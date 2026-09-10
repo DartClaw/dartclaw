@@ -145,6 +145,7 @@ int _maxCeilingFor(int loc) {
 // Search contract correction, 2026-09-09 (ADR-050): removal of the production
 // judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
 // down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
+// 2026-09-10: shared endpoint validation reduces search to 1490 lines; ratchet to 1986.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -155,7 +156,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
   'dartclaw_runtime': 68666,
-  'dartclaw_search': 1994,
+  'dartclaw_search': 1986,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,

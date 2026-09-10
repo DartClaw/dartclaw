@@ -189,7 +189,7 @@ void main() {
     final router = searchInspectionRoutes(
       inspectMemory: (_, {limit = 20, diagnostics}) async {
         expect(limit, 20);
-        diagnostics?.call(SearchDiagnostics(candidates: const []));
+        diagnostics?.call(SearchDiagnostics(candidates: const [], unembeddedCount: 0));
         return [];
       },
     );
@@ -198,6 +198,27 @@ void main() {
       400,
     );
     expect((await router.call(request({'corpus': 'memory', 'query': 'x'}))).statusCode, 200);
+  });
+
+  test('unknown unembedded count makes otherwise complete diagnostics unavailable', () async {
+    final router = searchInspectionRoutes(
+      inspectMemory: (_, {limit = 20, diagnostics}) async {
+        diagnostics?.call(
+          SearchDiagnostics(
+            candidates: const [],
+            degradations: const [MemorySearchDegradation(layer: 'memory', reason: 'embeddingFailure')],
+          ),
+        );
+        return [SearchResult(id: 'private', chunk: 'PRIVATE', chunkIndex: 0, timestamp: DateTime.utc(2026), score: 1)];
+      },
+    );
+
+    final response = await router.call(request({'corpus': 'memory', 'query': 'x'}));
+
+    expect(response.statusCode, 503);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    expect(body.keys, ['error']);
+    expect(body.toString(), isNot(contains('PRIVATE')));
   });
   for (final mode in ['unwired', 'no diagnostics', 'failed', 'null with diagnostics']) {
     test('$mode cannot release inspection data', () async {

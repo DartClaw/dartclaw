@@ -213,18 +213,20 @@ final class SearchDiagnostics {
   /// Creates immutable search diagnostics.
   new({
     required Iterable<SearchRankEvidence> candidates,
-    this.unembeddedCount = 0,
+    this.unembeddedCount,
     Iterable<MemorySearchDegradation> degradations = const [],
   }) : candidates = List.unmodifiable(candidates),
        degradations = List.unmodifiable(degradations) {
-    _requireNonNegative(unembeddedCount, 'unembeddedCount');
+    if (unembeddedCount case final count?) {
+      _requireNonNegative(count, 'unembeddedCount');
+    }
   }
 
   /// Ranked candidate evidence in result order.
   final List<SearchRankEvidence> candidates;
 
-  /// Number of current lexical chunks without usable embeddings.
-  final int unembeddedCount;
+  /// Number of current lexical chunks without usable embeddings, or `null` when it was not computed.
+  final int? unembeddedCount;
 
   /// Structured failure causes retained from the retrieval layers.
   final List<MemorySearchDegradation> degradations;

@@ -404,15 +404,25 @@ class DartclawRuntime {
   /// prepare-shutdown or the server shutdown propagates to the caller, which
   /// owns the overall shutdown deadline.
   Future<void> shutdown() async {
-    scheduleService?.stop();
-    resetService?.dispose();
+    Object? failure;
+    StackTrace? failureStack;
     try {
+      scheduleService?.stop();
+      resetService?.dispose();
       await prepareExecutionShutdown?.call();
       await server?.shutdown();
       await _disposeExtras();
-    } finally {
-      await closeStorage();
+    } on Object catch (error, stackTrace) {
+      failure = error;
+      failureStack = stackTrace;
     }
+    try {
+      await closeStorage();
+    } on Object {
+      if (failure == null) rethrow;
+      _log.warning('Storage cleanup failed after runtime shutdown error');
+    }
+    if (failure case final error?) Error.throwWithStackTrace(error, failureStack!);
   }
 
   Future<void> _disposeExtras() async {

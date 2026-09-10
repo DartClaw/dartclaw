@@ -15,6 +15,7 @@ final class FakeFullTextIndex implements FullTextIndex {
   final owners = <String, List<String>>{};
   bool failSearch = false;
   bool failFetch = false;
+  bool failCount = false;
 
   @override
   Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) async {
@@ -55,6 +56,7 @@ final class FakeFullTextIndex implements FullTextIndex {
   Future<int> count({required String userId, Map<String, String> metadata = const {}}) async {
     (owners['count'] ??= []).add(userId);
     countCalls++;
+    if (failCount) throw StateError('count failed');
     return documents.values.fold<int>(0, (total, document) => total + document.chunks.length);
   }
 

@@ -109,6 +109,11 @@ void main() {
       expect(() => diagnostics.degradations.clear(), throwsUnsupportedError);
     });
 
+    test('leaves an uncomputed unembedded count unknown', () {
+      expect(SearchDiagnostics(candidates: const []).unembeddedCount, isNull);
+      expect(SearchDiagnostics(candidates: const [], unembeddedCount: 0).unembeddedCount, 0);
+    });
+
     test('rejects invalid ranks, contributions, totals, layers, and counts', () {
       final invalid = <SearchRankEvidence Function()>[
         () => _evidence(documentId: ''),

@@ -144,7 +144,8 @@ dartclaw search inspect --corpus conversation --query "release policy" --limit 2
 
 The command reports the returned sources and scores, the full-text and vector ranks and contributions for considered
 candidates, the selected corpus's unembedded count, and any degradation. Limits are bounded from 1 to 20. Use `--json`
-for the same structured response.
+for the same structured response. Inspection is unavailable when the current unembedded count cannot be computed; an
+unknown count is never reported as zero.
 
 `GET /api/memory/status` reports separate `memoryUnembeddedCount` and `conversationUnembeddedCount` values under
 `index`. Zero means every current chunk has a usable vector for the selected provider; a positive value identifies work

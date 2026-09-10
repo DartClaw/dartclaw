@@ -330,4 +330,8 @@ file | ../dartclaw-public/dev/tools/test_workspace.sh | dynamic full-workspace t
 
 ## Implementation Observations
 
-_No observations recorded yet._
+### Run: 2026-09-10 08:42 UTC – observations
+
+#### DRIFT
+
+- Review R-01 reconciles the diagnostic contract with empty-query no-work and inspection completeness requirements: `SearchDiagnostics.unembeddedCount` is `int?`, defaults to `null`, and validates non-negative values when present. Null means the count was not computed or could not be computed; it must not be coerced to zero. Hybrid fallback results and degradations remain available. Inspection returns its existing 503 response when the count is null, so successful HTTP diagnostics retain an integer count. `VectorSynchronizationResult.unembeddedCount` remains a required integer. See `../0.26-mixed-review-2026-09-10.md` for review and verification evidence.

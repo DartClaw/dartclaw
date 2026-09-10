@@ -93,6 +93,15 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
 
+### Fixed
+
+- Search inspection reports unavailable diagnostics instead of a zero when the unembedded count cannot be computed.
+  The SDK diagnostic count is nullable; successful inspection responses still contain an integer.
+- PostgreSQL startup closes the task pool before releasing serving ownership. Transaction statement cleanup and
+  runtime storage teardown preserve the primary operation result or failure when cleanup also fails.
+- Native platform evidence validation rejects missing or incorrectly typed archive, model, metric and process facts.
+- Shared endpoint validation reduces search to 1,490 lines; its LOC ceiling ratchets down to 1,986.
+
 ---
 
 ## [0.25.2] - 2026-09-08

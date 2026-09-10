@@ -161,42 +161,123 @@ void main() {
     expect(result.elapsed, lessThan(const Duration(seconds: 5)));
   }, skip: Platform.isWindows ? 'POSIX inherited pipe fixture' : false);
 
-  test('evidence schema requires both archives, all failure operations and process fields', () {
-    final evidence = <String, Object?>{
-      'schemaVersion': '1',
-      'target': 'linux-x64',
-      'sourceCommit': 'abc',
-      'platform': {'os': 'linux', 'architecture': 'x64'},
-      'dartVersion': '3.13.0',
-      'hardware': {'processorCount': 2},
-      'nativeRelease': {'release': 'v0.3.0'},
-      'model': {'basename': 'model.gguf'},
-      'releaseArchives': [{}, {}],
-      'metrics': {'coldFirstEmbedMs': 1},
-      'linuxOpenMp': {'library': 'libgomp.so.1', 'resolved': false},
-      'failureCases': [
-        for (final operation in ['missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure'])
-          {
-            'operation': operation,
-            'elapsedMs': 1,
-            'sanitizedError': 'safe',
-            'exitCode': 1,
-            'processExitObserved': true,
-            'forcedTermination': false,
-            'result': 'pass',
-          },
+  test('evidence schema accepts complete pass and failure records', () {
+    final evidence = _validEvidence();
+    expect(validateNativeEmbeddingEvidence(evidence), isTrue);
+
+    evidence['result'] = 'fail';
+    (evidence['linuxOpenMp'] as Map<String, Object?>)['resolved'] = false;
+    final failure = (evidence['failureCases'] as List<Object?>).first as Map<String, Object?>;
+    failure
+      ..['processExitObserved'] = false
+      ..['forcedTermination'] = true
+      ..['outputStreamsClosed'] = false
+      ..['result'] = 'fail';
+    expect(validateNativeEmbeddingEvidence(evidence), isTrue);
+
+    final windowsEvidence = _validEvidence();
+    windowsEvidence['target'] = 'windows-x64';
+    (windowsEvidence['platform'] as Map<String, Object?>)['os'] = 'windows';
+    for (final archive in windowsEvidence['releaseArchives'] as List<Object?>) {
+      final archiveMap = archive as Map<String, Object?>;
+      archiveMap['basename'] = (archiveMap['basename'] as String).replaceFirst('linux-x64.tar.gz', 'windows-x64.zip');
+    }
+    windowsEvidence.remove('linuxOpenMp');
+    expect(validateNativeEmbeddingEvidence(windowsEvidence), isTrue);
+  });
+
+  test('evidence schema rejects every missing or wrong-typed required field', () {
+    final requiredPaths = <List<Object>>[
+      for (final field in [
+        'schemaVersion',
+        'target',
+        'sourceCommit',
+        'platform',
+        'dartVersion',
+        'hardware',
+        'nativeRelease',
+        'model',
+        'releaseArchives',
+        'metrics',
+        'linuxOpenMp',
+        'failureCases',
+        'result',
+      ])
+        [field],
+      for (final field in ['os', 'architecture']) ['platform', field],
+      ['hardware', 'processorCount'],
+      for (final field in ['llamadart', 'release', 'archive', 'size', 'sha256', 'stagedSha256'])
+        ['nativeRelease', field],
+      for (final field in ['basename', 'size', 'sha256']) ['model', field],
+      for (var archiveIndex = 0; archiveIndex < 2; archiveIndex++) ...[
+        for (final field in ['basename', 'sha256', 'nativeLibraries']) ['releaseArchives', archiveIndex, field],
+        for (var libraryIndex = 0; libraryIndex < 2; libraryIndex++)
+          for (final field in ['path', 'sha256'])
+            ['releaseArchives', archiveIndex, 'nativeLibraries', libraryIndex, field],
       ],
-      'result': 'pass',
-    };
-    expect(validateNativeEmbeddingEvidence(evidence), isFalse);
-    (evidence['linuxOpenMp'] as Map<String, Object?>)['resolved'] = true;
-    expect(validateNativeEmbeddingEvidence(evidence), isTrue);
-    evidence['target'] = 'windows-x64';
-    (evidence['platform'] as Map<String, Object?>)['os'] = 'windows';
-    evidence.remove('linuxOpenMp');
-    expect(validateNativeEmbeddingEvidence(evidence), isTrue);
-    (evidence['failureCases'] as List).removeLast();
-    expect(validateNativeEmbeddingEvidence(evidence), isFalse);
+      for (final field in [
+        'coldFirstEmbedMs',
+        'warmQueryMs',
+        'documentBatchMs',
+        'disposeMs',
+        'vectorDimension',
+        'documentCardinality',
+      ])
+        ['metrics', field],
+      for (final field in ['library', 'resolved']) ['linuxOpenMp', field],
+      for (var failureIndex = 0; failureIndex < 4; failureIndex++)
+        for (final field in [
+          'operation',
+          'elapsedMs',
+          'sanitizedError',
+          'exitCode',
+          'processExitObserved',
+          'forcedTermination',
+          'outputStreamsClosed',
+          'result',
+        ])
+          ['failureCases', failureIndex, field],
+    ];
+
+    for (final path in requiredPaths) {
+      final missing = _validEvidence();
+      _removeAtPath(missing, path);
+      expect(validateNativeEmbeddingEvidence(missing), isFalse, reason: 'accepted missing ${path.join('.')}');
+
+      final wrongType = _validEvidence();
+      _setAtPath(wrongType, path, _wrongType(_valueAtPath(wrongType, path)));
+      expect(validateNativeEmbeddingEvidence(wrongType), isFalse, reason: 'accepted wrong type at ${path.join('.')}');
+    }
+  });
+
+  test('evidence schema rejects wrong cardinality, identity and result values', () {
+    final mutations = <void Function(Map<String, Object?>)>[
+      (evidence) => (evidence['releaseArchives'] as List<Object?>).removeLast(),
+      (evidence) => ((evidence['releaseArchives'] as List<Object?>).first as Map<String, Object?>)['nativeLibraries'] =
+          <Object?>[],
+      (evidence) {
+        final archives = evidence['releaseArchives'] as List<Object?>;
+        (archives.last as Map<String, Object?>)['basename'] = (archives.first as Map<String, Object?>)['basename'];
+      },
+      (evidence) => ((evidence['releaseArchives'] as List<Object?>).first as Map<String, Object?>)['basename'] =
+          'other-v0.26.0-linux-x64.tar.gz',
+      (evidence) => (evidence['failureCases'] as List<Object?>).removeLast(),
+      (evidence) {
+        final failures = evidence['failureCases'] as List<Object?>;
+        (failures.last as Map<String, Object?>)['operation'] = (failures.first as Map<String, Object?>)['operation'];
+      },
+      (evidence) =>
+          ((evidence['failureCases'] as List<Object?>).first as Map<String, Object?>)['operation'] = 'unknown',
+      (evidence) => ((evidence['failureCases'] as List<Object?>).first as Map<String, Object?>)['result'] = 'unknown',
+      (evidence) => evidence['result'] = 'unknown',
+      (evidence) => evidence['schemaVersion'] = '2',
+      (evidence) => (evidence['linuxOpenMp'] as Map<String, Object?>)['library'] = 'other',
+    ];
+    for (final mutate in mutations) {
+      final evidence = _validEvidence();
+      mutate(evidence);
+      expect(validateNativeEmbeddingEvidence(evidence), isFalse);
+    }
   });
 
   test('linux failure probes select the exact FFI entry library', () {
@@ -246,3 +327,89 @@ String _repoRoot() {
   }
   return current;
 }
+
+Map<String, Object?> _validEvidence() {
+  final evidence = <String, Object?>{
+    'schemaVersion': '1',
+    'target': 'linux-x64',
+    'sourceCommit': '0123456789abcdef',
+    'platform': {'os': 'linux', 'architecture': 'x64'},
+    'dartVersion': '3.13.0',
+    'hardware': {'processorCount': 2},
+    'nativeRelease': {
+      'llamadart': '0.8.22',
+      'release': 'v0.3.0',
+      'archive': 'llamadart-native-linux-x64-v0.3.0.tar.gz',
+      'size': 16,
+      'sha256': 'native archive sha256',
+      'stagedSha256': 'staged archive sha256',
+    },
+    'model': {'basename': 'model.gguf', 'size': 32, 'sha256': 'model sha256'},
+    'releaseArchives': [
+      for (final basename in ['dartclaw-v0.26.0-linux-x64.tar.gz', 'dartclaw-workflow-v0.26.0-linux-x64.tar.gz'])
+        {
+          'basename': basename,
+          'sha256': 'release archive sha256',
+          'nativeLibraries': [
+            {'path': 'lib/libllamadart.so', 'sha256': 'llamadart sha256'},
+            {'path': 'lib/libsqlite3.so', 'sha256': 'sqlite sha256'},
+          ],
+        },
+    ],
+    'metrics': {
+      'coldFirstEmbedMs': 10,
+      'warmQueryMs': 2,
+      'documentBatchMs': 3,
+      'disposeMs': 1,
+      'vectorDimension': 8,
+      'documentCardinality': 2,
+    },
+    'linuxOpenMp': {'library': 'libgomp.so.1', 'resolved': true},
+    'failureCases': [
+      for (final operation in ['missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure'])
+        {
+          'operation': operation,
+          'elapsedMs': 1,
+          'sanitizedError': 'safe',
+          'exitCode': 1,
+          'processExitObserved': true,
+          'forcedTermination': false,
+          'outputStreamsClosed': true,
+          'result': 'pass',
+        },
+    ],
+    'result': 'pass',
+  };
+  return jsonDecode(jsonEncode(evidence)) as Map<String, Object?>;
+}
+
+Object? _valueAtPath(Map<String, Object?> root, List<Object> path) {
+  Object? value = root;
+  for (final segment in path) {
+    value = segment is String ? (value as Map<String, Object?>)[segment] : (value as List<Object?>)[segment as int];
+  }
+  return value;
+}
+
+void _removeAtPath(Map<String, Object?> root, List<Object> path) {
+  final parent = _valueAtPath(root, path.sublist(0, path.length - 1)) as Map<String, Object?>;
+  parent.remove(path.last as String);
+}
+
+void _setAtPath(Map<String, Object?> root, List<Object> path, Object? value) {
+  final parent = _valueAtPath(root, path.sublist(0, path.length - 1));
+  final key = path.last;
+  if (key is String) {
+    (parent as Map<String, Object?>)[key] = value;
+  } else {
+    (parent as List<Object?>)[key as int] = value;
+  }
+}
+
+Object _wrongType(Object? value) => switch (value) {
+  String() => 1,
+  int() => 'not an integer',
+  bool() => 'not a boolean',
+  List<Object?>() || Map<String, Object?>() => false,
+  _ => Object(),
+};

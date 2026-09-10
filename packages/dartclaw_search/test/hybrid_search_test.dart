@@ -316,6 +316,32 @@ void main() {
     expect((lexical.searchCalls, lexical.fetchCalls, lexical.countCalls, lexical.listCalls), (0, 0, 0, 0));
     expect((provider.queryCalls, provider.documentCalls, vectors.searchCalls, vectors.listCalls), (0, 0, 0, 0));
     expect(diagnostics!.candidates, isEmpty);
+    expect(diagnostics!.unembeddedCount, isNull);
+  });
+
+  test('unknown missing count preserves lexical fallback diagnostics', () async {
+    final lexical = FakeFullTextIndex(
+      documents: [
+        document('a', ['alpha']),
+      ],
+      searchResults: [lexicalResult('a', 'alpha', 0, 4)],
+    )..failCount = true;
+    final provider = FakeEmbeddingProvider()..failQuery = true;
+    final search = HybridSearch(
+      lexicalIndex: lexical,
+      vectorIndex: FakeVectorIndex(),
+      embeddingProvider: provider,
+      sourceLayer: 'memory',
+    );
+    SearchDiagnostics? diagnostics;
+
+    final results = await search.search('query', userId: 'owner', diagnostics: (value) => diagnostics = value);
+
+    expect(results.map((result) => (result.id, result.score)), [('a', 4)]);
+    expect(diagnostics!.candidates.single.documentId, 'a');
+    expect(diagnostics!.unembeddedCount, isNull);
+    expect(diagnostics!.degradations.single.reason, 'embeddingFailure');
+    expect(lexical.countCalls, 2);
   });
 
   test('omits stale vector candidates after current lexical authentication', () async {
@@ -426,7 +452,7 @@ void main() {
         document('a', ['alpha']),
       ],
       searchResults: [lexicalResult('a', 'alpha', 0, -6)],
-    );
+    )..failCount = true;
     final provider = FakeEmbeddingProvider()..failQuery = true;
     final hybrid = HybridSearch(
       lexicalIndex: lexical,

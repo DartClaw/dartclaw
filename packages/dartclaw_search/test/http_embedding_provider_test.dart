@@ -113,6 +113,15 @@ void main() {
     Future<void> allow(Uri _) async {}
     expect(
       () => HttpEmbeddingProvider(
+        endpoint: Uri.parse('https://example.com/embeddings'),
+        model: 'model',
+        apiKey: '',
+        checkNetworkAccess: allow,
+      ),
+      throwsA(containsMessage('apiKey must not be empty')),
+    );
+    expect(
+      () => HttpEmbeddingProvider(
         endpoint: Uri.parse('http://example.com/embeddings'),
         model: 'model',
         apiKey: 'secret',

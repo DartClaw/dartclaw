@@ -355,49 +355,93 @@ final class NativeEmbeddingPlatformGate {
 }
 
 bool validateNativeEmbeddingEvidence(Map<String, Object?> evidence) {
-  const topLevel = {
-    'schemaVersion',
-    'target',
-    'sourceCommit',
-    'platform',
-    'dartVersion',
-    'hardware',
-    'nativeRelease',
-    'model',
-    'releaseArchives',
-    'metrics',
-    'failureCases',
-    'result',
-  };
-  if (!evidence.keys.toSet().containsAll(topLevel) || evidence['schemaVersion'] != '1') return false;
-  final target = evidence['target'];
-  if (target is String && target.startsWith('linux-')) {
-    final openMp = evidence['linuxOpenMp'];
-    if (openMp is! Map<String, Object?> || openMp['library'] != 'libgomp.so.1' || openMp['resolved'] != true) {
+  if (evidence case {
+    'schemaVersion': '1',
+    'target': String target,
+    'sourceCommit': String _,
+    'platform': {'os': String _, 'architecture': String _},
+    'dartVersion': String _,
+    'hardware': {'processorCount': int _},
+    'nativeRelease': {
+      'llamadart': String _,
+      'release': String _,
+      'archive': String _,
+      'size': int _,
+      'sha256': String _,
+      'stagedSha256': String _,
+    },
+    'model': {'basename': String _, 'size': int _, 'sha256': String _},
+    'metrics': {
+      'coldFirstEmbedMs': int _,
+      'warmQueryMs': int _,
+      'documentBatchMs': int _,
+      'disposeMs': int _,
+      'vectorDimension': int _,
+      'documentCardinality': int _,
+    },
+    'result': String result,
+  }) {
+    if (result != 'pass' && result != 'fail') return false;
+
+    if (target.startsWith('linux-')) {
+      final openMp = evidence['linuxOpenMp'];
+      if (openMp is! Map<String, Object?> || openMp['library'] != 'libgomp.so.1' || openMp['resolved'] is! bool) {
+        return false;
+      }
+    }
+
+    final archives = evidence['releaseArchives'];
+    final failures = evidence['failureCases'];
+    if (archives is! List<Object?> || archives.length != 2 || failures is! List<Object?> || failures.length != 4) {
       return false;
     }
-  }
-  final archives = evidence['releaseArchives'];
-  final failures = evidence['failureCases'];
-  if (archives is! List || archives.length != 2 || failures is! List || failures.length != 4) return false;
-  const operations = {'missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure'};
-  final actualOperations = <Object?>{};
-  for (final value in failures) {
-    if (value is! Map<String, Object?> ||
-        !value.keys.toSet().containsAll({
-          'operation',
-          'elapsedMs',
-          'sanitizedError',
-          'exitCode',
-          'processExitObserved',
-          'forcedTermination',
-          'result',
-        })) {
-      return false;
+
+    final expectedArchiveSuffix = '-$target.${target.startsWith('windows-') ? 'zip' : 'tar.gz'}';
+    final packageIdentities = <String>{};
+    for (final value in archives) {
+      if (value case {'basename': String basename, 'sha256': String _, 'nativeLibraries': List<Object?> libraries}) {
+        final identity = basename.startsWith('dartclaw-workflow-v')
+            ? 'dartclaw-workflow'
+            : basename.startsWith('dartclaw-v')
+            ? 'dartclaw'
+            : null;
+        if (identity == null || !basename.endsWith(expectedArchiveSuffix) || libraries.isEmpty) return false;
+        packageIdentities.add(identity);
+        for (final library in libraries) {
+          if (library case {'path': String _, 'sha256': String _}) {
+            continue;
+          }
+          return false;
+        }
+      } else {
+        return false;
+      }
     }
-    actualOperations.add(value['operation']);
+    if (packageIdentities.length != 2) return false;
+
+    const operations = {'missingLibrary', 'absentModel', 'corruptModel', 'nativeLoadFailure'};
+    final actualOperations = <String>{};
+    for (final value in failures) {
+      if (value case {
+        'operation': String operation,
+        'elapsedMs': int _,
+        'sanitizedError': String _,
+        'exitCode': int _,
+        'processExitObserved': bool _,
+        'forcedTermination': bool _,
+        'outputStreamsClosed': bool _,
+        'result': String result,
+      }) {
+        if ((result != 'pass' && result != 'fail') || !operations.contains(operation)) return false;
+        actualOperations.add(operation);
+      } else {
+        return false;
+      }
+    }
+    return actualOperations.length == operations.length;
+  } else {
+    return false;
   }
-  return actualOperations.length == operations.length && actualOperations.containsAll(operations);
 }
 
 Future<void> _runReleaseBuild(String root, String target, String cache, String manifestPath) async {

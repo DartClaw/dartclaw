@@ -13,6 +13,7 @@ Future<void> main(List<String> arguments) async {
   final source = Directory(requiredValue('--source'));
   final destination = Directory(requiredValue('--destination'));
   final hookRoot = requiredValue('--hook-root');
+  final hookRootUri = Directory(hookRoot).absolute.uri.toString();
   final manifest = await NativeArtifactManifest.load(requiredValue('--manifest'));
   if (!await source.exists()) throw ArgumentError('Source workspace does not exist');
   if (await destination.exists()) throw StateError('Destination workspace already exists');
@@ -24,7 +25,7 @@ Future<void> main(List<String> arguments) async {
       'hooks:\n'
       '  user_defines:\n'
       '    llamadart:\n'
-      '      llamadart_native_path: ${jsonEncode(hookRoot)}\n'
+      '      llamadart_native_path: ${jsonEncode(hookRootUri)}\n'
       '      llamadart_native_tag: ${jsonEncode(manifest.release)}\n'
       '      llamadart_native_repository: ${jsonEncode(manifest.repository.toString())}\n'
       '      llamadart_native_runtimes:\n'

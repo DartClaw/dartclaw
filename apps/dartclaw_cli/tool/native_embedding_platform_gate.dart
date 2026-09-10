@@ -335,6 +335,7 @@ final class NativeEmbeddingPlatformGate {
         },
         'releaseArchives': packageEvidence,
         'metrics': metrics,
+        'successCase': success,
         'failureCases': records.skip(1).toList(),
         'linuxOpenMp': ?linuxOpenMp,
         'result': passed ? 'pass' : 'fail',

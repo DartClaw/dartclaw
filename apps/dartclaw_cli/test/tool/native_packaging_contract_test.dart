@@ -93,7 +93,12 @@ void main() {
       'void main() {}\n',
     );
     final staged = File(p.join(destination.path, 'pubspec.yaml')).readAsStringSync();
-    expect(staged, contains('llamadart_native_path: "${p.join(source.path, 'verified hook')}"'));
+    final hookRoot = Directory(p.join(source.path, 'verified hook')).absolute.uri.toString();
+    expect(
+      staged,
+      contains('llamadart_native_path: ${jsonEncode(hookRoot)}'),
+      reason: 'The upstream hook must receive a file URI so Windows drive letters are not parsed as URI schemes.',
+    );
     expect(staged, contains('llamadart_native_tag: "v9.8.7"'));
     expect(staged, contains('llamadart_native_repository: "https://example.test/custom-native"'));
     expect(staged, contains('llamadart_native_runtimes:\n        - llama_cpp'));

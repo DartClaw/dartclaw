@@ -108,6 +108,18 @@ void main() {
     );
   });
 
+  test('Windows release smoke uses the packaging layout authority', () {
+    final smoke = File(p.join(root, 'dev/testing/profiles/windows-runtime/run.ps1')).readAsStringSync();
+    expect(smoke, contains(r". (Join-Path $script:RepoRoot 'dev/tools/build_windows.ps1')"));
+    expect(
+      smoke,
+      contains(
+        r"Assert-WindowsReleaseLayout -Root $script:ArtifactRoot -NativeLibraryRoot (Join-Path $script:ArtifactRoot 'lib')",
+      ),
+    );
+    expect(smoke, isNot(contains(r'$unexpected =')));
+  });
+
   test('packaging keeps native libraries discoverable from each binary', () {
     expect(RegExp(r'for binary_name in dartclaw dartclaw-workflow').hasMatch(posix), isTrue);
     expect(posix, contains(r'cp -R "$BUILD_DIR/lib" "$platform_stage/lib"'));

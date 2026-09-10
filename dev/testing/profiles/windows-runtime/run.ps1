@@ -518,22 +518,12 @@ try {
     $script:ArtifactSha256 = (Get-FileHash -LiteralPath $resolvedArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
     $script:ArtifactRoot = Join-Path $script:TempRoot 'artifact'
     Expand-Archive -LiteralPath $resolvedArtifact -DestinationPath $script:ArtifactRoot
-    foreach ($relative in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
-      if (-not (Test-Path -LiteralPath (Join-Path $script:ArtifactRoot $relative) -PathType Leaf)) {
-        throw "artifact layout missing $relative"
-      }
-    }
+    . (Join-Path $script:RepoRoot 'dev/tools/build_windows.ps1')
+    Assert-WindowsReleaseLayout -Root $script:ArtifactRoot -NativeLibraryRoot (Join-Path $script:ArtifactRoot 'lib')
     $bundledVersion = (Get-Content -LiteralPath (Join-Path $script:ArtifactRoot 'VERSION') -Raw).Trim()
     if ($bundledVersion -ne $script:Version) {
       throw "artifact VERSION '$bundledVersion' does not match archive version '$script:Version'"
     }
-    if (Test-Path -LiteralPath (Join-Path $script:ArtifactRoot 'share')) { throw 'artifact layout contains obsolete share/ sidecar' }
-    $artifactPrefix = $script:ArtifactRoot.TrimEnd('\') + '\'
-    $actualFiles = @(Get-ChildItem -LiteralPath $script:ArtifactRoot -Recurse -File | ForEach-Object {
-      $_.FullName.Substring($artifactPrefix.Length).Replace('\', '/')
-    })
-    $unexpected = @($actualFiles | Where-Object { $_ -notin @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll') })
-    if ($unexpected.Count -gt 0) { throw "artifact layout has unexpected files: $($unexpected -join ', ')" }
     $script:ExecutionMode = 'artifact'
     $script:Executable = Join-Path $script:ArtifactRoot 'bin/dartclaw.exe'
     $script:SqliteModule = Join-Path $script:ArtifactRoot 'lib/sqlite3.dll'

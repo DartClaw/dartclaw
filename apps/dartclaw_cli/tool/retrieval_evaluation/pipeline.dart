@@ -17,14 +17,38 @@ final class RetrievalEvaluationUsage implements Exception {
   final String message;
 }
 
+enum RetrievalFixtureStatus {
+  exposedRegression('exposed-regression'),
+  independentEvaluation('independent-evaluation');
+
+  new(this.protocolValue);
+
+  final String protocolValue;
+
+  static RetrievalFixtureStatus? fromProtocolValue(String value) {
+    for (final status in values) {
+      if (status.protocolValue == value) return status;
+    }
+    return null;
+  }
+}
+
 final class RetrievalEvaluationArguments {
-  const new _({required this.checkAssets, this.modelPath, this.outputDirectory, this.fixturePath, this.fixtureSha256});
+  const new _({
+    required this.checkAssets,
+    required this.fixtureStatus,
+    this.modelPath,
+    this.outputDirectory,
+    this.fixturePath,
+    this.fixtureSha256,
+  });
 
   final bool checkAssets;
   final String? modelPath;
   final String? outputDirectory;
   final String? fixturePath;
   final String? fixtureSha256;
+  final RetrievalFixtureStatus fixtureStatus;
 
   static RetrievalEvaluationArguments parse(List<String> arguments) {
     var checkAssets = false;
@@ -32,6 +56,7 @@ final class RetrievalEvaluationArguments {
     String? outputDirectory;
     String? fixturePath;
     String? fixtureSha256;
+    RetrievalFixtureStatus? fixtureStatus;
     for (var index = 0; index < arguments.length; index++) {
       final name = arguments[index];
       if (name == '--check-assets') {
@@ -39,7 +64,13 @@ final class RetrievalEvaluationArguments {
         checkAssets = true;
         continue;
       }
-      if (!const {'--model-path', '--output-dir', '--fixture-path', '--fixture-sha256'}.contains(name)) {
+      if (!const {
+        '--model-path',
+        '--output-dir',
+        '--fixture-path',
+        '--fixture-sha256',
+        '--fixture-status',
+      }.contains(name)) {
         throw RetrievalEvaluationUsage(_usage);
       }
       if (++index >= arguments.length || arguments[index].isEmpty) throw RetrievalEvaluationUsage(_usage);
@@ -52,12 +83,17 @@ final class RetrievalEvaluationArguments {
       } else if (name == '--fixture-path') {
         if (fixturePath != null) throw RetrievalEvaluationUsage(_usage);
         fixturePath = arguments[index];
-      } else {
+      } else if (name == '--fixture-sha256') {
         if (fixtureSha256 != null) throw RetrievalEvaluationUsage(_usage);
         fixtureSha256 = arguments[index];
+      } else {
+        if (fixtureStatus != null) throw RetrievalEvaluationUsage(_usage);
+        fixtureStatus = RetrievalFixtureStatus.fromProtocolValue(arguments[index]);
+        if (fixtureStatus == null) throw RetrievalEvaluationUsage(_usage);
       }
     }
     if ((fixturePath == null) != (fixtureSha256 == null) ||
+        (fixturePath == null) != (fixtureStatus == null) ||
         (fixtureSha256 != null && !RegExp(r'^[0-9a-f]{64}$').hasMatch(fixtureSha256))) {
       throw RetrievalEvaluationUsage(_usage);
     }
@@ -72,12 +108,14 @@ final class RetrievalEvaluationArguments {
       outputDirectory: outputDirectory,
       fixturePath: fixturePath,
       fixtureSha256: fixtureSha256,
+      fixtureStatus: fixtureStatus ?? RetrievalFixtureStatus.exposedRegression,
     );
   }
 
   static const _usage =
       'Usage: retrieval_evaluation.dart (--check-assets | --model-path <path> --output-dir <path>) '
-      '[--fixture-path <path> --fixture-sha256 <lowercase-sha256>]';
+      '[--fixture-path <path> --fixture-sha256 <lowercase-sha256> '
+      '--fixture-status <exposed-regression|independent-evaluation>]';
 }
 
 final class EvaluationProjectionCounts {
@@ -538,7 +576,7 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
 Future<Map<String, Object?>> _protocol(Map<String, Object?> settings, RetrievalEvaluationArguments arguments) async => {
   'protocolVersion': 2,
   'contract': 'passage relevance; answer sufficiency separate',
-  'fixtureStatus': arguments.fixturePath == null ? 'exposed-regression' : 'independent-evaluation',
+  'fixtureStatus': arguments.fixtureStatus.protocolValue,
   'rrfK': settings['rrfK'],
   'keywordWeight': settings['keywordWeight'],
   'vectorWeight': settings['vectorWeight'],

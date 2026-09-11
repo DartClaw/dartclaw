@@ -131,6 +131,36 @@ void main() {
     expect(fixture.queries.singleWhere((query) => query.id == 'q56').expectEmpty, isFalse);
   });
 
+  test('reviewed fixtures load diagnostic empty relevance labels and retain hard empties', () {
+    final fixtures = {
+      'calibration-reviewed.json': {'nr01', 'nr02', 'nr03', 'nr04'},
+      'retrieval-reviewed.json': {'q-aa-09'},
+    };
+    const hardEmptyIds = {
+      'calibration-reviewed.json': {'nr05', 'nr06', 'nr07', 'nr08', 'nr09', 'nr10'},
+      'retrieval-reviewed.json': {'q-aa-02', 'q-aa-05', 'q-aa-07'},
+    };
+
+    for (final entry in fixtures.entries) {
+      final fixture = parseRetrievalFixture(
+        jsonDecode(File(p.join(repositoryRoot, 'dev/testing/retrieval', entry.key)).readAsStringSync()),
+      );
+      expect((fixture.documents.length, fixture.queries.length), (32, 60));
+      expect(fixture.queries.where((query) => query.relevantDocumentIds.isEmpty).map((query) => query.id).toSet(), {
+        ...entry.value,
+        ...hardEmptyIds[entry.key]!,
+      });
+      expect(
+        fixture.queries.where((query) => query.expectEmpty).map((query) => query.id).toSet(),
+        hardEmptyIds[entry.key],
+      );
+      for (final id in entry.value) {
+        final query = fixture.queries.singleWhere((query) => query.id == id);
+        expect(query.expectEmpty, isFalse);
+      }
+    }
+  });
+
   test('external fixture requires matching bytes and the existing schema', () {
     final root = Directory.systemTemp.createTempSync('retrieval_external_fixture_');
     addTearDown(() => root.deleteSync(recursive: true));

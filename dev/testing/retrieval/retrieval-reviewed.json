@@ -1,0 +1,943 @@
+{
+  "protocolVersion": 2,
+  "documents": [
+    {
+      "id": "doc-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "The spare key for the Cedar Pike allotment shed is inside the ceramic owl fixed to the west fence. I moved it there after the hook by the gate rusted through."
+    },
+    {
+      "id": "doc-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "For the North Quay receipts project, paper invoices are stamped Marmalade-47 before scanning. The remaining May batch must be scanned by June 6."
+    },
+    {
+      "id": "doc-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "My commuter bike's rear brake lever felt spongy on steep descents. The mechanic bled the hydraulic line and said trapped air had caused the soft lever."
+    },
+    {
+      "id": "doc-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Dr Laleh Moradi at Oriole Clinic adjusted my night guard because it pressed against the left molar. The follow-up is booked for September 22."
+    },
+    {
+      "id": "doc-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "The June 3 morning ferry to Visby was cancelled because of high winds. I replaced it with the 14:20 flight that afternoon; the note does not include my seat number."
+    },
+    {
+      "id": "doc-06",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Priya lent Mateo the thermal camera for his attic insulation survey. Mateo promised to return the infrared imager after he checks the north bedroom ceiling."
+    },
+    {
+      "id": "doc-07",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "I installed the Kestrel P220 printer in the upstairs study and enabled automatic duplex printing. My setup note lists the starter toner model, but not its expected page yield."
+    },
+    {
+      "id": "doc-08",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "The bakery proofing drawer for sourdough is set to 68 percent humidity. That setting stopped a dry skin forming on the loaves before they went into the oven."
+    },
+    {
+      "id": "doc-09",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Reservnyckeln till kolonilotten Lärkängen ligger i en röd plåtburk bakom regnvattentunnan. Jag flyttade den dit när lådan under bänken började läcka."
+    },
+    {
+      "id": "doc-10",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Cykelns bakväxel hoppade mellan dreven när jag trampade hårt. Verkstaden spände vajern och indexerade växlarna, vilket tog bort problemet."
+    },
+    {
+      "id": "doc-11",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Samira Ek är min handledare på keramikstudion i Forsvik. Hon bad mig ställa skålen med blå askglasyr på den nedersta hyllan i glasyrförrådet."
+    },
+    {
+      "id": "doc-12",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Arbetsmötet Månstenen flyttades först från 4 februari till 11 februari. Den 9 februari kom beskedet att mötet var inställt helt."
+    },
+    {
+      "id": "doc-13",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Oskar gav mätmikrofonen till Elin inför körinspelningen. Elin lånade i sin tur mikrofonstativet till Nils, men behöll själva mikrofonen."
+    },
+    {
+      "id": "doc-14",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Luftavfuktaren i källarförrådet är inställd på 55 procents luftfuktighet och töms varje söndag. Anteckningen säger inget om apparatens effekt i watt."
+    },
+    {
+      "id": "doc-15",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Projekt Tallkottens krypterade säkerhetskopia ligger på diskhylla B3. Jag verifierade senast kopian den 18 augusti efter månadsarkiveringen."
+    },
+    {
+      "id": "doc-16",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Mara: Leon, can you update the Atlas Finch changelog? Leon: I finished the draft and sent it to Quinn for approval. Quinn: I will review it after lunch."
+    },
+    {
+      "id": "doc-17",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Customer: The Lantern hub keeps pulsing amber. Support: That pattern means it is waiting for a network address. Restarting the router should let DHCP assign one."
+    },
+    {
+      "id": "doc-18",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Ava: Did the architect choose a skylight supplier for Rillstone? Ben: Yes, Keon Wallace approved Solmere Glass at yesterday's design review."
+    },
+    {
+      "id": "doc-19",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Nora: Wednesday's 08:30 demo no longer works. Ivo: I moved it to Friday at 15:00. Nora: Please make that 13:00 Friday instead. Ivo: Updated."
+    },
+    {
+      "id": "doc-20",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Rae: The projector in Room Heron is locked again. Sol: Use the local passphrase violet-magnet; the guest Wi-Fi password is different."
+    },
+    {
+      "id": "doc-21",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Dina: Green Apron confirmed twelve vegetarian meals for the workshop. Mo: Did they price the nut-free dessert? Dina: No, they said that quote will be available on Monday."
+    },
+    {
+      "id": "doc-22",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Zoe: Arun, please own the database migration checklist. Arun: I can do that, and I have asked Mei to run the rollback rehearsal before launch."
+    },
+    {
+      "id": "doc-23",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Maja: Anders, din returetikett har supportkoden FJORD-82. Anders: Var lämnar jag paketet? Maja: I paketskåp 14 vid stationen."
+    },
+    {
+      "id": "doc-24",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Lova: Bildflödet blir hackigt efter några minuter. Per: Stäng av maskinvaruaccelerationen i spelaren. Lova: Det hjälpte, nu rullar videon jämnt."
+    },
+    {
+      "id": "doc-25",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Hugo: Vem ansvarar för belysningsplanen i Kvarnvik nu? Sara: Linnea Sjöberg tog över den när Olle gick på ledighet den 12 januari."
+    },
+    {
+      "id": "doc-26",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Noor: Leveransen var först lovad till tisdag 07.30. Tage: Sedan ändrades tiden till torsdag 12.00, men bilen kom redan 10.45 på torsdagen. Förarens namn nämndes inte."
+    },
+    {
+      "id": "doc-27",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Fatima: Jag skickade budgeten till Joel 09.10. Joel: Tack, jag vidarebefordrade bilagan till Rut 09.24 men behöll kalkylbladet hos mig."
+    },
+    {
+      "id": "doc-28",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Ester: Samlingslokalen är bokad och har plats för 36 personer. Bo: Finns pentry och projektor? Ester: Pentry finns. Jag vet inte hur lång projektorns kabel är."
+    },
+    {
+      "id": "doc-29",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Alva: Var hamnade originalkontrakten? Kim: I arkivlådan NÄVER-19 på hylla D4. Kopiorna ligger fortfarande hos ekonomi."
+    },
+    {
+      "id": "doc-30",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Mio: Det droppar från takfönstrets innerkant när det blåser från väster. Sanna: Jag bytte tätningslisten runt karmen. Mio: Bra, sedan dess har det hållit tätt."
+    },
+    {
+      "id": "doc-31",
+      "tenant": "other-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Rowan keeps the cobalt kayak permit in a yellow dry bag under the boathouse steps. The renewal receipt is clipped inside the same bag."
+    },
+    {
+      "id": "doc-32",
+      "tenant": "other-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Karin: Återbetalningen för FJORD-82 ska gå till konto 4317-22. Teo: Jag registrerar det i eftermiddag."
+    }
+  ],
+  "queries": [
+    {
+      "id": "q-ek-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "ceramic owl spare key",
+      "relevantDocumentIds": [
+        "doc-01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "North Quay Marmalade-47",
+      "relevantDocumentIds": [
+        "doc-02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "68 percent humidity proofing drawer",
+      "relevantDocumentIds": [
+        "doc-08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "röd plåtburk regnvattentunnan",
+      "relevantDocumentIds": [
+        "doc-09"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "Tallkotten diskhylla B3",
+      "relevantDocumentIds": [
+        "doc-15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "Room Heron violet-magnet",
+      "relevantDocumentIds": [
+        "doc-20"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "Rillstone Solmere Glass",
+      "relevantDocumentIds": [
+        "doc-18"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "FJORD-82 paketskåp 14",
+      "relevantDocumentIds": [
+        "doc-23"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "NÄVER-19 hylla D4",
+      "relevantDocumentIds": [
+        "doc-29"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ek-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "Linnea Sjöberg Kvarnvik belysningsplan",
+      "relevantDocumentIds": [
+        "doc-25"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "How was the trapped air removed from my soft bicycle brake?",
+      "relevantDocumentIds": [
+        "doc-03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "Who currently has the infrared heat-loss camera?",
+      "relevantDocumentIds": [
+        "doc-06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "What moisture level prevents sourdough from crusting before baking?",
+      "relevantDocumentIds": [
+        "doc-08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Hur fick verkstaden kedjan att sluta byta kugge av sig själv?",
+      "relevantDocumentIds": [
+        "doc-10"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Vilket börvärde används för att hålla källarförrådet torrt?",
+      "relevantDocumentIds": [
+        "doc-14"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "What does the amber breathing light on the Lantern device mean?",
+      "relevantDocumentIds": [
+        "doc-17"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "Who is responsible for practicing disaster recovery before rollout?",
+      "relevantDocumentIds": [
+        "doc-22"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Vad löste den ryckiga videouppspelningen?",
+      "relevantDocumentIds": [
+        "doc-24"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Hur tätades läckan runt glastaket?",
+      "relevantDocumentIds": [
+        "doc-30"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-vm-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Vad är lokalens maxantal?",
+      "relevantDocumentIds": [
+        "doc-28"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "Who treated my night guard at Oriole Clinic?",
+      "relevantDocumentIds": [
+        "doc-04"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What replacement trip did I book after the Visby ferry cancellation?",
+      "relevantDocumentIds": [
+        "doc-05"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What stamp phrase belongs to the North Quay receipts project?",
+      "relevantDocumentIds": [
+        "doc-02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vem handleder mig i keramikstudion i Forsvik?",
+      "relevantDocumentIds": [
+        "doc-11"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vad hände till slut med mötet Månstenen?",
+      "relevantDocumentIds": [
+        "doc-12"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "named-entity",
+      "query": "Which supplier did Keon Wallace approve?",
+      "relevantDocumentIds": [
+        "doc-18"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "named-entity",
+      "query": "Who has the Atlas Finch changelog draft now?",
+      "relevantDocumentIds": [
+        "doc-16"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vilken supportkod gav Maja till Anders?",
+      "relevantDocumentIds": [
+        "doc-23"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Var finns arkivlådan NÄVER-19?",
+      "relevantDocumentIds": [
+        "doc-29"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-ne-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vilket ansvar tog Linnea Sjöberg över?",
+      "relevantDocumentIds": [
+        "doc-25"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "How am I travelling on June 3 after the morning cancellation?",
+      "relevantDocumentIds": [
+        "doc-05"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "When is the follow-up after the night guard adjustment?",
+      "relevantDocumentIds": [
+        "doc-04"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "By what date must the remaining North Quay invoices be scanned?",
+      "relevantDocumentIds": [
+        "doc-02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vilken status hade Månstenen efter beskedet den 9 februari?",
+      "relevantDocumentIds": [
+        "doc-12"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "temporal",
+      "query": "När verifierades Tallkottens säkerhetskopia senast?",
+      "relevantDocumentIds": [
+        "doc-15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "temporal",
+      "query": "What is the final scheduled time for the demo?",
+      "relevantDocumentIds": [
+        "doc-19"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "temporal",
+      "query": "When will Green Apron have the dessert quote?",
+      "relevantDocumentIds": [
+        "doc-21"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "När kom leveransen faktiskt fram efter tidsändringen?",
+      "relevantDocumentIds": [
+        "doc-26"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vilken tid vidarebefordrade Joel bilagan till Rut?",
+      "relevantDocumentIds": [
+        "doc-27"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-tm-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "När tog Linnea över belysningsplanen?",
+      "relevantDocumentIds": [
+        "doc-25"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "Who lent Mateo the camera, and who is expected to return it?",
+      "relevantDocumentIds": [
+        "doc-06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "Which clinician adjusted my guard, and which tooth area was affected?",
+      "relevantDocumentIds": [
+        "doc-04"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "Which object contains the allotment key, and where is that object fixed?",
+      "relevantDocumentIds": [
+        "doc-01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem behöll mätmikrofonen och vem fick stativet?",
+      "relevantDocumentIds": [
+        "doc-13"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem gav instruktionen om skålen och var skulle den ställas?",
+      "relevantDocumentIds": [
+        "doc-11"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "relational",
+      "query": "Who wrote the changelog draft and who received it for approval?",
+      "relevantDocumentIds": [
+        "doc-16"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "relational",
+      "query": "Who owns the migration checklist and who was assigned the rollback rehearsal?",
+      "relevantDocumentIds": [
+        "doc-22"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem fick budgeten och vem fick sedan bilagan?",
+      "relevantDocumentIds": [
+        "doc-27"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem tog över belysningsplanen från Olle?",
+      "relevantDocumentIds": [
+        "doc-25"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-rl-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem gav returkoden och vem skulle använda paketskåpet?",
+      "relevantDocumentIds": [
+        "doc-23"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "How many pages should the Kestrel P220 starter toner print?",
+      "relevantDocumentIds": [
+        "doc-07"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What color dry bag holds Rowan's kayak permit?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "q-aa-03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What seat number do I have on the replacement Visby flight?",
+      "relevantDocumentIds": [
+        "doc-05"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Hur många watt drar luftavfuktaren i källarförrådet?",
+      "relevantDocumentIds": [
+        "doc-14"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vilken supportkod användes för returen till paketskåp 14?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "q-aa-06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What price did Green Apron quote for the nut-free dessert?",
+      "relevantDocumentIds": [
+        "doc-21"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "Where is the Cedar Pike allotment key hidden?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "q-aa-08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Hur lång är projektorkabeln i samlingslokalen?",
+      "relevantDocumentIds": [
+        "doc-28"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vilket bankkonto angavs för återbetalningen i FJORD-82-ärendet?",
+      "relevantDocumentIds": [],
+      "expectEmpty": false
+    },
+    {
+      "id": "q-aa-10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vad hette föraren som kom med torsdagsleveransen?",
+      "relevantDocumentIds": [
+        "doc-26"
+      ],
+      "expectEmpty": false
+    }
+  ]
+}

@@ -29,7 +29,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - **Retrieval evaluation tools** – a sealed English/Swedish corpus evaluates keyword, vector and hybrid retrieval for
   both searchable corpora and database backends. The harness records quality, timing, isolation and input hashes;
-  separate native probes record actual process exit and failure behavior.
+  external fixtures declare their evidence scope explicitly, since a file path and checksum do not establish
+  independence. Separate native probes record actual process exit and failure behavior.
 
 - **Search inspection and source provenance** – authenticated `search inspect` exposes bounded memory and conversation ranking evidence. Turn traces retain up to 50 exact returned memory locators per successful search call.
 

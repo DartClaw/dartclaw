@@ -1,6 +1,32 @@
 # Retrieval acceptance decision
 
-## Current investigation: no-match failures
+## Current status: evaluation repairs
+
+On 2026-09-11 the owner requested pragmatic fixes while preserving 0.26's lightweight scope. A further score-blind
+review compared 21 disputed queries with all 32 documents in their respective fixtures. It retained seven directly
+useful positive judgments and nine genuine no-match cases, and classified five related-context cases as diagnostics:
+calibration `nr01`–`nr04` and evaluation `q-aa-09`. Neither a mandatory hit nor a mandatory empty result is justified
+for those five. This supersedes their positive judgments in the earlier diagnostic copies described below.
+
+The committed [reviewed fixtures](../../../../testing/retrieval/README.md) preserve every document and query text,
+retain all nine hard-empty declarations, and record the five diagnostics with empty relevance sets and
+`expectEmpty: false`. They are exposed regression evidence. The original failures and fixtures remain unchanged.
+
+The evaluator also had a provenance defect: any external fixture path was labelled `independent-evaluation`,
+including a copied built-in regression fixture. External runs now require an explicit closed `--fixture-status`
+declaration, which is preserved in success and failure reports. This records the operator's claim; the independent
+author/reviewer procedure must still substantiate it.
+
+The earlier classifier capsule's perfect-positive-retention rule was a diagnostic screening choice, not FR7's
+release criterion. No classifier was integrated. No storage, isolation, embedding-contract or native-binding fault
+has been established. The semantic false matches remain real: rejecting all six reviewed calibration no-matches
+by raising the cosine cutoff above `0.5456375787830808` would discard relevant vectors for 24 of 50 clear positives,
+according to the existing recorded scores. This is a measured tradeoff, not an additional acceptance gate.
+
+Search parameters, runtime behavior and FR7 remain unchanged. A product decision on strict semantic-empty
+acceptance versus the lightweight scope is pending; release readiness is unresolved.
+
+## Investigation history: no-match failures
 
 On 2026-09-11 the owner requested deeper investigation and an attempted fix, including independent agents, rather
 than accepting semantic no-match failures as a release limitation. No acceptance requirement has been relaxed.

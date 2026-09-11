@@ -1,10 +1,63 @@
 # Retrieval acceptance decision
 
+## Current investigation: no-match failures
+
+On 2026-09-11 the owner requested deeper investigation and an attempted fix, including independent agents, rather
+than accepting semantic no-match failures as a release limitation. No acceptance requirement has been relaxed.
+
+The independent evaluation at `1f68bee6` completed both backends: 118/122 gates passed. The four failing gates were
+vector/hybrid no-match on SQLite/PostgreSQL; all four original empty probes returned passages. All 56 positive
+queries found a relevant passage within five results, and isolation gates passed. Original fixture SHA-256:
+`0525b5b309495a7f553973324f97c9a87d992a46d75d008e84344e865177744c`. Original report SHA-256:
+`d5adb29eaa7e4caaaa2981467c2ba0d347af633d7d76c22577817c6e35b9343b`. That failed result remains unchanged.
+
+Independent label review and a separate architecture challenge found one ground-truth defect: `q-aa-09` demands
+empty results for a bank-account question about FJORD-82, although authorized conversation `doc-23` provides context
+about that exact return transaction. Under the existing passage contract, it is relevant without supplying the
+account. A separate exposed diagnostic copy changes only that query to relevant `doc-23`, `expectEmpty: false`
+(SHA-256 `b80a6402d94c47f1cdbea8b9f626109b88114bd3717bce49de2cb68f157b486f`). The other three empty probes are valid
+and still fail at the selected cutoff. This correction is not a new unseen acceptance result.
+
+The original cutoff calibration used ten distant-topic English keyword lists. It omitted natural-language,
+Swedish and same-topic wrong-entity negatives. Production-path checks found unchanged projected text, correct
+model prefixes, normalized 768-dimensional vectors and SQLite/direct-cosine agreement within `3.75e-9`.
+Primary-source review found no EmbeddingGemma inference-contract discrepancy.
+
+A score-blind passage-label review of the separately authored representative calibration retained all 32 documents
+and 60 query texts, with 54 context-positive queries and six genuine no-matches. Diagnostic cutoff comparisons:
+
+| Cutoff | Positive queries losing all relevant vectors | Correctly empty no-match queries |
+|---|---:|---:|
+| 0.20 | 0/54 | 1/6 |
+| 0.25 | 0/54 | 2/6 |
+| 0.50 | 20/54 | 5/6 |
+
+The wrong-train negative reaches `0.54564`, above a valid positive at `0.30660`. Four predeclared wrong-entity
+controls score `0.41479–0.58203`. A controlled comparison with the already-local Qwen3-Embedding-0.6B likewise
+finds overlapping positive/negative scores (`0.25689` minimum positive; `0.55338` maximum negative). Neither a
+cutoff change nor that alternate embedder resolves the measured issue without losing useful results.
+
+One local cross-encoder experiment used `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` at revision
+`1427fd652930e4ba29e8149678df786c240d8825`, its 118,620,017-byte ARM64 INT8 ONNX artifact and a predeclared raw-logit
+cutoff of zero. That cutoff is a diagnostic choice, not a model-certified probability or decision boundary. It
+retained 41/54 calibration positives and 44/57 corrected independent positives within five results; no-match
+emptiness was 6/6 and 2/3 respectively. Three of four wrong-entity controls still passed its filter. The complete
+1,808-pair CPU experiment took 2.71 seconds with approximately 815 MB peak process RSS; it does not qualify the
+model for DartClaw, and Swedish is not among its documented training languages. No thresholds were tuned.
+This standalone experiment scores all scoped passages without the existing cosine filter; its empty counts are not
+results from an integrated hybrid-plus-reranker pipeline. The positive losses and wrong-entity controls remain
+disqualifying evidence for this candidate.
+
+The label defects are corrected in separate diagnostic fixtures. No tested runtime correction satisfies the
+no-match requirement while preserving the demonstrated retrieval quality. Production parameters, model selection
+and dependencies remain unchanged. Release acceptance remains unresolved; the earlier limitation-acceptance
+proposal was not adopted.
+
 ## Current independent-evaluation procedure
 
 Owner approved a pragmatic evaluation on 2026-09-10: keep search parameters fixed, use fresh author and reviewer sessions without prior fixtures or results, check overlap before scoring, and run the existing evaluator once. Record the tested code revision for traceability; do not freeze unrelated development. This supersedes the earlier administrator-exclusion, inaccessible-custodian and hard-isolation prerequisites below. Session separation is procedural rather than a claim that the coordinator cannot administer the environment. Preserve all original evidence and the first completed new result; do not tune parameters or revise judgments against its scores.
 
-Current decision: the owner approved the [search contract correction](search-contract-correction.md). Ordinary
+Earlier exposed-regression result: the owner approved the [search contract correction](search-contract-correction.md). Ordinary
 hybrid retrieval and RRF remain; the answer judge and Claude calibration are superseded. Protocol-2 regression
 judgments were independently reviewed before measurement. All 122 gates across 144 slices pass; 11,931 workspace
 tests pass with 44 configured skips, PostgreSQL integration and both AOT builds pass. Independent code/security

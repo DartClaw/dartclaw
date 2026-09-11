@@ -32,7 +32,7 @@ and 60 query texts, with 54 context-positive queries and six genuine no-matches.
 | 0.25 | 0/54 | 2/6 |
 | 0.50 | 20/54 | 5/6 |
 
-The wrong-train negative reaches `0.54564`, above a valid positive at `0.30660`. Four predeclared wrong-entity
+The wrong-train negative reaches `0.54564`, above a valid positive at `0.30660`. Four proposed wrong-entity
 controls score `0.41479–0.58203`. A controlled comparison with the already-local Qwen3-Embedding-0.6B likewise
 finds overlapping positive/negative scores (`0.25689` minimum positive; `0.55338` maximum negative). Neither a
 cutoff change nor that alternate embedder resolves the measured issue without losing useful results.
@@ -48,8 +48,48 @@ This standalone experiment scores all scoped passages without the existing cosin
 results from an integrated hybrid-plus-reranker pipeline. The positive losses and wrong-entity controls remain
 disqualifying evidence for this candidate.
 
-The label defects are corrected in separate diagnostic fixtures. No tested runtime correction satisfies the
-no-match requirement while preserving the demonstrated retrieval quality. Production parameters, model selection
+Further native feasibility checks reproduced the distinction between ranking and rejection. The multilingual
+`BAAI/bge-reranker-v2-m3` retained all 111 positives within five results before filtering, but its predeclared
+diagnostic zero-logit cutoff retained only 81/111. It rejected all nine explicit-empty queries. Calibration still
+has overlapping scores: weakest best-relevant `-10.854168`, strongest no-match `-5.254712`. Its 1,808-pair CPU run
+took 29.59 seconds with approximately 2.23 GB peak RSS. This does not support integrating its scalar filter.
+
+`Qwen3-Reranker-0.6B` was tested through the existing pinned native generation API with one exact `yes`/`no`
+output, neutral sampling and the official prompt. The verified Q8 artifact SHA-256 is
+`22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48`. The stock instruction retained 99/111 positives
+and rejected eight of nine no-matches; one separately frozen context-oriented instruction retained 96/111 and
+rejected seven of nine. Both accepted two of three unambiguous wrong-entity controls. All 3,618 outputs, including
+the two smoke checks, satisfied the strict enum. Neither condition qualifies as a runtime fix.
+
+An independent `llama-server` executable reproduced all ten selected native labels using the same model and
+prompts. Its pre-sampling yes/no margins confirmed confident wrong-project/train acceptance and a paraphrase
+false negative. The failures are not explained by the Dart binding, grammar, or a numerical tie. These diagnostic
+artifacts are under `.agent_temp/reviews/0.26/no-match-fix/`; none is independent release acceptance.
+Both sweeps classified all scoped passages outside the production candidate lifecycle; no integrated
+hybrid-plus-reranker candidate was tested. The Qwen false accepts' reachability through the current cosine filter
+was checked against previously recorded production-path evidence, without another integrated run.
+
+The supplementary architecture review also found an ambiguity in the proposed `return-code-sv` control: the query
+names a case ID while the passage names a support code. Those fields need not be identical. Preserve that original
+row and its measurements, but exclude it from decisive wrong-entity claims. The other three controls remain
+usable; the key-location pair changes both name and object type, so its success alone does not isolate name
+recognition. This qualification does not remove the observed wrong-project and wrong-train failures.
+
+A final bounded capability probe used the instruction-following `Qwen3-4B-Q4_K_M.gguf`, SHA-256
+`7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`, through its embedded non-thinking chat template
+and the same native strict-enum seam. One prompt and 16 exposed cases were fixed before inference. It rejected all
+four negative cases but retained only eight of twelve positives: three omitted-answer context cases and one
+paraphrase were rejected. All outputs were valid enums. Model load took 1.27 seconds; the capsule run took 18.23
+seconds with approximately 3.17 GB peak process RSS. The verified model file is 2,497,280,256 bytes. The capsule
+failure ended that candidate: no prompt variants, full fixture sweep, or unseen evaluation followed it.
+
+The final three candidate approaches in this investigation failed their bounded qualification: BGE scalar
+filtering, the Qwen reranker decision, and an instruction-following classifier. None was integrated into the
+runtime. The independently authored replacement fixture remains unscored; its reviewed labels and all original
+failed diagnostic evidence are preserved.
+
+The label defects are recorded separately from the original diagnostic fixtures. No investigated candidate has
+qualified for a runtime implementation under the passage contract. Production parameters, model selection
 and dependencies remain unchanged. Release acceptance remains unresolved; the earlier limitation-acceptance
 proposal was not adopted.
 

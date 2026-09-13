@@ -2,7 +2,8 @@
 
 Run `bash dev/tools/release_check.sh --version <version>` on the final pinned commit before tagging. It checks exported-bundle cleanup, the exact target version across all pins, the tracked workspace dependency lock, embedded assets, formatting, static analysis, the CI workspace test runner, architecture rules, the complete CI fitness suite, a green `Checks` run on that exact commit, and whitespace. `--quick` skips only workspace tests and is for iteration, not final signoff.
 
-**The commit must be pushed first.** The CI gate resolves `Checks` by the full HEAD SHA and requires `Check`,
+**The commit must be pushed first.** The CI gate resolves the successful push-triggered `Checks` run by the full HEAD
+SHA, avoiding a same-SHA pull-request run whose `Check` job may be intentionally skipped, and requires `Check`,
 `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green *by name*; an unpushed commit, an
 unfinished run, or a run with a skipped job fails it. This gate exists because the local host does not reproduce all
 four jobs: macOS Docker Desktop remaps uids so the container posture passes locally regardless, the system

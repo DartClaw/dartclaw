@@ -180,7 +180,7 @@ ci_sha="$(git rev-parse HEAD)"
 if ! command -v gh > /dev/null 2>&1; then
   fail "gh CLI not installed — cannot verify the Checks run on $ci_sha"
 else
-  ci_run_id="$(gh run list --workflow Checks --commit "$ci_sha" --limit 1 \
+  ci_run_id="$(gh run list --workflow Checks --commit "$ci_sha" --event push --limit 1 \
     --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId' 2>/tmp/release_check_ci.log)"
   if [[ -z "$ci_run_id" ]]; then
     fail "no successful Checks run for $ci_sha — push the branch and let CI finish before squashing"

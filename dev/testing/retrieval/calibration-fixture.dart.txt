@@ -1,0 +1,96 @@
+/// Swedish/English retrieval fixture: memory-note-style docs + queries with
+/// expected hits, categorized so keyword-vs-vector-vs-hybrid differences are
+/// interpretable.
+library;
+
+class Doc {
+  final String id;
+  final String lang;
+  final String text;
+  const Doc(this.id, this.lang, this.text);
+}
+
+class Query {
+  final String id;
+  final String text;
+  final Set<String> expected; // any of these counts as a hit
+  final String category;
+  const Query(this.id, this.text, this.expected, this.category);
+}
+
+const docs = <Doc>[
+  Doc('d01', 'sv',
+      'Mötet med kunden flyttades till torsdag eftermiddag. Vi går igenom driftsättningsplanen för betalningstjänsten.'),
+  Doc('d02', 'sv',
+      'Hon springer varje morgon före jobbet, oftast en runda på åtta kilometer längs kanalen.'),
+  Doc('d03', 'sv',
+      'Databasmigreringen misslyckades i natt eftersom lösenordet till produktionsservern hade roterats.'),
+  Doc('d04', 'sv',
+      'Vi bestämde oss för att använda PostgreSQL i stället för SQLite för fulltextsökning på svenska.'),
+  Doc('d05', 'sv',
+      'Recept: klassiska kanelbullar med kardemumma. Jäsning två gånger, ugn 220 grader i åtta minuter.'),
+  Doc('d06', 'sv',
+      'Semesterplanering: vecka 30 till 32 i stugan i Sälen, barnen tar med cyklarna.'),
+  Doc('d07', 'sv',
+      'Fakturan från leverantören var felaktig – dubbeldebitering för molnlagring i juni.'),
+  Doc('d08', 'sv',
+      'Anteckning från läkarbesöket: öka dosen till två tabletter per dag och boka återbesök om sex veckor.'),
+  Doc('d09', 'sv',
+      'Bilen behöver ny kamrem och service innan besiktningen i september.'),
+  Doc('d10', 'sv',
+      'Projektets budget överskreds med tolv procent på grund av valutakursförändringar.'),
+  Doc('d11', 'sv',
+      'Lösenordshanteraren kräver nu tvåfaktorsautentisering för alla delade valv.'),
+  Doc('d12', 'sv',
+      'Grannen vattnar blommorna medan vi är bortresta; nyckeln ligger hos honom.'),
+  Doc('d13', 'en',
+      'The authentication flow now uses short-lived JWT access tokens with a refresh-token rotation scheme.'),
+  Doc('d14', 'en',
+      'Quarterly report: revenue grew eight percent, driven mostly by the subscription tier.'),
+  Doc('d15', 'en',
+      'Note from the architecture review: keep the storage layer behind a single seam and avoid dialect leakage.'),
+  Doc('d16', 'en',
+      'Grocery list for the weekend barbecue: charcoal, halloumi, corn, lemonade, and paper plates.'),
+  Doc('d17', 'en',
+      'The deployment pipeline failed on the signing step because the certificate expired.'),
+  Doc('d18', 'en',
+      'Team retro takeaway: we interrupt each other less when the agenda is posted a day ahead.'),
+  Doc('d19', 'en',
+      'Backup strategy decision: nightly snapshots to object storage with a 30-day retention window.'),
+  Doc('d20', 'en',
+      'The new hire starts Monday; laptop, badge, and repository access must be ready by Friday.'),
+  Doc('d21', 'en',
+      'Training plan: intervals on Tuesday, long slow run on Sunday, strength twice a week.'),
+  Doc('d22', 'en',
+      'Kubernetes cluster upgrade postponed until the ingress controller supports the new API version.'),
+  Doc('d23', 'en',
+      'Customer feedback: onboarding wizard is confusing at the workspace-selection step.'),
+  Doc('d24', 'en',
+      'Dentist appointment rescheduled to the first week of October.'),
+];
+
+const queries = <Query>[
+  // Swedish inflection: doc says "springer", query is infinitive.
+  Query('q01', 'springa', {'d02'}, 'sv-inflection'),
+  // Swedish vocabulary mismatch: no shared token with d02.
+  Query('q02', 'löpträning', {'d02', 'd21'}, 'sv-vocab-mismatch'),
+  // English vocabulary mismatch: d13 says JWT/tokens/flow, not these words.
+  Query('q03', 'login security method', {'d13'}, 'en-vocab-mismatch'),
+  // Keyword controls (exact tokens present).
+  Query('q04', 'kanelbullar recept', {'d05'}, 'sv-keyword-control'),
+  Query('q05', 'certificate expired deployment', {'d17'}, 'en-keyword-control'),
+  // Swedish compounds: doc has driftsättningsplanen/betalningstjänsten.
+  Query('q06', 'driftsättning betaltjänst', {'d01'}, 'sv-compound'),
+  // Cross-lingual: English query, Swedish doc.
+  Query('q07', 'why did the database migration fail', {'d03'}, 'cross-lingual'),
+  Query('q08', 'budget overrun because of currency', {'d10'}, 'cross-lingual'),
+  Query('q09', 'tvåfaktorsautentisering', {'d11'}, 'sv-keyword-control'),
+  Query('q10', 'morning exercise routine', {'d02', 'd21'}, 'cross-lingual'),
+  Query('q11', 'snapshot retention backup', {'d19'}, 'en-keyword-control'),
+  Query('q12', 'medication dosage increase', {'d08'}, 'cross-lingual'),
+  Query('q13', 'car maintenance timing belt', {'d09'}, 'cross-lingual'),
+  Query('q14', 'full text search swedish database choice', {'d04'}, 'cross-lingual'),
+  Query('q15', 'new employee onboarding preparation', {'d20', 'd23'}, 'en-vocab-mismatch'),
+  // Swedish inflection: doc has vattnar/bortresta.
+  Query('q16', 'vattna blommor bortrest', {'d12'}, 'sv-inflection'),
+];

@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:dartclaw_runtime/src/governance/budget_engine.dart';
 import 'package:dartclaw_runtime/src/task/task_budget_policy.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -14,15 +15,18 @@ void main() {
   late Directory tempDir;
   late TaskService tasks;
   late KvService kv;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_budget_policy_test_');
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
   });
 
   tearDown(() async {
     await tasks.dispose();
+    await taskBackend.close();
     await kv.dispose();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

@@ -1,5 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import 'in_memory_agent_execution_repository.dart';
@@ -22,8 +23,8 @@ void main() {
     });
 
     test('matches sqlite repository behavior for core CRUD flows', () async {
-      final db = openTaskDbInMemory();
-      final sqliteRepo = SqliteAgentExecutionRepository(db);
+      final backend = await openPreparedTaskBackend();
+      final sqliteRepo = SqliteAgentExecutionRepository(backend);
       final memoryRepo = InMemoryAgentExecutionRepository();
 
       try {
@@ -32,7 +33,7 @@ void main() {
 
         expect(memoryState, equals(sqliteState));
       } finally {
-        db.close();
+        await backend.close();
         await memoryRepo.dispose();
       }
     });

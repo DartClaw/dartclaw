@@ -23,15 +23,18 @@ void main() {
   late MessageService messageService;
   late ContextExtractor extractor;
 
-  setUp(() {
-    harness = ContextExtractorTestHarness()..setUp();
+  setUp(() async {
+    harness = ContextExtractorTestHarness();
+    await harness.setUp();
     tempDir = harness.tempDir;
     taskService = harness.taskService;
     messageService = harness.messageService;
     extractor = harness.extractor;
   });
 
-  tearDown(() => harness.tearDown());
+  tearDown(() async {
+    await harness.tearDown();
+  });
 
   test('throws MissingArtifactFailure for missing path outputs', () async {
     final taskWithSession = await harness.buildTaskWithContext('task-path-1', {'prd': 'docs/specs/demo/prd.md'});

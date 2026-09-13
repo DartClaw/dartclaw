@@ -13,7 +13,6 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRu
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -197,7 +196,7 @@ Future<void> _disposeRuntime(DartclawRuntime result, LogService logService, {boo
   await result.taskService.dispose();
   await result.eventBus.dispose();
   await result.qmdManager?.stop();
-  result.searchDb!.close();
+  await result.closeStorage();
   await logService.dispose();
 }
 
@@ -291,8 +290,8 @@ void main() {
         port: 3000,
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: serverFactory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         stderrLine: (_) {},
         exitFn: _unexpectedExit,
         resolvedConfigPath: configFile.path,

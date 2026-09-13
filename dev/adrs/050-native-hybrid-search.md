@@ -1,6 +1,6 @@
 # ADR-050: Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost
 
-**Status:** Accepted – 2026-07-25. Scheduled as **0.26 Phase B** (brief: private `dartclaw-private/docs/specs/0.26/hybrid-search-prd-brief.md`); implementation follows Phase A. Validation spike passed 2026-07-25. Supersedes [ADR-004](004-vector-search-approach.md); QMD remains the shipped opt-in path until Phase B GA (deprecate-then-remove).
+**Status:** Accepted – 2026-07-25; amended 2026-09-09 to restore agent-independent retrieval. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; independent retrieval acceptance passed 2026-09-13 under protocol 3. Platform qualification and publication are assessed separately.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-004](004-vector-search-approach.md) (superseded – QMD outpost), [ADR-045](045-pluggable-database-backend.md) (`FullTextIndex`/`VectorIndex` seams; this ADR delivers its former Phase 3), [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (bundled-native-library shipping precedent), [ADR-034](034-enforced-package-dependency-direction.md) (dependency direction), [ADR-002](002-file-based-storage.md) (search index is derived/rebuildable)
@@ -17,7 +17,8 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 
 **Validation spike (2026-07-25, passed; full record in the private research dir):**
 - macOS arm64 `dart build cli`: 6 MB binary + 10 MB `libllamadart.dylib`, ADR-048 shape; max RSS ≈ 477 MB with embeddinggemma-300M resident; ~7 ms/doc embed.
-- Linux (Docker `dart:stable`): works; needs `libgomp1` at runtime; llamadart hangs (no surfaced error) when the native lib fails to load – wrapper needs an init timeout.
+- Linux (Docker `dart:stable`): works; needs `libgomp1` at runtime. The historical 0.8.17 native-library
+  refusal motivated the lifecycle investigation; it is not evidence about the selected dependency.
 - Parity: cosine 1.000000 vs llama.cpp's own `llama-server` on the same GGUF.
 - Swedish/English retrieval fixture: unstemmed keyword-only 0.38 hit@1 (0.00 on Swedish inflection/compound/vocabulary-mismatch – the motivating gap); embeddinggemma-300M vector 1.00/1.00 incl. cross-lingual; hybrid RRF 0.94. Qwen3-Embedding-0.6B head-to-head: 0.94, missed the hardest Swedish semantic query, weaker cross-lingual, 2× size.
 
@@ -25,14 +26,16 @@ The full landscape analysis (embedding sources, QMD v2.6.3 internals, hybrid-sea
 
 **Build `dartclaw_search`: built-in hybrid memory search (keyword + vector + weighted RRF) composing the ADR-045 seams, with embedding generation behind an `EmbeddingProvider` seam. Retire QMD via a deprecation window.**
 
-1. **New package `dartclaw_search`** (~1–1.5k LOC): depends on contract packages only (ADR-034 allowlist edges added with rationale); concrete `FullTextIndex`/`VectorIndex` implementations are injected. The package isolates the llamadart native-asset dependency from the core graph.
+1. **New package `dartclaw_search`**: sits on T1 and depends only on `dartclaw_kernel`; concrete
+   `FullTextIndex`/`VectorIndex` implementations are injected. The package isolates the llamadart native-asset dependency from
+   the core graph, while core retains concrete database indexes and canonical corpus mapping.
 2. **Primary embedding source: in-process llamadart** (pinned exact version), default model **embeddinggemma-300M Q8_0** (768-dim, multilingual; QMD's own default – known quality baseline; fixture-validated for Swedish). Model is a one-time pinned-URL + checksum download, honoring the network-gating posture.
 3. **Fallback + escape hatch: OpenAI-compatible HTTP provider** (~100 LOC; base URL + optional API key) covering local outposts (llama.cpp `llama-server`, Ollama, LM Studio) and – as **documented, explicit opt-in** (owner-accepted 2026-07-25) – cloud endpoints (Voyage/OpenAI/Gemini). Default remains local; user docs carry the data-leaves-trust-boundary caveat.
 4. **Vector storage:** SQLite backend = float32 BLOB column + brute-force cosine in Dart (no vector extension; defensible far beyond memory-corpus scale; preserves ADR-045's "no in-database vector path on SQLite"). PostgreSQL backend = **`pgvector`** – delivering ADR-045's former Phase 3 now that the embedding source exists.
-5. **Fusion:** Dart-side weighted RRF (k=60, identical constants on both backends; set-membership remains the only cross-backend parity contract). In-database PG fusion recorded as a later optimization.
+5. **Fusion:** Dart-side weighted RRF with frozen constants: `k=60`, keyword weight `0.25`, vector weight `0.75`, vector cutoff `0.20`, and at most 20 candidates from each constituent. Deterministic ties use keyword rank, vector rank, document ID and chunk ordinal. The constants are not configuration; set membership remains the cross-backend parity contract.
 6. **Pipeline:** embed-on-write with graceful keyword-only degradation when the embedder is unavailable (loud log + visible unembedded counter, never a hard error); content-hash + embedder-fingerprint incremental re-embedding; heading-scored code-fence-safe chunker as the single chunking owner. Index stays derived + rebuildable (ADR-002).
-7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking – QMD's own benchmark shows plain hybrid fusion carries the measurable gain on keyword-friendly corpora; the excluded stages cost two resident GGUF models. The typed sub-query fusion seam keeps the door open; the future path is on-demand reranking via DartClaw's existing LLM harnesses.
-8. **QMD retirement:** `search.backend: qmd` gets a deprecation warning at Phase B GA; `QmdManager`/`QmdSearchBackend`/factory branch and docs are removed one milestone later.
+7. **v1 exclusions (deliberate):** LLM query expansion and cross-encoder reranking. Retrieval is independent of generative agents; answer sufficiency belongs to the caller.
+8. **QMD retirement:** `search.backend: qmd` emits a deprecation warning in 0.26; `QmdManager`, `QmdSearchBackend`, the factory branch and docs are removed one milestone later.
 
 The schedule is exact: 0.24 keeps QMD fully supported and assigns it no canonical-memory authority; 0.26 Phase B emits
 the deprecation warning; the following milestone removes the implementation.
@@ -42,25 +45,59 @@ the deprecation warning; the following milestone removes the implementation.
 
 ### Positive
 
-- **Semantic + hybrid search becomes built-in** on both database backends – no Node.js, no npm, no external process in the recommended path (minimal-attack-surface philosophy).
+- **Semantic + hybrid search becomes built-in** on both database backends. Native embedding generation needs no Node.js or outpost; retrieval creates no generative model turn.
 - **Swedish/multilingual semantic recall independent of keyword stemming** – embeddings sidestep morphology; the spike fixture shows exactly the FTS5-`unicode61` failure categories going from 0.00 to 1.00.
 - **Proven shipping model** – native libs ride the ADR-048 `dart build cli` bundle; one per-target build, inspectable `lib/` siblings.
-- **Small and auditable** – the whole package is ~1–1.5k LOC composing seams that 0.26 Phase A already builds.
+- **Storage stays injected** – the search package composes the lexical/vector seams that 0.26 Phase A already builds.
 - **pgvector unblocked** – ADR-045 Phase 3 ships instead of staying parked on the embedding-source question.
 
 ### Negative / accepted
 
-- **llamadart is pre-1.0, single-maintainer** – pinned exact; the `EmbeddingProvider` seam keeps it swappable (the HTTP fallback is the standing escape hatch). Known bug: engine hangs instead of erroring on native-lib load failure – wrapper wraps init in a timeout; report upstream.
-- **Bundle supply chain needs hardening by us** – the hook tag-pins but does **not** sha256-verify the llama.cpp archives; release builds mirror the bundles or use the local-path user-define. Build-time network access is required unless mirrored.
-- **Linux runtime dependency** – bundles link OpenMP; `libgomp1` must be documented/bundled in release packaging.
+- **llamadart is pre-1.0, single-maintainer** – pinned exactly at 0.8.22; the `EmbeddingProvider` seam keeps it
+  swappable (the HTTP fallback is the standing escape hatch). Its worker startup has a dependency-owned 30-second
+  handshake that observes error/exit and kills the worker on failure or timeout. Model-load and dispose requests remain
+  separately bounded by DartClaw at the provider edge; final platform process probes decide acceptance.
+- **Bundle supply chain is owned by release preparation** – the upstream-party hook does not authenticate its download, so release tooling verifies pinned archive size/SHA-256 before creating an operation-unique local hook stage. The hook cannot fall through to an unchecked download.
+- **Linux runtime dependency** – bundles link OpenMP; release runners install and record `libgomp1` resolution.
 - **~0.5 GB RAM while the embedder is resident**, and a one-time ~320 MB model download on enabling hybrid search.
-- **Default Linux bundle needs trimming** – without the runtimes user-define it ships an unused LiteRT-LM/WebGPU stack (194 MB → 98 MB with `llamadart_native_runtimes: [llama_cpp]`; Vulkan trim available).
-- **Fusion quality tuning is real work** – the spike showed one query where noisy keyword rankings dragged RRF below pure vector; weights/thresholds are spec-time scope.
+- **Native payload increases release size** – the verified hook stage limits runtimes to `llama_cpp`, while both shipped binaries retain the same complete target library set.
+- **Frozen fusion can underperform one constituent on a query** – the 0.26 constants are fixed and evaluated as one release contract rather than tuned after held-out results.
 
 ### Neutral
 
-- SEB/MTEB(Scandinavian) tension recorded: the board favors qwen3-embedding-0.6B among small models, our fixture favors embeddinggemma-300M; default stays embeddinggemma, re-evaluated with a larger fixture at spec time. Model choice is config, and the index is rebuildable – switching later is cheap.
+- SEB/MTEB(Scandinavian) tension remains recorded: the board favors qwen3-embedding-0.6B among small models, while the spike fixture favored embeddinggemma-300M. Local mode accepts only the verified EmbeddingGemma artifact; an explicit HTTP provider selects its own model and rebuilds derived vectors under a different fingerprint.
 - FTS5 keyword search remains the zero-config default; hybrid activates only when a model is present.
+
+## Amendment (0.26): retrieval and answer sufficiency
+
+The answer-relevance amendment was superseded by the owner's explicit correction on 2026-09-09. Its premise
+conflated missing answer evidence with an empty retrieval ranking. The bounded generative judge and its routing
+configuration are removed; keyword/vector retrieval and weighted RRF remain the production mechanism.
+
+Search returns useful authorized, current passages. A passage can provide useful context without independently
+answering the question. The answering caller decides whether the evidence supports an answer. Reranking remains
+out of scope until measured retrieval benefit justifies its latency and resource cost.
+
+The owner-approved 2026-09-13 protocol-3 amendment keeps semantic no-match errors as visible diagnostics rather
+than requiring perfect rejection. Independently justified negative labels remain unchanged; completed reports
+include returned document IDs and correct-empty rates. Positive ranking tolerances remain 0.10 per full family and
+0.20 per corpus/family, with strict vocabulary-mismatch improvement over keyword retrieval. Owner/corpus leakage
+remains zero; empty-corpus, model/dimension mismatch and stale/deleted-source exclusion have exact tests.
+
+A bounded comparison of cutoff 0.20 versus 0.25 retained 0.20 before the independent evaluation. Although 0.25
+reduced irrelevant returns without changing positive rankings on the modern fixtures, it removed two historical
+vocabulary/cross-language matches. No additional model or runtime filtering stage was introduced. Expansion and
+reranking are requested for an upcoming version, with benefit and resource cost to be measured first.
+
+The first independent protocol-3 evaluation passed all 116 gates across 144 slices on both backends at `e9e5892d`.
+Hybrid search ranked a relevant document first for 54/55 positive queries and within the top five for all 55.
+Three of four semantic no-match probes returned irrelevant passages on each backend; their 19 returned passages
+remain recorded errors. These fixture results do not establish general search accuracy. See the
+[retrieval evaluation record](../testing/retrieval/README.md) for hashes and benchmark limitations. Original frozen
+assets and failed protocol-1/2 results remain historical evidence; exposed regressions are not unseen acceptance.
+
+PostgreSQL uses exact pgvector cosine over a filtered subset, not HNSW; that choice remains proportional to the
+personal corpus and can be revisited with measured query-plan and corpus-growth evidence.
 
 ## Alternatives Considered
 
@@ -74,13 +111,19 @@ the deprecation warning; the following milestone removes the implementation.
 
 ## Implementation Notes
 
-- Binding spec-time items: `FullTextIndex`/`VectorIndex` contract placement decided during Phase A **with this package in view** (it must reach the contracts without depending on `dartclaw_storage`); engine-init timeout; RRF weight tuning + larger Swedish eval fixture; parity fixtures stay set-membership-only across backends; `CREATE EXTENSION IF NOT EXISTS vector` handling per ADR-045 FR2's extension rule.
-- Release packaging: mirror/pin llamadart native bundles; add `libgomp1` to Linux packaging docs; apply the runtimes trim user-define.
-- Remaining platform legs (Linux x64, Windows) ride the existing CI release matrix (ADR-048 native runners).
+Explicit model acquisition follows at most three redirects manually because the pinned immutable Hugging Face source
+redirects to a signed CDN URL. Each target must use HTTPS with a non-empty host and no userinfo or fragment, and passes
+the existing network policy before I/O. Signed CDN query strings remain private to the request. Automatic redirects
+remain disabled; missing/unsafe targets and exhausted redirects fail closed. Exact size and SHA-256 still authenticate
+bytes before atomic publication. HTTP embedding requests continue to refuse every redirect.
+
+- `FullTextIndex`, `VectorIndex` and `EmbeddingProvider` live in `dartclaw_kernel`; core owns canonical corpus mapping and both database implementations, `dartclaw_search` owns providers, synchronization and fusion, and runtime owns composition.
+- PostgreSQL uses an administrator-installed extension in `public`; the runtime role performs read-only preflight and never installs it. SQLite vectors remain in separate `vectors.db` with direct Dart cosine scans.
+- Release packaging stages exact native archives for five shipped targets and retains the same complete native-library set in both binaries. Four native embedding runner legs and the sealed retrieval evaluation remain final acceptance evidence, not claims made by this ADR.
 
 ## References
 
-- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record), `dartclaw-private/docs/specs/0.26/hybrid-search-prd-brief.md` (Phase B brief)
+- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record); consolidated requirements: `dartclaw-private/docs/specs/0.26/prd.md`
 - Public frozen synthesis: [research appendix](research/050-native-hybrid-search.md)
 - llamadart: https://pub.dev/packages/llamadart · https://github.com/leehack/llamadart
 - Model: https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF

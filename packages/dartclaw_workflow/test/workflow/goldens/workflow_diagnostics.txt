@@ -1,0 +1,32 @@
+[required-prompt]
+missingField|agent||Step "agent" must have at least one prompt.
+[provider-aliases]
+invalidReference|step||Step "step": provider "@executer" is not a known role alias. Supported aliases: @workflow, @planner, @executor, @reviewer.
+invalidReference|||stepDefaults pattern "*" uses provider "@executer", which is not a known role alias. Supported aliases: @workflow, @planner, @executor, @reviewer. Matching steps: step.
+[map-shape]
+contextInconsistency|map||Map step "map" cannot also be a parallel step.
+contextInconsistency|map||Map step "map" declares 2 outputs keys (a, b); a map/foreach controller emits exactly one aggregate list value, so only one key is meaningful. Keep a single key — downstream steps can index the aggregate by iteration and child step id.
+[map-missing-children]
+missingField|map||Step "map" declares "map_over" but no per-item steps; declare them with "foreach_steps" or a nested "steps:" block.
+[aggregate-required-shape]
+contextInconsistency|aggregate||Aggregate-reviews step "aggregate" must declare aggregateReviews with at least one upstream step id.
+contextInconsistency|aggregate||Aggregate-reviews step "aggregate" outputs must declare exactly {review_report_path, findings_count, gating_findings_count}.
+[aggregate-output-formats-and-presets]
+contextInconsistency|review-aggregate||Aggregate-reviews step "review-aggregate" output "review_report_path" must be format: path with the matching schema preset (got format: path, schema: narrative_text).
+contextInconsistency|review-aggregate||Aggregate-reviews step "review-aggregate" output "findings_count" must be format: json with the matching schema preset (got format: json, schema: gating_findings_count).
+contextInconsistency|review-aggregate||Aggregate-reviews step "review-aggregate" output "gating_findings_count" must be format: json with the matching schema preset (got format: json, schema: findings_count).
+[hybrid-step-applicability]
+hybridStepConstraint|bash||Step "bash" is a "bash" step and cannot use a prompt list. Use a single prompt string.
+hybridStepConstraint|bash||Step "bash" uses continueSession but is a "bash" step. Only agent steps support session continuity.
+hybridStepConstraint|approval||Approval step "approval" cannot be a parallel step. Approval gates require sequential execution.
+hybridStepConstraint|approval||Step "approval" is a "approval" step and cannot use a prompt list. Use a single prompt string (or omit the prompt).
+hybridStepConstraint|approval||Step "approval" cannot combine parallel execution with continueSession. Session continuity requires deterministic step ordering.
+hybridStepConstraint|approval||Step "approval" uses continueSession but is a "approval" step. Only agent steps support session continuity.
+hybridStepConstraint|approval||Step "approval" uses continueSession but crosses a loop boundary (step is in loop "approval-loop", target step "prior" is outside a loop). continueSession cannot span loop boundaries.
+hybridStepConstraint|approval||Approval step "approval" is inside loop "approval-loop". Approval steps in loops will pause the loop on every iteration — ensure the loop exit gate accounts for approval outcomes.
+[unknown-loop-policy]
+invalidLoopPolicy||unknown|Loop "unknown" has invalid onMaxIterations "sometimes" (must be "fail", "continue", or "escalate").
+[nested-loop-policy]
+invalidLoopPolicy||nested-loop|Loop "nested-loop" is nested under a foreach body and cannot use onMaxIterations "continue"; nested loops must keep fail-on-exhaustion or opt into "escalate".
+[top-level-loop-policy]
+invalidLoopPolicy||top-level|Loop "top-level" is not nested under a foreach body and cannot use onMaxIterations "escalate"; top-level loops must use "continue" for max-iteration fall-through.

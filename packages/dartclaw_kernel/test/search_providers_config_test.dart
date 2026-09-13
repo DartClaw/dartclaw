@@ -4,7 +4,208 @@ import 'package:test/test.dart';
 import 'support/load_config.dart';
 
 void main() {
+  group('search.embedding config', () {
+    test('defaults to supported local embeddings and derives the retained vector path', () {
+      final config = loadNoFile();
+
+      expect(config.search.backend, 'fts5');
+      expect(config.search.embedding, const EmbeddingConfig());
+      expect(config.search.embedding.provider, EmbeddingProviderKind.local);
+      expect(config.search.embedding.model, 'embeddinggemma-300M-Q8_0.gguf');
+      expect(config.search.embedding.endpoint, isNull);
+      expect(config.search.embedding.credential, isNull);
+      expect(DartclawConfig(server: const ServerConfig(dataDir: '/data')).vectorsDbPath, '/data/vectors.db');
+    });
+
+    test('hybrid local accepts only the supported managed model selector', () {
+      final configured = loadYaml(
+        'search:\n  backend: hybrid\n  embedding:\n    provider: local\n'
+        '    model: embeddinggemma-300M-Q8_0.gguf\n',
+      );
+
+      expect(configured.search.backend, 'hybrid');
+      expect(configured.search.embedding, const EmbeddingConfig());
+      expect(configured.warnings, isEmpty);
+
+      final invalid = loadYaml(
+        'search:\n  backend: hybrid\n  embedding:\n    provider: local\n'
+        '    model: /tmp/arbitrary.gguf\n    endpoint: https://example.com/v1/embeddings\n'
+        '    credential: remote-key\n',
+      );
+      expect(invalid.search.embedding, const EmbeddingConfig());
+      expect(invalid.reloadBlockingWarnings, hasLength(3));
+    });
+
+    test(
+      'HTTP preserves its endpoint, explicit model, and credential name without resolving the secret into config',
+      () {
+        registerStoredCredentials(const {'remote-key': CredentialEntry(apiKey: 'top-secret-api-key')});
+
+        final config = loadYaml(
+          'search:\n  backend: hybrid\n  embedding:\n    provider: http\n'
+          '    model: text-embedding-v3\n    endpoint: https://embeddings.example/v1/embeddings\n'
+          '    credential: remote-key\n',
+        );
+
+        expect(config.search.embedding.provider, EmbeddingProviderKind.http);
+        expect(config.search.embedding.model, 'text-embedding-v3');
+        expect(config.search.embedding.endpoint, Uri.parse('https://embeddings.example/v1/embeddings'));
+        expect(config.search.embedding.credential, 'remote-key');
+        expect(config.search.embedding.toString(), isNot(contains('top-secret-api-key')));
+        expect(config.warnings, isEmpty);
+      },
+    );
+
+    test('credentialed HTTP requires HTTPS except for literal loopback hosts', () {
+      registerStoredCredentials(const {'remote-key': CredentialEntry(apiKey: 'top-secret-api-key')});
+
+      final publicHttp = loadYaml(
+        'search:\n  embedding:\n    provider: http\n    model: remote\n'
+        '    endpoint: http://embeddings.example/v1/embeddings\n    credential: remote-key\n',
+      );
+      final output = publicHttp.warnings.join('\n');
+      expect(publicHttp.search.embedding.endpoint, isNull);
+      expect(publicHttp.search.embedding.credential, isNull);
+      expect(output, contains('requires HTTPS'));
+      expect(output, isNot(contains('http://embeddings.example/v1/embeddings')));
+      expect(output, isNot(contains('top-secret-api-key')));
+
+      final publicWithoutCredential = loadYaml(
+        'search:\n  embedding:\n    provider: http\n    model: remote\n'
+        '    endpoint: http://embeddings.example/v1/embeddings\n',
+      );
+      expect(publicWithoutCredential.search.embedding.endpoint, Uri.parse('http://embeddings.example/v1/embeddings'));
+      expect(publicWithoutCredential.warnings, isEmpty);
+
+      final httpsWithCredential = loadYaml(
+        'search:\n  embedding:\n    provider: http\n    model: remote\n'
+        '    endpoint: https://embeddings.example/v1/embeddings\n    credential: remote-key\n',
+      );
+      expect(httpsWithCredential.search.embedding.endpoint, Uri.parse('https://embeddings.example/v1/embeddings'));
+      expect(httpsWithCredential.search.embedding.credential, 'remote-key');
+      expect(httpsWithCredential.warnings, isEmpty);
+
+      for (final host in ['localhost', '127.0.0.1', '[::1]']) {
+        final loopback = loadYaml(
+          'search:\n  embedding:\n    provider: http\n    model: remote\n'
+          '    endpoint: http://$host/v1/embeddings\n    credential: remote-key\n',
+        );
+        expect(loopback.search.embedding.endpoint, Uri.parse('http://$host/v1/embeddings'), reason: host);
+        expect(loopback.search.embedding.credential, 'remote-key', reason: host);
+        expect(loopback.warnings, isEmpty, reason: host);
+      }
+    });
+
+    test('HTTP requires endpoint and an explicitly present non-empty model', () {
+      for (final yaml in [
+        'search:\n  embedding:\n    provider: http\n    model: explicit\n',
+        'search:\n  embedding:\n    provider: http\n    endpoint: https://example.com/v1/embeddings\n',
+        'search:\n  embedding:\n    provider: http\n    model: "  "\n'
+            '    endpoint: https://example.com/v1/embeddings\n',
+      ]) {
+        final config = loadYaml(yaml);
+
+        expect(config.search.embedding.provider, EmbeddingProviderKind.http, reason: yaml);
+        expect(config.search.embedding.model, isEmpty, reason: yaml);
+        expect(config.search.embedding.endpoint, isNull, reason: yaml);
+        expect(config.reloadBlockingWarnings, isNotEmpty, reason: yaml);
+      }
+    });
+
+    test('unsafe HTTP endpoints are discarded and never echoed in validation output', () {
+      const unsafeEndpoints = [
+        'https://alice:uri-secret@example.com/v1/embeddings',
+        'https://example.com/v1/embeddings?api_key=query-secret',
+        'https://example.com/v1/embeddings#fragment-secret',
+        'ftp://example.com/model',
+        '/relative/embeddings',
+      ];
+      for (final endpoint in unsafeEndpoints) {
+        final config = loadYaml(
+          'search:\n  embedding:\n    provider: http\n    model: explicit\n    endpoint: "$endpoint"\n',
+        );
+        final output = config.warnings.join('\n');
+
+        expect(config.search.embedding.endpoint, isNull, reason: endpoint);
+        expect(output, contains('search.embedding.endpoint'), reason: endpoint);
+        expect(output, isNot(contains(endpoint)), reason: endpoint);
+        expect(output, isNot(anyOf(contains('uri-secret'), contains('query-secret'), contains('fragment-secret'))));
+      }
+    });
+
+    test('HTTP credential must name a present generic API-key entry', () {
+      for (final invalid in [
+        (name: 'missing', entries: <String, CredentialEntry>{}),
+        (name: 'wrong-kind', entries: const {'wrong-kind': CredentialEntry.githubToken(token: 'github-secret')}),
+        (name: 'blank', entries: const {'blank': CredentialEntry(apiKey: '  ')}),
+      ]) {
+        registerStoredCredentials(invalid.entries);
+        final config = loadYaml(
+          'search:\n  embedding:\n    provider: http\n    model: explicit\n'
+          '    endpoint: https://example.com/v1/embeddings\n    credential: ${invalid.name}\n',
+        );
+        final output = config.warnings.join('\n');
+
+        expect(config.search.embedding.endpoint, isNull, reason: invalid.name);
+        expect(config.search.embedding.credential, isNull, reason: invalid.name);
+        expect(output, contains('search.embedding.credential'), reason: invalid.name);
+        expect(
+          output,
+          isNot(anyOf(contains('github-secret'), contains(invalid.entries[invalid.name]?.secret ?? 'never'))),
+        );
+        DartclawConfig.clearStoredCredentialProvider();
+      }
+    });
+
+    test('unknown provider values and embedding keys follow config refusal authorities', () {
+      final invalidProvider = loadYaml('search:\n  embedding:\n    provider: automatic\n');
+      expect(invalidProvider.search.embedding, const EmbeddingConfig());
+      expect(invalidProvider.warnings, anyElement(contains('search.embedding.provider')));
+
+      expect(
+        () => loadYaml('search:\n  embedding:\n    provider: local\n    dimension: 768\n'),
+        throwsA(
+          isA<FormatException>().having((error) => error.message, 'message', contains('search.embedding.dimension')),
+        ),
+      );
+    });
+
+    test('value equality includes all embedding fields', () {
+      final endpoint = Uri.parse('https://example.com/v1/embeddings');
+      final first = SearchConfig(
+        backend: 'hybrid',
+        embedding: EmbeddingConfig(
+          provider: EmbeddingProviderKind.http,
+          model: 'remote',
+          endpoint: endpoint,
+          credential: 'remote-key',
+        ),
+      );
+      final same = SearchConfig(
+        backend: 'hybrid',
+        embedding: EmbeddingConfig(
+          provider: EmbeddingProviderKind.http,
+          model: 'remote',
+          endpoint: endpoint,
+          credential: 'remote-key',
+        ),
+      );
+
+      expect(first, same);
+      expect(first.hashCode, same.hashCode);
+      expect(first, isNot(const SearchConfig(backend: 'hybrid')));
+    });
+  });
+
   group('search.qmd config', () {
+    test('keeps QMD functional with exactly one non-blocking deprecation advisory', () {
+      final config = loadYaml('search:\n  backend: qmd\n');
+
+      expect(config.search.backend, 'qmd');
+      expect(config.warnings.where((warning) => warning.toLowerCase().contains('deprecated')), hasLength(1));
+      expect(config.reloadBlockingWarnings, isEmpty);
+    });
+
     for (final host in ['localhost', '127.0.0.1', '127.42.0.9', '::1', '[::1]']) {
       test('accepts loopback host $host', () {
         final config = loadYaml('search:\n  qmd:\n    host: "$host"\n');

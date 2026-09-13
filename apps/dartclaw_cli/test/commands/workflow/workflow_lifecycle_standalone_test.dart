@@ -10,8 +10,8 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart'
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_core/dartclaw_core.dart' show openSearchDb, openTaskDb, openTaskDbInMemory;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend, SqliteSchemaGate;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SqliteWorkflowRunRepository,
@@ -22,7 +22,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         skillProvisionerMarkerFile;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
@@ -120,8 +119,8 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => seed.db,
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => seed.backend,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -148,8 +147,8 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => seed.db,
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => seed.backend,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -229,7 +228,7 @@ void main() {
       final output = <String>[];
       final command = WorkflowStatusCommand(
         config: config,
-        taskDbFactory: (_) => seed.db,
+        taskBackendFactory: (_) async => seed.backend,
         writeLine: output.add,
         exitFn: fakeExit,
       );
@@ -267,8 +266,8 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: factory,
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => seed.db,
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => seed.backend,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -378,8 +377,8 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => seed.db,
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => seed.backend,
         // Production default — the verb must force it off, not rely on the flag.
         runWorkflowSkillsBootstrap: true,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -411,8 +410,8 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchDbFactory: (_) => sqlite3.openInMemory(),
-        taskDbFactory: (_) => seed.db,
+        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => seed.backend,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -463,11 +462,12 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
 Future<WorkflowRunStatus?> statusOf(DartclawConfig config, String runId) async => (await runOf(config, runId))?.status;
 
 Future<WorkflowRun?> runOf(DartclawConfig config, String runId) async {
-  final db = openTaskDb(config.tasksDbPath);
+  final backend = await SqliteBackend.open(config.dartclawDbPath);
   try {
-    return await SqliteWorkflowRunRepository(db).getById(runId);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'dartclaw.db');
+    return await SqliteWorkflowRunRepository(backend).getById(runId);
   } finally {
-    db.close();
+    await backend.close();
   }
 }
 
@@ -476,8 +476,8 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
     config,
     dataDir: config.server.dataDir,
     harnessFactory: fakeHarness(),
-    searchDbFactory: openSearchDb,
-    taskDbFactory: openTaskDb,
+    searchBackendFactory: SqliteBackend.open,
+    taskBackendFactory: SqliteBackend.open,
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('Unexpected exit($code) while seeding an approval-paused run'),
     runWorkflowSkillsBootstrap: false,
@@ -504,8 +504,11 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
   }
 }
 
-Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {WorkflowDefinition? definition}) async {
-  final db = openTaskDbInMemory();
+Future<({SqliteBackend backend, String runId})> seedRun(
+  WorkflowRunStatus status, {
+  WorkflowDefinition? definition,
+}) async {
+  final backend = await openPreparedTaskBackend();
   final now = DateTime.now();
   final effectiveDefinition = definition ?? singleBashDefinition();
   final run = WorkflowRun(
@@ -517,12 +520,12 @@ Future<({Database db, String runId})> seedRun(WorkflowRunStatus status, {Workflo
     definitionJson: effectiveDefinition.toJson(),
     contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
   );
-  await SqliteWorkflowRunRepository(db).insert(run);
-  return (db: db, runId: run.id);
+  await SqliteWorkflowRunRepository(backend).insert(run);
+  return (backend: backend, runId: run.id);
 }
 
-Future<({Database db, String runId})> seedApprovalPaused() async {
-  final db = openTaskDbInMemory();
+Future<({SqliteBackend backend, String runId})> seedApprovalPaused() async {
+  final backend = await openPreparedTaskBackend();
   final now = DateTime.now();
   const stepId = 'gate';
   final run = WorkflowRun(
@@ -542,8 +545,8 @@ Future<({Database db, String runId})> seedApprovalPaused() async {
       '_approval.pending.stepIndex': 0,
     },
   );
-  await SqliteWorkflowRunRepository(db).insert(run);
-  return (db: db, runId: run.id);
+  await SqliteWorkflowRunRepository(backend).insert(run);
+  return (backend: backend, runId: run.id);
 }
 
 Stream<void> Function() get noInterrupts =>

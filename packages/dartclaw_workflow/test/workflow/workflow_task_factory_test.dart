@@ -42,6 +42,7 @@ void main() {
   group('workflow_task_factory', () {
     late Directory tempDir;
     late Database db;
+    late SqliteBackend taskBackend;
     late EventBus eventBus;
     late SqliteTaskRepository taskRepository;
     late SqliteAgentExecutionRepository agentExecutionRepository;
@@ -50,14 +51,16 @@ void main() {
     late TaskService taskService;
     late StepExecutionContext executionContext;
 
-    setUp(() {
+    setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('workflow_task_factory_test_');
       db = sqlite3.openInMemory();
+      taskBackend = SqliteBackend(db);
+      await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
       eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(db);
-      agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-      executionTransactor = SqliteExecutionRepositoryTransactor(db);
+      taskRepository = SqliteTaskRepository(taskBackend);
+      agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+      executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
       taskService = TaskService(
         taskRepository,
         agentExecutionRepository: agentExecutionRepository,
@@ -69,7 +72,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: ContextExtractor(
           taskService: taskService,
@@ -86,7 +89,7 @@ void main() {
     });
 
     tearDown(() async {
-      db.close();
+      await taskBackend.close();
       await tempDir.delete(recursive: true);
     });
 
@@ -95,7 +98,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-copy.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         defaultWorkspaceRoot: '/repo',
@@ -281,7 +284,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-fail.json')),
-        repository: SqliteWorkflowRunRepository(db),
+        repository: SqliteWorkflowRunRepository(taskBackend),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         dataDir: tempDir.path,

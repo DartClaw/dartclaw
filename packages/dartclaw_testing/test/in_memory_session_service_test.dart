@@ -73,5 +73,29 @@ void main() {
 
       await expectLater(service.deleteSession(mainSession.id), throwsA(isA<StateError>()));
     });
+
+    test('mirrors session observer registration and notification order', () async {
+      final observer = _SessionObserver();
+      final service = InMemorySessionService(observer: observer);
+      final session = await service.createSession();
+
+      await service.updateSessionType(session.id, SessionType.archive);
+      await service.deleteSession(session.id);
+
+      expect(observer.notifications, ['type:${session.id}:user:archive', 'delete:${session.id}']);
+      expect(() => service.registerObserver(_SessionObserver()), throwsStateError);
+    });
   });
+}
+
+final class _SessionObserver implements SessionServiceObserver {
+  final notifications = <String>[];
+
+  @override
+  void onSessionDeleting(String sessionId) => notifications.add('delete:$sessionId');
+
+  @override
+  void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {
+    notifications.add('type:$sessionId:${oldType.name}:${newType.name}');
+  }
 }

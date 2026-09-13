@@ -64,7 +64,7 @@ typedef MemoryHandlers = ({
 
 /// Creates the canonical memory capture and retrieval handlers.
 MemoryHandlers createMemoryHandlers({
-  required MemoryService memory,
+  required FullTextIndex memoryIndex,
   required MemoryFileService memoryFile,
   MemoryCorpusService? corpusService,
   required SearchBackend searchBackend,
@@ -108,10 +108,11 @@ MemoryHandlers createMemoryHandlers({
         canonicalFingerprint: baseFingerprint,
       );
       final baseHealthy = priorHealth.isCurrent(baseRevision, baseFingerprint);
-      final rows = MemoryService.canonicalIndexRows(replacement);
-      memory.replaceMemoryRecords(rows, priorRecordIds, userId: userId);
+      final documents = MemoryIndexProjection.documents(replacement);
+      await memoryIndex.upsert(documents, userId: userId, retire: priorRecordIds);
       await searchBackend.indexAfterWrite();
-      memory.validateMemoryRecords(rows, priorRecordIds, userId: userId);
+      await memoryIndex.verifyIntegrity();
+      await _verifyIndexedDocuments(memoryIndex, documents, priorRecordIds, userId);
       if (!baseHealthy) throw StateError('incremental projection requires a healthy base index');
       await indexHealth.recordHealthy(
         canonicalRevision: manifest.collectionRevision,
@@ -296,6 +297,46 @@ MemoryHandlers createMemoryHandlers({
       return _boundedReadResult(records.take(limit).toList(growable: false), collectionRevision: collectionRevision);
     },
   );
+}
+
+Future<void> _verifyIndexedDocuments(
+  FullTextIndex index,
+  List<SearchDocument> expected,
+  Set<String> priorRecordIds,
+  String userId,
+) async {
+  final byId = {for (final document in expected) document.id: document};
+  final stored = await index.fetch({...priorRecordIds, ...byId.keys}, userId: userId);
+  if (stored.length != byId.length) throw StateError('Index document count mismatch');
+  for (final document in stored) {
+    final expectedDocument = byId[document.id];
+    if (expectedDocument == null ||
+        !_sameStrings(document.chunks, expectedDocument.chunks) ||
+        !_sameMetadata(document.metadata, expectedDocument.metadata) ||
+        document.timestamp != expectedDocument.timestamp) {
+      throw StateError('Index document identity mismatch');
+    }
+  }
+  final storedCount = await index.count(userId: userId);
+  if (storedCount < MemoryIndexProjection.chunkCount(expected)) {
+    throw StateError('Index row count mismatch');
+  }
+}
+
+bool _sameStrings(List<String> left, List<String> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
+}
+
+bool _sameMetadata(Map<String, String> left, Map<String, String> right) {
+  if (left.length != right.length) return false;
+  for (final entry in left.entries) {
+    if (right[entry.key] != entry.value) return false;
+  }
+  return true;
 }
 
 CanonicalMemoryCorpus _addObservation(

@@ -338,6 +338,126 @@ void main() {
       );
     });
 
+    test('embedding writes enforce provider-specific combinations without echoing unsafe endpoints', () {
+      const localModel = 'embeddinggemma-300M-Q8_0.gguf';
+      expect(
+        validator.validate({
+          'search.embedding.provider': 'local',
+          'search.embedding.model': localModel,
+          'search.embedding.endpoint': null,
+        }),
+        isEmpty,
+      );
+      expect(
+        validator.validate({
+          'search.embedding.provider': 'http',
+          'search.embedding.model': 'remote-model',
+          'search.embedding.endpoint': 'https://example.com/v1/embeddings',
+        }),
+        isEmpty,
+      );
+
+      for (final endpoint in const [
+        'https://alice:uri-secret@example.com/v1/embeddings',
+        'https://example.com/v1/embeddings?key=query-secret',
+        'https://example.com/v1/embeddings#fragment-secret',
+        'ftp://example.com/embeddings',
+        '/relative',
+      ]) {
+        final errors = validator.validate({
+          'search.embedding.provider': 'http',
+          'search.embedding.model': 'remote-model',
+          'search.embedding.endpoint': endpoint,
+        });
+        expect(errors.map((error) => error.field), contains('search.embedding.endpoint'), reason: endpoint);
+        expect(errors.join('\n'), isNot(contains(endpoint)), reason: endpoint);
+        expect(
+          errors.join('\n'),
+          isNot(anyOf(contains('uri-secret'), contains('query-secret'), contains('fragment-secret'))),
+        );
+      }
+
+      expect(
+        validator.validate({'search.embedding.provider': 'http'}).map((error) => error.field),
+        containsAll(['search.embedding.model', 'search.embedding.endpoint']),
+      );
+      expect(
+        validator
+            .validate(
+              {'search.embedding.provider': 'http', 'search.embedding.endpoint': 'https://example.com/v1/embeddings'},
+              currentValues: {'search.embedding.provider': 'local', 'search.embedding.model': localModel},
+            )
+            .map((error) => error.field),
+        contains('search.embedding.model'),
+      );
+      expect(
+        validator.validate(
+          {'search.embedding.endpoint': 'https://other.example/v1/embeddings'},
+          currentValues: {
+            'search.embedding.provider': 'http',
+            'search.embedding.model': 'existing-remote-model',
+            'search.embedding.endpoint': 'https://example.com/v1/embeddings',
+          },
+        ),
+        isEmpty,
+      );
+      expect(
+        validator
+            .validate(
+              {'search.embedding.provider': 'local'},
+              currentValues: {
+                'search.embedding.provider': 'http',
+                'search.embedding.model': 'remote-model',
+                'search.embedding.endpoint': 'https://example.com/v1/embeddings',
+                'search.embedding.credential': 'remote-key',
+              },
+            )
+            .map((error) => error.field),
+        unorderedEquals(['search.embedding.model', 'search.embedding.endpoint', 'search.embedding.credential']),
+      );
+      expect(
+        validator.validate({'search.embedding.model': '/tmp/arbitrary.gguf'}).single.field,
+        'search.embedding.model',
+      );
+    });
+
+    test('credentialed embedding endpoint writes require HTTPS except for literal loopback hosts', () {
+      const credentialedHttp = {
+        'search.embedding.provider': 'http',
+        'search.embedding.model': 'remote-model',
+        'search.embedding.credential': 'remote-key',
+      };
+      final rejected = validator.validate({
+        'search.embedding.endpoint': 'http://embeddings.example/v1/embeddings',
+      }, currentValues: credentialedHttp);
+      expect(rejected.single.field, 'search.embedding.endpoint');
+      expect(rejected.single.message, contains('must use HTTPS'));
+      expect(rejected.single.message, isNot(contains('http://embeddings.example/v1/embeddings')));
+
+      expect(
+        validator.validate(
+          {'search.embedding.endpoint': 'http://embeddings.example/v1/embeddings'},
+          currentValues: const {'search.embedding.provider': 'http', 'search.embedding.model': 'remote-model'},
+        ),
+        isEmpty,
+      );
+      expect(
+        validator.validate({
+          'search.embedding.endpoint': 'https://embeddings.example/v1/embeddings',
+        }, currentValues: credentialedHttp),
+        isEmpty,
+      );
+      for (final host in ['localhost', '127.0.0.1', '[::1]']) {
+        expect(
+          validator.validate({
+            'search.embedding.endpoint': 'http://$host/v1/embeddings',
+          }, currentValues: credentialedHttp),
+          isEmpty,
+          reason: host,
+        );
+      }
+    });
+
     test('tasks.worktree.merge_strategy refuses a value its loader would have thrown away', () {
       // The one allowed-set parse site that does not trim: both 'bogus' and
       // 'merge ' are silently defaulted to squash at load today, so neither

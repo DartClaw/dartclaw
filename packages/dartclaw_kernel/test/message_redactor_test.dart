@@ -121,6 +121,65 @@ void main() {
       }
     });
 
+    group('DSN userinfo', () {
+      test('redacts URL, missing-scheme, keyword, environment, and JSON forms', () {
+        final cases = <({String input, String expected})>[
+          (
+            input: 'postgres://alice:s3cretX9@db.example.com:5432/dartclaw',
+            expected: 'postgres://***@db.example.com:5432/dartclaw',
+          ),
+          (
+            input: 'postgresql://alice:p%40ss%3Aw0rd@db.example.com/dartclaw',
+            expected: 'postgresql://***@db.example.com/dartclaw',
+          ),
+          (input: 'alice:p@ss:w0rd@db.example.com/dartclaw', expected: '***@db.example.com/dartclaw'),
+          (
+            input: 'host=db.example.com user=alice password=s3cretX9',
+            expected: 'host=db.example.com user=alice password=***',
+          ),
+          (
+            input: 'DARTCLAW_DATABASE_URL=postgres://alice:s3cretX9@db.example.com/dartclaw',
+            expected: 'DARTCLAW_DATABASE_URL=***',
+          ),
+          (
+            input: '{"url": "postgres://alice:s3cretX9@db.example.com/dartclaw"}',
+            expected: '{"url": "postgres://***@db.example.com/dartclaw"}',
+          ),
+        ];
+
+        for (final (:input, :expected) in cases) {
+          final result = redactor.redact(input);
+          expect(result, expected, reason: input);
+          for (final secret in ['s3cretX9', 'p@ss:w0rd', 'p%40ss%3Aw0rd']) {
+            expect(result, isNot(contains(secret)), reason: input);
+          }
+        }
+      });
+
+      test('classifies only database-prefixed connection value keys as secrets', () {
+        for (final key in ['database_url', 'databaseDsn', 'database_connection_string', 'DARTCLAW_DATABASE_URL']) {
+          expect(MessageRedactor.isSecretKey(key), isTrue, reason: key);
+        }
+        for (final key in ['url', 'dsn', 'connection_string', 'callback_url']) {
+          expect(MessageRedactor.isSecretKey(key), isFalse, reason: key);
+        }
+      });
+
+      test('fully masks database-prefixed DSN and connection string assignments', () {
+        expect(redactor.redact('database_dsn=postgres://alice:s3cretX9@db.example.com/dartclaw'), 'database_dsn=***');
+        expect(
+          redactor.redact('database_connection_string: postgresql://alice:s3cretX9@db.example.com/dartclaw'),
+          'database_connection_string: ***',
+        );
+      });
+
+      test('leaves non-DSN userinfo-like text unchanged', () {
+        for (final input in ['Contact alice@example.com', 'role alice:writer@database', 'time 10:30']) {
+          expect(redactor.redact(input), input, reason: input);
+        }
+      });
+    });
+
     test('uses proportional reveal for custom pattern matches', () {
       final cases = <({MessageRedactor redactor, String input, String expected})>[
         (

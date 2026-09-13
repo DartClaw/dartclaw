@@ -2,7 +2,8 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.25 security posture corrections, guarded MCP dispatch, capacity-only lane retirement, kernel formation, and storage absorption.
+**Current through**: 0.26 native hybrid retrieval, memory and conversation vector projections, PostgreSQL serving
+interlock, retrieval inspection and bounded turn-source provenance. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -131,8 +132,8 @@ and context-specific remediation text.
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
 │  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
-│  │ Net/Cont │  │ HostGateway (per authority)   │  │         tasks.db   │ │
-│  │          │  │ Docker (per authority)        │  │         state.db   │ │
+│  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db   │ │
+│  │          │  │ Docker (per authority)        │  │ turn_state.json    │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
 │                                                                          │
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
@@ -398,12 +399,35 @@ Design rationale: [ADR-001](../adrs/001-sdk-integration-and-security-architectur
 
 #### Storage
 
-Two storage mechanisms, each for distinct access patterns:
+Storage mechanisms follow the selected backend and each access pattern:
 
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **SQLite** (`search.db`, `tasks.db`, `state.db`) | FTS5 search index, tasks/goals/artifacts, transient turn recovery state | Relational queries, full-text search | `search.db`: derived (rebuildable). `tasks.db`: **authoritative**. `state.db`: transient operational state |
+| **SQLite** (`search.db`, `vectors.db`, `dartclaw.db`) | Lexical/vector search projections, tasks/goals/artifacts | Relational queries, full-text and direct cosine search | `search.db` and `vectors.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
+| **PostgreSQL** (configured database) | Authoritative relational data and derived lexical/vector projections | Pooled transactions, language-aware full-text search and pgvector cosine search | Relational rows: **authoritative**. Search projections: derived. |
+| **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
+
+The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
+semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
+an open awaited transaction unless they originate from that transaction body. Goal, task-domain, execution and
+workflow-run persistence share this seam. `SqliteExecutionRepositoryTransactor` delegates to the backend rather than
+owning another queue or issuing transaction SQL. Runtime and CLI open stores through `DatabaseBackendFactory`,
+with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
+WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
+
+`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses
+one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current
+schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The
+optional PostgreSQL vector projection uses the same pool after read-only public-pgvector preflight and authoritative
+schema validation. SQLite keeps embeddings in a separate `vectors.db`, so lexical publication cannot discard reusable
+vectors. Canonical memory and index-health evidence stay in local files.
+
+Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens the active backend.
+PostgreSQL acquires its dedicated session interlock before the schema gate. Language validation and derived-index
+reconciliation follow the gate. An inactive-store probe reports leftover data without transferring it or blocking
+startup. Only after storage wiring returns do the serving runners acknowledge orphan records. Headless and
+one-shot clients omit the serving interlock and orphan scan. Shutdown closes the pool before releasing ownership.
 
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
 
@@ -411,7 +435,7 @@ Full persistence details: [Data Model & Persistence Overview](data-model.md)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
 
-**Package**: `dartclaw_core` (file-based and SQLite services)
+**Package**: `dartclaw_core` (file services, SQLite and PostgreSQL backends)
 
 #### Web UI
 
@@ -577,21 +601,44 @@ An alert's type, severity and content are host-decided throughout; no alert path
 #### Memory & Search
 
 ```
-canonical topic + archive + observation + learning roles ──► search.db (FTS5 projection, rebuildable)
+canonical memory ─────────────► memory lexical projection ──┐
+chat-facing message NDJSON ───► conversation lexical projection ─┤──► weighted RRF candidates
+                                  │                            │
+                                  └─► provider embeddings ─► corpus-specific vector projection
 ```
 
+Hybrid search authenticates lexical/vector candidates against current owner-scoped content, combines their ranks
+through weighted RRF and selects top-K. Search adds no generative-agent session, credential requirement or model
+judgment. Answer sufficiency is the caller's responsibility. Query embedding and database I/O remain asynchronous;
+source verification prevents stale candidates or fallback snapshots from being published after those awaits.
+
 Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
-union that `dartclaw rebuild-index` restores.
+union that `dartclaw rebuild-index` restores. Each corpus has its own `VectorSynchronizer`; it reuses only vectors whose
+content hash and embedding-provider fingerprint still match, retires stale identities, and authenticates the source
+again before publication. Provider or vector failure leaves the lexical projection current and reports unembedded
+counts and a structured degradation.
 
 | Component | File | Role |
 |-----------|------|------|
 | `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
 | `SelfImprovementService` | `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
 | `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
-| `MemoryService` | `packages/dartclaw_core/lib/src/storage/memory_service.dart` | FTS5 insert/search with BM25 ranking |
-| `SearchDb` | `packages/dartclaw_core/lib/src/storage/search_db.dart` | SQLite schema, FTS5 virtual table, rebuild |
+| `FullTextIndex` / `VectorIndex` / `EmbeddingProvider` | `packages/dartclaw_kernel/lib/src/` | Owner-scoped lexical, vector and embedding contracts with stable chunk identity |
+| `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
+| `PostgresFtsIndex` | `packages/dartclaw_core/lib/src/search/postgres_fts_index.dart` | Language-aware PostgreSQL lexical projection |
+| `SqliteVectorIndex` / `PostgresVectorIndex` | `packages/dartclaw_core/lib/src/search/vector_index.dart` | Corpus-fixed vector storage and owner-scoped cosine ranking |
+| `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
+| `SqliteBackend` / `SqliteSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and derived-index rebuild gate |
 | `Fts5SearchBackend` | `packages/dartclaw_core/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
-| `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Opt-in hybrid: QMD sidecar over a startup-verified recursive workspace Markdown collection |
+| `HybridSearch` / `VectorSynchronizer` | `packages/dartclaw_search/lib/src/` | Fixed 0.25/0.75 weighted RRF and incremental vector lifecycle over injected indexes |
+| `NativeEmbeddingProvider` / `HttpEmbeddingProvider` | `packages/dartclaw_search/lib/src/` | Verified local EmbeddingGemma or explicit raw-input HTTP embedding boundary |
+| `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Deprecated opt-in QMD path retained through 0.26 |
+
+`fts5` remains the zero-model default. `hybrid` composes the two current corpus projections through `dartclaw_search`.
+The local provider applies the EmbeddingGemma query/document conventions and fingerprints the verified model and
+preprocessing contract. The HTTP provider sends raw query or document input to an explicitly configured endpoint,
+whose service owns preprocessing; its endpoint and model form a separate fingerprint and trust boundary. QMD still
+works in 0.26 with a deprecation warning and is removed in the following milestone.
 
 Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
@@ -603,7 +650,7 @@ requiring separate `memory_search`, temporal-KG, and wiki reads. Design rational
 
 At call time the tool fans out retrieval across:
 
-- FTS5/QMD memory search, using the configured search backend;
+- configured FTS5, built-in hybrid, or deprecated QMD memory search;
 - temporal-KG facts and timelines for query-derived entity candidates;
 - wiki/source documents exposed through the knowledge layer.
 
@@ -650,11 +697,11 @@ Enriched turn recording and task event system added in 0.14.
 |-----------|------|------|
 | `ToolCallRecord` | `dartclaw_core/turn/tool_call_record.dart` | Per-tool-call record: name, success, durationMs, errorType |
 | `TaskEvent`, `TaskEventKind` | `dartclaw_core/task/task_event.dart` | Typed task-timeline event and its closed event-kind vocabulary |
-| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `tasks.db` (NF03 — zero latency impact) |
-| `TaskEventService` | `dartclaw_core` | Synchronous persistence to `task_events` SQLite table in `tasks.db` (NF04 — no event loss on crash) |
+| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `dartclaw.db` (NF03 — zero latency impact) |
+| `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `dartclaw.db` |
 | `TaskEventRecorder` | `dartclaw_runtime` | Centralized event recording helper with typed convenience methods |
 
-**Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task events are synchronous — guaranteed persistence before the recording call returns. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).
+**Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task event recording returns `Future<void>` and awaits persistence before emitting the bus event or completing. An insert failure propagates without emitting the event. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).
 
 0.16 extends task observability with compaction tracking. `CompactionTaskEventSubscriber` listens for `CompactionCompletedEvent` and records a `TaskEventKind.compaction` row when the compacted SDK session belongs to a currently running task. This keeps long-running task sessions observable even when provider-managed compaction occurs mid-task.
 
@@ -702,22 +749,26 @@ Design rationale: [ADR-009 (Internal MCP Server)](../adrs/009-internal-mcp-serve
 
 DartClaw uses a Dart pub workspace with strict dependency layering.
 
+The shipped `packages/` inventory contains 13 packages. The application and non-shipping fitness member bring the
+root workspace to 15 members; `dev/package_tiers.txt` is the sole dependency-direction authority.
+
 ### Dependency DAG
 
 ```
 dartclaw_kernel      → no workspace dependencies
 dartclaw_core        → kernel
+dartclaw_search      → kernel
 dartclaw_workflow    → core, kernel
 dartclaw_whatsapp    → core, kernel
 dartclaw_signal      → core, kernel
 dartclaw_google_chat → core, kernel
 dartclaw_testing     → core, kernel
-dartclaw_client      → (none)
+dartclaw_client      → kernel
 dartclaw             → client, kernel
 dartclaw_acp         → core, kernel
 dartclaw_bridge      → (none)
-dartclaw_runtime      → bridge, core, kernel, workflow, all channels
-dartclaw_cli         → acp, client, core, kernel, workflow, runtime, google_chat
+dartclaw_runtime      → bridge, core, kernel, search, workflow, all channels
+dartclaw_cli         → acp, client, core, kernel, search, workflow, runtime, google_chat
 ```
 
 The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client` and `dartclaw_kernel` — and nothing from the runtime. Embedding the runtime means depending on `dartclaw_core` and friends directly (ADR-008).
@@ -726,10 +777,11 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
-| `dartclaw_kernel` | Shared models, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
-| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file and SQLite persistence, FTS5/QMD search, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
+| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, SQLite/PostgreSQL backends and repositories, lexical/vector index implementations, QMD compatibility, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_search` | Hybrid retrieval composition and embedding providers over injected indexes | T1 package depending only on kernel contracts; owns no canonical corpus or database driver |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
-| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns its workflow-run SQLite adapter and the fakes of its ports |
+| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on kernel + core – Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on kernel + core – Google auth + HTTP isolated from core. Owns `FakeGoogleChatRestClient` behind `lib/testing.dart` |
@@ -977,7 +1029,11 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 
 `DartclawRuntime.build(config, {headless, harnessRegistrars, …})` (in `dartclaw_runtime`, `lib/src/runtime/`) is the dependency injection root. It constructs all services, wires them together, and returns a `DartclawRuntime` carrying everything `ServeCommand.run` needs plus the `shutdown()` that tears them down. `headless: true` composes the same guarded execution, task and workflow stacks while constructing none of the inbound or scheduled surfaces — no `DartclawServer`, channel manager, heartbeat, schedule service or token service — so a caller that is not `serve` boots a runtime without copying application code. `harnessRegistrars` lets the composer contribute provider families `dartclaw_runtime` does not name.
 
-Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `DartclawRuntime.searchDb` and `selfImprovement` are absent. The construction order below describes the connected runtime.
+Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `selfImprovement` is absent and storage connections remain private to wiring. The construction order below describes the connected runtime.
+
+The search gate uses a short-lived connection that closes before reconciliation can swap index files. A refusal logs
+the store and rebuild remedy, preserves the original store and health evidence, skips reconciliation, and boots with
+search unavailable. Runtime disposal and shutdown close the owned task and search backends after their consumers.
 
 ### Construction Order (simplified)
 
@@ -985,9 +1041,9 @@ Headless workflow composition also omits the personal-memory corpus, preflight, 
 1.  Config parsing (DartclawConfig from YAML)
 2.  Config notifier (`ConfigNotifier`) for reloadable sections
 3.  File services (SessionService, MessageService, KvService)
-4.  SQLite databases (SearchDb, TaskDb, TurnStateStore/state.db)
-5.  Search backends (FTS5, optional QMD)
-6.  Memory services (MemoryFileService, MemoryService, SelfImprovementService)
+4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/turn_state.json)
+5.  Search backends (FTS5; optional built-in hybrid or deprecated QMD)
+6.  Memory services and corpus synchronization (MemoryFileService, lexical/vector indexes, embedding provider, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)
 8.  Container managers (per-profile: workspace, restricted)
 9.  Primary provider harness and `TurnRunner`

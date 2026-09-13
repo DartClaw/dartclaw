@@ -19,11 +19,13 @@ void main() {
   late ChannelManager channelManager;
   late GoogleChatWebhookHandler handler;
   late ChannelMessage? dispatchedMessage;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('google_chat_webhook_slash_test_');
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     sessions = SessionService(baseDir: tempDir.path, eventBus: eventBus);
     channelManager = ChannelManager(queue: _NoopMessageQueue(), config: const ChannelConfig.defaults());
     dispatchedMessage = null;
@@ -42,6 +44,7 @@ void main() {
   tearDown(() async {
     await channelManager.dispose();
     await tasks.dispose();
+    await taskBackend.close();
     await eventBus.dispose();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

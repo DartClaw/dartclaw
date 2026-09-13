@@ -12,6 +12,7 @@ import 'commands/projects/projects_command.dart';
 import 'commands/rebuild_index_command.dart';
 import 'commands/runners/runners_command.dart';
 import 'commands/secrets/secrets_command.dart';
+import 'commands/search_command.dart';
 import 'commands/serve_command.dart';
 import 'commands/service/service_command.dart';
 import 'commands/sessions_command.dart';
@@ -45,6 +46,7 @@ DartclawRunner buildDartclawRunner() => DartclawRunner()
   ..addCommand(StopCommand())
   ..addCommand(TasksCommand())
   ..addCommand(RebuildIndexCommand())
+  ..addCommand(SearchCommand())
   ..addCommand(SecretsCommand())
   ..addCommand(TokenCommand())
   ..addCommand(TracesCommand())

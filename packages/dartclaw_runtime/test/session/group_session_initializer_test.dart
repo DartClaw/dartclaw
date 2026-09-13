@@ -6,6 +6,13 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:test/test.dart';
 
+Future<void> _waitForSession(SessionService sessions, String key) async {
+  for (var attempt = 0; attempt < 100; attempt++) {
+    if (await sessions.getByKey(key) != null) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 void main() {
   late Directory tempDir;
   late SessionService sessions;
@@ -480,18 +487,15 @@ void main() {
           timestamp: DateTime(2026),
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final boundKey = SessionKey.groupShared(agentId: 'ana', channelType: 'whatsapp', groupId: 'grp@g.us');
+      final plainKey = SessionKey.groupShared(channelType: 'whatsapp', groupId: 'plain@g.us');
+      await _waitForSession(sessions, boundKey);
+      await _waitForSession(sessions, plainKey);
       init.dispose();
 
-      expect(
-        await sessions.getByKey(SessionKey.groupShared(agentId: 'ana', channelType: 'whatsapp', groupId: 'grp@g.us')),
-        isNotNull,
-      );
+      expect(await sessions.getByKey(boundKey), isNotNull);
       expect(await sessions.getByKey(SessionKey.groupShared(channelType: 'whatsapp', groupId: 'grp@g.us')), isNull);
-      expect(
-        await sessions.getByKey(SessionKey.groupShared(channelType: 'whatsapp', groupId: 'plain@g.us')),
-        isNotNull,
-      );
+      expect(await sessions.getByKey(plainKey), isNotNull);
     });
   });
 }

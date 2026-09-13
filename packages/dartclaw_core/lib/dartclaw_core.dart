@@ -17,23 +17,45 @@
 library;
 
 // Storage services
-export 'src/storage/memory_service.dart' show MemoryIndexRow, MemoryService;
+export 'src/storage/authoritative_store_adoption.dart'
+    show
+        adoptLegacyAuthoritativeStore,
+        probeAuthoritativeStore,
+        AuthoritativeStoreAdoptionException,
+        AuthoritativeStoreProbe,
+        AuthoritativeStoreAbsent,
+        AuthoritativeStoreAmbiguous,
+        AuthoritativeStorePresent,
+        AuthoritativeStoreContentState;
 export 'src/storage/index_reconciler.dart'
     show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
-export 'src/storage/search_db.dart' show SearchDbFactory, openSearchDb, openSearchDbInMemory;
+export 'src/storage/index_rebuild_target.dart'
+    show IndexRebuildTarget, SiblingFileRebuildTarget, TransactionalRebuildTarget, IndexReconcileTransition;
 export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
 export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
+export 'src/storage/sqlite_backend.dart' show SqliteBackend;
+export 'src/storage/database_backend_selection.dart' show databaseBackendFactoryFor, prepareAuthoritativeStore;
+export 'src/storage/postgres_backend.dart' show PostgresBackend, PostgresInterlock, PostgresStorageMessages;
+export 'src/storage/abandoned_store_probe.dart'
+    show InactivePostgresStoreState, InactivePostgresStoreProbe, probeInactivePostgresStore;
+export 'src/storage/postgres_connection_posture.dart' show PostgresConnectionPosture, evaluatePostgresConnectionPosture;
+export 'src/storage/postgres_schema_gate.dart' show PostgresSchemaGate;
+export 'src/storage/postgres_dispatch_policy.dart'
+    show PostgresDispatchAttempt, PostgresDispatchPolicy, PostgresServerFailure;
+export 'src/storage/schema_identity.dart'
+    show SchemaColumn, SchemaIdentity, SchemaIndex, SchemaTable, SqliteSchemaObject;
+export 'src/storage/sqlite_schema_gate.dart'
+    show SqliteSchemaGate, SqliteSchemaInspection, SqliteSchemaState, SqliteSearchRebuild, SqliteSearchCorpusRebuild;
 export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
 export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
 export 'src/storage/sqlite_workflow_step_execution_repository.dart' show SqliteWorkflowStepExecutionRepository;
-export 'src/storage/task_db.dart' show TaskDbFactory, openTaskDb, openTaskDbInMemory;
-export 'src/storage/turn_state_store.dart' show TurnStateStore;
+export 'src/storage/turn_state_store.dart' show TurnStateStore, openTurnStateStore;
 export 'src/storage/webhook_delivery_store.dart'
-    show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore, openWebhookDeliveryStoreInMemory;
+    show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore;
 export 'src/storage/task_event_service.dart' show TaskEventService;
 export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
-export 'src/storage/session_service.dart' show SessionService;
-export 'src/storage/message_service.dart' show MessageService;
+export 'src/storage/session_service.dart' show SessionService, SessionServiceObserver;
+export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver;
 export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart'
     show
@@ -49,6 +71,13 @@ export 'src/storage/subscription_credential_store.dart' show SubscriptionCredent
 
 // Search backends
 export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
+export 'src/search/postgres_fts_index.dart' show PostgresFtsIndex, PostgresFtsTable, validatePostgresFtsLanguage;
+export 'src/search/sqlite_fts_index.dart' show SqliteFtsIndex, SqliteFtsTable;
+export 'src/search/vector_index.dart' show VectorTable, SqliteVectorIndex, PostgresVectorIndex;
+export 'src/search/conversation_index_projection.dart' show ConversationIndexProjection, ConversationProjectionResult;
+export 'src/search/conversation_indexer.dart' show ConversationIndexer;
+export 'src/search/conversation_search_service.dart'
+    show ConversationHit, ConversationSearchQuery, ConversationSearchService;
 export 'src/search/search_backend_factory.dart' show createSearchBackend;
 export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
 export 'src/search/qmd_manager.dart' show QmdManager;
@@ -57,10 +86,12 @@ export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, Sea
 
 // Knowledge persistence
 export 'src/knowledge/known_systems.dart' show normalizeKnowledgeEntity;
+export 'src/knowledge/knowledge_fact_search.dart' show KnowledgeFactSearch, SubstringFactSearch, PostgresFactSearch;
 export 'src/knowledge/temporal_knowledge_graph_service.dart'
     show TemporalKnowledgeGraphService, KnowledgeFact, KnowledgeContradiction;
 
 // Memory persistence
+export 'src/memory/memory_index_projection.dart' show MemoryIndexProjection;
 export 'src/memory/memory_pruner.dart' show MemoryPruner, PruneResult;
 export 'src/memory/memory_preflight.dart'
     show MemoryPreflightStatus, MemoryPreflightResult, MemoryPreflightException, MemoryPreflight;

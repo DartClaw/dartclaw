@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+
+import 'index_rebuild_target.dart';
+export 'index_rebuild_target.dart' show IndexReconcileTransition;
 
 /// Writes one index-health evidence update.
 typedef IndexHealthWriter = Future<void> Function(File file, Map<String, Object?> evidence);
@@ -245,7 +248,10 @@ final class IndexHealthStore {
     final validatedAt = json['validatedAt'];
     if (indexRevision != null && indexRevision is! int ||
         indexFingerprint != null && indexFingerprint is! String ||
-        validatedAt != null && validatedAt is! String) {
+        validatedAt != null && validatedAt is! String ||
+        json['failureStage'] != null && json['failureStage'] is! String ||
+        json['reason'] != null && json['reason'] is! String ||
+        json['action'] != null && json['action'] is! String) {
       throw const FormatException('Index health reconciliation evidence is malformed');
     }
     return IndexHealthEvidence(
@@ -267,40 +273,10 @@ final class IndexHealthStore {
   }
 }
 
-/// Named fault points in the fresh-sibling reconciliation transaction.
-enum IndexReconcileTransition {
-  /// The sibling database handle was created.
-  siblingCreated,
-
-  /// Canonical rows were populated.
-  populated,
-
-  /// SQLite, FTS, and row parity validated.
-  validated,
-
-  /// The sibling is about to close.
-  beforeClose,
-
-  /// The sibling handle closed.
-  closed,
-
-  /// Atomic target replacement is about to run.
-  beforeSwap,
-
-  /// Target replacement completed.
-  swapped,
-}
-
-/// Observes or injects one reconciliation transition.
-typedef IndexReconcileHook = Future<void> Function(IndexReconcileTransition transition);
-
-/// Replaces the target with a closed sibling database.
-typedef IndexFileReplace = void Function(File sibling, String targetPath);
-
 /// Outcome of one complete fresh-sibling reconciliation.
 final class IndexReconcileResult {
   /// Creates a successful reconciliation result.
-  const new({required this.revision, required this.rowCount, required this.health});
+  const new({required this.revision, required this.rowCount, required this.health, this.rebuilt = false});
 
   /// Canonical revision projected.
   final int revision;
@@ -310,29 +286,39 @@ final class IndexReconcileResult {
 
   /// Published healthy evidence.
   final IndexHealthEvidence health;
+
+  /// Whether reconciliation reconstructed and published the index.
+  final bool rebuilt;
 }
 
-/// Rebuilds the FTS5 index from one captured canonical corpus and publishes it atomically.
+/// Rebuilds the derived index from one captured canonical corpus and publishes it atomically.
 final class CanonicalIndexReconciler {
-  /// Creates a reconciler for one `search.db` target.
+  /// Creates a reconciler for an explicit target or a SQLite file at [targetPath].
   new({
-    required this.targetPath,
+    this.targetPath,
     required this.healthStore,
-    SearchDbFactory? databaseFactory,
+    IndexStoreOpener? storeOpener,
     IndexFileReplace? replaceFile,
     IndexReconcileHook? transitionHook,
-  }) : _databaseFactory = databaseFactory ?? openSearchDb,
+    IndexRebuildTarget? target,
+  }) : _storeOpener = storeOpener,
        _replaceFile = replaceFile ?? _replace,
-       _transitionHook = transitionHook;
+       _transitionHook = transitionHook,
+       _target = target {
+    if (targetPath == null && target == null) {
+      throw ArgumentError('targetPath or target is required');
+    }
+  }
 
-  /// Target `search.db` path.
-  final String targetPath;
+  /// SQLite target path when no explicit rebuild target is supplied.
+  final String? targetPath;
 
   /// Workspace-scoped health evidence store.
   final IndexHealthStore healthStore;
-  final SearchDbFactory _databaseFactory;
+  final IndexStoreOpener? _storeOpener;
   final IndexFileReplace _replaceFile;
   final IndexReconcileHook? _transitionHook;
+  final IndexRebuildTarget? _target;
 
   /// Validates a current target or reconstructs it when evidence or bytes are stale.
   Future<IndexReconcileResult> ensureCurrent({
@@ -346,17 +332,18 @@ final class CanonicalIndexReconciler {
         canonicalRevision: canonicalRevision,
         canonicalFingerprint: canonicalFingerprint,
       );
-      final target = File(targetPath);
-      if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) &&
-          FileSystemEntity.typeSync(target.path, followLinks: false) == FileSystemEntityType.file) {
-        final database = _databaseFactory(target.path);
-        try {
-          final expected = MemoryService.canonicalIndexRows(corpus);
-          MemoryService(database).validateIndexRows(expected, userId: userId);
-          return IndexReconcileResult(revision: canonicalRevision, rowCount: expected.length, health: evidence);
-        } finally {
-          database.close();
-        }
+      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) && await target.isPresent()) {
+        return await target.validateLive((index) async {
+          await index.verifyIntegrity();
+          final expected = MemoryIndexProjection.documents(corpus);
+          await _validateDocuments(index, expected, userId: userId);
+          return IndexReconcileResult(
+            revision: canonicalRevision,
+            rowCount: MemoryIndexProjection.chunkCount(expected),
+            health: evidence,
+          );
+        });
       }
     } catch (_) {
       // Full reconstruction below is the recovery path for unreadable evidence or target bytes.
@@ -371,7 +358,7 @@ final class CanonicalIndexReconciler {
 
   /// Validates current evidence or reconstructs from independently bounded row batches.
   Future<IndexReconcileResult> ensureCurrentBatched({
-    required Stream<List<MemoryIndexRow>> Function() rowBatches,
+    required Stream<List<SearchDocument>> Function() rowBatches,
     required int canonicalRevision,
     required String canonicalFingerprint,
     Future<void> Function()? authenticateComplete,
@@ -382,24 +369,19 @@ final class CanonicalIndexReconciler {
         canonicalRevision: canonicalRevision,
         canonicalFingerprint: canonicalFingerprint,
       );
-      final target = File(targetPath);
-      if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) &&
-          FileSystemEntity.typeSync(target.path, followLinks: false) == FileSystemEntityType.file) {
-        final database = _databaseFactory(target.path);
-        try {
-          final memory = MemoryService(database)..validateIntegrity();
+      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) && await target.isPresent()) {
+        return await target.validateLive((index) async {
+          await index.verifyIntegrity();
           var expectedRows = 0;
-          await for (final rows in rowBatches()) {
-            final ids = rows.map((row) => row.entryId).whereType<String>().toSet();
-            memory.validateMemoryRecords(rows, ids, userId: userId);
-            expectedRows += rows.length;
+          await for (final documents in rowBatches()) {
+            await _validateDocuments(index, documents, userId: userId);
+            expectedRows += MemoryIndexProjection.chunkCount(documents);
           }
-          if (memory.memoryRowCount(userId: userId) != expectedRows) throw StateError('Index row count mismatch');
+          if (await index.count(userId: userId) != expectedRows) throw StateError('Index row count mismatch');
           await authenticateComplete?.call();
           return IndexReconcileResult(revision: canonicalRevision, rowCount: expectedRows, health: evidence);
-        } finally {
-          database.close();
-        }
+        });
       }
     } catch (_) {
       // Full reconstruction below is the recovery path for unreadable evidence or target bytes.
@@ -420,7 +402,7 @@ final class CanonicalIndexReconciler {
     required String canonicalFingerprint,
     String userId = 'owner',
   }) => reconcileBatched(
-    rowBatches: () => Stream.value(MemoryService.canonicalIndexRows(corpus)),
+    rowBatches: () => Stream.value(MemoryIndexProjection.documents(corpus)),
     canonicalRevision: canonicalRevision,
     canonicalFingerprint: canonicalFingerprint,
     userId: userId,
@@ -428,7 +410,7 @@ final class CanonicalIndexReconciler {
 
   /// Reconstructs the index from independently bounded canonical row batches.
   Future<IndexReconcileResult> reconcileBatched({
-    required Stream<List<MemoryIndexRow>> Function() rowBatches,
+    required Stream<List<SearchDocument>> Function() rowBatches,
     required int canonicalRevision,
     required String canonicalFingerprint,
     Future<void> Function()? authenticateComplete,
@@ -447,83 +429,53 @@ final class CanonicalIndexReconciler {
       previous: previous,
     );
 
-    final target = File(targetPath);
-    target.parent.createSync(recursive: true);
-    final sibling = File(
-      p.join(
-        target.parent.path,
-        '.${p.basename(target.path)}.dartclaw-rebuild-$pid-${DateTime.now().microsecondsSinceEpoch}',
-      ),
-    );
-    final backup = File('${sibling.path}.previous');
     var stage = 'create';
-    var swapped = false;
-    Database? database;
     var rowCount = 0;
+    IndexHealthEvidence? publishedHealth;
     try {
-      database = _databaseFactory(sibling.path);
-      await _transition(IndexReconcileTransition.siblingCreated);
-      stage = 'populate';
-      final memory = MemoryService(database);
-      memory.rebuildIndex(const [], userId: userId);
-      await for (final rows in rowBatches()) {
-        final ids = rows.map((row) => row.entryId).whereType<String>().toSet();
-        memory.replaceMemoryRecords(rows, ids, userId: userId);
-        memory.validateMemoryRecords(rows, ids, userId: userId);
-        rowCount += rows.length;
-      }
-      await _transition(IndexReconcileTransition.populated);
-      stage = 'validate';
-      memory.validateIntegrity();
-      if (memory.memoryRowCount(userId: userId) != rowCount) throw StateError('Index row count mismatch');
-      await authenticateComplete?.call();
-      await _transition(IndexReconcileTransition.validated);
-      stage = 'close';
-      await _transition(IndexReconcileTransition.beforeClose);
-      database.close();
-      database = null;
-      await _transition(IndexReconcileTransition.closed);
-      stage = 'swap';
-      await _transition(IndexReconcileTransition.beforeSwap);
-      if (FileSystemEntity.typeSync(target.path, followLinks: false) == FileSystemEntityType.file) {
-        target.copySync(backup.path);
-      }
-      swapped = true;
-      _replaceFile(sibling, target.path);
-      await _transition(IndexReconcileTransition.swapped);
-      stage = 'publish';
-      await healthStore.recordHealthy(canonicalRevision: canonicalRevision, canonicalFingerprint: canonicalFingerprint);
-      final health = await healthStore.read(
-        canonicalRevision: canonicalRevision,
-        canonicalFingerprint: canonicalFingerprint,
-      );
-      if (backup.existsSync()) backup.deleteSync();
-      return IndexReconcileResult(revision: canonicalRevision, rowCount: rowCount, health: health);
-    } catch (error, stackTrace) {
-      try {
-        database?.close();
-      } catch (_) {}
-      if (swapped) {
-        try {
-          if (backup.existsSync()) {
-            if (target.existsSync()) target.deleteSync();
-            backup.renameSync(target.path);
-          } else if (target.existsSync()) {
-            target.deleteSync();
+      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      rowCount = await target.rebuild(
+        transition: (transition) async {
+          await _transition(transition);
+          stage = switch (transition) {
+            IndexReconcileTransition.siblingCreated => 'populate',
+            IndexReconcileTransition.populated => 'validate',
+            IndexReconcileTransition.validated || IndexReconcileTransition.beforeClose => 'close',
+            IndexReconcileTransition.closed || IndexReconcileTransition.beforeSwap => 'swap',
+            IndexReconcileTransition.swapped => 'publish',
+          };
+          if (transition == IndexReconcileTransition.swapped) {
+            await healthStore.recordHealthy(
+              canonicalRevision: canonicalRevision,
+              canonicalFingerprint: canonicalFingerprint,
+            );
+            publishedHealth = await healthStore.read(
+              canonicalRevision: canonicalRevision,
+              canonicalFingerprint: canonicalFingerprint,
+            );
           }
-        } catch (rollbackError) {
-          Error.throwWithStackTrace(
-            StateError('Index reconciliation failed: $error; target rollback failed: $rollbackError'),
-            stackTrace,
-          );
-        }
-      }
-      try {
-        if (sibling.existsSync()) sibling.deleteSync();
-      } catch (_) {}
-      try {
-        if (backup.existsSync()) backup.deleteSync();
-      } catch (_) {}
+        },
+        populateAndValidate: (index, populated) async {
+          await index.replaceAll(const [], userId: userId);
+          await for (final documents in rowBatches()) {
+            await index.upsert(documents, userId: userId, retire: documents.map((document) => document.id).toSet());
+            await _validateDocuments(index, documents, userId: userId);
+            rowCount += MemoryIndexProjection.chunkCount(documents);
+          }
+          await populated();
+          await index.verifyIntegrity();
+          if (await index.count(userId: userId) != rowCount) throw StateError('Index row count mismatch');
+          await authenticateComplete?.call();
+          return rowCount;
+        },
+      );
+      return IndexReconcileResult(
+        revision: canonicalRevision,
+        rowCount: rowCount,
+        health: publishedHealth!,
+        rebuilt: true,
+      );
+    } catch (error, stackTrace) {
       try {
         await healthStore.recordDegraded(
           canonicalRevision: canonicalRevision,
@@ -538,6 +490,77 @@ final class CanonicalIndexReconciler {
   }
 
   Future<void> _transition(IndexReconcileTransition transition) async => _transitionHook?.call(transition);
+
+  IndexRebuildTarget _rebuildTarget(int canonicalRevision, String canonicalFingerprint) {
+    final target = _target;
+    if (target != null) return target;
+    return SiblingFileRebuildTarget(
+      targetPath: targetPath!,
+      opener: (path) =>
+          _openStore(path, canonicalRevision: canonicalRevision, canonicalFingerprint: canonicalFingerprint),
+      replaceFile: _replaceFile,
+    );
+  }
+
+  Future<(FullTextIndex, DatabaseBackend)> _openStore(
+    String path, {
+    required int canonicalRevision,
+    required String canonicalFingerprint,
+  }) async {
+    final injected = _storeOpener;
+    if (injected != null) return injected(path);
+    final backend = await SqliteBackend.open(path);
+    try {
+      await SqliteSchemaGate.prepareSearch(
+        backend,
+        storeName: p.basename(path),
+        rebuild: SqliteSearchRebuild(
+          manifestRevision: canonicalRevision,
+          manifestFingerprint: canonicalFingerprint,
+          healthStore: healthStore,
+        ),
+      );
+      return (SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks), backend);
+    } catch (_) {
+      await backend.close();
+      rethrow;
+    }
+  }
+
+  static Future<void> _validateDocuments(
+    FullTextIndex index,
+    List<SearchDocument> expected, {
+    required String userId,
+  }) async {
+    final byId = {for (final document in expected) document.id: document};
+    final stored = await index.fetch(byId.keys, userId: userId);
+    if (stored.length != byId.length) throw StateError('Index document count mismatch');
+    for (final document in stored) {
+      final expectedDocument = byId[document.id];
+      if (expectedDocument == null ||
+          !_equalList(document.chunks, expectedDocument.chunks) ||
+          !_equalMap(document.metadata, expectedDocument.metadata) ||
+          document.timestamp != expectedDocument.timestamp) {
+        throw StateError('Index document identity mismatch');
+      }
+    }
+  }
+
+  static bool _equalList(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  static bool _equalMap(Map<String, String> left, Map<String, String> right) {
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (right[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
 
   static void _replace(File sibling, String targetPath) => sibling.renameSync(targetPath);
 }

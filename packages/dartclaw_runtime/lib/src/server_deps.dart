@@ -148,8 +148,10 @@ class ServerObservabilityDeps {
   final ProviderStatusService? providerStatus;
   final MemoryFileService? memoryFile;
   final MemoryStatusService? memoryStatusService;
+  final MemoryInspectionQuery? inspectMemorySearch;
+  final ConversationSearchService? conversationSearch;
   final MemoryPruner? memoryPruner;
-  final MemoryService? memoryService;
+  final FullTextIndex? memoryIndex;
   final SearchBackend? searchBackend;
   final MemoryCorpusService? memoryCorpus;
   final ScheduleService? scheduleService;
@@ -174,8 +176,10 @@ class ServerObservabilityDeps {
     this.providerStatus,
     this.memoryFile,
     this.memoryStatusService,
+    this.inspectMemorySearch,
+    this.conversationSearch,
     this.memoryPruner,
-    this.memoryService,
+    this.memoryIndex,
     this.searchBackend,
     this.memoryCorpus,
     this.scheduleService,
@@ -258,7 +262,7 @@ void registerServerSystemPages(
     configWriter: configWriter,
     memoryStatusServiceGetter: () => server._observability.memoryStatusService,
     memoryPruneServiceGetter: () => server._memoryPruneService,
-    memoryServiceGetter: () => server._observability.memoryService,
+    memoryIndexGetter: () => server._observability.memoryIndex,
     searchBackendGetter: () => server._observability.searchBackend,
     memoryCorpusGetter: () => server._observability.memoryCorpus,
     scheduleServiceGetter: () => server._observability.scheduleService,

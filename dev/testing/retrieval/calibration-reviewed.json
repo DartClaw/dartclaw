@@ -1,0 +1,931 @@
+{
+  "protocolVersion": 2,
+  "documents": [
+    {
+      "id": "m01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Leila approved deployment code Juniper-47. Roll back if the error rate rises above 2%."
+    },
+    {
+      "id": "m02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Karin bytte koden till det blå mötesrummet till Granit-82."
+    },
+    {
+      "id": "m03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Copenhagen stay: Nordhavn Hotel, booking DQ7L9, check-in October 18."
+    },
+    {
+      "id": "m04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Miso har veterinärtid hos doktor Ek den 14 november klockan 09.30."
+    },
+    {
+      "id": "m05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Feed the sourdough starter every Sunday with 60 g rye flour and 70 g water."
+    },
+    {
+      "id": "m06",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Faktura 88421 från Fjordkraft är på 1 840 kronor och förfaller den 30 september."
+    },
+    {
+      "id": "m07",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Nikhil owns the ledger API migration to /v2/ledger planned for July 12."
+    },
+    {
+      "id": "m08",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Cykelns bakdäck är ett Schwalbe Marathon i storlek 42-622."
+    },
+    {
+      "id": "m09",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Project Aurora will use SQLite rather than Postgres for its offline search index."
+    },
+    {
+      "id": "m10",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Elsas present blir astronomiboken Nattens kartor av Sara Lund."
+    },
+    {
+      "id": "m11",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "For the light-roast Ethiopian beans, set the coffee grinder to 18 clicks."
+    },
+    {
+      "id": "m12",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Tandläkartid den 3 december klockan 15.10 på Folktandvården Majorna."
+    },
+    {
+      "id": "m13",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Archived client Redwood: contact Mei Chen, who prefers messages over Signal."
+    },
+    {
+      "id": "m14",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "text": "Tomatsorten Black Krim planterades den 21 maj i den västra odlingsbädden."
+    },
+    {
+      "id": "m15",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Tomas replaced the lamp in projector PJ-7714 on August 3."
+    },
+    {
+      "id": "c01",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Sam: Lunch moved to Friday at 12:30. Let's meet at Olive Yard."
+    },
+    {
+      "id": "c02",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Annika: Tåg 543 avgår 07.18 från spår 6."
+    },
+    {
+      "id": "c03",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Bug 318 breaks PDF export in Safari 17. Priya is investigating it."
+    },
+    {
+      "id": "c04",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Johan: Stugnyckeln ligger under den blå blomkrukan."
+    },
+    {
+      "id": "c05",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Book club is reading The Dispossessed and meets on March 22."
+    },
+    {
+      "id": "c06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Linnea: Jag tar med havremjölk och kanelbullar till workshopen."
+    },
+    {
+      "id": "c07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Atlas Parcel tracking APX-90631 is expected to arrive Tuesday."
+    },
+    {
+      "id": "c08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Noah: Stäng av vattenspridaren när det regnar. Brytaren sitter i garaget."
+    },
+    {
+      "id": "c09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Maya confirmed the product demo with Helios Labs for Monday at 16:00."
+    },
+    {
+      "id": "c10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Hörlurarna ligger kvar i det gröna skåpet nummer 24 på Centralbadet."
+    },
+    {
+      "id": "c11",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "The 11,200 SEK transfer should be labeled April rent."
+    },
+    {
+      "id": "c12",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Lösenordet till kalkylbladet för Q4-budgeten är Björk!29."
+    },
+    {
+      "id": "c13",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "Alina: My eye exam was rescheduled to January 9 at 08:15."
+    },
+    {
+      "id": "c14",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Schackklubbens turneringsparningar publiceras på söndag kväll."
+    },
+    {
+      "id": "c15",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "text": "The freezer drawer contains labeled mango soup and basil pesto."
+    },
+    {
+      "id": "x01",
+      "tenant": "other-owner",
+      "corpus": "memory",
+      "language": "en",
+      "text": "Harbor guest Wi-Fi password: Cobalt-611."
+    },
+    {
+      "id": "x02",
+      "tenant": "other-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "text": "Vera: Paket LK-220 lämnades i receptionen."
+    }
+  ],
+  "queries": [
+    {
+      "id": "ek01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "Juniper-47",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "Granit-82",
+      "relevantDocumentIds": [
+        "m02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "DQ7L9",
+      "relevantDocumentIds": [
+        "m03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "faktura 88421",
+      "relevantDocumentIds": [
+        "m06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "PJ-7714",
+      "relevantDocumentIds": [
+        "m15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "APX-90631",
+      "relevantDocumentIds": [
+        "c07"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "tåg 543",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "exact-keyword",
+      "query": "bug 318",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "skåp 24",
+      "relevantDocumentIds": [
+        "c10"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ek10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "exact-keyword",
+      "query": "Björk!29",
+      "relevantDocumentIds": [
+        "c12"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "local embedded database selected for disconnected search",
+      "relevantDocumentIds": [
+        "m09"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "dimensionen på bakhjulets däck",
+      "relevantDocumentIds": [
+        "m08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "Who handles the endpoint transition for the accounting service?",
+      "relevantDocumentIds": [
+        "m07"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Vad ska Elsa få i present?",
+      "relevantDocumentIds": [
+        "m10"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "settings for grinding light-roast coffee",
+      "relevantDocumentIds": [
+        "m11"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "When and where are we eating at the end of the week?",
+      "relevantDocumentIds": [
+        "c01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Vem ordnar växtdryck och fika?",
+      "relevantDocumentIds": [
+        "c06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "vocabulary-mismatch",
+      "query": "browser-specific document download problem",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Hur stoppar jag bevattningen när det regnar?",
+      "relevantDocumentIds": [
+        "c08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "vm10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "vocabulary-mismatch",
+      "query": "Var finns de bortglömda hörlurarna?",
+      "relevantDocumentIds": [
+        "c10"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What is Mei Chen's preferred contact channel?",
+      "relevantDocumentIds": [
+        "m13"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "När ska Miso till doktor Ek?",
+      "relevantDocumentIds": [
+        "m04"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What did Tomas service on August 3?",
+      "relevantDocumentIds": [
+        "m15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vilken bok av Sara Lund är till Elsa?",
+      "relevantDocumentIds": [
+        "m10"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What size is the Schwalbe Marathon tire?",
+      "relevantDocumentIds": [
+        "m08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "named-entity",
+      "query": "When is Maya meeting Helios Labs?",
+      "relevantDocumentIds": [
+        "c09"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Var sa Johan att stugnyckeln ligger?",
+      "relevantDocumentIds": [
+        "c04"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "named-entity",
+      "query": "What is Priya investigating?",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vad tar Linnea med till workshopen?",
+      "relevantDocumentIds": [
+        "c06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "ne10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "named-entity",
+      "query": "Vilket tåg nämnde Annika?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "What should happen if Juniper-47's error rate goes above 2%?",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vilken faktura förfaller den 30 september?",
+      "relevantDocumentIds": [
+        "m06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "Which hotel stay begins October 18?",
+      "relevantDocumentIds": [
+        "m03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vad planterades den 21 maj?",
+      "relevantDocumentIds": [
+        "m14"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "temporal",
+      "query": "When was the projector lamp replaced?",
+      "relevantDocumentIds": [
+        "m15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "temporal",
+      "query": "Which delivery is expected Tuesday?",
+      "relevantDocumentIds": [
+        "c07"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vad händer på söndag kväll?",
+      "relevantDocumentIds": [
+        "c14"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "temporal",
+      "query": "What was moved to Friday at 12:30?",
+      "relevantDocumentIds": [
+        "c01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vilken tid avgår tåget?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "tm10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "temporal",
+      "query": "Vad bokades om till den 9 januari?",
+      "relevantDocumentIds": [
+        "c13"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "Who approved the deployment code, and what is it?",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vilket rum hör koden Granit-82 till?",
+      "relevantDocumentIds": [
+        "m02"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl03",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "What database was selected for Aurora, and what was rejected?",
+      "relevantDocumentIds": [
+        "m09"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl04",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "relational",
+      "query": "Var i trädgården växer Black Krim?",
+      "relevantDocumentIds": [
+        "m14"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "relational",
+      "query": "Which client is linked to Mei Chen and Signal?",
+      "relevantDocumentIds": [
+        "m13"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "relational",
+      "query": "Who is investigating the Safari 17 PDF issue?",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl07",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vad ska stängas av vid regn, och var sitter brytaren?",
+      "relevantDocumentIds": [
+        "c08"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "relational",
+      "query": "Which company was Maya's confirmed product demo with?",
+      "relevantDocumentIds": [
+        "c09"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl09",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vem tar med kanelbullar?",
+      "relevantDocumentIds": [
+        "c06"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "rl10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "relational",
+      "query": "Vilka två rätter finns i fryslådan?",
+      "relevantDocumentIds": [
+        "c15"
+      ],
+      "expectEmpty": false
+    },
+    {
+      "id": "nr01",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What temperature should the sourdough starter be stored at?",
+      "relevantDocumentIds": [],
+      "expectEmpty": false
+    },
+    {
+      "id": "nr02",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vilken ramstorlek har cykeln?",
+      "relevantDocumentIds": [],
+      "expectEmpty": false
+    },
+    {
+      "id": "nr03",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What tip percentage did Sam suggest at Olive Yard?",
+      "relevantDocumentIds": [],
+      "expectEmpty": false
+    },
+    {
+      "id": "nr04",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vilken färg har tåg 543?",
+      "relevantDocumentIds": [],
+      "expectEmpty": false
+    },
+    {
+      "id": "nr05",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What was Ingrid's deployment code for September 4?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "nr06",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vad sa Annika om tåg 812 på tisdagen?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "nr07",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What is the Harbor guest Wi-Fi password?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "nr08",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Var lämnades paket LK-220?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "nr09",
+      "tenant": "fixture-owner",
+      "corpus": "memory",
+      "language": "sv",
+      "family": "answer-absent",
+      "query": "Vilken fas har månen på midsommarafton?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    },
+    {
+      "id": "nr10",
+      "tenant": "fixture-owner",
+      "corpus": "conversation",
+      "language": "en",
+      "family": "answer-absent",
+      "query": "What was the final score of the baseball game?",
+      "relevantDocumentIds": [],
+      "expectEmpty": true
+    }
+  ]
+}

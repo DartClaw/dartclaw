@@ -22,7 +22,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         missingRequiredWorkflowVariables,
         missingRequiredWorkflowVariablesMessage;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 /// Configurable fake [WorkflowService] backed by no-op lifecycle deps.
 ///
@@ -54,12 +53,12 @@ class FakeWorkflowService extends WorkflowService {
       );
 
   factory({
-    required Database db,
+    required DatabaseBackend backend,
     required TaskService taskService,
     required EventBus eventBus,
     required String dataDir,
   }) {
-    final repo = SqliteWorkflowRunRepository(db);
+    final repo = SqliteWorkflowRunRepository(backend);
     final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
     final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
     return FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);

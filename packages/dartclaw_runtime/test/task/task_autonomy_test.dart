@@ -7,8 +7,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../execution_coordinator_test_support.dart';
@@ -51,6 +51,9 @@ class _FakeHarness implements AgentHarness {
 
   @override
   bool get supportsStructuredOutput => false;
+
+  @override
+  bool get supportsNoWorkTools => false;
 
   @override
   bool get supportsProviderSessionResume => false;
@@ -105,6 +108,7 @@ void main() {
   late _FakeHarness worker;
   late TurnManager turns;
   late ArtifactCollector collector;
+  late SqliteBackend taskBackend;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_autonomy_test_');
@@ -114,7 +118,8 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    tasks = TaskService(SqliteTaskRepository(sqlite3.openInMemory()));
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     worker = _FakeHarness();
     turns = TurnManager(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -128,6 +133,7 @@ void main() {
 
   tearDown(() async {
     await tasks.dispose();
+    await taskBackend.close();
     await messages.dispose();
     await worker.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -158,7 +164,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-default', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-default'))!.status, TaskStatus.review);
     });
@@ -176,7 +182,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-mandatory', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-mandatory'))!.status, TaskStatus.review);
     });
@@ -194,7 +200,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-auto-accept', TaskStatus.accepted);
+      await executor.drain();
 
       expect((await tasks.get('task-auto-accept'))!.status, TaskStatus.accepted);
     });
@@ -212,7 +218,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-worktree-review', TaskStatus.review);
+      await executor.drain();
 
       expect((await tasks.get('task-worktree-review'))!.status, TaskStatus.review);
     });
@@ -230,7 +236,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-without-worktree', TaskStatus.accepted);
+      await executor.drain();
 
       expect((await tasks.get('task-without-worktree'))!.status, TaskStatus.accepted);
     });
@@ -248,7 +254,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-unknown-mode', TaskStatus.review);
+      await executor.drain();
 
       // Falls back to default behavior: goes to review.
       expect((await tasks.get('task-unknown-mode'))!.status, TaskStatus.review);
@@ -289,8 +295,9 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-filter', TaskStatus.review);
+      await executor.drain();
 
+      expect((await tasks.get('task-filter'))!.status, TaskStatus.review);
       // Guard should be cleared after the turn (null for cleanup).
       expect(filter.allowedTools, isNull);
     });
@@ -390,7 +397,7 @@ void main() {
       );
 
       await executor.pollOnce();
-      await _waitForStatus(tasks, 'task-malformed-filter', TaskStatus.review);
+      await executor.drain();
 
       // Task should still complete — malformed allowedTools is fail-safe.
       expect((await tasks.get('task-malformed-filter'))!.status, TaskStatus.review);
@@ -445,13 +452,4 @@ void main() {
       expect(verdict.message, contains('read-only'));
     });
   });
-}
-
-Future<void> _waitForStatus(TaskService tasks, String taskId, TaskStatus expected) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 2));
-  while (DateTime.now().isBefore(deadline)) {
-    if ((await tasks.get(taskId))?.status == expected) return;
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  throw StateError('Task $taskId did not reach ${expected.name}');
 }

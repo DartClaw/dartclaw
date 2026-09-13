@@ -154,7 +154,7 @@ extension TurnRunnerCancellation on TurnRunner {
   @visibleForTesting
   bool hasAcceptedCancelRecovery(String sessionId) => _acceptedCancelRecovery.containsKey(sessionId);
 
-  /// Scans [TurnStateStore] for orphaned turns from a previous crash.
+  /// Acknowledges orphaned turns and enables one recovery notice per session.
   Future<List<String>> detectAndCleanOrphanedTurns() async {
     final turnState = _turnState;
     if (turnState == null) return [];
@@ -168,9 +168,6 @@ extension TurnRunnerCancellation on TurnRunner {
         final sessionId = entry.key;
         sessionIds.add(sessionId);
 
-        final turnId = entry.value.turnId;
-        final startedAt = entry.value.startedAt.toIso8601String();
-        TurnRunner._log.warning('Orphaned turn detected: session=$sessionId, turn=$turnId, started=$startedAt');
         await turnState.delete(sessionId);
       }
 

@@ -1,25 +1,28 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
   late TaskService tasks;
+  late SqliteBackend backend;
   late ApiRouteTestClient client;
 
-  setUp(() {
-    final db = openTaskDbInMemory();
+  setUp(() async {
+    backend = await openPreparedTaskBackend();
     tasks = TaskService(
-      SqliteTaskRepository(db),
-      agentExecutionRepository: SqliteAgentExecutionRepository(db),
-      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      SqliteTaskRepository(backend),
+      agentExecutionRepository: SqliteAgentExecutionRepository(backend),
+      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
     );
     client = ApiRouteTestClient(taskRoutes(tasks).call);
   });
 
   tearDown(() async {
     await tasks.dispose();
+    await backend.close();
   });
 
   test('POST /api/tasks persists a provider hint on the created task', () async {

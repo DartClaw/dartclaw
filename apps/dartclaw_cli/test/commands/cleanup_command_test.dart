@@ -28,9 +28,18 @@ void main() {
   });
 
   /// Runs the cleanup command via a CommandRunner with the given [args].
-  Future<void> runCleanup(List<String> args, {DartclawConfig? config}) async {
+  Future<void> runCleanup(
+    List<String> args, {
+    DartclawConfig? config,
+    DatabaseBackendFactory? taskBackendFactory,
+  }) async {
     final cfg = config ?? DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
-    final command = CleanupCommand(config: cfg, writeLine: output.add, exitFn: (code) => exitCode = code);
+    final command = CleanupCommand(
+      config: cfg,
+      taskBackendFactory: taskBackendFactory,
+      writeLine: output.add,
+      exitFn: (code) => exitCode = code,
+    );
 
     final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(_TestSessionsCommand(command));
 
@@ -160,9 +169,10 @@ void main() {
     }
 
     Future<void> seedCompletedRun(DartclawConfig config, String runId, {required Duration age}) async {
-      final db = openTaskDb(config.tasksDbPath);
+      final backend = await SqliteBackend.open(config.dartclawDbPath);
       try {
-        final repo = SqliteWorkflowRunRepository(db);
+        await SqliteSchemaGate.prepareTasks(backend, storeName: 'dartclaw.db');
+        final repo = SqliteWorkflowRunRepository(backend);
         final completedAt = DateTime.now().subtract(age);
         await repo.insert(
           WorkflowRun(
@@ -175,7 +185,7 @@ void main() {
           ),
         );
       } finally {
-        db.close();
+        await backend.close();
       }
     }
 
@@ -186,13 +196,58 @@ void main() {
       final artifacts = seedRunArtifacts('run-old');
       await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
 
-      await runCleanup([], config: config);
+      late DatabaseBackend openedBackend;
+      await runCleanup(
+        [],
+        config: config,
+        taskBackendFactory: (path) async {
+          openedBackend = await SqliteBackend.open(path);
+          return openedBackend;
+        },
+      );
 
+      await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
       expect(artifacts.existsSync(), isFalse);
       expect(File(p.join(tempDir.path, 'workflows', 'runs', 'run-old', 'context.json')).existsSync(), isTrue);
       expect(output, anyElement(contains('Workflow Runtime-Artifacts Retention')));
       expect(output, anyElement(contains('run-old')));
       expect(exitCode, 0);
+    });
+
+    test('retention adopts a legacy store before its existence probe', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final artifacts = seedRunArtifacts('run-old');
+      await seedCompletedRun(config, 'run-old', age: const Duration(days: 10));
+      final legacyPath = p.setExtension(p.join(tempDir.path, 'tasks'), '.db');
+      File(config.dartclawDbPath).renameSync(legacyPath);
+
+      await runCleanup([], config: config);
+
+      expect(File(legacyPath).existsSync(), isFalse);
+      expect(File(config.dartclawDbPath).existsSync(), isTrue);
+      expect(artifacts.existsSync(), isFalse);
+      expect(exitCode, 0);
+    });
+
+    test('retention reports ambiguous store filenames and exits 1', () async {
+      final config = configWith(
+        const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+      );
+      final legacyPath = p.setExtension(p.join(tempDir.path, 'tasks'), '.db');
+      File(config.dartclawDbPath).writeAsBytesSync([1, 2, 3]);
+      File(legacyPath).writeAsBytesSync([4, 5]);
+
+      await runCleanup([], config: config);
+
+      final diagnostic = output.join('\n');
+      expect(diagnostic, contains('dartclaw.db'));
+      expect(diagnostic, contains(p.basename(legacyPath)));
+      expect(diagnostic.toLowerCase(), contains('ambiguous'));
+      expect(File(config.dartclawDbPath).readAsBytesSync(), [1, 2, 3]);
+      expect(File(legacyPath).readAsBytesSync(), [4, 5]);
+      expect(exitCode, 1);
     });
 
     test('--dry-run lists the candidate run without removing it', () async {
@@ -220,13 +275,12 @@ void main() {
       expect(output, isNot(anyElement(contains('Workflow Runtime-Artifacts Retention'))));
     });
 
-    test('a corrupt tasks.db degrades to a skip warning and exit 1 instead of crashing', () async {
+    test('a corrupt authoritative store degrades to a skip warning and exit 1 instead of crashing', () async {
       final config = configWith(
         const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
       );
-      // Write a non-SQLite garbage file at the tasks DB path so the repository's
-      // schema-init DDL throws from its constructor.
-      File(config.tasksDbPath).writeAsStringSync('not a sqlite database at all');
+      // Write a non-SQLite file so opening or inspecting the store fails.
+      File(config.dartclawDbPath).writeAsStringSync('not a sqlite database at all');
 
       // Must not throw — the command degrades to a warning + exit 1.
       await runCleanup([], config: config);
@@ -234,6 +288,51 @@ void main() {
       expect(output, anyElement(contains('workflow artifact retention skipped')));
       expect(exitCode, 1);
     });
+
+    test(
+      'retention skips an incompatible authoritative store with the warning and leaves the file unchanged',
+      () async {
+        final config = configWith(
+          const WorkflowRuntimeArtifactsRetentionConfig(mode: MaintenanceMode.enforce, pruneAfterDays: 7),
+        );
+        final backend = await SqliteBackend.open(config.dartclawDbPath);
+        late final List<Map<String, Object?>> schemaBefore;
+        late final List<Map<String, Object?>> rowsBefore;
+        try {
+          await backend.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)');
+          await backend.execute("INSERT INTO tasks (id, title) VALUES ('legacy-task', 'Legacy task')");
+          schemaBefore = await backend.query('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name');
+          rowsBefore = await backend.query('SELECT * FROM tasks ORDER BY id');
+        } finally {
+          await backend.close();
+        }
+
+        late DatabaseBackend openedBackend;
+        await runCleanup(
+          [],
+          config: config,
+          taskBackendFactory: (path) async {
+            openedBackend = await SqliteBackend.open(path);
+            return openedBackend;
+          },
+        );
+        await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
+
+        final reopened = await SqliteBackend.open(config.dartclawDbPath);
+        try {
+          final schemaAfter = await reopened.query(
+            'SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name',
+          );
+          final rowsAfter = await reopened.query('SELECT * FROM tasks ORDER BY id');
+          expect(schemaAfter, schemaBefore);
+          expect(rowsAfter, rowsBefore);
+        } finally {
+          await reopened.close();
+        }
+        expect(output, anyElement(startsWith('WARNING: workflow artifact retention skipped (database read failed):')));
+        expect(exitCode, 1);
+      },
+    );
 
     test('enforce reports only successful deletions when one run dir is non-deletable', () async {
       if (Platform.isWindows) {

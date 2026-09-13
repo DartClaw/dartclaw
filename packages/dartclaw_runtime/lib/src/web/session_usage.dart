@@ -39,12 +39,15 @@ Future<SessionUsageRecord> readSessionUsage(
     // by older versions.
     final cacheReadTokens =
         (decoded['cache_read_tokens'] as num?)?.toInt() ?? (decoded['cached_input_tokens'] as num?)?.toInt();
+    final turnCount = (decoded['turn_count'] as num?)?.toInt();
+    final costReportedTurnCount = (decoded['cost_reported_turn_count'] as num?)?.toInt();
+    final hasCompleteCost = turnCount != null && turnCount > 0 && costReportedTurnCount == turnCount;
     return (
       inputTokens: (decoded['input_tokens'] as num?)?.toInt(),
       outputTokens: (decoded['output_tokens'] as num?)?.toInt(),
       cachedInputTokens: cacheReadTokens,
       effectiveTokens: (decoded['effective_tokens'] as num?)?.toInt(),
-      estimatedCostUsd: (decoded['estimated_cost_usd'] as num?)?.toDouble(),
+      estimatedCostUsd: hasCompleteCost ? (decoded['estimated_cost_usd'] as num?)?.toDouble() : null,
       provider: switch (decoded['provider']) {
         final String value when value.trim().isNotEmpty => value,
         _ => defaultProvider,

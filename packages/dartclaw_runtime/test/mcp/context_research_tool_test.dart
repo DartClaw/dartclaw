@@ -6,27 +6,27 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/mcp/citation_packet.dart';
 import 'package:dartclaw_runtime/src/mcp/context_research_tool.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 void main() {
-  late Database db;
+  late SqliteBackend backend;
   late TemporalKnowledgeGraphService kg;
   late Directory workspace;
   late _RecordingSearchBackend memory;
   late List<ContextResearchMetrics> metrics;
 
-  setUp(() {
-    db = sqlite3.openInMemory();
-    kg = TemporalKnowledgeGraphService(db);
+  setUp(() async {
+    backend = await openPreparedTaskBackend();
+    kg = TemporalKnowledgeGraphService(backend);
     workspace = Directory.systemTemp.createTempSync('context_research_test_');
     Directory('${workspace.path}/wiki').createSync(recursive: true);
     memory = _RecordingSearchBackend();
     metrics = [];
   });
 
-  tearDown(() {
-    db.close();
+  tearDown(() async {
+    await backend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 
@@ -82,7 +82,7 @@ void main() {
   test('S01 TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
     File('${workspace.path}/wiki/kg.md')
         .writeAsStringSync('---\nprovenance: human-authored\n---\nTemporal KG decision wiki.');
-    final factId = kg.addFact(
+    final factId = await kg.addFact(
       entity: 'temporal KG',
       predicate: 'decision',
       value: 'preserve history',
@@ -276,7 +276,7 @@ void main() {
     ).call({'query': 'temporal KG'});
     expect((_decodeResult(result1)['packet'] as Map<String, dynamic>)['statements'], isNotEmpty);
 
-    kg.addFact(
+    await kg.addFact(
       entity: 'temporal KG',
       predicate: 'status',
       value: 'fresh fact',
@@ -371,7 +371,7 @@ void main() {
   test('S07 TI03 TI06 failed KG layer is reported while wiki and memory still synthesize', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source survives.', source: 'MEMORY.md', score: 1)];
-    final throwingKg = _ThrowingKg(db);
+    final throwingKg = _ThrowingKg(backend);
 
     final result = await ContextResearchTool(
       memorySearch: ComposedSearchBackend(
@@ -483,15 +483,15 @@ final class _RecordingSearchBackend implements SearchBackend {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> query({
+  Future<List<KnowledgeFact>> query({
     required String entity,
     String? predicate,
     String? asOf,
     bool includeInvalidated = false,
-  }) {
+  }) async {
     throw StateError('kg unavailable');
   }
 }

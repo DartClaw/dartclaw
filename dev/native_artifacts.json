@@ -1,0 +1,47 @@
+{
+  "release": "v0.3.0",
+  "repository": "https://github.com/leehack/llamadart-native",
+  "model": {
+    "basename": "embeddinggemma-300M-Q8_0.gguf",
+    "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf",
+    "size": 333590944,
+    "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63"
+  },
+  "artifacts": {
+    "macos-arm64": {
+      "bundle": "macos-arm64",
+      "archive": "llamadart-native-macos-arm64-v0.3.0.tar.gz",
+      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-macos-arm64-v0.3.0.tar.gz",
+      "size": 4345201,
+      "sha256": "970e20ef367c6d4534243944bff43de8aa5c5770eea83b98eb473389e1932ec1"
+    },
+    "macos-x64": {
+      "bundle": "macos-x86_64",
+      "archive": "llamadart-native-macos-x86_64-v0.3.0.tar.gz",
+      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-macos-x86_64-v0.3.0.tar.gz",
+      "size": 4710033,
+      "sha256": "837d76b30eacc396e103699a9bdb1a971abe1ee76664ff7ab5970f98c361a99c"
+    },
+    "linux-arm64": {
+      "bundle": "linux-arm64",
+      "archive": "llamadart-native-linux-arm64-v0.3.0.tar.gz",
+      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-linux-arm64-v0.3.0.tar.gz",
+      "size": 17426887,
+      "sha256": "ede1373777c9dfa94802c1592f6ebac411d16564f46c32ac133ba9db30f18246"
+    },
+    "linux-x64": {
+      "bundle": "linux-x64",
+      "archive": "llamadart-native-linux-x64-v0.3.0.tar.gz",
+      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-linux-x64-v0.3.0.tar.gz",
+      "size": 176856830,
+      "sha256": "692734e68e99cef22c4d09663f097f9450974c38a6501a96387554b58a286b50"
+    },
+    "windows-x64": {
+      "bundle": "windows-x64",
+      "archive": "llamadart-native-windows-x64-v0.3.0.tar.gz",
+      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-windows-x64-v0.3.0.tar.gz",
+      "size": 732466572,
+      "sha256": "2af1fb0b314838a66bb2485c9ffd5f0d138c8a9d2c9d80af6755a13dfa3e0d58"
+    }
+  }
+}

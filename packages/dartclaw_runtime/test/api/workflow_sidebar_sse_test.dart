@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SqliteWorkflowRunRepository,
@@ -18,7 +19,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowTaskType;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3}) {
@@ -31,23 +31,21 @@ WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3})
 }
 
 void main() {
-  late Database taskDb;
-  late Database workflowDb;
+  late SqliteBackend taskBackend;
   late TaskService tasks;
   late EventBus eventBus;
   late WorkflowService workflows;
   late SqliteWorkflowRunRepository workflowRepo;
   late Directory tempDir;
 
-  setUp(() {
-    taskDb = openTaskDbInMemory();
-    workflowDb = sqlite3.openInMemory();
+  setUp(() async {
+    taskBackend = await openPreparedTaskBackend();
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
     eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(taskDb);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(taskDb, eventBus: eventBus);
-    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskDb);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(taskDb);
+    final taskRepository = SqliteTaskRepository(taskBackend);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+    final workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
     tasks = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
@@ -55,7 +53,7 @@ void main() {
       eventBus: eventBus,
     );
 
-    workflowRepo = SqliteWorkflowRunRepository(workflowDb);
+    workflowRepo = SqliteWorkflowRunRepository(taskBackend);
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService(
@@ -78,8 +76,7 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await eventBus.dispose();
-    taskDb.close();
-    workflowDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -403,6 +400,11 @@ void main() {
 
       final payload = await nextFrameOfType(it, 'task_status_changed');
       expect(payload['taskId'], 'task-health');
+
+      // create(autoStart: true) and transition() each emit a task event. Drain
+      // both projections before teardown closes the task backend.
+      final remainingPayload = await nextFrameOfType(it, 'task_status_changed');
+      expect(remainingPayload['taskId'], 'task-health');
     });
   });
 }

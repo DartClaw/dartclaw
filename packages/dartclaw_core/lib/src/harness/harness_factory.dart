@@ -35,11 +35,12 @@ class HarnessFactoryConfig {
   /// Provider-specific options forwarded to the concrete harness.
   final Map<String, dynamic> providerOptions;
 
-  /// Canonical tool names this spawn's step declared, and the roots its
-  /// file-mutating tools may write.
+  /// Canonical tool grants used for this spawn, and the roots its file-mutating
+  /// tools may write.
   ///
-  /// Set only for a workflow-step spawn. Claude derives native permission
-  /// rules from this list while the guard chain enforces the step's policy.
+  /// Claude derives native permission allow rules from this list while the
+  /// guard chain enforces the execution policy. This does not select or reduce
+  /// the provider's native tool catalog.
   final List<String>? declaredCanonicalTools;
   final List<String> declaredWritableRoots;
 

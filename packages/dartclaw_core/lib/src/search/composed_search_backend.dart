@@ -22,6 +22,59 @@ final class ComposedSearchBackend implements SearchBackend {
       _wiki = wiki,
       _indexHealthProbe = indexHealthProbe;
 
+  /// Runs one query only while the derived index remains current.
+  static Future<({T? result, int? canonicalRevision, String? reason})> queryCurrentIndex<T>({
+    required Future<T> Function() query,
+    SearchIndexHealthProbe? indexHealthProbe,
+  }) async {
+    if (indexHealthProbe == null) {
+      try {
+        return (result: await query(), canonicalRevision: null, reason: null);
+      } on Object {
+        return (result: null, canonicalRevision: null, reason: 'searchFailure');
+      }
+    }
+
+    late final IndexHealthEvidence before;
+    try {
+      before = await indexHealthProbe();
+    } on Object {
+      return (result: null, canonicalRevision: null, reason: 'indexHealthUnavailable');
+    }
+    if (!before.isCurrent(before.canonicalRevision, before.canonicalFingerprint)) {
+      return (result: null, canonicalRevision: before.canonicalRevision, reason: 'indexNotCurrent');
+    }
+
+    T? result;
+    Object? queryFailure;
+    try {
+      result = await query();
+    } on Object catch (error) {
+      queryFailure = error;
+    }
+
+    late final IndexHealthEvidence after;
+    try {
+      after = await indexHealthProbe();
+    } on Object {
+      return (result: null, canonicalRevision: before.canonicalRevision, reason: 'indexHealthUnavailable');
+    }
+    if (!after.isCurrent(after.canonicalRevision, after.canonicalFingerprint)) {
+      return (result: null, canonicalRevision: after.canonicalRevision, reason: 'indexNotCurrent');
+    }
+    final unchanged =
+        before.canonicalRevision == after.canonicalRevision &&
+        before.canonicalFingerprint == after.canonicalFingerprint &&
+        before.indexRevision == after.indexRevision &&
+        before.indexFingerprint == after.indexFingerprint;
+    if (!unchanged) {
+      return (result: null, canonicalRevision: after.canonicalRevision, reason: 'indexChangedDuringSearch');
+    }
+    return queryFailure == null
+        ? (result: result, canonicalRevision: after.canonicalRevision, reason: null)
+        : (result: null, canonicalRevision: after.canonicalRevision, reason: 'searchFailure');
+  }
+
   @override
   Future<MemorySearchOutcome> search(
     String query, {
@@ -37,60 +90,26 @@ final class ComposedSearchBackend implements SearchBackend {
     var wikiDegradations = const <MemorySearchDegradation>[];
     int? canonicalRevision;
     final includesPersonal = layers == null || layers.contains(SearchResultLayer.memory);
-    IndexHealthEvidence? before;
-    var canQueryPersonal = includesPersonal;
-    if (includesPersonal && _indexHealthProbe != null) {
-      try {
-        before = await _indexHealthProbe();
-        canonicalRevision = before.canonicalRevision;
-        if (!before.isCurrent(before.canonicalRevision, before.canonicalFingerprint)) {
-          canQueryPersonal = false;
-          personal = _degradedPersonal(personal, 'indexNotCurrent');
-        }
-      } on Object {
-        canQueryPersonal = false;
-        personal = _degradedPersonal(personal, 'indexHealthUnavailable');
-      }
-    }
-    if (canQueryPersonal) {
-      try {
-        personal = await _personal.search(query, limit: outputLimit, userId: userId, layers: layers);
-        canonicalRevision ??= personal.canonicalRevision;
-      } on Object {
-        personal = _degradedPersonal(personal, 'searchFailure');
-      }
-      if (_indexHealthProbe != null && before != null) {
-        try {
-          final after = await _indexHealthProbe();
-          canonicalRevision = after.canonicalRevision;
-          final current = after.isCurrent(after.canonicalRevision, after.canonicalFingerprint);
-          final unchanged =
-              before.canonicalRevision == after.canonicalRevision &&
-              before.canonicalFingerprint == after.canonicalFingerprint &&
-              before.indexRevision == after.indexRevision &&
-              before.indexFingerprint == after.indexFingerprint;
-          if (!current || !unchanged) {
-            personal = _degradedPersonal(
-              MemorySearchOutcome(
-                results: const [],
-                degradedLayers: personal.degradedLayers,
-                degradations: personal.degradations,
-                canonicalRevision: canonicalRevision,
-              ),
-              current ? 'indexChangedDuringSearch' : 'indexNotCurrent',
-            );
-          }
-        } on Object {
-          personal = _degradedPersonal(
-            MemorySearchOutcome(
-              results: const [],
-              degradedLayers: personal.degradedLayers,
-              degradations: personal.degradations,
-              canonicalRevision: canonicalRevision,
-            ),
-            'indexHealthUnavailable',
-          );
-        }
+    if (includesPersonal) {
+      MemorySearchOutcome? queried;
+      final guarded = await queryCurrentIndex(
+        query: () async => queried = await _personal.search(query, limit: outputLimit, userId: userId, layers: layers),
+        indexHealthProbe: _indexHealthProbe,
+      );
+      canonicalRevision = guarded.canonicalRevision ?? guarded.result?.canonicalRevision;
+      if (guarded.result case final result?) {
+        personal = result;
+      } else {
+        final attempted = queried;
+        personal = _degradedPersonal(
+          MemorySearchOutcome(
+            results: const [],
+            degradedLayers: attempted?.degradedLayers ?? const [],
+            degradations: attempted?.degradations ?? const [],
+            canonicalRevision: canonicalRevision,
+          ),
+          guarded.reason!,
+        );
       }
     }
     if (layers != null && !layers.contains(SearchResultLayer.wiki)) {

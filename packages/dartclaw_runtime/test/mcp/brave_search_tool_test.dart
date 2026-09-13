@@ -13,14 +13,14 @@ import 'package:test/test.dart';
 // ---------------------------------------------------------------------------
 
 class _MockProvider implements SearchProvider {
-  List<SearchResult> results;
+  List<WebSearchResult> results;
   bool shouldThrow;
   String errorMessage;
 
   new({this.results = const [], this.shouldThrow = false, this.errorMessage = 'provider error'});
 
   @override
-  Future<List<SearchResult>> search(String query, {int count = 5}) async {
+  Future<List<WebSearchResult>> search(String query, {int count = 5}) async {
     if (shouldThrow) throw Exception(errorMessage);
     return results.take(count).toList();
   }
@@ -81,8 +81,8 @@ void main() {
       test('successful search returns JSON with results', () async {
         final provider = _MockProvider(
           results: [
-            SearchResult(title: 'Title 1', url: 'https://a.com', snippet: 'Snippet 1'),
-            SearchResult(title: 'Title 2', url: 'https://b.com', snippet: 'Snippet 2'),
+            WebSearchResult(title: 'Title 1', url: 'https://a.com', snippet: 'Snippet 1'),
+            WebSearchResult(title: 'Title 2', url: 'https://b.com', snippet: 'Snippet 2'),
           ],
         );
         final tool = BraveSearchTool(provider: provider);
@@ -118,7 +118,7 @@ void main() {
 
       test('count clamped to 1-20 range', () async {
         final provider = _MockProvider(
-          results: [SearchResult(title: 'T', url: 'https://a.com', snippet: 'S')],
+          results: [WebSearchResult(title: 'T', url: 'https://a.com', snippet: 'S')],
         );
         final tool = BraveSearchTool(provider: provider);
 
@@ -139,7 +139,7 @@ void main() {
         final classifier = FakeContentClassifier(result: 'safe');
         final guard = ContentGuard(scan: ContentScan(classifier: classifier));
         final provider = _MockProvider(
-          results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text')],
+          results: [WebSearchResult(title: 'Title', url: 'https://a.com', snippet: 'Safe text')],
         );
         final tool = BraveSearchTool(provider: provider, contentGuard: guard);
         final result = await tool.call({'query': 'test'});
@@ -152,7 +152,7 @@ void main() {
         final classifier = FakeContentClassifier(result: 'prompt_injection');
         final guard = ContentGuard(scan: ContentScan(classifier: classifier));
         final provider = _MockProvider(
-          results: [SearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Injected content')],
+          results: [WebSearchResult(title: 'Bad', url: 'https://a.com', snippet: 'Injected content')],
         );
         final tool = BraveSearchTool(provider: provider, contentGuard: guard);
         final result = await tool.call({'query': 'test'});
@@ -162,7 +162,7 @@ void main() {
 
       test('no guard (null) passes content through', () async {
         final provider = _MockProvider(
-          results: [SearchResult(title: 'Title', url: 'https://a.com', snippet: 'Text')],
+          results: [WebSearchResult(title: 'Title', url: 'https://a.com', snippet: 'Text')],
         );
         final tool = BraveSearchTool(provider: provider);
         final result = await tool.call({'query': 'test'});

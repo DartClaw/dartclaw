@@ -242,6 +242,9 @@ class ClaudeCodeHarness extends BaseHarness {
   bool get supportsStructuredOutput => true;
 
   @override
+  bool get supportsNoWorkTools => true;
+
+  @override
   String skillActivationLine(String skill) => '/$skill';
 
   @override
@@ -594,7 +597,7 @@ class ClaudeCodeHarness extends BaseHarness {
     // chain enforces lets declared tools pass Claude's native permission layer.
     final declaredTools = declaredCanonicalTools;
     // A spawn whose execution directory is not yet known derives no declared
-    // grants: using the server's own cwd would grant a step write access to the
+    // grants: using the server's own cwd would grant an execution write access to the
     // DartClaw checkout.
     final declaredToolRules = declaredTools == null
         ? null
@@ -603,7 +606,7 @@ class ClaudeCodeHarness extends BaseHarness {
         : ClaudeSettingsBuilder.allowRulesForCanonicalTools(
             declaredTools,
             // The rules are matched by the CLI inside the boundary it runs in,
-            // so a containerized step needs container-side roots; host paths
+            // so a containerized execution needs container-side roots; host paths
             // would match nothing there and deny every write.
             writableRoots: writableRootsForSpawn(
               executionDirectory: _executionDirectoryIsExplicit ? _hostProcessWorkingDirectory : null,
@@ -612,14 +615,15 @@ class ClaudeCodeHarness extends BaseHarness {
             ),
           );
     if (declaredToolRules != null) {
-      // The step's policy as the provider will see it. Without this an operator
+      // The execution's native grants as the provider will see them. Without this an operator
       // debugging a refused tool call has to reconstruct it from the CLI's own
       // transcript, which is what this defect cost the first time.
-      _log.info(
-        declaredToolRules.isEmpty
-            ? 'Step native grants: none – this spawn has no execution directory yet'
-            : 'Step native grants: ${declaredToolRules.join(', ')}',
-      );
+      final summary = declaredToolRules.isNotEmpty
+          ? declaredToolRules.join(', ')
+          : declaredTools!.isEmpty
+          ? 'none – the execution policy declares no native grants'
+          : 'none – this spawn has no explicit execution directory';
+      _log.info('Execution native grants: $summary');
     }
     final nativeSettings = ClaudeSettingsBuilder.buildSettings(
       providerOptions,

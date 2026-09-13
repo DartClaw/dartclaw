@@ -13,7 +13,10 @@ class FakeContainerAuthorityLease implements ContainerAuthorityLease {
   final ContainerExecutor container;
 
   @override
-  Future<void> release() async {}
+  Future<void> release() async => released = true;
+
+  /// Whether the authority owner released this lease.
+  bool released = false;
 }
 
 /// A [ContainerExecutor] double that never spawns; `pathMapping` supplies the

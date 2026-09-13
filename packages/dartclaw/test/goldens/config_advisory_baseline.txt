@@ -331,6 +331,24 @@
   [blocking] Invalid type for credentials: "int" — using defaults
 === data_dir#type-nonstring ===
   [blocking] Invalid type for data_dir: "int" — using default
+=== database#scalar ===
+  [blocking] Invalid type for database: "int" — using defaults
+=== database.backend#non-member ===
+  [blocking] Invalid database.backend: "__dartclaw_not_a_member__" — using default
+=== database.backend#type-nonstring ===
+  [blocking] Invalid type for backend: "int" — using default
+=== database.credential#type-nonstring ===
+  [blocking] Invalid type for credential: "int" — using defaults
+=== database.fts_language#type-nonstring ===
+  [blocking] Invalid type for fts_language: "int" — using default
+=== database.pool_size#below-min ===
+  [blocking] Invalid database.pool_size: must be positive
+=== database.pool_size#type-nonstring ===
+  [blocking] Invalid type for pool_size: "bool" — using default
+=== database.pool_size#type-string ===
+  [blocking] Invalid type for pool_size: "String" — using default
+=== database.url#type-nonstring ===
+  [blocking] Invalid type for url: "int" — using defaults
 === dev/testing/profiles/channels/data/dartclaw.yaml#corpus ===
   (none)
 === dev/testing/profiles/governance/data/dartclaw.yaml#corpus ===
@@ -751,6 +769,18 @@
   [blocking] Invalid type for backend: "int" — using defaults
 === search.default_depth#type-nonstring ===
   [blocking] Invalid type for default_depth: "int" — using defaults
+=== search.embedding#scalar ===
+  [blocking] Invalid type for embedding: "int" — using defaults
+=== search.embedding.credential#type-nonstring ===
+  [blocking] Invalid type for search.embedding.credential: "int" — using defaults
+=== search.embedding.endpoint#type-nonstring ===
+  [blocking] Invalid type for search.embedding.endpoint: "int" — using defaults
+=== search.embedding.model#type-nonstring ===
+  [blocking] Invalid type for search.embedding.model: "int" — using defaults
+=== search.embedding.provider#non-member ===
+  [blocking] Invalid search.embedding.provider — using default
+=== search.embedding.provider#type-nonstring ===
+  [blocking] Invalid type for search.embedding.provider: "int" — using default
 === search.providers#type-nonmap ===
   [blocking] Invalid type for providers: "int" — using defaults
 === search.qmd#scalar ===

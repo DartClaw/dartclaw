@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show InternetAddress;
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:http/http.dart' as http;
@@ -170,16 +169,8 @@ final class HttpMcpTransport implements OutboundMcpTransport {
 
   void _verifyTls() {
     if (!_requireTls || _url.scheme == 'https') return;
-    if (_isLoopbackHost(_url.host)) return;
+    if (isLoopbackHost(_url.host)) return;
     throw OutboundMcpException('tls_required', 'MCP HTTP egress requires HTTPS for ${_url.host}');
-  }
-
-  // Loopback traffic never leaves the host, so TLS adds nothing there. Literal
-  // hosts only – no DNS resolution – so a name that merely resolves to
-  // 127.0.0.1 stays rejected (fails closed against rebinding).
-  static bool _isLoopbackHost(String host) {
-    if (host.toLowerCase() == 'localhost') return true;
-    return InternetAddress.tryParse(host)?.isLoopback ?? false;
   }
 
   void _rejectUnsafeRedirect(http.StreamedResponse response) {

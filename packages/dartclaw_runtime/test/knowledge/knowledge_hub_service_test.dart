@@ -3,26 +3,30 @@ import 'dart:io';
 import 'package:dartclaw_runtime/src/knowledge/knowledge_hub_service.dart';
 import 'package:dartclaw_runtime/src/knowledge/knowledge_inbox_read_service.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late Database searchDb;
-  late Database taskDb;
-  late MemoryService memory;
+  late SqliteBackend taskBackend;
+  late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_service_test_');
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
-    memory = MemoryService(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    taskBackend = await openPreparedTaskBackend();
+    memory = await prepareMemoryIndex(searchDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
-    _seed(searchDb, text: 'Merge memory keeps durable context.', source: 'MEMORY.md', category: 'build');
-    kg.addFact(
+    await _seed(memory, text: 'Merge memory keeps durable context.', id: '00000000-0000-4000-8000-000000000001');
+    await kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
       value: 'requires green checks',
@@ -31,9 +35,9 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
@@ -72,11 +76,11 @@ void main() {
   });
 
   test('S06 isolates a failed KG query and keeps surviving layer results', () async {
-    final throwing = _ThrowingKg(taskDb);
+    final throwing = _ThrowingKg(taskBackend);
     final result = await KnowledgeHubService(
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
       kg: throwing,
-      memory: memory,
+      memoryIndex: memory,
       searchBackend: _search(tempDir, memory),
       inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
     ).search(const KnowledgeHubQuery(query: 'merge'));
@@ -118,12 +122,12 @@ void main() {
   });
 
   test('KG hub leg passes the effective page cap to the shared KG read surface', () async {
-    final recordingKg = _RecordingKg(taskDb);
+    final recordingKg = _RecordingKg(taskBackend);
 
     await KnowledgeHubService(
       wiki: WikiSearchSource(workspaceDir: tempDir.path),
       kg: recordingKg,
-      memory: memory,
+      memoryIndex: memory,
       searchBackend: _search(tempDir, memory),
       inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
     ).search(const KnowledgeHubQuery(query: 'merge', layer: KnowledgeHubLayer.kg, page: 2, perPage: 3));
@@ -133,10 +137,28 @@ void main() {
   });
 
   test('layer-only search constrains composition before page top-K', () async {
+    final entries = <MemoryIndexEntry>[];
     for (var index = 0; index < 5; index++) {
-      _seed(searchDb, text: 'Falcon memory $index', source: 'memory-$index');
+      entries.add(
+        MemoryIndexEntry(
+          id: '00000000-0000-4000-8000-${(index + 1).toString().padLeft(12, '0')}',
+          revision: 1,
+          topic: 'general',
+          summary: 'Falcon memory $index',
+          updated: DateTime.utc(2026),
+        ),
+      );
       _writeFile(tempDir, 'wiki/falcon-$index.md', '---\nprovenance: human-authored\n---\nFalcon wiki $index');
     }
+    await memory.replaceAll([
+      for (final entry in entries)
+        SearchDocument(
+          id: entry.id,
+          chunks: [entry.summary],
+          metadata: {'source': entry.id, 'role': 'memory', 'provenance': 'unknown'},
+          timestamp: entry.updated,
+        ),
+    ], userId: 'owner');
     final service = _service(tempDir, kg, memory);
 
     final memoryOnly = await service.search(
@@ -153,28 +175,29 @@ void main() {
   });
 }
 
-void _seed(Database db, {required String text, required String source, String? category}) {
-  db.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-    text,
-    source,
-    category,
-    DateTime(2026).toIso8601String(),
-    source,
-  ]);
-}
-
-KnowledgeHubService _service(Directory tempDir, TemporalKnowledgeGraphService kg, MemoryService memory) {
+KnowledgeHubService _service(Directory tempDir, TemporalKnowledgeGraphService kg, FullTextIndex memory) {
   return KnowledgeHubService(
     wiki: WikiSearchSource(workspaceDir: tempDir.path),
     kg: kg,
-    memory: memory,
+    memoryIndex: memory,
     searchBackend: _search(tempDir, memory),
     inbox: KnowledgeInboxReadService(workspaceDir: tempDir.path),
   );
 }
 
-ComposedSearchBackend _search(Directory tempDir, MemoryService memory) => ComposedSearchBackend(
-  personal: Fts5SearchBackend(memoryService: memory),
+Future<void> _seed(FullTextIndex index, {required String text, required String id}) async {
+  await index.replaceAll([
+    SearchDocument(
+      id: id,
+      chunks: [text],
+      metadata: {'source': id, 'role': 'memory', 'provenance': 'unknown'},
+      timestamp: DateTime.utc(2026),
+    ),
+  ], userId: 'owner');
+}
+
+ComposedSearchBackend _search(Directory tempDir, FullTextIndex memory) => ComposedSearchBackend(
+  personal: Fts5SearchBackend(index: memory),
   wiki: WikiSearchSource(workspaceDir: tempDir.path),
 );
 
@@ -185,20 +208,20 @@ void _writeFile(Directory tempDir, String relativePath, String body) {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async => throw StateError('boom');
 }
 
 final class _RecordingKg extends TemporalKnowledgeGraphService {
   String? lastSearch;
   int? lastLimit;
 
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) {
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async {
     lastSearch = search;
     lastLimit = limit;
     return const [];

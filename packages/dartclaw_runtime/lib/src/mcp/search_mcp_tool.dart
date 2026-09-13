@@ -71,7 +71,7 @@ abstract class SearchMcpTool implements McpTool {
     final rawCount = args['count'] as int? ?? 5;
     final count = rawCount.clamp(1, maxCount);
 
-    List<SearchResult> results;
+    List<WebSearchResult> results;
     try {
       results = await provider.search(query, count: count);
     } on TimeoutException {

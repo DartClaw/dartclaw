@@ -8,6 +8,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
 
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:fake_async/fake_async.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
@@ -342,7 +343,16 @@ void main() {
       WorkflowRun? pausedRun;
 
       fakeAsync((async) {
-        unawaited(h.repository.insert(run));
+        // The backend queue and timer must share the virtual-time zone.
+        late DatabaseBackend backend;
+        unawaited(
+          openPreparedTaskBackend().then((value) {
+            backend = value;
+          }),
+        );
+        async.flushMicrotasks();
+        final repository = SqliteWorkflowRunRepository(backend);
+        unawaited(repository.insert(run));
         async.flushMicrotasks();
 
         unawaited(
@@ -354,11 +364,11 @@ void main() {
             templateEngine: WorkflowTemplateEngine(),
             dependencies: ApprovalStepDependencies(
               eventBus: h.eventBus,
-              repository: h.repository,
+              repository: repository,
               persistContext: (_, _) async {},
               cancelRun: (updatedRun, _) async {
                 final cancelled = updatedRun.copyWith(status: WorkflowRunStatus.cancelled);
-                await h.repository.update(cancelled);
+                await repository.update(cancelled);
               },
               approvalTimers: timers,
             ),
@@ -366,7 +376,7 @@ void main() {
         );
         async.flushMicrotasks();
 
-        unawaited(h.repository.getById('run-1').then((r) => pausedRun = r));
+        unawaited(repository.getById('run-1').then((r) => pausedRun = r));
         async.flushMicrotasks();
 
         // Advance virtual time past the 1-second timeout.
@@ -374,11 +384,13 @@ void main() {
         async.flushMicrotasks();
 
         unawaited(
-          h.repository.getById('run-1').then((r) {
+          repository.getById('run-1').then((r) {
             cancelledStatus = r?.status;
             cancelReason = r?.contextJson['gate.approval.cancel_reason'] as String?;
           }),
         );
+        async.flushMicrotasks();
+        unawaited(backend.close());
         async.flushMicrotasks();
       });
 

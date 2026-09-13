@@ -1,0 +1,8 @@
+Unknown field "unknown_field" under Step "step".
+Unknown WorkflowTaskType "nonesuch"; valid values: agent, bash, approval, foreach, loop, aggregate-reviews.
+Step "step" uses removed step type "custom". Supported types: agent, bash, approval, foreach, loop, aggregate-reviews. Omit "type:" entirely for agent steps (the default). The agent-step marker has been renamed to "agent".
+Step "step": "script" is only valid for type: bash steps.
+Step "step": use "script" or "prompt", not both.
+Step "step" must have either "prompt" or "skill" (or both).
+Step "step": "timeout" is not valid for an agent step; use "turn_timeout".
+Step "step": "turn_timeout" is only valid for agent steps.

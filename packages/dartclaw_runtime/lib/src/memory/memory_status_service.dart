@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -19,7 +20,7 @@ final _dailyLogHeader = RegExp(r'^## (?:[01]\d|2[0-3]):[0-5]\d — ');
 /// Avoids direct `sqlite3` dependency in `dartclaw_runtime/lib/`.
 /// The caller provides a function that queries `SELECT COUNT(*) FROM
 /// memory_chunks WHERE role = ?`.
-typedef SearchIndexCounter = int Function(String role);
+typedef SearchIndexCounter = FutureOr<int> Function(String role);
 
 /// Reads current persisted search-index health evidence.
 typedef IndexHealthReader = Future<IndexHealthEvidence> Function();
@@ -47,6 +48,8 @@ class MemoryStatusService {
   final PromptMemoryStatusReader? promptMemoryStatusReader;
   final WikiSourceCounter? wikiSourceCounter;
   final ScheduleService? scheduleService;
+  final Future<int?> Function()? memoryMissingVectorCount;
+  final Future<int?> Function()? conversationMissingVectorCount;
   final WorkspaceFileReader _workspaceFiles;
 
   new({
@@ -59,6 +62,8 @@ class MemoryStatusService {
     this.promptMemoryStatusReader,
     this.wikiSourceCounter,
     this.scheduleService,
+    this.memoryMissingVectorCount,
+    this.conversationMissingVectorCount,
   }) : _workspaceFiles = WorkspaceFileReader(workspaceDir);
 
   /// Returns the complete memory status response.
@@ -404,12 +409,14 @@ class MemoryStatusService {
       evidenceFailure = error;
     }
     final state = evidence?.state ?? IndexHealthState.unknown;
-    final counts = ['topic', 'observation', 'learning'].map(_countSearchEntries).toList(growable: false);
+    final counts = await Future.wait(['topic', 'observation', 'learning'].map(_countSearchEntries));
     final indexEntries = counts.any((count) => count == null)
         ? null
         : counts.whereType<int>().fold<int>(0, (sum, count) => sum + count);
-    final indexArchived = _countSearchEntries('archive');
+    final indexArchived = await _countSearchEntries('archive');
     final dbSizeBytes = _getSearchDbSize();
+    final memoryUnembeddedCount = await _readMissingVectorCount(memoryMissingVectorCount);
+    final conversationUnembeddedCount = await _readMissingVectorCount(conversationMissingVectorCount);
 
     return {
       'backend': config.search.backend,
@@ -427,6 +434,8 @@ class MemoryStatusService {
       'action': evidence == null ? 'Stop DartClaw, then run dartclaw rebuild-index.' : evidence.action,
       'indexEntries': indexEntries,
       'indexArchived': indexArchived,
+      'memoryUnembeddedCount': memoryUnembeddedCount,
+      'conversationUnembeddedCount': conversationUnembeddedCount,
       'dbSizeBytes': dbSizeBytes,
       'qmdConfig': config.search.backend == 'qmd'
           ? {'host': config.search.qmdHost, 'port': config.search.qmdPort}
@@ -434,11 +443,21 @@ class MemoryStatusService {
     };
   }
 
-  int? _countSearchEntries(String role) {
+  Future<int?> _readMissingVectorCount(Future<int?> Function()? reader) async {
+    if (config.search.backend != 'hybrid' || reader == null) return null;
+    try {
+      return await reader();
+    } on Object catch (error) {
+      _log.fine('Vector coverage count failed: $error');
+      return null;
+    }
+  }
+
+  Future<int?> _countSearchEntries(String role) async {
     final counter = searchIndexCounter;
     if (counter == null) return null;
     try {
-      return counter(role);
+      return await counter(role);
     } catch (e) {
       _log.fine('Search index count failed: $e');
       return null;

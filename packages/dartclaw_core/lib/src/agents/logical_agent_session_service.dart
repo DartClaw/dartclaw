@@ -147,23 +147,10 @@ class LogicalAgentSessionService {
   static _OutputFailure? _checkOutputSchema(String result, Map<String, dynamic> schema, int maxBytes) {
     final Object? decoded;
     try {
-      decoded = jsonDecode(result);
+      decoded = decodeOutputSchemaJson(result);
     } on FormatException catch (e) {
-      // FormatException.toString() embeds a slice of the source; use the reason and offset only.
       final offset = e.offset;
-      return _OutputFailure(
-        'parse',
-        'Agent output does not parse as a single JSON value: ${e.message}'
-            '${offset == null ? '' : ' (at offset $offset)'}.',
-      );
-    }
-
-    final duplicateOffset = _DuplicateJsonMemberScanner(result).firstDuplicateOffset();
-    if (duplicateOffset != null) {
-      return _OutputFailure(
-        'parse',
-        'Agent output is ambiguous JSON: duplicate object member name (at offset $duplicateOffset).',
-      );
+      return _OutputFailure('parse', 'Agent output ${e.message}${offset == null ? '' : ' (at offset $offset)'}.');
     }
 
     final violation = validateOutputSchema(decoded, schema);
@@ -216,96 +203,6 @@ class LogicalAgentSessionService {
     ],
     'isError': true,
   };
-}
-
-class _DuplicateJsonMemberScanner {
-  final String source;
-  var _offset = 0;
-
-  new(this.source);
-
-  int? firstDuplicateOffset() {
-    _skipWhitespace();
-    return _scanValue();
-  }
-
-  int? _scanValue() {
-    _skipWhitespace();
-    final code = source.codeUnitAt(_offset);
-    if (code == 0x7b) return _scanObject();
-    if (code == 0x5b) return _scanArray();
-    if (code == 0x22) {
-      _scanString();
-    } else {
-      _scanScalar();
-    }
-    return null;
-  }
-
-  int? _scanObject() {
-    _offset++;
-    _skipWhitespace();
-    if (source.codeUnitAt(_offset) == 0x7d) {
-      _offset++;
-      return null;
-    }
-    final names = <String>{};
-    while (true) {
-      _skipWhitespace();
-      final keyOffset = _offset;
-      final name = _scanString();
-      if (!names.add(name)) return keyOffset;
-      _skipWhitespace();
-      _offset++;
-      final duplicate = _scanValue();
-      if (duplicate != null) return duplicate;
-      _skipWhitespace();
-      if (source.codeUnitAt(_offset++) == 0x7d) return null;
-    }
-  }
-
-  int? _scanArray() {
-    _offset++;
-    _skipWhitespace();
-    if (source.codeUnitAt(_offset) == 0x5d) {
-      _offset++;
-      return null;
-    }
-    while (true) {
-      final duplicate = _scanValue();
-      if (duplicate != null) return duplicate;
-      _skipWhitespace();
-      if (source.codeUnitAt(_offset++) == 0x5d) return null;
-    }
-  }
-
-  String _scanString() {
-    final start = _offset++;
-    while (true) {
-      final code = source.codeUnitAt(_offset++);
-      if (code == 0x5c) {
-        _offset++;
-      } else if (code == 0x22) {
-        return jsonDecode(source.substring(start, _offset)) as String;
-      }
-    }
-  }
-
-  void _scanScalar() {
-    while (_offset < source.length) {
-      final code = source.codeUnitAt(_offset);
-      if (code == 0x2c || code == 0x5d || code == 0x7d || _isWhitespace(code)) return;
-      _offset++;
-    }
-  }
-
-  void _skipWhitespace() {
-    while (_offset < source.length && _isWhitespace(source.codeUnitAt(_offset))) {
-      _offset++;
-    }
-  }
-
-  static bool _isWhitespace(int code) => code == 0x20 || code == 0x0a || code == 0x0d || code == 0x09;
 }
 
 /// A schema-bound result rejected at the agent boundary.

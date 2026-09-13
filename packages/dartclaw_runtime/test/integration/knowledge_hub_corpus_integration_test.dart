@@ -8,8 +8,12 @@ import 'package:dartclaw_runtime/src/knowledge/knowledge_inbox_read_service.dart
 import 'package:dartclaw_runtime/src/knowledge/wiki_lint.dart';
 import 'package:dartclaw_runtime/src/knowledge/wiki_page_store.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 /// Knowledge-hub integration over one seeded corpus.
 ///
@@ -27,8 +31,8 @@ import 'package:test/test.dart';
 void main() {
   late Directory workspace;
   late Database searchDb;
-  late Database taskDb;
-  late MemoryService memory;
+  late SqliteBackend taskBackend;
+  late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
   late WikiPageStore wiki;
 
@@ -47,9 +51,9 @@ void main() {
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('knowledge_hub_corpus_');
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
-    memory = MemoryService(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    taskBackend = await openPreparedTaskBackend();
+    memory = await prepareMemoryIndex(searchDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
 
     // A page the pipeline authored, linking onward to the runbook.
@@ -96,14 +100,14 @@ void main() {
     );
 
     // The KG carries a contradiction the operator has to settle.
-    kg.addFact(
+    await kg.addFact(
       entity: 'Kestrel',
       predicate: 'tier',
       value: 'gold',
       validFrom: '2026-08-01T00:00:00Z',
       source: 'wiki/kestrel-overview.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Kestrel',
       predicate: 'tier',
       value: 'silver',
@@ -111,30 +115,31 @@ void main() {
       source: 'inbox/kestrel-batch-3.md',
     );
 
-    searchDb.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Kestrel escalation policy recorded from the on-call handover.',
-      'MEMORY.md',
-      'operations',
-      DateTime.utc(2026, 8, 6).toIso8601String(),
-      'MEMORY.md',
-    ]);
+    await memory.replaceAll([
+      SearchDocument(
+        id: '00000000-0000-4000-8000-000000000001',
+        chunks: const ['Kestrel escalation policy recorded from the on-call handover.'],
+        metadata: const {'source': 'memory', 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime.utc(2026, 8, 6),
+      ),
+    ], userId: 'owner');
 
     _write(workspace, 'inbox/kestrel-brief.md', 'Kestrel brief awaiting ingestion.');
     _write(workspace, 'processed/kestrel-batch-1.md', 'Kestrel batch one, already ingested.');
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 
   KnowledgeHubService hub() => KnowledgeHubService(
     wiki: WikiSearchSource(workspaceDir: workspace.path),
     kg: kg,
-    memory: memory,
+    memoryIndex: memory,
     searchBackend: ComposedSearchBackend(
-      personal: Fts5SearchBackend(memoryService: memory),
+      personal: Fts5SearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     ),
     inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),

@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_core/src/storage/index_reconciler.dart' show IndexReconcileTransition;
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -27,9 +27,10 @@ void main() {
     ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
     expect(result.rowCount, 0);
+    expect(result.rebuilt, isTrue);
     expect(result.health.state, IndexHealthState.healthy);
     expect(result.health.indexRevision, 7);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
     db.close();
   });
@@ -43,7 +44,7 @@ void main() {
     ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
 
     expect(result.rowCount, 1);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     final row = db.select('SELECT * FROM memory_chunks').single;
     expect(
       (row['role'], row['locator'], row['entry_id'], row['entry_revision'], row['provenance']),
@@ -52,9 +53,44 @@ void main() {
     db.close();
   });
 
+  test('current fast path rebuilds corrupt FTS data with intact canonical rows', () async {
+    final corpus = _corpus(withEntry: true);
+    final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
+    await reconciler.reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+
+    final corruptDb = sqlite3.open(targetPath);
+    final corruptBackend = SqliteBackend(corruptDb);
+    try {
+      corruptDb.execute('DELETE FROM memory_chunks_fts_data WHERE id > 10');
+      expect(corruptDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
+      await SqliteSchemaGate.prepareSearch(corruptBackend, storeName: 'search.db');
+      await expectLater(
+        SqliteFtsIndex(corruptBackend, table: SqliteFtsTable.memoryChunks).verifyIntegrity(),
+        throwsStateError,
+      );
+    } finally {
+      await corruptBackend.close();
+    }
+
+    final repaired = await reconciler.ensureCurrent(
+      corpus: corpus,
+      canonicalRevision: 7,
+      canonicalFingerprint: 'fingerprint-7',
+    );
+    expect((repaired.rowCount, repaired.health.state), (1, IndexHealthState.healthy));
+    final repairedBackend = SqliteBackend(sqlite3.open(targetPath));
+    try {
+      final index = SqliteFtsIndex(repairedBackend, table: SqliteFtsTable.memoryChunks);
+      await index.verifyIntegrity();
+      expect((await index.search('Durable', userId: 'owner')).single.chunk, 'Durable searchable fact');
+    } finally {
+      await repairedBackend.close();
+    }
+  });
+
   test('batched current fast path proves exact rows and complete canonical authentication', () async {
     final corpus = _corpus(withEntry: true);
-    final expected = MemoryService.canonicalIndexRows(corpus);
+    final expected = MemoryIndexProjection.documents(corpus);
     final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
     await reconciler.reconcileBatched(
       rowBatches: () => Stream.value(expected),
@@ -69,8 +105,9 @@ void main() {
       authenticateComplete: () async => authenticated++,
     );
     expect((current.rowCount, authenticated), (1, 1));
+    expect(current.rebuilt, isFalse);
 
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     db.execute("UPDATE memory_chunks SET text = 'tampered'");
     db.close();
     authenticated = 0;
@@ -80,8 +117,9 @@ void main() {
       canonicalFingerprint: 'fingerprint-7',
       authenticateComplete: () async => authenticated++,
     );
+    expect(repaired.rebuilt, isTrue);
     expect((repaired.rowCount, authenticated), (1, 1));
-    final repairedDb = openSearchDb(targetPath);
+    final repairedDb = sqlite3.open(targetPath);
     expect(repairedDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
     repairedDb.close();
   });
@@ -90,7 +128,7 @@ void main() {
     final target = File(targetPath)..writeAsBytesSync([9, 1, 1]);
     await expectLater(
       CanonicalIndexReconciler(targetPath: targetPath, healthStore: health).reconcileBatched(
-        rowBatches: () => Stream.value(MemoryService.canonicalIndexRows(_corpus(withEntry: true))),
+        rowBatches: () => Stream.value(MemoryIndexProjection.documents(_corpus(withEntry: true))),
         canonicalRevision: 7,
         canonicalFingerprint: 'fingerprint-7',
         authenticateComplete: () async => throw StateError('canonical changed'),
@@ -113,7 +151,7 @@ void main() {
     ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'audit-fingerprint-7');
 
     expect(result.rowCount, 0);
-    final db = openSearchDb(targetPath);
+    final db = sqlite3.open(targetPath);
     expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
     db.close();
   });

@@ -65,9 +65,16 @@ const _unbridgedOwnMcpTools = {
 /// Authority acquisition is the only seam that sees the grant, and the real one
 /// needs Docker, so the grants are read here instead.
 class _GrantRecordingSecurityWiring extends SecurityWiring {
-  new({required super.config, required super.dataDir, required super.eventBus, required super.exitFn});
+  new({
+    required super.config,
+    required super.dataDir,
+    required super.eventBus,
+    required super.exitFn,
+    required super.auditLogger,
+  });
 
   final grants = <({String sessionId, String? taskId, Set<String> allowedMcpTools, String? artifactsDir})>[];
+  final leases = <FakeContainerAuthorityLease>[];
 
   @override
   Set<String> get availableContainerProfiles => const {'workspace', 'restricted'};
@@ -84,13 +91,15 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
       allowedMcpTools: allowedMcpTools,
       artifactsDir: artifactsDir,
     ));
-    return FakeContainerAuthorityLease(
+    final lease = FakeContainerAuthorityLease(
       mcpBridgeUrl: 'http://127.0.0.1:8081/mcp',
       pathMapping: const {
         '/host/artifacts': containerArtifactsPath,
         '/host/artifacts/report.md': '$containerArtifactsPath/report.md',
       },
     );
+    leases.add(lease);
+    return lease;
   }
 }
 
@@ -145,6 +154,7 @@ void main() {
       dataDir: tempDir.path,
       eventBus: eventBus,
       exitFn: _unexpectedExit,
+      auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
     final records = <LogRecord>[];
     final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
@@ -191,6 +201,29 @@ void main() {
       'web_search',
       'web_fetch',
     }, reason: 'background work carries no agent definition, so its own tool policy is what authorizes host tools');
+  });
+
+  test('an unsupported empty policy releases its container authority before provider startup', () async {
+    await wireAll();
+
+    await expectLater(
+      harnessWiring!.executions.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.logicalAgent,
+          providerId: 'claude',
+          policy: ExecutionPolicy.container('restricted'),
+          sessionId: 'container-judge',
+          admission: ExecutionAdmission.failFast,
+          allowedTools: [],
+        ),
+      ),
+      throwsA(isA<UnsupportedHarnessCapabilityException>()),
+    );
+
+    expect(security!.leases, hasLength(1));
+    expect(security!.leases.single.released, isTrue);
+    expect(harnessWiring!.executions.snapshot.providers['claude']!.active, 0);
+    expect(harnessWiring!.executions.snapshot.providers['claude']!.queued, 0);
   });
 
   test('S03 container workflow worker mounts artifacts and translates its spawn paths', () async {

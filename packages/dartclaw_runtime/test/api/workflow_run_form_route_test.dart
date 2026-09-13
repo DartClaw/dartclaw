@@ -7,26 +7,26 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowVariable;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'workflow_test_support.dart';
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late SqliteTaskRepository taskRepo;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late Handler handler;
 
-  setUp(() {
-    taskDb = openTaskDbInMemory();
-    taskRepo = SqliteTaskRepository(taskDb);
+  setUp(() async {
+    taskBackend = await openPreparedTaskBackend();
+    taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
     workflows = FakeWorkflowService(
-      db: sqlite3.openInMemory(),
+      backend: taskBackend,
       taskService: tasks,
       eventBus: eventBus,
       dataDir: '/tmp/workflow-run-form-data',
@@ -55,7 +55,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    taskDb.close();
+    await taskBackend.close();
   });
 
   test('POST /api/workflows/run-form returns HX-Location on success', () async {

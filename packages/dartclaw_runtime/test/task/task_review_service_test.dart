@@ -8,26 +8,25 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'task_review_test_support.dart';
 
 void main() {
-  late Database db;
   late TaskService tasks;
+  late SqliteBackend taskBackend;
   late EventBus eventBus;
 
-  setUp(() {
-    db = openTaskDbInMemory();
+  setUp(() async {
+    taskBackend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    db.close();
+    await taskBackend.close();
   });
 
   group('TaskReviewService', () {
@@ -428,18 +427,18 @@ void main() {
   });
 
   group('TaskEventRecorder — push-back events', () {
-    late Database evtDb;
+    late SqliteBackend eventBackend;
     late TaskEventService eventService;
     late TaskEventRecorder recorder;
 
-    setUp(() {
-      evtDb = openTaskDbInMemory();
-      eventService = TaskEventService(evtDb);
+    setUp(() async {
+      eventBackend = await openPreparedTaskBackend();
+      eventService = TaskEventService(eventBackend);
       recorder = TaskEventRecorder(eventService: eventService);
     });
 
-    tearDown(() {
-      evtDb.close();
+    tearDown(() async {
+      await eventBackend.close();
     });
 
     test('push_back action records a pushBack event with the comment', () async {
@@ -448,7 +447,7 @@ void main() {
 
       await service.review('task-1', 'push_back', comment: 'Please fix the tests');
 
-      final events = eventService.listForTask('task-1');
+      final events = await eventService.listForTask('task-1');
       expect(events, hasLength(1));
       expect(events[0].kind.name, 'pushBack');
       expect(events[0].details['comment'], 'Please fix the tests');
@@ -460,7 +459,7 @@ void main() {
 
       await service.review('task-1', 'accept');
 
-      final events = eventService.listForTask('task-1', kind: TaskEventKind.pushBack);
+      final events = await eventService.listForTask('task-1', kind: TaskEventKind.pushBack);
       expect(events, isEmpty);
     });
 

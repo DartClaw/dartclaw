@@ -1,51 +1,20 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show TurnTrace, TurnTraceSummary, ToolCallRecord;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 
 /// SQLite-backed persistence for turn traces.
 ///
-/// Shares the same [Database] instance as [SqliteTaskRepository] (co-located
-/// in tasks.db). All writes are intended to be called via [unawaited] —
-/// callers should not await the result.
+/// Shares the prepared task backend with the other task-domain services.
 class TurnTraceService {
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the service against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
-  }
+  /// Creates the service against a prepared task [backend].
+  new(this._backend);
 
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS turns (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        task_id TEXT,
-        runner_id INTEGER,
-        model TEXT,
-        provider TEXT,
-        started_at TEXT NOT NULL,
-        ended_at TEXT NOT NULL,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-        is_error INTEGER NOT NULL DEFAULT 0,
-        error_type TEXT,
-        tool_calls TEXT
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_turns_task ON turns(task_id)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_turns_started ON turns(started_at)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_turns_model ON turns(model)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_turns_provider ON turns(provider)');
-  }
-
-  /// Inserts a single trace record. Intended to be called fire-and-forget.
+  /// Inserts a single trace record.
   Future<void> insert(TurnTrace trace) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO turns (
         id, session_id, task_id, runner_id, model, provider,
         started_at, ended_at,
@@ -54,7 +23,7 @@ class TurnTraceService {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         trace.id,
         trace.sessionId,
         trace.taskId,
@@ -77,7 +46,7 @@ class TurnTraceService {
         }),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -132,7 +101,7 @@ class TurnTraceService {
     final whereClause = where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}';
 
     // Aggregate query (full result set, no pagination).
-    final aggStmt = _db.prepare(
+    final aggStmt = await _backend.prepare(
       'SELECT COUNT(*) as cnt, '
       'SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, '
       'SUM(cache_read_tokens) as total_cache_read, SUM(cache_write_tokens) as total_cache_write, '
@@ -141,22 +110,22 @@ class TurnTraceService {
     );
     late TurnTraceSummary summary;
     try {
-      final aggRows = aggStmt.select(params);
+      final aggRows = await aggStmt.query(params);
       final aggRow = aggRows.firstOrNull;
       if (aggRow == null) {
         summary = const TurnTraceSummary();
       } else {
         // tool_calls count requires a separate query since it's stored as JSON.
-        final toolCountStmt = _db.prepare('SELECT tool_calls FROM turns$whereClause');
+        final toolCountStmt = await _backend.prepare('SELECT tool_calls FROM turns$whereClause');
         int totalToolCalls = 0;
         try {
-          final toolRows = toolCountStmt.select(params);
+          final toolRows = await toolCountStmt.query(params);
           for (final row in toolRows) {
             final tc = row['tool_calls'] as String?;
             if (tc != null) totalToolCalls += _decodeToolCalls(tc).count;
           }
         } finally {
-          toolCountStmt.close();
+          await toolCountStmt.close();
         }
         summary = TurnTraceSummary(
           totalInputTokens: (aggRow['total_input'] as num?)?.toInt() ?? 0,
@@ -169,19 +138,21 @@ class TurnTraceService {
         );
       }
     } finally {
-      aggStmt.close();
+      await aggStmt.close();
     }
 
     // Paginated trace query.
-    final dataStmt = _db.prepare('SELECT * FROM turns$whereClause ORDER BY started_at DESC LIMIT ? OFFSET ?');
+    final dataStmt = await _backend.prepare(
+      'SELECT * FROM turns$whereClause ORDER BY started_at DESC LIMIT ? OFFSET ?',
+    );
     final traces = <TurnTrace>[];
     try {
-      final rows = dataStmt.select([...params, effectiveLimit, offset]);
+      final rows = await dataStmt.query([...params, effectiveLimit, offset]);
       for (final row in rows) {
         traces.add(_traceFromRow(row));
       }
     } finally {
-      dataStmt.close();
+      await dataStmt.close();
     }
 
     return TraceQueryResult(traces: traces, summary: summary);
@@ -195,16 +166,16 @@ class TurnTraceService {
 
   /// Returns a single trace by ID, or null when it does not exist.
   Future<TurnTrace?> getById(String id) async {
-    final stmt = _db.prepare('SELECT * FROM turns WHERE id = ? LIMIT 1');
+    final stmt = await _backend.prepare('SELECT * FROM turns WHERE id = ? LIMIT 1');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       final row = rows.firstOrNull;
       if (row == null) {
         return null;
       }
       return _traceFromRow(row);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -213,7 +184,7 @@ class TurnTraceService {
     // No-op — db lifecycle managed by caller.
   }
 
-  TurnTrace _traceFromRow(Row row) {
+  TurnTrace _traceFromRow(Map<String, Object?> row) {
     final storedToolCalls = _decodeToolCalls(row['tool_calls'] as String?);
     return TurnTrace(
       id: row['id'] as String,

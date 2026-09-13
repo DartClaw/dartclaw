@@ -1,1 +1,1 @@
-
+packages/dartclaw_search/lib/src/embedding_providers.dart:11  # Pinned llamadart 0.8.22 hides workerStartupTimeout from its public factory; the verified GGUF provider passes its existing initialization deadline to the same native backend. Remove when a public timeout API is available; requalify on dependency upgrades.

@@ -1,0 +1,28 @@
+{
+  "shared": [
+    "backend.crud",
+    "backend.transaction",
+    "schema.fresh_bootstrap",
+    "schema.compatible_reopen",
+    "schema.orphan_column_tolerance",
+    "schema.incompatible_refusal",
+    "schema.bootstrap_rollback",
+    "fts.membership",
+    "fts.tenancy",
+    "repository.task",
+    "repository.goal",
+    "repository.agent_execution",
+    "repository.workflow_step_execution",
+    "repository.workflow_run",
+    "repository.task_event",
+    "repository.turn_trace",
+    "repository.kg_fact"
+  ],
+  "sqlite": [
+    "backend.sqlite_completion_order",
+    "schema.sqlite_derived_rebuild"
+  ],
+  "postgres": [
+    "backend.ambiguous_dispatch_no_replay"
+  ]
+}

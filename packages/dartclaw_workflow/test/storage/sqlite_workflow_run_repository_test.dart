@@ -1,4 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         SqliteWorkflowRunRepository,
@@ -7,7 +8,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowWorktreeBinding;
 import 'package:logging/logging.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 WorkflowRun _buildRun({
@@ -41,31 +41,16 @@ WorkflowRun _buildRun({
 
 void main() {
   group('SqliteWorkflowRunRepository', () {
-    late Database db;
+    late DatabaseBackend backend;
     late SqliteWorkflowRunRepository repository;
 
-    setUp(() {
-      db = sqlite3.openInMemory();
-      repository = SqliteWorkflowRunRepository(db);
+    setUp(() async {
+      backend = await openPreparedTaskBackend();
+      repository = SqliteWorkflowRunRepository(backend);
     });
 
-    tearDown(() {
-      db.close();
-    });
-
-    group('schema', () {
-      test('creates workflow_runs table and indexes', () {
-        final tables = db.select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name");
-        final names = tables.map((r) => r['name']).toList();
-        expect(names, contains('workflow_runs'));
-        expect(names, contains('idx_workflow_runs_status'));
-        expect(names, contains('idx_workflow_runs_definition'));
-      });
-
-      test('schema creation is idempotent', () {
-        // Creating a second repository with the same db must not throw
-        expect(() => SqliteWorkflowRunRepository(db), returnsNormally);
-      });
+    tearDown(() async {
+      await backend.close();
     });
 
     group('insert and getById', () {
@@ -155,7 +140,7 @@ void main() {
         await repository.insert(run);
         // Rewrite the persisted cursor to what an earlier version wrote for a
         // plain `map_over` controller.
-        db.execute('UPDATE workflow_runs SET execution_cursor_json = ? WHERE id = ?', [
+        await backend.execute('UPDATE workflow_runs SET execution_cursor_json = ? WHERE id = ?', [
           '{"nodeType":"map","nodeId":"ms","stepIndex":4,"totalItems":3,"completedIndices":[0]}',
           run.id,
         ]);
@@ -185,6 +170,7 @@ void main() {
       test('list with no filters returns all runs', () async {
         final all = await repository.list();
         expect(all.length, 3);
+        expect(all.map((run) => run.id), ['r3', 'r2', 'r1']);
       });
 
       test('list filtered by status returns correct subset', () async {
@@ -232,7 +218,9 @@ void main() {
       test('persists the items wrapper JSON shape', () async {
         await repository.insert(_buildRun(workflowWorktrees: const [binding]));
 
-        final row = db.select('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?', ['run-1']).single;
+        final row = (await backend.query('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?', [
+          'run-1',
+        ])).single;
         expect(
           row['workflow_worktree_json'],
           '{"items":[{"key":"story-a","path":"/tmp/worktrees/story-a","branch":"story-a","workflowRunId":"run-1"}]}',
@@ -241,7 +229,7 @@ void main() {
 
       test('getWorktreeBindings preserves legacy single-binding decoding', () async {
         await repository.insert(_buildRun());
-        db.execute('UPDATE workflow_runs SET workflow_worktree_json = ? WHERE id = ?', [
+        await backend.execute('UPDATE workflow_runs SET workflow_worktree_json = ? WHERE id = ?', [
           '{"key":"story-a","path":"/tmp/worktrees/story-a","branch":"story-a","workflowRunId":"run-1"}',
           'run-1',
         ]);
@@ -249,6 +237,25 @@ void main() {
         final bindings = await repository.getWorktreeBindings('run-1');
         expect(bindings, hasLength(1));
         expect(bindings.single.toJson(), binding.toJson());
+      });
+
+      test('set and get preserve bindings while update with no bindings keeps stored JSON', () async {
+        final run = _buildRun();
+        await repository.insert(run);
+        await repository.setWorktreeBinding(run.id, binding);
+
+        expect((await repository.getWorktreeBinding(run.id))?.toJson(), binding.toJson());
+        expect((await repository.getWorktreeBindings(run.id)).single.toJson(), binding.toJson());
+
+        await repository.update(run.copyWith(status: WorkflowRunStatus.running));
+        expect((await repository.getWorktreeBindings(run.id)).single.toJson(), binding.toJson());
+      });
+
+      test('setWorktreeBinding throws for a missing run', () async {
+        await expectLater(
+          repository.setWorktreeBinding('missing', binding),
+          throwsA(isA<ArgumentError>().having((error) => error.message, 'message', 'Workflow run not found: missing')),
+        );
       });
     });
 
@@ -258,71 +265,6 @@ void main() {
         await repository.insert(run);
         await repository.delete(run.id);
         expect(await repository.getById(run.id), isNull);
-      });
-    });
-
-    group('S36 legacy paused → awaitingApproval / failed migration', () {
-      // Uses a dedicated in-memory DB per test so the migration ledger is
-      // fresh (the shared setUp already runs the migration on its db).
-      late Database migrationDb;
-
-      setUp(() {
-        migrationDb = sqlite3.openInMemory();
-        // Seed minimal workflow_runs table matching the repository schema.
-        migrationDb.execute('''
-          CREATE TABLE workflow_runs (
-            id TEXT PRIMARY KEY,
-            definition_name TEXT,
-            status TEXT,
-            context_json TEXT,
-            variables_json TEXT,
-            started_at TEXT,
-            updated_at TEXT,
-            completed_at TEXT,
-            error_message TEXT,
-            total_tokens INTEGER DEFAULT 0,
-            current_step_index INTEGER DEFAULT 0,
-            definition_json TEXT,
-            execution_cursor_json TEXT
-          )
-        ''');
-      });
-
-      tearDown(() {
-        migrationDb.close();
-      });
-
-      test('reclassifies paused rows: with pending approval → awaitingApproval, without → failed', () async {
-        migrationDb.execute('''
-          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
-            started_at, updated_at, definition_json)
-          VALUES ('run-approval', 'wf', 'paused',
-            '{"_approval.pending.stepId":"gate"}', '{}',
-            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
-        ''');
-        migrationDb.execute('''
-          INSERT INTO workflow_runs (id, definition_name, status, context_json, variables_json,
-            started_at, updated_at, definition_json)
-          VALUES ('run-failure', 'wf', 'paused',
-            '{}', '{}',
-            '2026-01-01T10:00:00Z', '2026-01-01T10:00:00Z', '{}')
-        ''');
-
-        final repo = SqliteWorkflowRunRepository(migrationDb);
-
-        expect((await repo.getById('run-approval'))?.status, WorkflowRunStatus.awaitingApproval);
-        expect((await repo.getById('run-failure'))?.status, WorkflowRunStatus.failed);
-      });
-
-      test('migration runs once and does not touch later user-initiated paused rows', () async {
-        // First construction applies the migration (nothing to reclassify).
-        final repo = SqliteWorkflowRunRepository(migrationDb);
-
-        // After migration: a legitimately paused run must not be reclassified on re-open.
-        await repo.insert(_buildRun(id: 'post-migration-paused', status: WorkflowRunStatus.paused));
-
-        final repo2 = SqliteWorkflowRunRepository(migrationDb);
-        expect((await repo2.getById('post-migration-paused'))?.status, WorkflowRunStatus.paused);
       });
     });
   });

@@ -114,27 +114,58 @@ int _maxCeilingFor(int loc) {
 //   consumes the one policy resolver and the one row lookup rather than copying
 //   either, and what the story retired (the group id decoded back out of a
 //   session key, the hand-rolled config-change row extraction) already came out.
+//
+// Reviewed necessity, 2026-09-08 (ADR-045):
+//   dartclaw_core 27705 -> 27812 (measured 27812, no headroom). The SQLite
+//   compatibility gate adds required-object manifests, transactional bootstrap,
+//   marker-only adoption and derived-index rebuild/refusal while retiring the
+//   temporal-KG and memory-index additive repairs.
+//
+// Reviewed necessity, 2026-09-08 (ADR-045):
+//   dartclaw_core 27812 -> 27943 (measured 27943, no headroom). The generic
+//   full-text port moves SQLite search behind DatabaseBackend, retains exact
+//   canonical document validation in the reconciler and deletes MemoryService.
+//
+// Reviewed necessity, 2026-09-08 (ADR-045):
+//   dartclaw_core 27943 -> 29759 (measured 28475). The PostgreSQL implementation
+//   adds the bounded pool backend, dispatch classifier and exact schema gate.
+// Reviewed necessity, 2026-09-09 (ADR-045):
+//   dartclaw_core 29759 -> 29862 (measured 29862, no headroom). Serving ownership
+//   adds the private recovery guard and read-only inactive-store probe.
+// Reviewed necessity, 2026-09-09 (ADR-045):
+//   dartclaw_core 29862 -> 30314 (measured 30314, no headroom). Conversation
+//   indexing adds its projection, lifecycle observers and search service.
+// Reviewed necessity, 2026-09-09 (ADR-050):
+//   dartclaw_core 30314 -> 30428 (measured 30428, no headroom). Persisted chunk
+//   ordinals and deterministic canonical Markdown chunking complete the shared
+//   lexical identity contract.
+// Reviewed necessity, 2026-09-09 (ADR-050):
+//   dartclaw_search 682 -> 1456 (measured 1456, no headroom). Providers and authenticated weighted
+//   fusion and source-rechecked vector synchronization complete the search-contract surface.
+// Search contract correction, 2026-09-09 (ADR-050): removal of the production
+// judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
+// down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
+// 2026-09-10: shared endpoint validation reduces search to 1490 lines; ratchet to 1986.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 27705,
+  'dartclaw_core': 31260,
   'dartclaw_google_chat': 7509,
-  'dartclaw_kernel': 19920,
-  'dartclaw_runtime': 67371,
+  'dartclaw_kernel': 21444,
+  'dartclaw_runtime': 68666,
+  'dartclaw_search': 1986,
   'dartclaw_signal': 1796,
-  'dartclaw_testing': 3984,
+  'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25632,
 };
-// 2026-08-22: ratcheted 13 -> 12 when storage was absorbed into core, and the
-// package count is recorded again here at the tier order's close. The ceiling
-// equals the shipped package count, with no spare slot for an unreviewed
-// boundary. `dartclaw_bridge` counts as its own package: the combined
-// core+bridge target is not decided, so this records the actual state.
-const _workspacePackageCeiling = 12;
+// 2026-09-09: raised 12 -> 13 for the ADR-050 hybrid-search package. The
+// ceiling equals the shipped package count, with no spare slot for an
+// unreviewed boundary. `dartclaw_bridge` counts as its own package.
+const _workspacePackageCeiling = 13;
 
 final class _CheckResult {
   final String name;

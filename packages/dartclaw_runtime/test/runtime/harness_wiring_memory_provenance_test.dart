@@ -133,7 +133,7 @@ void main() {
   });
 
   test('production memory handlers reopen native KG and inbox locators', () async {
-    final factId = storage.kg.addFact(
+    final factId = await storage.kg.addFact(
       entity: 'Falcon',
       predicate: 'status',
       value: 'green',

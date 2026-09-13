@@ -236,6 +236,91 @@ void main() {
     expect(outcome.canonicalRevision, 41);
     expect(outcome.degradedLayers, isEmpty);
   });
+
+  group('queryCurrentIndex', () {
+    test('runs without health storage and reports query failure safely', () async {
+      final current = await ComposedSearchBackend.queryCurrentIndex(query: () async => 'result');
+      final failed = await ComposedSearchBackend.queryCurrentIndex<String>(
+        query: () => throw StateError('unavailable'),
+      );
+
+      expect(current, (result: 'result', canonicalRevision: null, reason: null));
+      expect(failed, (result: null, canonicalRevision: null, reason: 'searchFailure'));
+    });
+
+    test('completes the after-probe when a guarded query throws', () async {
+      var probes = 0;
+      final result = await ComposedSearchBackend.queryCurrentIndex<String>(
+        query: () => throw StateError('unavailable'),
+        indexHealthProbe: () async {
+          probes++;
+          return _health(IndexHealthState.healthy, 42);
+        },
+      );
+
+      expect(probes, 2);
+      expect(result, (result: null, canonicalRevision: 42, reason: 'searchFailure'));
+    });
+
+    test('refuses a stale index before running the query', () async {
+      var queries = 0;
+      final result = await ComposedSearchBackend.queryCurrentIndex(
+        query: () async {
+          queries++;
+          return 'stale';
+        },
+        indexHealthProbe: () async => _health(IndexHealthState.degraded, 42, indexRevision: 41),
+      );
+
+      expect(queries, 0);
+      expect(result, (result: null, canonicalRevision: 42, reason: 'indexNotCurrent'));
+    });
+
+    test('returns a result only across unchanged current evidence', () async {
+      var probes = 0;
+      final result = await ComposedSearchBackend.queryCurrentIndex(
+        query: () async => 'current',
+        indexHealthProbe: () async {
+          probes++;
+          return _health(IndexHealthState.healthy, 42);
+        },
+      );
+
+      expect(probes, 2);
+      expect(result, (result: 'current', canonicalRevision: 42, reason: null));
+    });
+
+    test('discards a result when the index identity changes during search', () async {
+      final evidence = [_health(IndexHealthState.healthy, 41), _health(IndexHealthState.healthy, 42)].iterator;
+      final result = await ComposedSearchBackend.queryCurrentIndex(
+        query: () async => 'raced',
+        indexHealthProbe: () async {
+          evidence.moveNext();
+          return evidence.current;
+        },
+      );
+
+      expect(result, (result: null, canonicalRevision: 42, reason: 'indexChangedDuringSearch'));
+    });
+
+    test('reports unavailable health before and after a query', () async {
+      final before = await ComposedSearchBackend.queryCurrentIndex<String>(
+        query: () async => 'unreachable',
+        indexHealthProbe: () => throw StateError('health unavailable'),
+      );
+      var probes = 0;
+      final after = await ComposedSearchBackend.queryCurrentIndex(
+        query: () async => 'unverified',
+        indexHealthProbe: () async {
+          if (++probes == 2) throw StateError('health unavailable');
+          return _health(IndexHealthState.healthy, 42);
+        },
+      );
+
+      expect(before, (result: null, canonicalRevision: null, reason: 'indexHealthUnavailable'));
+      expect(after, (result: null, canonicalRevision: 42, reason: 'indexHealthUnavailable'));
+    });
+  });
 }
 
 IndexHealthEvidence _health(IndexHealthState state, int revision, {int? indexRevision}) => IndexHealthEvidence(

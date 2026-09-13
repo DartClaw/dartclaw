@@ -14,6 +14,104 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.26.0] - 2026-09-13
+
+### Added
+
+- **SQLite and PostgreSQL storage** – SQLite remains the default; PostgreSQL adds an opt-in deployment database with
+  explicit schema compatibility gates and language-aware memory, conversation and knowledge-graph search. The same
+  owner-scoped storage contracts cover both backends. Conversation search projects chat-facing session messages from
+  their existing NDJSON source and follows deletion, archive and resume operations.
+
+- **Verified native packaging** – both existing binaries include the selected native embedding libraries alongside
+  SQLite. Release builds verify cached archive sizes and SHA-256 hashes before native compilation, support explicit
+  online acquisition, and use one complete library set per target. The model is acquired separately.
+
+- **Retrieval evaluation tools** – a sealed English/Swedish corpus evaluates keyword, vector and hybrid retrieval for
+  both searchable corpora and database backends. The harness records quality, timing, isolation and input hashes;
+  external fixtures declare their evidence scope explicitly, since a file path and checksum do not establish
+  independence. Separate native probes record actual process exit and failure behavior.
+
+- **Search inspection and source provenance** – authenticated `search inspect` exposes bounded memory and conversation ranking evidence. Turn traces retain up to 50 exact returned memory locators per successful search call.
+
+- **Hybrid retrieval activation** – `search.backend: hybrid` shares one configured embedding provider across memory and conversation indexes. `search download-model` acquires the verified local model; `rebuild-index` reuses retained vectors and reports separate unembedded counts. FTS remains the default.
+
+- **Derived vector storage** – SQLite and PostgreSQL retain separate memory and conversation embeddings with owner-scoped ranking, atomic updates and explicit compatibility checks. PostgreSQL hybrid activation requires administrator-provisioned pgvector.
+
+- **Native and explicit HTTP embedding providers** – `dartclaw_search` can lazily load the checksum-verified default
+  EmbeddingGemma model in process, call an explicitly configured OpenAI-compatible endpoint with raw inputs, and
+  explicitly acquire the frozen default model through verified failure-atomic publication. Provider fingerprints exclude
+  paths and credentials, HTTP failures expose no request or response secrets, and native initialization and shutdown are
+  bounded.
+
+- **Hybrid search contract boundary** – `dartclaw_kernel` now owns validated vector, embedding and content-free
+  diagnostic contracts with stable document/chunk identities. The new T1 `dartclaw_search` package has kernel as its only workspace dependency and uses
+  `crypto` for SHA-256 hashing and pinned `llamadart` for local embeddings; concrete storage and canonical corpus mapping remain in core.
+
+- **PostgreSQL operator guide** – configuration, TLS posture, least-privilege provisioning, storage tiers, backups,
+  backend switching, and decommissioning are documented in [PostgreSQL](docs/guide/postgresql.md).
+
+- **PostgreSQL serving interlock** – one serving process owns each database. Lost ownership blocks storage until
+  reacquisition and revalidation; startup preserves orphan-turn evidence until the active-store gate succeeds.
+  Backend switches transfer no data and report inactive stores through a read-only, best-effort probe.
+
+- **Published workflow JSON Schema** – `schemas/workflow.schema.json` describes the strict workflow authoring surface,
+  including aliases, shorthand forms and per-step-type fields. It is generated from the parser and validator's shared
+  rule source, and the fitness harness rejects drift.
+
+- **PostgreSQL connection security posture** – an opt-in PostgreSQL URL resolves from one environment-substituted
+  `database.url` or named generic credential, stays masked on configuration surfaces, and is redacted from text.
+  Non-loopback connections with no `sslmode` use `verify-full`, explicit cleartext is refused, and connection lifecycle
+  audits carry only safe server identity and the credential reference. Startup warns when the runtime role is a
+  superuser and points operators to the two-role least-privilege model.
+
+### Changed
+
+- **Agent-independent hybrid retrieval** – full-text and vector candidates are combined with weighted RRF and
+  returned after current-source verification. The interim generative answer judge and `search.relevance_model`
+  setting are removed. Search requires only its embedding provider and database, not agent credentials or worker
+  capacity. Fresh lexical fallback, explicit tool-policy enforcement and execution-capacity cleanup are retained.
+  Runtime/search LOC ceilings ratchet down to 68,666/1,994 after removal (measured 67,166/1,496).
+- **Retrieval evaluation contract** – protocol 3 measures useful passage relevance separately from answer
+  sufficiency and reports semantic no-match errors as diagnostics. Positive ranking tolerances, zero owner/corpus
+  leakage and exact current-source exclusion remain enforced. Original fixtures and failed reports stay historical;
+  exposed regression fixtures do not establish unseen acceptance.
+
+- **Reported session cost** – missing provider cost is no longer treated as zero. Session cost is unavailable when
+  any turn lacks reported cost, including older records without cost-presence evidence; reported zero remains zero.
+
+- **QMD deprecated** – the opt-in QMD backend still works in 0.26. Built-in hybrid search replaces it; removal is scheduled for the following milestone.
+
+- **Vector storage LOC ceilings** – core measures 31,260 Dart lines and shared testing helpers measure 3,764; their ceilings match those measurements without added headroom.
+
+- **Persisted lexical chunk identities** – memory and conversation rows now store a zero-based `chunk_index`, so
+  repeated equal chunks retain their canonical position independently of backend row IDs or text.
+- **Search LOC ceiling rebaseline for fusion and synchronization** – `dartclaw_search/lib` measures 1,456 Dart lines
+  after adding embedding providers, authenticated fusion and vector reconciliation. The
+  ceiling is 1,456 with no added headroom.
+- **Outbound MCP plain-HTTP loopback exemption narrowed** – the shared literal rule now accepts only `localhost`,
+  `127.0.0.1`, and `::1`; other `127.0.0.0/8` addresses such as `127.0.0.2` require HTTPS when TLS is required.
+
+- Rename the authoritative SQLite store to `dartclaw.db`. Existing `tasks.db` stores are adopted automatically after a WAL checkpoint; startup refuses when both names exist and prints keep/remove guidance.
+
+### Fixed
+
+- Native embedding startup uses the provider's initialization deadline for the backend worker, avoiding an earlier
+  dependency timeout during slow Metal shader preparation.
+
+- Fix Windows native embedding backend discovery and release-smoke archive validation.
+
+- Release builds initialize native artifact paths in a supported workflow context. PostgreSQL CI provisions pgvector
+  before exercising hybrid rebuilds.
+- Search inspection reports unavailable diagnostics instead of a zero when the unembedded count cannot be computed.
+  The SDK diagnostic count is nullable; successful inspection responses still contain an integer.
+- PostgreSQL startup closes the task pool before releasing serving ownership. Transaction statement cleanup and
+  runtime storage teardown preserve the primary operation result or failure when cleanup also fails.
+- Native platform evidence validation rejects missing or incorrectly typed archive, model, metric and process facts.
+- Shared endpoint validation reduces search to 1,490 lines; its LOC ceiling ratchets down to 1,986.
+
+---
+
 ## [0.25.2] - 2026-09-08
 
 ### Added
@@ -56,6 +154,13 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Core LOC ceiling rebaseline for the full-text index seam** – `dartclaw_core/lib` measures 27,943 Dart lines
+  after replacing `MemoryService` with the `DatabaseBackend`-based SQLite index, memory projection and exact
+  reconciler validation. The ceiling is set to the measured value with no headroom.
+- **Core LOC ceiling rebaseline for SQLite schema compatibility** – `dartclaw_core/lib` measures 27,812 Dart lines
+  after adding the required-object manifests, transactional schema gate and derived-index rebuild/refusal path while
+  retiring the temporal-KG and memory-index additive repairs. The ceiling is set to the measured value with no
+  headroom; the later PostgreSQL backend owns its separate rebaseline.
 - **Built-in workflows no longer pass `--council` to `andthen:review`.** AndThen 1.0 retired the flag, so the
   `integrated-review-council` and `plan-review-council` steps in `spec-and-implement` and `plan-and-implement` are
   gone; each pipeline's gap review feeds the aggregator alone. A multi-perspective pass is the optional
@@ -78,6 +183,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   lazily. `pool_size: 1` remains an explicit choice.
 
 ### Fixed
+
+- Workflow progress stays inside the workflow page and is removed when navigating to another page.
 
 - **Standalone workflows no longer initialize personal memory.** Headless startup skips memory preflight, indexing,
   search and self-improvement, and workflow harnesses receive no DartClaw memory callbacks or retrieval hints.

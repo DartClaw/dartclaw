@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 void main() {
@@ -37,9 +38,15 @@ void main() {
     );
   }
 
-  SlashCommandHandler buildHandler({BudgetEnforcer? budgetEnforcer}) {
+  Future<SlashCommandHandler> buildHandler({BudgetEnforcer? budgetEnforcer}) async {
     final eventBus = EventBus();
-    final tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
+    final backend = await openPreparedTaskBackend();
+    final tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
+    addTearDown(() async {
+      await tasks.dispose();
+      await eventBus.dispose();
+      await backend.close();
+    });
     return SlashCommandHandler(taskService: tasks, budgetEnforcer: budgetEnforcer);
   }
 
@@ -54,7 +61,7 @@ void main() {
 
   group('SlashCommandHandler /status — budget section', () {
     test('no budget enforcer → no "Token Budget" section', () async {
-      final handler = buildHandler(); // no budgetEnforcer
+      final handler = await buildHandler(); // no budgetEnforcer
       final response = await handler.handle(
         const SlashCommand(name: 'status', arguments: ''),
         spaceName: 'spaces/AAAA',
@@ -70,7 +77,7 @@ void main() {
         usageTracker: tracker,
         config: const BudgetConfig.defaults(), // dailyTokens: 0
       );
-      final handler = buildHandler(budgetEnforcer: disabledEnforcer);
+      final handler = await buildHandler(budgetEnforcer: disabledEnforcer);
       final response = await handler.handle(
         const SlashCommand(name: 'status', arguments: ''),
         spaceName: 'spaces/AAAA',
@@ -85,7 +92,7 @@ void main() {
       await seedTokens(today, input: 300, output: 200); // 500/1000 = 50%
 
       final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.warn);
-      final handler = buildHandler(budgetEnforcer: enforcer);
+      final handler = await buildHandler(budgetEnforcer: enforcer);
 
       final response = await handler.handle(
         const SlashCommand(name: 'status', arguments: ''),
@@ -105,7 +112,7 @@ void main() {
       await seedTokens(today, input: 600, output: 400); // 100%
 
       final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.block);
-      final handler = buildHandler(budgetEnforcer: enforcer);
+      final handler = await buildHandler(budgetEnforcer: enforcer);
 
       final response = await handler.handle(
         const SlashCommand(name: 'status', arguments: ''),

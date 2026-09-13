@@ -8,6 +8,59 @@ const _path = 'agent.agents.researcher.output_schema';
 Map<String, dynamic> _parse(Object? raw) => parseOutputSchema(raw, yamlPath: _path);
 
 void main() {
+  group('decodeOutputSchemaJson', () {
+    test('decodes a single JSON object', () {
+      expect(decodeOutputSchemaJson('{"title":"x","count":3}'), {'title': 'x', 'count': 3});
+    });
+
+    test('accepts bare JSON primitives and arrays for caller-side root validation', () {
+      expect(decodeOutputSchemaJson('null'), isNull);
+      expect(decodeOutputSchemaJson('true'), isTrue);
+      expect(decodeOutputSchemaJson('3'), 3);
+      expect(decodeOutputSchemaJson('"value"'), 'value');
+      expect(decodeOutputSchemaJson('[1,2]'), [1, 2]);
+    });
+
+    test('rejects malformed, prose-wrapped, and fenced JSON without leaking the source', () {
+      const marker = 'MARKER-SECRET-PAYLOAD';
+      for (final source in [
+        '{"title":"$marker"',
+        'Here is the answer: {"title":"$marker"}',
+        '```json\n{"title":"$marker"}\n```',
+      ]) {
+        expect(
+          () => decodeOutputSchemaJson(source),
+          throwsA(
+            isA<FormatException>()
+                .having((error) => error.source, 'source', isNull)
+                .having((error) => error.offset, 'offset', isNotNull)
+                .having((error) => error.toString(), 'toString()', isNot(contains(marker))),
+          ),
+          reason: source,
+        );
+      }
+    });
+
+    test('rejects duplicate object members after decoding escaped names and at nested levels', () {
+      for (final source in [
+        r'{"title":1,"title":2}',
+        r'{"title":1,"\u0074itle":2}',
+        r'{"outer":{"title":1,"title":2}}',
+      ]) {
+        expect(
+          () => decodeOutputSchemaJson(source),
+          throwsA(
+            isA<FormatException>()
+                .having((error) => error.message, 'message', contains('duplicate object member name'))
+                .having((error) => error.source, 'source', isNull)
+                .having((error) => error.offset, 'offset', isNotNull),
+          ),
+          reason: source,
+        );
+      }
+    });
+  });
+
   group('parseOutputSchema deep-close', () {
     test('adds additionalProperties:false at every nesting level including inside items', () {
       final schema = _parse({

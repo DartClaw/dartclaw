@@ -332,7 +332,7 @@ class KnowledgeInboxService {
           }
           continue;
         }
-        final conflicts = graph.contradictions(entity: fact.entity, predicate: fact.predicate, value: fact.value);
+        final conflicts = await graph.contradictions(entity: fact.entity, predicate: fact.predicate, value: fact.value);
         if (conflicts.isEmpty) {
           factsToWrite.add(fact);
         } else {
@@ -355,7 +355,7 @@ class KnowledgeInboxService {
       );
     }
     for (final fact in factsToWrite) {
-      graph!.addFact(
+      await graph!.addFact(
         entity: fact.entity,
         predicate: fact.predicate,
         value: fact.value,

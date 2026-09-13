@@ -11,7 +11,6 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRu
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowRun;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 class _FakeRemotePushService extends RemotePushService {
@@ -46,7 +45,7 @@ class _FakePrCreator extends PrCreator {
 }
 
 void main() {
-  late Database db;
+  late SqliteBackend taskBackend;
   late EventBus eventBus;
   late TaskService taskService;
   late Directory tempDir;
@@ -56,15 +55,15 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('service_wiring_workflow_publish_test_');
     projectPath = p.join(tempDir.path, 'project');
     await _initProjectRepo(projectPath, workflowBranch: 'dartclaw/workflow/run123');
-    db = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+    taskService = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await taskService.dispose();
-    db.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

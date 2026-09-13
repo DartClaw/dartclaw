@@ -1,24 +1,27 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/memory/memory_apply_service.dart';
 import 'package:logging/logging.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 const _a = '00000000-0000-4000-8000-00000000000a';
 
 void main() {
   late Directory workspace;
   late Database db;
-  late MemoryService index;
+  late FullTextIndex index;
   late MemoryCorpusService corpus;
   late MemorySourceRef provenance;
 
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('memory_apply_service_log_test_');
     db = sqlite3.openInMemory();
-    index = MemoryService(db);
+    index = await prepareMemoryIndex(db);
     corpus = MemoryCorpusService(workspaceDir: workspace.path);
     provenance = MemorySourceRef(
       originKind: MemoryOriginKind.curation,
@@ -43,7 +46,7 @@ void main() {
     reconcileIndex:
         reconcile ??
         (committed, _, _, _, userId) {
-          index.replaceMemoryRows(MemoryService.canonicalIndexRows(committed), userId: userId);
+          return replaceMemoryCorpus(index, committed, userId: userId);
         },
   );
 

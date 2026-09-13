@@ -1,104 +1,102 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('TurnStateStore', () {
-    late Database db;
+    late Directory tempDir;
+    late File stateFile;
     late TurnStateStore store;
-    late bool storeDisposed;
 
     setUp(() {
-      db = sqlite3.openInMemory();
-      store = TurnStateStore(db);
-      storeDisposed = false;
+      tempDir = Directory.systemTemp.createTempSync('turn-state-store-');
+      stateFile = File(p.join(tempDir.path, 'turn_state.json'));
+      store = openTurnStateStore(stateFile.path);
     });
 
     tearDown(() async {
-      if (!storeDisposed) {
-        await store.dispose();
-      }
-    });
-
-    group('schema', () {
-      test('creates turn_state table', () {
-        final tables = db.select("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
-        final names = tables.map((row) => row['name']).toList();
-
-        expect(names, contains('turn_state'));
-      });
-
-      test('enables WAL mode for file databases', () async {
-        final tempDir = await Directory.systemTemp.createTemp('turn-state-store-');
-        try {
-          final fileDb = sqlite3.open(p.join(tempDir.path, 'state.db'));
-          final fileStore = TurnStateStore(fileDb);
-          final rows = fileDb.select('PRAGMA journal_mode');
-
-          expect(rows.single.columnAt(0), 'wal');
-
-          await fileStore.dispose();
-        } finally {
-          tempDir.deleteSync(recursive: true);
-        }
-      });
+      await store.dispose();
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
     test('set and getAll round-trip', () async {
-      final startedAt = DateTime.parse('2026-03-15T09:30:00Z');
-
-      await store.set('session-1', 'turn-1', startedAt);
-      final states = await store.getAll();
-
-      expect(states, hasLength(1));
-      expect(states['session-1'], (turnId: 'turn-1', startedAt: startedAt));
-    });
-
-    test('delete removes entry', () async {
-      await store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z'));
-
-      await store.delete('session-1');
-      final states = await store.getAll();
-
-      expect(states, isEmpty);
-    });
-
-    test('set with existing key updates existing entry', () async {
-      await store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z'));
-      final updatedAt = DateTime.parse('2026-03-15T09:45:00Z');
-
-      await store.set('session-1', 'turn-2', updatedAt);
-      final states = await store.getAll();
-
-      expect(states, hasLength(1));
-      expect(states['session-1'], (turnId: 'turn-2', startedAt: updatedAt));
-    });
-
-    test('getAll returns empty map when table is empty', () async {
-      expect(await store.getAll(), isEmpty);
-    });
-
-    test('concurrent set operations on different keys both persist', () async {
-      await Future.wait([
-        store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z')),
-        store.set('session-2', 'turn-2', DateTime.parse('2026-03-15T09:31:00Z')),
-      ]);
+      final later = DateTime.parse('2026-03-15T09:45:00Z');
+      final earlier = DateTime.parse('2026-03-15T09:30:00Z');
+      await store.set('session-z', 'turn-old', earlier);
+      await store.set('session-a', 'turn-a', earlier);
+      await store.set('session-z', 'turn-new', later);
+      await store.delete('session-a');
+      await store.set('session-b', 'turn-b', earlier);
 
       final states = await store.getAll();
-
-      expect(states, hasLength(2));
-      expect(states['session-1']?.turnId, 'turn-1');
-      expect(states['session-2']?.turnId, 'turn-2');
+      expect(states.keys, ['session-b', 'session-z']);
+      expect(states['session-z'], (turnId: 'turn-new', startedAt: later));
     });
 
-    test('dispose closes the owned database', () async {
+    test('getAll reads the file on every call and sees another instance', () async {
+      final other = openTurnStateStore(stateFile.path);
+      addTearDown(other.dispose);
+      await other.set('session-2', 'turn-2', DateTime.parse('2026-03-15T09:30:00Z'));
+      expect((await store.getAll())['session-2']?.turnId, 'turn-2');
+    });
+
+    test('set is durable before its returned future is awaited', () {
+      store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z'));
+      final disk = jsonDecode(stateFile.readAsStringSync()) as Map<String, dynamic>;
+      expect((disk['session-1'] as Map<String, dynamic>)['turnId'], 'turn-1');
+    });
+
+    test('open removes abandoned target temp files only', () async {
       await store.dispose();
-      storeDisposed = true;
+      File('${stateFile.path}.deadbeef.tmp').writeAsStringSync('partial');
+      final unrelated = File(p.join(tempDir.path, 'other.tmp'))..writeAsStringSync('keep');
+      store = openTurnStateStore(stateFile.path);
+      expect(File('${stateFile.path}.deadbeef.tmp').existsSync(), isFalse);
+      expect(unrelated.existsSync(), isTrue);
+    });
 
-      await expectLater(store.getAll(), throwsA(anything));
+    test('open quarantines invalid JSON, warns once, and continues empty', () async {
+      await store.dispose();
+      stateFile.writeAsStringSync(r'{"session":');
+      final warnings = <LogRecord>[];
+      final subscription = Logger.root.onRecord.listen((record) {
+        if (record.level >= Level.WARNING && record.loggerName == 'TurnStateStore') warnings.add(record);
+      });
+      addTearDown(subscription.cancel);
+      store = openTurnStateStore(stateFile.path);
+
+      final quarantined = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((file) => p.basename(file.path).startsWith('turn_state.json.corrupt-'))
+          .toList();
+      expect(quarantined, hasLength(1));
+      expect(warnings, hasLength(1));
+      expect(warnings.single.message, contains(quarantined.single.path));
+      expect(await store.getAll(), isEmpty);
+      await store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z'));
+      expect((await store.getAll())['session-1']?.turnId, 'turn-1');
+    });
+
+    test('post-open unreadable state returns failed futures from operations', () async {
+      stateFile.deleteSync();
+      Directory(stateFile.path).createSync();
+      await expectLater(store.getAll(), throwsA(isA<FileSystemException>()));
+      await expectLater(
+        store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z')),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(store.delete('session-1'), throwsA(isA<FileSystemException>()));
+    });
+
+    test('dispose is a no-op and the store remains usable', () async {
+      await store.dispose();
+      await store.set('session-1', 'turn-1', DateTime.parse('2026-03-15T09:30:00Z'));
+      expect((await store.getAll())['session-1']?.turnId, 'turn-1');
     });
   });
 }

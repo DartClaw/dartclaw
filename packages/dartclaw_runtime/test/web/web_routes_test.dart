@@ -9,6 +9,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_runtime/src/web/pages/health_page.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -17,6 +18,7 @@ import 'package:test/test.dart';
 import '../signal_test_support.dart';
 import '../test_utils.dart';
 import '../whatsapp_test_support.dart';
+import '../helpers/search_index_test_support.dart';
 
 String _sessionCostPayload({
   required int inputTokens,
@@ -33,6 +35,7 @@ String _sessionCostPayload({
     'output_tokens': outputTokens,
     'total_tokens': totalTokens,
     'estimated_cost_usd': estimatedCostUsd,
+    'cost_reported_turn_count': turnCount,
     'turn_count': turnCount,
   };
   if (provider != null) {
@@ -108,19 +111,19 @@ void main() {
   group('GET /knowledge/wiki/<source>', () {
     /// Builds the wiki handler. A null [dataDirPath] reproduces the
     /// unconfigured-workspace rejection.
-    Handler wikiHandler({String? dataDirPath}) {
+    Future<Handler> wikiHandler({String? dataDirPath}) async {
       final memoryDb = sqlite3.openInMemory();
-      final taskDb = sqlite3.openInMemory();
-      addTearDown(() {
+      final taskBackend = await openPreparedTaskBackend();
+      addTearDown(() async {
         memoryDb.close();
-        taskDb.close();
+        await taskBackend.close();
       });
       return webRoutes(
         sessions,
         messages,
         kvService: kvService,
-        memoryService: MemoryService(memoryDb),
-        kgService: TemporalKnowledgeGraphService(taskDb),
+        memoryIndex: await prepareMemoryIndex(memoryDb),
+        kgService: TemporalKnowledgeGraphService(taskBackend),
         config: dataDirPath == null ? null : DartclawConfig(server: ServerConfig(dataDir: dataDirPath)),
         dataDir: dataDirPath,
       ).call;
@@ -148,7 +151,7 @@ void main() {
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('# Wiki\n\nMerge `source` material.');
 
-      final res = await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/onboarding.md'));
+      final res = await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/onboarding.md'));
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
@@ -177,7 +180,7 @@ void main() {
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('# Title\n\n<script>alert(1)</script>\n\n<img src=x onerror="alert(2)">\n');
 
-      final res = await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/evil.md'));
+      final res = await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/evil.md'));
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
@@ -198,7 +201,7 @@ void main() {
     });
 
     test('rejects a missing workspace', () async {
-      await expectOpaque404(await wikiHandler()(wikiGet('wiki/onboarding.md')));
+      await expectOpaque404(await (await wikiHandler())(wikiGet('wiki/onboarding.md')));
     });
 
     test('rejects a locator missing the wiki/ prefix', () async {
@@ -207,7 +210,7 @@ void main() {
         ..writeAsStringSync('reachable only through the prefixed locator');
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('onboarding.md')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('onboarding.md')),
         probed: 'onboarding.md',
       );
     });
@@ -218,7 +221,7 @@ void main() {
         ..writeAsStringSync('not markdown');
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/notes.txt')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/notes.txt')),
         probed: 'notes.txt',
       );
     });
@@ -227,7 +230,7 @@ void main() {
       Directory('${tempDir.path}/workspace/wiki').createSync(recursive: true);
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/absent.md')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/absent.md')),
         probed: 'absent.md',
       );
     });
@@ -236,7 +239,7 @@ void main() {
       File('${tempDir.path}/secret.md').writeAsStringSync('outside wiki');
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/%2E%2E/secret.md')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/%2E%2E/secret.md')),
         probed: 'secret.md',
       );
     });
@@ -248,7 +251,7 @@ void main() {
         ..createSync('../../secret.md');
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/linked.md')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/linked.md')),
         probed: 'linked.md',
       );
     });
@@ -261,7 +264,7 @@ void main() {
       addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
 
       await expectOpaque404(
-        await wikiHandler(dataDirPath: tempDir.path)(wikiGet('wiki/locked.md')),
+        await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/locked.md')),
         probed: 'locked.md',
       );
     }, testOn: 'mac-os || linux');
@@ -272,8 +275,8 @@ void main() {
       File('${tempDir.path}/workspace/wiki/notes.txt').writeAsStringSync('not markdown');
       Link('${tempDir.path}/workspace/wiki/linked.md').createSync('../../secret.md');
 
-      final configured = wikiHandler(dataDirPath: tempDir.path);
-      final unconfigured = wikiHandler();
+      final configured = await wikiHandler(dataDirPath: tempDir.path);
+      final unconfigured = await wikiHandler();
 
       final responses = <String, Response>{
         'missing workspace': await unconfigured(wikiGet('wiki/onboarding.md')),
@@ -725,6 +728,7 @@ void main() {
       expect(body, contains('>3<'));
       expect(body, contains('>7<'));
       expect(body, contains('>10<'));
+      expect(body, contains('cost unavailable'));
     });
 
     test('renders Claude cost totals and cached token data from session usage records', () async {

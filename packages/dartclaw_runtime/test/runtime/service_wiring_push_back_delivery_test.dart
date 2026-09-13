@@ -7,7 +7,6 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
@@ -69,8 +68,8 @@ void main() {
       dataDir: dataDir.path,
       port: 3000,
       harnessFactory: factory,
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
       messageRedactor: MessageRedactor(),
       resolvedAssets: ResolvedAssets.fromSourceTree(

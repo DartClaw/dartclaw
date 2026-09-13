@@ -46,10 +46,10 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         SqliteAgentExecutionRepository,
         SqliteExecutionRepositoryTransactor,
         SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository,
-        openTaskDbInMemory;
+        SqliteWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show BashProcessOwner, WorkflowService;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess, FakeTurnManager, flushAsync;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeProcess, FakeTurnManager, flushAsync, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -65,8 +65,9 @@ void main() {
   late EventBus eventBus;
   late WorkflowService workflowService;
 
-  setUp(() {
-    harness = WorkflowServiceTestHarness()..setUp();
+  setUp(() async {
+    harness = WorkflowServiceTestHarness();
+    await harness.setUp();
     tempDir = harness.tempDir;
     taskService = harness.taskService;
     repository = harness.repository;
@@ -832,12 +833,12 @@ void main() {
       ['run-A'],
     ]);
 
-    final disposeDb = openTaskDbInMemory();
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
-    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
-    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
-    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeBackend);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeBackend);
     final disposeTaskService = TaskService(
       disposeTaskRepository,
       agentExecutionRepository: disposeAgentExecutions,
@@ -848,7 +849,7 @@ void main() {
     final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-sessions'));
     final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-kv.json'));
     final disposeWorkflowService = WorkflowService(
-      repository: SqliteWorkflowRunRepository(disposeDb),
+      repository: SqliteWorkflowRunRepository(disposeBackend),
       taskService: disposeRecordingTasks,
       messageService: disposeMessages,
       persistencePorts: WorkflowPersistencePorts(
@@ -866,7 +867,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
     await Future<void>.delayed(Duration.zero);
@@ -880,12 +881,12 @@ void main() {
   });
 
   test('dispose() snapshots active run ids before task lookup awaits', () async {
-    final disposeDb = openTaskDbInMemory();
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
-    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
-    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
-    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeBackend);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeBackend);
     final disposeTaskService = TaskService(
       disposeTaskRepository,
       agentExecutionRepository: disposeAgentExecutions,
@@ -911,7 +912,7 @@ void main() {
     final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-snapshot-sessions'));
     final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-snapshot-kv.json'));
     disposeWorkflowService = WorkflowService(
-      repository: SqliteWorkflowRunRepository(disposeDb),
+      repository: SqliteWorkflowRunRepository(disposeBackend),
       taskService: disposeRecordingTasks,
       messageService: disposeMessages,
       persistencePorts: WorkflowPersistencePorts(
@@ -939,7 +940,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
 
@@ -960,14 +961,14 @@ void main() {
       'retry-running-version-conflict',
       'retry-queued-version-conflict',
     ]) {
-      final disposeDb = openTaskDbInMemory();
+      final disposeBackend = await openPreparedTaskBackend();
       final disposeEventBus = EventBus();
       final taskEvents = <TaskStatusChangedEvent>[];
       final taskEventSub = disposeEventBus.on<TaskStatusChangedEvent>().listen(taskEvents.add);
-      final disposeTaskRepository = SqliteTaskRepository(disposeDb);
-      final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
-      final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
-      final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+      final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
+      final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
+      final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeBackend);
+      final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeBackend);
       final disposeTaskService = TaskService(
         disposeTaskRepository,
         agentExecutionRepository: disposeAgentExecutions,
@@ -1008,7 +1009,7 @@ void main() {
       final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-$conflict-sessions'));
       final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-$conflict-kv.json'));
       final disposeWorkflowService = WorkflowService(
-        repository: SqliteWorkflowRunRepository(disposeDb),
+        repository: SqliteWorkflowRunRepository(disposeBackend),
         taskService: disposeRecordingTasks,
         messageService: disposeMessages,
         persistencePorts: WorkflowPersistencePorts(
@@ -1027,7 +1028,7 @@ void main() {
       addTearDown(disposeKv.dispose);
       addTearDown(taskEventSub.cancel);
       addTearDown(disposeEventBus.dispose);
-      addTearDown(disposeDb.close);
+      addTearDown(disposeBackend.close);
 
       final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
       Future<Task?> queuedTaskForRun() async {
@@ -1071,12 +1072,12 @@ void main() {
   });
 
   test('dispose() bounds queued promotion and falls back to direct cancellation under persistent conflicts', () async {
-    final disposeDb = openTaskDbInMemory();
+    final disposeBackend = await openPreparedTaskBackend();
     final disposeEventBus = EventBus();
-    final disposeTaskRepository = SqliteTaskRepository(disposeDb);
-    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeDb, eventBus: disposeEventBus);
-    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeDb);
-    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeDb);
+    final disposeTaskRepository = SqliteTaskRepository(disposeBackend);
+    final disposeAgentExecutions = SqliteAgentExecutionRepository(disposeBackend, eventBus: disposeEventBus);
+    final disposeStepExecutions = SqliteWorkflowStepExecutionRepository(disposeBackend);
+    final disposeTransactor = SqliteExecutionRepositoryTransactor(disposeBackend);
     final disposeTaskService = TaskService(
       disposeTaskRepository,
       agentExecutionRepository: disposeAgentExecutions,
@@ -1098,7 +1099,7 @@ void main() {
     final disposeMessages = MessageService(baseDir: p.join(tempDir.path, 'dispose-persistent-sessions'));
     final disposeKv = KvService(filePath: p.join(tempDir.path, 'dispose-persistent-kv.json'));
     final disposeWorkflowService = WorkflowService(
-      repository: SqliteWorkflowRunRepository(disposeDb),
+      repository: SqliteWorkflowRunRepository(disposeBackend),
       taskService: disposeRecordingTasks,
       messageService: disposeMessages,
       persistencePorts: WorkflowPersistencePorts(
@@ -1116,7 +1117,7 @@ void main() {
     addTearDown(disposeMessages.dispose);
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
-    addTearDown(disposeDb.close);
+    addTearDown(disposeBackend.close);
 
     final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
     Future<Task?> queuedTaskForRun() async {
@@ -1294,7 +1295,7 @@ void main() {
     autoCompleteNewTasks(createdTaskTitles);
 
     await workflowService.recoverIncompleteRuns();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await waitForRunStatus('recover-map-step', WorkflowRunStatus.completed);
 
     expect(createdTaskTitles, hasLength(1), reason: 'settled items 0 and 1 must not be replayed');
     final recovered = await workflowService.get('recover-map-step');

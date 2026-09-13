@@ -144,14 +144,14 @@ const settingsPanels = <SettingsPanel>[
   SettingsPanel(id: 'server-workspace', tab: 'server', title: 'Workspace'),
 ];
 
-/// Registry prefixes another settings surface owns, keyed by prefix with the
-/// surface that owns them.
+/// Registry prefixes configured elsewhere, keyed by their owning surface.
 ///
 /// These are deliberately absent from [settingsPanels]: rendering them here
 /// would give an operator two places to change one field.
 const settingsFieldOwners = <String, String>{
   'channels': 'Channel detail pages under /settings/channels/<type>',
   'guards': 'The guard editor on the Security tab',
+  'database': 'the database section in dartclaw.yaml (requires restart)',
 };
 
 /// The panel [yamlPath] belongs to, or `null` when no panel claims it.

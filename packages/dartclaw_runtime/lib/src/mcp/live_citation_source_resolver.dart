@@ -25,7 +25,7 @@ final class LiveCitationSourceResolver implements CitationSourceResolver {
   Future<bool> resolves(SourceRef ref) async => switch (ref.layer) {
     CitationLayer.memory => _resolvesCanonical(ref),
     CitationLayer.wiki => ref.role == 'wiki' && await _wiki.resolve(ref.locator) != null,
-    CitationLayer.kg => ref.role == 'kg' && _resolvesKg(ref.locator),
+    CitationLayer.kg => ref.role == 'kg' && await _resolvesKg(ref.locator),
     CitationLayer.inbox => ref.role == 'knowledge-inbox' && await _inbox.exists(ref.locator),
   };
 
@@ -47,8 +47,8 @@ final class LiveCitationSourceResolver implements CitationSourceResolver {
     };
   }
 
-  bool _resolvesKg(String locator) {
+  Future<bool> _resolvesKg(String locator) async {
     final id = int.tryParse(locator);
-    return id != null && _kg.factExists(id);
+    return id != null && await _kg.factExists(id);
   }
 }

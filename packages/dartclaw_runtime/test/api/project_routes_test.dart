@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService, projectRoutes;
 import 'package:dartclaw_runtime/src/project/project_auth_support.dart' show ProjectAuthException;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -472,9 +472,9 @@ void main() {
 
     test('change remoteUrl with active tasks returns 409', () async {
       projects.seed(makeProject(id: 'my-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedRunningTask(taskService, 'running-task', 'my-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
 
@@ -485,21 +485,23 @@ void main() {
       );
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'ACTIVE_TASKS');
     });
 
     test('change defaultBranch with active tasks returns 409', () async {
       projects.seed(makeProject(id: 'my-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedRunningTask(taskService, 'branch-task', 'my-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
 
       final response = await clientWithTasks.request('PATCH', '/api/projects/my-proj', json: {'defaultBranch': 'dev'});
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
       expect(response.statusCode, 409);
       expect(await errorCode(response), 'ACTIVE_TASKS');
     });
@@ -547,9 +549,9 @@ void main() {
 
     test('delete with running task cancels task and deletes project', () async {
       projects.seed(makeProject(id: 'run-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedRunningTask(taskService, 'run-task', 'run-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
 
@@ -561,13 +563,14 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
     });
 
     test('delete cancels draft and interrupted tasks', () async {
       projects.seed(makeProject(id: 'cancel-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedDraftTask(taskService, 'draft-task', 'cancel-proj');
       await _seedInterruptedTask(taskService, 'interrupted-task', 'cancel-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
@@ -579,13 +582,14 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
     });
 
     test('delete with queued task fails task and deletes project', () async {
       projects.seed(makeProject(id: 'q-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedQueuedTask(taskService, 'q-task', 'q-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
 
@@ -597,13 +601,14 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
     });
 
     test('delete with review task fails task and deletes project', () async {
       projects.seed(makeProject(id: 'rev-proj'));
-      final db = openTaskDbInMemory();
+      final backend = await openPreparedTaskBackend();
       final eventBus = EventBus();
-      final taskService = TaskService(SqliteTaskRepository(db), eventBus: eventBus);
+      final taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
       await _seedReviewTask(taskService, 'rev-task', 'rev-proj');
       final clientWithTasks = ApiRouteTestClient(projectRoutes(projects, tasks: taskService).call);
 
@@ -616,6 +621,7 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
+      await backend.close();
     });
   });
 

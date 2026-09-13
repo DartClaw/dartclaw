@@ -194,6 +194,7 @@ void main() {
         final harness = FakeAgentHarness(
           promptStrategy: PromptStrategy.append,
           supportsStructuredOutput: supportsStructuredOutput,
+          supportsNoWorkTools: true,
         );
         createdHarnesses.add(harness);
         return harness;
@@ -457,12 +458,34 @@ void main() {
         providerId: 'claude',
         policy: ExecutionPolicy.host(),
         sessionId: 'plain-task',
-        allowedTools: ['shell'],
       ),
     );
     addTearDown(() async => lease?.release());
 
     expect(recordedConfigs.last.declaredCanonicalTools, isNull);
+  });
+
+  test('a non-workflow explicit policy receives strict construction and provider-native grants', () async {
+    await wireStorageAndSecurity();
+    final factory = fakeFactory(['claude'], onCreate: (_, factoryConfig) => recordedConfigs.add(factoryConfig));
+    await wireHarness(factory);
+
+    final lease = await harnessWiring!.executions.acquire(
+      const ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'claude',
+        policy: ExecutionPolicy.host(),
+        sessionId: 'declared-task',
+        allowedTools: ['shell'],
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    final factoryConfig = recordedConfigs.last;
+    final filter = factoryConfig.guardChain!.guards.whereType<TaskToolFilterGuard>().single;
+    expect(factoryConfig.declaredCanonicalTools, ['shell']);
+    expect(filter.denyEmptyAllowlist, isTrue);
+    expect(filter.allowedTools, ['shell']);
   });
 
   test('lazy worker ACP decisions use that worker identity and active tool policy', () async {

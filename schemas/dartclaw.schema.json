@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.25.2/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.26.0/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -1161,6 +1161,46 @@
     "data_dir": {
       "description": "Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required)",
       "type": "string"
+    },
+    "database": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "description": "Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required)",
+          "enum": [
+            "postgres",
+            "sqlite"
+          ],
+          "type": "string"
+        },
+        "credential": {
+          "description": "Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI)",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "fts_language": {
+          "description": "PostgreSQL text-search configuration name. Defaults to english; changing it requires restart and rebuild-index. (restart required)",
+          "type": "string"
+        },
+        "pool_size": {
+          "description": "Maximum PostgreSQL connections. Defaults to 5. (restart required)",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "description": "PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI)",
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "type": [
+        "null",
+        "object"
+      ]
     },
     "dev_mode": {
       "description": "Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required)",
@@ -2553,9 +2593,10 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "description": "Engine behind memory search: fts5 uses the bundled SQLite index, qmd delegates to a local daemon. (restart required)",
+          "description": "Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required)",
           "enum": [
             "fts5",
+            "hybrid",
             "qmd"
           ],
           "type": "string"
@@ -2563,6 +2604,41 @@
         "default_depth": {
           "description": "Effort a query spends when the caller names none: fast, standard or deep. (restart required)",
           "type": "string"
+        },
+        "embedding": {
+          "additionalProperties": false,
+          "properties": {
+            "credential": {
+              "description": "Named generic API-key credential for the HTTP embedding provider. (file-only, not settable via API or CLI)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "endpoint": {
+              "description": "Absolute HTTP(S) endpoint used only by the HTTP embedding provider. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "model": {
+              "description": "Managed model selector for local embeddings, or the explicitly selected remote model for HTTP embeddings. (restart required)",
+              "type": "string"
+            },
+            "provider": {
+              "description": "Embedding implementation used by hybrid search. Defaults to local. (restart required)",
+              "enum": [
+                "http",
+                "local"
+              ],
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
         },
         "providers": {
           "additionalProperties": {

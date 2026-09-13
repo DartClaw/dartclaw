@@ -1,6 +1,6 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
@@ -36,18 +36,31 @@ TurnTrace _makeTrace({
 }
 
 void main() {
-  late Database db;
+  late SqliteBackend backend;
   late TurnTraceService traceService;
   late ApiRouteTestClient client;
 
-  setUp(() {
-    db = openTaskDbInMemory();
-    traceService = TurnTraceService(db);
+  setUp(() async {
+    backend = await openPreparedTaskBackend();
+    traceService = TurnTraceService(backend);
     client = ApiRouteTestClient(traceRoutes(traceService).call);
   });
 
   tearDown(() async {
     await traceService.dispose();
+    await backend.close();
+  });
+
+  test('trace API retains only the correlated bounded source list after storage', () async {
+    final locators = List.generate(50, (i) => 'locator-$i');
+    await traceService.insert(
+      _makeTrace(
+        id: 'sources',
+        toolCalls: [ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: locators)],
+      ),
+    );
+    final body = await client.expectJsonObject('GET', '/api/traces/sources');
+    expect(((body['toolCalls'] as List).single as Map)['sourceLocators'], locators);
   });
 
   group('GET /api/traces', () {

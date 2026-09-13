@@ -1,5 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -42,7 +43,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 import '../server.dart'
     show ServerChannelDeps, ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
@@ -67,15 +67,8 @@ part 'service_wiring_workflow_git.dart';
 
 typedef PostMcpStartupHook = Future<void> Function(ChannelWiring channel);
 
-/// The providers that present a credential, each mapped to the family whose
-/// credential it presents.
-///
-/// A registrar-owned provider declaring `credentials_required: false` is
-/// omitted: it has no credential to age, and reporting it unauthenticated would
-/// page the operator for a login that does not exist. This is the exemption
-/// `ProviderValidator` already applies at startup. The family is resolved
-/// (honoring a `family` option and the executable name) so a provider alias is
-/// aged against its vendor's window instead of falling through as unknown.
+/// Maps credential-presenting providers to their resolved authentication family.
+/// Registrars declaring `credentials_required: false` are omitted.
 Map<String, String> credentialedProviderFamilies(Map<String, ProviderEntry> entries) => {
   for (final entry in entries.entries)
     if (entry.value.options['credentials_required'] != false)
@@ -86,17 +79,13 @@ Map<String, String> credentialedProviderFamilies(Map<String, ProviderEntry> entr
       ),
 };
 
-/// The assembled DartClaw runtime: every service `serve` needs, plus the
-/// teardown that stops them.
+/// The assembled services and teardown for a connected or headless runtime.
 ///
-/// Built by [build], which is the one entry point that assembles a runtime —
-/// a caller outside the CLI app boots one without copying application code.
+/// Use [build] as the application-independent composition entry point.
 class DartclawRuntime {
   /// The HTTP/web/MCP surface, or `null` for a headless build.
   final DartclawServer? server;
-
-  /// The personal-memory search database, absent from standalone workflow runtimes.
-  final Database? searchDb;
+  final Future<void> Function() closeStorage;
   final AgentExecutionRepository agentExecutionRepository;
   final TaskService taskService;
 
@@ -170,7 +159,7 @@ class DartclawRuntime {
 
   const new({
     required this.server,
-    required this.searchDb,
+    required this.closeStorage,
     required this.agentExecutionRepository,
     required this.taskService,
     required this.harness,
@@ -203,18 +192,10 @@ class DartclawRuntime {
 
   /// Assembles the whole runtime from [config].
   ///
-  /// This is the connected build shape: every field below is non-null except
-  /// the ones documented as surface-conditional. Headless staging produces a
-  /// workflow-only runtime without personal-memory services; lifecycle-only
-  /// completion also omits execution capacity, provider continuity, and task
-  /// dispatch.
-  ///
-  /// With [headless] left `false` this composes exactly what `serve` runs.
-  /// With `headless: true` it constructs none of the inbound or scheduled
-  /// surfaces — no [DartclawServer], channel manager, heartbeat, schedule
-  /// service, token service, personal-memory service, or knowledge service.
-  /// The guarded execution, task and workflow stacks remain available.
-  /// [server] is non-null exactly when [headless] is false.
+  /// With [headless] false this composes what `serve` runs. A headless build
+  /// omits inbound, scheduled, and personal-memory services while retaining
+  /// the guarded execution, task, and workflow stacks. [server] is non-null
+  /// exactly when [headless] is false.
   ///
   /// [harnessRegistrars] contribute provider families this package does not
   /// name; the empty default composes exactly what a build with no registrar
@@ -224,8 +205,10 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
+    PostgresInterlock Function()? postgresInterlockFactory,
+    Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required int port,
@@ -253,8 +236,10 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchDbFactory: searchDbFactory,
-    taskDbFactory: taskDbFactory,
+    searchBackendFactory: searchBackendFactory,
+    taskBackendFactory: taskBackendFactory,
+    postgresInterlockFactory: postgresInterlockFactory,
+    inactivePostgresProbe: inactivePostgresProbe,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -293,8 +278,8 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    DatabaseBackendFactory? searchBackendFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     String? runtimeCwd,
@@ -322,8 +307,8 @@ class DartclawRuntime {
       dataDir: dataDir,
       port: 0,
       harnessFactory: harnessFactory,
-      searchDbFactory: searchDbFactory,
-      taskDbFactory: taskDbFactory,
+      searchBackendFactory: searchBackendFactory,
+      taskBackendFactory: taskBackendFactory,
       stderrLine: stderrLine,
       exitFn: exitFn,
       resolvedConfigPath: '',
@@ -353,8 +338,10 @@ class DartclawRuntime {
     required String dataDir,
     required int port,
     required HarnessFactory harnessFactory,
-    required SearchDbFactory searchDbFactory,
-    required TaskDbFactory taskDbFactory,
+    required DatabaseBackendFactory? searchBackendFactory,
+    required DatabaseBackendFactory? taskBackendFactory,
+    PostgresInterlock Function()? postgresInterlockFactory,
+    Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required String resolvedConfigPath,
@@ -382,8 +369,10 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchDbFactory: searchDbFactory,
-    taskDbFactory: taskDbFactory,
+    searchBackendFactory: searchBackendFactory,
+    taskBackendFactory: taskBackendFactory,
+    postgresInterlockFactory: postgresInterlockFactory,
+    inactivePostgresProbe: inactivePostgresProbe,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -408,23 +397,32 @@ class DartclawRuntime {
     environment: environment,
   );
 
-  /// Stops every service this runtime assembled, in dependency order, ending
-  /// with the search database.
+  /// Stops every assembled service in dependency order, ending with storage.
   ///
   /// Disposal of the services after the server is best-effort — each failure is
   /// logged and the remaining steps still run. A failure in the execution
   /// prepare-shutdown or the server shutdown propagates to the caller, which
   /// owns the overall shutdown deadline.
   Future<void> shutdown() async {
-    scheduleService?.stop();
-    resetService?.dispose();
+    Object? failure;
+    StackTrace? failureStack;
     try {
+      scheduleService?.stop();
+      resetService?.dispose();
       await prepareExecutionShutdown?.call();
       await server?.shutdown();
       await _disposeExtras();
-    } finally {
-      searchDb?.close();
+    } on Object catch (error, stackTrace) {
+      failure = error;
+      failureStack = stackTrace;
     }
+    try {
+      await closeStorage();
+    } on Object {
+      if (failure == null) rethrow;
+      _log.warning('Storage cleanup failed after runtime shutdown error');
+    }
+    if (failure case final error?) Error.throwWithStackTrace(error, failureStack!);
   }
 
   Future<void> _disposeExtras() async {
@@ -483,80 +481,7 @@ class DartclawRuntime {
   }
 }
 
-/// Cross-cutting deps threaded through the assembly's `_wireXxx` methods.
-///
-/// Late slots (serverRef, serverTurns) are bound via setters as construction
-/// proceeds; closures capture them via getters so late-binding order is
-/// preserved across method boundaries.
-final class _WiringContext {
-  final EventBus eventBus;
-  final ConfigNotifier configNotifier;
-  final String dataDir;
-  final int port;
-  final ResolvedAssets resolvedAssets;
-  final String? builtInSkillsSourceDir;
-  final MessageRedactor messageRedactor;
-
-  /// Dedicated subscription credential stores, read per use so a re-issued
-  /// token reaches the next spawn or mediated request without a restart.
-  final SubscriptionCredentialStore subscriptions;
-
-  /// One refresh authority per dedicated Codex store for the whole process.
-  ///
-  /// Single-flight is a property of this instance, so a second one would be a
-  /// second refresher — exactly what the design forbids. Every DartClaw lane
-  /// that touches the store shares this one.
-  final CodexRefreshAuthority codexRefresh;
-
-  /// Bound when the server is composed. A headless build composes none, so the
-  /// surfaces that need one resolve through [composedServerGetter], which
-  /// refuses, while the ones that merely may have one read [serverRefGetter].
-  DartclawServer? _serverRef;
-  late TurnManager _serverTurns;
-
-  /// The provider entries the composed harness registrars declared, bound once
-  /// the harness is wired.
-  ///
-  /// The probe lane resolves through these so a registrar-owned provider is
-  /// probed under its own credential isolation rather than DartClaw's
-  /// first-party arm. A lane that has not wired a harness yet — the staged
-  /// headless provider-auth preflight — composed no registrar either, so an
-  /// empty map is the honest answer rather than a missing one.
-  Map<String, ProviderEntry> registeredProviderEntries = const {};
-
-  /// The credential overlay those registrations present, bound with them.
-  Map<String, String>? Function(String, Map<String, String>)? registrarCredentialOverlay;
-
-  new({
-    required this.eventBus,
-    required this.configNotifier,
-    required this.dataDir,
-    required this.port,
-    required this.resolvedAssets,
-    required this.builtInSkillsSourceDir,
-    required this.messageRedactor,
-    required this.subscriptions,
-    required this.codexRefresh,
-  });
-
-  void bindServer(DartclawServer server) => _serverRef = server;
-  void bindTurns(TurnManager turns) => _serverTurns = turns;
-
-  DartclawServer? Function() get serverRefGetter =>
-      () => _serverRef;
-  DartclawServer Function() get composedServerGetter =>
-      () => _serverRef ?? (throw StateError('This runtime composed no server'));
-  TurnManager Function() get turnManagerGetter =>
-      () => _serverTurns;
-}
-
-/// Thin coordinator that composes domain-specific wiring modules in dependency
-/// order and produces the [DartclawRuntime].
-///
-/// Domain modules ([StorageWiring], [SecurityWiring], [HarnessWiring],
-/// [ChannelWiring], [TaskWiring], [SchedulingWiring]) own service construction.
-/// This class threads cross-domain dependencies and performs the final server
-/// composition and MCP tool registration.
+/// Composes domain wiring modules and the final server.
 class _RuntimeAssembly {
   /// Not final: [_correctPostureIfDowngraded] settles an inferred posture
   /// wiring could not honour, keeping one authority for every later reader.
@@ -567,8 +492,10 @@ class _RuntimeAssembly {
   final ServerFactory? serverFactory;
   final bool headless;
   final List<HarnessRegistrar> harnessRegistrars;
-  final SearchDbFactory searchDbFactory;
-  final TaskDbFactory taskDbFactory;
+  final DatabaseBackendFactory? searchBackendFactory;
+  final DatabaseBackendFactory? taskBackendFactory;
+  final PostgresInterlock Function()? postgresInterlockFactory;
+  final Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe;
   final WriteLine stderrLine;
   final ExitFn exitFn;
   final String resolvedConfigPath;
@@ -632,12 +559,11 @@ class _RuntimeAssembly {
   /// long afterwards.
   CredentialHealthMonitor? _credentialHealth;
 
-  // Base-phase products, bound by [wireBase] and consumed by whichever
-  // completion the caller chooses.
   late final _WiringContext _ctx;
   late final ProjectWiring _project;
   late final StorageWiring _storage;
   late final WorkflowRegistry _workflowRegistry;
+  StorageWiring? _ownedStorage;
   bool _baseWired = false;
 
   void _requireBaseWired() {
@@ -651,8 +577,10 @@ class _RuntimeAssembly {
     required this.dataDir,
     required this.port,
     required this.harnessFactory,
-    required this.searchDbFactory,
-    required this.taskDbFactory,
+    required this.searchBackendFactory,
+    required this.taskBackendFactory,
+    this.postgresInterlockFactory,
+    this.inactivePostgresProbe,
     required this.stderrLine,
     required this.exitFn,
     required this.resolvedConfigPath,
@@ -688,32 +616,21 @@ class _RuntimeAssembly {
 
   static DartclawServer _identityServerFactory(DartclawServer server) => server;
 
-  /// The base services a workflow definition can be resolved against: storage,
-  /// projects and the workflow registry, with no execution capacity and no
-  /// harness.
-  ///
-  /// Split out so the zero-server lane can gate provider auth between here and
-  /// [completeWithExecution]; `serve` runs both back to back.
   Future<void> wireBase() async {
     final builtInSkillsSourceDir = _builtInSkillsSourceDir(resolvedAssets);
 
-    // 0.5. Skill bootstrap – must run before workflow execution so native
-    // DartClaw skills are on disk for provider introspection and invocation,
-    // and before the registry so a definition naming a missing skill is
-    // excluded at load rather than failing mid-run.
+    // Native skills must exist before the registry decides whether a named
+    // skill is loadable.
     await _wireWorkflowSkillsBootstrap(builtInSkillsSourceDir);
-    // Opened once, before any consumer, so the login-collision guard runs
-    // ahead of every credential read this deployment performs.
+    // The collision guard must precede every credential read in this build.
     final subscriptions = _openSubscriptionStore();
     final ctx = _WiringContext(
       eventBus: EventBus(),
       configNotifier: ConfigNotifier(
         config,
         platformCapabilities: platformCapabilities,
-        // A registrar's section is parsed outside `dartclaw_kernel`, so a
-        // reload triggered through the config API — which loads without the
-        // composition root's prime — would otherwise be judged on a config
-        // whose section warnings had never been raised.
+        // Reloads bypass this composition root, so registrar sections must be
+        // primed before their warnings are judged.
         sectionPrimers: [for (final registrar in harnessRegistrars) registrar.primeConfigSections],
       ),
       dataDir: dataDir,
@@ -728,55 +645,47 @@ class _RuntimeAssembly {
       ),
     );
     _ctx = ctx;
-    // 0. Projects
     _project = await _wireProjects(ctx);
-    // 1. Storage
     _storage = await _wireStorage(ctx);
-    // 2. Workflow registry – usable before any execution capacity exists, so a
-    // caller can resolve the definition whose providers it is about to gate.
+    // A zero-server caller resolves its definition before provider auth gates.
     _workflowRegistry = await _wireWorkflowRegistry(ctx, workflowRoleDefaultsFromConfig(config));
     _baseWired = true;
   }
 
   Future<DartclawRuntime> wire() async {
-    await wireBase();
-    return completeWithExecution(null);
+    try {
+      await wireBase();
+      return await completeWithExecution(null);
+    } catch (error, stackTrace) {
+      await _disposeOwnedBase();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
-  /// Finishes the assembly with provider execution capacity for
-  /// [workflowProviderScope], or for every configured provider plus the primary
-  /// lane when it is `null`.
   Future<DartclawRuntime> completeWithExecution(Set<String>? workflowProviderScope) async {
     _requireBaseWired();
     final ctx = _ctx;
     final project = _project;
     final storage = _storage;
     final workflowRegistry = _workflowRegistry;
-    // 3. Security
     final agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
     final security = await _wireSecurity(ctx, agentDefs);
     _correctPostureIfDowngraded(security);
-    // 4. Harness
     final harness = await _wireHarness(ctx, storage, security, workflowProviderScope);
-    // 5. Tasks (pre-server)
     final task = await _wirePreServerTasks(ctx, storage, project);
     // Injected before the channels are wired: it rebuilds the review handler
     // ChannelWiring.wire captures by value, so a later injection would leave
     // the chat review path on a delivery-less service.
     task.setPushBackFeedbackDelivery(_pushBackFeedbackDelivery(ctx, storage));
-    // 5. Channels – an ingress surface, so a headless build has none.
     final channel = headless ? null : await _wireChannels(ctx, storage, task, harness);
     final alertRouter = channel == null ? null : _wireAlertRouter(ctx, storage, channel);
-    // 6. Turn manager – restart sentinel, provider status, turn composition
     _wireRestartSentinel(ctx);
     final providerStatus = await _wireProviderStatus(ctx, harness, security);
     ctx.bindTurns(_composeTurns(config, ctx, storage, harness, security));
-    // The sweep runs on the primary runner's state; a workflow-only build
-    // has no primary lane and no long-lived turns to orphan.
-    if (harness.executions.primary != null) {
+    // One-shot clients must not acknowledge the serving runtime's turn records.
+    if (!headless && harness.executions.primary != null) {
       await ctx._serverTurns.detectAndCleanOrphanedTurns();
     }
-    // 7. Tasks (post-server)
     await task.wirePostServer(
       turns: ctx._serverTurns,
       executions: harness.executions,
@@ -785,7 +694,6 @@ class _RuntimeAssembly {
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
     final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, channel);
-    // 8. Scheduling
     final credentialHealth = _wireCredentialHealth(ctx, harness, providerStatus);
     // Bound here rather than constructed with the security and harness layers:
     // the monitor needs the ProviderStatusService the API reads, which exists
@@ -867,6 +775,7 @@ class _RuntimeAssembly {
       outboundMcpPool,
       trackedWorkflowGitCleanup: _trackedWorkflowGitCleanup(storage, project, workflowService),
     );
+    _ownedStorage = null;
     try {
       await harness.startPrimary();
       if (channel != null) await postMcpStartupHook(channel);
@@ -883,8 +792,6 @@ class _RuntimeAssembly {
     }
   }
 
-  /// The teardown sweep for the zero-server lane, or `null` for a build whose
-  /// repository outlives it.
   Future<void> Function()? _trackedWorkflowGitCleanup(
     StorageWiring storage,
     ProjectWiring project,
@@ -952,12 +859,18 @@ class _RuntimeAssembly {
     final storage = StorageWiring(
       config: config,
       eventBus: ctx.eventBus,
-      searchDbFactory: searchDbFactory,
-      taskDbFactory: taskDbFactory,
+      searchBackendFactory: searchBackendFactory,
+      taskBackendFactory: taskBackendFactory,
+      credentialRegistry: _credentialRegistry(ctx),
+      auditLogger: ctx.auditLogger,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
+      serving: !headless,
+      postgresInterlockFactory: postgresInterlockFactory,
+      inactivePostgresProbe: inactivePostgresProbe,
     );
     await storage.wire();
+    _ownedStorage = storage;
     await _dropLegacySessionCostEntries(storage.kvService);
     return storage;
   }
@@ -980,6 +893,7 @@ class _RuntimeAssembly {
       platformCapabilities: platformCapabilities,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
+      auditLogger: ctx.auditLogger,
       subscriptionCredentials: ctx.subscriptions.readAll,
       codexRefresh: ctx.codexRefresh,
       // Primary authority acquisition precedes composition; harness startup
@@ -1225,7 +1139,22 @@ class _RuntimeAssembly {
         bashStepExtraStripPatterns: config.security.bashStep.extraStripPatterns,
         roleDefaults: workflowRoleDefaults,
         approvalPolicyDefault: config.workflow.approvals,
-        structuredOutputFallbackRecorder: storage.taskEventRecorder.recordStructuredOutputFallbackUsed,
+        structuredOutputFallbackRecorder:
+            (taskId, {required stepId, required outputKey, required failureReason, providerSubtype}) {
+              unawaited(
+                storage.taskEventRecorder
+                    .recordStructuredOutputFallbackUsed(
+                      taskId,
+                      stepId: stepId,
+                      outputKey: outputKey,
+                      failureReason: failureReason,
+                      providerSubtype: providerSubtype,
+                    )
+                    .catchError((Object error, StackTrace stackTrace) {
+                      _log.warning('Failed to record structured-output fallback for task $taskId', error, stackTrace);
+                    }),
+              );
+            },
         skillIntrospector:
             skillIntrospector ?? _buildSkillIntrospector(ctx, (id) => _providerProbeEnvironment(ctx, id)),
         // The in-engine backstop is inert without this, so an in-`serve`
@@ -1418,7 +1347,7 @@ class _RuntimeAssembly {
         approvalPolicyDefault: config.workflow.approvals,
       ),
     );
-    return _assembleRuntime(
+    final runtime = _assembleRuntime(
       ctx,
       (providerId) => _providerProbeEnvironment(ctx, providerId),
       null,
@@ -1437,17 +1366,28 @@ class _RuntimeAssembly {
       null,
       null,
     );
+    _ownedStorage = null;
+    return runtime;
   }
 
-  /// Tears down the base services when no completion ran — an aborted gate
-  /// leaves open databases and a running project service behind otherwise.
-  Future<void> disposeBase() async {
-    if (!_baseWired) return;
-    await _project.dispose();
-    await _storage.kvService.dispose();
-    // Closes the memory corpus, the turn-state store and both databases.
-    await _storage.dispose();
-    await _ctx.eventBus.dispose();
+  Future<void> disposeBase() => _disposeOwnedBase();
+  Future<void> _disposeOwnedBase() async {
+    final storage = _ownedStorage;
+    if (storage == null) return;
+    _ownedStorage = null;
+    _baseWired = false;
+    await _attemptBaseCleanup('project services', _project.dispose);
+    await _attemptBaseCleanup('key-value service', storage.kvService.dispose);
+    await _attemptBaseCleanup('storage', storage.dispose);
+    await _attemptBaseCleanup('event bus', _ctx.eventBus.dispose);
+  }
+
+  Future<void> _attemptBaseCleanup(String component, Future<void> Function() cleanup) async {
+    try {
+      await cleanup();
+    } catch (error, stackTrace) {
+      _log.warning('Failed to dispose partial runtime $component', error, stackTrace);
+    }
   }
 
   /// Gates [providers] before execution capacity is provisioned, raising

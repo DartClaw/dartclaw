@@ -6,14 +6,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, Task, WorkflowStepCompletedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show DartclawRuntime, LogService, PrCreated, PrCreationFailed, PrCreationResult, PrCreator;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
@@ -358,7 +357,7 @@ void main() {
       String name, {
       String? githubToken,
       required _WorkflowE2eProcessRunner runProcess,
-      Map<String, String>? environment,
+      Map<String, String> environment = const {},
     }) {
       return _cloneTodoAppFixtureRepoWithRunner(
         p.join(tempDir.path, name),
@@ -670,8 +669,8 @@ void main() {
       dataDir: config.server.dataDir,
       runtimeCwd: fixture!.runtimeCwd,
       harnessFactory: HarnessFactory(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       prCreator: canCreateGitHubPr
@@ -896,8 +895,8 @@ void main() {
       const planDir = 'docs/specs/e2e-plan-and-implement';
       const prdPath = '$planDir/prd.md';
       const planJsonPath = '$planDir/plan.json';
-      const story1FisPath = '$planDir/fis/s01-bug-002.md';
-      const story2FisPath = '$planDir/fis/s02-bug-003.md';
+      const story1FisPath = '$planDir/s01-fix-bug-002-due-date-persistence.md';
+      const story2FisPath = '$planDir/s02-fix-bug-003-default-priority.md';
       File(p.join(fixtureDir, prdPath))
         ..createSync(recursive: true)
         ..writeAsStringSync(
@@ -911,29 +910,50 @@ void main() {
       File(p.join(fixtureDir, planJsonPath))
         ..createSync(recursive: true)
         ..writeAsStringSync(
-          jsonEncode({
+          '${const JsonEncoder.withIndent('  ').convert({
+            'schemaVersion': '2',
+            'prd': prdPath,
+            'overview': {'summary': 'Implement two independent todo fixes in parallel.'},
+            'sharedDecisions': <Object>[],
+            'bindingConstraints': <Object>[],
             'stories': [
               {
                 'id': 'S01',
-                'title': 'Fix BUG-002 due-date persistence',
-                'fis': 'fis/s01-bug-002.md',
+                'name': 'Fix BUG-002 due-date persistence',
                 'dependsOn': <String>[],
                 'status': 'spec-ready',
+                'fis': 's01-fix-bug-002-due-date-persistence.md',
+                'completedTaskIds': <String>[],
+                'owner': null,
+                'scope': 'Persist edited due dates and pre-fill them when editing.',
+                'sourceRefs': [prdPath],
+                'provenance': planJsonPath,
+                'assetRefs': <String>[],
+                'sequencing': null,
               },
               {
                 'id': 'S02',
-                'title': 'Fix BUG-003 default priority',
-                'fis': 'fis/s02-bug-003.md',
+                'name': 'Fix BUG-003 default priority',
                 'dependsOn': <String>[],
                 'status': 'spec-ready',
+                'fis': 's02-fix-bug-003-default-priority.md',
+                'completedTaskIds': <String>[],
+                'owner': null,
+                'scope': 'Assign and display the default priority for quick-add todos.',
+                'sourceRefs': [prdPath],
+                'provenance': planJsonPath,
+                'assetRefs': <String>[],
+                'sequencing': null,
               },
             ],
-          }),
+          })}\n',
         );
       File(p.join(fixtureDir, story1FisPath))
         ..createSync(recursive: true)
         ..writeAsStringSync(
           '# Fix BUG-002 — persist edited due dates\n\n'
+          '**Plan**: $planJsonPath\n'
+          '**Story-ID**: S01\n\n'
           '## Feature Overview and Goal\n\n'
           '**Intent**: Close BUG-002 — a due date set in the edit dialog is lost '
           'after save. The update handler must read the submitted due-date field '
@@ -953,6 +973,8 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsStringSync(
           '# Fix BUG-003 — default priority for quick-add todos\n\n'
+          '**Plan**: $planJsonPath\n'
+          '**Story-ID**: S02\n\n'
           '## Feature Overview and Goal\n\n'
           '**Intent**: Close BUG-003 — todos created through quick-add have no '
           'default priority. Quick-add must assign the same default priority the '

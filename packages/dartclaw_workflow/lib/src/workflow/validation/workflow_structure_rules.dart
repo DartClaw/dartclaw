@@ -192,6 +192,18 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
       errors.add(_err(WorkflowValidationErrorType.missingField, 'Workflow must have at least one step.'));
     }
     for (final step in definition.steps) {
+      for (final authored in step.ruleValues.keys) {
+        final field = stepRule.fields.where((candidate) => candidate.names.contains(authored)).firstOrNull;
+        if (field != null && !field.appliesTo(step.taskType)) {
+          errors.add(
+            _err(
+              WorkflowValidationErrorType.hybridStepConstraint,
+              'Step "${step.id}" field "$authored" is not valid for type: ${step.taskType.toJson()} steps.',
+              stepId: step.id,
+            ),
+          );
+        }
+      }
       if (step.id.isEmpty) {
         errors.add(_err(WorkflowValidationErrorType.missingField, 'Step must have a non-empty id.', stepId: '<empty>'));
       }
@@ -206,14 +218,10 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
       }
       // Prompt is optional when skill is present or when the step type owns
       // host-side execution semantics rather than issuing prompts itself.
-      final isBashOrApproval = step.taskType == WorkflowTaskType.bash || step.taskType == WorkflowTaskType.approval;
-      final isForeachOrLoop = step.taskType == WorkflowTaskType.foreach || step.taskType == WorkflowTaskType.loop;
-      final isAggregateReviews = step.taskType == WorkflowTaskType.aggregateReviews;
+      final promptRule = stepRule.field('prompt');
       if (step.skill == null &&
           (step.prompts == null || step.prompts!.isEmpty) &&
-          !isBashOrApproval &&
-          !isForeachOrLoop &&
-          !isAggregateReviews) {
+          promptRule.requiresValueFor(step.taskType)) {
         errors.add(
           _err(
             WorkflowValidationErrorType.missingField,
@@ -355,12 +363,13 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
   void _validateProviderAliases(WorkflowDefinition definition, List<WorkflowValidationError> errors) {
     for (final step in definition.steps) {
       final provider = step.provider;
-      if (provider == null || !provider.startsWith('@') || workflowRoleDefaultAliases.contains(provider)) continue;
+      final aliases = WorkflowDslRules.roleAliases;
+      if (provider == null || !provider.startsWith('@') || aliases.contains(provider)) continue;
       errors.add(
         _err(
           WorkflowValidationErrorType.invalidReference,
           'Step "${step.id}": provider "$provider" is not a known role alias. '
-          'Supported aliases: ${workflowRoleDefaultAliases.join(', ')}.',
+          'Supported aliases: ${aliases.join(', ')}.',
           stepId: step.id,
         ),
       );
@@ -395,14 +404,15 @@ extension _WorkflowStructureRules on WorkflowDefinitionValidator {
         errors.add(_timeoutErr('stepDefaults pattern "${d.match}"', invalid));
       }
       final provider = d.provider;
-      if (provider != null && provider.startsWith('@') && !workflowRoleDefaultAliases.contains(provider)) {
+      final aliases = WorkflowDslRules.roleAliases;
+      if (provider != null && provider.startsWith('@') && !aliases.contains(provider)) {
         final matchingStepIds = stepIds.where((id) => globMatchStepId(d.match, id)).toList();
         final matchingSteps = matchingStepIds.isEmpty ? 'no current steps' : matchingStepIds.join(', ');
         errors.add(
           _err(
             WorkflowValidationErrorType.invalidReference,
             'stepDefaults pattern "${d.match}" uses provider "$provider", '
-            'which is not a known role alias. Supported aliases: ${workflowRoleDefaultAliases.join(', ')}. '
+            'which is not a known role alias. Supported aliases: ${aliases.join(', ')}. '
             'Matching steps: $matchingSteps.',
           ),
         );

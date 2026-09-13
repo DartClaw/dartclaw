@@ -19,7 +19,9 @@ import 'config_meta.dart';
 import 'config_numeric_bounds.dart';
 import 'config_validator.dart' show unknownConfigFieldMessage;
 import 'context_config.dart';
+import 'credential_registry.dart';
 import 'credentials_config.dart';
+import 'database_config.dart';
 import 'duration_parser.dart' show tryParseDuration;
 import 'env_substitute.dart';
 import 'execution_policy.dart';
@@ -97,6 +99,9 @@ class DartclawConfig {
 
   /// search.
   final SearchConfig search;
+
+  /// Authoritative database settings.
+  final DatabaseConfig database;
 
   /// External MCP server registry.
   final McpServersConfig mcpServers;
@@ -180,8 +185,11 @@ class DartclawConfig {
   /// searchDbPath.
   String get searchDbPath => p.join(server.dataDir, 'search.db');
 
-  /// tasksDbPath.
-  String get tasksDbPath => p.join(server.dataDir, 'tasks.db');
+  /// Retained vector projection database path.
+  String get vectorsDbPath => p.join(server.dataDir, 'vectors.db');
+
+  /// dartclawDbPath.
+  String get dartclawDbPath => p.join(server.dataDir, 'dartclaw.db');
 
   /// kvPath.
   String get kvPath => p.join(server.dataDir, 'kv.json');
@@ -214,6 +222,7 @@ class DartclawConfig {
     this.memory = const MemoryConfig.defaults(),
     this.knowledge = const KnowledgeConfig.defaults(),
     this.search = const SearchConfig.defaults(),
+    this.database = const DatabaseConfig.defaults(),
     this.mcpServers = const McpServersConfig.defaults(),
     this.providers = const ProvidersConfig.defaults(),
     this.credentials = const CredentialsConfig.defaults(),
@@ -255,6 +264,7 @@ class DartclawConfig {
     MemoryConfig? memory,
     KnowledgeConfig? knowledge,
     SearchConfig? search,
+    DatabaseConfig? database,
     McpServersConfig? mcpServers,
     ProvidersConfig? providers,
     CredentialsConfig? credentials,
@@ -286,6 +296,7 @@ class DartclawConfig {
       memory: memory ?? this.memory,
       knowledge: knowledge ?? this.knowledge,
       search: search ?? this.search,
+      database: database ?? this.database,
       mcpServers: mcpServers ?? this.mcpServers,
       providers: providers ?? this.providers,
       credentials: credentials ?? this.credentials,
@@ -446,6 +457,7 @@ class DartclawConfig {
     final harness = _parseHarness(yaml, const HarnessConfig.defaults(), warns);
     // These sections reference credentials by name, so they parse after it.
     final search = _parseSearch(yaml, environment, const SearchConfig.defaults(), warns, credentials);
+    final database = _parseDatabase(yaml, environment, const DatabaseConfig.defaults(), warns);
     final mcpServers = _parseMcpServers(yaml, credentials, const McpServersConfig.defaults(), warns);
     final providers = _parseProviders(yaml, environment, const ProvidersConfig.defaults(), warns);
     final security = _parseSecurity(yaml, const SecurityConfig.defaults(), warns);
@@ -475,6 +487,7 @@ class DartclawConfig {
       memory: memory,
       knowledge: knowledge,
       search: search,
+      database: database,
       mcpServers: mcpServers,
       providers: providers,
       credentials: credentials,

@@ -2,114 +2,21 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
 
-import 'package:logging/logging.dart';
-import 'package:sqlite3/sqlite3.dart';
-
 import '../workflow/workflow_run.dart' show WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
 import '../workflow/workflow_run_repository.dart' show WorkflowRunRepository;
 
 /// SQLite-backed repository for workflow run persistence.
 ///
-/// Shares the tasks database ([Database]) with [SqliteTaskRepository].
-/// Uses CREATE TABLE IF NOT EXISTS for idempotent schema initialization.
+/// Requires a prepared tasks store shared with the other task and execution repositories.
 class SqliteWorkflowRunRepository implements WorkflowRunRepository {
-  static final _log = Logger('SqliteWorkflowRunRepository');
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the repository against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS workflow_runs (
-        id TEXT PRIMARY KEY,
-        definition_name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        context_json TEXT NOT NULL DEFAULT '{}',
-        variables_json TEXT NOT NULL DEFAULT '{}',
-        started_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        completed_at TEXT,
-        error_message TEXT,
-        total_tokens INTEGER NOT NULL DEFAULT 0,
-        current_step_index INTEGER NOT NULL DEFAULT 0,
-        definition_json TEXT NOT NULL DEFAULT '{}',
-        execution_cursor_json TEXT,
-        workflow_worktree_json TEXT
-      )
-    ''');
-    final columns = _db.select('PRAGMA table_info(workflow_runs)').map((row) => row['name'] as String).toSet();
-    if (!columns.contains('execution_cursor_json')) {
-      _db.execute('ALTER TABLE workflow_runs ADD COLUMN execution_cursor_json TEXT');
-    }
-    if (!columns.contains('workflow_worktree_json')) {
-      _db.execute('ALTER TABLE workflow_runs ADD COLUMN workflow_worktree_json TEXT');
-    }
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition ON workflow_runs(definition_name)');
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS workflow_run_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at TEXT NOT NULL
-      )
-    ''');
-    _migrateLegacyPausedStatuses();
-  }
-
-  void _migrateLegacyPausedStatuses() {
-    const migrationName = 's36_awaiting_approval_status_split';
-    final existing = _db.select('SELECT 1 FROM workflow_run_migrations WHERE name = ? LIMIT 1', [migrationName]);
-    if (existing.isNotEmpty) return;
-
-    _db.execute('BEGIN');
-    try {
-      final pausedRows = _db.select('SELECT id, context_json FROM workflow_runs WHERE status = ?', [
-        WorkflowRunStatus.paused.name,
-      ]);
-
-      var awaitingApprovalCount = 0;
-      var failedCount = 0;
-      final updateStmt = _db.prepare('UPDATE workflow_runs SET status = ? WHERE id = ?');
-      try {
-        for (final row in pausedRows) {
-          final id = row['id'] as String;
-          final contextJson = _decodeJson(row['context_json'] as String);
-          final hasPendingApproval = contextJson['_approval.pending.stepId'] is String;
-          final nextStatus = hasPendingApproval
-              ? WorkflowRunStatus.awaitingApproval.name
-              : WorkflowRunStatus.failed.name;
-          updateStmt.execute([nextStatus, id]);
-          if (hasPendingApproval) {
-            awaitingApprovalCount++;
-          } else {
-            failedCount++;
-          }
-        }
-      } finally {
-        updateStmt.close();
-      }
-
-      _db.execute('INSERT INTO workflow_run_migrations (name, applied_at) VALUES (?, ?)', [
-        migrationName,
-        DateTime.now().toIso8601String(),
-      ]);
-      _db.execute('COMMIT');
-      _log.info(
-        'Applied workflow-run status migration $migrationName '
-        '(awaitingApproval=$awaitingApprovalCount, failed=$failedCount)',
-      );
-    } catch (_) {
-      // Migration step threw — roll back the in-flight transaction and bubble the original cause.
-      _db.execute('ROLLBACK');
-      rethrow;
-    }
-  }
+  /// Creates the repository against a prepared [backend].
+  new(this._backend);
 
   @override
   Future<void> insert(WorkflowRun run) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO workflow_runs (
         id, definition_name, status, context_json, variables_json,
         started_at, updated_at, completed_at, error_message,
@@ -118,7 +25,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         run.id,
         run.definitionName,
         run.status.name,
@@ -135,18 +42,18 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         _encodeWorkflowWorktreeBindings(run.workflowWorktrees),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<WorkflowRun?> getById(String id) async {
-    final stmt = _db.prepare('SELECT * FROM workflow_runs WHERE id = ?');
+    final stmt = await _backend.prepare('SELECT * FROM workflow_runs WHERE id = ?');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       return rows.isEmpty ? null : _workflowRunFromRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -168,17 +75,17 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
     }
     buffer.write(' ORDER BY started_at DESC, id DESC');
 
-    final stmt = _db.prepare(buffer.toString());
+    final stmt = await _backend.prepare(buffer.toString());
     try {
-      return stmt.select(params).map(_workflowRunFromRow).toList(growable: false);
+      return (await stmt.query(params)).map(_workflowRunFromRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> update(WorkflowRun run) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE workflow_runs
       SET
         status = ?,
@@ -195,7 +102,7 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
       WHERE id = ?
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         run.status.name,
         _encodeJson(run.contextJson),
         _encodeJson(run.variablesJson),
@@ -210,17 +117,17 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         run.id,
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> delete(String id) async {
-    final stmt = _db.prepare('DELETE FROM workflow_runs WHERE id = ?');
+    final stmt = await _backend.prepare('DELETE FROM workflow_runs WHERE id = ?');
     try {
-      stmt.execute([id]);
+      await stmt.execute([id]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -232,18 +139,22 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
         if (candidate.key != binding.key) candidate,
       binding,
     ];
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE workflow_runs
       SET workflow_worktree_json = ?, updated_at = ?
       WHERE id = ?
     ''');
     try {
-      stmt.execute([_encodeWorkflowWorktreeBindings(updated), DateTime.now().toIso8601String(), runId]);
-      if (_db.updatedRows == 0) {
+      final changed = await stmt.execute([
+        _encodeWorkflowWorktreeBindings(updated),
+        DateTime.now().toIso8601String(),
+        runId,
+      ]);
+      if (changed == 0) {
         throw ArgumentError('Workflow run not found: $runId');
       }
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -255,17 +166,17 @@ class SqliteWorkflowRunRepository implements WorkflowRunRepository {
 
   @override
   Future<List<WorkflowWorktreeBinding>> getWorktreeBindings(String runId) async {
-    final stmt = _db.prepare('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?');
+    final stmt = await _backend.prepare('SELECT workflow_worktree_json FROM workflow_runs WHERE id = ?');
     try {
-      final rows = stmt.select([runId]);
+      final rows = await stmt.query([runId]);
       if (rows.isEmpty) return const [];
       return _decodeWorkflowWorktreeBindings(rows.first['workflow_worktree_json']);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
-  WorkflowRun _workflowRunFromRow(Row row) {
+  WorkflowRun _workflowRunFromRow(Map<String, Object?> row) {
     return WorkflowRun(
       id: row['id'] as String,
       definitionName: row['definition_name'] as String,

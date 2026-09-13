@@ -55,6 +55,9 @@ Canaries:
 Environment:
   DARTCLAW_TEST_LOG_DIR         Log directory. Defaults to .agent_temp/.
   DARTCLAW_TEST_PROVIDER        Provider preset for workflow E2E fixtures.
+  DARTCLAW_TEST_WORKFLOW_MODEL  Pins the workflow coordinator model; Codex
+                                preflight probes distinct configurations.
+                                Defaults to the E2EFixture preset.
   DARTCLAW_TEST_PLANNER_MODEL   Pins the planner model; Codex preflight probes it.
                                 Defaults to the E2EFixture preset.
   DARTCLAW_TEST_EXECUTOR_MODEL  Pins the executor model used by the preflight
@@ -228,6 +231,7 @@ esac
 PROVIDER="${DARTCLAW_TEST_PROVIDER:-codex}"
 case "${PROVIDER}" in
   codex)
+    WORKFLOW_MODEL="${DARTCLAW_TEST_WORKFLOW_MODEL:-gpt-5.6-luna}"
     PLANNER_MODEL="${DARTCLAW_TEST_PLANNER_MODEL:-gpt-5.6-luna}"
     PLANNER_EFFORT="medium"
     EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-gpt-5.6-luna}"
@@ -359,6 +363,11 @@ run_preflight() {
   if [ "${PROVIDER}" = "codex" ]; then
     run_model_preflight "planner" "${PLANNER_MODEL}" "${PLANNER_EFFORT}" "DARTCLAW_TEST_PLANNER_MODEL" "${login_hint}"
     run_model_preflight "executor" "${EXECUTOR_MODEL}" "" "DARTCLAW_TEST_EXECUTOR_MODEL" "${login_hint}"
+    if [ "${WORKFLOW_MODEL}" != "${EXECUTOR_MODEL}" ]; then
+      if [ "${WORKFLOW_MODEL}" != "${PLANNER_MODEL}" ] || [ -n "${PLANNER_EFFORT}" ]; then
+        run_model_preflight "workflow" "${WORKFLOW_MODEL}" "" "DARTCLAW_TEST_WORKFLOW_MODEL" "${login_hint}"
+      fi
+    fi
     if [ "${REVIEWER_MODEL}" != "${EXECUTOR_MODEL}" ]; then
       if [ "${REVIEWER_MODEL}" != "${PLANNER_MODEL}" ] || [ -n "${PLANNER_EFFORT}" ]; then
         run_model_preflight "reviewer" "${REVIEWER_MODEL}" "" "DARTCLAW_TEST_REVIEWER_MODEL" "${login_hint}"

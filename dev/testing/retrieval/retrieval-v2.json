@@ -1,0 +1,1005 @@
+{
+  "purpose": "Version 2 regression fixture: useful passage relevance, independent of answer sufficiency. Previously exposed documents and queries; not an unseen holdout.",
+  "documents": [
+    {
+      "id": "m01",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Atlas säkerhetskopior skrivs till fjärrlagring varje natt. Återläsning övas på fredagar."
+    },
+    {
+      "id": "m02",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Björk-teamet använder en gemensam inkorg. Mira ansvarar för att fördela nya kundärenden."
+    },
+    {
+      "id": "m03",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Cedar deploys use a canary: ten percent of requests reach the new version before full rollout."
+    },
+    {
+      "id": "m04",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Dahlia mötesanteckningar: beslut om höjd behörighet kräver godkännande från Noor."
+    },
+    {
+      "id": "m05",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Eken lagrar kvitton i ett krypterat arkiv. Nyckeln förvaras separat från säkerhetskopian."
+    },
+    {
+      "id": "m06",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Fjord behöver fungera utan internet. Installationspaketet måste innehålla språkmodellen."
+    },
+    {
+      "id": "m07",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Gran releaseordning: exportera data först, uppgradera databasen därefter och öppna trafiken sist."
+    },
+    {
+      "id": "m08",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Hassel använder UTC i loggar. Användargränssnittet visar tider i Europe/Stockholm."
+    },
+    {
+      "id": "m09",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Iris support policy: refund requests received within fourteen days are handled by the billing team."
+    },
+    {
+      "id": "m10",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Juno tjänst återhämtar sig från avbrott genom att läsa en kontrollpunkt och fortsätta efter senast kvitterade jobb."
+    },
+    {
+      "id": "m11",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Klint testar nya funktioner i en sandlåda. Produktionsdatabasen får aldrig användas för tester."
+    },
+    {
+      "id": "m12",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Linden leverantörsavtal: Sanna är kontaktperson hos Solvik. Avtalet gäller endast material till verkstaden."
+    },
+    {
+      "id": "m13",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Moss research notes are drafts until reviewed. Reviewed notes enter the shared library; rejected notes remain private."
+    },
+    {
+      "id": "m14",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Norr tidigare beslut: kontoret använde blå brickor under pilotperioden. Efter piloten gäller gröna brickor."
+    },
+    {
+      "id": "m15",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Orion has two search corpora. Personal notes and conversation messages keep separate deletion lifecycles."
+    },
+    {
+      "id": "m16",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Pilen avtal bygger på Linden-avtalet. Därför ska frågor om Pilens material skickas till Sanna hos Solvik."
+    },
+    {
+      "id": "m17",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Rönn arbetsordning: kontrollera lagret innan du beställer. Bekräfta leverans efter att varorna anlänt."
+    },
+    {
+      "id": "m18",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Sälg revisionsspår innehåller händelsetyp och ärende-id. Lösenord och åtkomsttoken ska aldrig skrivas där."
+    },
+    {
+      "id": "m19",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Tundra latency alarm fires when the ninety-fifth percentile exceeds two hundred milliseconds for three consecutive windows."
+    },
+    {
+      "id": "m20",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Uggla bytte mötesrum efter renoveringen. Tidigare användes Nordan; nu hålls veckomötet i Sunnan."
+    },
+    {
+      "id": "c01",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Lin: Kan vi flytta Atlas återläsningsövning? Eva: Ja, denna vecka sker övningen på torsdag, inte fredag."
+    },
+    {
+      "id": "c02",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Mira: Jag är borta på måndag. Noor: Jag tar Björks inkorg medan du är ledig."
+    },
+    {
+      "id": "c03",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Omar: Cedar canary failed its health check. Lee: Roll back before increasing traffic."
+    },
+    {
+      "id": "c04",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Sanna: Solvik har slut på mässing. Lin: Använd stål till Pilen-beställningen; Linden fortsätter med mässing."
+    },
+    {
+      "id": "c05",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Eva: Fjord-maskinen saknar nätverk. Omar: Ta med installationspaketet på ett USB-minne; modellen finns i paketet."
+    },
+    {
+      "id": "c06",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Noor: Gran-exporten är klar. Mira: Bra, börja uppgraderingen nu. Trafiken ska fortfarande vara stängd."
+    },
+    {
+      "id": "c07",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Lee: The Iris refund arrived after twenty days. Omar: Escalate this exception to Noor rather than approving it automatically."
+    },
+    {
+      "id": "c08",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Lin: Norrs gröna brickor är försenade. Sanna: Gäster får tillfälliga vita brickor tills leveransen kommer."
+    },
+    {
+      "id": "c09",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "text": "Eva: Ugglas Sunnan är bokat av någon annan i dag. Mira: Dagens veckomöte blir i Västan; nästa vecka återgår vi till Sunnan."
+    },
+    {
+      "id": "c10",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "text": "Omar: Juno lost power after acknowledging job forty-two. Lee: Recover from the checkpoint and start with job forty-three."
+    },
+    {
+      "id": "foreign-m",
+      "corpus": "memory",
+      "tenant": "other-owner",
+      "language": "en",
+      "text": "Atlas private password is FOREIGN_MEMORY_SECRET; Sanna phone is FOREIGN_MEMORY_PHONE."
+    },
+    {
+      "id": "foreign-c",
+      "corpus": "conversation",
+      "tenant": "other-owner",
+      "language": "en",
+      "text": "Noor phone is FOREIGN_CONVERSATION_PHONE; Solvik account is FOREIGN_CONVERSATION_ACCOUNT."
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "family": "exact-keyword",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Atlas säkerhetskopior",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q02",
+      "family": "exact-keyword",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Hassel UTC",
+      "relevantDocumentIds": [
+        "m08"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q03",
+      "family": "exact-keyword",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Klint produktionsdatabasen tester",
+      "relevantDocumentIds": [
+        "m11"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q04",
+      "family": "exact-keyword",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Sälg audit trail",
+      "relevantDocumentIds": [
+        "m18"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q05",
+      "family": "exact-keyword",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Tundras latenslarm",
+      "relevantDocumentIds": [
+        "m19"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q06",
+      "family": "exact-keyword",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Atlas Thursday Friday",
+      "relevantDocumentIds": [
+        "c01"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q07",
+      "family": "exact-keyword",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Björks inkorg måndag",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q08",
+      "family": "exact-keyword",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Cedar canary health check",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q09",
+      "family": "exact-keyword",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Pilen stål mässing",
+      "relevantDocumentIds": [
+        "c04"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q10",
+      "family": "exact-keyword",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Juno job forty-three",
+      "relevantDocumentIds": [
+        "c10"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q11",
+      "family": "vocabulary-mismatch",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "How do we recover information lost from Atlas?",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q12",
+      "family": "vocabulary-mismatch",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur begränsar Cedar skadan när en ändring driftsätts?",
+      "relevantDocumentIds": [
+        "m03"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q13",
+      "family": "vocabulary-mismatch",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What is needed to install Fjord on a computer without a connection?",
+      "relevantDocumentIds": [
+        "m06"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q14",
+      "family": "vocabulary-mismatch",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur fortsätter Juno utan att göra redan avslutat arbete igen?",
+      "relevantDocumentIds": [
+        "m10"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q15",
+      "family": "vocabulary-mismatch",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Where should secrets be omitted from the Sälg event history?",
+      "relevantDocumentIds": [
+        "m18"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q16",
+      "family": "vocabulary-mismatch",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilken dag repeterar vi katastrofåterställning för Atlas den här veckan?",
+      "relevantDocumentIds": [
+        "c01"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q17",
+      "family": "vocabulary-mismatch",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Who covers for Mira on incoming questions?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q18",
+      "family": "vocabulary-mismatch",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur reagerade teamet när Cedars nya version mådde dåligt?",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q19",
+      "family": "vocabulary-mismatch",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "How will the disconnected Fjord computer receive its software?",
+      "relevantDocumentIds": [
+        "c05"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q20",
+      "family": "vocabulary-mismatch",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Var ska Uggla samlas just denna gång när det vanliga rummet är upptaget?",
+      "relevantDocumentIds": [
+        "c09"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q21",
+      "family": "named-entity",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vem fördelar kundärenden i Björk?",
+      "relevantDocumentIds": [
+        "m02"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q22",
+      "family": "named-entity",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Who approves elevated permissions in Dahlia?",
+      "relevantDocumentIds": [
+        "m04"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q23",
+      "family": "named-entity",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vem är Lindens kontaktperson hos Solvik?",
+      "relevantDocumentIds": [
+        "m12",
+        "m16"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q24",
+      "family": "named-entity",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Which team handles standard Iris refunds?",
+      "relevantDocumentIds": [
+        "m09"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q25",
+      "family": "named-entity",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket rum använder Uggla nu för veckomötet?",
+      "relevantDocumentIds": [
+        "m20"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q26",
+      "family": "named-entity",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Who takes over the Björk inbox while Mira is away?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q27",
+      "family": "named-entity",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vem ska bedöma undantaget för Iris återbetalning?",
+      "relevantDocumentIds": [
+        "c07"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q28",
+      "family": "named-entity",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What should Solvik deliver to Pilen instead of brass?",
+      "relevantDocumentIds": [
+        "c04"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q29",
+      "family": "named-entity",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket rum valdes för Ugglas möte i dag?",
+      "relevantDocumentIds": [
+        "c09"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q30",
+      "family": "named-entity",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Which badge color do Norr guests receive temporarily?",
+      "relevantDocumentIds": [
+        "c08"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q31",
+      "family": "temporal",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What does Gran do before the database upgrade?",
+      "relevantDocumentIds": [
+        "m07"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q32",
+      "family": "temporal",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "När bytte Norr från blå till gröna brickor?",
+      "relevantDocumentIds": [
+        "m14"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q33",
+      "family": "temporal",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What should Rönn do before placing an order?",
+      "relevantDocumentIds": [
+        "m17"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q34",
+      "family": "temporal",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket mötesrum använde Uggla före renoveringen?",
+      "relevantDocumentIds": [
+        "m20"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q35",
+      "family": "temporal",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "How long may an ordinary Iris refund request wait after purchase?",
+      "relevantDocumentIds": [
+        "m09"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q36",
+      "family": "temporal",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "När hålls Atlas övning denna vecka?",
+      "relevantDocumentIds": [
+        "c01"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q37",
+      "family": "temporal",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "When is Mira away and in need of inbox coverage?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q38",
+      "family": "temporal",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vad är Grans nästa steg efter den färdiga exporten?",
+      "relevantDocumentIds": [
+        "c06"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q39",
+      "family": "temporal",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Which room will Uggla use next week?",
+      "relevantDocumentIds": [
+        "c09"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q40",
+      "family": "temporal",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket Juno-jobb körs direkt efter det senast kvitterade?",
+      "relevantDocumentIds": [
+        "c10"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q41",
+      "family": "relational",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur hänger Pilens materialfrågor ihop med Lindens leverantörskontakt?",
+      "relevantDocumentIds": [
+        "m12",
+        "m16"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q42",
+      "family": "relational",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What order connects the Gran export, upgrade, and traffic opening?",
+      "relevantDocumentIds": [
+        "m07"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q43",
+      "family": "relational",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Varför måste radering av Orion-anteckningar hållas åtskild från radering av en chatt?",
+      "relevantDocumentIds": [
+        "m15"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q44",
+      "family": "relational",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Where is Eken encryption material kept relative to its backup?",
+      "relevantDocumentIds": [
+        "m05"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q45",
+      "family": "relational",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vad kopplar granskningsgodkännande till publicering i Moss gemensamma bibliotek?",
+      "relevantDocumentIds": [
+        "m13"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q46",
+      "family": "relational",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "How does Mira's absence affect Noor's work with Björk?",
+      "relevantDocumentIds": [
+        "c02"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q47",
+      "family": "relational",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur påverkar bristen hos Solvik materialvalet för Pilen jämfört med Linden?",
+      "relevantDocumentIds": [
+        "c04"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q48",
+      "family": "relational",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Why does the failed Cedar health check prevent a wider rollout?",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q49",
+      "family": "relational",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur påverkar den färdiga Gran-exporten uppgraderingen och trafiken?",
+      "relevantDocumentIds": [
+        "c06"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q50",
+      "family": "relational",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "How does acknowledging Juno job forty-two determine the recovery starting point?",
+      "relevantDocumentIds": [
+        "c10"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q51",
+      "family": "answer-absent",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What is the password for Atlas remote storage?",
+      "relevantDocumentIds": [
+        "m01"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q52",
+      "family": "answer-absent",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket telefonnummer har Sanna hos Solvik?",
+      "relevantDocumentIds": [
+        "m12",
+        "m16"
+      ],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q53",
+      "family": "answer-absent",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "Which exact language model version does Fjord use?",
+      "relevantDocumentIds": [
+        "m06"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q54",
+      "family": "answer-absent",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vem vann stadens roddmästerskap?",
+      "relevantDocumentIds": [],
+      "crossLanguage": false,
+      "expectEmpty": true
+    },
+    {
+      "id": "q55",
+      "family": "answer-absent",
+      "corpus": "memory",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What did the Uggla renovation cost?",
+      "relevantDocumentIds": [
+        "m20"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q56",
+      "family": "answer-absent",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilket telefonnummer har Noor?",
+      "relevantDocumentIds": [],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q57",
+      "family": "answer-absent",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What is Solvik's account number?",
+      "relevantDocumentIds": [],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q58",
+      "family": "answer-absent",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Vilken incheckningshash för Cedar orsakade felet?",
+      "relevantDocumentIds": [
+        "c03"
+      ],
+      "crossLanguage": true,
+      "expectEmpty": false
+    },
+    {
+      "id": "q59",
+      "family": "answer-absent",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "en",
+      "query": "What does the Fjord administrator password contain?",
+      "relevantDocumentIds": [],
+      "crossLanguage": false,
+      "expectEmpty": false
+    },
+    {
+      "id": "q60",
+      "family": "answer-absent",
+      "corpus": "conversation",
+      "tenant": "fixture-owner",
+      "language": "sv",
+      "query": "Hur mycket kostar dagens lunch för Uggla?",
+      "relevantDocumentIds": [],
+      "crossLanguage": false,
+      "expectEmpty": false
+    }
+  ],
+  "protocolVersion": 2
+}

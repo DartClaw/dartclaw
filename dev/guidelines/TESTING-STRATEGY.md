@@ -243,12 +243,12 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 | Preset | Workflow | Planner | Executor / Reviewer | Sandbox | API key env var |
 |---|---|---|---|---|---|
-| `codex` | `gpt-5.4` | `gpt-5.6-luna` (`medium`) | `gpt-5.6-luna` | `danger-full-access` | `CODEX_API_KEY` |
+| `codex` | `gpt-5.6-luna` | `gpt-5.6-luna` (`medium`) | `gpt-5.6-luna` | `danger-full-access` | `CODEX_API_KEY` |
 | `claude` | `claude-opus-5` | `claude-opus-5` | `claude-sonnet-5` | `dontAsk` | `ANTHROPIC_API_KEY` |
 
 (The claude `Sandbox` column is the `permissionMode`. It stays `dontAsk`, **not** `bypassPermissions`, so provider prompts remain compatible with the guarded harness path.)
 
-The fixture default provider is `codex`: planner, executor and reviewer all run on `gpt-5.6-luna` (planner at medium effort). The product recommendation is `gpt-5.6-sol` for every role with effort varied per role (`docs/guide/workflows.md`); the test mapping uses luna because on sol the plan step's sub-agent fan-out ended the turn after the first story spec, and luna is quicker and cheaper for the fixture. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. A Claude harness may print the benign stderr notice `Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`; the CLI does force default mode when the scrub var is set, while the host guard chain remains authoritative for step tool policy. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
+The fixture default provider is `codex`: all four roles run on `gpt-5.6-luna` (planner at medium effort). The product recommendation is `gpt-5.6-sol` for every role with effort varied per role (`docs/guide/workflows.md`); the test mapping uses luna because on sol the plan step's sub-agent fan-out ended the turn after the first story spec, and luna is quicker and cheaper for the fixture. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. A Claude harness may print the benign stderr notice `Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`; the CLI does force default mode when the scrub var is set, while the host guard chain remains authoritative for step tool policy. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
 
 **Run the integration tier against Claude explicitly** (e.g. the other integration files):
 
@@ -264,7 +264,7 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-5 \
   dart test --run-skipped -t integration packages/dartclaw_workflow
 ```
 
-**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned planner, executor, and any distinct reviewer configuration (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct harness spawns.
+**Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned workflow, planner, executor, and reviewer configurations (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct harness spawns.
 
 ### Visual / UI Smoke Tests (Manual)
 
@@ -545,6 +545,35 @@ bash dev/tools/test_workspace.sh
 # Requires real claude binary + API credentials
 dart test --run-skipped -t integration packages/dartclaw_core
 ```
+
+#### PostgreSQL contract
+
+Start PostgreSQL 14, point the live suites at it, and run the same explicit contract command as CI:
+
+```bash
+docker run -d --rm --name dartclaw-postgres-contract \
+  -e POSTGRES_PASSWORD=dartclaw_dev \
+  -e POSTGRES_DB=dartclaw_test \
+  -p 5432:5432 pgvector/pgvector:pg14
+
+until docker exec dartclaw-postgres-contract pg_isready --username postgres --dbname dartclaw_test; do
+  sleep 1
+done
+
+docker exec dartclaw-postgres-contract \
+  psql --username postgres --dbname dartclaw_test --set ON_ERROR_STOP=1 \
+  --command 'CREATE EXTENSION vector WITH SCHEMA public'
+
+export DARTCLAW_TEST_POSTGRES_URL='postgres://postgres:dartclaw_dev@localhost:5432/dartclaw_test?sslmode=disable'
+bash dev/tools/postgres_contract.sh
+```
+
+Every contract group name starts with `[contract:<id>]`, and the same change must classify that id in
+`packages/dartclaw_core/test/storage/contract/contract_groups.json`. The report checker compares exact sets, so an
+unclassified group or a missing group fails the run.
+
+Cross-engine search differences belong in `fts_divergence_whitelist.json` only with the query, document id, engine,
+engine-level evidence, and review date. Entries that no current fixture exercises fail as stale.
 
 ### Coverage
 

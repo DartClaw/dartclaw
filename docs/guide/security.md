@@ -547,6 +547,23 @@ suppresses it like any other warning). Degradation also raises a routed alert
 (nearing expiry and refresh failure as warnings; required re-authentication and a broken mediation contract as
 critical). See [Web UI and API § Provider credential health](web-ui-and-api.md#provider-credential-health).
 
+### HTTP Embedding Trust Boundary
+
+Built-in hybrid search uses the managed in-process model unless an operator explicitly sets
+`search.embedding.provider: http` with a non-empty `search.embedding.model` and an absolute
+`search.embedding.endpoint`. DartClaw never selects HTTP because the local model is missing or fails.
+
+An HTTP embedding request sends raw query or document text to the configured endpoint in the OpenAI-compatible `input`
+field. That content leaves DartClaw and is subject to the endpoint operator's access, retention, and residency policies.
+The endpoint owns model-specific preprocessing; DartClaw does not apply local EmbeddingGemma prefixes or infer behavior
+from the configured model name.
+
+`search.embedding.credential` may name a generic API-key credential from the named store. DartClaw resolves it on the
+host and presents it as a bearer credential without logging or serializing the value. The endpoint cannot contain
+userinfo, a query, or a fragment. A credential requires HTTPS except for literal loopback, and non-loopback access is
+checked by the runtime network policy before the request. Search results and inspection diagnostics do not contain the
+credential or stored vectors.
+
 ### Named Credential Storage
 
 `dartclaw secrets set <name> --type api-key|github-token` writes one owner-only JSON file per name under

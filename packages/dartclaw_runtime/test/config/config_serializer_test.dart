@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -28,6 +30,16 @@ void main() {
       expect(memory['pruning'], {'enabled': true, 'archiveAfterDays': 90, 'schedule': '0 3 * * *'});
       expect(memory['journal'], {'enabled': false, 'schedule': '0 22 * * *'});
       expect(memory['curation'], {'enabled': false, 'schedule': '0 3 * * *'});
+
+      expect(json['search'], {
+        'backend': 'fts5',
+        'embedding': {
+          'provider': 'local',
+          'model': 'embeddinggemma-300M-Q8_0.gguf',
+          'endpoint': null,
+          'credential': null,
+        },
+      });
 
       // Nested sections
       final agent = json['agent'] as Map<String, dynamic>;
@@ -124,6 +136,71 @@ void main() {
       expect(gateway['token'], '***');
       expect(gateway['authMode'], 'token');
       expect(gateway['hsts'], false);
+    });
+
+    test('HTTP embedding config serializes only the credential reference', () {
+      final config = DartclawConfig(
+        search: SearchConfig(
+          backend: 'hybrid',
+          embedding: EmbeddingConfig(
+            provider: EmbeddingProviderKind.http,
+            model: 'remote-model',
+            endpoint: Uri.parse('https://example.com/v1/embeddings'),
+            credential: 'remote-key',
+          ),
+        ),
+        credentials: const CredentialsConfig(entries: {'remote-key': CredentialEntry(apiKey: 'top-secret-api-key')}),
+      );
+
+      final json = serializer.toJson(config, runtime: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
+      expect(json['search'], {
+        'backend': 'hybrid',
+        'embedding': {
+          'provider': 'http',
+          'model': 'remote-model',
+          'endpoint': 'https://example.com/v1/embeddings',
+          'credential': 'remote-key',
+        },
+      });
+      expect(jsonEncode(json), isNot(contains('top-secret-api-key')));
+    });
+
+    test('directly constructed unsafe embedding endpoints are not serialized', () {
+      final config = DartclawConfig(
+        search: SearchConfig(
+          backend: 'hybrid',
+          embedding: EmbeddingConfig(
+            provider: EmbeddingProviderKind.http,
+            model: 'remote-model',
+            endpoint: Uri.parse('https://alice:uri-secret@example.com/v1/embeddings?key=query-secret'),
+          ),
+        ),
+      );
+
+      final json = serializer.toJson(config, runtime: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
+      final encoded = jsonEncode(json);
+      expect(((json['search'] as Map<String, dynamic>)['embedding'] as Map<String, dynamic>)['endpoint'], isNull);
+      expect(encoded, isNot(contains('uri-secret')));
+      expect(encoded, isNot(contains('query-secret')));
+    });
+
+    test('directly constructed credentialed public HTTP config is not serialized as usable', () {
+      final config = DartclawConfig(
+        search: SearchConfig(
+          backend: 'hybrid',
+          embedding: EmbeddingConfig(
+            provider: EmbeddingProviderKind.http,
+            model: 'remote-model',
+            endpoint: Uri.parse('http://embeddings.example/v1/embeddings'),
+            credential: 'remote-key',
+          ),
+        ),
+      );
+
+      final json = serializer.toJson(config, runtime: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false));
+      final embedding = (json['search'] as Map<String, dynamic>)['embedding'] as Map<String, dynamic>;
+      expect(embedding['endpoint'], isNull);
+      expect(embedding['credential'], isNull);
     });
 
     test('workflow defaults serialize configured role overrides', () {
@@ -229,6 +306,44 @@ void main() {
       final json = serializer.toJson(config, runtime: runtime);
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], isNull);
+    });
+
+    test('database URL is masked while safe connection settings remain visible', () {
+      const databaseUrl = 'postgresql://runtime:ConfigSurfacePasswordX9@database.internal/dartclaw';
+      final config = const DartclawConfig(
+        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, url: databaseUrl, poolSize: 7),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+      final encoded = jsonEncode(json);
+
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': '***',
+        'credential': null,
+        'poolSize': 7,
+        'ftsLanguage': 'english',
+      });
+      expect(encoded, isNot(contains('ConfigSurfacePasswordX9')));
+      expect(encoded, isNot(contains(databaseUrl)));
+    });
+
+    test('database credential exposes only its reference name', () {
+      final config = const DartclawConfig(
+        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'database-main', poolSize: 11),
+      );
+      final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
+
+      final json = serializer.toJson(config, runtime: runtime);
+
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': null,
+        'credential': 'database-main',
+        'poolSize': 11,
+        'ftsLanguage': 'english',
+      });
     });
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {

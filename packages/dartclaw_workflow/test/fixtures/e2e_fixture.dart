@@ -2,11 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, PrCreator;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 import '../workflow/_support/workflow_test_paths.dart';
 
@@ -50,7 +49,7 @@ typedef _ProviderPreset = ({
 });
 
 const _ProviderPreset _codexPreset = (
-  workflowModel: 'gpt-5.4',
+  workflowModel: 'gpt-5.6-luna',
   // Test mapping, not the product recommendation (docs/guide/workflows.md keeps
   // sol): on sol the plan step's sub-agent fan-out ended the turn after the
   // first story spec (2026-09-01, twice); luna writes the bundle inline.
@@ -578,8 +577,8 @@ final class E2EFixtureInstance {
       environment: environment,
       skillProvisionerEnvironment: environment,
       harnessFactory: harnessFactory ?? HarnessFactory(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,

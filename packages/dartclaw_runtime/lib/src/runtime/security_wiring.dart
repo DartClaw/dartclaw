@@ -39,7 +39,9 @@ class SecurityWiring implements Reconfigurable {
     McpProtocolHandler Function()? mcpHandlerRef,
     Map<String, CredentialEntry> Function()? subscriptionCredentials,
     CodexRefreshAuthority? codexRefresh,
+    required GuardAuditLogger auditLogger,
   }) : _dataDir = dataDir,
+       _auditLogger = auditLogger,
        _codexRefresh = codexRefresh,
        _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
        _mcpHandlerRef = mcpHandlerRef,
@@ -89,7 +91,7 @@ class SecurityWiring implements Reconfigurable {
   final String _authorityEpoch = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
   var _nextAuthorityId = 1;
   GuardChain? _guardChain;
-  late GuardAuditLogger _auditLogger;
+  final GuardAuditLogger _auditLogger;
   ContentGuard? _contentGuard;
   ContentClassifier? _contentClassifier;
   ContentScan? _contentScan;
@@ -222,10 +224,6 @@ class SecurityWiring implements Reconfigurable {
   static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
-    // Assigned before anything that can throw: dispose() flushes it, and a
-    // partially-wired instance must still tear down cleanly.
-    _auditLogger = GuardAuditLogger(dataDir: _dataDir);
-
     if (config.container.enabled) {
       if (!_platformCapabilities.containerIsolationAvailable) {
         const error = UnsupportedCapabilityError(

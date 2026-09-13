@@ -18,7 +18,7 @@ data_dir: "/tmp/dartclaw-test/data"
 
 agent:
   provider: codex
-  model: gpt-5.4
+  model: gpt-5.6-luna
 
 gateway:
   auth_mode: token
@@ -45,7 +45,7 @@ workflow:
   workspace_dir: "/tmp/dartclaw-test/workflow-workspace"
   defaults:
     workflow:
-      model: codex/gpt-5.4
+      model: codex/gpt-5.6-luna
     planner:
       model: codex/gpt-5.6-luna
       effort: medium

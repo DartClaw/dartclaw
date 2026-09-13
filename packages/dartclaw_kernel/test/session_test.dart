@@ -2,6 +2,21 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('isChatFacing classifies every session type', () {
+    expect(
+      {for (final type in SessionType.values) type: type.isChatFacing},
+      {
+        SessionType.main: true,
+        SessionType.channel: true,
+        SessionType.cron: false,
+        SessionType.user: true,
+        SessionType.task: false,
+        SessionType.logicalAgent: false,
+        SessionType.archive: false,
+      },
+    );
+  });
+
   test('execution routing round-trips and can be cleared explicitly', () {
     final createdAt = DateTime.utc(2026, 8, 9, 10);
     final session = Session(

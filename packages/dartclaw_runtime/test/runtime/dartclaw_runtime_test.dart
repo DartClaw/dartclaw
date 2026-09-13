@@ -7,7 +7,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void _git(String workingDirectory, List<String> args) {
@@ -68,13 +67,22 @@ void main() {
     String? runtimeCwd,
     GatewayConfig gateway = const GatewayConfig(authMode: 'none'),
     TurnLimitsConfig turnLimits = const TurnLimitsConfig.defaults(),
+    List<DatabaseBackend>? openedBackends,
   }) => DartclawRuntime.build(
     _config(tempDir.path, gateway: gateway, turnLimits: turnLimits),
     dataDir: tempDir.path,
     port: 3000,
     harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async {
+      final backend = SqliteBackend.openInMemory();
+      openedBackends?.add(backend);
+      return backend;
+    },
+    taskBackendFactory: (_) async {
+      final backend = SqliteBackend.openInMemory();
+      openedBackends?.add(backend);
+      return backend;
+    },
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     resolvedConfigPath: configFile.path,
@@ -89,8 +97,8 @@ void main() {
     _config(tempDir.path),
     dataDir: tempDir.path,
     harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     runtimeCwd: tempDir.path,
@@ -257,21 +265,21 @@ void main() {
   test('a completion that fails leaves the staging owning teardown', () async {
     // Between "a completion started" and "a runtime exists" nobody else can
     // close the databases: the caller's `finally` only has the staging.
-    final searchDbs = <Database>[];
-    final taskDbs = <Database>[];
+    final searchBackends = <DatabaseBackend>[];
+    final taskBackends = <DatabaseBackend>[];
     final staging = await DartclawRuntime.stageHeadless(
       _config(tempDir.path),
       dataDir: tempDir.path,
       harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-      searchDbFactory: (_) {
-        final db = sqlite3.openInMemory();
-        searchDbs.add(db);
-        return db;
+      searchBackendFactory: (_) async {
+        final backend = SqliteBackend.openInMemory();
+        searchBackends.add(backend);
+        return backend;
       },
-      taskDbFactory: (_) {
-        final db = sqlite3.openInMemory();
-        taskDbs.add(db);
-        return db;
+      taskBackendFactory: (_) async {
+        final backend = SqliteBackend.openInMemory();
+        taskBackends.add(backend);
+        return backend;
       },
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
@@ -284,28 +292,28 @@ void main() {
       staging.completeForExecution({'not-configured'}),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('not-configured'))),
     );
-    expect(taskDbs, hasLength(1));
-    expect(taskDbs.single.select('SELECT 1'), isNotEmpty);
+    expect(taskBackends, hasLength(1));
+    expect(await taskBackends.single.query('SELECT 1'), isNotEmpty);
     await staging.dispose();
 
-    expect(searchDbs, isEmpty, reason: 'headless staging composed a personal-memory search database');
-    expect(
-      () => taskDbs.single.select('SELECT 1'),
-      throwsA(isA<StateError>()),
+    expect(searchBackends, isEmpty, reason: 'headless staging composed a personal-memory search database');
+    await expectLater(
+      () => taskBackends.single.query('SELECT 1'),
+      throwsStateError,
       reason: 'the task database was left open',
     );
   });
 
   test('shutdown stops the scheduled lane and closes the search database last', () async {
-    final runtime = await build();
+    final openedBackends = <DatabaseBackend>[];
+    final runtime = await build(openedBackends: openedBackends);
 
     await runtime.shutdown();
 
-    expect(
-      () => runtime.searchDb!.select('SELECT 1'),
-      throwsA(isA<StateError>()),
-      reason: 'the search database is the last thing shutdown closes',
-    );
+    expect(openedBackends, hasLength(3));
+    for (final backend in openedBackends) {
+      await expectLater(() => backend.query('SELECT 1'), throwsStateError);
+    }
     // Every post-server disposal step is best-effort: a second shutdown drives
     // each one against an already-disposed service, so anything that rethrew
     // instead of logging would surface here.

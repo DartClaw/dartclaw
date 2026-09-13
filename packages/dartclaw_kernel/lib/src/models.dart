@@ -23,7 +23,15 @@ enum SessionType {
   logicalAgent,
 
   /// A read-only or historical session retained for archival purposes.
-  archive,
+  archive;
+
+  /// Whether messages in this session belong to the conversation index.
+  ///
+  /// Internal execution sessions and archived sessions are excluded.
+  bool get isChatFacing => switch (this) {
+    main || channel || user => true,
+    cron || task || logicalAgent || archive => false,
+  };
 }
 
 /// A top-level conversation container for exchanges between a user and an agent.

@@ -3,9 +3,25 @@ library;
 
 export 'src/models.dart'
     show Session, SessionType, Message, MemorySearchResult, MemorySearchDegradation, MemorySearchOutcome;
+export 'src/full_text_index.dart' show FullTextIndex, SearchDocument, SearchResult;
+export 'src/vector_search.dart'
+    show
+        EmbeddingProvider,
+        SearchDiagnostics,
+        SearchDiagnosticsSink,
+        SearchRankEvidence,
+        VectorIdentity,
+        VectorIndex,
+        VectorMatch,
+        VectorRecord;
 export 'src/agent_definition.dart' show AgentDefinition;
 export 'src/output_schema.dart'
-    show OutputSchemaViolation, parseOutputSchema, renderOutputSchemaContract, validateOutputSchema;
+    show
+        decodeOutputSchemaJson,
+        OutputSchemaViolation,
+        parseOutputSchema,
+        renderOutputSchemaContract,
+        validateOutputSchema;
 export 'src/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
 export 'src/channel_type.dart' show ChannelType;
 export 'src/container_config.dart' show ContainerConfig;
@@ -137,7 +153,24 @@ export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersCo
 export 'src/reconfigurable.dart' show Reconfigurable;
 export 'src/scheduled_task_definition.dart' show ScheduledTaskDefinition;
 export 'src/scheduling_config.dart' show ScheduleMutationApproval, SchedulingConfig;
-export 'src/search_config.dart' show SearchConfig, SearchProviderEntry;
+export 'src/search_config.dart'
+    show
+        EmbeddingConfig,
+        EmbeddingProviderKind,
+        SearchConfig,
+        SearchProviderEntry,
+        isValidEmbeddingCredentialEndpoint,
+        isValidEmbeddingEndpoint;
+export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
+export 'src/storage_exceptions.dart'
+    show
+        SchemaIncompatibleException,
+        StorageConfigurationException,
+        StorageConnectionException,
+        StorageException,
+        StoragePoolExhaustedException,
+        StorageQueryException,
+        StorageUnknownOutcomeException;
 export 'src/security_config.dart' show SecurityBashStepConfig, SecurityConfig;
 export 'src/server_config.dart' show ServerConfig;
 export 'src/session_config.dart' show SessionConfig;
@@ -161,6 +194,8 @@ export 'src/project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy, Proj
 export 'src/agent_execution.dart' show AgentExecution;
 export 'src/agent_execution_repository.dart' show AgentExecutionRepository;
 export 'src/execution_repository_transactor.dart' show ExecutionRepositoryTransactor;
+export 'src/database_backend.dart'
+    show DatabaseBackend, DatabaseBackendFactory, DatabaseStatement, NestedTransactionError;
 export 'src/loop_detection.dart' show LoopDetection, LoopDetectedException, LoopMechanism;
 export 'src/loop_detector.dart' show LoopDetector;
 export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;

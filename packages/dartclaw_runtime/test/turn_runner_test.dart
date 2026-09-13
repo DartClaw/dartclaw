@@ -12,80 +12,13 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunn
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'turn_runner_test_support.dart';
 
-TurnRunner _buildRunner({
-  required AgentHarness harness,
-  required MessageService messages,
-  required String workspaceDir,
-  SessionService? sessions,
-  required TurnStateStore turnState,
-  required KvService kvService,
-  SessionResetService? resetService,
-  String providerId = 'claude',
-  Duration stallTimeout = Duration.zero,
-  TurnProgressAction stallAction = TurnProgressAction.warn,
-  Duration turnTimeout = const Duration(minutes: 30),
-  EventBus? eventBus,
-  SelfImprovementService? selfImprovement,
-  GuardChain? guardChain,
-  TaskToolFilterGuard? taskToolFilterGuard,
-  SessionLockTimerFactory? turnMonitorTimerFactory,
-  DateTime Function()? turnMonitorNow,
-  MemoryFileService? memoryFile,
-  MessageRedactor? redactor,
-  SessionLockManager? lockManager,
-}) {
-  return TurnRunner(
-    turnLimits: TurnLimitsConfig(stallTimeout: stallTimeout, stallAction: stallAction, turnTimeout: turnTimeout),
-    harness: harness,
-    messages: messages,
-    behavior: BehaviorFileService(workspaceDir: workspaceDir),
-    sessions: sessions,
-    turnState: turnState,
-    kv: kvService,
-    resetService: resetService,
-    providerId: providerId,
-    eventBus: eventBus,
-    selfImprovement: selfImprovement,
-    guardChain: guardChain,
-    taskToolFilterGuard: taskToolFilterGuard,
-    turnMonitorTimerFactory: turnMonitorTimerFactory,
-    turnMonitorNow: turnMonitorNow,
-    memoryFile: memoryFile,
-    redactor: redactor,
-    lockManager: lockManager,
-  );
-}
-
-class _ObservingSessionLockManager extends SessionLockManager {
-  void Function()? beforeRelease;
-
-  @override
-  void release(String sessionId) {
-    beforeRelease?.call();
-    super.release(sessionId);
-  }
-}
-
-class _TurnMonitorFakeTime {
-  static final _initialTime = DateTime(2026);
-  final _async = FakeAsync(initialTime: _initialTime);
-
-  DateTime now() => _async.getClock(_initialTime).now();
-
-  Timer create(Duration duration, void Function() callback) => _async.run((_) => Timer(duration, callback));
-
-  Future<void> elapseAsync(Duration duration) async {
-    await pumpEventQueue();
-    _async.elapse(duration);
-    await pumpEventQueue();
-  }
-}
+part 'turn_runner_test_fixtures.dart';
 
 void main() {
   late Directory tempDir;
@@ -95,7 +28,6 @@ void main() {
   late MessageService messages;
   late FakeAgentHarness worker;
   late TurnRunner runner;
-  late Database turnStateDb;
   late TurnStateStore turnState;
   late KvService kvService;
   late _TurnMonitorFakeTime turnMonitorTime;
@@ -110,8 +42,7 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     worker = FakeAgentHarness();
-    turnStateDb = sqlite3.openInMemory();
-    turnState = TurnStateStore(turnStateDb);
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     turnMonitorTime = _TurnMonitorFakeTime();
     runner = _buildRunner(
@@ -1140,6 +1071,47 @@ void main() {
     await outcomeExpectation;
   });
 
+  test('turn-state filesystem failures warn without blocking reserve or release bookkeeping', () async {
+    final warnings = <LogRecord>[];
+    final subscription = Logger.root.onRecord
+        .where((record) => record.loggerName == 'TurnRunner' && record.level >= Level.WARNING)
+        .listen(warnings.add);
+    addTearDown(subscription.cancel);
+
+    final statePath = p.join(tempDir.path, 'turn_state.json');
+    File(statePath).deleteSync();
+    Directory(statePath).createSync();
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.reserveTurn(session.id);
+    final outcomeExpectation = expectLater(
+      runner.waitForOutcome(session.id, turnId),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('released without execution'))),
+    );
+    runner.releaseTurn(session.id, turnId);
+    await pumpEventQueue();
+
+    expect(runner.isActive(session.id), isFalse);
+    await outcomeExpectation;
+    expect(
+      warnings.map((record) => record.message),
+      containsAllInOrder([
+        'Failed to persist turn state for crash recovery',
+        'Failed to clean up turn state during release',
+      ]),
+    );
+
+    Directory(statePath).deleteSync();
+    File(statePath).writeAsStringSync('{}');
+    final nextTurnId = await runner.reserveTurn(session.id);
+    final nextOutcomeExpectation = expectLater(
+      runner.waitForOutcome(session.id, nextTurnId),
+      throwsA(isA<StateError>()),
+    );
+    runner.releaseTurn(session.id, nextTurnId);
+    await nextOutcomeExpectation;
+  });
+
   test('turnStatus reports waiting and stuck for queued same-session lock wait', () async {
     final bus = EventBus();
     final events = <TurnWaitStateChangedEvent>[];
@@ -1763,6 +1735,7 @@ void main() {
       'total_tokens',
       'effective_tokens',
       'estimated_cost_usd',
+      'cost_reported_turn_count',
       'turn_count',
       'provider',
     });
@@ -1773,7 +1746,8 @@ void main() {
     expect(usageData['total_tokens'], 5);
     expect(usageData['cache_read_tokens'], 0);
     expect(usageData['effective_tokens'], 5);
-    expect((usageData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(usageData['estimated_cost_usd'], isNull);
+    expect(usageData['cost_reported_turn_count'], 0);
     expect(usageData['turn_count'], 1);
   });
 
@@ -1865,6 +1839,7 @@ void main() {
       'total_tokens',
       'effective_tokens',
       'estimated_cost_usd',
+      'cost_reported_turn_count',
       'turn_count',
       'provider',
     });
@@ -1876,7 +1851,8 @@ void main() {
     expect(costData['cache_read_tokens'], 12);
     // Turn 1: 2+1+(5*0.1~/1=0) = 3. Turn 2: 3+4+(7*0.1~/1=0) = 7. Accumulated = 10.
     expect(costData['effective_tokens'], 10);
-    expect((costData['estimated_cost_usd'] as num).toDouble(), 0.0);
+    expect(costData['estimated_cost_usd'], isNull);
+    expect(costData['cost_reported_turn_count'], 0);
     expect(costData['turn_count'], 2);
   });
 
@@ -1907,52 +1883,6 @@ void main() {
     expect(costData['effective_tokens'], 500);
     expect(costData['cache_read_tokens'], 1000);
     expect(costData['cache_write_tokens'], 200);
-  });
-
-  test('preserves the first provider written for a session cost record', () async {
-    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
-    final claudeWorker = FakeAgentHarness();
-    addTearDown(() async => codexWorker.dispose());
-    addTearDown(() async => claudeWorker.dispose());
-    final codexRunner = _buildRunner(
-      harness: codexWorker,
-      messages: messages,
-      workspaceDir: workspaceDir,
-      sessions: sessions,
-      turnState: turnState,
-      kvService: kvService,
-      providerId: 'codex',
-    );
-    final claudeRunner = _buildRunner(
-      harness: claudeWorker,
-      messages: messages,
-      workspaceDir: workspaceDir,
-      sessions: sessions,
-      turnState: turnState,
-      kvService: kvService,
-      providerId: 'claude',
-    );
-    final session = await sessions.getOrCreateMainSession();
-
-    scheduleTurnCompletion(
-      codexWorker,
-      result: turnResult(inputTokens: 1, outputTokens: 1, totalCostUsd: 0.10, cachedInputTokens: 3),
-    );
-    final codexTurnId = await codexRunner.startTurn(session.id, [
-      {'role': 'user', 'content': 'codex'},
-    ]);
-    await codexRunner.waitForOutcome(session.id, codexTurnId);
-
-    scheduleTurnCompletion(claudeWorker, result: turnResult(inputTokens: 2, outputTokens: 2, totalCostUsd: 0.20));
-    final claudeTurnId = await claudeRunner.startTurn(session.id, [
-      {'role': 'user', 'content': 'claude'},
-    ]);
-    await claudeRunner.waitForOutcome(session.id, claudeTurnId);
-
-    final costData = await readSessionCost(kvService, session.id);
-    expect(costData['provider'], 'codex');
-    expect(costData['cache_read_tokens'], 3);
-    expect(costData['turn_count'], 2);
   });
 
   test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {

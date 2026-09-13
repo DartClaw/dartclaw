@@ -472,6 +472,7 @@ void main() {
       for (final url in [
         'http://mcp.example/mcp',
         'http://192.168.1.10/mcp',
+        'http://127.0.0.2/mcp',
         'http://0.0.0.0/mcp',
         'http://[::ffff:127.0.0.1]/mcp',
         'http://foo.localhost/mcp',

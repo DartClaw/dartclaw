@@ -66,6 +66,7 @@ void main() {
       eventBus: eventBus,
       exitFn: _unexpectedExit,
       subscriptionCredentials: _storedCredentials,
+      auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
   });
 

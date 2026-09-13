@@ -48,15 +48,19 @@ TurnTrace _makeTrace({
 
 void main() {
   late Database db;
+  late SqliteBackend backend;
   late TurnTraceService service;
 
-  setUp(() {
-    db = openTaskDbInMemory();
-    service = TurnTraceService(db);
+  setUp(() async {
+    db = sqlite3.openInMemory();
+    backend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
+    service = TurnTraceService(backend);
   });
 
   tearDown(() async {
     await service.dispose();
+    await backend.close();
   });
 
   test('creates turns table and indexes', () {
@@ -148,6 +152,20 @@ void main() {
 
     final page3 = await service.query(taskId: 'task-P', limit: 2, offset: 4);
     expect(page3.traces, hasLength(1));
+  });
+
+  test('source locators round trip through the existing tool_calls column', () async {
+    final record = ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: ['one', 'two']);
+    await service.insert(_makeTrace(id: 'sources', toolCalls: [record]));
+    expect((await service.query()).traces.single.toolCalls.single, record);
+    final stored = jsonDecode(
+      db.select("SELECT tool_calls FROM turns WHERE id = 'sources'").single['tool_calls'] as String,
+    ) as Map<String, dynamic>;
+    final records = stored['records'] as List;
+    expect((records.single as Map)['sourceLocators'], ['one', 'two']);
+    (records.single as Map).remove('sourceLocators');
+    db.execute("UPDATE turns SET tool_calls = ? WHERE id = 'sources'", [jsonEncode(stored)]);
+    expect((await service.query()).traces.single.toolCalls.single.sourceLocators, isEmpty);
   });
 
   test('summary aggregates token sums, duration, tool call count, trace count', () async {

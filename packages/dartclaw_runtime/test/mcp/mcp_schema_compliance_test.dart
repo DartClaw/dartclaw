@@ -24,9 +24,9 @@ import 'package:dartclaw_runtime/src/scheduling/schedule_mutation.dart';
 import 'package:dartclaw_runtime/src/task/task_review_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/workspace/workspace_path_guard.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemorySessionService, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemorySessionService, InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../api/workflow_test_support.dart';
@@ -34,7 +34,7 @@ import '../api/workflow_test_support.dart';
 /// Minimal [SearchProvider] stub for tool instantiation.
 class _StubSearchProvider implements SearchProvider {
   @override
-  Future<List<SearchResult>> search(String query, {int count = 5}) async => [];
+  Future<List<WebSearchResult>> search(String query, {int count = 5}) async => [];
 }
 
 class _StubSearchBackend implements SearchBackend {
@@ -60,8 +60,15 @@ LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
 
 void main() {
   group('MCP tool schema compliance — additionalProperties: false', () {
-    final kgDb = sqlite3.openInMemory();
-    final kg = TemporalKnowledgeGraphService(kgDb);
+    late SqliteBackend kgBackend;
+    late TemporalKnowledgeGraphService kg;
+
+    setUpAll(() async {
+      kgBackend = await openPreparedTaskBackend();
+      kg = TemporalKnowledgeGraphService(kgBackend);
+    });
+
+    tearDownAll(() => kgBackend.close());
 
     /// Verifies that an object-type tool inputSchema has additionalProperties: false.
     void expectCompliant(McpTool tool) {
@@ -90,7 +97,7 @@ void main() {
         WorkflowRunTool(
           definitions: definitions,
           workflows: FakeWorkflowService(
-            db: sqlite3.openInMemory(),
+            backend: kgBackend,
             taskService: TaskService(InMemoryTaskRepository()),
             eventBus: EventBus(),
             dataDir: tempDir.path,

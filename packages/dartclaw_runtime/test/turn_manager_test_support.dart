@@ -48,6 +48,9 @@ class FakeWorkerService implements AgentHarness {
   bool get supportsStructuredOutput => false;
 
   @override
+  bool get supportsNoWorkTools => false;
+
+  @override
   bool get supportsProviderSessionResume => false;
 
   @override
@@ -154,6 +157,9 @@ class AppendStrategyWorker implements AgentHarness {
 
   @override
   bool get supportsStructuredOutput => false;
+
+  @override
+  bool get supportsNoWorkTools => false;
 
   @override
   bool get supportsProviderSessionResume => false;

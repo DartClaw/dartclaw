@@ -5,8 +5,8 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/kg_timeline_page.dart';
 import 'package:dartclaw_runtime/src/web/system_pages.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
@@ -14,42 +14,42 @@ import '../../test_utils.dart';
 void main() {
   late Directory tempDir;
   late SessionService sessions;
-  late Database db;
+  late SqliteBackend backend;
   late TemporalKnowledgeGraphService kg;
 
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('kg_timeline_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
-    db = sqlite3.openInMemory();
-    kg = TemporalKnowledgeGraphService(db);
+    backend = await openPreparedTaskBackend();
+    kg = TemporalKnowledgeGraphService(backend);
   });
 
-  tearDown(() {
-    db.close();
+  tearDown(() async {
+    await backend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
   });
 
   test('renders category groups ordered by validity windows', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'beta',
       validFrom: '2026-02-01T00:00:00Z',
       source: 'wiki/status.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'sqlite',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'sqlite-wal',
@@ -67,29 +67,29 @@ void main() {
   });
 
   test('keeps superseded and contradicting facts visible', () async {
-    final oldId = kg.addFact(
+    final oldId = await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/status.md',
     );
-    kg.invalidate(id: oldId, invalidatedAt: '2026-02-01T00:00:00Z', reason: 'phase changed');
-    kg.addFact(
+    await kg.invalidate(id: oldId, invalidatedAt: '2026-02-01T00:00:00Z', reason: 'phase changed');
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'beta',
       validFrom: '2026-02-01T00:00:00Z',
       source: 'wiki/status.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'sqlite',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'postgres',
@@ -108,7 +108,7 @@ void main() {
   });
 
   test('renders active-as-of and future-dated facts while now clears the query', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -116,7 +116,7 @@ void main() {
       validTo: '2026-01-15T00:00:00Z',
       source: 'wiki/status.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'beta',
@@ -139,7 +139,7 @@ void main() {
   });
 
   test('date-only as-of uses the KG UTC parser for active classification', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -158,14 +158,14 @@ void main() {
   });
 
   test('future contradictory facts are not rendered as active conflicts in as-of view', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'sqlite',
       validFrom: '2026-01-15T00:00:00Z',
       source: 'wiki/architecture.md',
     );
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'postgres',
@@ -184,21 +184,21 @@ void main() {
   });
 
   test('historical resolved contradictions are rendered as conflicts in as-of view', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'sqlite',
       validFrom: '2026-01-15T00:00:00Z',
       source: 'wiki/architecture.md',
     );
-    final postgresId = kg.addFact(
+    final postgresId = await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
       value: 'postgres',
       validFrom: '2026-01-20T00:00:00Z',
       source: 'inbox/architecture.md',
     );
-    kg.invalidate(id: postgresId, invalidatedAt: '2026-02-01T00:00:00Z', reason: 'decision reverted');
+    await kg.invalidate(id: postgresId, invalidatedAt: '2026-02-01T00:00:00Z', reason: 'decision reverted');
 
     final html = await _renderHtml(
       KgTimelinePage(kgGetter: () => kg),
@@ -212,7 +212,7 @@ void main() {
   });
 
   test('rejects invalid as-of timestamps without rendering fact cards', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -229,7 +229,7 @@ void main() {
   });
 
   test('unknown category renders the empty state', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -249,7 +249,7 @@ void main() {
   });
 
   test('KG read failure renders an error and no fact cards', () async {
-    final throwing = _ThrowingKg(db);
+    final throwing = _ThrowingKg(backend);
 
     final response = await _render(KgTimelinePage(kgGetter: () => throwing), sessions);
     final html = await response.readAsString();
@@ -260,7 +260,7 @@ void main() {
   });
 
   test('renders shared attribution and unverified fallback', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -281,7 +281,7 @@ void main() {
   });
 
   test('renders read-only controls only', () async {
-    kg.addFact(
+    await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
       value: 'alpha',
@@ -367,8 +367,8 @@ final class _NeverResolver implements CitationSourceResolver {
 }
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async => throw StateError('boom');
 }

@@ -16,6 +16,7 @@ pubspecs=(
   "$REPO_ROOT/packages/dartclaw_bridge/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_client/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_core/pubspec.yaml"
+  "$REPO_ROOT/packages/dartclaw_search/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_kernel/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_testing/pubspec.yaml"
   "$REPO_ROOT/packages/dartclaw_whatsapp/pubspec.yaml"

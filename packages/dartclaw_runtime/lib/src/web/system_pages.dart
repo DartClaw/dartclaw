@@ -43,7 +43,7 @@ void registerSystemDashboardPages(
   ScheduleService? Function()? scheduleServiceGetter,
   Future<void> Function()? schedulingJobsApplier,
   PendingScheduleChangeStore? pendingScheduleChanges,
-  MemoryService? Function()? memoryServiceGetter,
+  FullTextIndex? Function()? memoryIndexGetter,
   SearchBackend? Function()? searchBackendGetter,
   MemoryCorpusService? Function()? memoryCorpusGetter,
   TemporalKnowledgeGraphService? Function()? kgServiceGetter,
@@ -96,16 +96,20 @@ void registerSystemDashboardPages(
     KnowledgeHubPage(
       hubGetter: () {
         final workspaceDir = config?.workspaceDir;
-        final memory = memoryServiceGetter?.call();
+        final memoryIndex = memoryIndexGetter?.call();
         final searchBackend = searchBackendGetter?.call();
         final memoryCorpus = memoryCorpusGetter?.call();
         final kg = kgServiceGetter?.call();
-        if (workspaceDir == null || memory == null || searchBackend == null || memoryCorpus == null || kg == null) {
+        if (workspaceDir == null ||
+            memoryIndex == null ||
+            searchBackend == null ||
+            memoryCorpus == null ||
+            kg == null) {
           return null;
         }
         return knowledgeHubServiceForWorkspace(
           workspaceDir: workspaceDir,
-          memory: memory,
+          memoryIndex: memoryIndex,
           searchBackend: searchBackend,
           memoryCorpus: memoryCorpus,
           kg: kg,

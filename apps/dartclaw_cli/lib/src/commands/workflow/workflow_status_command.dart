@@ -9,16 +9,22 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show SqliteAgentExecutionRepository, SqliteTaskRepository, openTaskDb, TaskDbFactory;
+    show
+        adoptLegacyAuthoritativeStore,
+        AuthoritativeStoreAdoptionException,
+        SqliteTaskRepository,
+        databaseBackendFactoryFor,
+        prepareAuthoritativeStore;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
+import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
 
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
@@ -27,13 +33,13 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
   new({
     this.standaloneOnly = false,
     super.config,
-    TaskDbFactory? taskDbFactory,
+    DatabaseBackendFactory? taskBackendFactory,
     String? currentDirectory,
     Map<String, String>? environment,
     super.connection,
     super.writeLine,
     super.exitFn,
-  }) : _taskDbFactory = taskDbFactory ?? openTaskDb,
+  }) : _taskBackendFactory = taskBackendFactory,
        _currentDirectory = currentDirectory,
        _environment = environment {
     argParser
@@ -91,12 +97,29 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    final taskDb = _taskDbFactory(config.tasksDbPath);
+    if (config.database.backend == DatabaseBackendKind.sqlite) {
+      try {
+        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+      } on AuthoritativeStoreAdoptionException catch (error) {
+        writeLine(error.toString());
+        exitFn(1);
+      }
+    }
+
+    final factory =
+        _taskBackendFactory ??
+        databaseBackendFactoryFor(
+          config.database,
+          resolveDsn: (database) =>
+              resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
+          auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
+        );
+    final backend = await factory(config.dartclawDbPath);
     try {
-      SqliteAgentExecutionRepository(taskDb);
-      final repository = SqliteWorkflowRunRepository(taskDb);
       WorkflowRun? run;
       try {
+        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
+        final repository = SqliteWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.
@@ -109,7 +132,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         exitFn(1);
       }
 
-      final taskRepository = SqliteTaskRepository(taskDb);
+      final taskRepository = SqliteTaskRepository(backend);
       final childTasks = (await taskRepository.list()).where((task) => task.workflowRunId == runId).toList()
         ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 
@@ -122,7 +145,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         _printStandaloneTable(run, childTasks);
       }
     } finally {
-      taskDb.close();
+      await backend.close();
     }
   }
 

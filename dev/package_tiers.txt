@@ -47,5 +47,5 @@ T5: dartclaw_fitness dartclaw_testing
 T4: dartclaw_cli
 T3: dartclaw_acp dartclaw_runtime
 T2: dartclaw dartclaw_google_chat dartclaw_signal dartclaw_whatsapp dartclaw_workflow
-T1: dartclaw_bridge dartclaw_client dartclaw_core
+T1: dartclaw_bridge dartclaw_client dartclaw_core dartclaw_search
 T0: dartclaw_kernel

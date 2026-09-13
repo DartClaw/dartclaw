@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -221,11 +222,29 @@ class TurnToolHookCallbackHandler {
         durationMs: durationMs,
         errorType: event.isError ? 'tool_error' : null,
         context: pending.context,
+        sourceLocators: !event.isError && pending.name == 'memory_search' ? _returnedLocators(event.output) : const [],
       ),
     );
     _emitProgressEvent(
       ToolCompletedProgressEvent(snapshot: _buildSnapshot(), toolName: pending.name, isError: event.isError),
     );
+  }
+
+  static List<String> _returnedLocators(String output) {
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is! Map || decoded['results'] is! List) return const [];
+      final locators = <String>{};
+      for (final result in decoded['results'] as List) {
+        if (result is! Map) return const [];
+        final locator = result['locator'];
+        if (locator is! String || locator.trim().isEmpty) return const [];
+        if (locators.length < 50) locators.add(locator);
+      }
+      return locators.toList(growable: false);
+    } on FormatException {
+      return const [];
+    }
   }
 
   void finalizePendingToolCalls({DateTime? endedAt}) {

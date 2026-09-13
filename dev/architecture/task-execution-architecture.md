@@ -2,9 +2,7 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.25 explicit task worktree declarations, workflow worker leasing, capacity-only lane retirement,
-declared task security profiles, category retirement, agent task tools, kernel formation, storage absorption, and turn contract threading for
-structured output and provider sessions.
+**Current through**: 0.26 task storage backend and awaited event persistence. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -232,9 +230,11 @@ Business logic layer at `dartclaw_runtime/lib/src/task/task_service.dart`. Imple
 
 `TaskService.create()` creates or links an `AgentExecution` row in the same transaction as the task write when an execution row is required. `TaskService.get()` / `list()` hydrate the linked `AgentExecution` and `WorkflowStepExecution` rows through the joined storage query so dashboard/API consumers do not incur N+1 lookups for provider, session, or workflow-step metadata.
 
+`SqliteExecutionRepositoryTransactor` delegates to `DatabaseBackend.transaction`. Participating repositories share the same backend, so an action commits all its writes or rolls them back while preserving the original error. Unrelated seam operations wait until the action finishes; nested transactions reject with `NestedTransactionError`.
+
 Core operations:
-- **`create()`** — inserts task; when `autoStart=true`, transitions draft->queued and fires `TaskStatusChangedEvent`
-- **`transition()`** — applies lifecycle transition with optimistic locking, fires events, records to `TaskEventRecorder`
+- **`create()`** – inserts task; when `autoStart=true`, records the draft-to-queued event before publishing `TaskStatusChangedEvent`
+- **`transition()`** – applies the lifecycle transition with optimistic locking, awaits durable event recording, then publishes the status change
 - **`updateFields()`** — updates mutable fields on non-terminal tasks (sessionId, worktreeJson, configJson, etc.)
 - **`addArtifact()`** — attaches artifact row to a task
 
@@ -640,7 +640,7 @@ Sealed-class event hierarchy in `dartclaw_kernel/lib/src/task_event.dart`:
 `TaskEventService` in `dartclaw_core/lib/src/storage/task_event_service.dart`:
 
 - SQLite `task_events` table (append-only)
-- Synchronous writes for durability (NF04 requirement)
+- Awaited writes through the shared `DatabaseBackend`; schema is prepared before construction
 - Indexed on `task_id`, `(task_id, kind)`, and `timestamp`
 - Queries: `listForTask()` (chronological), `countForTask()`
 
@@ -659,10 +659,13 @@ CREATE TABLE task_events (
 
 Centralized recording service at `dartclaw_runtime/lib/src/task/task_event_recorder.dart`.
 
-Each convenience method:
+Each convenience method returns `Future<void>` and its caller awaits completion:
+
 1. Constructs a `TaskEvent` with appropriate kind and details
-2. Inserts synchronously via `TaskEventService` (NF04 durability)
-3. Fires `TaskEventCreatedEvent` on the `EventBus`
+2. Awaits the insert through `TaskEventService`; a write failure propagates
+3. Fires `TaskEventCreatedEvent` on the `EventBus` only after the insert succeeds
+
+The synchronous workflow structured-output callback catches and logs recording failures through its explicit asynchronous wrapper.
 
 Methods: `recordStatusChanged()`, `recordToolCalled()`, `recordArtifactCreated()`, `recordPushBack()`, `recordTokenUpdate()`, `recordError()`, `recordCompaction()`.
 
@@ -729,7 +732,7 @@ Rich per-turn record persisted to SQLite (`dartclaw_core`):
 
 `TurnTraceService` in `dartclaw_core/lib/src/storage/turn_trace_service.dart`:
 
-- SQLite `turns` table, co-located in `tasks.db`
+- SQLite `turns` table, co-located in `dartclaw.db`
 - Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`
 - Fire-and-forget writes (callers use `unawaited`)
 
@@ -945,7 +948,7 @@ See [Security Architecture](security-architecture.md) for the full governance mo
 - [System Architecture](system-architecture.md) — component map, package DAG, deployment model
 - [Control Protocol](control-protocol.md) — harness interface, JSONL protocol, stream events, tool approval chain
 - [Security Architecture](security-architecture.md) — guard pipeline, TaskFileGuard integration, container isolation, governance enforcement
-- [Data Model](data-model.md) — tasks.db schema, worktree storage, entity relationships
+- [Data Model](data-model.md) — dartclaw.db schema, worktree storage, entity relationships
 - [Workflow Architecture](workflow-architecture.md) — workflow steps create tasks via `WorkflowTaskService`, session continuation across steps
 - [ADR-017](../adrs/017-multi-project-architecture.md) — multi-project design decisions and credential model
 - [ADR-021](../adrs/021-agent-execution-primitive.md) — `AgentExecution` + `WorkflowStepExecution` decomposition; `Task` carries nested `agentExecution` / `workflowStepExecution` objects

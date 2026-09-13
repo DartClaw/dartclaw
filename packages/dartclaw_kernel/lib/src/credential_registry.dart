@@ -223,6 +223,9 @@ class CredentialRegistry {
     );
   }
 
+  /// Returns the configured entry named by [name], without provider fallback.
+  CredentialEntry? namedEntry(String name) => _credentials[name];
+
   ProviderAuth _effectiveAuth(String providerId, String? family) {
     final own = _providers[providerId]?.auth;
     if (own != null) return own;

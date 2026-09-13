@@ -14,12 +14,14 @@ void main() {
   group('S78 H13 iteration runner wake pattern', () {
     late WorkflowExecutorHarness h;
 
-    setUp(() {
+    setUp(() async {
       h = WorkflowExecutorHarness();
-      h.setUp();
+      await h.setUp();
     });
 
-    tearDown(() => h.tearDown());
+    tearDown(() async {
+      await h.tearDown();
+    });
 
     test('foreach runner completes bounded fan-out when child iterations settle asynchronously', () async {
       const definition = WorkflowDefinition(

@@ -137,7 +137,8 @@ bash dev/tools/build.sh
 `bin/`, and SQLite in `lib/`. Windows builds use `dev/tools/build_windows.ps1` to emit
 `dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with `VERSION`,
 its matching `.exe` in `bin/`, and `lib/sqlite3.dll`. Each binary resolves the library
-relative to itself, so `bin/` and `lib/` must stay siblings. Templates, static assets, skills, and workflows are
+relative to itself, so `bin/` and `lib/` must stay siblings. Windows embedding backend modules and their dependencies
+are also staged in `bin/` for native backend discovery; keep the complete archive layout when installing. Templates, static assets, skills, and workflows are
 embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
 cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`)
 must be built on a native runner for that OS/arch.
@@ -275,6 +276,9 @@ deployment that injects secrets from an external secret manager into the serve p
 so. The store is the answer for a secret that had nowhere better to live than a generated unit file. Run
 `dartclaw secrets audit` to see which of your secrets are in which place; it exits non-zero on any finding, so it can
 gate a deploy.
+
+For an opt-in database deployment, [PostgreSQL](postgresql.md#configuration) shows both supported connection-reference
+forms and the required operating posture.
 
 `dartclaw deploy secrets` belongs to the superseded `deploy` path and is unchanged — prefer `dartclaw secrets set`.
 

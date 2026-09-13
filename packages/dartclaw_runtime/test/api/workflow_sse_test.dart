@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowTaskType;
@@ -162,8 +163,9 @@ Future<List<Map<String, dynamic>>> collectSseFramesWithAction(
 // ──────────────────────────────────────────────────────────────────────────────
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late SqliteTaskRepository taskRepo;
   late _SubscriptionTrackingEventBus eventBus;
   late _ControllableListTaskService tasks;
@@ -173,14 +175,21 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = _SubscriptionTrackingEventBus();
-    taskRepo = SqliteTaskRepository(taskDb);
+    taskRepo = SqliteTaskRepository(taskBackend);
     tasks = _ControllableListTaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);
@@ -190,6 +199,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
+    await taskBackend.close();
     await eventBus.dispose();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

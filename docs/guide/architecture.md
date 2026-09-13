@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.24**
+> Current through: **0.26**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -105,7 +105,7 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw's public package tree contains twelve packages under `packages/` plus a CLI app. The repo-wide Dart workspace
+DartClaw's public package tree contains thirteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
 also includes the development-only `dev/fitness` package. Each public package has a focused role:
 
 ```
@@ -114,8 +114,10 @@ packages/
                          guards, classification, and deterministic utilities.
 
   dartclaw_core/         Runtime and persistence authority: agent harnesses,
-                         channel interfaces, events, file and SQLite
-                         persistence, FTS5/QMD search, and workflow/task seams.
+                         channel interfaces, events, SQLite/PostgreSQL storage,
+                         lexical/vector indexes, and workflow/task seams.
+
+  dartclaw_search/       Native embedding provider for local hybrid search.
 
   dartclaw_acp/          ACP harness adapter and registrar composed by the CLI.
 
@@ -155,7 +157,7 @@ The key boundaries are simple: `dartclaw_kernel` has no workspace dependency, ru
 
 ## Storage Design
 
-DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite is used for derived indexes and relational data** (search index, tasks).
+DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite (default) or PostgreSQL stores relational data and derived search indexes**. Backend selection does not copy or migrate data between them.
 
 ### File-Based Storage
 
@@ -165,7 +167,8 @@ DartClaw uses a dual storage strategy: **files are the source of truth** for ses
 ├── kv.json                           # Global key-value store
 ├── audit-YYYY-MM-DD.ndjson           # Guard audit log partitions with retention cleanup
 ├── usage.jsonl                       # Token tracking (append + rotate)
-├── state.db                          # Active turn recovery state
+├── turn_state.json                   # Active turn recovery state
+├── webhook_deliveries/               # Webhook reservation and dedup markers
 ├── projects.json                     # Project registry (multi-project support)
 ├── sessions/
 │   ├── .session_keys.json            # Deterministic key → UUID index
@@ -199,23 +202,26 @@ DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fai
 
 | Database | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | FTS5-indexed canonical entry projection (BM25 ranking) | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
-| `tasks.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
-| `state.db` | Active turn recovery rows keyed by session ID | No — transient operational state only |
+| `search.db` | Memory and conversation lexical/vector indexes | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
+| `dartclaw.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
+
+Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
+
+PostgreSQL stores the corresponding relational data and derived indexes in the configured database. It uses native full-text search and pgvector for hybrid retrieval; startup validates the schema and required capabilities. See [PostgreSQL](postgresql.md) for setup and backend-switch behavior.
 
 ### Crash Recovery
 
 Messages in NDJSON files use their line number as a cursor. After a crash or restart, the client requests "all messages after cursor X" to resume exactly where it left off. This is more reliable than timestamp-based recovery because line numbers are monotonic and gap-free.
 
-Separately, active turn reservations are persisted in `state.db` via `TurnStateStore`. On restart, the server scans that table for orphaned turns, cleans the rows, and surfaces a one-time recovery notice for the affected sessions.
+Separately, active turn reservations are persisted synchronously in `turn_state.json`. On restart, the server removes orphaned records and surfaces a one-time recovery notice for the affected sessions. Webhook dedup uses per-delivery marker files in `webhook_deliveries/`; processed markers expire after seven days from commit. Leftover `state.db` and `webhook_deliveries.db` files are ignored and may be deleted.
 
 The restart path is covered by the integration-tagged crash-recovery smoke test in `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`. It starts a server, reserves an active turn, kills the process, restarts against the same data directory, verifies orphan cleanup, and checks that the recovered session still renders the user-visible recovery banner and turn-failed message styling.
 
 ### Memory Search
 
-`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The derived FTS5 index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The selected derived search index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
 
-For more detail on memory configuration, see the [Search guide](search.md).
+Hybrid search combines lexical matches with local embeddings for both memory and conversation messages. Embedding failure degrades to lexical retrieval, with degradation reported to callers. For configuration and rebuild behavior, see the [Search guide](search.md).
 
 ## Turn Orchestration
 

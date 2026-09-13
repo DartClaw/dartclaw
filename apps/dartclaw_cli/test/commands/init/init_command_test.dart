@@ -420,7 +420,7 @@ void main() {
       expect(File(configPath).existsSync(), isTrue);
       final config = DartclawConfig.load(configPath: configPath, env: {'HOME': tempDir.path});
       expect(config.server.dataDir, p.join(tempDir.path, '.dartclaw'));
-      expect(config.tasksDbPath, p.join(tempDir.path, '.dartclaw', 'tasks.db'));
+      expect(config.dartclawDbPath, p.join(tempDir.path, '.dartclaw', 'dartclaw.db'));
       expect(config.searchDbPath, p.join(tempDir.path, '.dartclaw', 'search.db'));
       expect(Directory(p.join(tempDir.path, 'dartclaw')).existsSync(), isFalse);
       expect(

@@ -139,6 +139,8 @@ dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
+# Requires PostgreSQL 14 and DARTCLAW_TEST_POSTGRES_URL with sslmode=disable.
+bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
 git diff --check
@@ -154,12 +156,18 @@ into the server's static assets, so canonical CSS edits need no separate sync st
 # Published config JSON Schema — rerun after any ConfigMeta change or a version bump
 dart run packages/dartclaw_kernel/tool/generate_config_schema.dart
 
+# Published workflow JSON Schema — rerun after any WorkflowDslRules change
+dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart
+
 # Operator config reference — rerun after the schema or curated core list changes
 dart run dev/tools/render_config_reference.dart
 ```
 
 `schemas/dartclaw.schema.json` is generated only. `bash dev/tools/fitness/run_all.sh` runs the same script with
 `--check` and fails when the committed artifact has drifted from `ConfigMeta` or the workspace version, or is missing, naming this command.
+
+`schemas/workflow.schema.json` is also generated only. The fitness harness checks it against `WorkflowDslRules` and
+names the regeneration command when the artifact is missing or stale.
 
 The generated region in `docs/guide/configuration.md` is projected from the committed schema. Its core table is
 curated in `dev/tools/config_reference_core_keys.txt` and capped at 90 resolvable keys. The fitness run checks both
@@ -205,7 +213,7 @@ substituted from a FIS proof line. Keep them in step with the commands below and
 
 | Tier | Command |
 |---|---|
-| fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli` |
+| fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli` |
 | full | `bash dev/tools/test_workspace.sh` |
 | run one test | `dart test --reporter=failures-only {file} --name "{test}"` |
 

@@ -11,6 +11,15 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'uuid_validation.dart';
 import 'write_op.dart';
 
+/// Receives synchronous notifications after authoritative message mutations.
+abstract interface class MessageServiceObserver {
+  /// Called after a message line has been durably appended.
+  void onMessageAppended(Message message);
+
+  /// Called after a session's message file has been truncated.
+  void onMessagesCleared(String sessionId, List<String> messageIds);
+}
+
 /// Manages message persistence with cursor-based crash recovery.
 class MessageService {
   static final _log = Logger('MessageService');
@@ -19,9 +28,16 @@ class MessageService {
   static const _uuid = Uuid();
   final Map<String, int> _lineCounts = {};
   late final BoundedWriteQueue _queue;
+  MessageServiceObserver? _observer;
 
-  new({required this.baseDir}) {
+  new({required this.baseDir, MessageServiceObserver? observer}) : _observer = observer {
     _queue = BoundedWriteQueue(logger: _log);
+  }
+
+  /// Registers the sole message mutation observer.
+  void registerObserver(MessageServiceObserver observer) {
+    if (_observer != null) throw StateError('A message service observer is already registered');
+    _observer = observer;
   }
 
   Future<Message> insertMessage({
@@ -77,7 +93,10 @@ class MessageService {
     op.completer.future.catchError((Object e, StackTrace st) {
       if (!completer.isCompleted) completer.completeError(e, st);
     });
-    return completer.future;
+    return completer.future.then((message) {
+      _notify(() => _observer?.onMessageAppended(message));
+      return message;
+    });
   }
 
   Future<List<Message>> getMessages(String sessionId) => _readMessagesForward(sessionId, startLine: 1);
@@ -136,18 +155,33 @@ class MessageService {
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
   Future<void> clearMessages(String sessionId) {
     final ndjsonFile = _messagesFile(sessionId);
+    var clearedIds = const <String>[];
     final op = WriteOp(() async {
       if (ndjsonFile.existsSync()) {
+        clearedIds = (await _readMessagesForward(
+          sessionId,
+          startLine: 1,
+        )).map((message) => message.id).toList(growable: false);
         await ndjsonFile.writeAsString('');
       }
       _lineCounts.remove(sessionId);
     });
     _queue.add(op);
-    return op.completer.future;
+    return op.completer.future.then((_) {
+      _notify(() => _observer?.onMessagesCleared(sessionId, clearedIds));
+    });
   }
 
   Future<void> dispose() async {
     await _queue.close();
+  }
+
+  void _notify(void Function() notification) {
+    try {
+      notification();
+    } catch (error, stackTrace) {
+      _log.warning('Message observer failed: $error', error, stackTrace);
+    }
   }
 
   Future<int> _countLines(File file) async {

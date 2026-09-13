@@ -67,6 +67,9 @@ variables:
 
 ### Step Fields
 
+The accepted field and alias set is declared in `workflow_dsl_rules.dart`. The parser and validator read the
+relevant declarations directly. The table below presents that declaration for authors.
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `id` | string | required | Unique step identifier |
@@ -81,7 +84,7 @@ variables:
 | `entryGate` | string | none | Condition expression; false skips the step and continues. Not evaluated on a `foreach` controller – put it on the controller's first per-item step |
 | `inputs` | list | `[]` | Context keys this step reads and auto-frames unless already referenced |
 | `outputs` | map | none | Output format configs; keys are the step's context-write set |
-| `continueSession` | bool or string | `false` | Reuse the preceding agent step's root session, or target an explicit earlier step ID |
+| `continueSession` / `continue_session` | bool or string | `false` | Reuse the preceding agent step's root session, or target an explicit earlier step ID |
 | `maxRetries` | int | none | Workflow-owned retry budget used by `onFailure: retry` |
 | `allowedTools` | list | none | Restrict available agent tools |
 | `turn_timeout` | int or duration string | `governance.turn_limits.turn_timeout` for agents | Agent-turn wall-clock limit; `0` disables it |
@@ -89,10 +92,12 @@ variables:
 | `parallel` | bool | `false` | Run concurrently with adjacent parallel steps |
 | `mapOver` / `map_over` | string | none | Context key naming a JSON array; step runs once per element |
 | `maxParallel` / `max_parallel` | int or string | `1` | Max concurrent iterations; accepts `"unlimited"` or a template string |
+| `foreachSteps` / `foreach_steps` | list | none | Child step IDs for a non-inline foreach controller |
 | `steps` | list | none | Inline child steps for `foreach` and inline `loop` containers |
+| `maxIterations` | int | required for loops | Maximum loop iterations |
 | `exitGate` | string | required for loops | Loop early-exit condition |
 | `onMaxIterations` | string | `fail` | Loop exhaustion policy: `fail`, top-level-only `continue`, or foreach/map-nested-only `escalate` |
-| `onFailure` | string | `fail` | Step outcome policy: `fail`, `continue`, `retry`, or `pause` |
+| `onFailure` / `on_failure` | string | `fail` | Step outcome policy: `fail`, `continue`, `retry`, or `pause` |
 | `onError` / `on_error` | string | `pause` | Engine-level error policy: `pause` or `continue`; legacy `fail` parses as `pause` |
 | `workdir` | string | workspace root | Working directory for `bash` steps |
 | `auto_frame_context` / `autoFrameContext` | bool | `true` | Disable XML auto-framing of declared inputs and workflow variables when false |
@@ -100,7 +105,8 @@ variables:
 | `workflow_variables` / `workflowVariables` | list | `[]` | Workflow variables to auto-frame as inert data |
 | `aggregateReviews` | list | none | Source review step IDs for `type: aggregate-reviews` |
 
-*`prompt` is required for `bash` steps unless `script:` is present, recommended for `approval` steps, and required for agent steps unless `skill` is present. `foreach` and inline `loop` controllers do not carry prompts themselves; their child steps do.
+*`prompt` is required for agent steps unless `skill` is present. Bash steps may use `script:` or `prompt:`;
+approval, `foreach`, inline `loop`, and `aggregate-reviews` steps may omit it.
 
 Unknown fields on steps, inline loops, foreach controllers, output configs, `variables` entries, `stepDefaults`, and `gitStrategy` sub-blocks fail at parse time with a `FormatException` naming the unsupported field and block.
 

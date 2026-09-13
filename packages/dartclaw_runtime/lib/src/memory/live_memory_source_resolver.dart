@@ -22,7 +22,7 @@ final class LiveMemorySourceResolver {
   Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async {
     if (_kgLocator.hasMatch(locator)) {
       final id = int.tryParse(locator);
-      final fact = id == null ? null : _kg.factById(id);
+      final fact = id == null ? null : await _kg.factById(id);
       if (fact == null) return null;
       final owner = fact.owner;
       if (owner != null && owner != 'system' && owner != userId) return null;

@@ -4,18 +4,15 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
     show ArtifactKind, Task, TaskArtifact, TaskLegacyRefusal, TaskRepository, TaskStatus;
-import 'package:sqlite3/sqlite3.dart';
 
 import 'sqlite_execution_row_mappers.dart';
 
 /// SQLite-backed task persistence for [Task] and [TaskArtifact].
 class SqliteTaskRepository implements TaskRepository {
-  /// Creates the repository against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
-  }
+  /// Creates the repository against [_backend].
+  new(this._backend);
 
-  final Database _db;
+  final DatabaseBackend _backend;
 
   static const _taskSelectColumns = '''
     t.id AS task_id,
@@ -76,67 +73,10 @@ class SqliteTaskRepository implements TaskRepository {
       'LEFT JOIN agent_executions ae ON ae.id = t.agent_execution_id '
       'LEFT JOIN workflow_step_executions wse ON wse.task_id = t.id';
 
-  void _initSchema() {
-    _db.execute('PRAGMA journal_mode=WAL');
-    _db.execute('PRAGMA foreign_keys=ON');
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS agent_executions (
-        id TEXT PRIMARY KEY NOT NULL,
-        session_id TEXT,
-        provider TEXT,
-        model TEXT,
-        workspace_dir TEXT,
-        container_json TEXT,
-        budget_tokens INTEGER,
-        harness_meta_json TEXT,
-        started_at TEXT,
-        completed_at TEXT
-      )
-    ''');
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS workflow_step_executions (
-        task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-        agent_execution_id TEXT NOT NULL REFERENCES agent_executions(id),
-        workflow_run_id TEXT NOT NULL,
-        step_index INTEGER NOT NULL,
-        step_id TEXT NOT NULL,
-        step_type TEXT,
-        git_json TEXT,
-        provider_session_id TEXT,
-        structured_schema_json TEXT,
-        structured_output_json TEXT,
-        follow_up_prompts_json TEXT,
-        map_iteration_index INTEGER,
-        map_iteration_total INTEGER,
-        step_token_breakdown_json TEXT
-      )
-    ''');
-    _db.execute(_tasksTableSql(tableName: 'tasks'));
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status_type ON tasks(status, type)');
-
-    _migrateLegacyTaskTableIfNeeded();
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)');
-
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS task_artifacts (
-        id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        path TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_task_artifacts_task_id ON task_artifacts(task_id)');
-  }
-
   @override
   Future<void> insert(Task task) async {
-    _upsertAgentExecution(task.agentExecution);
-    final stmt = _db.prepare('''
+    await _upsertAgentExecution(task.agentExecution);
+    final stmt = await _backend.prepare('''
       INSERT INTO tasks (
         id,
         title,
@@ -161,7 +101,7 @@ class SqliteTaskRepository implements TaskRepository {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         task.id,
         task.title,
         task.description,
@@ -184,18 +124,18 @@ class SqliteTaskRepository implements TaskRepository {
         task.retryCount,
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<Task?> getById(String id) async {
-    final stmt = _db.prepare('$_joinedSelectClause WHERE t.id = ?');
+    final stmt = await _backend.prepare('$_joinedSelectClause WHERE t.id = ?');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       return rows.isEmpty ? null : _taskFromJoinedRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -213,11 +153,11 @@ class SqliteTaskRepository implements TaskRepository {
     }
     buffer.write(' ORDER BY t.created_at DESC, t.id DESC');
 
-    final stmt = _db.prepare(buffer.toString());
+    final stmt = await _backend.prepare(buffer.toString());
     try {
-      return stmt.select(params).map(_taskFromJoinedRow).toList(growable: false);
+      return (await stmt.query(params)).map(_taskFromJoinedRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -229,20 +169,20 @@ class SqliteTaskRepository implements TaskRepository {
     }
 
     final placeholders = List.filled(ids.length, '?').join(', ');
-    final stmt = _db.prepare(
+    final stmt = await _backend.prepare(
       '$_joinedSelectClause WHERE t.workflow_run_id IN ($placeholders) ORDER BY t.created_at DESC, t.id DESC',
     );
     try {
-      return stmt.select(ids).map(_taskFromJoinedRow).toList(growable: false);
+      return (await stmt.query(ids)).map(_taskFromJoinedRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> update(Task task) async {
-    _upsertAgentExecution(task.agentExecution);
-    final stmt = _db.prepare('''
+    await _upsertAgentExecution(task.agentExecution);
+    final stmt = await _backend.prepare('''
       UPDATE tasks
       SET
         title = ?,
@@ -264,7 +204,7 @@ class SqliteTaskRepository implements TaskRepository {
       WHERE id = ? AND version = ?
     ''');
     try {
-      stmt.execute([
+      final changed = await stmt.execute([
         task.title,
         task.description,
         task.status.name,
@@ -283,17 +223,17 @@ class SqliteTaskRepository implements TaskRepository {
         task.id,
         task.version,
       ]);
-      if (_db.updatedRows == 0) {
+      if (changed == 0) {
         throw ArgumentError('Task not found: ${task.id}');
       }
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<bool> updateIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE tasks
       SET
         status = ?,
@@ -304,7 +244,7 @@ class SqliteTaskRepository implements TaskRepository {
       WHERE id = ? AND status = ? AND version = ?
     ''');
     try {
-      stmt.execute([
+      final changed = await stmt.execute([
         task.status.name,
         _encodeJson(task.configJson),
         task.startedAt?.toIso8601String(),
@@ -313,16 +253,16 @@ class SqliteTaskRepository implements TaskRepository {
         expectedStatus.name,
         task.version,
       ]);
-      return _db.updatedRows > 0;
+      return changed > 0;
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<bool> updateMutableFieldsIfStatus(Task task, {required TaskStatus expectedStatus}) async {
-    _upsertAgentExecution(task.agentExecution);
-    final stmt = _db.prepare('''
+    await _upsertAgentExecution(task.agentExecution);
+    final stmt = await _backend.prepare('''
       UPDATE tasks
       SET
         title = ?,
@@ -336,7 +276,7 @@ class SqliteTaskRepository implements TaskRepository {
       WHERE id = ? AND status = ?
     ''');
     try {
-      stmt.execute([
+      final changed = await stmt.execute([
         task.title,
         task.description,
         task.acceptanceCriteria,
@@ -348,9 +288,9 @@ class SqliteTaskRepository implements TaskRepository {
         task.id,
         expectedStatus.name,
       ]);
-      return _db.updatedRows > 0;
+      return changed > 0;
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
@@ -363,40 +303,40 @@ class SqliteTaskRepository implements TaskRepository {
     if (patch.isEmpty) {
       return true;
     }
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE tasks
       SET config_json = json_patch(COALESCE(config_json, '{}'), ?)
       WHERE id = ? AND status = ?
     ''');
     try {
-      stmt.execute([_encodeJson(patch), taskId, expectedStatus.name]);
-      return _db.updatedRows > 0;
+      final changed = await stmt.execute([_encodeJson(patch), taskId, expectedStatus.name]);
+      return changed > 0;
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> delete(String id) async {
-    final stmt = _db.prepare('DELETE FROM tasks WHERE id = ?');
+    final stmt = await _backend.prepare('DELETE FROM tasks WHERE id = ?');
     try {
-      stmt.execute([id]);
-      if (_db.updatedRows == 0) {
+      final changed = await stmt.execute([id]);
+      if (changed == 0) {
         throw ArgumentError('Task not found: $id');
       }
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> insertArtifact(TaskArtifact artifact) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO task_artifacts (id, task_id, name, kind, path, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         artifact.id,
         artifact.taskId,
         artifact.name,
@@ -405,158 +345,47 @@ class SqliteTaskRepository implements TaskRepository {
         artifact.createdAt.toIso8601String(),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<TaskArtifact?> getArtifactById(String id) async {
-    final stmt = _db.prepare('SELECT * FROM task_artifacts WHERE id = ?');
+    final stmt = await _backend.prepare('SELECT * FROM task_artifacts WHERE id = ?');
     try {
-      final rows = stmt.select([id]);
+      final rows = await stmt.query([id]);
       return rows.isEmpty ? null : _artifactFromRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<List<TaskArtifact>> listArtifactsByTask(String taskId) async {
-    final stmt = _db.prepare('SELECT * FROM task_artifacts WHERE task_id = ? ORDER BY created_at ASC');
+    final stmt = await _backend.prepare('SELECT * FROM task_artifacts WHERE task_id = ? ORDER BY created_at ASC');
     try {
-      return stmt.select([taskId]).map(_artifactFromRow).toList(growable: false);
+      return (await stmt.query([taskId])).map(_artifactFromRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> deleteArtifact(String id) async {
-    final stmt = _db.prepare('DELETE FROM task_artifacts WHERE id = ?');
+    final stmt = await _backend.prepare('DELETE FROM task_artifacts WHERE id = ?');
     try {
-      stmt.execute([id]);
+      await stmt.execute([id]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> dispose() async {
-    _db.close();
+    // The composition root owns the shared backend lifecycle.
   }
 
-  void _migrateLegacyTaskTableIfNeeded() {
-    final columns = _db.select('PRAGMA table_info(tasks)').map((row) => row['name'] as String).toSet();
-    final foreignKeys = _db.select('PRAGMA foreign_key_list(tasks)');
-    final hasAgentExecutionForeignKey = foreignKeys.any(
-      (row) => row['table'] == 'agent_executions' && row['from'] == 'agent_execution_id',
-    );
-    final needsMigration =
-        columns.contains('session_id') ||
-        columns.contains('provider') ||
-        columns.contains('max_tokens') ||
-        !columns.contains('project_id') ||
-        !columns.contains('workflow_run_id') ||
-        !columns.contains('step_index') ||
-        !columns.contains('max_retries') ||
-        !columns.contains('retry_count') ||
-        !columns.contains('agent_execution_id') ||
-        !hasAgentExecutionForeignKey;
-    if (!needsMigration) {
-      return;
-    }
-
-    _db.execute('BEGIN');
-    try {
-      if (columns.contains('session_id') || columns.contains('provider') || columns.contains('max_tokens')) {
-        _db.execute('''
-          INSERT INTO agent_executions (id, session_id, provider, model, budget_tokens, started_at, completed_at)
-          SELECT
-            'ae-' || t.id,
-            ${columns.contains('session_id') ? 't.session_id' : 'NULL'},
-            ${columns.contains('provider') ? 't.provider' : 'NULL'},
-            json_extract(t.config_json, '\$.model'),
-            ${columns.contains('max_tokens') ? 't.max_tokens' : 'NULL'},
-            t.started_at,
-            t.completed_at
-          FROM tasks t
-          WHERE ${columns.contains('agent_execution_id') ? 't.agent_execution_id IS NULL' : '1 = 1'}
-            AND NOT EXISTS (SELECT 1 FROM agent_executions ae WHERE ae.id = 'ae-' || t.id)
-        ''');
-        _db.execute('''
-          UPDATE tasks
-          SET config_json = CASE
-            WHEN json_type(config_json, '\$.model') IS NULL THEN config_json
-            ELSE json_remove(config_json, '\$.model')
-          END
-        ''');
-      }
-
-      _db.execute(_tasksTableSql(tableName: 'tasks_v2'));
-      _db.execute('''
-        INSERT INTO tasks_v2 (
-          id,
-          title,
-          description,
-          type,
-          status,
-          version,
-          goal_id,
-          acceptance_criteria,
-          config_json,
-          worktree_json,
-          created_at,
-          started_at,
-          completed_at,
-          created_by,
-          agent_execution_id,
-          project_id,
-          workflow_run_id,
-          step_index,
-          max_retries,
-          retry_count
-        )
-        SELECT
-          id,
-          title,
-          description,
-          type,
-          status,
-          COALESCE(version, 1),
-          goal_id,
-          acceptance_criteria,
-          config_json,
-          worktree_json,
-          created_at,
-          started_at,
-          completed_at,
-          ${columns.contains('created_by') ? 'created_by' : 'NULL'},
-          COALESCE(${columns.contains('agent_execution_id') ? 'agent_execution_id' : 'NULL'}, CASE
-            WHEN EXISTS (SELECT 1 FROM agent_executions ae WHERE ae.id = 'ae-' || tasks.id) THEN 'ae-' || tasks.id
-            ELSE NULL
-          END),
-          ${columns.contains('project_id') ? 'project_id' : 'NULL'},
-          ${columns.contains('workflow_run_id') ? 'workflow_run_id' : 'NULL'},
-          ${columns.contains('step_index') ? 'step_index' : 'NULL'},
-          ${columns.contains('max_retries') ? 'max_retries' : '0'},
-          ${columns.contains('retry_count') ? 'retry_count' : '0'}
-        FROM tasks
-      ''');
-      _db.execute('DROP TABLE tasks');
-      _db.execute('ALTER TABLE tasks_v2 RENAME TO tasks');
-      _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
-      _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)');
-      _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status_type ON tasks(status, type)');
-      _db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_workflow_run_id ON tasks(workflow_run_id)');
-      _db.execute('COMMIT');
-    } catch (_) {
-      // Schema-rewrite step threw — roll back the transaction and bubble the original error.
-      _db.execute('ROLLBACK');
-      rethrow;
-    }
-  }
-
-  Task _taskFromJoinedRow(Row row) {
+  Task _taskFromJoinedRow(Map<String, Object?> row) {
     final configJson = _decodeJson(row['task_config_json'] as String);
     final legacyType = row['task_type'] as String;
     final legacyRefusal = switch (legacyType) {
@@ -590,7 +419,7 @@ class SqliteTaskRepository implements TaskRepository {
     );
   }
 
-  TaskArtifact _artifactFromRow(Row row) {
+  TaskArtifact _artifactFromRow(Map<String, Object?> row) {
     return TaskArtifact(
       id: row['id'] as String,
       taskId: row['task_id'] as String,
@@ -610,37 +439,11 @@ class SqliteTaskRepository implements TaskRepository {
   Map<String, dynamic>? _decodeJsonNullable(String? value) =>
       value == null ? null : Map<String, dynamic>.from(jsonDecode(value) as Map);
 
-  String _tasksTableSql({required String tableName}) =>
-      '''
-    CREATE TABLE IF NOT EXISTS $tableName (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      type TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      version INTEGER NOT NULL DEFAULT 1,
-      goal_id TEXT,
-      acceptance_criteria TEXT,
-      config_json TEXT NOT NULL DEFAULT '{}',
-      worktree_json TEXT,
-      created_at TEXT NOT NULL,
-      started_at TEXT,
-      completed_at TEXT,
-      created_by TEXT,
-      agent_execution_id TEXT REFERENCES agent_executions(id) ON DELETE RESTRICT,
-      project_id TEXT,
-      workflow_run_id TEXT,
-      step_index INTEGER,
-      max_retries INTEGER NOT NULL DEFAULT 0,
-      retry_count INTEGER NOT NULL DEFAULT 0
-    )
-  ''';
-
-  void _upsertAgentExecution(AgentExecution? execution) {
+  Future<void> _upsertAgentExecution(AgentExecution? execution) async {
     if (execution == null) {
       return;
     }
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO agent_executions (
         id,
         session_id,
@@ -665,7 +468,7 @@ class SqliteTaskRepository implements TaskRepository {
         completed_at = excluded.completed_at
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         execution.id,
         execution.sessionId,
         execution.provider,
@@ -678,7 +481,7 @@ class SqliteTaskRepository implements TaskRepository {
         execution.completedAt?.toIso8601String(),
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 }

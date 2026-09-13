@@ -4,9 +4,10 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
-    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize;
+    show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize, resolveDatabaseDsn;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show RuntimeArtifactsPruneReport, SqliteWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
+import 'package:path/path.dart' as p;
 
 import 'config_loader.dart';
 
@@ -18,13 +19,17 @@ class CleanupCommand extends Command<void> {
   final DartclawConfig? _config;
   final CleanupWriteLine _writeLine;
   final CleanupExitFn _exitFn;
-  final TaskDbFactory _taskDbFactory;
+  final DatabaseBackendFactory? _taskBackendFactory;
 
-  new({DartclawConfig? config, CleanupWriteLine? writeLine, CleanupExitFn? exitFn, TaskDbFactory? taskDbFactory})
-    : _config = config,
-      _writeLine = writeLine ?? stdout.writeln,
-      _exitFn = exitFn ?? exit,
-      _taskDbFactory = taskDbFactory ?? openTaskDb {
+  new({
+    DartclawConfig? config,
+    CleanupWriteLine? writeLine,
+    CleanupExitFn? exitFn,
+    DatabaseBackendFactory? taskBackendFactory,
+  }) : _config = config,
+       _writeLine = writeLine ?? stdout.writeln,
+       _exitFn = exitFn ?? exit,
+       _taskBackendFactory = taskBackendFactory {
     argParser.addFlag('dry-run', negatable: false, help: 'Preview changes without applying');
     argParser.addFlag('enforce', negatable: false, help: 'Apply changes regardless of config mode');
   }
@@ -92,35 +97,44 @@ class CleanupCommand extends Command<void> {
   /// Prunes runtime-artifacts of old completed runs when retention is enabled.
   ///
   /// Returns true when the pass surfaced warnings (drives the exit code). Opens
-  /// the tasks DB only when retention is enabled, so a fresh data dir with no
-  /// runs stays a no-op.
+  /// the authoritative store only when retention is enabled, so a fresh data
+  /// directory with no runs stays a no-op.
   Future<bool> _runWorkflowArtifactRetention(DartclawConfig config, {MaintenanceMode? modeOverride}) async {
     final retention = config.workflow.runtimeArtifactsRetention;
     if (retention.pruneAfterDays <= 0) return false;
-    if (!File(config.tasksDbPath).existsSync()) return false;
 
-    final db = _taskDbFactory(config.tasksDbPath);
-    RuntimeArtifactsPruneReport report;
+    final List<WorkflowRun> completedRuns;
     try {
-      // Schema init runs in the repository constructor, so a corrupt or
-      // write-locked tasks.db can throw there too — keep it inside the catch so
-      // any DB failure degrades to a skip warning rather than crashing cleanup.
-      final List<WorkflowRun> completedRuns;
-      try {
-        final repository = SqliteWorkflowRunRepository(db);
-        completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
-      } catch (e) {
-        _writeLine('WARNING: workflow artifact retention skipped (database read failed): $e');
-        return true;
+      if (config.database.backend == DatabaseBackendKind.sqlite) {
+        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
+        if (!File(config.dartclawDbPath).existsSync()) return false;
       }
-      final pruner = WorkflowRuntimeArtifactsPruner(config: retention, dataDir: config.server.dataDir);
-      report = pruner.run(completedRuns, modeOverride: modeOverride);
-    } finally {
-      // Best-effort close: a close error must not mask the original outcome.
+      final factory =
+          _taskBackendFactory ??
+          databaseBackendFactoryFor(
+            config.database,
+            resolveDsn: (database) =>
+                resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
+            auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
+          );
+      final backend = await factory(config.dartclawDbPath);
       try {
-        db.close();
-      } catch (_) {}
+        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
+        final repository = SqliteWorkflowRunRepository(backend);
+        completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
+      } finally {
+        // Best-effort close: a close error must not mask the original outcome.
+        try {
+          await backend.close();
+        } catch (_) {}
+      }
+    } catch (e) {
+      _writeLine('WARNING: workflow artifact retention skipped (database read failed): $e');
+      return true;
     }
+
+    final pruner = WorkflowRuntimeArtifactsPruner(config: retention, dataDir: config.server.dataDir);
+    final report = pruner.run(completedRuns, modeOverride: modeOverride);
 
     _printRetentionReport(report, modeOverride: modeOverride);
     return report.warnings.isNotEmpty;

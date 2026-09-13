@@ -32,9 +32,11 @@ void main() {
     String pruningSchedule = '0 3 * * *',
     int archiveAfterDays = 90,
     int memoryMaxBytes = 32768,
+    String searchBackend = 'fts5',
   }) {
     return DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),
+      search: SearchConfig(backend: searchBackend),
       memory: MemoryConfig(
         pruningEnabled: pruningEnabled,
         pruningSchedule: pruningSchedule,
@@ -52,6 +54,8 @@ void main() {
     MemoryCorpusStatusReader? corpusStatusReader,
     PromptMemoryStatusReader? promptMemoryStatusReader,
     WikiSourceCounter? wikiSourceCounter,
+    Future<int?> Function()? memoryMissingVectorCount,
+    Future<int?> Function()? conversationMissingVectorCount,
   }) {
     return MemoryStatusService(
       workspaceDir: workspaceDir,
@@ -62,11 +66,56 @@ void main() {
       corpusStatusReader: corpusStatusReader,
       promptMemoryStatusReader: promptMemoryStatusReader,
       wikiSourceCounter: wikiSourceCounter,
+      memoryMissingVectorCount: memoryMissingVectorCount,
+      conversationMissingVectorCount: conversationMissingVectorCount,
       scheduleService: scheduleService,
     );
   }
 
   group('getStatus', () {
+    test('reports independent hybrid vector gaps and isolates count failures', () async {
+      final available = await makeService(
+        config: makeConfig(searchBackend: 'hybrid'),
+        memoryMissingVectorCount: () async => 3,
+        conversationMissingVectorCount: () async => 7,
+      ).getStatus();
+      final degraded = await makeService(
+        config: makeConfig(searchBackend: 'hybrid'),
+        memoryMissingVectorCount: () => throw StateError('memory vectors unavailable'),
+        conversationMissingVectorCount: () async => 7,
+      ).getStatus();
+      final unavailable = await makeService(
+        config: makeConfig(searchBackend: 'hybrid'),
+        memoryMissingVectorCount: () async => null,
+        conversationMissingVectorCount: () async => 7,
+      ).getStatus();
+
+      expect(available['search'], containsPair('memoryUnembeddedCount', 3));
+      expect(available['search'], containsPair('conversationUnembeddedCount', 7));
+      expect(degraded['search'], containsPair('memoryUnembeddedCount', isNull));
+      expect(degraded['search'], containsPair('conversationUnembeddedCount', 7));
+      expect(unavailable['search'], containsPair('memoryUnembeddedCount', isNull));
+      expect(unavailable['search'], containsPair('conversationUnembeddedCount', 7));
+    });
+
+    test('keeps vector counts null without hybrid activation', () async {
+      var calls = 0;
+      final status = await makeService(
+        memoryMissingVectorCount: () async {
+          calls++;
+          return 3;
+        },
+        conversationMissingVectorCount: () async {
+          calls++;
+          return 7;
+        },
+      ).getStatus();
+
+      expect(calls, 0);
+      expect(status['search'], containsPair('memoryUnembeddedCount', isNull));
+      expect(status['search'], containsPair('conversationUnembeddedCount', isNull));
+    });
+
     test('returns the five authoritative lifecycle objects without conflating roles', () async {
       final service = makeService(
         corpusStatusReader: () async => MemoryCorpusStatusSnapshot(

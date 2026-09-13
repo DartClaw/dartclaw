@@ -150,6 +150,26 @@ abstract class AgentHarness {
   /// Whether turns can mint or resume a provider session that outlives this harness process.
   bool get supportsProviderSessionResume => false;
 
+  /// Whether this harness can enforce an explicitly empty work-tool policy.
+  ///
+  /// The runtime supplies the mandatory deny-all guard. This capability means
+  /// every provider-native and MCP work-tool call reaches that guard before it
+  /// can execute; response-only structured output may remain available.
+  bool get supportsNoWorkTools => false;
+
+  /// Capability name carried by empty work-tool policy refusals.
+  static const String noWorkToolsCapability = 'empty work-tool policy';
+
+  /// Refuses an explicitly empty policy when [harness] cannot enforce it.
+  static void requireNoWorkToolsSupport(
+    AgentHarness harness, {
+    required String provider,
+    required bool emptyToolPolicyRequired,
+  }) {
+    if (!emptyToolPolicyRequired || harness.supportsNoWorkTools) return;
+    throw UnsupportedHarnessCapabilityException(provider: provider, capability: noWorkToolsCapability);
+  }
+
   /// Stable capability name used when provider-session resume is refused.
   static const String providerSessionResumeCapability = 'provider session resume';
 

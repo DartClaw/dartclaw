@@ -254,7 +254,7 @@ class TaskReviewService {
       final isPushBack =
           targetStatus == TaskStatus.running && normalizedAction == 'push_back' && trimmedComment != null;
       if (isPushBack) {
-        _eventRecorder?.recordPushBack(taskId, comment: trimmedComment);
+        await _eventRecorder?.recordPushBack(taskId, comment: trimmedComment);
         final delivery = _pushBackFeedbackDelivery;
         if (delivery != null) {
           final sessionKey = _extractSessionKey(task);

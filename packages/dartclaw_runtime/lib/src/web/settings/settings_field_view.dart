@@ -20,6 +20,7 @@ class ResolvedFieldValue {
 /// read-only presentation follows the same fail-closed rule.
 const settingsMaskedFields = {
   'credentials',
+  'search.embedding.credential',
   'gateway.token',
   'github.webhook_secret',
   'channels.google_chat.service_account',

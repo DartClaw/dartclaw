@@ -95,8 +95,10 @@
 | NDJSON | Newline-Delimited JSON. One JSON object per line. Used for messages, audit logs, usage | JSON lines, line-delimited JSON |
 | Cursor | Line number in an NDJSON file used as a crash-recovery resume point. `lastCursor` tracks position | offset, checkpoint, position |
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write |
-| Database Backend | Pluggable database engine behind the storage layer (`DatabaseBackend`: `SqliteBackend` default, `PostgresBackend` opt-in; ADR-045). Always qualified as *database* backend – bare "backend" is a disfavored synonym for Provider | engine, database provider |
-| Schema Compatibility Gate | Startup contract using one current schema epoch plus backend-owned required-object checks. It transactionally bootstraps fresh storage, admits the exact supported SQLite transition, refuses incompatible authoritative storage, and rebuilds incompatible derived search storage only from complete supported sources. Not a migration history or automatic upgrade framework (ADR-045) | schema epoch check, compatibility check |
+| Database Backend | Restart-tier selection behind the storage layer (`DatabaseBackend`): `SqliteBackend` is the default and `PostgresBackend` is opt-in. One deployment uses one database backend and, with PostgreSQL, one database and pool (ADR-045). Always qualify it as *database* backend – bare "backend" is a disfavored synonym for Provider | engine, database provider |
+| Authoritative Store | Durable relational records for tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts. SQLite stores these in `dartclaw.db`; the derived search index is rebuildable | `tasks.db` (retired SQLite filename) |
+| Instance-Local Store | Serve-process-only filesystem state in `turn_state.json` and `webhook_deliveries/`. It is transient, safe to lose, and never moves into the selected database backend | state database, delivery database |
+| Schema Compatibility Gate | Startup contract using one current schema epoch plus backend-owned required-object manifests. It transactionally bootstraps fresh storage, admits the exact released-0.25 SQLite transition, and refuses incompatible authoritative storage with back-up-then-reset-or-recreate guidance. Derived search storage rebuilds from complete supported sources or refuses. It is not a migration history (ADR-045) | schema epoch check, compatibility check |
 
 ## Channel Integration
 
@@ -164,16 +166,20 @@
 |------|-----------|-------------------|
 | Context Engine | Server-side layer that synthesizes internal knowledge from wiki, temporal KG, and memory, ingests external sources through MCP, and serves compact citation-backed packets to agents over MCP | turn context assembler, context window assembler |
 | Canonical Memory Entry | Stable UUID-addressed record with revision, role, provenance, and validated Markdown representation | memory chunk, indexed text |
-| Memory Role | Closed discriminant for every canonical memory document kind: `index`, `topic`, `archive`, `observation`, `learning`, `audit`, `wiki`, `kg`. Only `topic` is index-eligible | memory type, category |
+| Memory Role | Closed discriminant for every canonical memory document kind: `index`, `topic`, `archive`, `observation`, `learning`, `audit`, `wiki`, `kg`. Topic, archive, observation, and learning entries are index-eligible; index, audit, wiki, and KG entries are not | memory type, category |
 | Memory Provenance | The `MemorySourceRef` tuple every canonical record carries (origin kind, source locator, source event, caller, session ref). Origin kinds: `turn`, `journal`, `inbox`, `curation`, `migration`. Compare with `isExactReplayOf` for dedup and deletion authorization – structural equality is deliberately looser | source ref, origin |
 | Memory Observation | Captured raw observation with a trust label and truncation flag, linked forward to the entries it produced. Never prompt-authoritative by location | raw memory, note |
-| Memory Locator | Stable canonical entry UUID, or a native source locator for wiki, KG, knowledge-inbox, or eligible QMD results; accepted by `memory_read` and reopened through the source owner | generic source, row ID |
+| Memory Locator | Stable canonical entry UUID, or a native source locator for wiki, KG, knowledge-inbox, or an eligible search result; accepted by `memory_read` and reopened through the source owner | generic source, row ID |
 | Temporal Knowledge Graph | Time-scoped fact store (`entity, predicate, value, valid_from, valid_to, source, owner, invalidated_at`) with contradiction detection. Entities are canonicalized before storage | knowledge base, triple store |
 | Knowledge Inbox | Drop-folder ingestion path whose files move through the fixed states `inbox`, `processed`, `quarantine`, `skipped` | upload folder, import queue |
 | Knowledge Hub | Operator-facing browse/search surface over the knowledge layers (`all`, `wiki`, `kg`, `memory`, `inbox`) | knowledge UI, memory browser |
-| Search Index | Rebuildable FTS5 projection of canonical topic, archive, observation, and learning entries. QMD Markdown search is opt-in; audit entries are never indexed | source of truth, search database |
-| Full-Text Index | `FullTextIndex` abstraction over backend-native FTS (FTS5 `bm25()` / PostgreSQL `tsvector`). Search, upsert, and delete all carry the tenancy (`user_id`) dimension – the multi-user isolation mechanism (ADR-045) | FTS layer, search abstraction |
-| QMD | Optional external hybrid-embedding search daemon managed as a subprocess over loopback HTTP. Never a hard dependency – the search backend falls back to FTS5 when QMD is unreachable | search daemon, embeddings service |
+| Search Index | Rebuildable backend-native lexical and vector projections of canonical memory and chat-facing conversation messages in separate corpora. Memory audit entries and non-chat messages are excluded | source of truth, search database |
+| Full-Text Index | Generic lexical-document `FullTextIndex` port over SQLite FTS5 or PostgreSQL text search, instantiated separately for memory documents and conversation messages. Search, upsert, and delete carry `user_id`; current projections use the instance-owner identity. It is not a global knowledge index (ADR-045) | FTS layer, search abstraction |
+| Embedding Provider | Owner of query and ordered document embeddings under one Model Fingerprint. The `local` provider uses the verified EmbeddingGemma artifact and its query/document prefixes; `http` sends raw input to one explicit endpoint that owns preprocessing and the external trust boundary | embedding backend, model |
+| Model Fingerprint | Derived identity of the provider, model and input convention used to authenticate reusable vectors. It is never an operator-supplied configuration value | model ID, embedding version |
+| Vector Index | Owner- and corpus-scoped `VectorIndex` projection for exact-fingerprint embeddings. SQLite uses separate `vectors.db` and Dart cosine ranking; PostgreSQL uses application vector tables with `public.vector` and its qualified cosine operator | vector database, semantic store |
+| Hybrid Search | `dartclaw_search` composition of one Full-Text Index and one Vector Index using frozen weighted RRF. Memory and conversation instances synchronize independently; lexical results remain available when embeddings or vectors degrade | semantic search, reranker |
+| QMD | Deprecated external hybrid-search daemon retained as a working opt-in backend through 0.26. It is removed in the following milestone; built-in Hybrid Search is the current semantic path | current hybrid backend, embeddings service |
 | citation packet | Compact synthesized response where each claim carries source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet |
 | `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a citation packet | context engine tool, research outpost, search summary |
 | wiki provenance | Frontmatter field recording who authored a wiki page's content. `human-authored` and `hybrid` rank as search-trusted; `llm-authored` ranks trusted while `sources` is populated; any other stored value is preserved untouched and reported by wiki lint | authorship, page origin |
@@ -266,6 +272,10 @@
 
 ## Changelog
 
+- 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.
+- 2026-09-09: Full-Text Index and Search Index now name separate memory and conversation corpora and their owner scope.
+- 2026-09-09: Added Embedding Provider, Model Fingerprint, Vector Index, and Hybrid Search; marked QMD's 0.26 deprecation window.
+- 2026-09-08: Added Authoritative Store and its `dartclaw.db` SQLite filename; `tasks.db` is the retired name.
 - 2026-08-25: Added Named Credential Store under `provider-mediation` for the 0.24.3 credential and secrets CLI contract.
 - 2026-08-20: Split the overloaded "health" term: Health Status is now stated as the single projection of the host Worker's lifecycle, and Provider Availability is registered beside it as the separately derived provider-mediation term, with an Overloaded Terms row demarcating the two.
 - 2026-08-17: Added the 0.24.1 knowledge-inbox wiki vocabulary under `knowledge-memory`: wiki provenance, `hybrid`, supplement section, wiki collision, consolidation debt, declared drop.

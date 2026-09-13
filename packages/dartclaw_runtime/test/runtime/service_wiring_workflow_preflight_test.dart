@@ -8,7 +8,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 /// The provider-auth gate the in-`serve` workflow one-shot lane installs, and
@@ -110,8 +109,8 @@ void main() {
       dataDir: dataDir.path,
       port: 3000,
       harnessFactory: _harnessFactory(),
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),

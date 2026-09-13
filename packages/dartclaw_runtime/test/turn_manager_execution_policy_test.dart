@@ -195,7 +195,11 @@ void main() {
       return (coordinator, requests);
     }
 
-    Future<ExecutionRequest> requestFor(String sessionId, {String agentName = 'main'}) async {
+    Future<ExecutionRequest> requestFor(
+      String sessionId, {
+      String agentName = 'main',
+      List<String>? allowedTools,
+    }) async {
       final (coordinator, requests) = recordingCoordinator();
       final turns = TurnManager.fromCoordinator(
         turnLimits: const TurnLimitsConfig.defaults(),
@@ -204,7 +208,7 @@ void main() {
         policyResolver: resolverFor(containersEnabled: false),
       );
       addTearDown(turns.executions.dispose);
-      final turnId = await turns.reserveTurn(sessionId, agentName: agentName);
+      final turnId = await turns.reserveTurn(sessionId, agentName: agentName, allowedTools: allowedTools);
       final outcome = turns.waitForOutcome(sessionId, turnId);
       turns.releaseTurn(sessionId, turnId);
       await expectLater(outcome, throwsStateError);
@@ -229,6 +233,14 @@ void main() {
       expect(request.surface, ExecutionSurface.logicalAgent);
       expect(request.admission, ExecutionAdmission.failFast);
       expect(request.logicalAgentId, 'ana');
+    });
+
+    test('a turn carries its explicit tool policy into execution construction', () async {
+      final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+      final request = await requestFor(session.id, agentName: 'ana', allowedTools: const []);
+
+      expect(request.allowedTools, isEmpty);
     });
 
     test('a main channel turn requests exactly what it does today', () async {

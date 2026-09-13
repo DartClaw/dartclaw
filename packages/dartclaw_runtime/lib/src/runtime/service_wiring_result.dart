@@ -36,7 +36,7 @@ DartclawRuntime _assembleRuntime(
 }) {
   return DartclawRuntime(
     server: server,
-    searchDb: storage.searchDb,
+    closeStorage: storage.closeBackends,
     agentExecutionRepository: storage.agentExecutionRepository,
     taskService: storage.taskService,
     harness: harness?.harness,

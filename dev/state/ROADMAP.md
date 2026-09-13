@@ -4,6 +4,8 @@
 
 ## Active Milestone
 
+Current milestone is **0.26 on `feat/0.26`**. Its completed cycle is consolidated in the private `docs/specs/0.26/prd.md`; the 0.25.2 section below retains its preceding release-preparation record.
+
 ### 0.25.2 – Deployment feedback and workflow fixes
 
 **Status: release-ready, awaiting tag on `feat/0.25.2` (opened from the 0.25.1 squash `ccfd9fcf`, 2026-09-06),
@@ -12,7 +14,7 @@ unreleased; pins at 0.25.2; record in the private patch PRD
 on the main lane, final-text delivery, provider-enforced logical-agent schemas, `pool_size` default 2 and
 harness-owned continuity reset. Three follow-on features shipped on the branch and are consolidated in the PRD:
 operator approval for chat-driven scheduling writes (`c2057657`), model-free file-only shell jobs (`16917bc8`) and
-channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`. 0.26 waits behind this patch.
+channel-to-agent binding (`75afa358`), with branch-review remediation at `0fbd3429`.
 
 The workflow follow-up restores Claude user-plugin inheritance with declared tool filtering, projectless inline
 output roots, Codex probe/worker isolation parity and safe capability mirroring from custom `CODEX_HOME`
@@ -76,9 +78,42 @@ work is parked on `parked/s64-workflow-schema`.
 
 > **Numbering policy (owner, 2026-09-03):** a version number is assigned only when work on a milestone starts. Planned milestones are referred to by name and slug (their private spec directory) until then. Canonical sequencing and detail: `dartclaw-private/docs/ROADMAP.md`.
 
-### 0.26 — Pluggable Database Backend & Multi-Language Search
+### 0.26 – Pluggable Database Backend & Hybrid Search
 
-Next. `DatabaseBackend` abstraction (SQLite default, PostgreSQL opt-in), current-schema bootstrap + compatibility gate, `FullTextIndex` with language-aware search on PostgreSQL, credential-reference `DATABASE_URL`, TLS fail-closed, dual-backend contract suite; then Phase B native hybrid search (`dartclaw_search`, ADR-050). Plan bundle regenerated against 0.25 on 2026-09-03 (15 stories) plus the two workflow-schema stories deferred from 0.25 (S16/S17, formerly S63/S64).
+**Status – release-ready, awaiting final commit checks and tag.** All 17 Phase A stories and
+nine Phase B stories are accepted on `feat/0.26`. On 2026-09-13 the owner
+approved reporting semantic no-match errors as quality diagnostics, preserving positive-ranking and strict
+owner/corpus/current-source guarantees. Query expansion and reranking belong to a future version.
+
+The bounded comparison retained cutoff 0.20: 0.25 reduced semantic false positives but lost two useful historical
+vocabulary/cross-language queries on both backends. The first independent evaluation passed all 116 gates across
+144 slices: hybrid hit@1 54/55 and recall@5 55/55 positives on both backends, with zero isolation violations.
+Three of four no-match probes still returned irrelevant passages, retained as quality diagnostics. Original assets
+and failed reports remain unchanged. [ADR-050](../adrs/050-native-hybrid-search.md) and the
+[retrieval record](../testing/retrieval/README.md) preserve the accepted policy and results.
+
+Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
+full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B
+adds built-in hybrid retrieval for memory and conversation messages, local verified EmbeddingGemma or an explicitly
+configured HTTP provider, retained vectors, authenticated ranking inspection and bounded turn source provenance.
+QMD remains functional but deprecated in 0.26; removal belongs to the following milestone.
+
+The private canonical PRD retains Phase A deferred obligations, native packaging, retrieval, integration, UI and
+independent review evidence. The accepted Phase A checkpoint remains `007ab8d48220f07b429f647a3d23dc802bc82141`.
+The protocol-3 changes passed 11,954 workspace tests (44 configured skips), PostgreSQL contract/hybrid integration,
+architecture/fitness checks and both AOT builds. The release record is CHANGELOG § 0.26.0.
+
+Earlier implementation CI and release dry-run evidence remain separate from final changed-head verification,
+tagging and publication. The current quality pass does not repeat unaffected platform/workflow qualification or
+establish publication readiness by itself. See `dev/guidelines/RELEASE_PREPARATION.md`.
+
+2026-09-13 operator check: the main ruleset remains unapplied. `Check`, `Container boundary`, `PowerShell scripts` and `PostgreSQL contract` must each pass on the final commit.
+
+### Search quality follow-up – upcoming version, unscheduled
+
+The owner requested query expansion and reranking on 2026-09-13. Evaluate their ranking benefit and latency/resource
+cost on representative Swedish/English data before selecting models or adding runtime stages. These features are
+excluded from 0.26. Public benchmark candidates and their limitations are recorded in the retrieval README.
 
 ### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 

@@ -49,6 +49,26 @@ const _supported = {'type', 'properties', 'required', 'items', 'enum', 'addition
 Map<String, dynamic> parseOutputSchema(Object? raw, {required String yamlPath}) =>
     _parse(raw, yamlPath, '', isRoot: true);
 
+/// Decodes one complete JSON value while rejecting duplicate object members.
+///
+/// The decoded root may have any JSON type; callers enforce the shape required
+/// by their schema. Throws [FormatException] with a sanitized reason and offset
+/// for malformed or ambiguous JSON. The exception never retains [source].
+Object? decodeOutputSchemaJson(String source) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(source);
+  } on FormatException catch (error) {
+    throw FormatException('does not parse as a single JSON value: ${error.message}', null, error.offset);
+  }
+
+  final duplicateOffset = _DuplicateJsonMemberScanner(source).firstDuplicateOffset();
+  if (duplicateOffset != null) {
+    throw FormatException('is ambiguous JSON: duplicate object member name', null, duplicateOffset);
+  }
+  return decoded;
+}
+
 /// Validates [instance] against a schema produced by [parseOutputSchema].
 ///
 /// Returns `null` when [instance] conforms, otherwise the first violation in a
@@ -315,3 +335,93 @@ String _unknownPropertySegment(String segment) {
 FormatException _reject(String yamlPath, String pointer, String detail) => FormatException(
   '$yamlPath: $detail (at ${pointer.isEmpty ? 'the schema root' : '"$pointer"'} in the schema document).',
 );
+
+class _DuplicateJsonMemberScanner {
+  final String source;
+  var _offset = 0;
+
+  new(this.source);
+
+  int? firstDuplicateOffset() {
+    _skipWhitespace();
+    return _scanValue();
+  }
+
+  int? _scanValue() {
+    _skipWhitespace();
+    final code = source.codeUnitAt(_offset);
+    if (code == 0x7b) return _scanObject();
+    if (code == 0x5b) return _scanArray();
+    if (code == 0x22) {
+      _scanString();
+    } else {
+      _scanScalar();
+    }
+    return null;
+  }
+
+  int? _scanObject() {
+    _offset++;
+    _skipWhitespace();
+    if (source.codeUnitAt(_offset) == 0x7d) {
+      _offset++;
+      return null;
+    }
+    final names = <String>{};
+    while (true) {
+      _skipWhitespace();
+      final keyOffset = _offset;
+      final name = _scanString();
+      if (!names.add(name)) return keyOffset;
+      _skipWhitespace();
+      _offset++;
+      final duplicate = _scanValue();
+      if (duplicate != null) return duplicate;
+      _skipWhitespace();
+      if (source.codeUnitAt(_offset++) == 0x7d) return null;
+    }
+  }
+
+  int? _scanArray() {
+    _offset++;
+    _skipWhitespace();
+    if (source.codeUnitAt(_offset) == 0x5d) {
+      _offset++;
+      return null;
+    }
+    while (true) {
+      final duplicate = _scanValue();
+      if (duplicate != null) return duplicate;
+      _skipWhitespace();
+      if (source.codeUnitAt(_offset++) == 0x5d) return null;
+    }
+  }
+
+  String _scanString() {
+    final start = _offset++;
+    while (true) {
+      final code = source.codeUnitAt(_offset++);
+      if (code == 0x5c) {
+        _offset++;
+      } else if (code == 0x22) {
+        return jsonDecode(source.substring(start, _offset)) as String;
+      }
+    }
+  }
+
+  void _scanScalar() {
+    while (_offset < source.length) {
+      final code = source.codeUnitAt(_offset);
+      if (code == 0x2c || code == 0x5d || code == 0x7d || _isWhitespace(code)) return;
+      _offset++;
+    }
+  }
+
+  void _skipWhitespace() {
+    while (_offset < source.length && _isWhitespace(source.codeUnitAt(_offset))) {
+      _offset++;
+    }
+  }
+
+  static bool _isWhitespace(int code) => code == 0x20 || code == 0x0a || code == 0x0d || code == 0x09;
+}

@@ -24,7 +24,13 @@ Never _unexpectedExit(int code) {
 /// Profiles and authority acquisition are faked too so an `execution: container`
 /// primary reaches the end of wiring instead of failing on the missing runtime.
 class _ContainerCapableSecurityWiring extends SecurityWiring {
-  new({required super.config, required super.dataDir, required super.eventBus, required super.exitFn});
+  new({
+    required super.config,
+    required super.dataDir,
+    required super.eventBus,
+    required super.exitFn,
+    required super.auditLogger,
+  });
 
   @override
   bool get containersEnabled => true;
@@ -221,6 +227,7 @@ void main() {
           dataDir: tempDir.path,
           eventBus: eventBus,
           exitFn: _unexpectedExit,
+          auditLogger: GuardAuditLogger(dataDir: tempDir.path),
         );
         await capable.wire(agentDefs: [AgentDefinition.searchAgent()]);
         security = capable;

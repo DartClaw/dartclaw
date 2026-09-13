@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 void main() {
@@ -15,11 +16,13 @@ void main() {
   late ChannelManager channelManager;
   late SlashCommandHandler handler;
   late int emergencyStopCalls;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('slash_command_handler_test_');
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()), eventBus: eventBus);
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
     sessions = SessionService(baseDir: tempDir.path, eventBus: eventBus);
     channelManager = ChannelManager(queue: _NoopMessageQueue(), config: const ChannelConfig.defaults());
     emergencyStopCalls = 0;
@@ -37,6 +40,7 @@ void main() {
   tearDown(() async {
     await channelManager.dispose();
     await tasks.dispose();
+    await taskBackend.close();
     await eventBus.dispose();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

@@ -181,7 +181,7 @@
 
 ## Storage / Data Model
 
-- **Durable knowledge graph facts belong in `tasks.db`, not `search.db`.** `search.db` is rebuildable from MEMORY.md; temporal KG facts are authoritative source-linked records.
+- **Durable knowledge graph facts belong in `dartclaw.db`, not `search.db`.** `search.db` is rebuildable from MEMORY.md; temporal KG facts are authoritative source-linked records.
 - **Task persistence is schema-backed, not generic-JSON-backed.** New `Task` fields require schema, migrations, insert/update, hydration – not just `toJson()`/`fromJson()`.
 - **Legacy task-table migrations must guard missing columns at every SQL touch point.** Index creation and `INSERT ... SELECT` also need conditional column references, not only the backfill INSERT.
 - **Validate untrusted-ingestion payloads before the first durable write, and never treat LLM text as a control boundary.** Order all checks before any sink (else retries re-run committed writes); parse structured output from a delimiter-safe channel.

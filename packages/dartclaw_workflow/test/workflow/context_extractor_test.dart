@@ -25,8 +25,9 @@ void main() {
   late SessionService sessionService;
   late ContextExtractor extractor;
 
-  setUp(() {
-    harness = ContextExtractorTestHarness()..setUp();
+  setUp(() async {
+    harness = ContextExtractorTestHarness();
+    await harness.setUp();
     tempDir = harness.tempDir;
     taskService = harness.taskService;
     messageService = harness.messageService;
@@ -34,7 +35,9 @@ void main() {
     extractor = harness.extractor;
   });
 
-  tearDown(() => harness.tearDown());
+  tearDown(() async {
+    await harness.tearDown();
+  });
 
   test('returns empty map when step has no outputs', () async {
     final task = await harness.createTask();

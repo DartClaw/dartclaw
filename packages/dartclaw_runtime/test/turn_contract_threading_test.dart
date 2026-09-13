@@ -6,9 +6,9 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_runtime/src/web/session_usage.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'turn_runner_test_support.dart';
@@ -19,13 +19,18 @@ void main() {
   late SessionService sessions;
   late MessageService messages;
   late FakeAgentHarness worker;
-  late Database turnStateDb;
   late TurnStateStore turnState;
   late KvService kvService;
 
-  TurnRunner buildRunner({GuardChain? guardChain, ContextMonitor? contextMonitor}) => TurnRunner(
+  TurnRunner buildRunner({
+    GuardChain? guardChain,
+    ContextMonitor? contextMonitor,
+    AgentHarness? harness,
+    String providerId = 'claude',
+  }) => TurnRunner(
     turnLimits: const TurnLimitsConfig.defaults(),
-    harness: worker,
+    harness: harness ?? worker,
+    providerId: providerId,
     messages: messages,
     behavior: BehaviorFileService(workspaceDir: workspaceDir),
     sessions: sessions,
@@ -44,8 +49,7 @@ void main() {
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
     worker = FakeAgentHarness();
-    turnStateDb = sqlite3.openInMemory();
-    turnState = TurnStateStore(turnStateDb);
+    turnState = openTurnStateStore(p.join(tempDir.path, 'turn_state.json'));
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
   });
 
@@ -55,6 +59,38 @@ void main() {
     await turnState.dispose();
     await kvService.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
+  test('preserves the first provider written for a session cost record', () async {
+    final codexWorker = FakeAgentHarness(supportsCostReporting: false, supportsCachedTokens: true);
+    final claudeWorker = FakeAgentHarness();
+    addTearDown(() async => codexWorker.dispose());
+    addTearDown(() async => claudeWorker.dispose());
+    final codexRunner = buildRunner(harness: codexWorker, providerId: 'codex');
+    final claudeRunner = buildRunner(harness: claudeWorker, providerId: 'claude');
+    final session = await sessions.getOrCreateMainSession();
+
+    scheduleTurnCompletion(
+      codexWorker,
+      result: turnResult(inputTokens: 1, outputTokens: 1, totalCostUsd: 0.10, cachedInputTokens: 3),
+    );
+    final codexTurnId = await codexRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'codex'},
+    ]);
+    await codexRunner.waitForOutcome(session.id, codexTurnId);
+
+    scheduleTurnCompletion(claudeWorker, result: turnResult(inputTokens: 2, outputTokens: 2, totalCostUsd: 0.20));
+    final claudeTurnId = await claudeRunner.startTurn(session.id, [
+      {'role': 'user', 'content': 'claude'},
+    ]);
+    await claudeRunner.waitForOutcome(session.id, claudeTurnId);
+
+    final costData = await readSessionCost(kvService, session.id);
+    expect(costData['provider'], 'codex');
+    expect(costData['cache_read_tokens'], 3);
+    expect(costData['cost_reported_turn_count'], 1);
+    expect(costData['turn_count'], 2);
+    expect((await readSessionUsage(kvService, session.id)).estimatedCostUsd, isNull);
   });
 
   test('S01/S03 reservation inputs reach the harness and completed outcome', () async {

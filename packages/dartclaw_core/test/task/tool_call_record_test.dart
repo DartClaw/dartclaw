@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   group('ToolCallRecord', () {
     test('toJson output shape — success, no errorType', () {
-      const record = ToolCallRecord(name: 'Read', success: true, durationMs: 10);
+      final record = ToolCallRecord(name: 'Read', success: true, durationMs: 10);
       final json = record.toJson();
       expect(json['name'], 'Read');
       expect(json['success'], isTrue);
@@ -13,7 +13,7 @@ void main() {
     });
 
     test('toJson includes errorType when present', () {
-      const record = ToolCallRecord(
+      final record = ToolCallRecord(
         name: 'Bash',
         success: false,
         durationMs: 5,
@@ -26,13 +26,13 @@ void main() {
     });
 
     test('fromJson round-trips correctly', () {
-      const original = ToolCallRecord(name: 'Edit', success: true, durationMs: 77, context: 'lib/auth.dart');
+      final original = ToolCallRecord(name: 'Edit', success: true, durationMs: 77, context: 'lib/auth.dart');
       final decoded = ToolCallRecord.fromJson(original.toJson());
       expect(decoded, equals(original));
     });
 
     test('fromJson round-trips with errorType', () {
-      const original = ToolCallRecord(
+      final original = ToolCallRecord(
         name: 'Bash',
         success: false,
         durationMs: 123,
@@ -46,17 +46,17 @@ void main() {
     });
 
     test('errorType omitted from JSON when null', () {
-      const record = ToolCallRecord(name: 'Read', success: true, durationMs: 1);
+      final record = ToolCallRecord(name: 'Read', success: true, durationMs: 1);
       final json = record.toJson();
       expect(json.containsKey('errorType'), isFalse);
       expect(json.containsKey('context'), isFalse);
     });
 
     test('equality and hashCode', () {
-      const a = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart test');
-      const b = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart test');
-      const c = ToolCallRecord(name: 'Bash', success: false, durationMs: 50, context: 'dart test');
-      const d = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart analyze');
+      final a = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart test');
+      final b = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart test');
+      final c = ToolCallRecord(name: 'Bash', success: false, durationMs: 50, context: 'dart test');
+      final d = ToolCallRecord(name: 'Bash', success: true, durationMs: 50, context: 'dart analyze');
       expect(a, equals(b));
       expect(a.hashCode, equals(b.hashCode));
       expect(a, isNot(equals(c)));

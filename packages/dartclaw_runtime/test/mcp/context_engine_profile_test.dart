@@ -7,7 +7,7 @@ import 'package:dartclaw_runtime/src/mcp/context_engine_profile.dart';
 import 'package:dartclaw_runtime/src/mcp/kg_tools.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/memory_tools.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 class _NamedTool implements McpTool {
@@ -109,7 +109,7 @@ void main() {
 
   group('a handler scoped to one client', () {
     late McpProtocolHandler handler;
-    late Database db;
+    late SqliteBackend backend;
     late TemporalKnowledgeGraphService kg;
 
     McpProtocolHandler scoped() => handler.scopedTo(
@@ -124,9 +124,9 @@ void main() {
       return jsonDecode(response!) as Map<String, dynamic>;
     }
 
-    setUp(() {
-      db = sqlite3.openInMemory();
-      kg = TemporalKnowledgeGraphService(db);
+    setUp(() async {
+      backend = await openPreparedTaskBackend();
+      kg = TemporalKnowledgeGraphService(backend);
       handler = McpProtocolHandler(auditLogger: auditLogger);
       handler.registerTool(KgQueryTool(kg: kg));
       handler.registerTool(KgTimelineTool(kg: kg));
@@ -138,7 +138,7 @@ void main() {
       handler.registerTool(_NamedTool('brave_search', McpToolAccess.read));
     });
 
-    tearDown(() => db.close());
+    tearDown(() => backend.close());
 
     test('discovers only the profile tools that are registered', () async {
       final result = await call(scoped(), 'tools/list', {});
@@ -167,7 +167,7 @@ void main() {
     });
 
     test('audits a refused registered tool as the client, and never invokes it', () async {
-      final before = kg.timeline(entity: 'Fact').length;
+      final before = (await kg.timeline(entity: 'Fact')).length;
 
       await call(scoped(), 'tools/call', {
         'name': 'kg_add',
@@ -181,7 +181,7 @@ void main() {
       });
       await auditLogger.flush();
 
-      expect(kg.timeline(entity: 'Fact'), hasLength(before), reason: 'a refused write must not reach the tool');
+      expect(await kg.timeline(entity: 'Fact'), hasLength(before), reason: 'a refused write must not reach the tool');
       final denials = _entries(tempDir).where((entry) => entry['decision'] == 'deny').toList();
       expect(denials, hasLength(1));
       expect(denials.single['principal'], 'mcp-client:ide');
@@ -205,7 +205,7 @@ void main() {
     });
 
     test('reads the owner view of the knowledge surface, narrowed by no fact owner', () async {
-      kg.addFact(
+      await kg.addFact(
         entity: 'Release',
         predicate: 'channel',
         value: 'stable',
@@ -213,7 +213,7 @@ void main() {
         source: 'wiki/release.md',
         owner: 'owner',
       );
-      kg.addFact(
+      await kg.addFact(
         entity: 'Release',
         predicate: 'runner',
         value: 'ubuntu',

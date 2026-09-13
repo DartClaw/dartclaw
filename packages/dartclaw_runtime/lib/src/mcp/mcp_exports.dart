@@ -42,7 +42,7 @@ export 'outbound/outbound_mcp_tool_adapter.dart'
 export 'outbound/outbound_mcp_transport.dart' show OutboundMcpTransport, OutboundMcpTransportFactory;
 export 'attach_media_tool.dart' show AttachMediaTool;
 export 'schedule_tools.dart' show ScheduleListTool, ScheduleUpsertTool;
-export 'search_provider.dart' show SearchProvider, SearchResult;
+export 'search_provider.dart' show SearchProvider, WebSearchResult;
 export 'sessions_send_tool.dart' show SessionsSendTool;
 export 'sessions_spawn_tool.dart' show SessionsSpawnTool;
 export 'task_tools.dart'

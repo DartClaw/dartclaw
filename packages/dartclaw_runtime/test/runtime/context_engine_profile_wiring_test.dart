@@ -6,7 +6,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/mcp/context_engine_profile.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code) during profile wiring test');
@@ -50,8 +49,8 @@ void main() {
       dataDir: tempDir.path,
       port: 3000,
       harnessFactory: harnessFactory,
-      searchDbFactory: (_) => sqlite3.openInMemory(),
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: configFile.path,

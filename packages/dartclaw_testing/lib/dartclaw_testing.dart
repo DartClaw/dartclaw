@@ -20,6 +20,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         PromptStrategy,
         ProjectService,
         SessionService,
+        SessionServiceObserver,
         Task,
         TaskArtifact,
         TaskRepository,
@@ -31,6 +32,7 @@ export 'package:dartclaw_core/dartclaw_core.dart'
         WorkerState;
 
 export 'src/channel_test_helpers.dart' show TaskOps, channelOriginJson, createTask, putTaskInReview, shortTaskId;
+export 'src/callback_embedding_provider.dart' show CallbackEmbeddingProvider;
 export 'src/codex_harness_test_helpers.dart'
     show
         defaultCommandProbe,
@@ -58,7 +60,14 @@ export 'src/fake_turn_manager.dart' show FakeTurnManager;
 export 'src/flush_async.dart' show flushAsync;
 export 'src/in_memory_session_service.dart' show InMemorySessionService;
 export 'src/in_memory_task_repository.dart' show InMemoryTaskRepository;
+export 'src/prepared_task_backend.dart' show openPreparedTaskBackend;
 export 'src/in_memory_workflow_step_execution_repository.dart' show InMemoryWorkflowStepExecutionRepository;
 export 'src/null_io_sink.dart' show NullIoSink;
 export 'src/recording_message_queue.dart' show RecordingMessageQueue;
 export 'src/test_event_bus.dart' show TestEventBus;
+export 'src/vector_database_test_backends.dart'
+    show
+        FailingVectorMutationBackend,
+        PostgresVectorSchemaTestBackend,
+        PostgresVectorTestBackend,
+        RecordingDatabaseBackend;

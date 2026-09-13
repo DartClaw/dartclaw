@@ -157,10 +157,16 @@ void main() {
       expect(
         ownedElsewhere,
         ConfigMeta.fields.keys
-            .where((path) => path == 'channels' || path.startsWith('channels.') || path.startsWith('guards.'))
+            .where(
+              (path) =>
+                  path == 'channels' ||
+                  path.startsWith('channels.') ||
+                  path.startsWith('guards.') ||
+                  path.startsWith('database.'),
+            )
             .toSet(),
       );
-      expect(settingsFieldOwners.keys.toSet(), {'channels', 'guards'});
+      expect(settingsFieldOwners.keys.toSet(), {'channels', 'guards', 'database'});
     });
 
     test('no two panels declare an overlapping prefix, and every id is unique', () {
@@ -560,6 +566,20 @@ void main() {
       expect(body, contains("Field 'guards.enabled' is read-only"));
       expect(body, contains("Unknown config field: 'credentials.anthropic.api_key'"));
       expect(body, isNot(contains('sk-ant-new-secret')));
+      expect(File(configPath).readAsStringSync(), before);
+    });
+
+    test('a handcrafted Memory submission cannot persist an embedding credential reference', () async {
+      final before = File(configPath).readAsStringSync();
+      final response = await post(buildSurface(), {
+        settingsSectionFormField: 'memory',
+        'search.embedding.credential': 'missing-reference',
+      });
+      final body = await response.readAsString();
+
+      expect(response.statusCode, 200);
+      expect(body, contains("Field 'search.embedding.credential' is read-only"));
+      expect(body, isNot(contains('missing-reference')));
       expect(File(configPath).readAsStringSync(), before);
     });
 

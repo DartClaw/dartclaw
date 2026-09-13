@@ -18,7 +18,7 @@ class BraveSearchProvider implements SearchProvider {
   new({required String apiKey, Duration timeout = const Duration(seconds: 15)}) : _apiKey = apiKey, _timeout = timeout;
 
   @override
-  Future<List<SearchResult>> search(String query, {int count = 5}) async {
+  Future<List<WebSearchResult>> search(String query, {int count = 5}) async {
     final uri = Uri.https('api.search.brave.com', '/res/v1/web/search', {'q': query, 'count': count.toString()});
 
     try {

@@ -1,7 +1,7 @@
 class DartclawWorkflow < Formula
   desc "Workflow-only DartClaw runner (standalone, no server)"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.25.2"
+  version "0.26.0"
   license "MIT"
 
   on_macos do

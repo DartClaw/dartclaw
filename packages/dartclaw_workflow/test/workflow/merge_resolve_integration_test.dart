@@ -8,7 +8,7 @@ import 'dart:io';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, Task, WorkflowStepCompletedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveConfig,
@@ -24,7 +24,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show EventBus, MergeResolveAttemptArtifact, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
@@ -319,8 +318,8 @@ Future<DartclawRuntime> _wireUp(E2EFixtureInstance fixture) async {
     fixture.config,
     dataDir: fixture.config.server.dataDir,
     harnessFactory: HarnessFactory(),
-    searchDbFactory: (_) => sqlite3.openInMemory(),
-    taskDbFactory: (_) => sqlite3.openInMemory(),
+    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
   );

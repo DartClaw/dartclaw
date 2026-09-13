@@ -15,6 +15,7 @@ SecurityWiring _buildRegisteredWiring({
   required EventBus eventBus,
   required ConfigNotifier configNotifier,
   MessageRedactor? messageRedactor,
+  GuardAuditLogger? auditLogger,
 }) {
   return SecurityWiring(
     config: _baseConfig,
@@ -23,6 +24,7 @@ SecurityWiring _buildRegisteredWiring({
     exitFn: (code) => throw Exception('exitFn called with $code'),
     configNotifier: configNotifier,
     messageRedactor: messageRedactor,
+    auditLogger: auditLogger ?? GuardAuditLogger(dataDir: dataDir),
   );
 }
 
@@ -51,6 +53,20 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('security reload seam — valid reload', () {
+    test('uses the audit logger supplied by the composition root', () async {
+      final logger = GuardAuditLogger(dataDir: dataDir);
+      final wiring = _buildRegisteredWiring(
+        dataDir: dataDir,
+        eventBus: eventBus,
+        configNotifier: ConfigNotifier(_baseConfig),
+        auditLogger: logger,
+      );
+      await wiring.wire(agentDefs: []);
+
+      expect(wiring.auditLogger, same(logger));
+      await wiring.dispose();
+    });
+
     test('logical-agent session-control policy uses the configured deny set', () async {
       final configNotifier = ConfigNotifier(_baseConfig);
       final wiring = _buildRegisteredWiring(dataDir: dataDir, eventBus: eventBus, configNotifier: configNotifier);

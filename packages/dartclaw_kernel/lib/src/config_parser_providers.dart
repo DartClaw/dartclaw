@@ -2,6 +2,100 @@ part of 'dartclaw_config.dart';
 
 final _mcpServersLog = Logger('McpServersConfig');
 
+DatabaseConfig _parseDatabase(
+  Map<String, dynamic> yaml,
+  Map<String, String> env,
+  DatabaseConfig defaults,
+  List<String> warns,
+) {
+  final map = _sectionMap('database', yaml, warns);
+  if (map == null) return defaults;
+  final backendValue = readString('backend', map, warns, defaultValue: defaults.backend.name);
+  final backend = DatabaseBackendKind.values.firstWhere(
+    (value) => value.name == backendValue,
+    orElse: () {
+      warns.add('Invalid database.backend: "$backendValue" — using default');
+      return defaults.backend;
+    },
+  );
+  final rawUrl = readString('url', map, warns);
+  final urlEnvVars = rawUrl == null ? const <String>[] : envReferences(rawUrl);
+  final url = rawUrl == null ? null : envSubstitute(rawUrl, env: env);
+  final credential = readString('credential', map, warns);
+  final poolSize = readInt('pool_size', map, warns, defaultValue: defaults.poolSize) ?? defaults.poolSize;
+  final rawFtsLanguage = readString('fts_language', map, warns, defaultValue: defaults.ftsLanguage);
+  final normalizedFtsLanguage = rawFtsLanguage?.trim().toLowerCase() ?? defaults.ftsLanguage;
+  final ftsLanguage = normalizedFtsLanguage.isEmpty ? defaults.ftsLanguage : normalizedFtsLanguage;
+  if (normalizedFtsLanguage.isEmpty) {
+    warns.add('Invalid database.fts_language: must not be blank — using default');
+  }
+  if (FieldConstraints.evaluate(ConfigMeta.fields['database.pool_size']!, poolSize) != null) {
+    warns.add('Invalid database.pool_size: must be positive');
+  }
+  if (backend == DatabaseBackendKind.postgres) {
+    final hasUrlReference = rawUrl != null && rawUrl.isNotEmpty;
+    final hasCredentialReference = credential != null && credential.isNotEmpty;
+    final persistedSecret = rawUrl == null ? null : _persistedDatabaseSecretShape(rawUrl);
+    if (persistedSecret != null) {
+      warns.add(
+        'Invalid database.url: persisted $persistedSecret is not allowed; use environment substitution or '
+        'database.credential',
+      );
+    } else if (!hasUrlReference && !hasCredentialReference) {
+      warns.add('Invalid database.url/database.credential: postgres requires exactly one connection reference');
+    } else if (hasUrlReference && hasCredentialReference) {
+      warns.add('Invalid database.url/database.credential: postgres accepts exactly one connection reference');
+    }
+  }
+  return DatabaseConfig(
+    backend: backend,
+    url: url,
+    credential: credential,
+    urlEnvVars: urlEnvVars,
+    poolSize: poolSize,
+    ftsLanguage: ftsLanguage,
+  );
+}
+
+String? _persistedDatabaseSecretShape(String rawUrl) {
+  final authority = RegExp(
+    r'^postgres(?:ql)?://([^/?#]*)',
+    caseSensitive: false,
+  ).firstMatch(rawUrl.trimLeft())?.group(1);
+  if (authority != null) {
+    final at = authority.lastIndexOf('@');
+    final userInfo = at < 0 ? '' : authority.substring(0, at);
+    final separator = userInfo.indexOf(':');
+    if (separator >= 0 && _containsLiteralTemplateText(userInfo.substring(separator + 1))) {
+      return 'userinfo password';
+    }
+  }
+  final query = rawUrl.indexOf('?');
+  if (query >= 0) {
+    final fragment = rawUrl.indexOf('#', query);
+    final rawQuery = rawUrl.substring(query + 1, fragment < 0 ? rawUrl.length : fragment);
+    for (final pair in rawQuery.split('&')) {
+      final separator = pair.indexOf('=');
+      final rawKey = separator < 0 ? pair : pair.substring(0, separator);
+      final String key;
+      try {
+        key = Uri.decodeQueryComponent(rawKey);
+      } on FormatException {
+        return 'malformed query parameter';
+      } on ArgumentError {
+        return 'malformed query parameter';
+      }
+      if (key.toLowerCase() != 'password') continue;
+      final value = separator < 0 ? '' : pair.substring(separator + 1);
+      if (_containsLiteralTemplateText(value)) return 'password query parameter';
+    }
+  }
+  return null;
+}
+
+bool _containsLiteralTemplateText(String value) =>
+    value.replaceAll(RegExp(r'\$\{[A-Za-z_][A-Za-z0-9_]*\}'), '').isNotEmpty;
+
 SearchConfig _parseSearch(
   Map<String, dynamic> yaml,
   Map<String, String> env,
@@ -14,6 +108,7 @@ SearchConfig _parseSearch(
   var qmdHost = defaults.qmdHost;
   var qmdPort = defaults.qmdPort;
   var defaultDepth = defaults.defaultDepth;
+  var embedding = defaults.embedding;
 
   final searchMap = _sectionMap('search', yaml, warns);
   if (searchMap != null) {
@@ -39,6 +134,11 @@ SearchConfig _parseSearch(
     }
     final depth = readString('default_depth', searchMap, warns);
     if (depth != null) defaultDepth = depth;
+
+    final embeddingMap = readMap('embedding', searchMap, warns);
+    if (embeddingMap != null) {
+      embedding = _parseEmbedding(embeddingMap, defaults.embedding, credentials, warns);
+    }
 
     final providersMap = readMap('providers', searchMap, warns);
     if (providersMap != null) {
@@ -83,13 +183,116 @@ SearchConfig _parseSearch(
     }
   }
 
+  if (backend == 'qmd') {
+    addConfigAdvisory(
+      warns,
+      'search.backend qmd is deprecated and will be removed in the next milestone; use hybrid instead.',
+    );
+  }
+
   return SearchConfig(
     backend: backend,
     qmdHost: qmdHost,
     qmdPort: qmdPort,
     defaultDepth: defaultDepth,
     providers: providers,
+    embedding: embedding,
   );
+}
+
+EmbeddingConfig _parseEmbedding(
+  Map<String, dynamic> map,
+  EmbeddingConfig defaults,
+  CredentialsConfig credentials,
+  List<String> warns,
+) {
+  final providerName = readString(
+    'provider',
+    map,
+    warns,
+    defaultValue: defaults.provider.name,
+    warnKey: 'search.embedding.provider',
+  );
+  final provider = EmbeddingProviderKind.values.where((value) => value.name == providerName).firstOrNull;
+  if (provider == null) {
+    warns.add('Invalid search.embedding.provider — using default');
+    return defaults;
+  }
+
+  final rawModel = readString('model', map, warns, warnKey: 'search.embedding.model');
+  final model = rawModel?.trim();
+  final rawEndpoint = readString('endpoint', map, warns, warnKey: 'search.embedding.endpoint');
+  final rawCredential = readString('credential', map, warns, warnKey: 'search.embedding.credential');
+
+  if (provider == EmbeddingProviderKind.local) {
+    var valid = true;
+    if (model != null && model != defaults.model) {
+      warns.add('Invalid search.embedding.model: local supports only ${defaults.model} — using default');
+      valid = false;
+    }
+    if (rawEndpoint != null) {
+      warns.add('Invalid search.embedding.endpoint: must be absent for local provider');
+      valid = false;
+    }
+    if (rawCredential != null) {
+      warns.add('Invalid search.embedding.credential: must be absent for local provider');
+      valid = false;
+    }
+    return valid ? EmbeddingConfig(model: model ?? defaults.model) : defaults;
+  }
+
+  var valid = true;
+  if (!map.containsKey('model') || model == null || model.isEmpty) {
+    warns.add('Invalid search.embedding.model: http requires an explicitly present non-empty model');
+    valid = false;
+  }
+  final endpoint = _parseEmbeddingEndpoint(rawEndpoint);
+  if (endpoint == null) {
+    warns.add(
+      'Invalid search.embedding.endpoint: http requires an absolute HTTP(S) URI with a host and no userinfo, query, '
+      'or fragment',
+    );
+    valid = false;
+  }
+  final credential = _validateEmbeddingCredential(rawCredential, credentials, warns);
+  if (rawCredential != null && credential == null) valid = false;
+  if (endpoint != null && credential != null && !isValidEmbeddingCredentialEndpoint(endpoint, credential)) {
+    warns.add('Invalid search.embedding.endpoint: a credential requires HTTPS except for a literal loopback host');
+    valid = false;
+  }
+
+  if (!valid) {
+    return const EmbeddingConfig(provider: EmbeddingProviderKind.http, model: '');
+  }
+  return EmbeddingConfig(
+    provider: EmbeddingProviderKind.http,
+    model: model!,
+    endpoint: endpoint,
+    credential: credential,
+  );
+}
+
+Uri? _parseEmbeddingEndpoint(String? value) {
+  if (value == null) return null;
+  final uri = Uri.tryParse(value.trim());
+  return isValidEmbeddingEndpoint(uri) ? uri : null;
+}
+
+String? _validateEmbeddingCredential(String? raw, CredentialsConfig credentials, List<String> warns) {
+  if (raw == null) return null;
+  final name = raw.trim();
+  final entry = name.isEmpty ? null : CredentialRegistry(credentials: credentials).namedEntry(name);
+  final problem = switch (entry) {
+    null => 'must name a configured credentials entry',
+    CredentialEntry(isApiKeyCredential: false) => 'must name an api_key credential',
+    CredentialEntry(secret: final secret) when secret.trim().isEmpty => 'must resolve to a non-empty value',
+    _ => null,
+  };
+  if (problem != null) {
+    warns.add('Invalid search.embedding.credential: $problem');
+    return null;
+  }
+  return name;
 }
 
 /// The value a `search.providers.<id>.credential` reference resolves to, or

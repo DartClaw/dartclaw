@@ -7,9 +7,11 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/api/github_webhook.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -17,8 +19,9 @@ import 'package:test/test.dart';
 import 'workflow_test_support.dart';
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late Directory tempDir;
@@ -42,14 +45,21 @@ void main() {
   ]);
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     tempDir = Directory.systemTemp.createTempSync('github-webhook-test_');
 
-    final taskRepo = SqliteTaskRepository(taskDb);
+    final taskRepo = SqliteTaskRepository(taskBackend);
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',
@@ -64,7 +74,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    taskDb.close();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
@@ -230,7 +240,7 @@ void main() {
     late WebhookDeliveryStore deliveryStore;
 
     setUp(() {
-      deliveryStore = openWebhookDeliveryStoreInMemory();
+      deliveryStore = openWebhookDeliveryStore(p.join(tempDir.path, 'webhook-deliveries'));
     });
 
     GitHubWebhookHandler makeHandler({WebhookDeliveryStore? store}) {
@@ -356,9 +366,11 @@ void main() {
     });
 
     test('accepted run stays deduped after processed-state commit failure and pending reclaim', () async {
-      final deliveryDb = sqlite3.openInMemory();
-      addTearDown(deliveryDb.close);
-      final store = _CommitFailingWebhookDeliveryStore(deliveryDb);
+      var now = DateTime.parse('2026-03-15T09:30:00Z');
+      final store = _CommitFailingWebhookDeliveryStore(
+        Directory(p.join(tempDir.path, 'failing-webhook-deliveries'))..createSync(),
+        now: () => now,
+      );
       final handler = makeHandler(store: store);
       final payload = _pullRequestPayload(action: 'opened');
       const deliveryId = 'accepted-commit-failure';
@@ -371,10 +383,7 @@ void main() {
       workflows.activeRuns
         ..remove(acceptedRun)
         ..add(acceptedRun.copyWith(status: WorkflowRunStatus.completed));
-      deliveryDb.execute(
-        "UPDATE webhook_delivery_ids SET updated_at = '1970-01-01T00:00:00.000Z' WHERE delivery_id = ?",
-        [deliveryId],
-      );
+      now = now.add(const Duration(minutes: 16));
 
       final replay = await handler.handle(_signedRequest(payload, 'secret', deliveryId: deliveryId));
 
@@ -445,7 +454,7 @@ void main() {
 }
 
 class _CommitFailingWebhookDeliveryStore extends WebhookDeliveryStore {
-  new(super.db);
+  new(super.directory, {super.now});
 
   var commitAttempts = 0;
 

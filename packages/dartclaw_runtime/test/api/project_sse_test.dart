@@ -8,7 +8,6 @@ import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Project _makeProject({required String id, String name = 'Test Project', ProjectStatus status = ProjectStatus.ready}) =>
@@ -22,20 +21,20 @@ Project _makeProject({required String id, String name = 'Test Project', ProjectS
     );
 
 void main() {
-  late Database db;
+  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
 
-  setUp(() {
-    db = openTaskDbInMemory();
-    tasks = TaskService(SqliteTaskRepository(db));
+  setUp(() async {
+    backend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(backend));
     eventBus = EventBus();
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    db.close();
+    await backend.close();
   });
 
   Map<String, dynamic> decodeFramePayload(String frame) {

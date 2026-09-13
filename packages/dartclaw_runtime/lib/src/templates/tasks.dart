@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
-import 'package:dartclaw_core/dartclaw_core.dart' show TaskEventService;
 
 import '../task/tool_call_summary.dart';
 import '../task/task_progress_tracker.dart';
@@ -127,7 +126,7 @@ String tasksPageTemplate({
   Map<String, String> projectNames = const {},
   bool showProjectColumn = false,
   TaskProgressTracker? progressTracker,
-  TaskEventService? taskEventService,
+  Map<String, List<TaskEvent>> taskEvents = const {},
   bool showWorkflowReviewToggle = false,
   bool includeWorkflowOwned = false,
   String workflowReviewToggleHref = '/tasks?status=review&include=workflow',
@@ -221,14 +220,15 @@ String tasksPageTemplate({
           }
           // Recent events (last 3, most recent first).
           // listForTask returns ASC; take last 3 in reverse for most-recent-first.
-          final allEvents = taskEventService?.listForTask(taskId) ?? const <TaskEvent>[];
+          final allEvents = taskEvents[taskId] ?? const <TaskEvent>[];
           final recentSlice = allEvents.length > 3 ? allEvents.sublist(allEvents.length - 3) : allEvents;
           recentEvents = recentSlice.reversed.map(_buildCompactEventViewModel).toList();
           hasEvents = recentEvents.isNotEmpty;
         } else {
           // Non-running: compute final token total from tokenUpdate events.
-          final tokenEvents =
-              taskEventService?.listForTask(taskId, kind: TaskEventKind.tokenUpdate) ?? const <TaskEvent>[];
+          final tokenEvents = (taskEvents[taskId] ?? const <TaskEvent>[]).where(
+            (event) => event.kind == TaskEventKind.tokenUpdate,
+          );
           int total = 0;
           for (final e in tokenEvents) {
             total +=

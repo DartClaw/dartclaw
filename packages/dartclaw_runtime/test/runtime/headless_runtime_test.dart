@@ -57,6 +57,14 @@ void main() {
     }
   });
 
+  test('headless execution preserves serving orphan records', () async {
+    final statePath = p.join(tempDir.path, 'turn_state.json');
+    await openTurnStateStore(statePath).set('serving-session', 'serving-turn', DateTime.utc(2026, 9, 1));
+    final before = File(statePath).readAsBytesSync();
+    await fixture.runtime(fixture.config());
+    expect(File(statePath).readAsBytesSync(), before);
+  });
+
   test('loads built-in skills from source tree without materializing project copies', () async {
     final cfg = fixture.config(
       projects: const ProjectConfig(
@@ -143,7 +151,7 @@ steps:
 
     final staging = await fixture.stage(
       config,
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) {
         searchFactoryCalls++;
         throw StateError('standalone opened the personal-memory search database');
       },
@@ -153,7 +161,6 @@ steps:
     addTearDown(runtime.shutdown);
 
     expect(searchFactoryCalls, 0);
-    expect(runtime.searchDb, isNull);
     expect(runtime.selfImprovement, isNull);
     expect(runtime.qmdManager, isNull);
     expect(memory.readAsBytesSync(), before);
@@ -181,7 +188,7 @@ steps:
     final runtime = await fixture.runtime(
       config,
       harnessFactory: factory,
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) {
         searchFactoryCalls++;
         throw StateError('standalone opened the personal-memory search database');
       },
@@ -233,7 +240,6 @@ steps:
     expect(factoryConfig.onMemorySearch, isNull);
     expect(factoryConfig.onMemoryRead, isNull);
     expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
-    expect(runtime.searchDb, isNull);
     expect(runtime.selfImprovement, isNull);
     expect(runtime.qmdManager, isNull);
 

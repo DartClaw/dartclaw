@@ -35,14 +35,14 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         searchOpened = true;
         final index = const MemoryMarkdownCodec().parse(memory.readAsStringSync());
         expect(index, isA<MemoryIndexDocument>());
         expect((index as MemoryIndexDocument).entries, hasLength(1));
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
@@ -75,18 +75,18 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         events.add('fts5');
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       qmdManagerFactory: () => qmd,
       exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
 
-    expect(events, ['report', 'fts5', 'qmd']);
+    expect(events, ['report', 'fts5', 'fts5', 'qmd']);
     await wiring.dispose();
   });
 
@@ -104,11 +104,11 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: (_) {
+      searchBackendFactory: (_) async {
         searchOpened = true;
-        return sqlite3.openInMemory();
+        return SqliteBackend.openInMemory();
       },
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       qmdManagerFactory: () {
         qmdConstructed = true;
         return _SentinelQmdManager(() {});
@@ -146,11 +146,11 @@ void main() {
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
-        searchDbFactory: (_) {
+        searchBackendFactory: (_) async {
           searchOpened = true;
-          return sqlite3.openInMemory();
+          return SqliteBackend.openInMemory();
         },
-        taskDbFactory: (_) => sqlite3.openInMemory(),
+        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
         qmdManagerFactory: () {
           qmdConstructed = true;
           return _SentinelQmdManager(() {});
@@ -189,14 +189,17 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
 
-    expect(wiring.memory.search('Unique startup').single.text, contains('recovery fact'));
+    expect(
+      (await wiring.memoryIndex.search('Unique startup', userId: 'owner')).single.chunk,
+      contains('recovery fact'),
+    );
     final snapshot = await wiring.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
     final health = await wiring.indexHealth.read(
       canonicalRevision: snapshot.collectionRevision,
@@ -207,7 +210,7 @@ void main() {
     await wiring.dispose();
   });
 
-  test('random corrupt index is replaced from canonical memory', () async {
+  test('random corrupt index boots degraded without mutating the target', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
     Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
@@ -216,20 +219,22 @@ void main() {
         'general': ['Corrupt index recovery fact'],
       },
     );
-    File(config.searchDbPath)
+    final corrupt = File(config.searchDbPath)
       ..parent.createSync(recursive: true)
       ..writeAsBytesSync([0xff, 0, 0xfe, 1]);
+    final before = corrupt.readAsBytesSync();
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
 
-    expect(wiring.memory.search('Corrupt index').single.text, contains('recovery fact'));
+    expect(await wiring.memoryIndex.search('Corrupt index', userId: 'owner'), isEmpty);
+    expect(corrupt.readAsBytesSync(), before);
     await wiring.dispose();
   });
 
@@ -245,8 +250,8 @@ void main() {
     final first = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await first.wire();
@@ -260,15 +265,18 @@ void main() {
     final second = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await second.wire();
 
     expect((await second.memoryCorpus.readCorpus()).index.metadata.revision, priorRevision + 1);
-    expect(second.memory.search('After stopped').single.text, contains('After stopped edit'));
-    expect(second.memory.search('Before stopped'), isEmpty);
+    expect(
+      (await second.memoryIndex.search('After stopped', userId: 'owner')).single.chunk,
+      contains('After stopped edit'),
+    );
+    expect(await second.memoryIndex.search('Before stopped', userId: 'owner'), isEmpty);
     final snapshot = await second.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
     expect(
       (await second.indexHealth.read(
@@ -296,21 +304,21 @@ void main() {
     final first = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await first.wire();
     final prior = await first.memoryCorpus.manifest();
-    expect(first.memory.search('Delete this raw observation'), hasLength(1));
+    expect(await first.memoryIndex.search('Delete this raw observation', userId: 'owner'), hasLength(1));
     await first.dispose();
 
     observation.deleteSync();
     final second = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       exitFn: (code) => throw _Exit(code),
     );
     await second.wire();
@@ -318,7 +326,7 @@ void main() {
     final current = await second.memoryCorpus.manifest();
     expect(current.collectionRevision, prior.collectionRevision + 1);
     expect(current.paths, isNot(contains('memory/2026-08-07.md')));
-    expect(second.memory.search('Delete this raw observation'), isEmpty);
+    expect(await second.memoryIndex.search('Delete this raw observation', userId: 'owner'), isEmpty);
     expect(
       (await second.indexHealth.read(
         canonicalRevision: current.collectionRevision,
@@ -345,8 +353,8 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchDbFactory: openSearchDb,
-      taskDbFactory: (_) => sqlite3.openInMemory(),
+      searchBackendFactory: SqliteBackend.open,
+      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
       indexReconciler: CanonicalIndexReconciler(
         targetPath: config.searchDbPath,
         healthStore: health,
@@ -369,7 +377,7 @@ void main() {
       )).state,
       IndexHealthState.degraded,
     );
-    expect(() => wiring.memory.search('Canonical'), throwsA(isA<SqliteException>()));
+    expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
     final search = await wiring.searchBackend.search('recovery');
     expect(search.map((result) => result.locator), ['wiki/recovery.md']);
     expect(search.canonicalRevision, snapshot.collectionRevision);
@@ -394,8 +402,8 @@ void main() {
         List<int>? priorBytes;
         if (targetInitiallyExists) {
           target.parent.createSync(recursive: true);
-          final database = openSearchDb(target.path);
-          MemoryService(database);
+          final database = sqlite3.open(target.path);
+          await SqliteSchemaGate.prepareSearch(SqliteBackend(database), storeName: 'search.db');
           database.close();
           priorBytes = target.readAsBytesSync();
         }
@@ -404,11 +412,11 @@ void main() {
         final wiring = StorageWiring(
           config: config,
           eventBus: EventBus(),
-          searchDbFactory: (path) {
+          searchBackendFactory: (path) async {
             targetOpenCalls++;
-            return openSearchDb(path);
+            return SqliteBackend.open(path);
           },
-          taskDbFactory: (_) => sqlite3.openInMemory(),
+          taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
           indexReconciler: CanonicalIndexReconciler(
             targetPath: config.searchDbPath,
             healthStore: health,
@@ -421,13 +429,13 @@ void main() {
 
         await wiring.wire();
 
-        expect(targetOpenCalls, 0);
+        expect(targetOpenCalls, 1);
         if (targetInitiallyExists) {
           expect(target.readAsBytesSync(), priorBytes);
         } else {
-          expect(target.existsSync(), isFalse);
+          expect(target.existsSync(), isTrue);
         }
-        expect(() => wiring.memory.search('Canonical'), throwsA(isA<SqliteException>()));
+        expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
         await wiring.dispose();
       },
     );

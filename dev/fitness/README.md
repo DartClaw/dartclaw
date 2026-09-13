@@ -56,6 +56,10 @@ The shell-side config-reference checks live in `dev/tools/fitness/`: `test_rende
 idempotence, invalid core lists and both drift directions; `check_config_reference_drift.sh` runs the renderer's
 `--check` mode against the committed guide. Both run from `dev/tools/fitness/run_all.sh`, outside `dart test`.
 
+The same shell harness checks `schemas/workflow.schema.json` by running
+`dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart --check`. Regenerate after changing
+`WorkflowDslRules` with the command shown without `--check`; the failure reports both the artifact and that command.
+
 ---
 
 ## `barrel_show_clauses_test.dart`
@@ -283,13 +287,28 @@ A declared-but-unimported edge is a dead dependency — delete it from the pubsp
 
 ## `src_import_hygiene_test.dart`
 
-**What it enforces**: Production code must not import another workspace package's `src/` implementation files.
+**What it enforces**: Production code must not import another package's `src/` implementation files.
 
 **Why**: Cross-package `src/` imports bypass public API boundaries and make internal refactors breaking changes.
 
 ### How to resolve a failure
 
 Use the target package barrel. If the symbol is not public, add a narrow explicit `show` export in the owning package.
+An approved external-dependency exception is recorded by exact source path and line in
+`test/allowlist/src_import_hygiene.txt`, with its reason and removal condition. The pinned `llamadart` worker-timeout
+import is the current exception; all other imports remain subject to the gate.
+
+---
+
+## `sqlite3_import_surface_test.dart`
+
+**What it enforces**: Production libraries import `package:sqlite3` only in `sqlite_backend.dart`. The path-keyed
+allowlist requires a rationale and fails on stale entries.
+
+### How to resolve a failure
+
+Use `DatabaseBackend` for relational persistence. Keep driver operations inside `SqliteBackend`. Remove an allowlist
+entry when its import or file disappears, rather than retaining an exception that no longer guards anything.
 
 ---
 

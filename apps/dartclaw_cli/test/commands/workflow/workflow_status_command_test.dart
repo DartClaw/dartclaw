@@ -10,7 +10,7 @@ import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteTaskRepository, openTaskDbInMemory;
+import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend, SqliteSchemaGate, SqliteTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -34,14 +34,16 @@ void main() {
 
     test('non-existent run ID prints error and exits 1', () async {
       final output = <String>[];
-      final tmpDb = openTaskDbInMemory();
-      addTearDown(tmpDb.close);
+      final backend = SqliteBackend.openInMemory();
+      addTearDown(backend.close);
 
-      final config = DartclawConfig(server: ServerConfig(dataDir: '/tmp/dartclaw-status-test'));
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_status_missing_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
 
       final command = WorkflowStatusCommand(
         config: config,
-        taskDbFactory: (_) => tmpDb,
+        taskBackendFactory: (_) async => backend,
         writeLine: output.add,
         exitFn: fakeExit,
       );
@@ -51,6 +53,65 @@ void main() {
         () => runner.run(['status', '--standalone', 'nonexistent-run-id']),
         throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
       );
+      expect(output, contains('Workflow run not found: nonexistent-run-id'));
+      await expectLater(() => backend.query('SELECT 1'), throwsStateError);
+    });
+
+    test('standalone schema refusal reports the diagnostic and closes the backend', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_status_refusal_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final backend = SqliteBackend.openInMemory();
+      addTearDown(backend.close);
+      await backend.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY)');
+      final output = <String>[];
+      final command = WorkflowStatusCommand(
+        config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
+        taskBackendFactory: (_) async => backend,
+        writeLine: output.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['status', '--standalone', 'missing-run']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 1)),
+      );
+      expect(output, contains('No workflow data found (database may not be initialized).'));
+      await expectLater(() => backend.query('SELECT 1'), throwsStateError);
+    });
+
+    test('standalone mode reports ambiguous store filenames before opening a backend', () async {
+      final tempDir = Directory.systemTemp.createTempSync('dartclaw_status_ambiguous_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+      final legacyPath = p.join(tempDir.path, 'tasks.db');
+      File(config.dartclawDbPath).writeAsBytesSync([1, 2, 3]);
+      File(legacyPath).writeAsBytesSync([4, 5]);
+      var taskBackendOpens = 0;
+      final output = <String>[];
+      final command = WorkflowStatusCommand(
+        config: config,
+        taskBackendFactory: (_) async {
+          taskBackendOpens++;
+          return SqliteBackend.openInMemory();
+        },
+        writeLine: output.add,
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['status', '--standalone', 'missing-run']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+      );
+
+      expect(taskBackendOpens, 0);
+      final diagnostic = output.join('\n');
+      expect(diagnostic, contains('dartclaw.db'));
+      expect(diagnostic, contains('tasks.db'));
+      expect(diagnostic.toLowerCase(), contains('ambiguous'));
+      expect(File(config.dartclawDbPath).readAsBytesSync(), [1, 2, 3]);
+      expect(File(legacyPath).readAsBytesSync(), [4, 5]);
     });
 
     test('standalone mode discovers cwd-local .dartclaw config', () async {
@@ -196,20 +257,27 @@ agent:
       });
 
       Future<List<String>> runStatus(String runId, WorkflowRun run) async {
-        final tmpDb = openTaskDbInMemory();
-        addTearDown(tmpDb.close);
-        final repo = SqliteWorkflowRunRepository(tmpDb);
+        final taskDbPath = p.join(tempDir.path, '$runId.db');
+        final seedBackend = await SqliteBackend.open(taskDbPath);
+        await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
+        final repo = SqliteWorkflowRunRepository(seedBackend);
         await repo.insert(run);
+        await seedBackend.close();
 
         final output = <String>[];
+        late DatabaseBackend openedBackend;
         final command = WorkflowStatusCommand(
           config: config,
-          taskDbFactory: (_) => tmpDb,
+          taskBackendFactory: (_) async {
+            openedBackend = await SqliteBackend.open(taskDbPath);
+            return openedBackend;
+          },
           writeLine: output.add,
           exitFn: fakeExit,
         );
         final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
         await runner.run(['status', '--standalone', runId]);
+        await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
         return output;
       }
 
@@ -320,10 +388,11 @@ agent:
           currentStepIndex: 1,
           definitionJson: def.toJson(),
         );
-        final tmpDb = openTaskDbInMemory();
-        addTearDown(tmpDb.close);
-        await SqliteWorkflowRunRepository(tmpDb).insert(run);
-        await SqliteTaskRepository(tmpDb).insert(
+        final taskDbPath = p.join(tempDir.path, 'hostile-title.db');
+        final seedBackend = await SqliteBackend.open(taskDbPath);
+        await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
+        await SqliteWorkflowRunRepository(seedBackend).insert(run);
+        await SqliteTaskRepository(seedBackend).insert(
           Task(
             id: 't1',
             title: 'evil\x1b[2J\r\ntitle\x07',
@@ -334,16 +403,22 @@ agent:
             stepIndex: 0,
           ),
         );
+        await seedBackend.close();
 
         final output = <String>[];
+        late DatabaseBackend openedBackend;
         final command = WorkflowStatusCommand(
           config: config,
-          taskDbFactory: (_) => tmpDb,
+          taskBackendFactory: (_) async {
+            openedBackend = await SqliteBackend.open(taskDbPath);
+            return openedBackend;
+          },
           writeLine: output.add,
           exitFn: fakeExit,
         );
         final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
         await runner.run(['status', '--standalone', 'run-title']);
+        await expectLater(() => openedBackend.query('SELECT 1'), throwsStateError);
 
         final row = output.firstWhere((l) => l.contains('evil'));
         expect(row, contains('evil title'));

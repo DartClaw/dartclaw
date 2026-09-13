@@ -61,10 +61,10 @@ void main() {
   });
 
   group('default model resolution', () {
-    test('codex preset defaults planner, executor and reviewer to Luna', () {
+    test('codex preset defaults every workflow role to Luna', () {
       final fixture = E2EFixture(environment: const {});
       expect(fixture.provider, 'codex');
-      expect(fixture.workflowModel, 'gpt-5.4');
+      expect(fixture.workflowModel, 'gpt-5.6-luna');
       expect(fixture.plannerModel, 'gpt-5.6-luna');
       expect(fixture.executorModel, 'gpt-5.6-luna');
       expect(fixture.reviewerModel, 'gpt-5.6-luna');
@@ -75,7 +75,7 @@ void main() {
       final fixture = E2EFixture(environment: const {'DARTCLAW_TEST_EXECUTOR_MODEL': 'claude-haiku-4-5'});
       expect(fixture.executorModel, 'claude-haiku-4-5');
       expect(fixture.reviewerModel, 'gpt-5.6-luna');
-      expect(fixture.workflowModel, 'gpt-5.4');
+      expect(fixture.workflowModel, 'gpt-5.6-luna');
     });
 
     test('explicit constructor arg wins over env var', () {

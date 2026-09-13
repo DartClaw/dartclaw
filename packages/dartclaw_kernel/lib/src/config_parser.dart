@@ -55,6 +55,7 @@ const _knownKeys = {
   'onboarding',
   'workflow',
   'search',
+  'database',
   'usage',
   'guard_audit',
   'memory',

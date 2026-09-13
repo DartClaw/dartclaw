@@ -43,7 +43,7 @@ class CompactionTaskEventSubscriber {
         _log.fine('Compaction in session $sessionId — no active task, EventBus only');
         return;
       }
-      _eventRecorder.recordCompaction(
+      await _eventRecorder.recordCompaction(
         task.id,
         trigger: event.trigger,
         sessionId: sessionId,

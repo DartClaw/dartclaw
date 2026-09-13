@@ -53,23 +53,26 @@ final class ContextExtractorTestHarness {
   late Directory tempDir;
   late String sessionsDir;
   late TaskService taskService;
+  late SqliteBackend taskBackend;
   late SqliteAgentExecutionRepository agentExecutions;
   late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late MessageService messageService;
   late SessionService sessionService;
   late ContextExtractor extractor;
 
-  void setUp() {
+  Future<void> setUp() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_ctx_extractor_test_');
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
     final db = sqlite3.openInMemory();
-    agentExecutions = SqliteAgentExecutionRepository(db);
+    taskBackend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
+    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
     taskService = TaskService(
-      SqliteTaskRepository(db),
+      SqliteTaskRepository(taskBackend),
       agentExecutionRepository: agentExecutions,
-      executionTransactor: SqliteExecutionRepositoryTransactor(db),
+      executionTransactor: SqliteExecutionRepositoryTransactor(taskBackend),
     );
     workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     sessionService = SessionService(baseDir: sessionsDir);
@@ -85,6 +88,7 @@ final class ContextExtractorTestHarness {
   Future<void> tearDown() async {
     await taskService.dispose();
     await messageService.dispose();
+    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   }
 

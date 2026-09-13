@@ -1,44 +1,17 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:sqlite3/sqlite3.dart';
 
 import 'sqlite_execution_row_mappers.dart';
 
 /// SQLite-backed persistence for [WorkflowStepExecution].
 class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepository {
-  final Database _db;
+  final DatabaseBackend _backend;
 
-  /// Creates the repository against [_db] and initializes its schema.
-  new(this._db) {
-    _initSchema();
-  }
-
-  void _initSchema() {
-    _db.execute('PRAGMA foreign_keys=ON');
-    _db.execute('''
-      CREATE TABLE IF NOT EXISTS workflow_step_executions (
-        task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-        agent_execution_id TEXT NOT NULL REFERENCES agent_executions(id),
-        workflow_run_id TEXT NOT NULL,
-        step_index INTEGER NOT NULL,
-        step_id TEXT NOT NULL,
-        step_type TEXT,
-        git_json TEXT,
-        provider_session_id TEXT,
-        structured_schema_json TEXT,
-        structured_output_json TEXT,
-        follow_up_prompts_json TEXT,
-        map_iteration_index INTEGER,
-        map_iteration_total INTEGER,
-        step_token_breakdown_json TEXT
-      )
-    ''');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_wse_run_step ON workflow_step_executions(workflow_run_id, step_index)');
-    _db.execute('CREATE INDEX IF NOT EXISTS idx_wse_agent_execution ON workflow_step_executions(agent_execution_id)');
-  }
+  /// Creates the repository against a prepared [backend].
+  new(this._backend);
 
   @override
   Future<void> create(WorkflowStepExecution execution) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       INSERT INTO workflow_step_executions (
         task_id,
         agent_execution_id,
@@ -57,7 +30,7 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
-      stmt.execute([
+      await stmt.execute([
         execution.taskId,
         execution.agentExecutionId,
         execution.workflowRunId,
@@ -74,39 +47,39 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
         execution.stepTokenBreakdownJson,
       ]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<WorkflowStepExecution?> getByTaskId(String taskId) async {
-    final stmt = _db.prepare('SELECT * FROM workflow_step_executions WHERE task_id = ?');
+    final stmt = await _backend.prepare('SELECT * FROM workflow_step_executions WHERE task_id = ?');
     try {
-      final rows = stmt.select([taskId]);
+      final rows = await stmt.query([taskId]);
       return rows.isEmpty ? null : workflowStepExecutionFromRow(rows.first);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<List<WorkflowStepExecution>> listByRunId(String workflowRunId) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       SELECT *
       FROM workflow_step_executions
       WHERE workflow_run_id = ?
       ORDER BY step_index ASC, task_id ASC
     ''');
     try {
-      return stmt.select([workflowRunId]).map(workflowStepExecutionFromRow).toList(growable: false);
+      return (await stmt.query([workflowRunId])).map(workflowStepExecutionFromRow).toList(growable: false);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> update(WorkflowStepExecution execution) async {
-    final stmt = _db.prepare('''
+    final stmt = await _backend.prepare('''
       UPDATE workflow_step_executions
       SET
         agent_execution_id = ?,
@@ -125,7 +98,7 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
       WHERE task_id = ?
     ''');
     try {
-      stmt.execute([
+      final changed = await stmt.execute([
         execution.agentExecutionId,
         execution.workflowRunId,
         execution.stepIndex,
@@ -141,21 +114,21 @@ class SqliteWorkflowStepExecutionRepository implements WorkflowStepExecutionRepo
         execution.stepTokenBreakdownJson,
         execution.taskId,
       ]);
-      if (_db.updatedRows == 0) {
+      if (changed == 0) {
         throw ArgumentError('WorkflowStepExecution not found: ${execution.taskId}');
       }
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 
   @override
   Future<void> delete(String taskId) async {
-    final stmt = _db.prepare('DELETE FROM workflow_step_executions WHERE task_id = ?');
+    final stmt = await _backend.prepare('DELETE FROM workflow_step_executions WHERE task_id = ?');
     try {
-      stmt.execute([taskId]);
+      await stmt.execute([taskId]);
     } finally {
-      stmt.close();
+      await stmt.close();
     }
   }
 }

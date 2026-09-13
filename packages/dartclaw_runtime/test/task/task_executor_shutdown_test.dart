@@ -15,7 +15,7 @@ void main() {
   setUp(() async {
     worker = FakeTaskWorker()..shouldFail = true;
     harness = TaskExecutorTestHarness(worker);
-    await harness.setUp(taskRepositoryFactory: (database) => repository = _PausingSqliteTaskRepository(database));
+    await harness.setUp(taskRepositoryFactory: (_) => repository = _PausingSqliteTaskRepository(harness.taskBackend));
     executor = harness.buildWorkflowExecutor();
   });
 
@@ -90,7 +90,7 @@ void main() {
 }
 
 final class _PausingSqliteTaskRepository extends SqliteTaskRepository {
-  new(super.database);
+  new(super.backend);
 
   Completer<void>? _cancellationPaused;
   Completer<void>? _resumeCancellation;

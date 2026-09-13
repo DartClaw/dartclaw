@@ -14,7 +14,7 @@
 - Naming: `Fake*` for boundary doubles, `InMemory*` for repository ports, `Recording*` for capture-only collaborators, `Test*` for test-aware variants of real types (`TestEventBus`).
 - New fake → register in `public_api_test.dart` so the barrel surface stays asserted. Add a focused per-fake test (`fake_*_test.dart`) covering its observable behavior.
 - When the real interface gains a method, update the fake in the same change. Drift = false confidence; the milestone-cadence "fake drift audit" exists for a reason but in-flight changes shouldn't introduce drift.
-- `FakeAgentHarness` records the authoritative prompt/model/effort turn inputs. `FakeTurnManager` must mirror prompt scope and `systemPromptOverride` exactly so cross-package routing tests can assert the contract.
+- `FakeAgentHarness` records the authoritative prompt/model/effort turn inputs. Its `supportsNoWorkTools` option defaults to `false`; tests opt in only when their controlled protocol represents complete interception. `FakeTurnManager` must mirror prompt scope and `systemPromptOverride` exactly so cross-package routing tests can assert the contract.
 - `bin/` holds entrypoints that let a non-Dart caller reach a helper that must not be reimplemented outside its authority — currently only `seed_canonical_memory.dart`, so release smoke scripts seed a canonical corpus through `MemoryCorpusService` instead of hand-writing the dialect. Not a home for convenience CLIs.
 - Helpers that are utility-only (no fake state) live alongside the fake they support — e.g. `channel_test_helpers.dart`, `codex_harness_test_helpers.dart`, `flush_async.dart`, `null_io_sink.dart`. Don't create a `utils.dart` grab bag.
 

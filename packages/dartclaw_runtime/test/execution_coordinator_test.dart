@@ -199,6 +199,35 @@ void main() {
       await reusedTask.release();
     });
 
+    test('an explicit non-workflow tool policy neither consumes nor populates the warm-worker cache', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 2});
+      addTearDown(fixture.dispose);
+      final workerLease = await fixture.acquire(sessionId: 'task');
+      final warmRunner = workerLease.runner;
+      await workerLease.release();
+
+      final restricted = await fixture.coordinator.acquire(
+        fixture.request(sessionId: 'restricted-task', allowedTools: const []),
+      );
+      addTearDown(() => restricted?.release());
+
+      expect(restricted!.runner, isNot(same(warmRunner)));
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+      final restrictedRunner = restricted.runner;
+      await restricted.release();
+      expect(fixture.coordinator.snapshot.providers['claude']!.cached, 1);
+
+      final secondRestricted = await fixture.coordinator.acquire(
+        fixture.request(sessionId: 'second-restricted-task', allowedTools: const []),
+      );
+      expect(secondRestricted!.runner, isNot(same(restrictedRunner)));
+      await secondRestricted.release();
+
+      final reusedTask = await fixture.acquire(sessionId: 'reused-task');
+      expect(reusedTask.runner, same(warmRunner));
+      await reusedTask.release();
+    });
+
     test('fail-fast admission reports exhaustion without queueing', () async {
       final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);

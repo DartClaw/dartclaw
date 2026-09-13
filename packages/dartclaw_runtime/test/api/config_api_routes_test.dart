@@ -17,6 +17,8 @@ import 'package:test/test.dart';
 import '../whatsapp_test_support.dart';
 import 'api_test_helpers.dart';
 
+part 'config_api_routes_test_support.dart';
+
 void main() {
   late Directory tempDir;
   late String configPath;
@@ -102,14 +104,6 @@ channels:
       dataDir: dataDir,
       whatsAppChannel: waChannel,
     );
-  }
-
-  ApiRouteTestClient api(Router router) {
-    return ApiRouteTestClient(router.call);
-  }
-
-  ApiRouteTestClient adminApi(Router router) {
-    return ApiRouteTestClient((request) => router.call(withAdminAuthContext(request)));
   }
 
   Future<String> nextSseFrame(StreamIterator<String> iterator) async {
@@ -200,6 +194,45 @@ gateway:
 
       final gateway = json['gateway'] as Map<String, dynamic>;
       expect(gateway['token'], '***');
+    });
+
+    test('database URL is masked while safe settings remain visible', () async {
+      const databaseUrl = 'postgresql://db.example.com/app';
+      writeConfigYaml('''
+database:
+  backend: postgres
+  url: $databaseUrl
+  pool_size: 7
+  fts_language: swedish''');
+
+      final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
+
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': '***',
+        'credential': null,
+        'poolSize': 7,
+        'ftsLanguage': 'swedish',
+      });
+      expect(jsonEncode(json), isNot(contains(databaseUrl)));
+    });
+
+    test('database credential reference remains visible', () async {
+      writeConfigYaml('''
+database:
+  backend: postgres
+  credential: database-main
+  pool_size: 7''');
+
+      final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
+
+      expect(json['database'], {
+        'backend': 'postgres',
+        'url': null,
+        'credential': 'database-main',
+        'poolSize': 7,
+        'ftsLanguage': 'english',
+      });
     });
 
     test('google chat inline service account is redacted in API response', () async {
@@ -1435,38 +1468,4 @@ workspace:
       },
     );
   });
-}
-
-/// The runtime state a router boots with, derived from its [DartclawConfig].
-RuntimeConfig _runtimeFor(DartclawConfig cfg) => RuntimeConfig(
-  heartbeatEnabled: cfg.scheduling.heartbeatEnabled,
-  gitSyncEnabled: cfg.workspace.gitSyncEnabled,
-  gitSyncPushEnabled: cfg.workspace.gitSyncPushEnabled,
-);
-
-// --- Fakes ---
-
-/// Builds a [configApiRoutes] router whose [ConfigNotifier] throws on [reload].
-/// Used to test the reloadable-fallback-to-pendingRestart path.
-Router _buildRouterWithThrowingNotifier(String configPath, String dataDir) {
-  final cfg = const DartclawConfig.defaults();
-  final rc = _runtimeFor(cfg);
-  return configApiRoutes(
-    config: cfg,
-    writer: ConfigWriter(configPath: configPath),
-    validator: const ConfigValidator(),
-    runtimeConfig: rc,
-    dataDir: dataDir,
-    configNotifier: _ThrowingConfigNotifier(cfg),
-  );
-}
-
-/// [ConfigNotifier] subclass whose [reload] always throws.
-class _ThrowingConfigNotifier extends ConfigNotifier {
-  new(super.initial);
-
-  @override
-  ConfigDelta? reload(DartclawConfig newConfig) {
-    throw StateError('simulated reload failure');
-  }
 }

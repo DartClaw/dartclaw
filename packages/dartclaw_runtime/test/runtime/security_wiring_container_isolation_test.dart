@@ -44,6 +44,7 @@ void main() {
       eventBus: eventBus,
       exitFn: _throwExit,
       platformCapabilities: PlatformCapabilities(operatingSystem: operatingSystem),
+      auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
   }
 

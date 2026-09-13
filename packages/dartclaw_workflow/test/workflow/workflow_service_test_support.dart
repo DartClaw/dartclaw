@@ -41,27 +41,30 @@ final class WorkflowServiceTestHarness {
   late KvService kvService;
   late SqliteWorkflowRunRepository repository;
   late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late SqliteBackend taskBackend;
   late EventBus eventBus;
   late WorkflowService workflowService;
 
-  void setUp() {
+  Future<void> setUp() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_wf_svc_test_');
     final sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
     final db = sqlite3.openInMemory();
+    taskBackend = SqliteBackend(db);
+    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(db);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(db, eventBus: eventBus);
-    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(db);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(db);
+    final taskRepository = SqliteTaskRepository(taskBackend);
+    final agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
+    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
     taskService = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       executionTransactor: executionTransactor,
       eventBus: eventBus,
     );
-    repository = SqliteWorkflowRunRepository(db);
+    repository = SqliteWorkflowRunRepository(taskBackend);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
@@ -90,6 +93,7 @@ final class WorkflowServiceTestHarness {
     await messageService.dispose();
     await kvService.dispose();
     await eventBus.dispose();
+    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   }
 

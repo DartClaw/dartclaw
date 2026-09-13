@@ -11,15 +11,18 @@ import 'package:test/test.dart';
 void main() {
   late TaskService tasks;
   late EventBus eventBus;
+  late SqliteBackend taskBackend;
 
-  setUp(() {
-    tasks = TaskService(SqliteTaskRepository(openTaskDbInMemory()));
+  setUp(() async {
+    taskBackend = await openPreparedTaskBackend();
+    tasks = TaskService(SqliteTaskRepository(taskBackend));
     eventBus = EventBus();
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
+    await taskBackend.close();
   });
 
   test('sends Google Chat review notifications as cards with review buttons', () async {

@@ -9,6 +9,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowStep, WorkflowVariable;
 import 'package:shelf/shelf.dart';
@@ -86,8 +87,9 @@ Task _makeTask({
 }
 
 void main() {
-  late Database taskDb;
+  late SqliteBackend taskBackend;
   late Database workflowDb;
+  late SqliteBackend workflowBackend;
   late SqliteTaskRepository taskRepo;
   late EventBus eventBus;
   late TaskService tasks;
@@ -98,17 +100,24 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskDb = openTaskDbInMemory();
+    taskBackend = await openPreparedTaskBackend();
     workflowDb = sqlite3.openInMemory();
+    workflowBackend = SqliteBackend(workflowDb);
+    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = EventBus();
-    taskRepo = SqliteTaskRepository(taskDb);
+    taskRepo = SqliteTaskRepository(taskBackend);
     tasks = TaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_routes_test_');
 
     final def = _makeDefinition();
     definitions = InMemoryDefinitionSource([def]);
 
-    workflows = FakeWorkflowService(db: workflowDb, taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
+    workflows = FakeWorkflowService(
+      backend: workflowBackend,
+      taskService: tasks,
+      eventBus: eventBus,
+      dataDir: tempDir.path,
+    );
     workflows.recordListCalls = true;
     workflows.startResult = _makeRun();
     workflows.getResult = _makeRun();
@@ -125,6 +134,7 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await eventBus.dispose();
+    await taskBackend.close();
     workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });

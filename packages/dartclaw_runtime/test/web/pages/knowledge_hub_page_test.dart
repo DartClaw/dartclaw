@@ -6,40 +6,43 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/knowledge_hub_page.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
+import '../../helpers/search_index_test_support.dart';
 
 void main() {
   late Directory tempDir;
   late SessionService sessions;
   late Database searchDb;
-  late Database taskDb;
-  late MemoryService memory;
+  late SqliteBackend taskBackend;
+  late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
 
-  setUp(() {
+  setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
     searchDb = sqlite3.openInMemory();
-    taskDb = sqlite3.openInMemory();
-    memory = MemoryService(searchDb);
-    kg = TemporalKnowledgeGraphService(taskDb);
+    taskBackend = await openPreparedTaskBackend();
+    memory = await prepareMemoryIndex(searchDb);
+    kg = TemporalKnowledgeGraphService(taskBackend);
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
-    searchDb.execute('INSERT INTO memory_chunks (text, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-      'Merge memory keeps durable context.',
-      'MEMORY.md',
-      'build',
-      DateTime(2026).toIso8601String(),
-      'MEMORY.md',
-    ]);
-    kg.addFact(
+    await memory.replaceAll([
+      SearchDocument(
+        id: '00000000-0000-4000-8000-000000000001',
+        chunks: const ['Merge memory keeps durable context.'],
+        metadata: const {'source': 'memory', 'role': 'memory', 'provenance': 'unknown'},
+        timestamp: DateTime.utc(2026),
+      ),
+    ], userId: 'owner');
+    await kg.addFact(
       entity: 'Merge queue',
       predicate: 'policy',
       value: 'requires green checks',
@@ -48,9 +51,9 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     searchDb.close();
-    taskDb.close();
+    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
@@ -73,7 +76,7 @@ void main() {
     final page = KnowledgeHubPage(
       hubGetter: () => knowledgeHubServiceForWorkspace(
         workspaceDir: tempDir.path,
-        memory: memory,
+        memoryIndex: memory,
         kg: kg,
         searchBackend: const _RoleSearchBackend(),
       ),
@@ -130,8 +133,11 @@ void main() {
   test('S06 renders partial failure notice without returning 500', () async {
     final response = await _render(
       page: KnowledgeHubPage(
-        hubGetter: () =>
-            knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memory: memory, kg: _ThrowingKg(taskDb)),
+        hubGetter: () => knowledgeHubServiceForWorkspace(
+          workspaceDir: tempDir.path,
+          memoryIndex: memory,
+          kg: _ThrowingKg(taskBackend),
+        ),
       ),
       path: '/knowledge?q=merge',
       sessions: sessions,
@@ -160,7 +166,7 @@ void main() {
       resolver: resolver,
       hubGetter: () => knowledgeHubServiceForWorkspace(
         workspaceDir: tempDir.path,
-        memory: memory,
+        memoryIndex: memory,
         kg: kg,
         searchBackend: const _UnresolvedSearchBackend(),
       ),
@@ -183,7 +189,7 @@ void main() {
 Future<String> _renderHtml(
   Directory tempDir,
   SessionService sessions,
-  MemoryService memory,
+  FullTextIndex memory,
   TemporalKnowledgeGraphService kg, {
   String path = '/knowledge',
   KnowledgeHubPage? page,
@@ -193,7 +199,7 @@ Future<String> _renderHtml(
     page:
         page ??
         KnowledgeHubPage(
-          hubGetter: () => knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memory: memory, kg: kg),
+          hubGetter: () => knowledgeHubServiceForWorkspace(workspaceDir: tempDir.path, memoryIndex: memory, kg: kg),
         ),
     sessions: sessions,
   );
@@ -233,10 +239,10 @@ final _emptySidebarData = (
 );
 
 final class _ThrowingKg extends TemporalKnowledgeGraphService {
-  new(super.db);
+  new(super.backend);
 
   @override
-  List<KnowledgeFact> allFacts({String? asOf, String? search, int? limit}) => throw StateError('boom');
+  Future<List<KnowledgeFact>> allFacts({String? asOf, String? search, int? limit}) async => throw StateError('boom');
 }
 
 final class _RoleSearchBackend implements SearchBackend {

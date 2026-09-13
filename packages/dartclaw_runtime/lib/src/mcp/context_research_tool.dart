@@ -247,8 +247,8 @@ final class ContextResearchTool implements McpTool {
     final kgFuture = _captureLayer(CitationLayer.kg, () async {
       final facts = <KnowledgeFact>[];
       for (final entity in _kgEntities(query)) {
-        facts.addAll(_kg.query(entity: entity));
-        facts.addAll(_kg.timeline(entity: entity));
+        facts.addAll(await _kg.query(entity: entity));
+        facts.addAll(await _kg.timeline(entity: entity));
       }
       return facts.map((fact) {
         return ContextResearchCandidate(

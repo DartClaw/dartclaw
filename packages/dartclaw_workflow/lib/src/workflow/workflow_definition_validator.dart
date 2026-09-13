@@ -1,4 +1,5 @@
 import 'workflow_definition.dart';
+import 'workflow_dsl_rules.dart';
 
 import 'package:logging/logging.dart';
 
@@ -9,8 +10,7 @@ import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
 import 'schema_validator.dart' show SchemaValidator;
 import 'workflow_output_contract.dart'
     show executionEnvelopeOutputsKey, executionEnvelopeStepOutcomeKey, reservedEnvelopeOutputKeys;
-import 'step_config_resolver.dart'
-    show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig, workflowRoleDefaultAliases;
+import 'step_config_resolver.dart' show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig;
 import 'workflow_template_engine.dart';
 
 part 'validation/workflow_validation_helpers.dart';
@@ -88,9 +88,13 @@ class WorkflowDefinitionValidator {
 
   final WorkflowTemplateEngine _engine;
   final WorkflowRoleDefaults roleDefaults;
+  final WorkflowBlockRule stepRule;
 
-  new({this.roleDefaults = const WorkflowRoleDefaults(), WorkflowTemplateEngine? templateEngine})
-    : _engine = templateEngine ?? WorkflowTemplateEngine();
+  new({
+    this.roleDefaults = const WorkflowRoleDefaults(),
+    this.stepRule = WorkflowDslRules.step,
+    WorkflowTemplateEngine? templateEngine,
+  }) : _engine = templateEngine ?? WorkflowTemplateEngine();
 
   /// Validates [definition] and returns a [ValidationReport].
   ///

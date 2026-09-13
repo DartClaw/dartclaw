@@ -1,0 +1,20 @@
+{
+  "frozenAt": "2026-09-09 03:15 CEST",
+  "scope": "Calibration selection before any held-out scores; not release acceptance",
+  "rrfK": 60,
+  "keywordWeight": 0.25,
+  "vectorWeight": 0.75,
+  "minimumCosine": 0.2,
+  "candidateLimit": 20,
+  "evaluationTopK": 5,
+  "model": "embeddinggemma-300M-Q8_0.gguf",
+  "modelSha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+  "llamadart": "0.8.22",
+  "nativeRelease": "v0.3.0",
+  "queryPrefix": "task: search result | query: ",
+  "documentPrefix": "title: none | text: ",
+  "calibrationMeasurementsSha256": "a1b7b686bbf6daec9b5173205487cc0661b5f0bcab20b7e9384666220aa597d0",
+  "calibrationNegativesSha256": "2df62c960c83ffe5485f81ae22ec63acd0ddf6f54292e52837f1531edd08bb46",
+  "heldOutSha256": "2635bb02da1f8dddd67e9b9f22795cc32dbee34588d642b573bdf00b8ec7b9a3",
+  "rationale": "0.20 preserves all calibration positives and rejects all calibration negatives; higher cutoffs clip relevant results. All weight candidates tie, so select the middle vector-favoring pair to retain lexical contribution while addressing the known vocabulary gap."
+}

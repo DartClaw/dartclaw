@@ -78,8 +78,9 @@ Search returns useful authorized, current passages. A passage can provide useful
 answering the question. The answering caller decides whether the evidence supports an answer. Reranking remains
 out of scope until measured retrieval benefit justifies its latency and resource cost.
 
-[The corrective contract](../bundle/docs/specs/0.26/search-contract-correction.md) defines prospective protocol 2
-passage judgments, explicit bounded no-match probes and unchanged positive-ranking/isolation gates. Original
+[The corrective contract](../bundle/docs/specs/0.26/search-contract-correction.md) defines passage judgments and
+the owner-approved 2026-09-13 protocol-3 amendment: semantic no-match errors remain visible diagnostics, while
+positive-ranking/isolation gates and structural current-source exclusions remain enforced. Original
 frozen assets and failed protocol-1 results remain historical evidence. Revised exposed regression results are
 not unseen acceptance. PostgreSQL uses exact pgvector cosine over a filtered subset, not HNSW; that choice remains
 proportional to the personal corpus and can be revisited with measured query-plan and corpus-growth evidence.

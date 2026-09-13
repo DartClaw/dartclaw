@@ -549,6 +549,11 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
       'backendRuns': backendRuns,
       'sliceRows': slices.map((item) => item.toJson()).toList(growable: false),
       'gateRows': gates.map((item) => item.toJson()).toList(growable: false),
+      'noMatchRows': [
+        for (final item in observations)
+          if (item.query.expectEmpty)
+            {'backend': item.backend, 'mode': item.mode, 'queryId': item.query.id, 'documentIds': item.documentIds},
+      ],
       'violations': violations,
     };
     await writeEvaluationArtifacts(output, report, artifactHashes: artifactHashes);
@@ -574,8 +579,9 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
 }
 
 Future<Map<String, Object?>> _protocol(Map<String, Object?> settings, RetrievalEvaluationArguments arguments) async => {
-  'protocolVersion': 2,
+  'protocolVersion': 3,
   'contract': 'passage relevance; answer sufficiency separate',
+  'semanticNoMatchPolicy': 'diagnostic',
   'fixtureStatus': arguments.fixtureStatus.protocolValue,
   'rrfK': settings['rrfK'],
   'keywordWeight': settings['keywordWeight'],
@@ -639,6 +645,7 @@ Future<void> _writeFailure(
     'backendRuns': <Object?>[],
     'sliceRows': <Object?>[],
     'gateRows': <Object?>[],
+    'noMatchRows': <Object?>[],
     'violations': [violation],
   }, artifactHashes: artifactHashes);
 }

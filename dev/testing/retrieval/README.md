@@ -6,9 +6,11 @@ unchanged. The original calibration, held-out results and failed independent eva
 The reviewed fixtures below preserve the 32 documents and 60 query texts from the later exposed diagnostic sets.
 A score-blind passage review removed five ambiguous mandatory-positive judgments. They use the existing
 answer-absent diagnostic representation: `relevantDocumentIds: []`, `expectEmpty: false`. Such a query requires
-neither a hit nor an empty result. All nine previously justified no-match declarations remain hard-empty probes.
+neither a hit nor an empty result. All nine previously justified no-match declarations remain labelled negatives.
+Under the owner-approved protocol 3, their actual returns and correct-empty rates are quality diagnostics rather
+than perfect-rejection gates. Ownership, corpus boundaries and current-source exclusion remain strict.
 
-| Exposed fixture | Positive queries | Hard-empty probes | Other diagnostics | SHA-256 |
+| Exposed fixture | Positive queries | Semantic no-match probes | Other diagnostics | SHA-256 |
 |---|---:|---:|---:|---|
 | `calibration-reviewed.json` | 50 | 6 | 4 | `c44fd3008ed42cac2e21e6a283a0daa6f81e1f6036af601183c457172637141f` |
 | `retrieval-reviewed.json` | 56 | 3 | 1 | `917a268b5dea6c7ed3a5f52188d569717e971e8b1d6c44bd959223d86fbace83` |
@@ -23,15 +25,19 @@ The five diagnostics retain related context without treating subject identity as
 | Calibration `nr04` | Train 543 departure and platform | Train colour |
 | Evaluation `q-aa-09` | The same FJORD-82 return and parcel handoff | Refund bank account |
 
-The retained hard-empty IDs are calibration `nr05`–`nr10` and evaluation `q-aa-02`, `q-aa-05`, `q-aa-07`.
+The retained no-match IDs are calibration `nr05`–`nr10` and evaluation `q-aa-02`, `q-aa-05`, `q-aa-07`.
 They include wrong-entity distractors and queries whose exact answer exists only outside the required owner or
-corpus. Similarity does not exempt them from the current acceptance rule. Returning an unrelated authorized
+corpus. Similarity does not turn these passages into relevant judgments. Returning an unrelated authorized
 passage is a relevance error; returning an unauthorized passage is a separate isolation violation.
 
 These corrected assets are exposed regression inputs, not new independent acceptance evidence. Earlier classifier
 experiments required perfect retention of selected positives as a screening criterion; that was stricter than
 FR7's aggregate and slice tolerances. See the [acceptance decision](../../bundle/docs/specs/0.26/retrieval-acceptance-decision.md)
-for the unresolved semantic no-match failures and the preserved experiment history.
+for the approved quality tradeoff and the preserved experiment history.
+
+The 2026-09-13 comparison retained cutoff 0.20. At 0.25 all positive rankings in the three modern fixtures were
+unchanged and no-match returns decreased, but two historical vocabulary/cross-language queries lost their relevant
+results on both backends. The original selected-settings asset therefore remains the active parameter set.
 
 ## Running the evaluator
 
@@ -56,3 +62,24 @@ or `independent-evaluation`; built-in fixtures are always exposed. The status is
 of independent authorship or review. A file path and checksum establish which bytes were used. Independent
 acceptance additionally requires the author/reviewer separation and pre-scoring procedure in the acceptance
 decision; relabelling an exposed input does not satisfy it.
+
+## Public benchmarks for the search follow-up
+
+Public retrieval sets can supplement the memory/conversation fixtures. Keep any selected sample and its split
+fixed before comparison; record that a sampled corpus changes retrieval difficulty. Missing relevance judgments
+are not proof that a passage is irrelevant or that a query is unanswerable.
+
+- [FineWeb2-IR](https://huggingface.co/datasets/hotchpotch/FineWeb2-IR) includes Swedish and English, generated
+  passage-based questions and mined hard negatives. Small pinned validation/test samples could broaden language
+  coverage for expansion/reranking work. Its web-domain and synthetic questions are a different distribution from
+  personal memory; its hard negatives are not human-judged no-match questions. Follow the upstream dataset and
+  Common Crawl license terms before copying a sample.
+- [BEIR/MS MARCO](https://huggingface.co/datasets/BeIR/msmarco) provides English corpus/query/relevance files for
+  ranking evaluation. It is useful for broader retrieval regressions, not Swedish or owner/corpus isolation. Its
+  dataset card declares CC-BY-SA-4.0; retain attribution and verify source terms for any redistribution.
+- [QMD's example fixture](https://github.com/tobi/qmd/blob/04e4dbd8245c527a88f1a8f0bda547aef9ca81fb/src/bench/fixtures/example.json)
+  is a small MIT-licensed English ranking example with ten positive queries. It has no judged no-match cases and
+  cannot establish semantic-empty behavior.
+
+These are future benchmark inputs, not additional 0.26 release gates or runtime dependencies. The current quality
+pass uses the retained local fixtures and a fresh independently authored evaluation.

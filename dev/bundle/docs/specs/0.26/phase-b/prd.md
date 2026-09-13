@@ -179,7 +179,8 @@ Neither corpus nor backend may be dropped to reduce scope. Optional UI or replay
 #### FR7: Sealed Retrieval Evaluation
 
 **Description**: Measure actual passage retrieval with versioned Swedish/English judgments. The owner-approved
-[protocol-2 correction](../search-contract-correction.md) supersedes the original answer-sufficiency/empty-result rule.
+[protocol-3 amendment](../search-contract-correction.md) keeps positive and isolation gates while reporting semantic
+no-match errors as quality diagnostics; the original answer-sufficiency and perfect-empty rules are superseded.
 
 **Acceptance Criteria**:
 - [ ] Use separate calibration data: the historical 24-document/16-query fixture plus frozen calibration negatives. Freeze weights, vector acceptance threshold, fingerprint and candidate limit before observing held-out scores; choose keyword/vector weights from 0.5/0.5, 0.25/0.75 or 0.1/0.9, retaining both contributions and k=60.
@@ -187,7 +188,7 @@ Neither corpus nor backend may be dropped to reduce scope. Optional UI or replay
 - [ ] Run actual SQLite FTS5 and PostgreSQL keyword retrieval, vector retrieval and hybrid retrieval. Report hit@1, recall@5, precision@5, MRR and warm-query p95 latency per backend/mode/corpus/language/family. Ranking metrics are macro-averaged over nonempty passage-relevance judgments within each slice; positive precision uses denominator five. MRR uses the returned top-five list (MRR@5). Record positive and expected-empty query counts. Empty denominators yield null. Correct-empty rate uses only explicit `expectEmpty` probes; answer absence alone does not require an empty ranking.
 - [ ] On each backend, hybrid strictly improves vocabulary-mismatch hit@1 and MRR over keyword-only, including separately for memory and conversations.
 - [ ] For every other positive family, hybrid hit@1, recall@5, precision@5 and MRR trail the better constituent by at most 0.10 absolute over ten queries. Each five-query corpus slice has at most 0.20 absolute regression. Hit@1 therefore permits at most one fewer success per family or corpus slice.
-- [ ] Every fixed, independently justified `expectEmpty` no-match probe returns no hits. Other answer-absent queries retain visible diagnostic results and are not mechanically relabeled as positives. Any foreign-owner or wrong-corpus result fails independently of aggregate scores. Wiki-over-raw ordering has a separate exact composition test.
+- [ ] Every fixed, independently justified `expectEmpty` no-match probe retains its labels and reports returned document IDs and correct-empty rate, including semantic false positives. Perfect semantic rejection is not a blocking gate. Other answer-absent queries retain visible diagnostic results and are not mechanically relabeled as positives. Any foreign-owner or wrong-corpus result fails independently of aggregate scores. Empty-corpus, owner/model/dimension mismatch, stale/deleted-source exclusion and wiki-over-raw ordering have separate exact tests.
 - [ ] Use the same model, candidate limit, cutoff, warm-up and repetition settings for all three retrieval modes on each backend. Record hardware, artifact hashes, cold initialization, warm-up, repetitions and candidate limit. Latency is reported against the measured environment without an invented hardware-independent SLA.
 - [ ] A failed held-out gate requires causal implementation remediation or an explicit product decision. It never authorizes changing judgments, tuning against held-out questions or loosening tolerances after scores are known.
 

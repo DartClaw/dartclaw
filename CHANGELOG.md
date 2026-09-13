@@ -72,10 +72,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   setting are removed. Search requires only its embedding provider and database, not agent credentials or worker
   capacity. Fresh lexical fallback, explicit tool-policy enforcement and execution-capacity cleanup are retained.
   Runtime/search LOC ceilings ratchet down to 68,666/1,994 after removal (measured 67,166/1,496).
-- **Retrieval evaluation contract** – protocol 2 measures useful passage relevance separately from answer
-  sufficiency. Explicit no-match probes retain empty-result gates; unanswered queries alone do not. Positive ranking
-  tolerances and zero owner/corpus leakage remain unchanged. Original fixtures and failed reports stay historical;
-  the separately versioned fixture is exposed regression evidence, not unseen acceptance.
+- **Retrieval evaluation contract** – protocol 3 measures useful passage relevance separately from answer
+  sufficiency and reports semantic no-match errors as diagnostics. Positive ranking tolerances, zero owner/corpus
+  leakage and exact current-source exclusion remain enforced. Original fixtures and failed reports stay historical;
+  exposed regression fixtures do not establish unseen acceptance.
 
 - **Reported session cost** – missing provider cost is no longer treated as zero. Session cost is unavailable when
   any turn lacks reported cost, including older records without cost-presence evidence; reported zero remains zero.

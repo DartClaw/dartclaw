@@ -73,7 +73,7 @@ void main() {
     final queries = _queries();
     final gates = buildGateRows(queries, _observations(queries));
 
-    expect(gates, hasLength(122));
+    expect(gates, hasLength(116));
     expect(gates.where((row) => !row.passed), isEmpty);
     expect(
       gates.singleWhere((row) => row.id == 'family-regression/sqlite/all/exact-keyword/hitAt1').observed,
@@ -83,23 +83,27 @@ void main() {
       gates.singleWhere((row) => row.id == 'corpus-family-regression/sqlite/memory/exact-keyword/hitAt1').observed,
       closeTo(0.20, 1e-12),
     );
-    final noMatch = gates.singleWhere((row) => row.id == 'no-match/sqlite/keyword');
-    expect((noMatch.observed, noMatch.threshold, noMatch.passed), (1, 1, true));
+    expect(gates.where((row) => row.id.startsWith('no-match/')), isEmpty);
   });
 
-  test('answer absence does not force empty while an explicit no-match hit fails', () {
+  test('explicit no-match returns stay visible without blocking quality acceptance', () {
     final queries = _queries();
     final allowed = buildGateRows(queries, _observations(queries, unlabeledReturn: true));
     expect(allowed.where((row) => !row.passed), isEmpty);
 
-    final failures = {
-      for (final row in buildGateRows(
-        queries,
-        _observations(queries, noMatchFailure: true),
-      ).where((row) => !row.passed))
-        row.id,
-    };
-    expect(failures, contains('no-match/sqlite/keyword'));
+    final observations = _observations(queries, noMatchFailure: true);
+    expect(buildGateRows(queries, observations).where((row) => !row.passed), isEmpty);
+
+    final slice = buildSliceRows(queries, observations).singleWhere(
+      (row) =>
+          row.backend == 'sqlite' &&
+          row.mode == 'keyword' &&
+          row.corpus == 'memory' &&
+          row.language == 'en' &&
+          row.family == 'answer-absent',
+    );
+    expect(slice.expectedEmptyQueryCount, 1);
+    expect(slice.correctEmptyRate, 0);
   });
 
   test('equality lift, beyond-tolerance loss, and leaks fail independently', () {
@@ -131,12 +135,12 @@ void main() {
     expect(fixture.queries.singleWhere((query) => query.id == 'q56').expectEmpty, isFalse);
   });
 
-  test('reviewed fixtures load diagnostic empty relevance labels and retain hard empties', () {
+  test('reviewed fixtures retain diagnostic and semantic no-match labels', () {
     final fixtures = {
       'calibration-reviewed.json': {'nr01', 'nr02', 'nr03', 'nr04'},
       'retrieval-reviewed.json': {'q-aa-09'},
     };
-    const hardEmptyIds = {
+    const noMatchIds = {
       'calibration-reviewed.json': {'nr05', 'nr06', 'nr07', 'nr08', 'nr09', 'nr10'},
       'retrieval-reviewed.json': {'q-aa-02', 'q-aa-05', 'q-aa-07'},
     };
@@ -148,11 +152,11 @@ void main() {
       expect((fixture.documents.length, fixture.queries.length), (32, 60));
       expect(fixture.queries.where((query) => query.relevantDocumentIds.isEmpty).map((query) => query.id).toSet(), {
         ...entry.value,
-        ...hardEmptyIds[entry.key]!,
+        ...noMatchIds[entry.key]!,
       });
       expect(
         fixture.queries.where((query) => query.expectEmpty).map((query) => query.id).toSet(),
-        hardEmptyIds[entry.key],
+        noMatchIds[entry.key],
       );
       for (final id in entry.value) {
         final query = fixture.queries.singleWhere((query) => query.id == id);

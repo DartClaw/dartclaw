@@ -195,6 +195,9 @@ void main() {
       final report = jsonDecode(File(p.join(output, 'report.json')).readAsStringSync()) as Map<String, dynamic>;
       final protocol = report['protocol'] as Map<String, dynamic>;
       expect(report['violations'], ['postgresql-unavailable']);
+      expect(report['noMatchRows'], isEmpty);
+      expect(protocol['protocolVersion'], 3);
+      expect(protocol['semanticNoMatchPolicy'], 'diagnostic');
       expect(protocol['fixtureStatus'], status);
       expect(protocol['fixtureSha256'], fixtureHash);
       expect((protocol['artifactSha256'] as Map<String, dynamic>)['external/retrieval-fixture.json'], fixtureHash);

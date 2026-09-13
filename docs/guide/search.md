@@ -85,8 +85,9 @@ search:
 ```
 
 Hybrid search combines full-text and semantic candidates using weighted Reciprocal Rank Fusion (RRF). It returns
-ranked, current passages from the requested corpus. Similarity and RRF scores indicate retrieval relevance; they do
-not certify that a passage contains a complete answer. The caller uses the retrieved evidence to answer the question.
+ranked, current passages from the requested corpus. Similarity and RRF scores support ranking; they do not certify
+relevance or that a passage contains a complete answer. Semantically similar but irrelevant passages can be returned,
+including when names or identifiers differ. The caller checks the retrieved evidence before using it in an answer.
 
 Search uses the configured embedding provider and creates no generative-agent turn. Local embeddings keep query
 processing in the local runtime; an explicitly configured HTTP embedding provider receives its embedding inputs.

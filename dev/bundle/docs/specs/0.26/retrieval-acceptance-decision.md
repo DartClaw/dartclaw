@@ -1,6 +1,31 @@
 # Retrieval acceptance decision
 
-## Current status: evaluation repairs
+## Current decision: bounded quality pass
+
+On 2026-09-13 the owner approved the recommended acceptance amendment and bounded cutoff comparison, and requested
+query expansion and reranking for a future version. The [protocol-3 contract](search-contract-correction.md)
+preserves all semantic-negative judgments and reports their errors without requiring perfect rejection. Positive
+ranking, ownership, corpus and current-source guarantees remain enforced.
+
+The bounded comparison selected the existing cutoff **0.20** on 2026-09-13, before scoring the fresh independent
+fixture. The only candidate, 0.25, preserved all positive rankings across the three modern fixtures and met their
+predeclared tolerances on both backends. It reduced calibration no-match returns from 15 to 8 and reviewed-evaluation
+no-match returns from 10 to 0. It remained nonempty for four of six calibration negatives.
+
+The historical 24-document/16-query fixture exposed the cost: vector and hybrid hit@1/recall-any@5 fell from 16/16
+to 14/16 on both backends. `q02` (Swedish vocabulary mismatch, “löpträning”) and `q13` (English-to-Swedish timing-belt
+search) moved from rank 1 to no result. There were no other positive rank drops. Eligibility under the modern
+tolerances was necessary, not an instruction to accept that cost. Preserving these core semantic use cases is the
+reason for retaining 0.20; this is a parameter-selection decision, not a new zero-regression gate.
+
+The comparison used the production pipeline at `a571701b`, with identical model, weights and candidate limits.
+Comparison summary SHA-256: `e69852a0a60f98f4b758405d9397e72c99dcffc36ec08165d644f638b0321753`.
+The settings remain `32bf711292532f51313404072d61ff6443660a5c578cd0095574de94a8303a1a`.
+Runtime `HybridSearch` remains `d4a5c8f5783287bcb9a297495e3a2b389faf540c4af34a2baf526414ba34588e`.
+Original settings, fixtures and failures remain unchanged. Acceptance is pending the independent evaluation and
+verification of the protocol-3 changes; no runtime filter or additional model was introduced.
+
+## Evaluation repairs (2026-09-11)
 
 On 2026-09-11 the owner requested pragmatic fixes while preserving 0.26's lightweight scope. A further score-blind
 review compared 21 disputed queries with all 32 documents in their respective fixtures. It retained seven directly
@@ -23,8 +48,8 @@ has been established. The semantic false matches remain real: rejecting all six 
 by raising the cosine cutoff above `0.5456375787830808` would discard relevant vectors for 24 of 50 clear positives,
 according to the existing recorded scores. This is a measured tradeoff, not an additional acceptance gate.
 
-Search parameters, runtime behavior and FR7 remain unchanged. A product decision on strict semantic-empty
-acceptance versus the lightweight scope is pending; release readiness is unresolved.
+At that checkpoint search parameters, runtime behavior and FR7 were unchanged. The product decision was pending;
+the approved protocol-3 amendment above now supplies it.
 
 ## Investigation history: no-match failures
 

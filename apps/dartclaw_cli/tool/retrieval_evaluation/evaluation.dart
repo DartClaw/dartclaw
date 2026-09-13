@@ -332,22 +332,6 @@ List<GateRow> buildGateRows(List<EvaluationQuery> queries, List<RankingObservati
       }
     }
     for (final mode in evaluationModes) {
-      final noMatches = observations
-          .where((item) => item.backend == backend && item.mode == mode && item.query.expectEmpty)
-          .toList(growable: false);
-      final emptyCount = noMatches.where((item) => item.documentIds.isEmpty).length;
-      rows.add(
-        GateRow(
-          id: 'no-match/$backend/$mode',
-          backend: backend,
-          mode: mode,
-          family: 'answer-absent',
-          observed: emptyCount.toDouble(),
-          threshold: noMatches.length.toDouble(),
-          comparison: 'equalTo',
-          passed: emptyCount == noMatches.length,
-        ),
-      );
       final modeRows = observations.where((item) => item.backend == backend && item.mode == mode);
       final foreignOwners = modeRows.fold<int>(0, (total, item) => total + item.foreignOwnerCount);
       final wrongCorpora = modeRows.fold<int>(0, (total, item) => total + item.wrongCorpusCount);
@@ -375,7 +359,7 @@ List<GateRow> buildGateRows(List<EvaluationQuery> queries, List<RankingObservati
       );
     }
   }
-  if (rows.length != 122) throw StateError('evaluation gate matrix must contain 122 rows');
+  if (rows.length != 116) throw StateError('evaluation gate matrix must contain 116 rows');
   return List.unmodifiable(rows);
 }
 

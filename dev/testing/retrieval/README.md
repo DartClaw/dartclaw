@@ -32,7 +32,7 @@ passage is a relevance error; returning an unauthorized passage is a separate is
 
 These corrected assets are exposed regression inputs, not new independent acceptance evidence. Earlier classifier
 experiments required perfect retention of selected positives as a screening criterion; that was stricter than
-FR7's aggregate and slice tolerances. See the [acceptance decision](../../bundle/docs/specs/0.26/retrieval-acceptance-decision.md)
+FR7's aggregate and slice tolerances. See [ADR-050](../../adrs/050-native-hybrid-search.md#amendment-026-retrieval-and-answer-sufficiency)
 for the approved quality tradeoff and the preserved experiment history.
 
 The 2026-09-13 comparison retained cutoff 0.20. At 0.25 all positive rankings in the three modern fixtures were
@@ -61,7 +61,30 @@ Every external fixture requires all three fixture arguments. `--fixture-status` 
 or `independent-evaluation`; built-in fixtures are always exposed. The status is an operator declaration, not proof
 of independent authorship or review. A file path and checksum establish which bytes were used. Independent
 acceptance additionally requires the author/reviewer separation and pre-scoring procedure in the acceptance
-decision; relabelling an exposed input does not satisfy it.
+record; relabelling an exposed input does not satisfy it.
+
+## Independent evaluation (2026-09-13)
+
+The first completed protocol-3 evaluation at `e9e5892d` used 32 independently authored documents and 60 queries:
+55 positive, four semantic no-match and one other diagnostic. Parameters were selected before scoring. All 116
+blocking gates passed across 144 slices, with zero ownership/corpus violations. SQLite and PostgreSQL hybrid
+ranked a relevant document first for 54/55 positive queries and within the top five for all 55 (MRR@5 0.9909).
+Vocabulary-mismatch hit@1 and MRR@5 were 1.0 versus keyword-only 0.0 on both corpora and backends.
+
+Keyword retrieval returned no results for all four no-match probes. Vector and hybrid each returned no results for
+one of four; the other three returned 5, 9 and 5 irrelevant passages on each backend. All 24 backend/mode/probe
+observations, including those errors, are retained in the completed report. Passing the approved gates does not
+mean perfect semantic rejection or establish accuracy beyond this fixture.
+
+| Evidence | SHA-256 |
+|---|---|
+| Independent fixture | `c88c64f674cd757b9d2b035fc9f6d50e3f40f863644411baf47a115e5b1a1401` |
+| First completed report | `82e910eda87c062feed0e28185b57ddeaeca9b4bbbbd31bb304e39e5e20ff5cf` |
+| Selected settings | `32bf711292532f51313404072d61ff6443660a5c578cd0095574de94a8303a1a` |
+
+The fixture, authorship review and first report are retained with the local release evidence under
+`.agent_temp/reviews/0.26/quality-pass/independent-20260913/` and `.agent_temp/reviews/0.26/no-match-fix/unseen/`.
+This fixture is now exposed and must not be reused as unseen evidence.
 
 ## Public benchmarks for the search follow-up
 
@@ -81,5 +104,5 @@ are not proof that a passage is irrelevant or that a query is unanswerable.
   is a small MIT-licensed English ranking example with ten positive queries. It has no judged no-match cases and
   cannot establish semantic-empty behavior.
 
-These are future benchmark inputs, not additional 0.26 release gates or runtime dependencies. The current quality
-pass uses the retained local fixtures and a fresh independently authored evaluation.
+These are future benchmark inputs, not additional 0.26 release gates or runtime dependencies. The completed quality
+pass used the retained local fixtures and the independent evaluation recorded above.

@@ -4,7 +4,7 @@
 
 ## Active Milestone
 
-Current execution is **0.26 on `feat/0.26`**, governed by `dev/bundle/docs/specs/0.26/phase-b/plan.json`. The 0.25.2 section below retains its preceding release-preparation record.
+Current milestone is **0.26 on `feat/0.26`**. Its completed cycle is consolidated in the private `docs/specs/0.26/prd.md`; the 0.25.2 section below retains its preceding release-preparation record.
 
 ### 0.25.2 – Deployment feedback and workflow fixes
 
@@ -80,17 +80,17 @@ work is parked on `parked/s64-workflow-schema`.
 
 ### 0.26 – Pluggable Database Backend & Hybrid Search
 
-**Status – implementation complete; retrieval quality acceptance in progress.** All 17 Phase A stories and all
-nine Phase B stories are accepted on `feat/0.26`; version pins remain 0.26.0 Unreleased. On 2026-09-13 the owner
+**Status – release-ready, awaiting final commit checks and tag.** All 17 Phase A stories and
+nine Phase B stories are accepted on `feat/0.26`. On 2026-09-13 the owner
 approved reporting semantic no-match errors as quality diagnostics, preserving positive-ranking and strict
 owner/corpus/current-source guarantees. Query expansion and reranking belong to a future version.
 
 The bounded comparison retained cutoff 0.20: 0.25 reduced semantic false positives but lost two useful historical
-vocabulary/cross-language queries on both backends. The selected parameters now receive one fresh independent evaluation.
-Original settings, fixtures and failed reports remain unchanged. See the
-[acceptance decision](../bundle/docs/specs/0.26/retrieval-acceptance-decision.md) and
-[protocol-3 contract](../bundle/docs/specs/0.26/search-contract-correction.md) for the selection rule and evidence.
-The plan/spec bundle remains until combined acceptance permits consolidation.
+vocabulary/cross-language queries on both backends. The first independent evaluation passed all 116 gates across
+144 slices: hybrid hit@1 54/55 and recall@5 55/55 positives on both backends, with zero isolation violations.
+Three of four no-match probes still returned irrelevant passages, retained as quality diagnostics. Original assets
+and failed reports remain unchanged. [ADR-050](../adrs/050-native-hybrid-search.md) and the
+[retrieval record](../testing/retrieval/README.md) preserve the accepted policy and results.
 
 Phase A supplies SQLite-default/PostgreSQL-opt-in storage, fail-closed schema and serving gates, language-aware
 full-text search, instance-local filesystem state, backend-switch safety and workflow schema publication. Phase B
@@ -98,21 +98,22 @@ adds built-in hybrid retrieval for memory and conversation messages, local verif
 configured HTTP provider, retained vectors, authenticated ranking inspection and bounded turn source provenance.
 QMD remains functional but deprecated in 0.26; removal belongs to the following milestone.
 
-The combined evidence manifest is `dev/bundle/docs/specs/0.26/final-combined-verification.json`. It retains every
-Phase A deferred obligation and adds native packaging, sealed retrieval, full integration, UI and independent reviews.
-The accepted Phase A checkpoint remains `007ab8d48220f07b429f647a3d23dc802bc82141`; story receipts establish
-implementation acceptance only. The release record is CHANGELOG § 0.26.0.
+The private canonical PRD retains Phase A deferred obligations, native packaging, retrieval, integration, UI and
+independent review evidence. The accepted Phase A checkpoint remains `007ab8d48220f07b429f647a3d23dc802bc82141`.
+The protocol-3 changes passed 11,954 workspace tests (44 configured skips), PostgreSQL contract/hybrid integration,
+architecture/fitness checks and both AOT builds. The release record is CHANGELOG § 0.26.0.
 
 Earlier implementation CI and release dry-run evidence remain separate from final changed-head verification,
 tagging and publication. The current quality pass does not repeat unaffected platform/workflow qualification or
 establish publication readiness by itself. See `dev/guidelines/RELEASE_PREPARATION.md`.
 
+2026-09-13 operator check: the main ruleset remains unapplied. `Check`, `Container boundary`, `PowerShell scripts` and `PostgreSQL contract` must each pass on the final commit.
+
 ### Search quality follow-up – upcoming version, unscheduled
 
 The owner requested query expansion and reranking on 2026-09-13. Evaluate their ranking benefit and latency/resource
 cost on representative Swedish/English data before selecting models or adding runtime stages. These features are
-excluded from 0.26; its remaining search work is the bounded cutoff comparison and independent evaluation under
-the approved semantic-quality acceptance amendment.
+excluded from 0.26. Public benchmark candidates and their limitations are recorded in the retrieval README.
 
 ### Chat & Session Experience (`0.next-chat-and-sessions`) — after 0.26
 

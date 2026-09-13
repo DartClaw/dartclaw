@@ -1,6 +1,6 @@
 # ADR-050: Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost
 
-**Status:** Accepted – 2026-07-25; amended 2026-09-09 to restore agent-independent retrieval. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; final held-out and platform acceptance remain separate release gates.
+**Status:** Accepted – 2026-07-25; amended 2026-09-09 to restore agent-independent retrieval. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; independent retrieval acceptance passed 2026-09-13 under protocol 3. Platform qualification and publication are assessed separately.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-004](004-vector-search-approach.md) (superseded – QMD outpost), [ADR-045](045-pluggable-database-backend.md) (`FullTextIndex`/`VectorIndex` seams; this ADR delivers its former Phase 3), [ADR-048](048-release-builds-dart-build-bundled-sqlite.md) (bundled-native-library shipping precedent), [ADR-034](034-enforced-package-dependency-direction.md) (dependency direction), [ADR-002](002-file-based-storage.md) (search index is derived/rebuildable)
@@ -78,12 +78,26 @@ Search returns useful authorized, current passages. A passage can provide useful
 answering the question. The answering caller decides whether the evidence supports an answer. Reranking remains
 out of scope until measured retrieval benefit justifies its latency and resource cost.
 
-[The corrective contract](../bundle/docs/specs/0.26/search-contract-correction.md) defines passage judgments and
-the owner-approved 2026-09-13 protocol-3 amendment: semantic no-match errors remain visible diagnostics, while
-positive-ranking/isolation gates and structural current-source exclusions remain enforced. Original
-frozen assets and failed protocol-1 results remain historical evidence. Revised exposed regression results are
-not unseen acceptance. PostgreSQL uses exact pgvector cosine over a filtered subset, not HNSW; that choice remains
-proportional to the personal corpus and can be revisited with measured query-plan and corpus-growth evidence.
+The owner-approved 2026-09-13 protocol-3 amendment keeps semantic no-match errors as visible diagnostics rather
+than requiring perfect rejection. Independently justified negative labels remain unchanged; completed reports
+include returned document IDs and correct-empty rates. Positive ranking tolerances remain 0.10 per full family and
+0.20 per corpus/family, with strict vocabulary-mismatch improvement over keyword retrieval. Owner/corpus leakage
+remains zero; empty-corpus, model/dimension mismatch and stale/deleted-source exclusion have exact tests.
+
+A bounded comparison of cutoff 0.20 versus 0.25 retained 0.20 before the independent evaluation. Although 0.25
+reduced irrelevant returns without changing positive rankings on the modern fixtures, it removed two historical
+vocabulary/cross-language matches. No additional model or runtime filtering stage was introduced. Expansion and
+reranking are requested for an upcoming version, with benefit and resource cost to be measured first.
+
+The first independent protocol-3 evaluation passed all 116 gates across 144 slices on both backends at `e9e5892d`.
+Hybrid search ranked a relevant document first for 54/55 positive queries and within the top five for all 55.
+Three of four semantic no-match probes returned irrelevant passages on each backend; their 19 returned passages
+remain recorded errors. These fixture results do not establish general search accuracy. See the
+[retrieval evaluation record](../testing/retrieval/README.md) for hashes and benchmark limitations. Original frozen
+assets and failed protocol-1/2 results remain historical evidence; exposed regressions are not unseen acceptance.
+
+PostgreSQL uses exact pgvector cosine over a filtered subset, not HNSW; that choice remains proportional to the
+personal corpus and can be revisited with measured query-plan and corpus-growth evidence.
 
 ## Alternatives Considered
 
@@ -109,7 +123,7 @@ bytes before atomic publication. HTTP embedding requests continue to refuse ever
 
 ## References
 
-- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record), `dartclaw-private/docs/specs/0.26/hybrid-search-prd-brief.md` (Phase B brief)
+- Private research (canonical): `dartclaw-private/docs/research/dart-native-hybrid-search/research.md` (landscape + design + trade-offs), `spike-llamadart-embeddings.md` (spike record); consolidated requirements: `dartclaw-private/docs/specs/0.26/prd.md`
 - Public frozen synthesis: [research appendix](research/050-native-hybrid-search.md)
 - llamadart: https://pub.dev/packages/llamadart · https://github.com/leehack/llamadart
 - Model: https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF

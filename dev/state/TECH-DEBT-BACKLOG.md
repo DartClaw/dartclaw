@@ -66,7 +66,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 ## TD-115 – CLOSED 2026-09-08 – Filesystem-backed instance-local state
 
-**Status**: Implemented for 0.26 in `docs/specs/0.26/s15-filesystem-backed-instance-local-state.md` (PRD FR13). Required Windows and crash-process verification remains tracked by the final combined milestone gate.
+**Status**: Implemented for 0.26 (PRD FR13). Story outcome and Windows/crash-process verification are consolidated in the private `docs/specs/0.26/prd.md` release record.
 **Found**: 2026-08-07, owner design discussion during the milestone rider planning
 **Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
 

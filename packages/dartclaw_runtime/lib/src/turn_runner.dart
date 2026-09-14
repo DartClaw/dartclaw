@@ -18,6 +18,7 @@ import 'governance/budget_enforcer.dart';
 import 'logging/log_context.dart';
 import 'memory/daily_log_record.dart';
 import 'observability/usage_tracker.dart';
+import 'runtime_context_telemetry.dart';
 import 'session/session_reset_service.dart';
 import 'turn_governance_enforcer.dart';
 import 'turn_guard_evaluator.dart';
@@ -68,6 +69,7 @@ class TurnRunner implements core.TurnRunner {
   final SessionLockNow _livenessNow;
   final Duration _outcomeTtl;
   void Function(TurnOutcome outcome)? _outcomeObserver;
+  RuntimeContextTelemetryObserved? _contextTelemetryObserver;
   var _isReusable = true;
 
   /// Tracks turn IDs that were cancelled due to mid-turn loop detection.
@@ -111,6 +113,8 @@ class TurnRunner implements core.TurnRunner {
   RuntimeToolApprovalClosed? _toolApprovalClosed;
   RuntimeToolHistoryObserved? _toolHistoryObserved;
   Future<void> _toolHistoryWrites = Future<void>.value();
+  final Map<String, BehaviorPromptProvenance> _promptProvenance = {};
+  final Map<String, int> _turnContextWindows = {};
 
   /// Installs the coordinator-owned observer for terminal turn outcomes.
   @internal
@@ -149,6 +153,11 @@ class TurnRunner implements core.TurnRunner {
     final worker = _worker;
     return worker is HarnessToolApprovalResponder &&
         (worker as HarnessToolApprovalResponder).canResolveToolApproval(turnId: turnId, requestId: requestId);
+  }
+
+  @internal
+  void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
+    _contextTelemetryObserver = observer;
   }
 
   new({

@@ -418,7 +418,13 @@ _parseRichInput(
         error: errorResponse(400, 'INVALID_REFERENCE', 'reference type and id are required', {'field': 'references'}),
       );
     }
-    final resolved = await resolveConversationReference(type: type, id: id, sessions: sessions, projects: projects);
+    final resolved = await resolveConversationReference(
+      type: type,
+      id: id,
+      referenceRoot: (await conversation.snapshot(sessionId)).nextContext?.referenceRoot,
+      sessions: sessions,
+      projects: projects,
+    );
     if (resolved.error != null) {
       return (metadata: null, turnContextMetadata: null, metadataJson: null, error: resolved.error);
     }
@@ -479,6 +485,7 @@ Map<String, dynamic> _metadataWithoutAttachmentContent(Map<String, dynamic> meta
 Future<({Map<String, dynamic>? reference, Response? error})> resolveConversationReference({
   required String type,
   required String id,
+  String? referenceRoot,
   required SessionService sessions,
   required ProjectService? projects,
 }) async {
@@ -502,7 +509,7 @@ Future<({Map<String, dynamic>? reference, Response? error})> resolveConversation
     if (p.isAbsolute(normalized) || normalized.startsWith('..${p.separator}') || normalized == '..') {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
-    final root = await referenceRoot(projects);
+    final root = referenceRoot ?? await sessionReferenceRoot(projects);
     if (_hasHiddenPathSegment(normalized)) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }

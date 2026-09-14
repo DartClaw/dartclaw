@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Conversations now show their immutable workspace owner separately from revisioned current and next-turn project,
+  directory, provider, model and effort context. Changes are authorized and captured at admission, telemetry names its
+  session and source, and the one schema-bound automatic title attempt cannot overwrite a manual or newer title.
+
 - Conversation drafts now survive reload with file bytes intact, remain editable while a turn runs, and can be queued,
   stopped, or steered explicitly. Stable submission claims prevent duplicate dispatch across retries and restart, while
   passive browser views reconcile ordered queue and recovery state from one durable session snapshot.

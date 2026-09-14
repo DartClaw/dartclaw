@@ -57,7 +57,7 @@ String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim())
 };
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder {
+class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider {
   /// Codex executable path or name.
   final String executable;
 
@@ -164,6 +164,10 @@ class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder {
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
+
+  @override
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
 
   @override
   bool get supportsCostReporting => false;

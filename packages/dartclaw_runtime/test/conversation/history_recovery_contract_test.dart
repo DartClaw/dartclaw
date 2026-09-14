@@ -52,7 +52,7 @@ void main() {
       message: 'Original request',
       attachments: const [],
       references: const [
-        {'type': 'project', 'id': 'p1', 'label': 'Project'},
+        {'type': 'project', 'id': '_local', 'label': 'Local'},
       ],
     );
     final partial = await messages.insertMessage(sessionId: sessionId, role: 'assistant', content: 'Partial output');
@@ -109,6 +109,16 @@ void main() {
     expect(unauthorized.statusCode, 403);
     expect(await messages.getMessages(sessionId), hasLength(sourceMessageCount));
 
+    final beforeRetry = await conversation.snapshot(sessionId);
+    final originalContext = source.submission.admittedContext!;
+    await conversation.updateContext(
+      sessionId: sessionId,
+      expectedRevision: beforeRetry.revision,
+      projectId: originalContext.projectId,
+      directory: originalContext.directory,
+      provider: originalContext.provider,
+      model: 'next-turn-model',
+    );
     final retry = await conversation.retry(
       sessionId: sessionId,
       sourceAttemptId: failed.attemptId!,
@@ -122,6 +132,8 @@ void main() {
 
     final current = await conversation.snapshot(sessionId);
     expect(retry.submission.message, 'Original request');
+    expect(retry.submission.admittedContext?.toJson(), originalContext.toJson());
+    expect(current.nextContext?.model, 'next-turn-model');
     expect(retry.submission.attemptId, isNotNull);
     expect(retry.submission.attemptId, isNot(failed.attemptId));
     expect(repeated.submission.messageId, retry.submission.messageId);
@@ -147,6 +159,50 @@ void main() {
     expect(replayResponse.statusCode, 200);
     final replayBody = jsonDecode(await replayResponse.readAsString()) as Map<String, dynamic>;
     expect(replayBody['warning'], contains('external tool effects'));
+  });
+
+  test('fork copies the visible completed prefix without admitting interleaved queued input', () async {
+    final first = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'visible-first',
+      revisionId: 'visible-first-r1',
+      message: 'Visible input',
+      attachments: const [],
+      references: const [],
+    );
+    final queued = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'hidden-queued',
+      revisionId: 'hidden-queued-r1',
+      message: 'Private unsent queued input',
+      attachments: const [],
+      references: const [],
+    );
+    expect(queued.submission.workState, ConversationWorkState.queued);
+    final response = await messages.insertMessage(sessionId: sessionId, role: 'assistant', content: 'Visible result');
+    final state = await sessions.getConversationState(sessionId);
+    await sessions.updateConversationState(
+      sessionId,
+      state.put(first.submission.copyWith(workState: ConversationWorkState.completed)),
+    );
+    final sourceBytes = await File('${root.path}/$sessionId/messages.ndjson').readAsBytes();
+    final branch = await conversation.branchFromMessage(
+      sessionId: sessionId,
+      sourceMessageId: response.id,
+      mutationId: 'visible-prefix-fork',
+      kind: ConversationBranchKind.fork,
+    );
+    final destinationId = branch['destinationSessionId'] as String;
+    expect((await messages.getMessages(destinationId)).map((message) => message.content), [
+      'Visible input',
+      'Visible result',
+    ]);
+    expect((await sessions.getConversationState(destinationId)).queue, isEmpty);
+    expect(
+      (await sessions.getConversationState(sessionId)).findSubmission('hidden-queued')?.workState,
+      ConversationWorkState.queued,
+    );
+    expect(await File('${root.path}/$sessionId/messages.ndjson').readAsBytes(), sourceBytes);
   });
 
   test('edit and fork preserve source lineage eligibility and explicit destination boundaries', () async {
@@ -291,7 +347,7 @@ void main() {
         kind: ConversationBranchKind.edit,
         editedMessage: 'Edited stale prompt',
       ),
-      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'REFERENCE_UNAVAILABLE')),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_REFERENCE')),
     );
     await expectLater(
       staleReference.branchFromMessage(
@@ -300,7 +356,7 @@ void main() {
         mutationId: 'stale-fork',
         kind: ConversationBranchKind.fork,
       ),
-      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'REFERENCE_UNAVAILABLE')),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_REFERENCE')),
     );
 
     final rawHandler = sessionRoutes(sessions, messages, turns, worker).call;

@@ -65,6 +65,75 @@
     <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
   </div>
   <div tl:unless="${readOnly}" class="input-area">
+    <section tl:if="${hasEffectiveContext}" id="effective-context-summary" class="card card-compact"
+             aria-label="Effective context">
+      <div><span class="meta-label">Workspace owner</span>
+        <span id="effective-context-workspace" class="meta-value meta-value-mono" tl:text="${effectiveContext.workspace}">web</span>
+      </div>
+      <div><span class="meta-label">Project</span>
+        <span class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
+        <span id="effective-context-project-name" class="meta-value" tl:text="${effectiveContext.project}">project</span>
+      </div>
+      <div><span class="meta-label">Current</span>
+        <span id="effective-context-current" class="meta-value" tl:text="${effectiveContext.current}">project</span>
+      </div>
+      <div><span class="meta-label">Next turn</span>
+        <span id="effective-context-next" class="meta-value" tl:text="${effectiveContext.next}">project</span>
+      </div>
+      <button id="effective-context-open" type="button" class="btn btn-ghost"
+              data-action="dc-chat#openContextDialog" aria-haspopup="dialog">Context</button>
+    </section>
+    <dialog tl:if="${hasEffectiveContext}" id="effective-context-dialog" class="dialog"
+            data-dc-chat-target="contextDialog" aria-labelledby="effective-context-title">
+      <div class="dialog-header"><h2 id="effective-context-title">Conversation context</h2></div>
+      <div class="tabs" role="tablist" aria-label="Context details"></div>
+      <div class="dialog-body">
+      <p id="effective-context-continuity" class="banner banner-warning">Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
+      <form id="effective-context-form" class="effective-context-form" data-action="submit->dc-chat#applyContext">
+        <input type="hidden" name="conversation_revision" tl:attr="value=${effectiveContext.revision}">
+        <label for="effective-context-project">Project</label>
+        <select id="effective-context-project" name="project_id" class="form-select">
+          <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
+                  tl:attr="value=${project.value},selected=${project.selected}">project</option>
+        </select>
+        <label for="effective-context-directory">Directory</label>
+        <input id="effective-context-directory" name="directory" class="form-input" required
+               tl:attr="value=${effectiveContext.directory}">
+        <label for="effective-context-provider">Provider</label>
+        <select id="effective-context-provider" name="provider" class="form-select"
+                data-action="change->dc-chat#contextProviderChanged">
+          <option tl:each="provider : ${effectiveContext.providers}" tl:text="${provider.label}"
+                  tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort}">provider</option>
+        </select>
+        <label for="effective-context-model-input">Model</label>
+        <input id="effective-context-model-input" name="model" class="form-input"
+               tl:attr="value=${effectiveContext.modelValue},disabled=${effectiveContext.modelEditable ? null : 'disabled'}">
+        <span tl:unless="${effectiveContext.modelEditable}" class="value-absent">Unavailable for this adapter</span>
+        <label for="effective-context-effort-input">Effort</label>
+        <input id="effective-context-effort-input" name="effort" class="form-input"
+               tl:attr="value=${effectiveContext.effortValue},disabled=${effectiveContext.effortEditable ? null : 'disabled'}">
+        <span tl:unless="${effectiveContext.effortEditable}" class="value-absent">Unavailable for this adapter</span>
+        <button id="effective-context-apply" type="submit" class="btn btn-primary">Apply to next turn</button>
+      </form>
+      <dl>
+        <dt>Workspace owner</dt><dd id="effective-context-detail-workspace" tl:text="${effectiveContext.workspace}">web</dd>
+        <dt>Project</dt><dd id="effective-context-detail-project" tl:text="${effectiveContext.project}">project</dd>
+        <dt>Directory</dt><dd id="effective-context-detail-directory" class="meta-value-mono" tl:text="${effectiveContext.directory}">directory</dd>
+        <dt>Provider</dt><dd id="effective-context-detail-provider" tl:text="${effectiveContext.provider}">provider</dd>
+        <dt>Model</dt><dd id="effective-context-model" tl:text="${effectiveContext.model}">unavailable</dd>
+        <dt>Effort</dt><dd id="effective-context-effort" tl:text="${effectiveContext.effort}">unavailable</dd>
+        <dt>Measurement</dt><dd id="effective-context-telemetry" tl:text="${effectiveContext.telemetry}">unavailable</dd>
+        <dt>Behavior files</dt><dd id="effective-context-behavior" tl:text="${effectiveContext.behavior}">none recorded</dd>
+      </dl>
+      <div id="effective-context-memory" class="status-badge"
+           tl:attr="hidden=${effectiveContext.memoryHidden}"
+           tl:text="${effectiveContext.memory}">Memory contributed</div>
+      <p id="effective-context-validation" role="alert" hidden></p>
+      </div>
+      <div class="dialog-footer">
+      <button id="effective-context-close" type="button" class="btn btn-primary" data-action="dc-chat#closeContextDialog">Done</button>
+      </div>
+    </dialog>
     <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
           data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
       <div class="composer-context" data-dc-chat-target="contextTray" hidden></div>
@@ -93,10 +162,14 @@
         </div>
         <div class="composer-meta">
           <label for="composer-files" class="btn btn-ghost" aria-label="Attach files">Attach</label>
+          <button id="effective-context-open-composer" type="button" class="btn btn-ghost"
+                  data-action="dc-chat#openContextDialog" aria-haspopup="dialog">Context</button>
           <button type="button" class="btn btn-ghost" data-dc-chat-target="steerButton" data-action="dc-chat#steer"
                   aria-label="Steer: stop the current turn, then send this follow-up" hidden>Steer</button>
           <button type="button" class="btn btn-ghost" data-dc-chat-target="stopButton" data-action="dc-chat#stopTurn"
                   aria-label="Stop current turn" hidden>Stop</button>
+          <span id="effective-context-composer-provider" class="meta-value"
+                tl:text="${effectiveContext.composer}">provider · model · effort</span>
           <button id="send-btn" class="btn btn-primary composer-send" type="submit"
                   aria-label="Send" title="Send"
                   tl:attr="disabled=${inputDisabled}"></button>

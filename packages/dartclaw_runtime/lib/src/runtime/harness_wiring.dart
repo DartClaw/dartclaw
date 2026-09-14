@@ -312,6 +312,17 @@ class HarnessWiring {
   BehaviorFileService get behavior => _behavior;
   SelfImprovementService? get selfImprovement => _selfImprovement;
   LogicalAgentSessionService get logicalAgentSessions => _logicalAgentSessions;
+  Map<String, EffectiveContextCapabilities> get effectiveContextCapabilities {
+    final declared = _harnessFactory.probeEffectiveContextCapabilities();
+    final executable = {defaultProviderId, ..._executions.snapshot.providers.keys};
+    final capabilities = <String, EffectiveContextCapabilities>{};
+    for (final providerId in executable) {
+      final providerCapabilities = declared[providerId];
+      if (providerCapabilities != null) capabilities[providerId] = providerCapabilities;
+    }
+    return Map.unmodifiable(capabilities);
+  }
+
   UsageTracker get usageTracker => _usageTracker;
 
   /// The health probe over the primary harness, or `null` when there is none.
@@ -746,7 +757,8 @@ class HarnessWiring {
 
     _logicalAgentSessions = LogicalAgentSessionService(
       dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
-        final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
+        final definition =
+            _logicalAgentSessions.agentDefinition(agentId) ?? (throw StateError('Unknown agent: $agentId'));
         final trimmedModel = definition.model?.trim();
         final trimmedEffort = definition.effort?.trim();
         final configuredProvider = definition.provider?.trim();
@@ -792,12 +804,16 @@ class HarnessWiring {
         final agentScope = sessionPolicy.containerProfile == SecurityProfile.restricted.id
             ? PromptScope.restricted
             : PromptScope.task;
+        final agentBehavior = _agentMap.containsKey(agentId)
+            ? agentWorkerBehavior(agentId, agentScope)
+            : _snapshotBehavior(definition.prompt);
         final turnId = await turns.reserveTurn(
           session.id,
           agentName: agentId,
           model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
-          behaviorOverride: agentWorkerBehavior(agentId, agentScope),
+          behaviorOverride: agentBehavior,
+          allowedTools: definition.allowedTools.toList(growable: false),
           workerPolicy: sessionPolicy,
           outputSchema: definition.outputSchema,
           outputSchemaWhenSupported: true,

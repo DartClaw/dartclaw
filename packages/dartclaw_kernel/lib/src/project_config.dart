@@ -127,6 +127,9 @@ class ProjectDefinition {
   /// Project ID — the YAML map key under `projects:`.
   final String id;
 
+  /// Optional display name. Identity and authorization continue to use [id].
+  final String? name;
+
   /// Git remote URL (SSH or HTTPS).
   final String? remote;
 
@@ -151,6 +154,7 @@ class ProjectDefinition {
   /// Creates a [ProjectDefinition] value.
   const new({
     required this.id,
+    this.name,
     this.remote,
     this.localPath,
     this.branch = 'main',
@@ -165,6 +169,7 @@ class ProjectDefinition {
       identical(this, other) ||
       other is ProjectDefinition &&
           id == other.id &&
+          name == other.name &&
           remote == other.remote &&
           localPath == other.localPath &&
           branch == other.branch &&
@@ -174,7 +179,7 @@ class ProjectDefinition {
           isDefault == other.isDefault;
 
   @override
-  int get hashCode => Object.hash(id, remote, localPath, branch, credentials, cloneStrategy, pr, isDefault);
+  int get hashCode => Object.hash(id, name, remote, localPath, branch, credentials, cloneStrategy, pr, isDefault);
 }
 
 /// Configuration for the projects subsystem.
@@ -307,6 +312,7 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
     final projectMap = Map<String, dynamic>.from(raw);
 
     final remote = _trimmedStringOrNull(projectMap['remote']);
+    final name = _trimmedStringOrNull(projectMap['name']);
     final localPathRaw = _trimmedStringOrNull(projectMap['localPath']);
     final hasRemote = remote != null && remote.isNotEmpty;
     final hasLocalPath = localPathRaw != null && localPathRaw.isNotEmpty;
@@ -372,6 +378,7 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
 
     definitions[id] = ProjectDefinition(
       id: id,
+      name: name,
       remote: remote,
       localPath: localPath,
       branch: branch,

@@ -14,6 +14,7 @@ import 'context/context_monitor.dart';
 import 'execution_coordinator.dart';
 import 'execution_policy_resolver.dart';
 import 'observability/usage_tracker.dart';
+import 'runtime_context_telemetry.dart';
 import 'session/session_reset_service.dart';
 import 'runtime_tool_history.dart';
 import 'turn_runner.dart';
@@ -142,6 +143,7 @@ class TurnManager implements core.TurnManager {
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
+  final Map<String, String> _contextProviderOverrides = {};
 
   // Same-session reservations run one at a time in arrival order: every await
   // before the session lock (session read, governance checks, rate-limit wait)
@@ -218,6 +220,10 @@ class TurnManager implements core.TurnManager {
   // ---------------------------------------------------------------------------
 
   ExecutionCoordinator get executions => _executions;
+
+  void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
+    _executions.setContextTelemetryObserver(observer);
+  }
 
   /// Turn budgets enforced by every runner managed by this composition.
   TurnLimitsConfig get turnLimits => _turnLimits;
@@ -344,6 +350,78 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+  }) => _reserveTurn(
+    sessionId,
+    providerOverride: _contextProviderOverrides[sessionId],
+    agentName: agentName,
+    directory: directory,
+    model: model,
+    effort: effort,
+    systemPromptOverride: systemPromptOverride,
+    workerPolicy: workerPolicy,
+    maxTurns: maxTurns,
+    outputSchema: outputSchema,
+    outputSchemaWhenSupported: outputSchemaWhenSupported,
+    providerSessionId: providerSessionId,
+    requestProviderSessionResume: requestProviderSessionResume,
+    taskId: taskId,
+    turnTimeout: turnTimeout,
+    isHumanInput: isHumanInput,
+    behaviorOverride: behaviorOverride,
+    promptScope: promptScope,
+    allowedTools: allowedTools,
+    readOnly: readOnly,
+    origin: origin,
+  );
+
+  /// Reserves an ordinary conversation turn against its admitted provider snapshot.
+  Future<String> reserveContextTurn(
+    String sessionId, {
+    required String provider,
+    required String directory,
+    String? model,
+    String? effort,
+    required PromptScope promptScope,
+    required TurnOrigin origin,
+  }) async {
+    _contextProviderOverrides[sessionId] = provider;
+    try {
+      return await reserveTurn(
+        sessionId,
+        directory: directory,
+        model: model,
+        effort: effort,
+        isHumanInput: true,
+        promptScope: promptScope,
+        origin: origin,
+      );
+    } finally {
+      _contextProviderOverrides.remove(sessionId);
+    }
+  }
+
+  Future<String> _reserveTurn(
+    String sessionId, {
+    String? providerOverride,
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
+    int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
+    String? taskId,
+    Duration? turnTimeout,
+    bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
+    TurnOrigin? origin,
   }) async {
     final reservation = await _sessionReservations.run(
       sessionId,
@@ -354,6 +432,7 @@ class TurnManager implements core.TurnManager {
         isHumanInput: isHumanInput,
         agentName: agentName,
         allowedTools: allowedTools,
+        providerOverride: providerOverride,
       ),
     );
     final lease = reservation.lease;
@@ -618,9 +697,10 @@ class TurnManager implements core.TurnManager {
     required bool isHumanInput,
     String? agentName,
     List<String>? allowedTools,
+    String? providerOverride,
   }) async {
     final session = await _sessions?.getSession(sessionId);
-    final provider = session?.provider ?? _primary.providerId;
+    final provider = providerOverride ?? session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
     final isLogicalAgent = session?.type == SessionType.logicalAgent;
     final definitions = _agentDefinitions;

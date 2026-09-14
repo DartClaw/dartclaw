@@ -152,16 +152,77 @@ class SessionService {
     return sessions;
   }
 
-  Future<int> updateTitle(String id, String title) async {
+  Future<int> updateTitle(String id, String title) =>
+      updateTitleWithProvenance(id, title, provenance: SessionTitleProvenance.system);
+
+  Future<int> updateTitleWithProvenance(String id, String title, {required SessionTitleProvenance provenance}) async {
     if (!isValidUuid(id)) return 0;
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
     if (!metaFile.existsSync()) return 0;
+    return _repoLock.acquire(metaFile.path, () async {
+      final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+      final session = Session.fromJson(json);
+      final updated = session.copyWith(
+        title: title,
+        titleRevision: session.titleRevision + 1,
+        titleProvenance: provenance,
+        updatedAt: DateTime.now(),
+      );
+      await _writeSessionMeta(metaFile, updated);
+      return 1;
+    });
+  }
 
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(title: title, updatedAt: DateTime.now());
-    await _writeSessionMeta(metaFile, updated);
-    return 1;
+  /// Installs the immediate first-message title only while the session is unnamed.
+  Future<Session?> setAutomaticTitleFallback(String id, String title) => _mutateSession(id, (session) {
+    if (session.title?.trim().isNotEmpty ?? false) return session;
+    return session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticFallback,
+      updatedAt: DateTime.now(),
+    );
+  });
+
+  /// Claims the single schema-title attempt and returns its compare-and-set revision.
+  Future<Session?> claimAutomaticTitle(String id) => _mutateSession(id, (session) {
+    if (session.automaticTitleAttempted || session.titleProvenance != SessionTitleProvenance.automaticFallback) {
+      return null;
+    }
+    return session.copyWith(automaticTitleAttempted: true, updatedAt: DateTime.now());
+  });
+
+  /// Applies a generated title only while the captured fallback is still current.
+  Future<bool> applyAutomaticTitle(String id, String title, {required int expectedRevision}) async {
+    var applied = false;
+    await _mutateSession(id, (session) {
+      if (session.titleRevision != expectedRevision ||
+          session.titleProvenance != SessionTitleProvenance.automaticFallback ||
+          !session.automaticTitleAttempted) {
+        return session;
+      }
+      applied = true;
+      return session.copyWith(
+        title: title,
+        titleRevision: session.titleRevision + 1,
+        titleProvenance: SessionTitleProvenance.automaticGenerated,
+        updatedAt: DateTime.now(),
+      );
+    });
+    return applied;
+  }
+
+  Future<Session?> _mutateSession(String id, Session? Function(Session session) mutate) async {
+    if (!isValidUuid(id)) return null;
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) return null;
+    return _repoLock.acquire(metaFile.path, () async {
+      final session = Session.fromJson(jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>);
+      final updated = mutate(session);
+      if (updated == null) return null;
+      if (!identical(updated, session)) await _writeSessionMeta(metaFile, updated);
+      return updated;
+    });
   }
 
   Future<void> touchUpdatedAt(String id) async {

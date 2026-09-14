@@ -71,7 +71,9 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   `dartclaw_workflow`'s soft `SchemaValidator` is a separate, warn-only validator – do not import or rebase it from here.
 - JSON shapes use stable string enum names, omit nullable fields when null, and round-trip in tests.
 - `Session.workspace` pins the named-agent id and canonical directory for the conversation lifetime. Legacy metadata
-  omits both fields; a partial pair is malformed.
+  omits both workspace fields; a partial pair is malformed. `Session.titleRevision`, `titleProvenance`, and
+  `automaticTitleAttempted` are the persisted title race authority; manual and newer revisions beat automatic
+  generation.
 - `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand.
 - Domain-specific models stay with their owning package. A type sinks here only when independent packages need one and
   no lower owner exists.

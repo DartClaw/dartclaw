@@ -8,7 +8,6 @@ import {
   scrollToBottom,
   showBanner,
   showToast,
-  syncSidebarSessionTitle,
 } from './shared.js';
 
 export default class DcChatController extends Stimulus.Controller {
@@ -49,6 +48,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleSendButtonClick = this.handleSendButtonClick.bind(this);
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
     this.handleConnectivityChange = this.handleConnectivityChange.bind(this);
+    this.handleContextDialogKeydown = this.handleContextDialogKeydown.bind(this);
 
     document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
@@ -69,6 +69,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.revealHistoryTarget();
     this.initializeConversationState();
     this.initializeDraftStorage();
+    this.contextDialog?.addEventListener('keydown', this.handleContextDialogKeydown);
   }
 
   disconnect() {
@@ -94,6 +95,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.sendButton?.removeEventListener('click', this.handleSendButtonClick);
     clearTimeout(this.saveTimer);
     this.draftChannel?.close();
+    this.contextDialog?.removeEventListener('keydown', this.handleContextDialogKeydown);
   }
 
   get textarea() {
@@ -166,6 +168,162 @@ export default class DcChatController extends Stimulus.Controller {
 
   get sessionId() {
     return this.element.dataset.sessionId;
+  }
+
+  get contextDialog() {
+    return this.element.querySelector('[data-dc-chat-target="contextDialog"]');
+  }
+
+  openContextDialog(event) {
+    const dialog = this.contextDialog;
+    if (!dialog) return;
+    this.contextDialogReturnFocus = event?.currentTarget || document.activeElement;
+    dialog.showModal();
+    dialog.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
+  }
+
+  closeContextDialog() {
+    this.contextDialog?.close();
+    this.contextDialogReturnFocus?.focus();
+  }
+
+  contextProviderChanged(event) {
+    const option = event.currentTarget.selectedOptions?.[0];
+    const form = event.currentTarget.form;
+    if (!option || !form) return;
+    const model = form.elements.namedItem('model');
+    const effort = form.elements.namedItem('effort');
+    if (model) {
+      model.disabled = option.dataset.modelEditable !== 'true';
+      if (model.disabled) model.value = '';
+    }
+    if (effort) {
+      effort.disabled = option.dataset.effortEditable !== 'true';
+      if (effort.disabled) effort.value = '';
+    }
+  }
+
+  async applyContext(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const validation = this.element.querySelector('#effective-context-validation');
+    const apply = form.querySelector('[type="submit"]');
+    const fields = new FormData(form);
+    const optionalValue = (name) => {
+      const value = fields.get(name);
+      return typeof value === 'string' && value.trim() ? value.trim() : null;
+    };
+    const payload = {
+      conversation_revision: this.conversationRevision,
+      project_id: fields.get('project_id'),
+      directory: fields.get('directory'),
+      provider: fields.get('provider'),
+      model: optionalValue('model'),
+      effort: optionalValue('effort'),
+    };
+    apply.disabled = true;
+    if (validation) validation.hidden = true;
+    try {
+      const response = await fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/context', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (validation) {
+          validation.textContent = result.error?.message || 'Context change was rejected';
+          validation.hidden = false;
+        }
+        return;
+      }
+      this.reconcileContext(result);
+      if (this.liveStatus) this.liveStatus.textContent = 'Context updated for the next turn';
+    } catch (_) {
+      if (validation) {
+        validation.textContent = 'Context change could not be applied';
+        validation.hidden = false;
+      }
+    } finally {
+      apply.disabled = false;
+    }
+  }
+
+  reconcileContext(snapshot) {
+    const view = snapshot.effective_context;
+    const next = snapshot.next_context;
+    const nextRevision = Number(snapshot.revision);
+    if (!view || !next || !Number.isInteger(nextRevision)) return;
+
+    const form = this.element.querySelector('#effective-context-form');
+    const project = form?.elements.namedItem('project_id');
+    const directory = form?.elements.namedItem('directory');
+    const provider = form?.elements.namedItem('provider');
+    const model = form?.elements.namedItem('model');
+    const effort = form?.elements.namedItem('effort');
+    if (!project || !directory || !provider || !model || !effort) return;
+    if (![...project.options].some((option) => option.value === view.projectId)) return;
+    if (![...provider.options].some((option) => option.value === view.provider)) return;
+
+    project.value = view.projectId;
+    directory.value = view.directory;
+    provider.value = view.provider;
+    model.disabled = view.modelEditable !== true;
+    model.value = view.modelValue || '';
+    effort.disabled = view.effortEditable !== true;
+    effort.value = view.effortValue || '';
+
+    const text = {
+      '#effective-context-workspace': view.workspace,
+      '#effective-context-project-name': view.project,
+      '#effective-context-current': view.current,
+      '#effective-context-next': view.next,
+      '#effective-context-composer-provider': view.composer,
+      '#effective-context-detail-workspace': view.workspace,
+      '#effective-context-detail-project': view.project,
+      '#effective-context-detail-directory': view.directory,
+      '#effective-context-detail-provider': view.provider,
+      '#effective-context-model': view.model,
+      '#effective-context-effort': view.effort,
+      '#effective-context-telemetry': view.telemetry,
+      '#effective-context-behavior': view.behavior,
+    };
+    for (const [selector, value] of Object.entries(text)) {
+      const mount = this.element.querySelector(selector);
+      if (mount) mount.textContent = value || '';
+    }
+    const identicon = this.element.querySelector('#effective-context-summary [data-identicon-id]');
+    if (identicon) identicon.dataset.identiconId = view.projectId;
+    const memory = this.element.querySelector('#effective-context-memory');
+    if (memory) {
+      memory.textContent = view.memory || '';
+      memory.hidden = !view.memory;
+    }
+
+    this.conversationRevision = nextRevision;
+    const revision = this.contextDialog?.querySelector('[name="conversation_revision"]');
+    if (revision) revision.value = String(nextRevision);
+  }
+
+  handleContextDialogKeydown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeContextDialog();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...this.contextDialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => !element.disabled && !element.hidden);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   initTextarea() {
@@ -791,7 +949,6 @@ export default class DcChatController extends Stimulus.Controller {
     const deferEnableUntilRefresh = Boolean(options.deferEnableUntilRefresh);
     document.body.classList.remove('streaming');
     document.getElementById('streaming-content')?.classList.remove('streaming');
-    const textarea = this.textarea;
     if (!deferEnableUntilRefresh) this.enableInput();
     if (!this.sessionId || !refreshMessages) {
       if (deferEnableUntilRefresh) this.enableInput();
@@ -807,40 +964,11 @@ export default class DcChatController extends Stimulus.Controller {
       .then(() => {
         renderMarkdown(this.element);
         scrollToBottom(this.element, { stickToBottom });
-        this.autoTitleSession();
       })
       .catch(() => showToast('error', 'Failed to refresh messages'))
       .finally(() => {
         if (deferEnableUntilRefresh && this.element.isConnected) this.enableInput();
       });
-  }
-
-  autoTitleSession() {
-    if (this.element.dataset.hasTitle === 'true' || !this.sessionId) return;
-    const firstUserMessage = this.element.querySelector('#messages .msg-user .msg-content');
-    if (!firstUserMessage) return;
-    let title = (firstUserMessage.textContent || '').trim();
-    if (title.length > 50) {
-      title = title.substring(0, 50).replace(/\s+\S*$/, '');
-    }
-    if (!title) return;
-
-    fetch('/api/sessions/' + encodeURIComponent(this.sessionId), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
-    })
-      .then((response) => {
-        if (!response.ok) return;
-        this.element.dataset.hasTitle = 'true';
-        const titleInput = document.querySelector('.topbar .session-title[type="text"]');
-        if (titleInput) {
-          titleInput.value = title;
-          titleInput.dataset.originalTitle = title;
-        }
-        syncSidebarSessionTitle(this.sessionId, title);
-      })
-      .catch(() => {});
   }
 
   maybeOpenReferencePalette() {
@@ -1059,6 +1187,7 @@ export default class DcChatController extends Stimulus.Controller {
       .then((snapshot) => {
         if (Number(snapshot.revision || 0) < this.conversationRevision) return;
         this.conversationRevision = Number(snapshot.revision || 0);
+        this.reconcileContext(snapshot);
         this.conversationReady = true;
         this.renderQueue(Array.isArray(snapshot.queue) ? snapshot.queue : []);
         const projectedTurn = snapshot.activity?.turn;

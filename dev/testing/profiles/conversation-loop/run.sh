@@ -12,7 +12,7 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context [--compare-wireframes]"
       exit 0
       ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -20,8 +20,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history) ;;
-  *) echo "--case must name fixture-self-test, q4-draft-send, q6-live-delivery, q1-e11, q2-q3-q7-history, or q2-q3-q6-q7-q9-history" >&2; exit 2 ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context) ;;
+  *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
 EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/testing/conversation-loop/${CASE}}"
@@ -48,8 +48,8 @@ close_all() {
   agent-browser --session conversation-passive close >/dev/null 2>&1 || true
   agent-browser --session conversation-draft close >/dev/null 2>&1 || true
   agent-browser --session conversation-quota close >/dev/null 2>&1 || true
-  agent-browser --session conversation-wire close >/dev/null 2>&1 || true
   agent-browser --session conversation-history close >/dev/null 2>&1 || true
+  agent-browser --session conversation-wire close >/dev/null 2>&1 || true
   if [ -n "${SERVER_PID}" ]; then
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" >/dev/null 2>&1 || true
@@ -89,6 +89,7 @@ HISTORY_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv
 HISTORY_OLD_MESSAGE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyOldMessageId"])' "${READY}")"
 HISTORY_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyApprovalRequestId"])' "${READY}")"
 HISTORY_LIVE_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyLiveApprovalRequestId"])' "${READY}")"
+NAMED_AGENT_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["namedAgentSessionId"])' "${READY}")"
 SESSION_URL="${BASE_URL}/sessions/${SESSION_ID}"
 
 ab() {
@@ -99,6 +100,62 @@ ab() {
 assert_eval() {
   local session="$1" script="$2"
   ab "${session}" eval "${script}" >>"${EVIDENCE_ROOT}/browser-eval.log"
+}
+
+capture_wireframe() {
+  local wireframe="$1" artifact="${2:-$1}"
+  agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/${wireframe}.html"
+  agent-browser --session conversation-wire set viewport 1440 900
+  agent-browser --session conversation-wire set media dark reduced-motion
+  agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-${artifact}.png"
+}
+
+compare_session_to_wireframe() {
+  local session="$1" artifact="$2" max_mismatch_percent="${3:-20}"
+  local result="${EVIDENCE_ROOT}/wireframe-${artifact}-comparison.json"
+  ab "${session}" --json diff screenshot \
+    --baseline "${EVIDENCE_ROOT}/wireframe-${artifact}.png" \
+    --threshold 0.1 \
+    --output "${EVIDENCE_ROOT}/wireframe-${artifact}-diff.png" >"${result}"
+  python3 - "${result}" "${max_mismatch_percent}" <<'PY'
+import json
+import math
+import sys
+
+def find(value, key):
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        for nested in value.values():
+            found = find(nested, key)
+            if found is not None:
+                return found
+    if isinstance(value, list):
+        for nested in value:
+            found = find(nested, key)
+            if found is not None:
+                return found
+    return None
+
+path, maximum = sys.argv[1], float(sys.argv[2])
+with open(path, encoding='utf-8') as handle:
+    result = json.load(handle)
+if find(result, 'dimensionMismatch') is True:
+    raise SystemExit(f'{path}: compared screenshots have different dimensions')
+mismatch = find(result, 'mismatchPercentage')
+different = find(result, 'differentPixels')
+total = find(result, 'totalPixels')
+if not isinstance(mismatch, (int, float)) or not math.isfinite(mismatch):
+    raise SystemExit(f'{path}: missing numeric mismatchPercentage')
+if not isinstance(different, int) or not isinstance(total, int) or total <= 0:
+    raise SystemExit(f'{path}: missing valid pixel counts')
+if mismatch > maximum:
+    raise SystemExit(f'{path}: mismatch {mismatch:.3f}% exceeds {maximum:.3f}%')
+PY
+}
+
+compare_current_to_wireframe() {
+  compare_session_to_wireframe conversation-origin "$@"
 }
 
 run_q4() {
@@ -204,12 +261,13 @@ run_q1() {
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/composer-390-light-zoom200.png"
   ab conversation-origin a11y --selector '.input-area' --json >"${EVIDENCE_ROOT}/composer-a11y.json"
   if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-composer.html"
-    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-composer.png"
-    ab conversation-origin diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-composer.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-composer-diff.png" >"${EVIDENCE_ROOT}/wireframe-comparison.txt"
-    agent-browser --session conversation-wire open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-conversation-cards.html"
-    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-conversation-cards.png"
-    ab conversation-origin diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-conversation-cards.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-conversation-cards-diff.png" >"${EVIDENCE_ROOT}/wireframe-cards-comparison.txt"
+    ab conversation-origin set viewport 1440 900
+    ab conversation-origin set media dark reduced-motion
+    assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
+    capture_wireframe chat-composer
+    compare_current_to_wireframe chat-composer
+    capture_wireframe chat-conversation-cards
+    compare_current_to_wireframe chat-conversation-cards
   fi
 }
 
@@ -290,12 +348,93 @@ run_history() {
   ab conversation-history a11y --selector '#messages' --json >"${EVIDENCE_ROOT}/history-a11y.json"
   assert_eval conversation-history "(() => { const resources=performance.getEntriesByType('resource').filter(entry=>entry.name.includes('/api/sessions/${HISTORY_SESSION_ID}')); const longTasks=performance.getEntriesByType('longtask').map(entry=>entry.duration); return {resources:resources.map(entry=>({name:entry.name,duration:entry.duration,transferSize:entry.transferSize})),longTasks} })()"
   if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-conversation-cards.html"
-    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-history-cards.png"
-    ab conversation-history diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-history-cards.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-history-cards-diff.png" >"${EVIDENCE_ROOT}/wireframe-history-cards-comparison.txt"
-    agent-browser --session conversation-wire open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/guard-block-chat.html"
-    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-history-guard.png"
-    ab conversation-history diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-history-guard.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-history-guard-diff.png" >"${EVIDENCE_ROOT}/wireframe-history-guard-comparison.txt"
+    ab conversation-history set viewport 1440 900
+    ab conversation-history set media dark reduced-motion
+    capture_wireframe chat-conversation-cards history-cards
+    compare_session_to_wireframe conversation-history history-cards
+    capture_wireframe guard-block-chat history-guard
+    compare_session_to_wireframe conversation-history history-guard
+  fi
+}
+
+run_q9_effective_context() {
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait '#effective-context-summary'
+  ab conversation-passive open "${SESSION_URL}"
+  ab conversation-passive wait '#effective-context-summary'
+  ab conversation-passive fill '#message-input' 'Passive draft survives context reconciliation'
+  assert_eval conversation-passive "(() => { document.querySelector('#message-input').focus(); return {revision:window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat').conversationRevision} })()"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    ab conversation-origin set viewport 1440 900
+    ab conversation-origin set media dark reduced-motion
+    capture_wireframe new-session
+    compare_current_to_wireframe new-session
+  fi
+  assert_eval conversation-origin "(async () => { const initial=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(!initial.next_context || initial.next_context.projectId!=='fixture-docs') throw new Error('configured default project context missing'); if(!document.body.textContent.includes('Fixture Docs') || document.querySelector('[data-identicon-id=\"fixture-docs\"]')===null) throw new Error('project name or stable identity missing'); const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const input=document.querySelector('#message-input'); input.value='Draft retained across context validation'; input.dispatchEvent(new InputEvent('input',{bubbles:true})); document.querySelector('#effective-context-model-input').value='fixture-model'; document.querySelector('#effective-context-effort-input').value='high'; document.querySelector('#effective-context-form').requestSubmit(); const started=performance.now(); while(c.conversationRevision===initial.revision && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); if(c.conversationRevision===initial.revision || input.value!=='Draft retained across context validation') throw new Error('context form did not apply without changing draft'); return {revision:c.conversationRevision} })()"
+  ab conversation-origin fill '#message-input' 'Active context capture'
+  ab conversation-origin press Control+Enter
+  ab conversation-origin wait '#streaming-msg'
+  ab conversation-origin fill '#message-input' 'Queued context capture with @reference'
+  assert_eval conversation-origin "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const before=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); const active=before.submissions.find(i=>i.workState==='running'||i.workState==='dispatching'); if(!active || active.admittedContext.model!=='fixture-model') throw new Error('active attempt lost admitted context'); const suggestions=await fetch('/api/sessions/${SESSION_ID}/references?q=reference').then(r=>r.json()); const ref=suggestions.references.find(r=>r.type==='file'&&r.id==='reference.md'); if(!ref) throw new Error('selected-project reference root not used'); c.references=[ref]; c.syncRichInputs(); const change={conversation_revision:before.revision,project_id:'fixture-docs',directory:before.next_context.directory,provider:'acp',model:null,effort:null}; const response=await fetch('/api/sessions/${SESSION_ID}/context',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(change)}); if(!response.ok) throw new Error('next context mutation rejected'); const accepted=await response.json(); c.reconcileContext(accepted); const stale=await fetch('/api/sessions/${SESSION_ID}/context',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(change)}); if(stale.status!==409 || document.querySelector('#message-input').value!=='Queued context capture with @reference') throw new Error('stale context mutation changed state or draft'); return accepted })()"
+  assert_eval conversation-passive "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const started=performance.now(); while(document.querySelector('#effective-context-provider').value!=='acp' && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); if(document.querySelector('#effective-context-provider').value!=='acp' || !document.querySelector('#effective-context-model-input').disabled || !document.querySelector('#effective-context-effort-input').disabled) throw new Error('authoritative form controls did not reconcile'); if(!document.querySelector('#effective-context-current').textContent.includes('claude') || !document.querySelector('#effective-context-next').textContent.includes('acp')) throw new Error('current/next context did not reconcile'); if(document.querySelector('#message-input').value!=='Passive draft survives context reconciliation' || document.activeElement!==document.querySelector('#message-input')) throw new Error('reconciliation changed draft or focus'); const before=c.conversationRevision; document.querySelector('#effective-context-form').requestSubmit(); while(c.conversationRevision===before && performance.now()-started<4000) await new Promise(r=>setTimeout(r,20)); const state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(state.next_context.provider!=='acp') throw new Error('reconciled form restored stale provider'); return state })()"
+  ab conversation-origin press Control+Enter
+  ab conversation-origin wait --text 'Queued context capture with @reference'
+  assert_eval conversation-origin "(async () => { let state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); const queued=state.submissions.find(i=>i.workState==='queued'); if(!queued || queued.admittedContext.provider!=='acp' || queued.references[0].id!=='reference.md') throw new Error('queued attempt lost next context or revalidated reference'); await fetch('/__fixture/harness/primary/complete',{method:'POST'}); const started=performance.now(); let harnesses; while(performance.now()-started<3000){ harnesses=await fetch('/__fixture/harnesses').then(r=>r.json()); if(harnesses.secondary.turns===1) break; await new Promise(r=>setTimeout(r,20)); } if(harnesses.secondary.turns!==1 || harnesses.secondary.sessionId!=='${SESSION_ID}' || harnesses.secondary.directory!==state.next_context.directory || harnesses.secondary.model!==null || harnesses.secondary.effort!==null) throw new Error('admitted ACP context did not cross coordinator into secondary harness'); if(harnesses.primary.turns!==1) throw new Error('primary harness received selected-provider turn'); await fetch('/__fixture/harness/secondary/complete',{method:'POST'}); while(performance.now()-started<5000){ state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(state.telemetry?.source==='acp') break; await new Promise(r=>setTimeout(r,20)); } if(state.telemetry?.source!=='acp' || state.telemetry.availability!=='measured' || state.telemetry.usedTokens!==0 || !state.telemetry.behaviorFiles.some(f=>f.path.endsWith('TOOLS.md')&&f.origin==='configured workspace') || state.telemetry.memoryContributed!==false) throw new Error('runtime telemetry/provenance was not recorded by the executing harness'); return state })()"
+  ab conversation-origin reload
+  ab conversation-origin wait '#effective-context-summary'
+  assert_eval conversation-origin "(() => { const text=document.querySelector('#effective-context-summary').textContent; if(!text.includes('Workspace owner') || !text.includes('Current') || !text.includes('Next turn')) throw new Error('ownership/context projection incomplete'); document.querySelector('#effective-context-open').click(); const d=document.querySelector('#effective-context-dialog'); if(!d.open || !d.textContent.includes('Provider-native session and tool state do not')) throw new Error('continuity disclosure missing'); if(!d.textContent.includes('0 tokens') || !d.textContent.includes('TOOLS.md (configured workspace)') || !document.querySelector('#effective-context-memory').hidden) throw new Error('measured zero or provenance missing'); if(!document.querySelector('#effective-context-model-input').disabled || !document.querySelector('#effective-context-effort-input').disabled) throw new Error('ACP unavailable controls stayed editable'); document.querySelector('#effective-context-close').click(); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-chat.png"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    capture_wireframe chat-conversation-cards
+    compare_current_to_wireframe chat-conversation-cards
+  fi
+  restart_server
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait '#effective-context-summary'
+  assert_eval conversation-origin "(async () => { const state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); const retained=state.submissions.find(i=>i.admittedContext?.provider==='acp'); if(!retained || retained.references[0].id!=='reference.md') throw new Error('restart lost admitted context'); return state })()"
+  ab conversation-origin open "${BASE_URL}/sessions/${SESSION_ID}/info"
+  ab conversation-origin wait '#session-effective-context'
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-session-info.png"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    capture_wireframe session-info-panel
+    compare_current_to_wireframe session-info-panel
+  fi
+  ab conversation-origin open "${BASE_URL}/sessions/${NAMED_AGENT_SESSION_ID}"
+  ab conversation-origin wait '#effective-context-workspace'
+  assert_eval conversation-origin "(() => { if(document.querySelector('#effective-context-workspace').textContent.trim()!=='agent:fixture-agent') throw new Error('named-agent workspace principal changed'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-named-agent.png"
+}
+
+run_e11_effective_context() {
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait '#effective-context-open'
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    ab conversation-origin set viewport 1440 900
+    ab conversation-origin set media dark reduced-motion
+    capture_wireframe new-session
+    compare_current_to_wireframe new-session
+  fi
+  for width in 375 390 768 1440; do
+    for theme in dark light; do
+      ab conversation-origin set viewport "${width}" 900
+      ab conversation-origin set media "${theme}" reduced-motion
+      assert_eval conversation-origin "(() => { const open=document.querySelector('#effective-context-open'); open.focus(); open.click(); const dialog=document.querySelector('#effective-context-dialog'); if(!dialog.open || !dialog.contains(document.activeElement)) throw new Error('dialog focus missing'); const controls=[open,...dialog.querySelectorAll('button,input:not([type=hidden]),select')]; for(const control of controls){ const r=control.getBoundingClientRect(); if(r.width<44 || r.height<44) throw new Error('context target '+r.width+'x'+r.height); } const attach=document.querySelector('label[for=composer-files]'); const context=document.querySelector('#effective-context-open-composer'); const effective=document.querySelector('#effective-context-composer-provider'); const send=document.querySelector('#send-btn'); if(!(attach.getBoundingClientRect().left<=context.getBoundingClientRect().left && effective.getBoundingClientRect().left<=send.getBoundingClientRect().left)) throw new Error('composer context/action order changed'); dialog.querySelector('#effective-context-close').focus(); dialog.querySelector('#effective-context-close').dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true})); if(!dialog.contains(document.activeElement)) throw new Error('focus escaped dialog'); dialog.querySelector('#effective-context-close').click(); if(document.activeElement!==open) throw new Error('focus did not restore'); return true })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-${width}-${theme}.png"
+    done
+  done
+  ab conversation-origin set viewport 390 900
+  assert_eval conversation-origin "(() => { document.documentElement.style.zoom='2'; if(!document.querySelector('#effective-context-open').checkVisibility() || !document.querySelector('#send-btn').checkVisibility()) throw new Error('controls hidden at 200% zoom'); return true })()"
+  ab conversation-origin a11y --selector '.input-area' --json >"${EVIDENCE_ROOT}/effective-context-a11y.json"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
+    ab conversation-origin set viewport 1440 900
+    ab conversation-origin set media dark reduced-motion
+    capture_wireframe chat-conversation-cards
+    compare_current_to_wireframe chat-conversation-cards
+    ab conversation-origin open "${BASE_URL}/sessions/${SESSION_ID}/info"
+    ab conversation-origin wait '#session-effective-context'
+    capture_wireframe session-info-panel
+    compare_current_to_wireframe session-info-panel
   fi
 }
 
@@ -306,6 +445,8 @@ case "${CASE}" in
   q6-live-delivery) run_q6 ;;
   q2-q3-q7-history) run_history ;;
   q2-q3-q6-q7-q9-history) run_q6; run_history ;;
+  q9-effective-context) run_q9_effective_context ;;
+  e11-effective-context) run_e11_effective_context ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

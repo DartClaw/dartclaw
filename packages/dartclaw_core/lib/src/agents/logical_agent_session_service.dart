@@ -25,6 +25,7 @@ class LogicalAgentSessionService {
   final Map<String, AgentDefinition> _agents;
   final ContentGuard? _contentGuard;
   final GuardAuditLogger? _auditLogger;
+  final Map<String, AgentDefinition> _oneShotAgents = {};
 
   new({
     required LogicalAgentTurnDispatch dispatch,
@@ -40,6 +41,23 @@ class LogicalAgentSessionService {
 
   /// Configured logical agents keyed by their stable IDs.
   Map<String, AgentDefinition> get agents => _agents;
+
+  /// Resolves configured and currently executing internal one-shot agents.
+  AgentDefinition? agentDefinition(String id) => _agents[id] ?? _oneShotAgents[id];
+
+  /// Runs one schema-bound internal agent without publishing it as configured.
+  Future<Map<String, dynamic>> runOneShot({required AgentDefinition agent, required String message}) async {
+    if (_agents.containsKey(agent.id) || _oneShotAgents.containsKey(agent.id)) {
+      return _error('Agent is already active: ${agent.id}');
+    }
+    _oneShotAgents[agent.id] = agent;
+    final sessionId = SessionKey.logicalAgentSession(agentId: agent.id, conversationId: _uuid.v4());
+    try {
+      return await _run(sessionId: sessionId, message: message, agent: agent, createSession: true);
+    } finally {
+      _oneShotAgents.remove(agent.id);
+    }
+  }
 
   /// Creates a logical-agent session and waits for its first turn to complete.
   Future<Map<String, dynamic>> handleSessionsSpawn(Map<String, dynamic> params) async {

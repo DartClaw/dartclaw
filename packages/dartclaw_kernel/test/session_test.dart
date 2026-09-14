@@ -76,4 +76,23 @@ void main() {
     expect(() => Session.fromJson({...json, 'workspaceAgentId': 'researcher'}), throwsFormatException);
     expect(() => Session.fromJson({...json, 'workspaceDir': '/srv/agents/researcher'}), throwsFormatException);
   });
+
+  test('title race metadata round-trips while legacy records keep neutral defaults', () {
+    final json = {'id': 'session-1', 'createdAt': '2026-09-14T00:00:00.000Z', 'updatedAt': '2026-09-14T00:00:00.000Z'};
+    final legacy = Session.fromJson(json);
+    expect(legacy.titleRevision, 0);
+    expect(legacy.titleProvenance, isNull);
+    expect(legacy.automaticTitleAttempted, isFalse);
+
+    final titled = legacy.copyWith(
+      title: 'Generated title',
+      titleRevision: 2,
+      titleProvenance: SessionTitleProvenance.automaticGenerated,
+      automaticTitleAttempted: true,
+    );
+    final decoded = Session.fromJson(titled.toJson());
+    expect(decoded.titleRevision, 2);
+    expect(decoded.titleProvenance, SessionTitleProvenance.automaticGenerated);
+    expect(decoded.automaticTitleAttempted, isTrue);
+  });
 }

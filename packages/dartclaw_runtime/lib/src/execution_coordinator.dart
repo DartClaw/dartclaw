@@ -9,6 +9,7 @@ import 'turn_runner.dart';
 import 'runtime_tool_history.dart';
 import 'turn_wait_status.dart';
 import 'worker_capacity_gate.dart';
+import 'runtime_context_telemetry.dart';
 
 part 'execution_models.dart';
 part 'execution_coordinator_lifecycle.dart';
@@ -70,9 +71,17 @@ final class ExecutionCoordinator {
   RuntimeToolApprovalRequested? _toolApprovalRequested;
   RuntimeToolApprovalClosed? _toolApprovalClosed;
   RuntimeToolHistoryObserved? _toolHistoryObserved;
+  RuntimeContextTelemetryObserved? _contextTelemetryObserver;
 
   Stream<ExecutionEvent> get events => _events.stream;
   TurnRunner? get primary => _primary;
+
+  void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
+    _contextTelemetryObserver = observer;
+    for (final runner in runners) {
+      runner.setContextTelemetryObserver(observer);
+    }
+  }
 
   List<TurnRunner> get runners {
     final result = <TurnRunner>[];
@@ -133,7 +142,7 @@ final class ExecutionCoordinator {
     if (_closing) {
       throw StateError('Execution coordinator is closing');
     }
-    final lane = _laneFor(request.surface);
+    final lane = _laneFor(request);
     final routedRequest = _routeRequest(request, lane);
     if (routedRequest.providerId.trim().isEmpty) {
       throw ArgumentError.value(routedRequest.providerId, 'providerId', 'must not be blank');
@@ -167,8 +176,12 @@ final class ExecutionCoordinator {
     }
   }
 
-  ExecutionLane _laneFor(ExecutionSurface surface) => switch (surface) {
-    ExecutionSurface.interactive || ExecutionSurface.channel => ExecutionLane.primary,
+  ExecutionLane _laneFor(ExecutionRequest request) => switch (request.surface) {
+    ExecutionSurface.interactive =>
+      _primary == null || request.providerId != _primary.providerId || request.policy != _primary.executionPolicy
+          ? ExecutionLane.worker
+          : ExecutionLane.primary,
+    ExecutionSurface.channel => ExecutionLane.primary,
     ExecutionSurface.workflow || ExecutionSurface.logicalAgent => ExecutionLane.worker,
     ExecutionSurface.task ||
     ExecutionSurface.scheduler => allowsPrimaryBackgroundFallback ? ExecutionLane.primary : ExecutionLane.worker,

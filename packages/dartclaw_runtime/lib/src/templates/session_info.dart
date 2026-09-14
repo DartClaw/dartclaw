@@ -26,6 +26,7 @@ String sessionInfoTemplate({
   List<Map<String, String>> recentTurns = const [],
   Map<String, dynamic>? turnStatus,
   String appName = 'DartClaw',
+  Map<String, dynamic>? effectiveContext,
 }) {
   final displayTitle = displayChatTitle(sessionTitle);
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
@@ -98,6 +99,8 @@ String sessionInfoTemplate({
     'recentTurns': recentTurns,
     'turnStatus': turnStatusView,
     'hasTurnStatus': true,
+    'hasEffectiveContext': effectiveContext != null,
+    'effectiveContext': effectiveContext,
   });
 
   return layoutTemplate(title: 'Session Info', body: body, appName: appName, scripts: standardShellScripts());

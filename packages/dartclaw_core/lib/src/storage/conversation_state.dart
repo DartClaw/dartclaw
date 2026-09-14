@@ -185,6 +185,92 @@ final class ConversationBranchLink {
   );
 }
 
+/// Selectable context captured at ordinary-conversation admission.
+final class EffectiveConversationContext {
+  final String projectId;
+  final String directory;
+  final String referenceRoot;
+  final String provider;
+  final String? model;
+  final String? effort;
+
+  const new({
+    required this.projectId,
+    required this.directory,
+    required this.referenceRoot,
+    required this.provider,
+    this.model,
+    this.effort,
+  });
+
+  Map<String, Object?> toJson() => {
+    'projectId': projectId,
+    'directory': directory,
+    'referenceRoot': referenceRoot,
+    'provider': provider,
+    if (model != null) 'model': model,
+    if (effort != null) 'effort': effort,
+  };
+
+  factory fromJson(Map<String, dynamic> json) => EffectiveConversationContext(
+    projectId: json['projectId'] as String,
+    directory: json['directory'] as String,
+    referenceRoot: json['referenceRoot'] as String,
+    provider: json['provider'] as String,
+    model: json['model'] as String?,
+    effort: json['effort'] as String?,
+  );
+}
+
+enum ContextMeasurementAvailability { measured, stale, unavailable, unsupported }
+
+/// Session-scoped provider observation shown by effective-context surfaces.
+final class SessionContextTelemetry {
+  final String sessionId;
+  final String source;
+  final DateTime observedAt;
+  final ContextMeasurementAvailability availability;
+  final int? usedTokens;
+  final int? contextWindowTokens;
+  final List<Map<String, String>> behaviorFiles;
+  final bool memoryContributed;
+
+  new({
+    required this.sessionId,
+    required this.source,
+    required this.observedAt,
+    required this.availability,
+    this.usedTokens,
+    this.contextWindowTokens,
+    List<Map<String, String>> behaviorFiles = const [],
+    this.memoryContributed = false,
+  }) : behaviorFiles = List.unmodifiable(behaviorFiles.map(Map<String, String>.unmodifiable));
+
+  Map<String, Object?> toJson() => {
+    'sessionId': sessionId,
+    'source': source,
+    'observedAt': observedAt.toUtc().toIso8601String(),
+    'availability': availability.name,
+    if (usedTokens != null) 'usedTokens': usedTokens,
+    if (contextWindowTokens != null) 'contextWindowTokens': contextWindowTokens,
+    'behaviorFiles': behaviorFiles,
+    'memoryContributed': memoryContributed,
+  };
+
+  factory fromJson(Map<String, dynamic> json) => SessionContextTelemetry(
+    sessionId: json['sessionId'] as String,
+    source: json['source'] as String,
+    observedAt: DateTime.parse(json['observedAt'] as String),
+    availability: ContextMeasurementAvailability.values.byName(json['availability'] as String),
+    usedTokens: json['usedTokens'] as int?,
+    contextWindowTokens: json['contextWindowTokens'] as int?,
+    behaviorFiles: (json['behaviorFiles'] as List<dynamic>? ?? const [])
+        .map((item) => Map<String, String>.from(item as Map))
+        .toList(growable: false),
+    memoryContributed: json['memoryContributed'] as bool? ?? false,
+  );
+}
+
 final class ConversationAttachmentManifest {
   final String id;
   final String filename;
@@ -236,6 +322,7 @@ final class ConversationSubmissionClaim {
   final String? detail;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final EffectiveConversationContext? admittedContext;
 
   new({
     required this.submissionId,
@@ -254,6 +341,7 @@ final class ConversationSubmissionClaim {
     this.detail,
     required this.createdAt,
     required this.updatedAt,
+    this.admittedContext,
   }) : references = List.unmodifiable(references.map((item) => Map<String, dynamic>.unmodifiable(item))),
        attachments = List.unmodifiable(attachments);
 
@@ -273,6 +361,7 @@ final class ConversationSubmissionClaim {
     Object? turnId = _unset,
     Object? detail = _unset,
     DateTime? updatedAt,
+    Object? admittedContext = _unset,
   }) => ConversationSubmissionClaim(
     submissionId: submissionId,
     revisionId: revisionId ?? this.revisionId,
@@ -290,6 +379,9 @@ final class ConversationSubmissionClaim {
     detail: identical(detail, _unset) ? this.detail : detail as String?,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    admittedContext: identical(admittedContext, _unset)
+        ? this.admittedContext
+        : admittedContext as EffectiveConversationContext?,
   );
 
   Map<String, Object?> toJson() => {
@@ -309,6 +401,7 @@ final class ConversationSubmissionClaim {
     if (detail != null) 'detail': detail,
     'createdAt': createdAt.toUtc().toIso8601String(),
     'updatedAt': updatedAt.toUtc().toIso8601String(),
+    if (admittedContext != null) 'admittedContext': admittedContext!.toJson(),
   };
 
   factory fromJson(Map<String, dynamic> json) => ConversationSubmissionClaim(
@@ -332,6 +425,9 @@ final class ConversationSubmissionClaim {
     detail: json['detail'] as String?,
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
+    admittedContext: json['admittedContext'] is Map
+        ? EffectiveConversationContext.fromJson(Map<String, dynamic>.from(json['admittedContext'] as Map))
+        : null,
   );
 }
 
@@ -340,10 +436,16 @@ final class ConversationState {
   final List<ConversationSubmissionClaim> submissions;
   final List<ConversationDisplayRecord> records;
   final List<ConversationBranchLink> branches;
+  final EffectiveConversationContext? currentContext;
+  final EffectiveConversationContext? nextContext;
+  final SessionContextTelemetry? telemetry;
 
   new({
     this.revision = 0,
     List<ConversationSubmissionClaim> submissions = const [],
+    this.currentContext,
+    this.nextContext,
+    this.telemetry,
     List<ConversationDisplayRecord> records = const [],
     List<ConversationBranchLink> branches = const [],
   }) : submissions = List.unmodifiable(submissions),
@@ -394,7 +496,15 @@ final class ConversationState {
     } else {
       next[index] = submission;
     }
-    return ConversationState(revision: revision + 1, submissions: next, records: records, branches: branches);
+    return ConversationState(
+      revision: revision + 1,
+      submissions: next,
+      records: records,
+      branches: branches,
+      currentContext: currentContext,
+      nextContext: nextContext,
+      telemetry: telemetry,
+    );
   }
 
   ConversationDisplayRecord? findRecord(String id) => records.where((record) => record.id == id).firstOrNull;
@@ -407,7 +517,15 @@ final class ConversationState {
     } else {
       next[index] = record;
     }
-    return ConversationState(revision: revision + 1, submissions: submissions, records: next, branches: branches);
+    return ConversationState(
+      revision: revision + 1,
+      submissions: submissions,
+      records: next,
+      branches: branches,
+      currentContext: currentContext,
+      nextContext: nextContext,
+      telemetry: telemetry,
+    );
   }
 
   ConversationBranchLink? findBranch(String mutationId) =>
@@ -431,14 +549,50 @@ final class ConversationState {
       submissions: submissions,
       records: records,
       branches: [...branches.where((item) => item.mutationId != branch.mutationId), branch],
+      currentContext: currentContext,
+      nextContext: nextContext,
+      telemetry: telemetry,
     );
   }
+
+  ConversationState stageContext(EffectiveConversationContext context) => ConversationState(
+    revision: revision + 1,
+    submissions: submissions,
+    records: records,
+    branches: branches,
+    currentContext: currentContext,
+    nextContext: context,
+    telemetry: telemetry,
+  );
+
+  ConversationState admitContext(EffectiveConversationContext context) => ConversationState(
+    revision: revision + 1,
+    submissions: submissions,
+    records: records,
+    branches: branches,
+    currentContext: context,
+    nextContext: nextContext,
+    telemetry: telemetry,
+  );
+
+  ConversationState recordTelemetry(SessionContextTelemetry value) => ConversationState(
+    revision: revision + 1,
+    submissions: submissions,
+    records: records,
+    branches: branches,
+    currentContext: currentContext,
+    nextContext: nextContext,
+    telemetry: value,
+  );
 
   Map<String, Object> toJson() => {
     'revision': revision,
     'submissions': submissions.map((submission) => submission.toJson()).toList(growable: false),
     'records': records.map((record) => record.toJson()).toList(growable: false),
     'branches': branches.map((branch) => branch.toJson()).toList(growable: false),
+    if (currentContext != null) 'currentContext': currentContext!.toJson(),
+    if (nextContext != null) 'nextContext': nextContext!.toJson(),
+    if (telemetry != null) 'telemetry': telemetry!.toJson(),
   };
 
   factory fromJson(Map<String, dynamic> json) => ConversationState(
@@ -452,5 +606,14 @@ final class ConversationState {
     branches: (json['branches'] as List<dynamic>? ?? const [])
         .map((item) => ConversationBranchLink.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList(growable: false),
+    currentContext: json['currentContext'] is Map
+        ? EffectiveConversationContext.fromJson(Map<String, dynamic>.from(json['currentContext'] as Map))
+        : null,
+    nextContext: json['nextContext'] is Map
+        ? EffectiveConversationContext.fromJson(Map<String, dynamic>.from(json['nextContext'] as Map))
+        : null,
+    telemetry: json['telemetry'] is Map
+        ? SessionContextTelemetry.fromJson(Map<String, dynamic>.from(json['telemetry'] as Map))
+        : null,
   );
 }

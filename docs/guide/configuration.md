@@ -483,6 +483,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `projects.<name>.credentials` | null or string |  | Names a github-token credentials entry used for pushes and pull requests. (restart required) |
 | `projects.<name>.default` | boolean |  | Pick this project when a new task names none. (restart required) |
 | `projects.<name>.localPath` | null or string |  | Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required) |
+| `projects.<name>.name` | null or string |  | Optional display name. Surfaces fall back to the project ID when absent. (restart required) |
 | `projects.<name>.pr.draft` | boolean |  | Open the pull request as a draft so review is opt-in. (restart required) |
 | `projects.<name>.pr.labels` | array |  | Labels applied to every pull request this project opens. (restart required) |
 | `projects.<name>.pr.strategy` | string | one of "branch-only", "github-pr" | What a finished task produces: a pushed branch only, or a GitHub pull request. (restart required) |

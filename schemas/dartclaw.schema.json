@@ -2206,6 +2206,13 @@
               "string"
             ]
           },
+          "name": {
+            "description": "Optional display name. Surfaces fall back to the project ID when absent. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "pr": {
             "additionalProperties": false,
             "properties": {

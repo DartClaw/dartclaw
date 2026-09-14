@@ -36,6 +36,14 @@ final class MemoryPromptProjection {
   final String? degradedReason;
 }
 
+/// Provenance read from the behavior and memory sources composed into a turn.
+final class BehaviorPromptProvenance {
+  const new({required this.files, required this.memoryContributed});
+
+  final List<Map<String, String>> files;
+  final bool memoryContributed;
+}
+
 /// Reads and manages the agent behavior prompt file (BEHAVIOR.md).
 class BehaviorFileService {
   static final _log = Logger('BehaviorFileService');
@@ -331,6 +339,34 @@ class BehaviorFileService {
     if (scope == PromptScope.restricted || !_workspaceFilesEnabled) return '';
     final content = await _readFile(p.join(workspaceDir, 'AGENTS.md'));
     return content ?? '';
+  }
+
+  /// Describes the configured files and memory block available to [scope].
+  Future<BehaviorPromptProvenance> promptProvenance({
+    PromptScope scope = PromptScope.primary,
+    bool includeAppendFile = false,
+  }) async {
+    if (scope == PromptScope.restricted || !_workspaceFilesEnabled) {
+      return const BehaviorPromptProvenance(files: [], memoryContributed: false);
+    }
+    final filenames = <String>[
+      if (soulOverride == null) 'SOUL.md',
+      if (scope == PromptScope.primary || _agentWorkspaceScoped) 'USER.md',
+      'TOOLS.md',
+      if (includeAppendFile) 'AGENTS.md',
+    ];
+    final origin = _agentWorkspaceScoped ? 'configured agent workspace' : 'configured workspace';
+    final files = <Map<String, String>>[];
+    for (final filename in filenames) {
+      final path = p.join(workspaceDir, filename);
+      final content = await _readFile(path);
+      if (content != null && content.trim().isNotEmpty) files.add({'path': path, 'origin': origin});
+    }
+    final memory = scope == PromptScope.primary && personalMemoryEnabled ? await promptMemoryProjection() : null;
+    return BehaviorPromptProvenance(
+      files: List.unmodifiable(files),
+      memoryContributed: memory != null && memory.degradedReason == null && memory.text.isNotEmpty,
+    );
   }
 
   // The contact label is channel-supplied text: JSON-encoded so a display name

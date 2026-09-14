@@ -216,6 +216,12 @@ class HarnessFactory {
     return result;
   }
 
+  /// Returns adapter-declared context transport support without starting providers.
+  Map<String, EffectiveContextCapabilities> probeEffectiveContextCapabilities() => {
+    for (final entry in _factories.entries)
+      entry.key: EffectiveContextCapabilities.of(entry.value(const HarnessFactoryConfig(cwd: '/'))),
+  };
+
   /// Returns the skill-activation line for [providerId] via polymorphic
   /// dispatch — creates an unstarted lightweight harness instance and
   /// asks it. Falls back to the [AgentHarness] base-class default when the

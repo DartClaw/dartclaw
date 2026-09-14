@@ -2394,7 +2394,7 @@ kbd, .kbd {
 .identicon--2 { background: linear-gradient(135deg, var(--info), var(--sky)); }
 .identicon--3 { background: linear-gradient(135deg, var(--mauve), var(--lavender)); }
 .identicon--4 { background: linear-gradient(135deg, var(--pink), var(--mauve)); }
-.identicon--5 { background: linear-gradient(135deg, var(--teal), var(--sky)); }
+.identicon--5 { background: linear-gradient(135deg, var(--teal), color-mix(in oklab, var(--info) 72%, black)); }
 .identicon--6 { background: linear-gradient(135deg, var(--lavender), var(--info)); }
 
 /* --- Print-in ---
@@ -3505,7 +3505,8 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
 
 /* A tab strip directly under the header would otherwise draw a second rule
    a few pixels below the header's own — one chrome edge, not two. */
-.dialog .tabs { border-bottom: 0; }
+.dialog > .tabs,
+.dialog > form > .tabs { border-bottom: 0; }
 
 /* A strip between the header and the body is chrome too, so it holds its
    height while the body absorbs the squeeze. The inset lines the strip up with

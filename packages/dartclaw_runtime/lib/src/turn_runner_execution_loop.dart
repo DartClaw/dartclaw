@@ -111,6 +111,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       } else if (event is SystemInitEvent) {
         recordActivity(TurnWaitReason.unknown);
         _contextMonitor.update(contextWindow: event.contextWindow);
+        _turnContextWindows[turnId] = event.contextWindow;
       } else if (event is CompactionStartingBridgeEvent) {
         _eventBus?.fire(CompactionStartingEvent(sessionId: sessionId, trigger: 'auto', timestamp: DateTime.now()));
       } else if (event is CompactionCompletedBridgeEvent) {
@@ -239,8 +240,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         final cacheWriteTokens = _worker.supportsCachedTokens ? result.cacheWriteTokens : 0;
 
         try {
-          await _trackSessionUsage(sessionId, result, providerId);
-          await _applySessionMetadata(sessionId, result);
+          await _trackSessionUsage(sessionId, turnId, result, providerId);
           // Zero reads as "no usage reported" here: a turn that reports none must not
           // zero the last known context size, and no provider measures a real context at 0.
           _contextMonitor.update(contextTokens: result.inputTokens > 0 ? result.inputTokens : null);
@@ -510,6 +510,8 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       // unconditional removal also covers throw and early-return paths.
       _externallyCompletedTurns.remove(turnId);
       _postProviderTurns.remove(turnId);
+      _promptProvenance.remove(turnId);
+      _turnContextWindows.remove(turnId);
       _turnToolHooks.remove(turnId);
       if (!cancelCleanupPending) _cancellingTurns.remove(turnId);
       if (activeStillThisTurn && !cancelCleanupPending) {

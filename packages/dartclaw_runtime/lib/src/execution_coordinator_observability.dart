@@ -48,6 +48,7 @@ extension ExecutionCoordinatorObservability on ExecutionCoordinator {
   void _observeRunner(TurnRunner runner, int runnerId) {
     _runnerIds[runner] = runnerId;
     runner.setOutcomeObserver((outcome) => _recordRunnerOutcome(runner, outcome));
+    runner.setContextTelemetryObserver(_contextTelemetryObserver);
   }
 
   void _recordRunnerOutcome(TurnRunner runner, TurnOutcome outcome) {

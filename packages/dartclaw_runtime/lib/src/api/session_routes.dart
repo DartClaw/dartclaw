@@ -39,6 +39,9 @@ Router sessionRoutes(
   SessionResetService? resetService,
   MessageRedactor? redactor,
   ProjectService? projectService,
+  Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  String defaultProvider = 'claude',
+  LogicalAgentSessionService? logicalAgentSessions,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
   SseBroadcast? sseBroadcast,
@@ -55,6 +58,10 @@ Router sessionRoutes(
     mutations: sessionMutations,
     updates: sseBroadcast,
     failpoint: conversationFailpoint,
+    projects: projectService,
+    contextCapabilities: contextCapabilities,
+    defaultProvider: defaultProvider,
+    titleAgents: logicalAgentSessions,
     redactor: redactor,
     approvalResponder: (sessionId, turnId, requestId, approved) =>
         turns.resolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId, approved: approved),
@@ -88,6 +95,9 @@ Router sessionRoutes(
     closed: conversation.closeRuntimeApproval,
   );
   turns.setToolHistoryObserver(conversation.retainRuntimeToolEvent);
+  turns.setContextTelemetryObserver((telemetry) async {
+    await conversation.recordTelemetry(telemetry.sessionId, telemetry);
+  });
   Future<({Session session, bool created})>? openNewChatPromise;
 
   Future<({Session session, bool created})> openNewChat() {
@@ -188,7 +198,7 @@ Router sessionRoutes(
         if (session.type == SessionType.main) {
           return errorResponse(403, 'FORBIDDEN', 'Cannot rename main session');
         }
-        await sessions.updateTitle(id, trimmed);
+        await sessions.updateTitleWithProvenance(id, trimmed, provenance: SessionTitleProvenance.manual);
         final updated = await sessions.getSession(id);
         if (updated == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -220,6 +230,7 @@ Router sessionRoutes(
     sessions: sessions,
     messages: messages,
     sessionMutations: sessionMutations,
+    conversation: conversation,
     projectService: projectService,
     failpoint: attachmentWriteFailpoint,
     attachmentIdFactory: attachmentIdFactory,
@@ -234,7 +245,15 @@ Router sessionRoutes(
     sessionMutations: sessionMutations,
   );
 
-  registerSessionConversationRoutes(router, sessions: sessions, conversation: conversation, turns: turns);
+  registerSessionConversationRoutes(
+    router,
+    sessions: sessions,
+    conversation: conversation,
+    turns: turns,
+    projects: projectService,
+    contextCapabilities: contextCapabilities,
+    defaultProvider: defaultProvider,
+  );
 
   // Session lifecycle (delete / resume / archive / reset).
   registerSessionLifecycleRoutes(

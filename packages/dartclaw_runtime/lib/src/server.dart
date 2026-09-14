@@ -741,6 +741,9 @@ class DartclawServer {
       resetService: _core.resetService,
       redactor: _core.redactor,
       projectService: _tasks.projectService,
+      contextCapabilities: _core.effectiveContextCapabilities,
+      defaultProvider: defaultProvider,
+      logicalAgentSessions: _core.logicalAgentSessions,
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
       sseBroadcast: _observability.sseBroadcast,
@@ -790,6 +793,7 @@ class DartclawServer {
       threadBindingStore: _channels.threadBindingStore,
       workflowService: _web.workflowService,
       workflowDefinitionSource: _web.workflowDefinitionSource,
+      contextCapabilities: _core.effectiveContextCapabilities,
     );
     router.mount('/', webRouter.call);
   }

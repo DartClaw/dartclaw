@@ -17,7 +17,7 @@ part 'acp_harness_presentation.dart';
 /// Minimal subprocess-backed ACP harness.
 final class AcpHarness extends AgentHarness
     with SequentialLock, ProcessLifecycleOwner
-    implements HarnessTurnContextSink {
+    implements HarnessTurnContextSink, EffectiveContextCapabilityProvider {
   /// Working directory used for the ACP subprocess and session.
   final String cwd;
 
@@ -115,6 +115,9 @@ final class AcpHarness extends AgentHarness
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.replace;
+
+  @override
+  EffectiveContextCapabilities get effectiveContextCapabilities => EffectiveContextCapabilities.unavailable;
 
   @override
   bool get supportsCostReporting => false;

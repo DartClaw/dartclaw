@@ -214,6 +214,21 @@
 
     <!-- Composer -->
     <div class="input-area">
+      <section id="effective-context-summary" class="card card-compact" aria-label="Effective context">
+        <div><strong>Workspace owner</strong> <span id="effective-context-workspace">agent:release</span></div>
+        <div><strong>Current</strong> <span id="effective-context-current">dartclaw · claude · opus</span></div>
+        <div><strong>Next turn</strong> <span id="effective-context-next">website · codex · high</span></div>
+        <button id="effective-context-open" class="btn btn-ghost" aria-haspopup="dialog">Context</button>
+      </section>
+      <dialog id="effective-context-dialog" class="dialog" aria-labelledby="effective-context-title">
+        <h2 id="effective-context-title">Conversation context</h2>
+        <div class="tabs" role="tablist" aria-label="Context details"></div>
+        <p id="effective-context-continuity" class="banner banner-warning">Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
+        <p id="effective-context-source">Source: codex · observed just now · measured zero tokens</p>
+        <p id="effective-context-unavailable">ACP model and effort unavailable</p>
+        <p id="effective-context-rejection" role="alert">Rejected reference stays in the retained draft.</p>
+        <button id="effective-context-close" class="btn btn-primary">Done</button>
+      </dialog>
       <div class="composer">
         <div class="chip-row">
           <span class="chip chip--file">

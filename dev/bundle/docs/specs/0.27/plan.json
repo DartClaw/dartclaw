@@ -218,9 +218,23 @@
         "S01",
         "S03"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s05-effective-conversation-context.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
+      "verified": {
+        "at": "2026-09-14T18:28Z",
+        "summary": "Worktree focused104/API6/concurrency2 pass, affected analysis and format2020/0 clean; original independent FAIL1C3H1M repaired. Main integration focused64/context-recovery7/final-recovery4/combined-live1 pass; affected analysis clean; format2034/0. Heavy browser/visual/crash/provider/build/Docker/integration/broad gates explicitly UNEXECUTED until final gate."
+      },
       "owner": "codex/0.27-s05-context",
       "scope": "The composer and session settings show truthful workspace ownership, project/directory/reference context, provider/model/effort and source-labelled telemetry. Authorized changes take effect on the next turn and revalidate references. Cover E8/Q9, workspace context in W6, project names/identicons and schema-bound title generation with manual-title precedence.",
       "sourceRefs": [
@@ -292,10 +306,10 @@
         "S02",
         "S04"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s08-temporary-conversations-and-export.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "codex/0.27-s08-temporary",
       "scope": "Supported temporary conversations meet the explicit process-lifetime, in-memory draft and no-durable-content boundary; ending confirms termination/cleanup and restart never replays temporary work. Ordinary and temporary export produce authorized readable history with lineage and an honest attachment manifest. Cover E10/Q9 across every inventoried host/browser/provider retention surface.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr9-temporary-conversations-and-export",

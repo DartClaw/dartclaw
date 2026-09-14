@@ -138,6 +138,8 @@ DartclawServer _composeRuntimeServer(
     mcpToolCanonicals: harness.ownMcpToolCanonicals,
     webhookSecret: channel.webhookSecret,
     resultTrimmer: harness.resultTrimmer,
+    effectiveContextCapabilities: harness.effectiveContextCapabilities,
+    logicalAgentSessions: harness.logicalAgentSessions,
   ),
   turn: ServerTurnDeps(turns: ctx._serverTurns, executions: harness.executions),
   channels: ServerChannelDeps(

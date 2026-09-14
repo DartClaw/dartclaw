@@ -29,7 +29,7 @@ The interface has three main areas:
 - **Switch**: Click any session in the sidebar to load its messages
 - **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
 - **Delete**: Click the × button on a sidebar item
-- **Auto-title**: After the first assistant response, a new non-workspace conversation is titled with the first ~50 characters of your message. The workspace **Agent** is never auto-titled.
+- **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
@@ -49,6 +49,7 @@ The interface has three main areas:
   Expired, restarted, unsupported, mismatched, and hard-guarded requests remain visible as unavailable or blocked.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
 - **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
+- **Effective context**: The composer and session-information page keep the immutable workspace owner separate from the current turn and the project, directory, provider, model, and effort staged for the next turn. Context changes carry the displayed conversation revision. Unsupported adapter fields are unavailable, and a rejected change leaves the draft and prior context intact.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:
@@ -213,6 +214,18 @@ GET /api/sessions/:id/references?q=<query>
 ```
 
 Returns typed reference suggestions for sessions, projects, files, tools, and memory. Submitted references must resolve before the message is accepted.
+
+#### Read and change effective context
+
+```
+GET /api/sessions/:id/conversation-state
+PATCH /api/sessions/:id/context
+Content-Type: application/json
+
+{"conversation_revision":4,"project_id":"docs","directory":"/workspace/docs","provider":"claude","model":"sonnet","effort":"high"}
+```
+
+The conversation snapshot includes `current_context`, `next_context`, and session-scoped telemetry when recorded. A context mutation stages the complete next-turn context only after its revision, project, directory, provider, and adapter-supported overrides pass validation. The next admitted attempt captures that exact snapshot. Stale or unauthorized mutations reject atomically.
 
 #### Send message and start turn
 

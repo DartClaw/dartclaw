@@ -15,6 +15,11 @@ extension TurnRunnerExecution on TurnRunner {
 
     final effectiveBehavior = turnContext?.behaviorOverride ?? _behavior;
     final scope = turnContext?.promptScope ?? PromptScope.restricted;
+    final provenance = await effectiveBehavior.promptProvenance(
+      scope: scope,
+      includeAppendFile: _worker.promptStrategy == PromptStrategy.append,
+    );
+    if (turnContext != null) _promptProvenance[turnContext.turnId] = provenance;
 
     if (_worker.promptStrategy == PromptStrategy.append) {
       return effectiveBehavior.composeStaticPrompt(
@@ -83,74 +88,74 @@ extension TurnRunnerExecution on TurnRunner {
     }
   }
 
-  Future<void> _trackSessionUsage(String sessionId, TurnResult result, String provider) async {
+  Future<void> _trackSessionUsage(String sessionId, String turnId, TurnResult result, String provider) async {
     final kv = _kv;
-    if (kv == null) return;
-
-    final key = 'session_cost:$sessionId';
-    final existing = await kv.get(key);
-    Map<String, dynamic> costData;
-    if (existing != null) {
-      costData = jsonDecode(existing) as Map<String, dynamic>;
-    } else {
-      costData = {
-        'input_tokens': 0,
-        'output_tokens': 0,
-        'cache_read_tokens': 0,
-        'cache_write_tokens': 0,
-        'total_tokens': 0,
-        'effective_tokens': 0,
-        'estimated_cost_usd': null,
-        'cost_reported_turn_count': 0,
-        'turn_count': 0,
+    if (kv != null) {
+      final key = 'session_cost:$sessionId';
+      final existing = await kv.get(key);
+      final costData = existing != null
+          ? jsonDecode(existing) as Map<String, dynamic>
+          : <String, dynamic>{
+              'input_tokens': 0,
+              'output_tokens': 0,
+              'cache_read_tokens': 0,
+              'cache_write_tokens': 0,
+              'total_tokens': 0,
+              'effective_tokens': 0,
+              'estimated_cost_usd': null,
+              'cost_reported_turn_count': 0,
+              'turn_count': 0,
+            };
+      final inputTokens = result.inputTokens;
+      final outputTokens = result.outputTokens;
+      final cacheReadTokens = result.cacheReadTokens;
+      final cacheWriteTokens = result.cacheWriteTokens;
+      final reportedCostUsd = _worker.supportsCostReporting ? result.costUsd : null;
+      final existingProvider = switch (costData['provider']) {
+        final String value when value.trim().isNotEmpty => value,
+        _ => null,
       };
+      final effectiveDelta = computeEffectiveTokens(
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cacheReadTokens: cacheReadTokens,
+        cacheWriteTokens: cacheWriteTokens,
+      );
+
+      costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
+      costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
+      costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
+      costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
+      costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
+      costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
+      final accumulatedCostUsd = (costData['estimated_cost_usd'] as num?)?.toDouble();
+      costData['estimated_cost_usd'] = reportedCostUsd == null
+          ? accumulatedCostUsd
+          : (accumulatedCostUsd ?? 0) + reportedCostUsd;
+      costData['cost_reported_turn_count'] =
+          ((costData['cost_reported_turn_count'] as num?)?.toInt() ?? 0) + (reportedCostUsd == null ? 0 : 1);
+      costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
+      costData['provider'] = existingProvider ?? provider;
+      await kv.set(key, jsonEncode(costData));
     }
 
-    final inputTokens = result.inputTokens;
-    final outputTokens = result.outputTokens;
-    final cacheReadTokens = result.cacheReadTokens;
-    final cacheWriteTokens = result.cacheWriteTokens;
-    final reportedCostUsd = _worker.supportsCostReporting ? result.costUsd : null;
-    final existingProvider = switch (costData['provider']) {
-      final String value when value.trim().isNotEmpty => value,
-      _ => null,
-    };
-    final effectiveDelta = computeEffectiveTokens(
-      inputTokens: inputTokens,
-      outputTokens: outputTokens,
-      cacheReadTokens: cacheReadTokens,
-      cacheWriteTokens: cacheWriteTokens,
+    final observeTelemetry = _contextTelemetryObserver;
+    if (observeTelemetry == null) return;
+    final contextWindow = _turnContextWindows[turnId];
+    final provenance = _promptProvenance[turnId];
+    await observeTelemetry(
+      SessionContextTelemetry(
+        sessionId: sessionId,
+        source: provider,
+        observedAt: DateTime.now().toUtc(),
+        availability: contextWindow == null
+            ? ContextMeasurementAvailability.unavailable
+            : ContextMeasurementAvailability.measured,
+        usedTokens: contextWindow == null ? null : result.inputTokens,
+        contextWindowTokens: contextWindow,
+        behaviorFiles: provenance?.files ?? const [],
+        memoryContributed: provenance?.memoryContributed ?? false,
+      ),
     );
-
-    costData['input_tokens'] = ((costData['input_tokens'] as num?)?.toInt() ?? 0) + inputTokens;
-    costData['output_tokens'] = ((costData['output_tokens'] as num?)?.toInt() ?? 0) + outputTokens;
-    costData['cache_read_tokens'] = ((costData['cache_read_tokens'] as num?)?.toInt() ?? 0) + cacheReadTokens;
-    costData['cache_write_tokens'] = ((costData['cache_write_tokens'] as num?)?.toInt() ?? 0) + cacheWriteTokens;
-    costData['total_tokens'] = ((costData['total_tokens'] as num?)?.toInt() ?? 0) + inputTokens + outputTokens;
-    costData['effective_tokens'] = ((costData['effective_tokens'] as num?)?.toInt() ?? 0) + effectiveDelta;
-    final accumulatedCostUsd = (costData['estimated_cost_usd'] as num?)?.toDouble();
-    costData['estimated_cost_usd'] = reportedCostUsd == null
-        ? accumulatedCostUsd
-        : (accumulatedCostUsd ?? 0) + reportedCostUsd;
-    costData['cost_reported_turn_count'] =
-        ((costData['cost_reported_turn_count'] as num?)?.toInt() ?? 0) + (reportedCostUsd == null ? 0 : 1);
-    costData['turn_count'] = ((costData['turn_count'] as num?)?.toInt() ?? 0) + 1;
-    costData['provider'] = existingProvider ?? provider;
-
-    await kv.set(key, jsonEncode(costData));
-  }
-
-  Future<void> _applySessionMetadata(String sessionId, TurnResult result) async {
-    final sessions = _sessions;
-    if (sessions == null) return;
-    final title = switch (result.sessionTitle) {
-      final String value when value.trim().isNotEmpty => value.trim(),
-      _ => null,
-    };
-    if (title != null) {
-      final session = await sessions.getSession(sessionId);
-      if (session?.type == SessionType.main) return;
-      await sessions.updateTitle(sessionId, title);
-    }
   }
 }

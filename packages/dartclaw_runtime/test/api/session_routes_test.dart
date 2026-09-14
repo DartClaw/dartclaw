@@ -1997,15 +1997,26 @@ final class PausingInsertMessageService extends MessageService {
   final resumeInsert = Completer<void>();
 
   @override
-  Future<Message> insertMessage({
+  Future<Message> insertMessageWithIdentity({
     required String sessionId,
+    required String messageId,
     required String role,
     required String content,
     String? metadata,
+    required DateTime createdAt,
+    bool notifyObserver = true,
   }) async {
     insertStarted.complete();
     await resumeInsert.future;
-    return super.insertMessage(sessionId: sessionId, role: role, content: content, metadata: metadata);
+    return super.insertMessageWithIdentity(
+      sessionId: sessionId,
+      messageId: messageId,
+      role: role,
+      content: content,
+      metadata: metadata,
+      createdAt: createdAt,
+      notifyObserver: notifyObserver,
+    );
   }
 }
 
@@ -2055,10 +2066,10 @@ final class PausingUpdateTitleSessionService extends SessionService {
   }
 
   @override
-  Future<int> updateTitle(String id, String title) async {
+  Future<int> updateTitleWithProvenance(String id, String title, {required SessionTitleProvenance provenance}) async {
     updateStarted.complete();
     await resumeUpdate.future;
-    return super.updateTitle(id, title);
+    return super.updateTitleWithProvenance(id, title, provenance: provenance);
   }
 }
 

@@ -140,12 +140,68 @@ class InMemorySessionService implements SessionService {
 
   @override
   Future<int> updateTitle(String id, String title) async {
+    return updateTitleWithProvenance(id, title, provenance: SessionTitleProvenance.system);
+  }
+
+  @override
+  Future<int> updateTitleWithProvenance(String id, String title, {required SessionTitleProvenance provenance}) async {
     final session = _sessionsById[id];
     if (session == null) {
       return 0;
     }
-    _sessionsById[id] = session.copyWith(title: title, updatedAt: DateTime.now());
+    _sessionsById[id] = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: provenance,
+      updatedAt: DateTime.now(),
+    );
     return 1;
+  }
+
+  @override
+  Future<Session?> setAutomaticTitleFallback(String id, String title) async {
+    final session = _sessionsById[id];
+    if (session == null) return null;
+    if (session.title?.trim().isNotEmpty ?? false) return session;
+    final updated = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticFallback,
+      updatedAt: DateTime.now(),
+    );
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Session?> claimAutomaticTitle(String id) async {
+    final session = _sessionsById[id];
+    if (session == null ||
+        session.automaticTitleAttempted ||
+        session.titleProvenance != SessionTitleProvenance.automaticFallback) {
+      return null;
+    }
+    final updated = session.copyWith(automaticTitleAttempted: true, updatedAt: DateTime.now());
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<bool> applyAutomaticTitle(String id, String title, {required int expectedRevision}) async {
+    final session = _sessionsById[id];
+    if (session == null ||
+        session.titleRevision != expectedRevision ||
+        session.titleProvenance != SessionTitleProvenance.automaticFallback ||
+        !session.automaticTitleAttempted) {
+      return false;
+    }
+    _sessionsById[id] = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticGenerated,
+      updatedAt: DateTime.now(),
+    );
+    return true;
   }
 
   @override

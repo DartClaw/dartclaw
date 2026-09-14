@@ -84,7 +84,8 @@ const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends BaseHarness implements HarnessToolApprovalResponder {
+class ClaudeCodeHarness extends BaseHarness
+    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, String> _containerEnvironment;
@@ -237,6 +238,10 @@ class ClaudeCodeHarness extends BaseHarness implements HarnessToolApprovalRespon
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
+
+  @override
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
 
   @override
   bool get supportsCachedTokens => true;
@@ -401,17 +406,6 @@ class ClaudeCodeHarness extends BaseHarness implements HarnessToolApprovalRespon
     final desiredPersistsSession = providerSessionId != null || requestProviderSessionResume;
     // `--json-schema` is a spawn flag, not a per-turn field.
     final desiredOutputSchemaJson = outputSchema == null ? null : jsonEncode(outputSchema);
-
-    // First-use adoption: when the process was spawned with null effort/model
-    // and the first ordinary turn supplies a non-null value, adopt it without restarting.
-    // This prevents unnecessary restarts when governance.crowd_coding.effort
-    // is set but agent.effort is not.
-    if (agentId == null && _processEffort == null && desiredEffort != null) {
-      _processEffort = desiredEffort;
-    }
-    if (agentId == null && _processModel == null && desiredModel != null) {
-      _processModel = desiredModel;
-    }
 
     final sessionChanged = _conversationSessionId != null && _conversationSessionId != sessionId;
     if (sessionChanged ||

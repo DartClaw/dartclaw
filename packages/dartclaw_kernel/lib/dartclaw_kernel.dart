@@ -2,7 +2,14 @@
 library;
 
 export 'src/models.dart'
-    show Session, SessionType, Message, MemorySearchResult, MemorySearchDegradation, MemorySearchOutcome;
+    show
+        Session,
+        SessionType,
+        SessionTitleProvenance,
+        Message,
+        MemorySearchResult,
+        MemorySearchDegradation,
+        MemorySearchOutcome;
 export 'src/full_text_index.dart' show FullTextIndex, SearchDocument, SearchResult;
 export 'src/vector_search.dart'
     show

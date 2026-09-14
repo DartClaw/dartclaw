@@ -353,6 +353,7 @@ String chatAreaTemplate({
   bool isNewChatDraft = false,
   Map<String, dynamic>? turnStatus,
   String? targetMessageId,
+  Map<String, dynamic>? effectiveContext,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
   final inputDisabled = isStreaming || readOnly;
@@ -378,6 +379,8 @@ String chatAreaTemplate({
       'placeholder': placeholder,
       'inputDisabled': inputDisabled ? true : null,
       'autofocus': autofocus && !inputDisabled ? true : null,
+      'effectiveContext': effectiveContext,
+      'hasEffectiveContext': effectiveContext != null,
     },
   );
 }

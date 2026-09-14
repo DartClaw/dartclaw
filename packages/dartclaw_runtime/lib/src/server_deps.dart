@@ -39,6 +39,8 @@ class ServerCoreDeps {
   final String? webhookSecret;
 
   final ResultTrimmer? resultTrimmer;
+  final Map<String, EffectiveContextCapabilities> effectiveContextCapabilities;
+  final LogicalAgentSessionService? logicalAgentSessions;
 
   const new({
     required this.sessions,
@@ -64,6 +66,8 @@ class ServerCoreDeps {
     this.mcpToolCanonicals = const {},
     this.webhookSecret,
     this.resultTrimmer,
+    this.effectiveContextCapabilities = const {},
+    this.logicalAgentSessions,
   });
 }
 

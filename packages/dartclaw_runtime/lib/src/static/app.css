@@ -1133,6 +1133,21 @@
 .well-content .form-title { font-size: var(--text-base); font-weight: var(--weight-bold); color: var(--fg); margin-bottom: var(--sp-3); }
 .well-content .form-grid { display: flex; flex-direction: column; gap: var(--sp-3); }
 
+.effective-context-form {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.effective-context-form input,
+.effective-context-form select,
+.effective-context-form button { min-height: 44px; }
+.effective-context-form button { grid-column: 2; justify-self: end; }
+@media (max-width: 480px) {
+  .effective-context-form { grid-template-columns: 1fr; }
+  .effective-context-form button { grid-column: 1; justify-self: stretch; }
+}
+
 /* Schedule row: input + preview */
 .schedule-row { display: flex; align-items: center; gap: var(--sp-3); }
 .schedule-row input[type="text"] { flex: 1; }

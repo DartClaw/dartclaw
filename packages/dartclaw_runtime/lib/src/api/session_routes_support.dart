@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:shelf/shelf.dart';
 
+import '../templates/helpers.dart' show formatRelativeTimeIso;
 import 'api_helpers.dart';
 
 /// Shared request-parsing and small utilities for the `session_*_routes.dart`
@@ -99,7 +101,88 @@ Future<({Map<String, dynamic> json, Response? error})> parseJsonObjectBody(
 }
 
 /// Filesystem root that file-type references are resolved against.
-Future<String> referenceRoot(ProjectService? projects) async {
+Future<String> sessionReferenceRoot(ProjectService? projects) async {
   if (projects == null) return Directory.current.path;
   return (await projects.defaultProject).localPath;
+}
+
+/// Canonical render projection for one session's effective conversation context.
+Future<Map<String, dynamic>> effectiveContextView(
+  Session session,
+  ConversationState state,
+  ProjectService? projects,
+  String defaultProvider,
+  Map<String, EffectiveContextCapabilities> capabilities,
+) async {
+  final fallbackProject = projects == null ? null : await projects.defaultProject;
+  final availableProjects = projects == null ? const <Project>[] : await projects.getAll();
+  final next = state.nextContext;
+  final current = state.currentContext;
+  final projectId = next?.projectId ?? fallbackProject?.id ?? '_local';
+  final project = projects == null ? null : await projects.get(projectId);
+  final projectName = project?.name ?? projectId;
+  final provider = next?.provider ?? session.provider ?? defaultProvider;
+  final providerCapabilities = capabilities[provider];
+  final telemetry = state.telemetry;
+  final telemetryLabel = telemetry == null || telemetry.sessionId != session.id
+      ? 'unavailable'
+      : '${telemetry.availability.name} · ${telemetry.source} · ${formatRelativeTimeIso(telemetry.observedAt.toIso8601String())}'
+            '${telemetry.usedTokens == null ? '' : ' · ${telemetry.usedTokens} tokens'}';
+  final behaviorLabel = telemetry == null || telemetry.sessionId != session.id || telemetry.behaviorFiles.isEmpty
+      ? 'none recorded'
+      : telemetry.behaviorFiles
+            .map((entry) => '${entry['path'] ?? 'unknown'} (${entry['origin'] ?? 'unknown origin'})')
+            .join(' · ');
+  String contextLabel(EffectiveConversationContext? value) {
+    if (value == null) return 'Pending first turn';
+    final model = value.model == null ? '' : ' · ${value.model}';
+    final effort = value.effort == null ? '' : ' · ${value.effort}';
+    return '${value.projectId} · ${value.provider}$model$effort';
+  }
+
+  return {
+    'workspace': session.workspace == null ? 'web' : 'agent:${session.workspace!.agentId}',
+    'project': projectName,
+    'projectId': projectId,
+    'projects': availableProjects
+        .where((candidate) => candidate.status == ProjectStatus.ready)
+        .map(
+          (candidate) => {
+            'value': candidate.id,
+            'label': candidate.name.isEmpty ? candidate.id : candidate.name,
+            'selected': candidate.id == projectId,
+          },
+        )
+        .toList(growable: false),
+    'directory': next?.directory ?? fallbackProject?.localPath ?? Directory.current.path,
+    'referenceRoot': next?.referenceRoot ?? fallbackProject?.localPath ?? Directory.current.path,
+    'provider': provider,
+    'providers': {...capabilities.keys, provider}
+        .map(
+          (candidate) => {
+            'value': candidate,
+            'label': candidate,
+            'selected': candidate == provider,
+            'model': capabilities[candidate]?.model == true ? 'true' : 'false',
+            'effort': capabilities[candidate]?.effort == true ? 'true' : 'false',
+          },
+        )
+        .toList(growable: false),
+    'modelEditable': providerCapabilities?.model == true,
+    'effortEditable': providerCapabilities?.effort == true,
+    'modelValue': next?.model ?? '',
+    'effortValue': next?.effort ?? '',
+    'model': providerCapabilities?.model == false ? 'unavailable' : next?.model ?? 'provider default',
+    'effort': providerCapabilities?.effort == false ? 'unavailable' : next?.effort ?? 'provider default',
+    'composer':
+        '$provider · ${providerCapabilities?.model == false ? 'model unavailable' : next?.model ?? 'provider model'}'
+        ' · ${providerCapabilities?.effort == false ? 'effort unavailable' : next?.effort ?? 'provider effort'}',
+    'current': contextLabel(current),
+    'next': contextLabel(next),
+    'telemetry': telemetryLabel,
+    'behavior': behaviorLabel,
+    'memory': telemetry?.memoryContributed == true ? 'Memory contributed' : null,
+    'memoryHidden': telemetry?.memoryContributed == true ? null : true,
+    'revision': state.revision,
+  };
 }

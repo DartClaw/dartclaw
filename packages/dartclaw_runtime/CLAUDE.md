@@ -217,9 +217,14 @@ tests construct sparse compositions through the same two functions.
 - `lib/src/web/settings/` + `lib/src/templates/settings_form.{html,dart}` — the registry-driven settings form.
 - `lib/src/static/controllers/` — Stimulus bootstrap + controller contract (`index.js`, `CONVENTIONS.md`, `dc_*_controller.js`).
 - `lib/src/api/*_routes.dart` + `api_helpers.dart` + `sse_broadcast.dart` — HTTP/SSE surface. `session_routes.dart` is the session CRUD factory + composition root; cohesive groups live in sibling `session_{message,attachment,conversation,lifecycle,turn_status}_routes.dart` (each exposes a `register*Routes(Router, {...})` called from the factory), with the shared request helpers in `session_routes_support.dart` (the mutation coordinator lives in `lib/src/concurrency/`).
-- `lib/src/conversation/conversation_service.dart` — the only ordinary web-conversation admission, queue, restart
-  recovery and stop/steer transition authority; it dispatches only committed filesystem claims through `TurnManager`.
+- `lib/src/conversation/conversation_service.dart` — the only ordinary web-conversation admission, queue, restart,
+  recovery, stop/steer transition and effective-context authority. `ConversationState.nextContext` stages revision-checked selections,
+  `ConversationSubmissionClaim.admittedContext` pins one attempt, and dispatch promotes it to `currentContext` only
+  after project/reference revalidation. Session title generation claims the persisted one-shot bit and applies through
+  title revision/provenance compare-and-set. It dispatches only committed filesystem claims through `TurnManager`.
 - `lib/src/turn_manager.dart` + `turn_runner.dart` (with cancellation and memory parts) + `turn_wait_status.dart` + `turn_governance_enforcer.dart` + `execution_coordinator.dart` (lifecycle/observability/model parts) + `worker_capacity_gate.dart` — turn lifecycle, status, allocation, reuse, and early cancel.
+  `TurnRunner._trackSessionUsage` is the runtime context-telemetry producer; the coordinator propagates its observer to
+  primary and future workers, and the session router persists observations through `ConversationService`'s mutation chain.
 - `lib/src/task/task_executor.dart` + `task_service.dart` + `worktree_manager.dart` + `merge_executor.dart` — task runtime + git ops.
 - `lib/src/container/container_manager.dart` + `security_profile.dart` + `bridge_binary.dart` + `gateway/` — container orchestration and host mediation.
 - `lib/src/codex_rejection.dart` — the four-bucket backend-refusal vocabulary used by the gateway adapter. A present status decides what it can decide *before* any body marker is read (401 → `authExpired`, 429 → `usageLimit`), because backends write one prose body for several conditions and the losing bucket there maps to no credential health at all. Body markers cover only what no status distinguishes; `modelUnsupported` additionally requires a 4xx.

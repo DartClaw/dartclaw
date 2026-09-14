@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 
 import '../session/session_display_title.dart';
 import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/conversation_service.dart';
 import 'api_helpers.dart';
 import 'reference_suggestions.dart';
 import 'session_routes_support.dart';
@@ -34,6 +35,7 @@ void registerSessionAttachmentRoutes(
   required SessionService sessions,
   required MessageService messages,
   required SessionMutationCoordinator sessionMutations,
+  required ConversationService conversation,
   ProjectService? projectService,
   AttachmentWriteFailpoint? failpoint,
   String Function()? attachmentIdFactory,
@@ -117,7 +119,13 @@ void registerSessionAttachmentRoutes(
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
       final query = request.url.queryParameters['q']?.trim() ?? '';
-      final references = await _referenceSuggestions(sessions, projectService, query);
+      final context = await conversation.snapshot(id);
+      final references = await _referenceSuggestions(
+        sessions,
+        projectService,
+        query,
+        referenceRoot: context.nextContext?.referenceRoot,
+      );
       return jsonResponse(200, {'references': references});
     } catch (e) {
       _log.warning('Failed to lookup references for $id: $e', e);
@@ -189,8 +197,9 @@ List<int>? _decodeAttachmentBytes(String value) {
 Future<List<Map<String, dynamic>>> _referenceSuggestions(
   SessionService sessions,
   ProjectService? projectService,
-  String query,
-) async {
+  String query, {
+  String? referenceRoot,
+}) async {
   final normalizedQuery = query.toLowerCase();
   bool matches(String value) => normalizedQuery.isEmpty || value.toLowerCase().contains(normalizedQuery);
 
@@ -210,7 +219,7 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
     }
   }
 
-  final root = Directory(await referenceRoot(projectService));
+  final root = Directory(referenceRoot ?? await sessionReferenceRoot(projectService));
   if (await root.exists()) {
     references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
   }

@@ -6,7 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
-import 'package:dartclaw_runtime/src/server.dart' show ServerCoreDeps, ServerObservabilityDeps, ServerTurnDeps;
+import 'package:dartclaw_runtime/src/server.dart'
+    show ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps;
 import 'package:dartclaw_runtime/src/server_composition.dart';
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
@@ -27,6 +28,26 @@ Future<void> main(List<String> arguments) async {
   final messages = MessageService(baseDir: dataDirectory);
   final eventBus = EventBus();
   final sessions = SessionService(baseDir: dataDirectory, eventBus: eventBus);
+  final projectDirectory = Directory(p.join(dataDirectory, 'fixture-docs'))..createSync(recursive: true);
+  File(p.join(projectDirectory.path, 'reference.md')).writeAsStringSync('effective context reference');
+  File(p.join(dataDirectory, 'TOOLS.md')).writeAsStringSync('Fixture browser behavior');
+  final projectService = FakeProjectService(
+    projects: [
+      Project(
+        id: 'fixture-docs',
+        name: 'Fixture Docs',
+        remoteUrl: '',
+        localPath: projectDirectory.path,
+        defaultBranch: 'main',
+        status: ProjectStatus.ready,
+        createdAt: DateTime.now(),
+      ),
+    ],
+    defaultProjectId: 'fixture-docs',
+  );
+  final namedAgentSession = await sessions.createSession(
+    workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: projectDirectory.path),
+  );
   final historyFixture = await _seedHistoryFixture(sessions, messages, dataDirectory);
   final channelSession = await _seedExternalSession(
     sessions,
@@ -36,6 +57,7 @@ Future<void> main(List<String> arguments) async {
   );
   final cronSession = await _seedExternalSession(sessions, messages, type: SessionType.cron, provider: 'claude');
   final harness = _HistoryBrowserHarness();
+  final secondaryHarness = FakeAgentHarness();
   final packageUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
   final packageRoot = p.normalize(p.join(p.dirname(packageUri!.toFilePath()), '..'));
   initTemplates(p.join(packageRoot, 'lib', 'src', 'templates'));
@@ -51,11 +73,22 @@ Future<void> main(List<String> arguments) async {
     eventBus: eventBus,
   );
   final executions = ExecutionCoordinator(
-    providerCapacities: const {},
+    providerCapacities: const {'acp': 1},
     primary: runner,
     admitExecution: (request) => runner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
     releaseAdmission: runner.releaseAdmission,
-    createWorker: (_) => throw StateError('Worker execution is disabled'),
+    createWorker: (request) async => TurnRunner(
+      turnLimits: const TurnLimitsConfig.defaults(),
+      harness: secondaryHarness,
+      messages: messages,
+      behavior: BehaviorFileService(workspaceDir: dataDirectory),
+      sessions: sessions,
+      turnState: turnState,
+      kv: kv,
+      eventBus: eventBus,
+      providerId: request.providerId,
+      executionPolicy: request.policy,
+    ),
   );
   final turns = composeServerTurns(
     sessions: sessions,
@@ -87,12 +120,21 @@ Future<void> main(List<String> arguments) async {
       staticDir: p.join(packageRoot, 'lib', 'src', 'static'),
       kvService: kv,
       authEnabled: false,
+      effectiveContextCapabilities: const {
+        'claude': EffectiveContextCapabilities(model: true, effort: true),
+        'acp': EffectiveContextCapabilities.unavailable,
+      },
     ),
     turn: ServerTurnDeps(turns: turns, executions: executions),
+    tasks: ServerTaskDeps(projectService: projectService),
     observability: ServerObservabilityDeps(sseBroadcast: broadcast, eventBus: eventBus),
   );
   final revokedViewers = File(p.join(dataDirectory, 'revoked-viewers.txt'));
-  final handler = _fixtureControl(_revocationGuard(server.handler, revokedViewers), harness);
+  final handler = _fixtureHarnessControls(
+    _fixtureControl(_revocationGuard(server.handler, revokedViewers), harness),
+    primary: harness,
+    secondary: secondaryHarness,
+  );
   final httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
   File(p.join(dataDirectory, 'conversation-browser-ready.json')).writeAsStringSync(
     jsonEncode({
@@ -100,6 +142,7 @@ Future<void> main(List<String> arguments) async {
       'recoveredSessions': recoveredSessions,
       'channelSessionId': channelSession.id,
       'cronSessionId': cronSession.id,
+      'namedAgentSessionId': namedAgentSession.id,
       'historySessionId': historyFixture.sessionId,
       'historyOldMessageId': historyFixture.oldMessageId,
       'historyApprovalRequestId': historyFixture.approvalRequestId,
@@ -109,9 +152,52 @@ Future<void> main(List<String> arguments) async {
   );
   await ProcessSignal.sigterm.watch().first;
   await httpServer.close(force: true);
+  await executions.dispose();
   await turnState.dispose();
   await kv.dispose();
   await eventBus.dispose();
+}
+
+Handler _fixtureHarnessControls(
+  Handler inner, {
+  required FakeAgentHarness primary,
+  required FakeAgentHarness secondary,
+}) {
+  return (request) async {
+    final segments = request.url.pathSegments;
+    if (request.method == 'POST' &&
+        segments.length == 4 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'harness' &&
+        segments[3] == 'complete') {
+      final harness = segments[2] == 'primary' ? primary : secondary;
+      harness.emit(SystemInitEvent(contextWindow: 200000));
+      harness.completeSuccess(TurnResult(inputTokens: 0, outputTokens: 3));
+      return Response.ok('{}', headers: {'content-type': 'application/json'});
+    }
+    if (request.method == 'GET' && segments.length == 2 && segments[0] == '__fixture' && segments[1] == 'harnesses') {
+      return Response.ok(
+        jsonEncode({
+          'primary': {
+            'turns': primary.turnCallCount,
+            'sessionId': primary.lastSessionId,
+            'directory': primary.lastDirectory,
+            'model': primary.lastModel,
+            'effort': primary.lastEffort,
+          },
+          'secondary': {
+            'turns': secondary.turnCallCount,
+            'sessionId': secondary.lastSessionId,
+            'directory': secondary.lastDirectory,
+            'model': secondary.lastModel,
+            'effort': secondary.lastEffort,
+          },
+        }),
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    return inner(request);
+  };
 }
 
 Future<({String sessionId, String oldMessageId, String approvalRequestId})> _seedHistoryFixture(

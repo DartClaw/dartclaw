@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - New Session</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+</head>
+<body>
+  <div class="shell">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">&#x276F; DartClaw</span>
+      </div>
+      <div class="session-list">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="session-item" data-icon="terminal">Agent</div>
+
+        <div class="sidebar-section-label">Channels</div>
+        <div class="session-item" data-icon="hash">No active channels</div>
+
+        <div class="sidebar-section-label">Sessions</div>
+        <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2)">New Session</button>
+        <div class="session-item active" data-icon="message-circle">New Session</div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">System</div>
+        <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+        <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+        <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+        <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+      </div>
+    </aside>
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" aria-label="Menu"></button>
+      <input class="session-title" placeholder="Untitled session" aria-label="Session title">
+      <section id="new-chat-effective-context" class="card card-compact" aria-label="New chat context">
+        <div id="new-chat-owner">Owner: web</div>
+        <div id="new-chat-default-project"><span class="identicon identicon--5" data-identicon-id="dartclaw"></span> DartClaw (dartclaw)</div>
+        <div id="new-chat-default-provider">Provider: claude</div>
+        <div id="new-chat-model-availability">Model: provider default</div>
+        <div id="new-chat-effort-availability">Effort: provider default</div>
+      </section>
+      <div class="topbar-actions">
+        <button class="theme-toggle" aria-label="Toggle theme" onclick="toggleTheme()"></button>
+      </div>
+    </header>
+
+    <!-- CHAT AREA -->
+    <div class="chat-area">
+      <div class="messages"></div>
+      <div class="input-area">
+        <textarea rows="1" placeholder="Type a message..."></textarea>
+        <button class="btn btn-primary btn-send">Send</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isLight = html.dataset.theme === 'light';
+      html.dataset.theme = isLight ? '' : 'light';
+      if (isLight) html.removeAttribute('data-theme');
+      localStorage.setItem('dartclaw-theme', isLight ? 'dark' : 'light');
+    }
+
+    const saved = localStorage.getItem('dartclaw-theme');
+    if (saved === 'light') {
+      document.documentElement.dataset.theme = 'light';
+    }
+  </script>
+</body>
+</html>

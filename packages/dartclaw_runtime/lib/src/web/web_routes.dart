@@ -11,6 +11,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../api/api_helpers.dart';
+import '../api/session_routes_support.dart' show effectiveContextView;
 import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
 import '../auth/token_service.dart';
@@ -103,6 +104,7 @@ Router webRoutes(
   ThreadBindingStore? threadBindingStore,
   WorkflowService? workflowService,
   WorkflowDefinitionSource? workflowDefinitionSource,
+  Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
 }) {
   final router = Router();
   final auditReader = dataDir != null ? AuditLogReader(dataDir: dataDir) : null;
@@ -263,6 +265,13 @@ Router webRoutes(
 
       final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
       final conversationState = await sessions.getConversationState(id);
+      final effectiveContext = await effectiveContextView(
+        session,
+        conversationState,
+        projectService,
+        defaultProvider,
+        contextCapabilities,
+      );
       final targetMessageId = request.url.queryParameters['message'];
       late final List<Message> msgs;
       late final bool hasEarlierMessages;
@@ -370,6 +379,7 @@ Router webRoutes(
         hasEarlierMessages: hasEarlierMessages,
         turnStatus: turnStatus?.toJson(),
         targetMessageId: targetUnavailable ? null : targetMessageId,
+        effectiveContext: effectiveContext,
       );
 
       if (wantsFragment(request)) {
@@ -498,6 +508,13 @@ Router webRoutes(
         recentTurns: recentTurns,
         turnStatus: turns?.turnStatus(id).toJson(),
         appName: appName,
+        effectiveContext: await effectiveContextView(
+          session,
+          state,
+          projectService,
+          defaultProvider,
+          contextCapabilities,
+        ),
       );
 
       return Response.ok(page, headers: htmlHeaders);

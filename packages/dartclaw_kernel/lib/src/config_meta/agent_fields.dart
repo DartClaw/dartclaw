@@ -754,6 +754,11 @@ const Map<String, FieldMeta> _agentFields = {
         'flag. Read-only for the same reason: widening it through the API would lift its own bound.',
     entry: ObjectEntry(
       fields: {
+        'name': EntryFieldMeta(
+          type: ConfigFieldType.string,
+          description: 'Optional display name. Surfaces fall back to the project ID when absent.',
+          nullable: true,
+        ),
         'remote': EntryFieldMeta(
           type: ConfigFieldType.string,
           description: 'Git URL cloned for this project. Exactly one of it and localPath must be supplied.',

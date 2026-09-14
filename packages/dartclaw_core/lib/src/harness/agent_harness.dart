@@ -10,6 +10,26 @@ enum PromptStrategy {
   append,
 }
 
+/// Per-turn context fields an adapter serializes to its provider transport.
+final class EffectiveContextCapabilities {
+  final bool model;
+  final bool effort;
+
+  const new({required this.model, required this.effort});
+
+  static const unavailable = EffectiveContextCapabilities(model: false, effort: false);
+
+  Map<String, bool> toJson() => {'model': model, 'effort': effort};
+
+  static EffectiveContextCapabilities of(AgentHarness harness) => harness is EffectiveContextCapabilityProvider
+      ? (harness as EffectiveContextCapabilityProvider).effectiveContextCapabilities
+      : EffectiveContextCapabilities.unavailable;
+}
+
+abstract interface class EffectiveContextCapabilityProvider {
+  EffectiveContextCapabilities get effectiveContextCapabilities;
+}
+
 /// Host-owned identity for the turn currently executing in a harness.
 final class HarnessTurnContext {
   const new({

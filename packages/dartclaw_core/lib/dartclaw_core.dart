@@ -67,7 +67,10 @@ export 'src/storage/conversation_state.dart'
         ConversationBranchLink,
         ConversationAttachmentManifest,
         ConversationSubmissionClaim,
-        ConversationState;
+        ConversationState,
+        EffectiveConversationContext,
+        SessionContextTelemetry,
+        ContextMeasurementAvailability;
 export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart'
     show
@@ -164,6 +167,8 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 export 'src/harness/agent_harness.dart'
     show
         AgentHarness,
+        EffectiveContextCapabilities,
+        EffectiveContextCapabilityProvider,
         ContextualMemoryToolHandler,
         HarnessTurnContext,
         HarnessTurnContextSink,

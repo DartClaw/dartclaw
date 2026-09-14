@@ -35,6 +35,21 @@ enum SessionType {
   };
 }
 
+/// Source of the current session title used to resolve automatic-title races.
+enum SessionTitleProvenance {
+  /// Immediate truncation shown before a generated title is available.
+  automaticFallback,
+
+  /// Validated title produced by the schema-bound title agent.
+  automaticGenerated,
+
+  /// Title explicitly supplied by an operator.
+  manual,
+
+  /// Title written by a non-interactive runtime lifecycle.
+  system,
+}
+
 /// A top-level conversation container for exchanges between a user and an agent.
 class Session {
   /// Unique identifier for this session.
@@ -42,6 +57,15 @@ class Session {
 
   /// Human-readable title shown in UI surfaces, or `null` when unnamed.
   final String? title;
+
+  /// Monotonic revision of [title].
+  final int titleRevision;
+
+  /// Authority that last wrote [title].
+  final SessionTitleProvenance? titleProvenance;
+
+  /// Whether the one automatic title request has been claimed.
+  final bool automaticTitleAttempted;
 
   /// How this session was created and routed through the runtime.
   final SessionType type;
@@ -78,6 +102,9 @@ class Session {
   const new({
     required this.id,
     this.title,
+    this.titleRevision = 0,
+    this.titleProvenance,
+    this.automaticTitleAttempted = false,
     this.type = SessionType.user,
     this.channelKey,
     this.provider,
@@ -92,6 +119,9 @@ class Session {
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
+    'titleRevision': titleRevision,
+    if (titleProvenance != null) 'titleProvenance': titleProvenance!.name,
+    if (automaticTitleAttempted) 'automaticTitleAttempted': true,
     'type': type.name,
     if (channelKey != null) 'channelKey': channelKey,
     if (provider != null) 'provider': provider,
@@ -117,6 +147,9 @@ class Session {
     return Session(
       id: json['id'] as String,
       title: json['title'] as String?,
+      titleRevision: json['titleRevision'] as int? ?? 0,
+      titleProvenance: _parseTitleProvenance(json['titleProvenance']),
+      automaticTitleAttempted: json['automaticTitleAttempted'] as bool? ?? false,
       type: _parseSessionType(json['type']),
       channelKey: json['channelKey'] as String?,
       provider: json['provider'] as String?,
@@ -134,6 +167,9 @@ class Session {
   Session copyWith({
     String? id,
     Object? title = _sessionFieldUnset,
+    int? titleRevision,
+    Object? titleProvenance = _sessionFieldUnset,
+    bool? automaticTitleAttempted,
     SessionType? type,
     Object? channelKey = _sessionFieldUnset,
     Object? provider = _sessionFieldUnset,
@@ -145,6 +181,11 @@ class Session {
   }) => Session(
     id: id ?? this.id,
     title: identical(title, _sessionFieldUnset) ? this.title : title as String?,
+    titleRevision: titleRevision ?? this.titleRevision,
+    titleProvenance: identical(titleProvenance, _sessionFieldUnset)
+        ? this.titleProvenance
+        : titleProvenance as SessionTitleProvenance?,
+    automaticTitleAttempted: automaticTitleAttempted ?? this.automaticTitleAttempted,
     type: type ?? this.type,
     channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
@@ -169,6 +210,15 @@ class Session {
       if (type != null) return type;
     }
     throw FormatException('Unknown session type: $value');
+  }
+
+  static SessionTitleProvenance? _parseTitleProvenance(Object? value) {
+    if (value == null) return null;
+    if (value case final String name) {
+      final provenance = SessionTitleProvenance.values.asNameMap()[name];
+      if (provenance != null) return provenance;
+    }
+    throw FormatException('Unknown session title provenance: $value');
   }
 }
 

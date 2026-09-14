@@ -101,6 +101,18 @@ void main() {
   });
 
   group('parseProjectConfig', () {
+    test('preserves an optional display name without changing project identity', () {
+      final warns = <String>[];
+      final config = parseProjectConfig({
+        'named': {'name': 'Named Project', 'localPath': gitRepoDir.path},
+        'fallback': {'localPath': nonRepoDir.path},
+      }, warns);
+
+      expect(config.definitions['named']?.id, 'named');
+      expect(config.definitions['named']?.name, 'Named Project');
+      expect(config.definitions['fallback']?.name, isNull);
+    });
+
     test('returns defaults for null input', () {
       final warns = <String>[];
       final config = parseProjectConfig(null, warns);

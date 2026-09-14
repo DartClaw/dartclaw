@@ -90,12 +90,23 @@ function toastContainer() {
 
 function removeToast(toast) {
   if (!toast || !toast.parentNode || toast.classList.contains('removing')) return;
+  if (toast.dataset.sourceRef) persistentToasts.delete(toast.dataset.sourceRef);
   toast.classList.add('removing');
   toast.addEventListener('animationend', () => toast.remove(), { once: true });
 }
 
-export function showToast(type, message) {
+const persistentToasts = new Map();
+
+export function showToast(type, message, options = {}) {
   const container = toastContainer();
+  const sourceRef = typeof options.sourceRef === 'string' ? options.sourceRef : null;
+  if (options.recovered && sourceRef) {
+    const existing = persistentToasts.get(sourceRef);
+    if (existing) removeToast(existing);
+    persistentToasts.delete(sourceRef);
+    return;
+  }
+  if (sourceRef && persistentToasts.has(sourceRef)) return;
   const toast = document.createElement('div');
   toast.className = 'toast toast-' + sanitizeClassToken(type, 'info');
   toast.innerHTML =
@@ -103,14 +114,18 @@ export function showToast(type, message) {
     '<button class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button>';
   toast.querySelector('.toast-dismiss')?.addEventListener('click', () => removeToast(toast));
   container.appendChild(toast);
+  if (sourceRef) {
+    toast.dataset.sourceRef = sourceRef;
+    persistentToasts.set(sourceRef, toast);
+  }
   while (container.children.length > TOAST_MAX) {
     removeToast(container.firstElementChild);
   }
-  setTimeout(() => removeToast(toast), TOAST_DURATION);
+  if (!options.persistent) setTimeout(() => removeToast(toast), TOAST_DURATION);
 }
 
-export function dispatchToast(type, message) {
-  document.body.dispatchEvent(new CustomEvent('dc:toast', { detail: { type, message } }));
+export function dispatchToast(type, message, options = {}) {
+  document.body.dispatchEvent(new CustomEvent('dc:toast', { detail: { type, message, ...options } }));
 }
 
 export const TOAST_QUEUE_KEY = 'dartclaw-queued-toast';
@@ -450,6 +465,35 @@ export function readHtmxErrorMessage(ctx, fallbackMessage = 'Request failed') {
 
 export function getApiToken() {
   return new URLSearchParams(window.location.search).get('token');
+}
+
+export function openConversationDraftDb() {
+  if (!globalThis.indexedDB) return Promise.reject(new Error('IndexedDB unavailable'));
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('dartclaw-conversation-drafts', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('drafts')) {
+        request.result.createObjectStore('drafts', { keyPath: 'key' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function conversationDraftSessionIds(limit = 200) {
+  const db = await openConversationDraftDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').getAll();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const ids = request.result
+        .filter((draft) => (draft.text || '').trim() || draft.references?.length || draft.attachments?.length)
+        .map((draft) => String(draft.key || '').split(':').slice(1).join(':'))
+        .filter((id) => id && id !== 'provisional');
+      resolve([...new Set(ids)].slice(0, limit));
+    };
+  });
 }
 
 export function apiQs() {

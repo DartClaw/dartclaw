@@ -9,9 +9,21 @@ const htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
 ///
 /// The payload is escaped to ASCII because a header carrying a non-Latin-1
 /// message would be mangled on the wire.
-Map<String, String> toastTriggerHeader(String type, String message) => {
+Map<String, String> toastTriggerHeader(
+  String type,
+  String message, {
+  String? sourceRef,
+  bool persistent = false,
+  bool recovered = false,
+}) => {
   'HX-Trigger': _asciiJson({
-    'dc:toast': {'type': type, 'message': message},
+    'dc:toast': {
+      'type': type,
+      'message': message,
+      'sourceRef': ?sourceRef,
+      if (persistent) 'persistent': true,
+      if (recovered) 'recovered': true,
+    },
   }),
 };
 

@@ -7,6 +7,9 @@
     tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
     maxlength="100" aria-label="Session title">
   <div class="topbar-actions">
+    <button type="button" class="btn btn-ghost btn-sm topbar-new-chat" data-session-create="true">New Chat</button>
+    <button type="button" class="btn btn-icon btn-ghost attention-toggle" data-attention-toggle aria-label="Attention" aria-expanded="false" data-icon="bell"><span data-attention-unread></span></button>
+    <section class="attention-panel card-glass" data-attention-panel hidden aria-label="Attention"><div data-attention-list></div><button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button></section>
     <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="btn btn-icon btn-ghost" aria-label="Session info"
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#restart-banner-slot,#sidebar" data-icon="info"></a>
@@ -26,6 +29,9 @@
     aria-expanded="false" data-icon="menu"></button>
   <h1 class="session-title t-page-title" tl:text="${appName}">DartClaw</h1>
   <div class="topbar-actions">
+    <button type="button" class="btn btn-ghost btn-sm topbar-new-chat" data-session-create="true">New Chat</button>
+    <button type="button" class="btn btn-icon btn-ghost attention-toggle" data-attention-toggle aria-label="Attention" aria-expanded="false" data-icon="bell"><span data-attention-unread></span></button>
+    <section class="attention-panel card-glass" data-attention-panel hidden aria-label="Attention"><div data-attention-list></div><button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button></section>
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>
 </header>
@@ -38,6 +44,9 @@
     hx-select-oob="#topbar,#restart-banner-slot,#sidebar"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span tl:text="${backLabel}">Back</span></a>
   <h1 class="session-title-static t-page-title" tl:text="${title}">Page Title</h1>
   <div class="topbar-actions">
+    <button type="button" class="btn btn-ghost btn-sm topbar-new-chat" data-session-create="true">New Chat</button>
+    <button type="button" class="btn btn-icon btn-ghost attention-toggle" data-attention-toggle aria-label="Attention" aria-expanded="false" data-icon="bell"><span data-attention-unread></span></button>
+    <section class="attention-panel card-glass" data-attention-panel hidden aria-label="Attention"><div data-attention-list></div><button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button></section>
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>
 </header>

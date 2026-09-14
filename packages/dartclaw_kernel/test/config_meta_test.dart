@@ -51,6 +51,7 @@ void main() {
         'guard_audit.max_retention_days',
         'sessions.reset_hour',
         'sessions.idle_timeout_minutes',
+        'sessions.auto_settle_idle_days',
         'logging.level',
         'logging.format',
         'scheduling.heartbeat.interval_minutes',

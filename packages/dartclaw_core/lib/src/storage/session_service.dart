@@ -14,6 +14,17 @@ import 'atomic_write.dart';
 import 'conversation_state.dart';
 import 'uuid_validation.dart';
 
+/// Raised when a session metadata mutation targets an older conversation revision.
+final class ConversationRevisionMismatch implements Exception {
+  final int expected;
+  final int actual;
+
+  const new(this.expected, this.actual);
+
+  @override
+  String toString() => 'Conversation revision changed (expected $expected, actual $actual)';
+}
+
 /// Receives synchronous notifications around authoritative session mutations.
 abstract interface class SessionServiceObserver {
   /// Called after a type change has been persisted.
@@ -25,6 +36,8 @@ abstract interface class SessionServiceObserver {
 
 /// Manages session CRUD operations backed by NDJSON file storage.
 class SessionService {
+  static const maxDismissedAttentionEventIds = 200;
+
   final String baseDir;
   final EventBus? eventBus;
   final RepoLock _repoLock;
@@ -427,6 +440,52 @@ class SessionService {
       final session = Session.fromJson(json);
       json.addAll(session.copyWith(updatedAt: DateTime.now()).toJson());
       await atomicWriteJson(metaFile, json);
+    });
+  }
+
+  /// Atomically updates inbox metadata and advances the conversation revision.
+  Future<({Session session, ConversationState state})> updateInboxMetadata({
+    required String id,
+    required int expectedConversationRevision,
+    DateTime? settledAt,
+    bool clearSettledAt = false,
+    int? readMessageCursor,
+    String? attentionReadEventId,
+    List<String>? dismissedAttentionEventIds,
+  }) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
+    return _repoLock.acquire(metaFile.path, () async {
+      final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+      final session = Session.fromJson(json);
+      final rawState = json['conversationState'];
+      final state = rawState == null
+          ? ConversationState()
+          : ConversationState.fromJson(Map<String, dynamic>.from(rawState as Map));
+      if (state.revision != expectedConversationRevision) {
+        throw ConversationRevisionMismatch(expectedConversationRevision, state.revision);
+      }
+      final nextState = state.bumpRevision();
+      final boundedDismissed = dismissedAttentionEventIds == null
+          ? null
+          : dismissedAttentionEventIds.length <= maxDismissedAttentionEventIds
+          ? List<String>.of(dismissedAttentionEventIds, growable: false)
+          : dismissedAttentionEventIds.sublist(dismissedAttentionEventIds.length - maxDismissedAttentionEventIds);
+      final nextSession = session.copyWith(
+        settledAt: clearSettledAt ? null : settledAt ?? session.settledAt,
+        readMessageCursor: readMessageCursor == null
+            ? null
+            : readMessageCursor < session.readMessageCursor
+            ? session.readMessageCursor
+            : readMessageCursor,
+        attentionReadEventId: attentionReadEventId ?? session.attentionReadEventId,
+        dismissedAttentionEventIds: boundedDismissed,
+        updatedAt: DateTime.now(),
+      );
+      final next = nextSession.toJson()..['conversationState'] = nextState.toJson();
+      await atomicWriteJson(metaFile, next);
+      return (session: nextSession, state: nextState);
     });
   }
 

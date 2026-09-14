@@ -86,6 +86,8 @@ void main() {
     expect(html, contains('data-history-action="retry"'));
     expect(html, contains('data-source-attempt-id="attempt-1"'));
     expect(html, contains('data-approval-request-id="approval-1"'));
+    expect(html, contains('id="record-tool-1"'));
+    expect(html, contains('id="record-approval-1"'));
     expect(html, contains('data-approval-attempt-id="attempt-1"'));
     expect(html, contains('data-approval-turn-id="turn-1"'));
     expect(html, contains('Approve exact request'));

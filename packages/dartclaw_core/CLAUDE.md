@@ -84,6 +84,8 @@
 - Claude may defer allowlisted tools behind `ToolSearch`. Permit only the exact `claude:ToolSearch`/`ToolSearch` discovery pair after deny checks; the selected tool still requires its own allowlist match.
 - Codex approval round-trip is the only guard interception point for the Codex provider. Preserve current command/file request methods, MCP approval elicitations, response-specific result shapes, and camelCase item types; legacy aliases remain accepted. Explicit `on-request` is the broadest available host interception; omitted options inherit Codex configuration, `unless-allow-listed` is partial, and `never` produces no host guard event. String provider options are trimmed before process and request use. After guards pass, a genuine `on-request` request from an ordinary human web turn may wait on `HarnessToolApprovalResponder`; background turns retain the immediate policy.
 - File-backed `MessageService` uses 1-based line cursors in `messages.ndjson`; cursor is assigned on read, never persisted in the JSON line itself.
+- `MessageService` may notify multiple registered observers after the durable append. Observers project or react to the
+  record; they never write the message log.
 
 ## Testing
 - Layout mirrors `lib/src/` (e.g. `test/harness/`, `test/channel/`). There is no barrel-surface test any more, and nothing replaced two guards it carried: an exhaustive `switch` over the sealed `BridgeEvent` hierarchy (adding a subtype now compiles workspace-wide with no consumer forced to handle it — the server's consumer is an `if`/`else` chain) and a static binding of `AgentHarness.turn()`'s return to the barrel's `TurnResult`. Add the exhaustive switch back to a bridge-event suite if you extend that hierarchy.

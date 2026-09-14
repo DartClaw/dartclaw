@@ -1670,6 +1670,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .status-dot--error   { background: var(--error);   box-shadow: 0 0 4px color-mix(in srgb, var(--error) 55%, transparent); }
 .status-dot--warning { background: var(--warning); box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 55%, transparent); }
 .status-dot--idle    { background: var(--fg-overlay); }
+.status-dot--muted   { background: var(--fg-sub0); opacity: 0.55; }
 
 /* Attention — blocked on the user. The ONLY amber pulse in the system:
    motion is reserved for "working" (--live) and "needs you" (--attention). */

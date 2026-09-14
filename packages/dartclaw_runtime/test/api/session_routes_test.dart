@@ -359,18 +359,21 @@ void main() {
     test('does not wait behind a queued send for an active draft', () async {
       final localSessions = OpenTrackingSessionService(baseDir: tempDir.path);
       final existing = await localSessions.createSession();
-      final localTurns = QueuingFakeTurnManager(messages, worker);
+      final localTurns = FakeTurnManager(messages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(sessionRoutes(localSessions, messages, localTurns, worker).call),
       );
       await localTurns.reserveTurn(existing.id);
-      final send = localApi.request(
+      final send = await localApi.request(
         'POST',
         '/api/sessions/${existing.id}/send',
         body: 'message=Queued',
         headers: {'content-type': 'application/x-www-form-urlencoded'},
       );
-      await localTurns.queuedReservationStarted.future;
+      expect(send.statusCode, 202);
+      final queued = await localSessions.getConversationState(existing.id);
+      expect(queued.submissions.single.workState, ConversationWorkState.queued);
+      expect(localTurns.isActive(existing.id), isTrue);
 
       final open = localApi.request('POST', '/api/sessions/open');
       await pumpEventQueue();
@@ -379,10 +382,11 @@ void main() {
       final opened = jsonDecode(await openResponse.readAsString()) as Map<String, dynamic>;
       expect(openResponse.statusCode, 201);
       expect(opened['id'], isNot(existing.id));
-
-      await localTurns.cancelTurn(existing.id);
-      localTurns.resumeQueuedReservation.complete();
-      expect((await send).statusCode, 200);
+      expect(localTurns.isActive(existing.id), isTrue);
+      expect(
+        (await localSessions.getConversationState(existing.id)).submissions.single.workState,
+        ConversationWorkState.queued,
+      );
     });
   });
 

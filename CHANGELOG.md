@@ -22,6 +22,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   directory, provider, model and effort context. Changes are authorized and captured at admission, telemetry names its
   session and source, and the one schema-bound automatic title attempt cannot overwrite a manual or newer title.
 
+- The conversation sidebar is now a stable inbox with independent unread, execution, attention, draft and settled
+  state. A persistent topbar attention feed links to durable history records and resolves still-pending approvals by
+  exact request identity. Settled conversations remain readable and writable, restore on new work, and can be settled
+  automatically after a configured idle period.
+
 - Conversation drafts now survive reload with file bytes intact, remain editable while a turn runs, and can be queued,
   stopped, or steered explicitly. Stable submission claims prevent duplicate dispatch across retries and restart, while
   passive browser views reconcile ordered queue and recovery state from one durable session snapshot.

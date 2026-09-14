@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../task/task_service.dart';
+import '../conversation/inbox_service.dart';
 
 final _log = Logger('SessionMaintenanceService');
 
@@ -79,6 +80,7 @@ class SessionMaintenanceService {
   final TaskService? taskService;
   final int artifactRetentionDays;
   final String? dataDir;
+  final ConversationInboxService? inbox;
 
   new({
     required this.sessions,
@@ -90,6 +92,7 @@ class SessionMaintenanceService {
     this.taskService,
     this.artifactRetentionDays = 0,
     this.dataDir,
+    this.inbox,
   });
 
   /// Runs the full maintenance pipeline.
@@ -106,6 +109,8 @@ class SessionMaintenanceService {
     var artifactDiskReclaimed = 0;
     final warnings = <String>[];
     final actions = <MaintenanceAction>[];
+
+    await inbox?.autoSettleIdleSessions();
 
     // Stage 1: Prune stale sessions
     final pruneResult = await _pruneStale(isEnforce);

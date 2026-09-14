@@ -211,66 +211,6 @@ class FailingStopHarness extends FakeAgentHarness {
   }
 }
 
-final class QueuingFakeTurnManager extends FakeTurnManager {
-  new(super.messages, super.worker);
-
-  final queuedReservationStarted = Completer<void>();
-  final resumeQueuedReservation = Completer<void>();
-  var _reservations = 0;
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    ExecutionPolicy? workerPolicy,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    Duration? turnTimeout,
-    TurnOrigin? origin,
-  }) async {
-    _reservations += 1;
-    if (_reservations == 2) {
-      queuedReservationStarted.complete();
-      await resumeQueuedReservation.future;
-    }
-    return super.reserveTurn(
-      sessionId,
-      agentName: agentName,
-      directory: directory,
-      model: model,
-      effort: effort,
-      systemPromptOverride: systemPromptOverride,
-      workerPolicy: workerPolicy,
-      maxTurns: maxTurns,
-      outputSchema: outputSchema,
-      outputSchemaWhenSupported: outputSchemaWhenSupported,
-      providerSessionId: providerSessionId,
-      requestProviderSessionResume: requestProviderSessionResume,
-      taskId: taskId,
-      isHumanInput: isHumanInput,
-      behaviorOverride: behaviorOverride,
-      promptScope: promptScope,
-      allowedTools: allowedTools,
-      readOnly: readOnly,
-      turnTimeout: turnTimeout,
-      origin: origin,
-    );
-  }
-}
-
 /// [SessionService] wrapper that records whether a turn was cancelled before the
 /// session type was updated (archive-ordering assertion).
 class RecordingSessionService extends SessionService {

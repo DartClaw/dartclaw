@@ -229,6 +229,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
 | `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
 | `sessions.idle_timeout_minutes` | integer | minimum 0 | Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload) |
+| `sessions.auto_settle_idle_days` | integer | 0–3650 | Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required) |
 | `sessions.reset_hour` | integer | -1–23 | Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset. (reload) |
 | `sessions.dm_scope` | string | one of "per-channel-contact", "per-contact", "shared" | How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live) |
 | `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
@@ -519,6 +520,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `security.bash_step.env_allowlist` | array |  | Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required) |
 | `security.bash_step.extra_strip_patterns` | array |  | Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required) |
 | **sessions** |  |  |  |
+| `sessions.auto_settle_idle_days` | integer | 0–3650 | Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required) |
 | `sessions.channels.<name>.dm_scope` | null or string | one of "per-channel-contact", "per-contact", "shared", null | Overrides how this channel one-to-one messages map onto sessions. (restart required) |
 | `sessions.channels.<name>.effort` | null or string |  | Reasoning-effort override for turns arriving on this channel. (restart required) |
 | `sessions.channels.<name>.group_scope` | null or string | one of "per-member", "shared", null | Overrides how this channel group messages map onto sessions. (restart required) |

@@ -203,7 +203,8 @@ String _historyForMessage(
         final detail = record.isTruncated ? '${presentation.label} · retained output truncated' : presentation.label;
         final duration = record.elapsedMs == null ? '' : '${(record.elapsedMs! / 1000).toStringAsFixed(1)}s';
         buffer.write(
-          '<details class="tool-call ${presentation.className}" data-tool-id="$recordId" data-state="$stateName">'
+          '<details class="tool-call ${presentation.className}" id="record-$recordId" data-tool-id="$recordId" '
+          'data-state="$stateName" tabindex="-1">'
           '<summary class="tool-call-summary"><span class="tool-call-name">$label</span>'
           '<span class="tool-call-detail">${htmlEscape.convert(detail)}</span>'
           '${duration.isEmpty ? '' : '<span class="tool-call-time">$duration</span>'}'
@@ -222,7 +223,8 @@ String _historyForMessage(
             ? 'unavailable'
             : stateName;
         buffer.write(
-          '<section class="card approval-card ${approval.className}" data-approval-request-id="$recordId" '
+          '<section id="record-$recordId" class="card approval-card ${approval.className}" '
+          'data-approval-request-id="$recordId" '
           'data-state="$displayStateName" tabindex="-1" aria-label="Runtime approval: ${htmlEscape.convert(approval.label)}">'
           '<span hidden data-approval-attempt-id="${htmlEscape.convert(record.attemptId)}" data-approval-turn-id="${htmlEscape.convert(record.turnId)}"></span>'
           '<div class="card-header">${pending ? '<span class="status-dot status-dot--attention" aria-hidden="true"></span>' : ''}'

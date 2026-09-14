@@ -11,6 +11,6 @@ export default class DcToastController extends Stimulus.Controller {
   showHandler(event) {
     const detail = event && event.detail;
     if (!detail || typeof window.dartclaw?.ui?.showToast !== 'function') return;
-    window.dartclaw.ui.showToast(detail.type || 'info', detail.message || '');
+    window.dartclaw.ui.showToast(detail.type || 'info', detail.message || '', detail);
   }
 }

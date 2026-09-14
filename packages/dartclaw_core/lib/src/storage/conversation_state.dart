@@ -585,6 +585,16 @@ final class ConversationState {
     telemetry: value,
   );
 
+  ConversationState bumpRevision() => ConversationState(
+    revision: revision + 1,
+    submissions: submissions,
+    records: records,
+    branches: branches,
+    currentContext: currentContext,
+    nextContext: nextContext,
+    telemetry: telemetry,
+  );
+
   Map<String, Object> toJson() => {
     'revision': revision,
     'submissions': submissions.map((submission) => submission.toJson()).toList(growable: false),

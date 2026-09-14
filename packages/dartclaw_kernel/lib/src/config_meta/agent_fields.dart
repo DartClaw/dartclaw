@@ -148,6 +148,16 @@ const Map<String, FieldMeta> _agentFields = {
     description: 'Minutes of silence before an eligible session resets. 0 turns the timeout off.',
     min: 0,
   ),
+  'sessions.auto_settle_idle_days': FieldMeta(
+    yamlPath: 'sessions.auto_settle_idle_days',
+    jsonKey: 'sessions.autoSettleIdleDays',
+    type: ConfigFieldType.int_,
+    mutability: ConfigMutability.restart,
+    description:
+        'Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off.',
+    min: 0,
+    max: 3650,
+  ),
   'sessions.dm_scope': FieldMeta(
     yamlPath: 'sessions.dm_scope',
     jsonKey: 'sessions.dmScope',

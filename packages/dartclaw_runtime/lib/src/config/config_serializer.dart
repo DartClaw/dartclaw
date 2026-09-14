@@ -64,6 +64,7 @@ class ConfigSerializer {
       'sessions': {
         'resetHour': config.sessions.resetHour,
         'idleTimeoutMinutes': config.sessions.idleTimeoutMinutes,
+        'autoSettleIdleDays': config.sessions.autoSettleIdleDays,
         'dmScope': config.sessions.scopeConfig.dmScope.toYaml(),
         'groupScope': config.sessions.scopeConfig.groupScope.toYaml(),
         'model': config.sessions.scopeConfig.model,

@@ -208,6 +208,7 @@ class ServerWebDeps {
   final bool contentGuardFailOpen;
   final List<Map<String, dynamic>> schedulingJobs;
   final List<String> systemJobNames;
+  final ConversationInboxService? inboxService;
 
   const new({
     this.workflowService,
@@ -217,6 +218,7 @@ class ServerWebDeps {
     this.contentGuardFailOpen = false,
     this.schedulingJobs = const [],
     this.systemJobNames = const [],
+    this.inboxService,
   });
 }
 

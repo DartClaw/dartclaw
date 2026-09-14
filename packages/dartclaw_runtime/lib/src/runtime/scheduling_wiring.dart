@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 
 import '../config/runtime_toggle_applier.dart';
 import '../config/scheduling_jobs_applier.dart';
+import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/inbox_service.dart';
 import 'channel_wiring.dart';
 import 'security_wiring.dart';
 import 'storage_wiring.dart';
@@ -81,6 +83,7 @@ class SchedulingWiring {
   late List<String> _missedOneTimeJobIds;
   late final DeliveryService _deliveryService;
   late final PendingScheduleChangeStore _pendingScheduleChanges;
+  late final ConversationInboxService _inboxService;
 
   /// The single writer of per-provider credential health. Detecting paths other
   /// than the scheduled probe report through this instance rather than firing
@@ -111,6 +114,7 @@ class SchedulingWiring {
   /// [wire] has run — it is constructed independently of whether any job was
   /// registered, so a tool that needs it never has to be conditionally omitted.
   DeliveryService get deliveryService => _deliveryService;
+  ConversationInboxService get inboxService => _inboxService;
   WorkspaceGitSync? get gitSync => _gitSync;
   MemoryPruner? get memoryPruner => _memoryPruner;
   MemoryStatusService? get memoryStatusService => _memoryStatusService;
@@ -143,6 +147,17 @@ class SchedulingWiring {
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
     final memoryIndex = _storage.memoryIndex;
+
+    _inboxService = ConversationInboxService(
+      sessions: sessions,
+      messages: _storage.messages,
+      mutations: SessionMutationCoordinator(),
+      updates: _sseBroadcast,
+      isSessionRunning: turns.isActive,
+      autoSettleIdleDays: config.sessions.autoSettleIdleDays,
+    );
+    _storage.messages.registerObserver(_inboxService);
+    _inboxService.subscribeToTaskCompletion(_eventBus, taskService);
 
     // Mutable display list for scheduling UI. Starts as a copy of raw config
     // maps, excluding task-type entries (those appear in scheduledTasks section).
@@ -359,6 +374,7 @@ class SchedulingWiring {
                 taskService: taskService,
                 artifactRetentionDays: config.tasks.artifactRetentionDays,
                 dataDir: config.server.dataDir,
+                inbox: _inboxService,
               );
               final report = await maintenance.run();
               _log.info(

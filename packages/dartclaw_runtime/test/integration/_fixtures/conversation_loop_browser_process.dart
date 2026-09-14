@@ -147,6 +147,10 @@ Future<void> main(List<String> arguments) async {
       'historyOldMessageId': historyFixture.oldMessageId,
       'historyApprovalRequestId': historyFixture.approvalRequestId,
       'historyLiveApprovalRequestId': _HistoryBrowserHarness.approvalId,
+      'inboxDraftSessionId': historyFixture.draftSessionId,
+      'inboxDoneSessionId': historyFixture.doneSessionId,
+      'inboxArchivedSessionId': historyFixture.archivedSessionId,
+      'inboxLineageSessionId': historyFixture.lineageSessionId,
     }),
     flush: true,
   );
@@ -200,11 +204,18 @@ Handler _fixtureHarnessControls(
   };
 }
 
-Future<({String sessionId, String oldMessageId, String approvalRequestId})> _seedHistoryFixture(
-  SessionService sessions,
-  MessageService messages,
-  String dataDirectory,
-) async {
+Future<
+  ({
+    String sessionId,
+    String oldMessageId,
+    String approvalRequestId,
+    String draftSessionId,
+    String doneSessionId,
+    String archivedSessionId,
+    String lineageSessionId,
+  })
+>
+_seedHistoryFixture(SessionService sessions, MessageService messages, String dataDirectory) async {
   final identityFile = File(p.join(dataDirectory, 'history-fixture.json'));
   if (identityFile.existsSync()) {
     final json = jsonDecode(await identityFile.readAsString()) as Map<String, dynamic>;
@@ -214,6 +225,10 @@ Future<({String sessionId, String oldMessageId, String approvalRequestId})> _see
         sessionId: sessionId,
         oldMessageId: json['oldMessageId'] as String,
         approvalRequestId: json['approvalRequestId'] as String,
+        draftSessionId: json['draftSessionId'] as String? ?? sessionId,
+        doneSessionId: json['doneSessionId'] as String? ?? sessionId,
+        archivedSessionId: json['archivedSessionId'] as String? ?? sessionId,
+        lineageSessionId: json['lineageSessionId'] as String? ?? sessionId,
       );
     }
   }
@@ -339,12 +354,95 @@ Future<({String sessionId, String oldMessageId, String approvalRequestId})> _see
   );
   await sessions.updateConversationState(source.id, state);
 
-  for (var index = 0; index < 196; index++) {
-    await sessions.createSession(provider: 'fixture');
+  final inboxSessions = <Session>[];
+  for (var index = 0; index < 202; index++) {
+    inboxSessions.add(await sessions.createSession(provider: 'fixture'));
   }
-  final identity = {'sessionId': source.id, 'oldMessageId': oldMessage.id, 'approvalRequestId': approvalId};
+  final unread = inboxSessions[0];
+  await sessions.updateTitle(unread.id, 'Unread build notes');
+  await messages.insertMessage(sessionId: unread.id, role: 'assistant', content: 'Unread fixture result');
+
+  final done = inboxSessions[1];
+  await sessions.updateTitle(done.id, 'Completed release notes');
+  await _seedCompletedConversation(sessions, messages, done.id, now);
+
+  final settledDraft = inboxSessions[2];
+  await sessions.updateTitle(settledDraft.id, 'Draft settled on another device');
+  final settledRevision = await _seedCompletedConversation(sessions, messages, settledDraft.id, now);
+  await sessions.updateInboxMetadata(
+    id: settledDraft.id,
+    expectedConversationRevision: settledRevision,
+    settledAt: now,
+  );
+  for (final extraSettled in inboxSessions.skip(5).take(3)) {
+    final revision = await _seedCompletedConversation(sessions, messages, extraSettled.id, now);
+    await sessions.updateInboxMetadata(id: extraSettled.id, expectedConversationRevision: revision, settledAt: now);
+  }
+
+  final archived = inboxSessions[3];
+  await sessions.updateTitle(archived.id, 'Archived incident review');
+  await sessions.updateSessionType(archived.id, SessionType.archive);
+  await sessions.updateTitle(
+    inboxSessions[4].id,
+    'A deliberately long conversation title that proves the flat inbox truncates safely without hiding its state',
+  );
+
+  final identity = {
+    'sessionId': source.id,
+    'oldMessageId': oldMessage.id,
+    'approvalRequestId': approvalId,
+    'draftSessionId': settledDraft.id,
+    'doneSessionId': done.id,
+    'archivedSessionId': archived.id,
+    'lineageSessionId': destination.id,
+  };
   await identityFile.writeAsString(jsonEncode(identity), flush: true);
-  return (sessionId: source.id, oldMessageId: oldMessage.id, approvalRequestId: approvalId);
+  return (
+    sessionId: source.id,
+    oldMessageId: oldMessage.id,
+    approvalRequestId: approvalId,
+    draftSessionId: settledDraft.id,
+    doneSessionId: done.id,
+    archivedSessionId: archived.id,
+    lineageSessionId: destination.id,
+  );
+}
+
+Future<int> _seedCompletedConversation(
+  SessionService sessions,
+  MessageService messages,
+  String sessionId,
+  DateTime now,
+) async {
+  final message = await messages.insertMessage(
+    sessionId: sessionId,
+    role: 'assistant',
+    content: 'Completed fixture result',
+  );
+  final submissionId = 'inbox-completed-$sessionId';
+  final completed = (await sessions.getConversationState(sessionId)).put(
+    ConversationSubmissionClaim(
+      submissionId: submissionId,
+      revisionId: 'revision-$submissionId',
+      messageId: message.id,
+      attemptId: 'attempt-$submissionId',
+      payloadDigest: 'fixture',
+      message: message.content,
+      commitState: SubmissionCommitState.committed,
+      workState: ConversationWorkState.completed,
+      turnId: 'turn-$submissionId',
+      createdAt: now,
+      updatedAt: now,
+    ),
+  );
+  await sessions.updateConversationState(sessionId, completed);
+  final read = await sessions.updateInboxMetadata(
+    id: sessionId,
+    expectedConversationRevision: completed.revision,
+    readMessageCursor: message.cursor,
+    attentionReadEventId: 'submission:$submissionId',
+  );
+  return read.state.revision;
 }
 
 Future<Session> _seedExternalSession(

@@ -228,7 +228,7 @@ String schedulingTasksFragment({required List<ScheduledTaskDefinition> tasks, bo
           'title': task.title,
           'schedule': task.cronExpression,
           'enabled': task.enabled,
-          'statusDotClass': task.enabled ? 'status-dot--live' : 'status-dot--idle',
+          'statusDotClass': task.enabled ? 'status-dot--live' : 'status-dot--muted',
           'statusText': task.enabled ? 'enabled' : 'disabled',
           'cronHuman': _describe(task.cronExpression),
           'editUrl': '/scheduling/tasks/${Uri.encodeComponent(task.id)}/form',

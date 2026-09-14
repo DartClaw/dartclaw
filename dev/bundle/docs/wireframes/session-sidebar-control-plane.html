@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Session Sidebar Control Plane (Inbox Model)</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* ================================================================
+       PAGE-LOCAL LAYOUT GLUE — session sidebar as inbox-model control
+       plane (0.26 Phase B). Canonical atoms used directly: .identicon,
+       .status-dot, .chip/.chip-row, .list-toolbar, .form-checkbox,
+       .notif-group, .pager/.pager-label, .status-badge-muted, .btn family.
+       Only row/filter/tail scaffolding and the drag-resize handle are
+       page-local — none of it re-implements a canonical primitive.
+
+       Settle information architecture (worked out before drawing, per the
+       0.26 PRD brief Phase B):
+       - Active list: flat, statically ordered by session creation time
+         (newest created at top). Activity NEVER reorders a row — only a
+         settle/unsettle transition moves it between the active list and
+         the settled tail (SC4). Row 9 below (freshest activity, 42s
+         elapsed) sits BELOW row 8 (idle 3h) on purpose, to prove the
+         point: position tracks creation time, not recency of activity.
+       - Row-level colour is reserved for blocked-on-you and failed rows
+         only (3px left edge + faint gradient bleed, the .panel-warning/
+         .panel-error recipe applied to a row) — this is what SC2's
+         "count colour-bearing rows" gate checks. Running/done rows keep
+         a transparent edge; the ambient status dot (canonical vocabulary)
+         still carries its token colour, but the ROW never gains a border
+         or wash from it. Non-actionable running rows are additionally
+         opacity-damped (.sess-row--running), full strength on hover/focus.
+       - Triage in one glance (SC2) is met two ways: the coloured edge on
+         attention/failed rows, and the "Waiting on you" filter chip —
+         not by pinning those rows to the top of the list.
+       - Settled tail: a paginated section BELOW the active list, never
+         mixed into it. Slim rows drop the second meta line, the status
+         dot, and the checkbox — a settled session's live status isn't
+         being tracked, so nothing is asserted about it. What survives:
+         project identicon, title, project name, and "settled <time>".
+         Content stays fully readable and the composer stays live from a
+         settled session's own view (see the topbar Settled badge below)
+         — settle never makes a session read-only, unlike archive.
+       - Bulk settle: two entry points into one select mode. Desktop:
+         hovering a row swaps its identicon for a checkbox (Gmail-style
+         slot swap — costs no rail width); checking it enters select mode,
+         which keeps every checkbox visible for continued multi-select.
+         Touch: the toolbar "Select" toggle enters the same mode
+         explicitly, since hover does not exist there. Either way a bulk
+         bar with a count and one Settle action appears above the list.
+         Bulk-unsettle is deliberately not built — restoring is always a
+         one-row decision (the per-row Restore action in the tail), since
+         nothing in the brief asks a user to mass-restore triaged-away
+         sessions.
+       - Resurfacing: auto-unsettle (SC3) returns a row to the ACTIVE list
+         at its original static position, not to the top. Row 3 shows
+         this mid-transition: it carries the attention treatment plus a
+         one-line "auto-unsettled" provenance hint instead of the usual
+         meta line, so the transition is legible without implying the row
+         jumped anywhere.
+       ================================================================ */
+
+    /* --- Resize handle (drag-resizable sidebar, 0.26 Phase B line item) ---
+       Desktop only — canon's own mobile rule already makes .sidebar a
+       positioning context via position:fixed, and layering a second
+       position here would win on source order (this stylesheet loads
+       after components.css) and silently collapse the fixed drawer back
+       into normal flow. Scoping to the desktop rail avoids that entirely
+       rather than relying on specificity to not regress it later. */
+    @media (min-width: 769px) {
+      .sidebar { position: relative; }
+    }
+    .sidebar-resize-handle {
+      position: absolute;
+      top: 0;
+      right: -3px;
+      width: 6px;
+      height: 100%;
+      cursor: col-resize;
+      background: transparent;
+      z-index: var(--z-sticky);
+      touch-action: none;
+    }
+    .sidebar-resize-handle::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0; left: 2px;
+      width: 2px;
+      border-radius: var(--radius);
+      background: transparent;
+      transition: background var(--transition);
+    }
+    .sidebar-resize-handle:hover::before,
+    .sidebar-resize-handle:focus-visible::before,
+    .sidebar-resize-handle.dragging::before { background: var(--accent); }
+    .sidebar-resize-handle:focus-visible { outline: none; }
+    @media (max-width: 768px) { .sidebar-resize-handle { display: none; } }
+
+    /* --- Filter rail: canonical .list-toolbar search + two labelled chip rows --- */
+    .sidebar-filter {
+      padding: var(--sp-2) var(--sp-3) var(--sp-3);
+      border-bottom: 1px solid var(--border-highlight);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-2);
+    }
+    .sidebar-filter .list-toolbar { margin-bottom: 0; }
+    /* Canon's 16rem flex-basis assumes a page-width toolbar; in the 260px
+       rail it forces a wrap that strands the overlay glyph above an input
+       whose reserved left padding then sits empty. Zero the basis so the
+       glyph, field and Select action share the row at any rail width. */
+    .sidebar-filter .form-input--search { flex-basis: 0; }
+    /* Classic (non-overlay) scrollbars reserve their own width from the
+       content box, which can nudge a full-width row 1-2px past the rail
+       and trigger a secondary horizontal scrollbar. Clip it — nothing in
+       a row is meant to scroll sideways. */
+    .session-list { overflow-x: hidden; }
+    .filter-group { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .filter-group-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-caps);
+      color: var(--fg-sub0);
+    }
+    .filter-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    /* Toggle chips: pressed state is canonical (button.chip[aria-pressed="true"]). */
+
+    /* --- Bulk-select bar: hidden until a row is checked --- */
+    .bulk-bar {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3);
+      background: color-mix(in srgb, var(--accent) 8%, var(--bg-chrome));
+      border-bottom: 1px solid var(--border-highlight);
+      font-size: var(--text-xs);
+      color: var(--fg-sub1);
+    }
+    .bulk-bar[hidden] { display: none; }
+    .bulk-bar-actions { margin-left: auto; display: flex; gap: var(--sp-2); }
+
+    /* --- Rich active-list rows --- */
+    .sess-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3);
+      border-left: 3px solid transparent;
+      transition: background var(--transition), opacity var(--transition);
+    }
+    .sess-row:hover { background: var(--bg-surface0); }
+    .sess-row.active {
+      background: var(--bg-surface0);
+      box-shadow: inset 3px 0 12px color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    /* Row-level colour reserved for blocked-on-you / failed (SC2) — the
+       .panel-warning / .panel-error 3px-edge-plus-bleed recipe, on a row. */
+    .sess-row--attention {
+      border-left-color: var(--warning);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 6%, transparent) 0%, transparent 35%);
+    }
+    .sess-row--failed {
+      border-left-color: var(--error);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--error) 6%, transparent) 0%, transparent 35%);
+    }
+    /* Attention damping — non-actionable running rows recede; full
+       strength returns on hover/focus so the row is never truly hidden. */
+    .sess-row--running { opacity: 0.7; }
+    .sess-row--running:hover,
+    .sess-row--running:focus-within { opacity: 1; }
+
+    /* The invisible full-row hit target. Sits under the checkbox and the
+       settle button (z-index 0 vs 1) so both remain independently
+       clickable; decorative siblings get pointer-events:none so clicks
+       fall through to it everywhere else in the row. */
+    .sess-row-link { position: absolute; inset: 0; z-index: 0; }
+    .sess-row-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      border-radius: var(--radius);
+    }
+    .sess-identity,
+    .sess-body,
+    .sess-trailing { position: relative; z-index: 1; }
+    .sess-body { pointer-events: none; }
+
+    /* Identity slot — identicon and its bulk-select checkbox share one grid
+       cell (Gmail-style avatar/checkbox swap) instead of the checkbox
+       claiming a column of its own, which would cost ~24px of an
+       already-tight 260px rail even while invisible. Revealed by hover,
+       by the row's own checked state, or by list-wide select mode
+       (the "Select" toolbar action — hover has no equivalent on touch). */
+    .sess-identity { width: 2.2em; height: 2.2em; flex-shrink: 0; }
+    .sess-identity .identicon,
+    .sess-identity .sess-select {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .sess-identity .identicon { font-size: var(--text-xs); transition: opacity var(--transition); }
+    .sess-identity .sess-select {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition);
+    }
+    .sess-row:hover .sess-identity .sess-select,
+    .sess-row:focus-within .sess-identity .sess-select,
+    .sess-select:checked,
+    .session-list.select-mode .sess-identity .sess-select {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .sess-row:hover .sess-identity .identicon,
+    .sess-row:focus-within .sess-identity .identicon,
+    .sess-select:checked ~ .identicon,
+    .session-list.select-mode .sess-identity .identicon { opacity: 0; }
+    .sess-body { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+    .sess-title {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--text-base);
+      font-weight: var(--weight-medium);
+      color: var(--fg);
+      min-width: 0;
+    }
+    .sess-title-text {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .sess-title .icon-pencil {
+      flex-shrink: 0;
+      width: 0.85em; height: 0.85em;
+      color: var(--fg-overlay);
+    }
+    .sess-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sess-meta .icon { font-size: 0.95em; color: var(--fg-sub0); flex-shrink: 0; }
+    .sess-meta--attention { color: var(--warning); }
+    .sess-meta--failed { color: var(--error); }
+
+    .sess-trailing {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+      align-self: start;
+      margin-top: 2px;
+    }
+    .sess-time {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .sess-row-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px; height: 24px;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius);
+      background: none;
+      color: var(--fg-overlay);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity var(--transition), background var(--transition), color var(--transition);
+    }
+    .sess-row:hover .sess-row-action,
+    .sess-row:focus-within .sess-row-action { opacity: 0.7; }
+    .sess-row-action:hover { opacity: 1; background: var(--bg-surface1); color: var(--fg); }
+    .sess-row-action[data-icon]::before { margin-right: 0; }
+    /* Touch has no hover — at the drawer breakpoint the settle affordance
+       rests visible (dimmed) instead of hover-revealed. */
+    @media (max-width: 768px) {
+      .sess-row-action { opacity: 0.55; }
+    }
+
+    /* Fork/lineage rows indent slightly to read as descendants. */
+    .sess-row--fork { padding-left: var(--sp-6); }
+    .sess-row--fork .sess-meta .icon { color: var(--fg-overlay); }
+
+    /* --- Settled tail --- */
+    .settled-tail { border-top: 1px solid var(--border-highlight); }
+    .settled-tail-header {
+      display: flex;
+      align-items: baseline;
+      gap: var(--sp-2);
+      padding: var(--sp-3) var(--sp-3) var(--sp-1);
+    }
+    .settled-tail-hint {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      padding: 0 var(--sp-3) var(--sp-2);
+    }
+    .sess-row--slim {
+      grid-template-columns: auto 1fr;
+      padding: 6px var(--sp-3);
+      border-left: 3px solid transparent;
+    }
+    .sess-row--slim .identicon { width: 1.8em; height: 1.8em; font-size: var(--text-xs); opacity: 0.85; }
+    .sess-row--slim .sess-title-text {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-normal);
+      color: var(--fg-sub1);
+    }
+    .sess-row--slim.active {
+      background: var(--bg-surface0);
+      box-shadow: inset 3px 0 12px color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    /* Absolutely positioned so the hidden (opacity:0) resting state reserves
+       no layout width — a text button sized to its own label, unlike the
+       active list's fixed 22px icon buttons, would otherwise squeeze the
+       title column to zero the moment it entered the row's flow. */
+    .sess-restore-btn {
+      position: absolute;
+      right: var(--sp-3);
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      background: var(--bg-surface0);
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+    .sess-row--slim:hover .sess-restore-btn,
+    .sess-row--slim:focus-within .sess-restore-btn { opacity: 1; }
+    /* Same no-hover-on-touch rule as .sess-row-action above — but a
+       resting overlay would sit on the row text, so the row also reserves
+       the button's footprint (right offset + ~74px label + breathing room)
+       and lets the title/meta ellipsize short of it. */
+    @media (max-width: 768px) {
+      .sess-restore-btn { opacity: 1; }
+      .sess-row--slim { padding-right: 96px; }
+    }
+
+    .settled-tail .pager { margin: var(--sp-2) 0 var(--sp-3); }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar: session control plane, inbox model -->
+  <aside class="sidebar" data-accepted-state="desktop-inbox" data-state-count="8" data-order="created-desc-id-asc">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+      <button class="btn btn-ghost btn-icon sidebar-close" type="button" data-icon="x" aria-label="Close sidebar" onclick="document.querySelector('.sidebar').classList.remove('open')"></button>
+    </div>
+
+    <!-- Filter rail: canonical search toolbar + status/project chip rows -->
+    <div class="sidebar-filter">
+      <div class="list-toolbar">
+        <span class="icon icon-search" aria-hidden="true"></span>
+        <input type="search" class="form-input form-input--search" name="session-filter" placeholder="Filter sessions&hellip;" aria-label="Filter sessions" value="">
+        <button type="button" class="btn btn-ghost btn-sm" id="select-toggle" aria-pressed="false">Select</button>
+      </div>
+      <div class="filter-group">
+        <span class="filter-group-label">Status</span>
+        <div class="filter-chips" role="group" aria-label="Status filter">
+          <button type="button" class="chip" aria-pressed="true">All</button>
+          <button type="button" class="chip" aria-pressed="false">Running</button>
+          <button type="button" class="chip" aria-pressed="false">Waiting on you</button>
+          <button type="button" class="chip" aria-pressed="false">Done</button>
+          <button type="button" class="chip" aria-pressed="false">Failed</button>
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-group-label">Project</span>
+        <div class="filter-chips" role="group" aria-label="Project scope filter">
+          <button type="button" class="chip" aria-pressed="true">All projects</button>
+          <button type="button" class="chip" aria-pressed="false">dartclaw-core</button>
+          <button type="button" class="chip" aria-pressed="false">dartclaw-server</button>
+          <button type="button" class="chip" aria-pressed="false">release-prep</button>
+          <button type="button" class="chip" aria-pressed="false">docs-site</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk-select bar: appears once any row checkbox is checked -->
+    <div class="bulk-bar" hidden>
+      <span class="bulk-bar-count">0 selected</span>
+      <div class="bulk-bar-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="bulk-clear">Clear</button>
+        <button type="button" class="btn btn-sm" id="bulk-settle" data-icon="check">Settle</button>
+      </div>
+    </div>
+
+    <a class="btn btn-ghost btn-sm" href="#next-attention" data-next-attention="offscreen-session-10">Next attention · 4 offscreen</a>
+    <div class="sidebar-placeholder" role="status" data-empty-filter-state hidden>No conversations match this filter.</div>
+    <section aria-labelledby="device-drafts-label" data-local-drafts="browser-context-a">
+      <div class="sidebar-section-label" id="device-drafts-label">Drafts on this device · 1</div>
+      <a href="#remote-settled-draft">Investigate offline timeout · settled remotely</a>
+    </section>
+
+    <div class="session-list" id="session-list">
+
+      <!-- Flat, statically ordered active list — newest session created at
+           top. No project grouping and no "needs you first" pinning: a
+           row's position never changes because of activity. -->
+
+      <!-- 1. Waiting on you — most recently created -->
+      <div class="sess-row sess-row--attention">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Confirm WhatsApp opt-in copy — waiting on you"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Confirm WhatsApp opt-in copy&rdquo; for bulk settle">
+          <span class="identicon identicon--4" aria-hidden="true">do</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--attention" aria-hidden="true"></span>
+            <span class="sess-title-text">Confirm WhatsApp opt-in copy</span>
+          </span>
+          <span class="sess-meta sess-meta--attention">docs-site &middot; waiting &middot; reply requested</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">6m</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 2. Waiting on you -->
+      <div class="sess-row sess-row--attention">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Approve release plan — waiting on you"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Approve release plan&rdquo; for bulk settle">
+          <span class="identicon identicon--3" aria-hidden="true">rp</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--attention" aria-hidden="true"></span>
+            <span class="sess-title-text">Approve release plan</span>
+          </span>
+          <span class="sess-meta sess-meta--attention">release-prep &middot; waiting &middot; step 3/7</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">11m</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 3. Waiting on you — auto-unsettled: was settled, a reply arrived,
+           it returned to ITS OWN static slot rather than jumping to the
+           top (SC3 + the "rows never jump" rule, SC4). -->
+      <div class="sess-row sess-row--attention">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Confirm DB migration rollback — waiting on you, auto-unsettled"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Confirm DB migration rollback&rdquo; for bulk settle">
+          <span class="identicon identicon--2" aria-hidden="true">ds</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--attention" aria-hidden="true"></span>
+            <span class="sess-title-text">Confirm DB migration rollback</span>
+          </span>
+          <span class="sess-meta sess-meta--attention">dartclaw-server &middot; waiting &middot; auto-unsettled</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">2m</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 4. Failed -->
+      <div class="sess-row sess-row--failed">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Rebuild search index — failed"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Rebuild search index&rdquo; for bulk settle">
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--error" aria-hidden="true"></span>
+            <span class="sess-title-text">Rebuild search index</span>
+          </span>
+          <span class="sess-meta sess-meta--failed">dartclaw-core &middot; failed &middot; FTS5 migration error</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">22m</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 5. Running — damped, elapsed timer -->
+      <div class="sess-row sess-row--running">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Refactor auth module — running"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Refactor auth module&rdquo; for bulk settle">
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--live" aria-hidden="true"></span>
+            <span class="sess-title-text">Refactor auth module</span>
+          </span>
+          <span class="sess-meta">dartclaw-core &middot; claude &middot; turn 4/10</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time"><span class="icon icon-clock" aria-hidden="true"></span> 3m14s</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 6. Fork of #5 — running, damped, indented, lineage visible -->
+      <div class="sess-row sess-row--running sess-row--fork">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Try JWT rotation variant — running, forked from Refactor auth module"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Try JWT rotation variant&rdquo; for bulk settle">
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--live" aria-hidden="true"></span>
+            <span class="sess-title-text">Try JWT rotation variant</span>
+          </span>
+          <span class="sess-meta">
+            dartclaw-core &middot;
+            <span class="icon icon-corner-down-right" aria-hidden="true"></span>
+            forked from Refactor auth module
+          </span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time"><span class="icon icon-clock" aria-hidden="true"></span> 1m02s</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 7. Draft pending — no turn yet, composer draft indicator -->
+      <div class="sess-row">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Investigate flaky test — draft message pending"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Investigate flaky test&rdquo; for bulk settle">
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--idle" aria-hidden="true"></span>
+            <span class="sess-title-text">Investigate flaky test</span>
+            <span class="icon icon-pencil" aria-hidden="true" title="Draft message pending"></span>
+          </span>
+          <span class="sess-meta">dartclaw-core &middot; draft not sent</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">38m</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 8. Done — created before #9, but with older activity than it -->
+      <div class="sess-row">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="Setup project scaffold — done"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;Setup project scaffold&rdquo; for bulk settle">
+          <span class="identicon identicon--3" aria-hidden="true">rp</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--success" aria-hidden="true"></span>
+            <span class="sess-title-text">Setup project scaffold</span>
+          </span>
+          <span class="sess-meta">release-prep &middot; codex &middot; scaffold complete</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time">3h</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- 9. Running — oldest row here, yet the freshest activity of any
+           row (42s elapsed). Stays below #8 anyway: static order holds. -->
+      <div class="sess-row sess-row--running">
+        <a class="sess-row-link" href="#" onclick="return false" aria-label="HTMX streaming for run board — running"></a>
+        <span class="sess-identity">
+          <input type="checkbox" class="form-checkbox sess-select" aria-label="Select &ldquo;HTMX streaming for run board&rdquo; for bulk settle">
+          <span class="identicon identicon--2" aria-hidden="true">ds</span>
+        </span>
+        <span class="sess-body">
+          <span class="sess-title">
+            <span class="status-dot status-dot--live" aria-hidden="true"></span>
+            <span class="sess-title-text">HTMX streaming for run board</span>
+          </span>
+          <span class="sess-meta">dartclaw-server &middot; codex &middot; turn 2/6</span>
+        </span>
+        <span class="sess-trailing">
+          <span class="sess-time"><span class="icon icon-clock" aria-hidden="true"></span> 0m42s</span>
+          <button type="button" class="sess-row-action" data-icon="check" data-action="settle" aria-label="Settle" title="Settle"></button>
+        </span>
+      </div>
+
+      <!-- Settled tail: paginated, slim rows, own the bottom of the rail.
+           Content stays readable without unsettling — see the open
+           "Debug API endpoints" session below, shown via the topbar. -->
+      <div class="settled-tail" data-page="1" data-next-cursor="settled-4">
+        <div class="settled-tail-header">
+          <span class="filter-group-label">Settled &middot; 6</span>
+        </div>
+        <p class="settled-tail-hint">Readable without unsettling &mdash; opening one doesn&rsquo;t change its triage state.</p>
+
+        <div class="sess-row sess-row--slim active">
+          <a class="sess-row-link" href="#" onclick="return false" aria-label="Debug API endpoints — settled, currently open"></a>
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+          <span class="sess-body">
+            <span class="sess-title-text">Debug API endpoints</span>
+            <span class="sess-meta">dartclaw-core &middot; settled 18m</span>
+          </span>
+          <button type="button" class="btn btn-ghost btn-sm sess-restore-btn" aria-label="Restore to active list" title="Restore to active list">Restore</button>
+        </div>
+
+        <div class="sess-row sess-row--slim">
+          <a class="sess-row-link" href="#" onclick="return false" aria-label="Google Chat webhook wiring — settled"></a>
+          <span class="identicon identicon--2" aria-hidden="true">ds</span>
+          <span class="sess-body">
+            <span class="sess-title-text">Google Chat webhook wiring</span>
+            <span class="sess-meta">dartclaw-server &middot; settled 1d</span>
+          </span>
+          <button type="button" class="btn btn-ghost btn-sm sess-restore-btn" aria-label="Restore to active list" title="Restore to active list">Restore</button>
+        </div>
+
+        <div class="sess-row sess-row--slim">
+          <a class="sess-row-link" href="#" onclick="return false" aria-label="Update onboarding docs — settled"></a>
+          <span class="identicon identicon--4" aria-hidden="true">do</span>
+          <span class="sess-body">
+            <span class="sess-title-text">Update onboarding docs</span>
+            <span class="sess-meta">docs-site &middot; settled 2d</span>
+          </span>
+          <button type="button" class="btn btn-ghost btn-sm sess-restore-btn" aria-label="Restore to active list" title="Restore to active list">Restore</button>
+        </div>
+
+        <div class="sess-row sess-row--slim">
+          <a class="sess-row-link" href="#" onclick="return false" aria-label="Prototype canvas share links — settled"></a>
+          <span class="identicon identicon--1" aria-hidden="true">dc</span>
+          <span class="sess-body">
+            <span class="sess-title-text">Prototype canvas share links</span>
+            <span class="sess-meta">dartclaw-core &middot; settled 3d</span>
+          </span>
+          <button type="button" class="btn btn-ghost btn-sm sess-restore-btn" aria-label="Restore to active list" title="Restore to active list">Restore</button>
+        </div>
+
+        <!-- Server-rendered pager (hx-get?page=N) — no client-side pager state. -->
+        <nav class="pager" aria-label="Settled sessions pages">
+          <button type="button" class="btn btn-ghost" disabled>Previous</button>
+          <span class="pager-label">Page 1 of 2</span>
+          <button type="button" class="btn btn-ghost" hx-get="/api/sessions?settled=1&amp;page=2" hx-target="closest .settled-tail" onclick="return false">Next</button>
+        </nav>
+      </div>
+
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+    </div>
+
+    <div class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuenow="260" aria-valuemin="220" aria-valuemax="420" tabindex="0"></div>
+  </aside>
+
+  <!-- Topbar — open session is the settled "Debug API endpoints": proves
+       settle stays reversible and never blocks reading/replying, unlike
+       archive (see archive-session.html's read-only notice for contrast). -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <input class="session-title" type="text" name="session-title" value="Debug API endpoints" aria-label="Session title">
+    <div class="topbar-actions">
+      <span class="status-badge status-badge-muted"><span class="status-dot status-dot--idle" aria-hidden="true"></span> Settled</span>
+      <button type="button" class="btn btn-ghost btn-sm">Unsettle</button>
+      <button class="btn btn-icon btn-ghost" data-icon="info" aria-label="Session info" title="Session info"></button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Simplified chat area — settled sessions stay fully live -->
+  <div class="chat-area">
+    <div class="messages">
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content"><p>Can you check why the /api/sessions endpoint returns 500 on an empty filter?</p></div>
+      </div>
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>Found it — the filter builder throws on a null status list instead of treating it as "no filter". Fixed and added a regression test.</p>
+          <div class="tool-indicator success">Writing packages/dartclaw_server/test/api/sessions_filter_test.dart</div>
+        </div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="composer">
+        <textarea rows="1" name="message" aria-label="Message" placeholder="Type a message..."></textarea>
+        <div class="composer-toolbar">
+          <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach"></button>
+          <span class="status-badge"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: standard</span>
+          <div class="composer-meta">
+            <button type="button" class="composer-model">claude &middot; high</button>
+            <button type="button" class="btn btn-primary btn-icon composer-send" data-icon="arrow-up" aria-label="Send"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pointer-only per the canon mobile contract — keyboard dismissal is Escape / .sidebar-close. -->
+  <button class="sidebar-scrim" type="button" tabindex="-1" aria-label="Close sidebar" onclick="document.querySelector('.sidebar').classList.remove('open')"></button>
+  <button class="btn btn-primary mobile-new-chat" type="button" aria-label="New Chat">New Chat</button>
+  <div role="status" aria-live="polite" aria-atomic="true" data-inbox-announcer></div>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+
+// Status/project filter chips — single-select per chip group.
+document.querySelectorAll('.filter-chips').forEach((group) => {
+  group.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      group.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+      chip.setAttribute('aria-pressed', 'true');
+    });
+  });
+});
+
+// Bulk settle. "Select" is the explicit, tap-friendly entry point (hover
+// has no equivalent on touch, and mobile is a required breakpoint here);
+// checking a row's own checkbox — reachable via hover on desktop — also
+// enters select mode so the rest of the rail's checkboxes stay visible
+// for continued multi-select without re-hovering each row.
+(function () {
+  const list = document.getElementById('session-list');
+  const selectToggle = document.getElementById('select-toggle');
+  const bar = document.querySelector('.bulk-bar');
+  const countEl = bar.querySelector('.bulk-bar-count');
+  const checkboxes = () => Array.from(list.querySelectorAll('.session-list > .sess-row .sess-select'));
+
+  function refresh() {
+    const checked = checkboxes().filter((cb) => cb.checked);
+    bar.hidden = checked.length === 0;
+    countEl.textContent = checked.length + ' selected';
+  }
+
+  function setSelectMode(on) {
+    list.classList.toggle('select-mode', on);
+    selectToggle.textContent = on ? 'Cancel' : 'Select';
+    selectToggle.setAttribute('aria-pressed', String(on));
+    if (!on) checkboxes().forEach((cb) => { cb.checked = false; });
+    refresh();
+  }
+
+  selectToggle.addEventListener('click', () => setSelectMode(!list.classList.contains('select-mode')));
+
+  checkboxes().forEach((cb) => cb.addEventListener('change', () => {
+    if (cb.checked && !list.classList.contains('select-mode')) setSelectMode(true);
+    else refresh();
+  }));
+
+  document.getElementById('bulk-clear').addEventListener('click', () => setSelectMode(false));
+
+  // Settle visually moves checked rows out of the active list (their tail
+  // entry is server-rendered in the real app, not simulated here).
+  document.getElementById('bulk-settle').addEventListener('click', () => {
+    checkboxes().filter((cb) => cb.checked).forEach((cb) => {
+      cb.closest('.sess-row').style.display = 'none';
+    });
+    setSelectMode(false);
+  });
+
+  // Per-row settle button (active list only — settled rows show Restore instead).
+  list.querySelectorAll('.session-list > .sess-row .sess-row-action[data-action="settle"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      btn.closest('.sess-row').style.display = 'none';
+    });
+  });
+})();
+
+// Drag-resizable sidebar — clamped width, persisted per browser,
+// double-click resets to the canonical 260px default.
+(function () {
+  const handle = document.querySelector('.sidebar-resize-handle');
+  const root = document.documentElement;
+  const MIN = 220, MAX = 420, DEFAULT = 260;
+
+  function setWidth(px) {
+    px = Math.max(MIN, Math.min(MAX, Math.round(px)));
+    root.style.setProperty('--sidebar-w', px + 'px');
+    handle.setAttribute('aria-valuenow', String(px));
+    localStorage.setItem('dartclaw-sidebar-w', String(px));
+    return px;
+  }
+
+  const saved = parseInt(localStorage.getItem('dartclaw-sidebar-w'), 10);
+  if (!Number.isNaN(saved)) setWidth(saved);
+
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    const onMove = (ev) => setWidth(ev.clientX - handle.parentElement.getBoundingClientRect().left);
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp, { once: true });
+  });
+
+  handle.addEventListener('dblclick', () => setWidth(DEFAULT));
+
+  handle.addEventListener('keydown', (e) => {
+    const current = parseInt(getComputedStyle(root).getPropertyValue('--sidebar-w'), 10) || DEFAULT;
+    if (e.key === 'ArrowLeft') { setWidth(current - 8); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { setWidth(current + 8); e.preventDefault(); }
+  });
+})();
+</script>
+
+</body>
+</html>

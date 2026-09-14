@@ -12,7 +12,7 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention [--compare-wireframes]"
       exit 0
       ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
@@ -90,6 +90,10 @@ HISTORY_OLD_MESSAGE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.
 HISTORY_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyApprovalRequestId"])' "${READY}")"
 HISTORY_LIVE_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyLiveApprovalRequestId"])' "${READY}")"
 NAMED_AGENT_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["namedAgentSessionId"])' "${READY}")"
+INBOX_DRAFT_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxDraftSessionId"])' "${READY}")"
+INBOX_DONE_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxDoneSessionId"])' "${READY}")"
+INBOX_ARCHIVED_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxArchivedSessionId"])' "${READY}")"
+INBOX_LINEAGE_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxLineageSessionId"])' "${READY}")"
 SESSION_URL="${BASE_URL}/sessions/${SESSION_ID}"
 
 ab() {
@@ -438,6 +442,84 @@ run_e11_effective_context() {
   fi
 }
 
+run_inbox_attention() {
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait '[data-inbox-filters]'
+  assert_eval conversation-origin "(async () => { const db=await new Promise((resolve,reject)=>{const request=indexedDB.open('dartclaw-conversation-drafts',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('drafts'))request.result.createObjectStore('drafts',{keyPath:'key'})};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)}); await new Promise((resolve,reject)=>{const tx=db.transaction('drafts','readwrite');tx.objectStore('drafts').put({key:'fixture:${INBOX_DRAFT_SESSION_ID}',text:'Local draft retained on this device',references:[],attachments:[],updatedAt:Date.now()});tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)}); const controller=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-shell'); await controller.refreshInboxUi(); const drafts=encodeURIComponent('${INBOX_DRAFT_SESSION_ID}'); const active=await fetch('/api/inbox?limit=200&local_draft_session_ids='+drafts).then(r=>r.json()); const settled=await fetch('/api/inbox?settled=1&limit=50&local_draft_session_ids='+drafts).then(r=>r.json()); const archived=await fetch('/api/sessions?type=archive').then(r=>r.json()); const attention=await fetch('/api/attention?limit=200').then(r=>r.json()); if(active.total<200||active.entries.length>200) throw new Error('bounded inbox fixture missing'); if(!Number.isInteger(active.filtered_total)||!Number.isInteger(active.waiting_total)||active.waiting_total<1) throw new Error('complete inbox counts missing'); for(const state of ['unread','waiting','running','failed','done']) if(!active.entries.some(entry=>entry[state])) throw new Error(state+' fixture missing'); if(!settled.entries.some(entry=>entry.session.id==='${INBOX_DRAFT_SESSION_ID}'&&entry.local_draft)) throw new Error('settled local draft missing'); if(!archived.some(session=>session.id==='${INBOX_ARCHIVED_SESSION_ID}')||active.entries.some(entry=>entry.session.id==='${INBOX_ARCHIVED_SESSION_ID}')||settled.entries.some(entry=>entry.session.id==='${INBOX_ARCHIVED_SESSION_ID}')) throw new Error('archive membership leaked'); if(!active.entries.some(entry=>entry.session.id==='${INBOX_LINEAGE_SESSION_ID}'&&entry.parent_session_id)) throw new Error('fork lineage missing'); if(!Array.isArray(attention.items)||!Number.isInteger(attention.unread_total)||!attention.items.some(item=>item.request_id&&item.attempt_id&&item.turn_id)) throw new Error('attention projection missing'); const filtered=await fetch('/api/inbox?filter=drafts&limit=50&local_draft_session_ids='+drafts).then(r=>r.json()); if(filtered.next_attention_session_id==null) throw new Error('offscreen attention navigation missing'); const done=active.entries.find(entry=>entry.session.id==='${INBOX_DONE_SESSION_ID}'); const bulk=await fetch('/api/inbox/settle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({members:[{session_id:done.session.id,conversation_revision:done.conversation_revision}]})}).then(r=>r.json()); if(bulk.results?.[0]?.accepted!==true) throw new Error('row settle failed'); const restore=await fetch('/api/inbox/'+encodeURIComponent(done.session.id)+'/restore',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({conversation_revision:bulk.results[0].conversation_revision})}); if(!restore.ok) throw new Error('restore failed'); return {active:active.total,settled:settled.total,attention:attention.total,waiting:active.waiting_total} })()"
+  assert_eval conversation-origin "(() => { const handle=document.querySelector('.sidebar-resize-handle'); handle.focus(); handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})); if(handle.getAttribute('aria-valuenow')!=='270') throw new Error('keyboard resize failed'); handle.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true})); if(handle.getAttribute('aria-valuenow')!=='260') throw new Error('resize reset failed'); return true })()"
+  assert_eval conversation-origin "(async () => { const settled=await fetch('/api/inbox?settled=1&limit=2').then(r=>r.json()); if(!settled.next_cursor||settled.entries.length!==2)throw new Error('settled boundary fixture missing'); const boundary=settled.entries.at(-1); const restoredResponse=await fetch('/api/inbox/'+encodeURIComponent(boundary.session.id)+'/restore',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({conversation_revision:boundary.conversation_revision})}); if(!restoredResponse.ok)throw new Error('settled boundary restore failed'); const restored=await restoredResponse.json(); const nextResponse=await fetch('/api/inbox?settled=1&limit=2&cursor='+encodeURIComponent(settled.next_cursor)); if(!nextResponse.ok)throw new Error('settled keyset cursor rejected removed boundary'); const next=await nextResponse.json(); if(next.entries.some(entry=>entry.session.id===boundary.session.id))throw new Error('settled boundary duplicated'); const active=await fetch('/api/inbox?limit=200').then(r=>r.json()); const staleDone=active.entries.find(entry=>entry.session.id==='${INBOX_DONE_SESSION_ID}'); const moved=await fetch('/api/inbox/settle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({members:[{session_id:staleDone.session.id,conversation_revision:staleDone.conversation_revision}]})}).then(r=>r.json()); const movedBack=await fetch('/api/inbox/'+encodeURIComponent(staleDone.session.id)+'/restore',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({conversation_revision:moved.results[0].conversation_revision})}).then(r=>r.json()); if(!movedBack.accepted)throw new Error('stale-race setup failed'); const bulk=await fetch('/api/inbox/settle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({members:[{session_id:boundary.session.id,conversation_revision:restored.conversation_revision},{session_id:staleDone.session.id,conversation_revision:staleDone.conversation_revision}]})}).then(r=>r.json()); if(bulk.results?.[0]?.accepted!==true||bulk.results?.[1]?.code!=='STALE_CONVERSATION_REVISION')throw new Error('bulk partial stale race not preserved'); await fetch('/api/inbox/'+encodeURIComponent(boundary.session.id)+'/restore',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({conversation_revision:bulk.results[0].conversation_revision})}); const attention=await fetch('/api/attention?limit=2').then(r=>r.json()); if(!attention.next_cursor||attention.items.length!==2||!attention.items.at(-1).dismissible)throw new Error('attention boundary fixture missing'); const attentionBoundary=attention.items.at(-1); const dismissed=await fetch('/api/attention/dismiss',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({session_id:attentionBoundary.session_id,event_id:attentionBoundary.event_id,conversation_revision:attentionBoundary.conversation_revision})}); if(!dismissed.ok)throw new Error('attention boundary dismissal failed'); const attentionNext=await fetch('/api/attention?limit=2&cursor='+encodeURIComponent(attention.next_cursor)); if(!attentionNext.ok||(await attentionNext.json()).items.some(item=>item.event_id===attentionBoundary.event_id))throw new Error('attention keyset cursor failed after dismissal'); return {settledCursor:settled.next_cursor,attentionCursor:attention.next_cursor} })()"
+  local zoom_modifier=Control
+  if [ "$(uname -s)" = Darwin ]; then zoom_modifier=Meta; fi
+  for width in 375 390 768 1440; do
+    for theme in dark light; do
+      ab conversation-origin press "${zoom_modifier}+0"
+      ab conversation-origin set viewport "${width}" 900
+      ab conversation-origin set media "${theme}" reduced-motion
+      assert_eval conversation-origin "(() => { const newChat=document.querySelector('.topbar-new-chat'); if(!newChat||!newChat.checkVisibility()) throw new Error('New Chat unavailable outside closed drawer'); for(const control of document.querySelectorAll('[data-attention-toggle],[data-next-attention],[data-settled-next],.topbar-new-chat')){if(!control.checkVisibility())continue;const box=control.getBoundingClientRect();if(box.width<44||box.height<44)throw new Error('undersized inbox action '+box.width+'x'+box.height)} if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('inbox horizontal overflow'); return {width:innerWidth,theme:'${theme}',motion:getComputedStyle(document.documentElement).getPropertyValue('scroll-behavior')} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/inbox-${width}-${theme}.png"
+      assert_eval conversation-origin "(() => { window.__inboxZoomBaseline={width:innerWidth,dpr:devicePixelRatio}; return window.__inboxZoomBaseline })()"
+      for _ in 1 2 3 4 5; do ab conversation-origin press "${zoom_modifier}++"; done
+      assert_eval conversation-origin "(() => { const baseline=window.__inboxZoomBaseline; const zoomed=innerWidth<=baseline.width*0.6||devicePixelRatio>=baseline.dpr*1.8; if(!zoomed)throw new Error('browser did not reach 200% zoom'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('inbox horizontal overflow at 200% zoom'); return {width:innerWidth,dpr:devicePixelRatio,theme:'${theme}'} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/inbox-${width}-${theme}-zoom200.png"
+    done
+  done
+  ab conversation-origin press "${zoom_modifier}+0"
+  ab conversation-origin set viewport 1440 900
+  assert_eval conversation-origin "(() => { const bell=document.querySelector('[data-attention-toggle]'); bell.click(); if(bell.getAttribute('aria-expanded')!=='true') throw new Error('attention panel did not open'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/attention-desktop.png"
+  ab conversation-origin a11y --selector '#sidebar' --json >"${EVIDENCE_ROOT}/inbox-a11y.json"
+  ab conversation-origin a11y --selector '[data-attention-panel]' --json >"${EVIDENCE_ROOT}/attention-a11y.json"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    capture_wireframe session-sidebar-control-plane inbox-reference
+    compare_session_to_wireframe conversation-origin inbox-reference 15
+    capture_wireframe notification-center attention-reference
+    compare_session_to_wireframe conversation-origin attention-reference 15
+  fi
+}
+
+run_inbox_joined_proof() {
+  local origin_headers='{"x-conversation-viewer":"origin"}'
+  local passive_headers='{"x-conversation-viewer":"passive"}'
+  local history_url="${BASE_URL}/sessions/${HISTORY_SESSION_ID}"
+  agent-browser --session conversation-origin --headers "${origin_headers}" open "${history_url}"
+  agent-browser --session conversation-passive --headers "${passive_headers}" open "${history_url}"
+  ab conversation-origin wait '#message-input'
+  ab conversation-passive wait '#message-input'
+  ab conversation-origin fill '#message-input' 'Live history approval proof'
+  ab conversation-origin press Control+Enter
+  ab conversation-origin wait 500
+  assert_eval conversation-origin "(async () => { const shell=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-shell'); const started=performance.now(); while(performance.now()-started<3000){await shell.refreshAttentionUi();const item=(shell.attentionItems||[]).find(item=>item.request_id==='history-live-approval');if(item)return {event:item.event_id,revision:item.conversation_revision};await new Promise(r=>setTimeout(r,50))}throw new Error('live attention request never reached origin') })()"
+  assert_eval conversation-passive "(async () => { const shell=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-shell'); await shell.refreshInboxUi(); await shell.refreshAttentionUi(); const inbox=await fetch('/api/inbox?limit=200').then(r=>r.json()); if(!shell.attentionItems.some(item=>item.request_id==='history-live-approval')||inbox.waiting_total<1)throw new Error('passive viewer missed joined inbox attention state'); return {waiting:inbox.waiting_total,attention:shell.attentionItems.length} })()"
+  assert_eval conversation-origin "(async () => { const shell=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-shell'); const item=shell.attentionItems.find(item=>item.request_id==='history-live-approval'); const row=document.querySelector('[data-event-id="'+CSS.escape(item.event_id)+'"]'); const approve=[...row.querySelectorAll('button')].find(button=>button.textContent==='Approve'); if(!approve)throw new Error('exact attention action missing'); approve.click(); const started=performance.now(); let state; while(performance.now()-started<3000){state=await fetch('/fixture/history-state').then(r=>r.json());if(state.approvalResponses===1)break;await new Promise(r=>setTimeout(r,50))} if(state?.approvalResponses!==1||state.lastApproved!==true)throw new Error('attention action did not reach provider once'); const repeated=await fetch('/api/attention/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event_id:item.event_id,session_id:item.session_id,attempt_id:item.attempt_id,turn_id:item.turn_id,request_id:item.request_id,conversation_revision:item.conversation_revision,approved:true})}); if(repeated.ok)throw new Error('duplicate stale action was accepted'); state=await fetch('/fixture/history-state').then(r=>r.json());if(state.approvalResponses!==1)throw new Error('duplicate action reached provider'); await shell.refreshAttentionUi(); return state })()"
+  assert_eval conversation-passive "(async () => { const shell=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-shell'); const started=performance.now(); while(performance.now()-started<3000){await shell.refreshAttentionUi();const item=shell.attentionItems.find(item=>item.request_id==='history-live-approval');if(item?.status==='approved')return item;await new Promise(r=>setTimeout(r,50))}throw new Error('passive attention did not converge after action') })()"
+  local attention_href
+  attention_href="$(agent-browser --session conversation-origin get attr href '[data-event-id="record:history-live-approval"] a')"
+  if [[ "${attention_href}" != *"message="* || "${attention_href}" != *"#record-history-live-approval"* ]]; then
+    echo "attention deep link did not name the message and record: ${attention_href}" >&2
+    exit 1
+  fi
+  ab conversation-origin open "${attention_href}"
+  ab conversation-origin wait '#record-history-live-approval'
+  assert_eval conversation-origin "(() => { const target=document.querySelector('#record-history-live-approval'); if(document.activeElement!==target)throw new Error('exact attention record did not receive focus'); if(!new URL(location.href).searchParams.get('message'))throw new Error('message window target missing'); return {target:target.id,message:new URL(location.href).searchParams.get('message')} })()"
+
+  ab conversation-passive network route '**/api/inbox*' --abort
+  assert_eval conversation-passive "(() => { document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed',{detail:{session_id:'${HISTORY_SESSION_ID}',revision:9001}})); return true })()"
+  ab conversation-passive wait 300
+  assert_eval conversation-passive "(() => { if(!document.body.textContent.includes('Inbox updates are unavailable'))throw new Error('source-keyed inbox outage missing'); return true })()"
+  ab conversation-passive network unroute '**/api/inbox*'
+  assert_eval conversation-passive "(() => { document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed',{detail:{session_id:'${HISTORY_SESSION_ID}',revision:9002}})); return true })()"
+  ab conversation-passive wait 300
+  assert_eval conversation-passive "(() => { if(document.body.textContent.includes('Inbox updates are unavailable'))throw new Error('recovered inbox outage persisted'); return true })()"
+
+  ab conversation-passive set viewport 390 900
+  ab conversation-passive click '.menu-toggle'
+  assert_eval conversation-passive "(() => { const sidebar=document.querySelector('#sidebar'); const main=document.querySelector('.shell-main'); if(!sidebar.classList.contains('open')||!main.hasAttribute('inert')||document.activeElement!==sidebar.querySelector('.sidebar-close'))throw new Error('drawer open/focus/inert contract failed'); const focusable=[...sidebar.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&element.offsetParent!==null); focusable.at(-1).focus(); return {first:focusable[0].className,last:focusable.at(-1).className} })()"
+  ab conversation-passive press Tab
+  assert_eval conversation-passive "(() => { const sidebar=document.querySelector('#sidebar'); if(!sidebar.contains(document.activeElement))throw new Error('drawer focus escaped'); return true })()"
+  ab conversation-passive press Escape
+  assert_eval conversation-passive "(() => { if(document.querySelector('#sidebar').classList.contains('open')||document.querySelector('.shell-main').hasAttribute('inert')||document.activeElement!==document.querySelector('.menu-toggle'))throw new Error('drawer close did not restore focus'); return true })()"
+}
+
 case "${CASE}" in
   fixture-self-test) run_q4; run_q6 ;;
   q4-draft-send) run_q4 ;;
@@ -447,6 +529,8 @@ case "${CASE}" in
   q2-q3-q6-q7-q9-history) run_q6; run_history ;;
   q9-effective-context) run_q9_effective_context ;;
   e11-effective-context) run_e11_effective_context ;;
+  q6-q8-q10-inbox-attention) run_q6; run_inbox_attention; run_inbox_joined_proof ;;
+  q8-q10-inbox-attention) run_inbox_attention ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

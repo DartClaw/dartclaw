@@ -112,6 +112,44 @@ class InMemorySessionService implements SessionService {
   }
 
   @override
+  Future<({Session session, ConversationState state})> updateInboxMetadata({
+    required String id,
+    required int expectedConversationRevision,
+    DateTime? settledAt,
+    bool clearSettledAt = false,
+    int? readMessageCursor,
+    String? attentionReadEventId,
+    List<String>? dismissedAttentionEventIds,
+  }) async {
+    final session = _sessionsById[id];
+    if (session == null) throw StateError('Session not found: $id');
+    final state = _conversationStates[id] ?? ConversationState();
+    if (state.revision != expectedConversationRevision) {
+      throw ConversationRevisionMismatch(expectedConversationRevision, state.revision);
+    }
+    final bounded = dismissedAttentionEventIds == null
+        ? null
+        : dismissedAttentionEventIds.length <= SessionService.maxDismissedAttentionEventIds
+        ? List<String>.of(dismissedAttentionEventIds, growable: false)
+        : dismissedAttentionEventIds.sublist(
+            dismissedAttentionEventIds.length - SessionService.maxDismissedAttentionEventIds,
+          );
+    final nextState = state.bumpRevision();
+    final nextSession = session.copyWith(
+      settledAt: clearSettledAt ? null : settledAt ?? session.settledAt,
+      readMessageCursor: readMessageCursor == null || readMessageCursor >= session.readMessageCursor
+          ? readMessageCursor
+          : session.readMessageCursor,
+      attentionReadEventId: attentionReadEventId ?? session.attentionReadEventId,
+      dismissedAttentionEventIds: bounded,
+      updatedAt: DateTime.now(),
+    );
+    _sessionsById[id] = nextSession;
+    _conversationStates[id] = nextState;
+    return (session: nextSession, state: nextState);
+  }
+
+  @override
   Future<List<Session>> listSessions({
     SessionType? type,
     List<SessionType>? types,

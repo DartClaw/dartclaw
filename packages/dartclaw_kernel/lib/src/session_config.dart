@@ -16,12 +16,18 @@ class SessionConfig {
   /// maintenanceConfig.
   final SessionMaintenanceConfig maintenanceConfig;
 
+  /// Whole days an eligible idle conversation remains active before settling.
+  ///
+  /// Zero disables automatic settling.
+  final int autoSettleIdleDays;
+
   /// Creates a [SessionConfig] value.
   const new({
     this.resetHour = 4,
     this.idleTimeoutMinutes = 0,
     this.scopeConfig = const SessionScopeConfig.defaults(),
     this.maintenanceConfig = const SessionMaintenanceConfig.defaults(),
+    this.autoSettleIdleDays = 0,
   });
 
   /// Default configuration.
@@ -33,9 +39,10 @@ class SessionConfig {
       other is SessionConfig &&
           resetHour == other.resetHour &&
           idleTimeoutMinutes == other.idleTimeoutMinutes &&
+          autoSettleIdleDays == other.autoSettleIdleDays &&
           scopeConfig == other.scopeConfig &&
           maintenanceConfig == other.maintenanceConfig;
 
   @override
-  int get hashCode => Object.hash(resetHour, idleTimeoutMinutes, scopeConfig, maintenanceConfig);
+  int get hashCode => Object.hash(resetHour, idleTimeoutMinutes, autoSettleIdleDays, scopeConfig, maintenanceConfig);
 }

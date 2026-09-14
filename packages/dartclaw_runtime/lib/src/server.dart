@@ -44,6 +44,7 @@ import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
 import 'asset_resolver.dart';
 import 'context/result_trimmer.dart';
+import 'conversation/inbox_service.dart';
 import 'health/health_service.dart';
 import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
@@ -301,6 +302,7 @@ class DartclawServer {
     }
     await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();
+    await _web.inboxService?.dispose();
     await _observability.eventBusSseBridge?.cancel();
     await _observability.sseBroadcast?.dispose();
     await _channels.channelManager?.dispose();
@@ -727,6 +729,7 @@ class DartclawServer {
       defaultProvider: defaultProvider,
       showChannels: showChannels,
       tasksEnabled: tasksEnabled,
+      inbox: _web.inboxService,
     );
     String buildSidebarHtml({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
       final resolvedNavItems = navItems.isEmpty ? _pageRegistry.navItems(activePage: '') : navItems;
@@ -747,6 +750,7 @@ class DartclawServer {
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
       sseBroadcast: _observability.sseBroadcast,
+      inboxService: _web.inboxService,
     );
     router.mount('/', sessionRouter.call);
   }

@@ -27,6 +27,8 @@ The interface has three main areas:
 **Session Management**
 - **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
 - **Switch**: Click any session in the sidebar to load its messages
+- **Triage**: The inbox keeps creation order stable while showing unread, running, waiting, done, failed and local-draft state. Settle completed and fully read conversations to move them into the paged Settled tail; Restore returns them to their original place. New work restores a settled conversation automatically.
+- **Attention**: The topbar bell pages durable completion, failure and input-request events. It links back to the exact transcript record and offers approval actions only while the underlying request remains pending.
 - **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
 - **Delete**: Click the × button on a sidebar item
 - **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
@@ -841,6 +843,12 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
+
+The inbox API uses `conversation_revision` on every mutation so two viewers cannot silently overwrite one another.
+`GET /api/inbox` returns stable active or settled pages and complete counts; `POST /api/inbox/settle`,
+`POST /api/inbox/:id/restore`, and `POST /api/inbox/:id/read` update membership and foreground read boundaries.
+`GET /api/attention` returns durable attention events; its `/read`, `/dismiss`, and `/action` endpoints keep feed
+markers separate from exact pending-request resolution.
 
 #### Workflow API
 

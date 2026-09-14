@@ -602,6 +602,7 @@ ReloadConfig _parseReloadConfig(Map<dynamic, dynamic>? gMap, ReloadConfig defaul
 SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, List<String> warns) {
   var resetHour = defaults.resetHour;
   var idleTimeoutMinutes = defaults.idleTimeoutMinutes;
+  var autoSettleIdleDays = defaults.autoSettleIdleDays;
   var scopeConfig = defaults.scopeConfig;
   var maintenanceConfig = defaults.maintenanceConfig;
 
@@ -611,6 +612,17 @@ SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, 
     idleTimeoutMinutes =
         readInt('idle_timeout_minutes', sessionsMap, warns, defaultValue: defaults.idleTimeoutMinutes) ??
         defaults.idleTimeoutMinutes;
+    final parsedAutoSettleIdleDays = readInt(
+      'auto_settle_idle_days',
+      sessionsMap,
+      warns,
+      defaultValue: defaults.autoSettleIdleDays,
+    );
+    if (parsedAutoSettleIdleDays != null && !parsedAutoSettleIdleDays.isNegative) {
+      autoSettleIdleDays = parsedAutoSettleIdleDays;
+    } else if (parsedAutoSettleIdleDays != null) {
+      warns.add('Invalid value for sessions.auto_settle_idle_days: $parsedAutoSettleIdleDays — using default');
+    }
     scopeConfig = _parseSessionScope(sessionsMap, defaults.scopeConfig, warns);
     maintenanceConfig = _parseSessionMaintenance(sessionsMap, defaults.maintenanceConfig, warns);
   }
@@ -618,6 +630,7 @@ SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, 
   return SessionConfig(
     resetHour: resetHour,
     idleTimeoutMinutes: idleTimeoutMinutes,
+    autoSettleIdleDays: autoSettleIdleDays,
     scopeConfig: scopeConfig,
     maintenanceConfig: maintenanceConfig,
   );

@@ -29,16 +29,17 @@ class MessageService {
   static const _uuid = Uuid();
   final Map<String, int> _lineCounts = {};
   late final BoundedWriteQueue _queue;
-  MessageServiceObserver? _observer;
+  final List<MessageServiceObserver> _observers = [];
 
-  new({required this.baseDir, MessageServiceObserver? observer}) : _observer = observer {
+  new({required this.baseDir, MessageServiceObserver? observer}) {
+    if (observer != null) _observers.add(observer);
     _queue = BoundedWriteQueue(logger: _log);
   }
 
-  /// Registers the sole message mutation observer.
+  /// Registers a message mutation observer once.
   void registerObserver(MessageServiceObserver observer) {
-    if (_observer != null) throw StateError('A message service observer is already registered');
-    _observer = observer;
+    if (_observers.contains(observer)) throw StateError('Message service observer is already registered');
+    _observers.add(observer);
   }
 
   Future<Message> insertMessage({
@@ -95,7 +96,7 @@ class MessageService {
       if (!completer.isCompleted) completer.completeError(e, st);
     });
     return completer.future.then((message) {
-      _notify(() => _observer?.onMessageAppended(message));
+      _notify((observer) => observer.onMessageAppended(message));
       return message;
     });
   }
@@ -158,13 +159,13 @@ class MessageService {
     _queue.add(op);
     return op.completer.future.then((_) {
       final message = inserted!;
-      if (appended && notifyObserver) _notify(() => _observer?.onMessageAppended(message));
+      if (appended && notifyObserver) _notify((observer) => observer.onMessageAppended(message));
       return message;
     });
   }
 
   /// Publishes a previously inserted stable message to the configured observer.
-  void publishMessage(Message message) => _notify(() => _observer?.onMessageAppended(message));
+  void publishMessage(Message message) => _notify((observer) => observer.onMessageAppended(message));
 
   /// Rewrites one queued user message while preserving its stable identity and cursor.
   Future<Message> replaceMessageWithIdentity({
@@ -362,7 +363,7 @@ class MessageService {
     });
     _queue.add(op);
     return op.completer.future.then((_) {
-      _notify(() => _observer?.onMessagesCleared(sessionId, clearedIds));
+      _notify((observer) => observer.onMessagesCleared(sessionId, clearedIds));
     });
   }
 
@@ -370,11 +371,13 @@ class MessageService {
     await _queue.close();
   }
 
-  void _notify(void Function() notification) {
-    try {
-      notification();
-    } catch (error, stackTrace) {
-      _log.warning('Message observer failed: $error', error, stackTrace);
+  void _notify(void Function(MessageServiceObserver observer) notification) {
+    for (final observer in _observers) {
+      try {
+        notification(observer);
+      } catch (error, stackTrace) {
+        _log.warning('Message observer failed: $error', error, stackTrace);
+      }
     }
   }
 

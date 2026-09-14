@@ -3,6 +3,7 @@ import {
   applyIdenticons,
   beginSessionDraftMutation,
   closeAllCustomSelects,
+  conversationDraftSessionIds,
   confirmDialog,
   dismissRestartBanner as dismissRestartBannerState,
   endSessionDraftMutation,
@@ -22,12 +23,17 @@ import {
 
 const restartPollIntervalMs = 2000;
 const restartPollTimeoutMs = 90000;
+const sidebarWidthKey = 'dartclaw-sidebar-width';
+const sidebarDefaultWidth = 260;
+const sidebarMinWidth = 220;
+const sidebarMaxWidth = 420;
 
 export default class DcShellController extends Stimulus.Controller {
   connect() {
     this.restartPollTimer = null;
     this.restartPollStart = null;
     this.globalEventSource = null;
+    this.inboxMarkupRefresh = null;
     this.handleServerEvent = this.handleServerEvent.bind(this);
     this.handleDocumentClick = this.handleDocumentClick.bind(this);
     this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
@@ -40,9 +46,11 @@ export default class DcShellController extends Stimulus.Controller {
     this.handleHtmxResponseError = this.handleHtmxResponseError.bind(this);
     this.handleHtmxError = this.handleHtmxError.bind(this);
     this.handleAuthorizationRevoked = this.handleAuthorizationRevoked.bind(this);
+    this.handleConversationChanged = this.handleConversationChanged.bind(this);
 
     document.body.addEventListener('dartclaw:server-event', this.handleServerEvent);
     document.body.addEventListener('dartclaw:authorization-revoked', this.handleAuthorizationRevoked);
+    document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     document.body.addEventListener('htmx:response:error', this.handleHtmxResponseError);
     document.body.addEventListener('htmx:error', this.handleHtmxError);
     document.addEventListener('click', this.handleDocumentClick);
@@ -72,6 +80,7 @@ export default class DcShellController extends Stimulus.Controller {
   disconnect() {
     document.body.removeEventListener('dartclaw:server-event', this.handleServerEvent);
     document.body.removeEventListener('dartclaw:authorization-revoked', this.handleAuthorizationRevoked);
+    document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     document.body.removeEventListener('htmx:response:error', this.handleHtmxResponseError);
     document.body.removeEventListener('htmx:error', this.handleHtmxError);
     document.removeEventListener('click', this.handleDocumentClick);
@@ -108,6 +117,11 @@ export default class DcShellController extends Stimulus.Controller {
     this.setConnectionState('lost');
   }
 
+  handleConversationChanged() {
+    this.refreshInboxUi();
+    this.refreshAttentionUi();
+  }
+
   handleDocumentClick(event) {
     if (!event.target.closest('.custom-select')) {
       closeAllCustomSelects();
@@ -129,6 +143,35 @@ export default class DcShellController extends Stimulus.Controller {
     if (createButton) {
       event.preventDefault();
       this.createSession();
+      return;
+    }
+
+    const settleButton = event.target.closest('[data-inbox-settle]');
+    if (settleButton) {
+      event.preventDefault();
+      this.settleInboxRows([settleButton.closest('[data-inbox-session-id]')]);
+      return;
+    }
+
+    if (event.target.closest('[data-inbox-settle-selected]')) {
+      event.preventDefault();
+      this.settleInboxRows([...document.querySelectorAll('[data-inbox-select]:checked')].map((input) => input.closest('[data-inbox-session-id]')));
+      return;
+    }
+
+    if (event.target.closest('[data-next-attention]')) {
+      event.preventDefault();
+      if (this.nextAttentionSessionId) {
+        location.assign('/sessions/' + encodeURIComponent(this.nextAttentionSessionId) + apiQs());
+      }
+      return;
+    }
+
+    if (event.target.closest('[data-inbox-clear-filter]')) {
+      event.preventDefault();
+      const form = document.querySelector('[data-inbox-filters]');
+      form?.reset();
+      this.refreshInboxUi();
       return;
     }
 
@@ -156,10 +199,24 @@ export default class DcShellController extends Stimulus.Controller {
   }
 
   handleDocumentKeydown(event) {
+    const sidebar = document.getElementById('sidebar');
+    if (event.key === 'Tab' && sidebar?.classList.contains('open')) {
+      const focusable = [...sidebar.querySelectorAll(
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
+      )].filter((element) => !element.hidden && element.offsetParent !== null);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (first && last && ((event.shiftKey && document.activeElement === first) ||
+          (!event.shiftKey && document.activeElement === last))) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
+      return;
+    }
     if (event.key !== 'Escape') return;
     // An open drawer is the innermost dismissible layer, so it wins; otherwise
     // Escape keeps its existing meaning for an open custom select.
-    if (document.getElementById('sidebar')?.classList.contains('open')) {
+    if (sidebar?.classList.contains('open')) {
       this.setSidebarOpen(false);
       return;
     }
@@ -227,6 +284,9 @@ export default class DcShellController extends Stimulus.Controller {
     initCustomSelects(document);
     this.initThemeToggle();
     this.initSidebar();
+    this.initSidebarResize();
+    this.initInboxUi();
+    this.initAttentionUi();
     this.initInlineRename();
   }
 
@@ -281,6 +341,361 @@ export default class DcShellController extends Stimulus.Controller {
 
     this.initArchiveCollapse();
     this.syncSidebarNavActiveState();
+  }
+
+  initSidebarResize() {
+    const handle = document.querySelector('.sidebar-resize-handle');
+    if (!handle || handle.dataset.resizeInit) return;
+    handle.dataset.resizeInit = '1';
+    const stored = Number.parseInt(localStorage.getItem(sidebarWidthKey) || '', 10);
+    this.applySidebarWidth(Number.isFinite(stored) ? stored : sidebarDefaultWidth, false);
+    const move = (event) => this.applySidebarWidth(event.clientX, true);
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    handle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', stop, { once: true });
+    });
+    handle.addEventListener('keydown', (event) => {
+      const current = Number.parseInt(handle.getAttribute('aria-valuenow') || String(sidebarDefaultWidth), 10);
+      let next = current;
+      if (event.key === 'ArrowLeft') next -= 10;
+      else if (event.key === 'ArrowRight') next += 10;
+      else if (event.key === 'Home') next = sidebarDefaultWidth;
+      else return;
+      event.preventDefault();
+      this.applySidebarWidth(next, true);
+    });
+  }
+
+  applySidebarWidth(value, persist) {
+    const width = Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, value));
+    document.documentElement.style.setProperty('--sidebar-w', width + 'px');
+    const handle = document.querySelector('.sidebar-resize-handle');
+    if (handle) handle.setAttribute('aria-valuenow', String(width));
+    if (persist) localStorage.setItem(sidebarWidthKey, String(width));
+  }
+
+  async localDraftSessionIds() {
+    if (!globalThis.indexedDB) return [];
+    try {
+      return await conversationDraftSessionIds();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  initInboxUi() {
+    const form = document.querySelector('[data-inbox-filters]');
+    if (!form || form.dataset.inboxInit) return;
+    form.dataset.inboxInit = '1';
+    form.addEventListener('input', () => this.refreshInboxUi());
+    document.querySelector('[data-settled-next]')?.addEventListener('click', () => this.refreshInboxUi(true));
+    this.refreshInboxUi();
+  }
+
+  async refreshInboxUi(nextSettledPage = false) {
+    const form = document.querySelector('[data-inbox-filters]');
+    if (!form) return;
+    const drafts = await this.localDraftSessionIds();
+    const values = new FormData(form);
+    const params = new URLSearchParams({
+      filter: String(values.get('filter') || 'all'),
+      search: String(values.get('search') || ''),
+      limit: '200',
+      local_draft_session_ids: drafts.join(','),
+    });
+    const settled = new URLSearchParams({ settled: '1', limit: '50', local_draft_session_ids: drafts.join(',') });
+    const nextButton = document.querySelector('[data-settled-next]');
+    if (nextSettledPage && nextButton?.dataset.cursor) settled.set('cursor', nextButton.dataset.cursor);
+    try {
+      const [activeResponse, settledResponse] = await Promise.all([
+        fetch('/api/inbox?' + params),
+        fetch('/api/inbox?' + settled),
+      ]);
+      if (!activeResponse.ok || !settledResponse.ok) throw new Error('Inbox request failed');
+      const active = await activeResponse.json();
+      const settledPage = await settledResponse.json();
+      const missingActiveRow = active.entries.some((entry) =>
+        entry.session.type === 'user'
+        && !document.querySelector('[data-inbox-session-id="' + CSS.escape(entry.session.id) + '"]'));
+      if (missingActiveRow) {
+        await this.refreshInboxMarkup(values);
+        return;
+      }
+      this.nextAttentionSessionId = active.next_attention_session_id;
+      document.querySelector('[data-inbox-total]').textContent = String(active.filtered_total);
+      document.querySelector('[data-waiting-total]').textContent = active.waiting_total ? '· ' + active.waiting_total : '';
+      for (const row of document.querySelectorAll('[data-inbox-session-id]')) row.hidden = true;
+      for (const entry of active.entries) {
+        const row = document.querySelector('[data-inbox-session-id="' + CSS.escape(entry.session.id) + '"]');
+        if (!row) continue;
+        row.hidden = false;
+        row.dataset.conversationRevision = String(entry.conversation_revision);
+        const states = ['unread', 'waiting', 'running', 'failed', 'done', 'local_draft'].filter((state) => entry[state]);
+        row.dataset.inboxState = states.join(' ');
+        row.setAttribute('aria-label', states.length ? states.join(', ') : 'idle');
+        const stateLabel = row.querySelector('[data-inbox-state-label]');
+        if (stateLabel) stateLabel.textContent = states.map((state) => state.replace('_', ' ')).join(' · ');
+        const lineage = row.querySelector('[data-inbox-lineage]');
+        if (lineage) lineage.textContent = entry.parent_session_id ? 'Fork' : '';
+        const elapsed = row.querySelector('[data-inbox-running-elapsed]');
+        if (elapsed) elapsed.textContent = entry.running_since ? this.elapsedLabel(entry.running_since) : '';
+      }
+      const visibleCount = active.entries.filter((entry) => document.querySelector('[data-inbox-session-id="' + CSS.escape(entry.session.id) + '"]')).length;
+      const empty = document.querySelector('[data-inbox-empty]');
+      if (empty) empty.hidden = visibleCount !== 0;
+      this.renderSettled(settledPage, nextSettledPage);
+      this.renderDeviceDrafts(drafts, [...active.entries, ...settledPage.entries]);
+      showToast('info', '', { sourceRef: 'conversation-inbox', recovered: true });
+    } catch (_) {
+      showToast('error', 'Inbox updates are unavailable', { sourceRef: 'conversation-inbox', persistent: true });
+    }
+  }
+
+  async refreshInboxMarkup(values) {
+    if (this.inboxMarkupRefresh) return this.inboxMarkupRefresh;
+    this.inboxMarkupRefresh = (async () => {
+      const response = await fetch(location.href, { headers: { accept: 'text/html' } });
+      if (!response.ok) throw new Error('Sidebar request failed');
+      const next = new DOMParser().parseFromString(await response.text(), 'text/html').querySelector('#sidebar');
+      const current = document.getElementById('sidebar');
+      if (!next || !current) throw new Error('Sidebar response is incomplete');
+      current.replaceWith(next);
+      const form = next.querySelector('[data-inbox-filters]');
+      if (form) {
+        form.elements.search.value = String(values.get('search') || '');
+        form.elements.filter.value = String(values.get('filter') || 'all');
+      }
+      this.initializeShellUi();
+      applyIdenticons(next);
+    })();
+    try {
+      return await this.inboxMarkupRefresh;
+    } finally {
+      this.inboxMarkupRefresh = null;
+    }
+  }
+
+  elapsedLabel(startedAt) {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(startedAt)) / 1000));
+    if (elapsedSeconds < 60) return 'Running ' + elapsedSeconds + 's';
+    return 'Running ' + Math.floor(elapsedSeconds / 60) + 'm';
+  }
+
+  async settleInboxRows(rows) {
+    const members = rows.filter(Boolean).map((row) => ({
+      session_id: row.dataset.inboxSessionId,
+      conversation_revision: Number.parseInt(row.dataset.conversationRevision || '', 10),
+    })).filter((member) => member.session_id && Number.isInteger(member.conversation_revision));
+    if (!members.length) {
+      this.announceInbox('Select at least one conversation');
+      return;
+    }
+    const drafts = await this.localDraftSessionIds();
+    const response = await fetch('/api/inbox/settle', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ members, local_draft_session_ids: drafts }),
+    });
+    if (!response.ok) {
+      this.announceInbox('Conversations could not be settled');
+      return;
+    }
+    const body = await response.json();
+    const accepted = body.results.filter((result) => result.accepted).length;
+    const rejected = body.results.length - accepted;
+    this.announceInbox(accepted + ' settled' + (rejected ? ', ' + rejected + ' unchanged' : ''));
+    await this.refreshInboxUi();
+  }
+
+  announceInbox(message) {
+    const region = document.querySelector('[data-inbox-announcer]');
+    if (region) region.textContent = message;
+  }
+
+  renderSettled(page, append) {
+    const list = document.querySelector('[data-settled-list]');
+    if (!list) return;
+    if (!append) list.replaceChildren();
+    for (const entry of page.entries) {
+      const row = document.createElement('div');
+      row.className = 'session-item session-item-settled';
+      const link = document.createElement('a');
+      link.className = 'session-item-link';
+      link.href = '/sessions/' + encodeURIComponent(entry.session.id);
+      link.textContent = (entry.session.title || 'Untitled draft') + ' · settled';
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.className = 'btn btn-ghost btn-sm';
+      restore.textContent = 'Restore';
+      restore.addEventListener('click', () => this.restoreSettled(entry));
+      row.append(link, restore);
+      list.appendChild(row);
+    }
+    const total = document.querySelector('[data-settled-total]');
+    if (total) total.textContent = '· ' + page.total;
+    const next = document.querySelector('[data-settled-next]');
+    if (next) {
+      next.hidden = !page.next_cursor;
+      next.dataset.cursor = page.next_cursor || '';
+    }
+  }
+
+  async restoreSettled(entry) {
+    const response = await fetch('/api/inbox/' + encodeURIComponent(entry.session.id) + '/restore', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversation_revision: entry.conversation_revision }),
+    });
+    if (response.ok) location.reload();
+    else showToast('error', 'Conversation changed before it could be restored');
+  }
+
+  renderDeviceDrafts(draftIds, entries) {
+    const section = document.querySelector('[data-device-drafts]');
+    const list = document.querySelector('[data-device-draft-list]');
+    if (!section || !list) return;
+    list.replaceChildren();
+    for (const id of draftIds) {
+      const entry = entries.find((candidate) => candidate.session.id === id);
+      const link = document.createElement('a');
+      link.className = 'session-item-link';
+      link.href = '/sessions/' + encodeURIComponent(id);
+      link.textContent = (entry?.session?.title || 'Untitled draft') + (entry?.session?.settledAt ? ' · settled remotely' : '');
+      list.appendChild(link);
+    }
+    section.hidden = draftIds.length === 0;
+  }
+
+  initAttentionUi() {
+    const toggle = document.querySelector('[data-attention-toggle]');
+    if (!toggle || toggle.dataset.attentionInit) return;
+    toggle.dataset.attentionInit = '1';
+    toggle.addEventListener('click', () => {
+      const panel = document.querySelector('[data-attention-panel]');
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      if (!panel.hidden) {
+        panel.querySelector('a,button')?.focus();
+        this.markVisibleAttentionRead();
+      }
+    });
+    this.refreshAttentionUi();
+  }
+
+  async refreshAttentionUi(cursor = null) {
+    try {
+      const response = await fetch('/api/attention?' + new URLSearchParams({ limit: '50', ...(cursor ? { cursor } : {}) }));
+      if (!response.ok) throw new Error('Attention request failed');
+      const page = await response.json();
+      this.attentionItems = page.items;
+      const list = document.querySelector('[data-attention-list]');
+      if (!list) return;
+      list.replaceChildren();
+      for (const item of page.items) list.appendChild(this.attentionRow(item));
+      const unread = document.querySelector('[data-attention-unread]');
+      if (unread) unread.textContent = page.unread_total ? String(page.unread_total) : '';
+      const next = document.querySelector('[data-attention-panel] [data-attention-next]');
+      if (next) {
+        next.hidden = !page.next_cursor;
+        next.onclick = () => this.refreshAttentionUi(page.next_cursor);
+      }
+      showToast('info', '', { sourceRef: 'attention-feed', recovered: true });
+    } catch (_) {
+      showToast('error', 'Attention updates are unavailable', { sourceRef: 'attention-feed', persistent: true });
+    }
+  }
+
+  attentionRow(item) {
+    const row = document.createElement('article');
+    row.className = 'notif-item' + (item.unread ? ' notif-item--unread' : '');
+    row.dataset.eventId = item.event_id;
+    const dot = document.createElement('span');
+    dot.className = 'status-dot ' + (item.action_available ? 'status-dot--attention' : item.status === 'failed' ? 'status-dot--error' : 'status-dot--idle');
+    dot.setAttribute('aria-hidden', 'true');
+    const body = document.createElement('div');
+    body.className = 'notif-item-body';
+    const title = document.createElement('strong');
+    title.className = 'notif-item-title';
+    title.textContent = item.title;
+    const detail = document.createElement('span');
+    detail.className = 'notif-item-detail';
+    detail.textContent = item.detail;
+    const context = document.createElement('span');
+    context.className = 'attention-item-context';
+    context.textContent = [item.source, item.status].filter(Boolean).join(' · ');
+    const actions = document.createElement('div');
+    actions.className = 'attention-item-actions';
+    const link = document.createElement('a');
+    const query = new URLSearchParams();
+    if (item.message_id) query.set('message', item.message_id);
+    const token = getApiToken();
+    if (token) query.set('token', token);
+    const recordTarget = item.record_id ? '#record-' + encodeURIComponent(item.record_id) : '';
+    link.href = '/sessions/' + encodeURIComponent(item.session_id) + (query.size ? '?' + query : '') + recordTarget;
+    link.textContent = 'Open transcript';
+    actions.appendChild(link);
+    if (item.action_available) {
+      for (const [label, approved] of [['Approve', true], ['Reject', false]]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', () => this.resolveAttention(item, approved));
+        actions.appendChild(button);
+      }
+    }
+    if (item.dismissible) {
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.textContent = 'Dismiss';
+      dismiss.addEventListener('click', () => this.updateAttentionMarker('/api/attention/dismiss', item));
+      actions.appendChild(dismiss);
+    }
+    const occurred = document.createElement('time');
+    occurred.className = 'notif-item-time';
+    occurred.dateTime = item.occurred_at;
+    occurred.textContent = new Date(item.occurred_at).toLocaleString();
+    body.append(title, detail, context, actions);
+    row.append(dot, body, occurred);
+    return row;
+  }
+
+  async markVisibleAttentionRead() {
+    const newestBySession = new Map();
+    for (const item of this.attentionItems || []) {
+      if (item.unread && !newestBySession.has(item.session_id)) newestBySession.set(item.session_id, item);
+    }
+    await Promise.all([...newestBySession.values()].map((item) => this.updateAttentionMarker('/api/attention/read', item, false)));
+    if (newestBySession.size) this.refreshAttentionUi();
+  }
+
+  async updateAttentionMarker(path, item, refresh = true) {
+    const response = await fetch(path, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        event_id: item.event_id,
+        session_id: item.session_id,
+        conversation_revision: item.conversation_revision,
+      }),
+    });
+    if (response.ok && refresh) this.refreshAttentionUi();
+    return response.ok;
+  }
+
+  async resolveAttention(item, approved) {
+    const response = await fetch('/api/attention/action', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        event_id: item.event_id, session_id: item.session_id, attempt_id: item.attempt_id,
+        turn_id: item.turn_id, request_id: item.request_id,
+        conversation_revision: item.conversation_revision, approved,
+      }),
+    });
+    if (response.ok) this.refreshAttentionUi();
+    else showToast('error', 'That attention action is no longer available');
   }
 
   /// Re-derives the drawer's inert boundary from the DOM.

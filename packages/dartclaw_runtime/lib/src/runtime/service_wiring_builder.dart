@@ -184,6 +184,7 @@ DartclawServer _composeRuntimeServer(
     gitSync: scheduling.gitSync,
   ),
   web: ServerWebDeps(
+    inboxService: scheduling.inboxService,
     workflowService: workflowService,
     workflowDefinitionSource: workflowRegistry,
     kgService: storage.kg,

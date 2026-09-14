@@ -2736,6 +2736,12 @@
     "sessions": {
       "additionalProperties": false,
       "properties": {
+        "auto_settle_idle_days": {
+          "description": "Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required)",
+          "maximum": 3650,
+          "minimum": 0,
+          "type": "integer"
+        },
         "channels": {
           "additionalProperties": {
             "additionalProperties": false,

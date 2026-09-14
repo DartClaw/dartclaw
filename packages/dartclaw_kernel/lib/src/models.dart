@@ -98,6 +98,21 @@ class Session {
   /// When this session was last mutated.
   final DateTime updatedAt;
 
+  /// When the owner moved this conversation out of the active inbox.
+  ///
+  /// This remains independent from archival [type], read state, and execution
+  /// state. Null means the conversation is active.
+  final DateTime? settledAt;
+
+  /// Highest durable message cursor the owner has visibly read.
+  final int readMessageCursor;
+
+  /// Latest durable attention event the owner has marked read.
+  final String? attentionReadEventId;
+
+  /// Terminal attention event identities the owner has dismissed.
+  final List<String> dismissedAttentionEventIds;
+
   /// Creates a session snapshot with immutable metadata.
   const new({
     required this.id,
@@ -113,6 +128,10 @@ class Session {
     this.workspace,
     required this.createdAt,
     required this.updatedAt,
+    this.settledAt,
+    this.readMessageCursor = 0,
+    this.attentionReadEventId,
+    this.dismissedAttentionEventIds = const [],
   });
 
   /// Serializes this session to a JSON-safe map.
@@ -131,6 +150,10 @@ class Session {
     if (workspace != null) 'workspaceDir': workspace!.directory,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
+    if (settledAt != null) 'settledAt': settledAt!.toUtc().toIso8601String(),
+    if (readMessageCursor > 0) 'readMessageCursor': readMessageCursor,
+    if (attentionReadEventId != null) 'attentionReadEventId': attentionReadEventId,
+    if (dismissedAttentionEventIds.isNotEmpty) 'dismissedAttentionEventIds': dismissedAttentionEventIds,
   };
 
   /// Reconstructs a [Session] from persisted JSON data.
@@ -160,6 +183,12 @@ class Session {
           : AgentWorkspace.pinned(agentId: workspaceAgentId as String, directory: workspaceDir as String),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
+      settledAt: json['settledAt'] == null ? null : DateTime.parse(json['settledAt'] as String),
+      readMessageCursor: json['readMessageCursor'] as int? ?? 0,
+      attentionReadEventId: json['attentionReadEventId'] as String?,
+      dismissedAttentionEventIds: (json['dismissedAttentionEventIds'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
     );
   }
 
@@ -178,6 +207,10 @@ class Session {
     Object? workspace = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
+    Object? settledAt = _sessionFieldUnset,
+    int? readMessageCursor,
+    Object? attentionReadEventId = _sessionFieldUnset,
+    List<String>? dismissedAttentionEventIds,
   }) => Session(
     id: id ?? this.id,
     title: identical(title, _sessionFieldUnset) ? this.title : title as String?,
@@ -194,6 +227,12 @@ class Session {
     workspace: identical(workspace, _sessionFieldUnset) ? this.workspace : workspace as AgentWorkspace?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    settledAt: identical(settledAt, _sessionFieldUnset) ? this.settledAt : settledAt as DateTime?,
+    readMessageCursor: readMessageCursor ?? this.readMessageCursor,
+    attentionReadEventId: identical(attentionReadEventId, _sessionFieldUnset)
+        ? this.attentionReadEventId
+        : attentionReadEventId as String?,
+    dismissedAttentionEventIds: dismissedAttentionEventIds ?? this.dismissedAttentionEventIds,
   );
 
   static ExecutionMode? _parseExecutionMode(Object? value) {

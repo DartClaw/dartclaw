@@ -20,6 +20,7 @@ typedef ToolApprovalResponder = Future<void> Function(String sessionId, String t
 typedef ToolApprovalValidator = bool Function(String sessionId, String turnId, String requestId);
 typedef ConversationReferenceValidator = Future<void> Function(List<Map<String, dynamic>> references);
 typedef ConversationBranchFailpoint = FutureOr<void> Function(String boundary, ConversationBranchLink branch);
+typedef ConversationWorkSignalObserver = Future<void> Function(String sessionId);
 
 final class ConversationMutationException implements Exception {
   final int statusCode;
@@ -74,6 +75,8 @@ final class ConversationService {
   final String defaultProvider;
   final LogicalAgentSessionService? titleAgents;
   final Map<String, Future<void>> _recoveries = {};
+  ConversationWorkSignalObserver? _turnStartedObserver;
+  ConversationWorkSignalObserver? _inputRequestedObserver;
 
   new({
     required this.sessions,
@@ -94,6 +97,17 @@ final class ConversationService {
     this.titleAgents,
   }) : clock = clock ?? DateTime.now,
        _redactor = redactor ?? MessageRedactor();
+
+  void setInboxObservers({
+    required ConversationWorkSignalObserver turnStarted,
+    required ConversationWorkSignalObserver inputRequested,
+  }) {
+    if (_turnStartedObserver != null || _inputRequestedObserver != null) {
+      throw StateError('Conversation inbox observers are already registered');
+    }
+    _turnStartedObserver = turnStarted;
+    _inputRequestedObserver = inputRequested;
+  }
 
   Future<ConversationState> snapshot(String sessionId) async {
     await _ensureRecovered(sessionId);
@@ -370,6 +384,8 @@ final class ConversationService {
     );
     snapshot = snapshot.putRecord(record);
     await _persistSnapshot(sessionId, snapshot);
+    final observer = _inputRequestedObserver;
+    if (observer != null) unawaited(observer(sessionId));
     return record;
   });
 
@@ -420,8 +436,17 @@ final class ConversationService {
     required String turnId,
     required String requestId,
     required bool approved,
+    int? expectedRevision,
   }) => mutations.run(sessionId, () async {
     var snapshot = await sessions.getConversationState(sessionId);
+    if (expectedRevision != null && snapshot.revision != expectedRevision) {
+      throw ConversationMutationException(
+        409,
+        'STALE_CONVERSATION_REVISION',
+        'Conversation state changed',
+        current: snapshot,
+      );
+    }
     _requireAttempt(snapshot, attemptId, turnId);
     final request = snapshot.findRecord(requestId);
     if (request == null || request.kind != ConversationRecordKind.approval) {
@@ -1300,6 +1325,8 @@ final class ConversationService {
     next = next.put(dispatching);
     await _writeWorkRecords(sessionId, dispatching, allowUpdate: true);
     await _persist(sessionId, next, dispatching, 'turn_reserved');
+    final observer = _turnStartedObserver;
+    if (observer != null) unawaited(observer(sessionId));
     try {
       final persisted = (await messages.getMessages(sessionId))
           .firstWhere((message) => message.id == dispatching.messageId);

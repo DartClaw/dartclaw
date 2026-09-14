@@ -1,8 +1,10 @@
 import {
   beginSessionDraftMutation,
+  conversationDraftSessionIds,
   endSessionDraftMutation,
   escapeHtml,
   isAtBottom,
+  openConversationDraftDb,
   readHtmxErrorMessage,
   renderMarkdown,
   scrollToBottom,
@@ -49,6 +51,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
     this.handleConnectivityChange = this.handleConnectivityChange.bind(this);
     this.handleContextDialogKeydown = this.handleContextDialogKeydown.bind(this);
+    this.handleVisibleReadBoundary = this.handleVisibleReadBoundary.bind(this);
 
     document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
@@ -59,6 +62,8 @@ export default class DcChatController extends Stimulus.Controller {
     document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     window.addEventListener('online', this.handleConnectivityChange);
     window.addEventListener('offline', this.handleConnectivityChange);
+    document.addEventListener('visibilitychange', this.handleVisibleReadBoundary);
+    this.element.querySelector('.messages')?.addEventListener('scroll', this.handleVisibleReadBoundary, { passive: true });
 
     this.initTextarea();
     this.sendButton?.addEventListener('click', this.handleSendButtonClick);
@@ -83,6 +88,8 @@ export default class DcChatController extends Stimulus.Controller {
     document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     window.removeEventListener('online', this.handleConnectivityChange);
     window.removeEventListener('offline', this.handleConnectivityChange);
+    document.removeEventListener('visibilitychange', this.handleVisibleReadBoundary);
+    this.element.querySelector('.messages')?.removeEventListener('scroll', this.handleVisibleReadBoundary);
     this._stopTurnStatusPolling();
     this.streamRecoveryTurnId = null;
     document.body.classList.remove('streaming');
@@ -326,6 +333,35 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
+  async handleVisibleReadBoundary() {
+    if (document.visibilityState !== 'visible' || !this.sessionId || !this.conversationReady) return;
+    const visible = [...this.element.querySelectorAll('[data-message-id]')].filter((message) => {
+      const bounds = message.getBoundingClientRect();
+      return bounds.bottom > 0 && bounds.top < globalThis.innerHeight;
+    });
+    const latest = visible.at(-1);
+    if (!latest || latest.dataset.messageId === this.lastReadMessageId) return;
+    let localDraftSessionIds = [];
+    try {
+      localDraftSessionIds = await conversationDraftSessionIds();
+    } catch (_) {}
+    fetch('/api/inbox/' + encodeURIComponent(this.sessionId) + '/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        conversation_revision: this.conversationRevision,
+        visible_message_id: latest.dataset.messageId,
+        foreground: true,
+        local_draft_session_ids: localDraftSessionIds,
+      }),
+    }).then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json();
+      this.lastReadMessageId = latest.dataset.messageId;
+      this.conversationRevision = Number(result.conversation_revision || this.conversationRevision);
+    }).catch(() => {});
+  }
+
   initTextarea() {
     const textarea = this.textarea;
     if (!textarea) return;
@@ -551,6 +587,7 @@ export default class DcChatController extends Stimulus.Controller {
       fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
         .then((response) => (response.ok ? response.json() : null))
         .then((status) => {
+          showToast('info', '', { sourceRef: 'chat-turn-status', recovered: true });
           if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
           if (request < lastAppliedRequest) return;
           lastAppliedRequest = request;
@@ -561,7 +598,12 @@ export default class DcChatController extends Stimulus.Controller {
             this.updateSendState();
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          showToast('error', 'Turn status updates are unavailable', {
+            sourceRef: 'chat-turn-status',
+            persistent: true,
+          });
+        });
     };
     poll();
     this.turnStatusTimer = setInterval(poll, 2500);
@@ -850,9 +892,17 @@ export default class DcChatController extends Stimulus.Controller {
     const target = Array.from(this.element.querySelectorAll('[data-message-id]'))
       .find((item) => item.dataset.messageId === id);
     if (!target) return;
-    target.tabIndex = -1;
-    target.scrollIntoView({ block: 'center' });
-    target.focus({ preventScroll: true });
+    let focusTarget = target;
+    if (location.hash.startsWith('#record-')) {
+      try {
+        const recordId = decodeURIComponent(location.hash.slice('#record-'.length));
+        focusTarget = Array.from(target.querySelectorAll('[data-tool-id],[data-approval-request-id]'))
+          .find((item) => item.dataset.toolId === recordId || item.dataset.approvalRequestId === recordId) || target;
+      } catch (_) {}
+    }
+    focusTarget.tabIndex = -1;
+    focusTarget.scrollIntoView({ block: 'center' });
+    focusTarget.focus({ preventScroll: true });
   }
 
   updateMessagePagination(ctx) {
@@ -1210,6 +1260,7 @@ export default class DcChatController extends Stimulus.Controller {
           this.canCancel = false;
         }
         this.updateSendState();
+        this.handleVisibleReadBoundary();
       })
       .catch((error) => {
         this.conversationReady = false;
@@ -1394,15 +1445,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   openDraftDb() {
-    if (!globalThis.indexedDB) return Promise.reject(new Error('IndexedDB unavailable'));
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('dartclaw-conversation-drafts', 1);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains('drafts')) request.result.createObjectStore('drafts', { keyPath: 'key' });
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+    return openConversationDraftDb();
   }
 
   draftRequest(mode, operation) {

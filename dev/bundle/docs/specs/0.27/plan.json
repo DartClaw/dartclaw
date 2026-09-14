@@ -255,10 +255,30 @@
       "dependsOn": [
         "S04"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s06-conversation-inbox-and-attention.md",
-      "completedTaskIds": [],
-      "owner": "codex/0.27-s06-inbox",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13",
+        "TI14",
+        "TI15"
+      ],
+      "verified": {
+        "at": "2026-09-14T20:02Z",
+        "summary": "Main combined integration-sensitive tests: +120 all passed; top-level analysis: No issues found; top-level format: 2052 files, 0 changed; isolated schema/reference and bash/node/diff checks passed; browser/visual/integration execution UNEXECUTED per deferred manifest."
+      },
+      "owner": null,
       "scope": "The flat inbox keeps stable order and distinct read/draft/attention/settled/archive state, with bounded lists, meaningful filters, keyboard resizing and a persistent attention center tied to actual requests/results. Cover E6/Q8 and the multi-viewer and triage portions of Q6/Q10; local drafts remain discoverable after remote settling. Own muted disabled status (D14) and per-source outage-notice deduplication/recovery (C06).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr7-inbox-lifecycle-and-attention",

@@ -9,6 +9,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../concurrency/session_mutation_coordinator.dart';
 import '../conversation/conversation_service.dart';
+import '../conversation/inbox_service.dart';
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
@@ -16,6 +17,7 @@ import 'api_helpers.dart';
 import 'session_attachment_routes.dart';
 import 'session_conversation_routes.dart';
 import 'session_lifecycle_routes.dart';
+import 'session_inbox_routes.dart';
 import 'session_message_routes.dart';
 import 'session_routes_support.dart';
 import 'session_turn_status_routes.dart';
@@ -45,12 +47,22 @@ Router sessionRoutes(
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
   SseBroadcast? sseBroadcast,
+  ConversationInboxService? inboxService,
   ConversationFailpoint? conversationFailpoint,
   AttachmentWriteFailpoint? attachmentWriteFailpoint,
   String Function()? attachmentIdFactory,
 }) {
   final router = Router();
-  final sessionMutations = SessionMutationCoordinator();
+  final sessionMutations = inboxService?.mutations ?? SessionMutationCoordinator();
+  final inbox =
+      inboxService ??
+      ConversationInboxService(
+        sessions: sessions,
+        messages: messages,
+        mutations: sessionMutations,
+        updates: sseBroadcast,
+        isSessionRunning: turns.isActive,
+      );
   final conversation = ConversationService(
     sessions: sessions,
     messages: messages,
@@ -98,6 +110,11 @@ Router sessionRoutes(
   turns.setContextTelemetryObserver((telemetry) async {
     await conversation.recordTelemetry(telemetry.sessionId, telemetry);
   });
+  conversation.setInboxObservers(
+    turnStarted: (sessionId) => inbox.handleWorkSignal(sessionId, InboxWorkSignal.turnStarted),
+    inputRequested: (sessionId) => inbox.handleWorkSignal(sessionId, InboxWorkSignal.inputRequested),
+  );
+  inbox.bindApprovalResolver(conversation.resolveApproval);
   Future<({Session session, bool created})>? openNewChatPromise;
 
   Future<({Session session, bool created})> openNewChat() {
@@ -254,6 +271,7 @@ Router sessionRoutes(
     contextCapabilities: contextCapabilities,
     defaultProvider: defaultProvider,
   );
+  registerSessionInboxRoutes(router, inbox: inbox);
 
   // Session lifecycle (delete / resume / archive / reset).
   registerSessionLifecycleRoutes(

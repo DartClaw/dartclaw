@@ -54,6 +54,8 @@ class LogicalAgentSessionService {
     if (agent == null) {
       return _error('Unknown agent: $agentId');
     }
+    final workspaceError = agent.workspaceConfigurationError;
+    if (workspaceError != null) return _error('$workspaceError. Fix this binding before using agent "$agentId".');
 
     final sessionId = SessionKey.logicalAgentSession(agentId: agentId, conversationId: _uuid.v4());
     return _run(sessionId: sessionId, message: message, agent: agent, createSession: true, includeSessionId: true);
@@ -75,6 +77,8 @@ class LogicalAgentSessionService {
     if (agent == null) {
       return _error('Unknown agent for logical-agent session: $agentId');
     }
+    final workspaceError = agent.workspaceConfigurationError;
+    if (workspaceError != null) return _error('$workspaceError. Fix this binding before using agent "$agentId".');
 
     return _run(sessionId: sessionId, message: message, agent: agent, createSession: false);
   }

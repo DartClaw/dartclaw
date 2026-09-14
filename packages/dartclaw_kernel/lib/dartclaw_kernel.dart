@@ -14,7 +14,7 @@ export 'src/vector_search.dart'
         VectorIndex,
         VectorMatch,
         VectorRecord;
-export 'src/agent_definition.dart' show AgentDefinition;
+export 'src/agent_definition.dart' show AgentDefinition, AgentWorkspace;
 export 'src/output_schema.dart'
     show
         decodeOutputSchemaJson,

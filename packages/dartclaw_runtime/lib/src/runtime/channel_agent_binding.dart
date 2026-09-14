@@ -18,10 +18,10 @@ final class ChannelAgentBinding {
   /// The execution policy the session is pinned with.
   final ExecutionPolicy policy;
 
-  /// The behaviour composed for the persona – the agent's `prompt` in the SOUL
-  /// position over the task composition – or null under the `restricted`
-  /// profile, which composes no identity at all.
-  final BehaviorFileService? behavior;
+  /// The behavior composed from this agent's pinned workspace. An absent
+  /// workspace reads no owner files; an explicit prompt occupies the SOUL
+  /// position for every profile.
+  final BehaviorFileService behavior;
 
   PromptScope get promptScope =>
       policy.containerProfile == SecurityProfile.restricted.id ? PromptScope.restricted : PromptScope.task;
@@ -35,10 +35,12 @@ final class ChannelAgentBinder {
     required ExecutionPolicyResolver policyResolver,
     required String defaultProviderId,
     required BehaviorFileService behavior,
+    BehaviorFileService Function(String agentId, PromptScope scope)? behaviorSnapshot,
   }) : _agents = agents,
        _policyResolver = policyResolver,
        _defaultProviderId = defaultProviderId,
-       _behavior = behavior;
+       _behavior = behavior,
+       _behaviorSnapshot = behaviorSnapshot;
 
   /// The binder over [harness]'s one policy resolver, agent definitions,
   /// default provider and primary behaviour service.
@@ -47,12 +49,14 @@ final class ChannelAgentBinder {
     policyResolver: harness.policyResolver,
     defaultProviderId: harness.defaultProviderId,
     behavior: harness.behavior,
+    behaviorSnapshot: harness.agentWorkerBehavior,
   );
 
   final Map<String, AgentDefinition> _agents;
   final ExecutionPolicyResolver _policyResolver;
   final String _defaultProviderId;
   final BehaviorFileService _behavior;
+  final BehaviorFileService Function(String agentId, PromptScope scope)? _behaviorSnapshot;
 
   /// The binding for [row], or null for a plain row or one without `agent`.
   ///
@@ -62,17 +66,14 @@ final class ChannelAgentBinder {
     final name = row?.agent;
     if (name == null) return null;
     final definition = _agents[name] ?? (throw StateError('Allowlist row "${row!.id}" binds undeclared agent "$name"'));
+    definition.requireWorkspaceAvailable();
     final configured = definition.provider?.trim();
     final providerId = configured == null || configured.isEmpty
         ? _defaultProviderId
         : ProviderIdentity.normalize(configured);
     final policy = _policyResolver.resolveForAgent(definition, providerId: providerId);
-    final restricted = policy.containerProfile == SecurityProfile.restricted.id;
-    return ChannelAgentBinding(
-      definition: definition,
-      providerId: providerId,
-      policy: policy,
-      behavior: restricted ? null : _behavior.withSoul(definition.prompt),
-    );
+    final scope = policy.containerProfile == SecurityProfile.restricted.id ? PromptScope.restricted : PromptScope.task;
+    final behavior = _behaviorSnapshot?.call(definition.id, scope) ?? _behavior.forAgentDefinition(definition);
+    return ChannelAgentBinding(definition: definition, providerId: providerId, policy: policy, behavior: behavior);
   }
 }

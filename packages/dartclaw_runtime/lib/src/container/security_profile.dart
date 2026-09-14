@@ -18,14 +18,14 @@ class SecurityProfile {
   /// mount is added for all project clones (ADR-017 §4). When null, the mount
   /// is omitted and only the legacy `/project` alias is present.
   static SecurityProfile workspace({
-    required String workspaceDir,
+    required String? workspaceDir,
     required String projectDir,
     String? projectsClonesDir,
   }) => SecurityProfile(
     id: 'workspace',
     displayName: 'Workspace',
     workspaceMounts: [
-      '$workspaceDir:/workspace:rw',
+      if (workspaceDir != null) '$workspaceDir:/workspace:rw',
       '$projectDir:/project:ro', // Legacy alias for default project
       if (projectsClonesDir != null) '$projectsClonesDir:/projects:ro',
     ],

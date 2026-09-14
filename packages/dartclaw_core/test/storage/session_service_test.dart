@@ -203,6 +203,63 @@ void main() {
       expect(fetched!.provider, 'codex');
     });
 
+    test('persists immutable workspace ownership in meta.json while messages remain NDJSON', () async {
+      const workspace = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
+      final session = await sessions.getOrCreateByKey(
+        'agent:researcher:logical:owned',
+        type: SessionType.logicalAgent,
+        workspace: workspace,
+      );
+      final messages = MessageService(baseDir: tempDir.path);
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'retained marker');
+
+      final meta = jsonDecode(File('${tempDir.path}/${session.id}/meta.json').readAsStringSync());
+      expect(meta, containsPair('workspaceAgentId', 'researcher'));
+      expect(meta, containsPair('workspaceDir', '/srv/agents/researcher'));
+      expect(File('${tempDir.path}/${session.id}/messages.ndjson').readAsLinesSync(), hasLength(1));
+
+      final restarted = SessionService(baseDir: tempDir.path);
+      expect((await restarted.getByKey('agent:researcher:logical:owned'))?.workspace, workspace);
+    });
+
+    test('refuses changed, removed, and newly configured ownership without rewriting history', () async {
+      const original = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
+      const changed = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher-v2');
+      final owned = await sessions.getOrCreateByKey(
+        'agent:researcher:logical:owned',
+        type: SessionType.logicalAgent,
+        workspace: original,
+      );
+      final legacy = await sessions.getOrCreateByKey('agent:researcher:logical:legacy', type: SessionType.logicalAgent);
+      final messages = MessageService(baseDir: tempDir.path);
+      await messages.insertMessage(sessionId: owned.id, role: 'user', content: 'owned marker');
+      await messages.insertMessage(sessionId: legacy.id, role: 'user', content: 'legacy marker');
+
+      for (final current in <AgentWorkspace?>[changed, null]) {
+        await expectLater(
+          sessions.getOrCreateByKey(
+            'agent:researcher:logical:owned',
+            type: SessionType.logicalAgent,
+            workspace: current,
+          ),
+          throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Create a new conversation'))),
+        );
+      }
+      await expectLater(
+        sessions.getOrCreateByKey(
+          'agent:researcher:logical:legacy',
+          type: SessionType.logicalAgent,
+          workspace: original,
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Create a new conversation'))),
+      );
+
+      expect((await sessions.getSession(owned.id))?.workspace, original);
+      expect((await sessions.getSession(legacy.id))?.workspace, isNull);
+      expect((await messages.getMessages(owned.id)).single.content, 'owned marker');
+      expect((await messages.getMessages(legacy.id)).single.content, 'legacy marker');
+    });
+
     test('migrates provider on existing keyed session', () async {
       final first = await sessions.getOrCreateByKey('cron:migrate-provider');
       expect(first.provider, isNull);

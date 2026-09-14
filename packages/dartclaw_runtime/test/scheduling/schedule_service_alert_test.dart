@@ -19,8 +19,9 @@ class _FakeSessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
-    return Session(id: 'fake-$key', createdAt: DateTime.now(), updatedAt: DateTime.now());
+    return Session(id: 'fake-$key', workspace: workspace, createdAt: DateTime.now(), updatedAt: DateTime.now());
   }
 
   @override

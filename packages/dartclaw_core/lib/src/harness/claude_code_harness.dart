@@ -44,6 +44,7 @@ List<String> _buildClaudeArgs({
   bool persistSession = false,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
+  String? additionalDirectory,
 }) => [
   '--print',
   '--input-format',
@@ -61,6 +62,7 @@ List<String> _buildClaudeArgs({
     'stdio',
   ],
   if (settingSourcesProject) ...['--setting-sources', 'project'],
+  if (additionalDirectory != null) ...['--add-dir', additionalDirectory],
   '--model',
   model ?? 'opus[1m]',
   if (effort != null) ...['--effort', effort],
@@ -98,6 +100,9 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Roots the step's file-mutating tools may write — its worktree and its
   /// artifacts directory.
   final List<String> declaredWritableRoots;
+
+  /// Pinned configured-agent workspace added to Claude's native skill roots.
+  final String? skillWorkspaceDir;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
@@ -179,6 +184,7 @@ class ClaudeCodeHarness extends BaseHarness {
     Map<String, dynamic>? providerOptions,
     this.declaredCanonicalTools,
     this.declaredWritableRoots = const <String>[],
+    this.skillWorkspaceDir,
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
@@ -647,6 +653,7 @@ class ClaudeCodeHarness extends BaseHarness {
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
+      additionalDirectory: _skillWorkspaceForSpawn(),
     );
     final Process process;
     _sessionId = null;
@@ -705,6 +712,15 @@ class ClaudeCodeHarness extends BaseHarness {
 
   String _resolveHostWorkingDirectory(String? directory) =>
       directory == null || directory.trim().isEmpty ? cwd : directory;
+
+  String? _skillWorkspaceForSpawn() {
+    final workspace = skillWorkspaceDir;
+    if (workspace == null) return null;
+    final container = containerManager;
+    if (container == null) return workspace;
+    return container.containerPathForHostPath(workspace) ??
+        (throw StateError('Configured agent skill workspace is not mounted in the container: $workspace'));
+  }
 
   /// The binary the container image ships, unless an absolute path was pinned.
   String get _containerExecutable => claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;

@@ -83,6 +83,12 @@ class CodexHarness extends BaseHarness {
   /// A configured container must execute there or fail; placement is never inferred.
   final ContainerExecutor? containerManager;
 
+  /// Pinned configured-agent workspace used for provider-native skill discovery.
+  final String? skillWorkspaceDir;
+
+  /// Additional roots allowed by Codex workspace-write sandbox policy.
+  final List<String> declaredWritableRoots;
+
   /// Makes the DartClaw-dedicated `CODEX_HOME` usable and returns its path, or
   /// `null` when this deployment presents an API key instead. Awaited before
   /// every host spawn so the vendor CLI starts on a token that is not about to
@@ -97,6 +103,7 @@ class CodexHarness extends BaseHarness {
   String? _activeAgentId;
   int _nextRequestId = 0;
   Object? _initializeRequestId;
+  ({Object id, String method, Completer<Map<String, dynamic>> completer})? _setupRequest;
   ({Object id, String method, Completer<String> completer})? _threadRequest;
   Completer<Map<String, dynamic>>? _initializeCompleter;
   Completer<TurnResult>? _turnCompleter;
@@ -136,6 +143,8 @@ class CodexHarness extends BaseHarness {
     PlatformCapabilities? platformCapabilities,
     this.containerManager,
     this.prepareSubscriptionHome,
+    this.skillWorkspaceDir,
+    this.declaredWritableRoots = const <String>[],
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
@@ -200,6 +209,7 @@ class CodexHarness extends BaseHarness {
         await _environment!.setup();
         await _spawnProcess();
         await _initialize();
+        await _configureSkillRoots();
         currentState = WorkerState.idle;
       } catch (_) {
         // Any startup step failed — release env/process resources before bubbling the cause.
@@ -377,6 +387,7 @@ class CodexHarness extends BaseHarness {
           cwd: directory == null || directory.trim().isEmpty ? null : _resolveRequestedWorkingDirectory(directory),
           sandbox: _effectiveSandbox,
           approval: _stringProviderOption('approval'),
+          writableRoots: _providerWritableRoots(),
         ),
         outputSchema: outputSchema,
       );
@@ -568,6 +579,7 @@ class CodexHarness extends BaseHarness {
       await _environment!.setup();
       await _spawnProcess();
       await _initialize();
+      await _configureSkillRoots();
       currentState = WorkerState.idle;
     } catch (_) {
       await shutdownCurrentProcess(
@@ -614,6 +626,42 @@ class CodexHarness extends BaseHarness {
       throw StateError('Codex initialize handshake timed out after ${_initializeTimeout.inSeconds}s');
     }
     _writeLine(adapter.buildInitializedNotification());
+  }
+
+  Future<void> _configureSkillRoots() async {
+    final workspace = skillWorkspaceDir;
+    if (workspace == null) return;
+    final hostRoot = p.join(workspace, '.agents', 'skills');
+    final container = containerManager;
+    final root = container == null
+        ? hostRoot
+        : container.containerPathForHostPath(hostRoot) ??
+              (throw StateError('Configured agent skill root is not mounted in the container: $hostRoot'));
+    final id = ++_nextRequestId;
+    final completer = Completer<Map<String, dynamic>>();
+    _setupRequest = (id: id, method: 'skills/extraRoots/set', completer: completer);
+    _writeLine({
+      'id': id,
+      'method': 'skills/extraRoots/set',
+      'params': {
+        'extraRoots': [root],
+      },
+    });
+    try {
+      await completer.future.timeout(_initializeTimeout);
+    } on TimeoutException {
+      throw StateError('Codex skills/extraRoots/set timed out after ${_initializeTimeout.inSeconds}s');
+    }
+  }
+
+  List<String> _providerWritableRoots() {
+    final container = containerManager;
+    if (container == null) return declaredWritableRoots;
+    return [
+      for (final root in declaredWritableRoots)
+        container.containerPathForHostPath(root) ??
+            (throw StateError('Declared writable root is not mounted in the container: $root')),
+    ];
   }
 
   Future<String> _openThread(String sessionId, String? developerInstructions, String? providerSessionId) async {
@@ -1016,6 +1064,16 @@ class CodexHarness extends BaseHarness {
       }
       _threadRequest = null;
     }
+
+    final setupRequest = _setupRequest;
+    if (setupRequest != null && !setupRequest.completer.isCompleted && id == setupRequest.id) {
+      if (error != null) {
+        setupRequest.completer.completeError(StateError('Codex ${setupRequest.method} failed: $error'));
+      } else {
+        setupRequest.completer.complete(result ?? const <String, dynamic>{});
+      }
+      _setupRequest = null;
+    }
   }
 
   void _completePendingWithError(Object error) {
@@ -1025,6 +1083,10 @@ class CodexHarness extends BaseHarness {
     }
     _initializeCompleter = null;
     _initializeRequestId = null;
+
+    final setupRequest = _setupRequest;
+    if (setupRequest != null && !setupRequest.completer.isCompleted) setupRequest.completer.completeError(error);
+    _setupRequest = null;
 
     final threadRequest = _threadRequest;
     if (threadRequest != null && !threadRequest.completer.isCompleted) threadRequest.completer.completeError(error);

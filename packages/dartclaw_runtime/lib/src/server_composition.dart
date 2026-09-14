@@ -51,6 +51,9 @@ TurnManager composeServerTurns({
           coordinator: executions,
           sessions: sessionsForTurns ?? sessions,
           policyResolver: policyResolver,
+          agentDefinitions: {
+            for (final definition in config?.agent.definitions ?? const <AgentDefinition>[]) definition.id: definition,
+          },
           turnLimits: config?.governance.turnLimits ?? const TurnLimitsConfig.defaults(),
         )
       : TurnManager(
@@ -71,6 +74,9 @@ TurnManager composeServerTurns({
           turnLimits: config?.governance.turnLimits ?? const TurnLimitsConfig.defaults(),
           eventBus: eventBus,
           executionPolicy: executionPolicy,
+          agentDefinitions: {
+            for (final definition in config?.agent.definitions ?? const <AgentDefinition>[]) definition.id: definition,
+          },
         );
   resetService?.bindSessionContinuityResetter(turns.resetSessionContinuity);
   return turns;

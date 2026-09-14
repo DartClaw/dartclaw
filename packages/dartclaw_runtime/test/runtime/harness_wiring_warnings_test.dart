@@ -43,6 +43,8 @@ class _ContainerCapableSecurityWiring extends SecurityWiring {
     GatewayPrincipal principal, {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
+    String? workspaceDir,
+    bool useOwnerWorkspace = true,
   }) async => FakeContainerAuthorityLease();
 }
 

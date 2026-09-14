@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -145,6 +148,193 @@ void main() {
         expect(agent.allowedTools, equals({'Bash', 'Read'}));
         expect(warns, isEmpty);
       });
+
+      group('workspace binding', () {
+        late Directory dataDir;
+        late String ownerDir;
+
+        setUp(() {
+          dataDir = Directory.systemTemp.createTempSync('agent_workspace_config_');
+          dataDir = Directory(dataDir.resolveSymbolicLinksSync());
+          ownerDir = p.join(dataDir.path, 'workspace');
+          Directory(ownerDir).createSync();
+        });
+
+        tearDown(() {
+          if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+        });
+
+        test('absence preserves the existing no-workspace agent definition', () {
+          final agent = AgentDefinition.fromYaml('plain', const {
+            'prompt': 'Plain prompt',
+            'tools': ['Read'],
+          }, <String>[]);
+
+          expect(agent.workspace, isNull);
+          expect(agent.workspaceConfigurationError, isNull);
+          expect(agent.prompt, 'Plain prompt');
+          expect(agent.allowedTools, {'Read'});
+        });
+
+        test('the reserved owner identity cannot opt into an agent workspace', () {
+          final workspaceDir = Directory(p.join(dataDir.path, 'agents', 'main'))..createSync(recursive: true);
+          final warnings = <String>[];
+
+          final configured = AgentDefinition.fromYaml(
+            'main',
+            {
+              'workspace': workspaceDir.path,
+              'tools': ['Read'],
+            },
+            warnings,
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+          final absent = AgentDefinition.fromYaml('main', const {
+            'tools': ['Read'],
+          }, <String>[]);
+
+          expect(configured.workspace, isNull);
+          expect(
+            configured.workspaceConfigurationError,
+            allOf(contains('agent.agents.main.workspace'), contains('reserved owner identity')),
+          );
+          expect(() => configured.requireWorkspaceAvailable(), throwsStateError);
+          expect(warnings, contains(configured.workspaceConfigurationError));
+          expect(absent.workspaceConfigurationError, isNull);
+          expect(absent.requireWorkspaceAvailable, returnsNormally);
+        });
+
+        test('resolves valid relative and explicit absolute paths to canonical bindings', () {
+          final relativeDir = Directory(p.join(dataDir.path, 'agents', 'a'))..createSync(recursive: true);
+          final absoluteDir = Directory(p.join(dataDir.path, 'agents', 'b'))..createSync();
+
+          final relative = AgentDefinition.fromYaml(
+            'a',
+            const {
+              'workspace': 'agents/a',
+              'tools': ['Read'],
+            },
+            <String>[],
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+          final absolute = AgentDefinition.fromYaml(
+            'b',
+            {
+              'workspace': absoluteDir.path,
+              'tools': ['Read'],
+            },
+            <String>[],
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+
+          expect(relative.workspace?.directory, relativeDir.resolveSymbolicLinksSync());
+          expect(relative.workspace?.storagePrincipal, 'agent:a');
+          expect(absolute.workspace?.directory, absoluteDir.resolveSymbolicLinksSync());
+          expect(absolute.workspace?.storagePrincipal, 'agent:b');
+        });
+
+        test('unsafe paths leave only their explicit binding unavailable', () {
+          final healthyDir = Directory(p.join(dataDir.path, 'agents', 'healthy'))..createSync(recursive: true);
+          final alias = Link(p.join(dataDir.path, 'agents', 'alias'))..createSync(healthyDir.path);
+          final outside = Directory(p.join(dataDir.parent.path, '${p.basename(dataDir.path)}-outside'))..createSync();
+          addTearDown(() => outside.deleteSync(recursive: true));
+          final warnings = <String>[];
+
+          final owner = AgentDefinition.fromYaml(
+            'owner-overlap',
+            {
+              'workspace': ownerDir,
+              'tools': ['Read'],
+            },
+            warnings,
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+          final aliased = AgentDefinition.fromYaml(
+            'aliased',
+            {
+              'workspace': alias.path,
+              'tools': ['Read'],
+            },
+            warnings,
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+          final escaping = AgentDefinition.fromYaml(
+            'escaping',
+            {
+              'workspace': p.relative(outside.path, from: dataDir.path),
+              'tools': ['Read'],
+            },
+            warnings,
+            dataDir: dataDir.path,
+            ownerWorkspaceDir: ownerDir,
+          );
+
+          expect(owner.workspace, isNull);
+          expect(owner.workspaceConfigurationError, allOf(contains('owner-overlap'), contains(ownerDir)));
+          expect(aliased.workspace, isNull);
+          expect(aliased.workspaceConfigurationError, allOf(contains('aliased'), contains(alias.path)));
+          expect(escaping.workspace, isNull);
+          expect(escaping.workspaceConfigurationError, allOf(contains('escaping'), contains(outside.path)));
+          expect(() => owner.requireWorkspaceAvailable(), throwsStateError);
+          expect(warnings, hasLength(3));
+        });
+
+        test('duplicate and nested paths keep healthy and absent agents available', () {
+          final healthyDir = Directory(p.join(dataDir.path, 'agents', 'healthy'))..createSync(recursive: true);
+          final nestedDir = Directory(p.join(healthyDir.path, 'nested'))..createSync();
+          final yaml =
+              '''
+data_dir: "${dataDir.path}"
+agent:
+  agents:
+    healthy:
+      workspace: "${healthyDir.path}"
+      tools: [Read]
+    nested:
+      workspace: "${nestedDir.path}"
+      tools: [Read]
+    plain:
+      tools: [Read]
+''';
+
+          final config = DartclawConfig.load(
+            configPath: 'dartclaw.yaml',
+            fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+            env: const {'HOME': '/home/user'},
+            resolveStoredCredentials: false,
+          );
+          final definitions = {for (final definition in config.agent.definitions) definition.id: definition};
+
+          expect(definitions['healthy']!.workspace?.directory, healthyDir.path);
+          expect(definitions['healthy']!.workspaceConfigurationError, isNull);
+          expect(definitions['nested']!.workspace, isNull);
+          expect(
+            definitions['nested']!.workspaceConfigurationError,
+            allOf(contains('nested'), contains('healthy'), contains(nestedDir.path), contains(healthyDir.path)),
+          );
+          expect(definitions['plain']!.workspaceConfigurationError, isNull);
+          expect(() => definitions['nested']!.requireWorkspaceAvailable(), throwsStateError);
+          expect(definitions['healthy']!.requireWorkspaceAvailable, returnsNormally);
+          expect(definitions['plain']!.requireWorkspaceAvailable, returnsNormally);
+        });
+      });
+    });
+
+    test('workspace path equality is preserved in hashed collections', () {
+      final canonical = p.join(p.separator, 'srv', 'agents', 'researcher');
+      final equivalent = '$canonical${p.separator}';
+      final first = AgentWorkspace(agentId: 'researcher', directory: canonical);
+      final second = AgentWorkspace(agentId: 'researcher', directory: equivalent);
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect({first, second}, hasLength(1));
+      expect({first: 'first', second: 'second'}, {first: 'second'});
     });
 
     test('uses value equality for configuration change detection', () {

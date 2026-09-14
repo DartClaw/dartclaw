@@ -307,7 +307,13 @@ LoggingConfig _parseLogging(
   return LoggingConfig(format: format, file: file, level: level, redactPatterns: redactPatterns);
 }
 
-AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<String> warns) {
+AgentConfig _parseAgent(
+  Map<String, dynamic> yaml,
+  AgentConfig defaults,
+  List<String> warns, {
+  required String dataDir,
+  required String ownerWorkspaceDir,
+}) {
   var provider = defaults.provider;
   var disallowedTools = defaults.disallowedTools;
   int? maxTurns = defaults.maxTurns;
@@ -356,7 +362,23 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
       final id = entry.key;
       final value = entry.value;
       if (value is Map) {
-        definitions.add(AgentDefinition.fromYaml(id as String, Map<String, dynamic>.from(value), warns));
+        var definition = AgentDefinition.fromYaml(
+          id as String,
+          Map<String, dynamic>.from(value),
+          warns,
+          dataDir: dataDir,
+          ownerWorkspaceDir: ownerWorkspaceDir,
+        );
+        final workspace = definition.workspace;
+        if (workspace != null) {
+          try {
+            AgentWorkspace.validateDistinct([for (final accepted in definitions) ?accepted.workspace, workspace]);
+          } on FormatException catch (error) {
+            warns.add(error.message);
+            definition = definition.withWorkspaceConfigurationError(error.message);
+          }
+        }
+        definitions.add(definition);
       }
     }
   }

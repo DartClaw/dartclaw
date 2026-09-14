@@ -84,6 +84,8 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     GatewayPrincipal principal, {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
+    String? workspaceDir,
+    bool useOwnerWorkspace = true,
   }) async {
     grants.add((
       sessionId: principal.sessionId,

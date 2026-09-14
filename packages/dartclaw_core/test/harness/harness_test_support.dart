@@ -223,10 +223,12 @@ ClaudeCodeHarness buildClaudeHarness({
   ContainerExecutor? containerManager,
   List<String>? declaredCanonicalTools,
   List<String> declaredWritableRoots = const <String>[],
+  String? skillWorkspaceDir,
 }) {
   return ClaudeCodeHarness(
     declaredCanonicalTools: declaredCanonicalTools,
     declaredWritableRoots: declaredWritableRoots,
+    skillWorkspaceDir: skillWorkspaceDir,
     cwd: '/tmp',
     processFactory: processFactory ?? defaultClaudeProcessFactory,
     commandProbe: commandProbe ?? defaultClaudeCommandProbe,

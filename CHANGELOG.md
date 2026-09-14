@@ -18,6 +18,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Named agents can now use an operator-configured workspace as their isolated execution home. The agent id pins the
+  storage identity for the conversation, while project context can change the working directory without changing
+  ownership. Behavior files and provider-native skills continue to come from that workspace during project work.
+  Unsafe, overlapping, reserved-owner and changed bindings are refused without exposing the owner's workspace.
+
 - Upgraded the web UI to HTMX 4.0.0 and its bundled `hx-sse` streaming extension, with Trellis 0.11.1.
   Adapted navigation, streaming, form feedback, and confirmation handling to the new browser lifecycle.
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.

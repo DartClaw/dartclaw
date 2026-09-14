@@ -132,7 +132,13 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
           // Per Codex app-server protocol: turn/start uses sandboxPolicy object
           // form {type: "..."}, not flat sandbox string.
           case 'sandbox':
-            params['sandboxPolicy'] = {'type': entry.value};
+            params['sandboxPolicy'] = {
+              'type': entry.value,
+              if (entry.value == 'workspaceWrite' && settings['writable_roots'] != null)
+                'writableRoots': settings['writable_roots'],
+            };
+          case 'writable_roots':
+            break;
           case 'approval_policy':
             params['approvalPolicy'] = entry.value;
           default:

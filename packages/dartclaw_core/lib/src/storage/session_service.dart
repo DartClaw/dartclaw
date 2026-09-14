@@ -47,6 +47,7 @@ class SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final id = _uuid.v4();
     final dir = Directory(p.join(baseDir, id));
@@ -60,6 +61,7 @@ class SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
       createdAt: now,
       updatedAt: now,
     );
@@ -153,6 +155,7 @@ class SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     return _repoLock.acquire(
       p.join(baseDir, '.session_keys.json'),
@@ -162,6 +165,7 @@ class SessionService {
         provider: provider,
         securityProfile: securityProfile,
         executionMode: executionMode,
+        workspace: workspace,
       ),
     );
   }
@@ -194,6 +198,7 @@ class SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
@@ -204,6 +209,13 @@ class SessionService {
     if (existingId != null) {
       final session = await getSession(existingId);
       if (session != null && session.type != SessionType.archive) {
+        final bindingAgentId = workspace?.agentId ?? session.workspace?.agentId ?? 'unconfigured';
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: bindingAgentId,
+          pinned: session.workspace,
+          configured: workspace,
+        );
         // Lazy migration: update type/channelKey if needed (e.g. old sessions without type)
         // A null executionMode argument means "caller has no opinion" — never
         // clear a mode already pinned on disk.
@@ -236,6 +248,7 @@ class SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
     );
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);

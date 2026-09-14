@@ -112,6 +112,7 @@ class FakeSessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     return keyedSessions.putIfAbsent(
       key,
@@ -121,6 +122,7 @@ class FakeSessionService implements SessionService {
         provider: provider,
         securityProfile: securityProfile,
         executionMode: executionMode,
+        workspace: workspace,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ),

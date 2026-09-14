@@ -109,7 +109,14 @@ class _NoopSessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
-  }) async => Session(id: 'session-$key', type: type, createdAt: DateTime.now(), updatedAt: DateTime.now());
+    AgentWorkspace? workspace,
+  }) async => Session(
+    id: 'session-$key',
+    type: type,
+    workspace: workspace,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

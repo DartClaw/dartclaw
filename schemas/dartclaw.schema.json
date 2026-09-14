@@ -57,7 +57,7 @@
                 "type": "object"
               },
               "prompt": {
-                "description": "System prompt used for this agent turns. Empty leaves the agent unguided. (restart required)",
+                "description": "Explicit SOUL prompt for this agent. Empty reads SOUL.md from a configured agent workspace or uses the built-in default. (restart required)",
                 "type": "string"
               },
               "provider": {
@@ -85,6 +85,10 @@
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "workspace": {
+                "description": "Existing execution-home directory for this agent. Relative paths resolve under data_dir; omit the field to leave the agent without a workspace. (restart required)",
+                "type": "string"
               }
             },
             "type": "object"

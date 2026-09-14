@@ -1,6 +1,8 @@
 @Tags(['integration', 'slow'])
 library;
 
+import 'dart:async';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
@@ -9,16 +11,22 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show
         CodexEnvironment,
+        ContainerExecutor,
+        HarnessFactory,
+        HarnessFactoryConfig,
         SubscriptionCredentialStore,
         containerClaudeExecutable,
         containerCodexExecutable,
         containerExecutableRuns,
         containerGeneratedStatePath;
+import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'container_integration_support.dart';
+import '../runtime/harness_wiring_fixture.dart';
 
 /// Proves Claude/Codex container parity against a real Docker engine.
 ///
@@ -42,6 +50,7 @@ void main() {
     }
     checkoutRoot = await repoRoot();
     await ensureAgentImage(checkoutRoot);
+    await ensureBridgeBinary(checkoutRoot);
   });
 
   setUp(() => dataDir = Directory.systemTemp.createTempSync('parity_integration_'));
@@ -129,6 +138,211 @@ void main() {
 
       expect((await execOutput(workspace, ['pwd'])).trim(), '/project');
       expect((await execOutput(restricted, ['pwd'])).trim(), '/tmp');
+    });
+
+    test('a configured agent container mounts only its pinned workspace', () async {
+      final agentA = Directory(p.join(dataDir.path, 'agents', 'a'))..createSync(recursive: true);
+      final agentB = Directory(p.join(dataDir.path, 'agents', 'b'))..createSync();
+      File(p.join(agentA.path, 'identity.txt')).writeAsStringSync('AGENT-A-ONLY');
+      File(p.join(agentB.path, 'identity.txt')).writeAsStringSync('AGENT-B-ONLY');
+      final manager = ContainerManager(
+        ownerLabel: ContainerManager.ownerLabel(dataDir.path),
+        config: const ContainerConfig(enabled: true, image: agentProbeImage),
+        containerName: 'dartclaw-agent-workspace-${DateTime.now().microsecondsSinceEpoch}',
+        profileId: 'workspace',
+        workspaceMounts: SecurityProfile.workspace(workspaceDir: agentA.path, projectDir: checkoutRoot).workspaceMounts,
+        generatedStateDir: p.join(dataDir.path, 'containers', 'agent-a'),
+        hasMcpBridge: false,
+        buildContextDir: checkoutRoot,
+        workingDir: '/workspace',
+      );
+      addTearDown(() async {
+        try {
+          await manager.stop();
+        } catch (_) {}
+      });
+
+      await manager.start();
+      final mounts = (jsonDecode(await _inspect(manager.containerName, '{{json .Mounts}}')) as List<Object?>)
+          .cast<Map<String, Object?>>();
+      final destinations = {for (final mount in mounts) mount['Destination'] as String};
+
+      expect((await execOutput(manager, ['pwd'])).trim(), '/workspace');
+      expect(await execOutput(manager, ['cat', '/workspace/identity.txt']), contains('AGENT-A-ONLY'));
+      expect(destinations, contains('/workspace'));
+      expect(destinations, isNot(contains(agentB.path)));
+      expect(
+        await execOutput(manager, ['sh', '-c', 'find /workspace -type f -exec cat {} \\;']),
+        isNot(contains('AGENT-B-ONLY')),
+      );
+    });
+
+    test('production acquisition pins each workspace and Codex discovers only its agent skill', () async {
+      final ownerDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'workspace'));
+      final agentADir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'a'));
+      final agentBDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'b'));
+      await writeWorkspacePromptFiles(ownerDir.path);
+      await writeWorkspacePromptFiles(agentADir.path);
+      await writeWorkspacePromptFiles(agentBDir.path);
+      _writeSkill(agentADir, '.agents', 'agent-a-native-skill');
+      _writeSkill(agentBDir, '.agents', 'agent-b-native-skill');
+
+      final workspaceA = AgentWorkspace(agentId: 'a', directory: agentADir.path);
+      final workspaceB = AgentWorkspace(agentId: 'b', directory: agentBDir.path);
+      Never unexpectedExit(int code) => throw StateError('Unexpected exit($code) in container composition proof');
+      final config = DartclawConfig(
+        server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
+        container: const ContainerConfig(enabled: true, image: agentProbeImage),
+        security: const SecurityConfig(contentGuardFailOpen: true),
+        agent: AgentConfig(
+          provider: 'claude',
+          execution: ExecutionMode.host,
+          definitions: [
+            AgentDefinition(
+              id: 'a',
+              description: 'A',
+              prompt: 'A',
+              execution: ExecutionMode.container,
+              workspace: workspaceA,
+            ),
+            AgentDefinition(
+              id: 'b',
+              description: 'B',
+              prompt: 'B',
+              execution: ExecutionMode.container,
+              workspace: workspaceB,
+            ),
+            const AgentDefinition(id: 'c', description: 'C', prompt: 'C', execution: ExecutionMode.container),
+          ],
+        ),
+        providers: ProvidersConfig(
+          entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 4)},
+        ),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'integration-key')}),
+        gateway: const GatewayConfig(authMode: 'none'),
+      );
+      final eventBus = EventBus();
+      final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: unexpectedExit);
+      final security = await wireTestSecurity(
+        config: config,
+        dataDir: dataDir.path,
+        eventBus: eventBus,
+        exitFn: unexpectedExit,
+      );
+      final harnessConfigs = <HarnessFactoryConfig>[];
+      final factory = HarnessFactory()
+        ..register('claude', (factoryConfig) {
+          harnessConfigs.add(factoryConfig);
+          return FakeAgentHarness(promptStrategy: PromptStrategy.append, supportsNoWorkTools: true);
+        });
+      final wiring = HarnessWiring(
+        config: config,
+        dataDir: dataDir.path,
+        port: 0,
+        harnessFactory: factory,
+        exitFn: unexpectedExit,
+        storage: storage,
+        security: security,
+        messageRedactor: MessageRedactor(),
+        eventBus: eventBus,
+      );
+      await wiring.wire(turnManagerGetter: () => null);
+      await wiring.startPrimary();
+      addTearDown(() async {
+        await wiring.executions.dispose();
+        await security.dispose();
+        await storage.dispose();
+      });
+
+      Future<({ExecutionLease lease, HarnessFactoryConfig config})> acquire({
+        required Session session,
+        required String? agentId,
+        required AgentWorkspace? workspace,
+      }) async {
+        final before = harnessConfigs.length;
+        final lease = await wiring.executions.acquire(
+          ExecutionRequest(
+            surface: agentId == null ? ExecutionSurface.task : ExecutionSurface.logicalAgent,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.container('workspace'),
+            sessionId: session.id,
+            logicalAgentId: agentId,
+            workspace: workspace,
+            allowedTools: const [],
+          ),
+        );
+        expect(lease, isNotNull);
+        expect(harnessConfigs, hasLength(before + 1), reason: 'a different execution principal reused a worker');
+        return (lease: lease!, config: harnessConfigs.last);
+      }
+
+      Future<Map<String, Map<String, Object?>>> mounts(HarnessFactoryConfig config) async {
+        final manager = config.containerManager! as ContainerManager;
+        final decoded = (jsonDecode(await _inspect(manager.containerName, '{{json .Mounts}}')) as List<Object?>)
+            .cast<Map<String, Object?>>();
+        return {for (final mount in decoded) mount['Destination']! as String: mount};
+      }
+
+      final ownerSession = await storage.sessions.createSession(type: SessionType.task);
+      final aSession = await storage.sessions.getOrCreateByKey(
+        SessionKey.logicalAgentSession(agentId: 'a', conversationId: 'docker-a'),
+        type: SessionType.logicalAgent,
+        workspace: workspaceA,
+      );
+      final bSession = await storage.sessions.getOrCreateByKey(
+        SessionKey.logicalAgentSession(agentId: 'b', conversationId: 'docker-b'),
+        type: SessionType.logicalAgent,
+        workspace: workspaceB,
+      );
+      final cSession = await storage.sessions.getOrCreateByKey(
+        SessionKey.logicalAgentSession(agentId: 'c', conversationId: 'docker-c'),
+        type: SessionType.logicalAgent,
+      );
+      final owner = await acquire(session: ownerSession, agentId: null, workspace: null);
+      final ownerMounts = await mounts(owner.config);
+      await owner.lease.release();
+      final a = await acquire(session: aSession, agentId: 'a', workspace: workspaceA);
+      final aMounts = await mounts(a.config);
+      final aContainer = a.config.containerManager! as ContainerManager;
+      final codexVersion = (await execOutput(aContainer, [containerCodexExecutable, '--version'])).trim();
+      expect(codexVersion, contains(_pinnedCodexVersion(checkoutRoot)), reason: 'actual image version: $codexVersion');
+      final nativeSkills = await _codexSkillsList(aContainer, cwd: '/project');
+      await a.lease.release();
+      final b = await acquire(session: bSession, agentId: 'b', workspace: workspaceB);
+      final bMounts = await mounts(b.config);
+      await b.lease.release();
+      final c = await acquire(session: cSession, agentId: 'c', workspace: null);
+      final cMounts = await mounts(c.config);
+      await c.lease.release();
+      expect(_mountSourceMatches(ownerMounts['/workspace']!['Source']! as String, ownerDir.path), isTrue);
+      expect(_mountSourceMatches(aMounts['/workspace']!['Source']! as String, agentADir.path), isTrue);
+      expect(_mountSourceMatches(bMounts['/workspace']!['Source']! as String, agentBDir.path), isTrue);
+      expect(cMounts, isNot(contains('/workspace')));
+      for (final entry in [owner.config, a.config, b.config, c.config]) {
+        final manager = entry.containerManager!;
+        expect(manager.containerPathForHostPath(checkoutRoot), '/project');
+        expect(entry.cwd, checkoutRoot);
+      }
+      expect(a.config.skillWorkspaceDir, agentADir.path);
+      expect(a.config.containerManager!.containerPathForHostPath(a.config.skillWorkspaceDir!), '/workspace');
+      expect(b.config.skillWorkspaceDir, agentBDir.path);
+      expect(c.config.skillWorkspaceDir, isNull);
+      expect(a.config.declaredWritableRoots, contains(agentADir.path));
+      expect(b.config.declaredWritableRoots, contains(agentBDir.path));
+      expect(c.config.declaredWritableRoots, isNot(contains(ownerDir.path)));
+      expect(aMounts.values.any((mount) => _mountSourceMatches(mount['Source']! as String, agentBDir.path)), isFalse);
+      expect(bMounts.values.any((mount) => _mountSourceMatches(mount['Source']! as String, agentADir.path)), isFalse);
+      final stateSources = [
+        ownerMounts[containerGeneratedStatePath]!['Source'],
+        aMounts[containerGeneratedStatePath]!['Source'],
+        bMounts[containerGeneratedStatePath]!['Source'],
+        cMounts[containerGeneratedStatePath]!['Source'],
+      ];
+      expect(stateSources.toSet(), hasLength(4));
+
+      final encodedSkills = jsonEncode(nativeSkills);
+      expect(encodedSkills, contains('agent-a-native-skill'));
+      expect(encodedSkills, isNot(contains('agent-b-native-skill')));
     });
 
     test('the container keeps network:none with no extra attachment', () async {
@@ -324,6 +538,93 @@ void main() {
       expect(gateway.liveAuthorityCount, 1);
     });
   });
+}
+
+bool _mountSourceMatches(String dockerSource, String hostPath) {
+  final absoluteHost = p.absolute(hostPath);
+  final hostVariants = {
+    absoluteHost,
+    Directory(hostPath).resolveSymbolicLinksSync(),
+    if (absoluteHost == '/var' || absoluteHost.startsWith('/var/')) '/private$absoluteHost',
+  };
+  return hostVariants.any((path) => p.equals(dockerSource, path) || p.equals(dockerSource, '/host_mnt$path'));
+}
+
+void _writeSkill(Directory workspace, String providerRoot, String name) {
+  final directory = Directory(p.join(workspace.path, providerRoot, 'skills', name))..createSync(recursive: true);
+  File(
+    p.join(directory.path, 'SKILL.md'),
+  ).writeAsStringSync('---\nname: $name\ndescription: Unique $name fixture.\n---\n\nUse only for the $name proof.\n');
+}
+
+Future<Map<String, dynamic>> _codexSkillsList(ContainerExecutor container, {required String cwd}) async {
+  const codexHome = '/tmp/dartclaw-workspace-skill-probe-home';
+  final prepareHome = await container.exec(['mkdir', '-p', codexHome], workingDirectory: '/tmp');
+  final prepareExit = await prepareHome.exitCode;
+  if (prepareExit != 0) throw StateError('Could not create the native Codex proof home (exit $prepareExit)');
+  final process = await container.exec(
+    [containerCodexExecutable, 'app-server'],
+    env: const {'CODEX_HOME': codexHome},
+    workingDirectory: cwd,
+  );
+  final stderr = StringBuffer();
+  final stderrSubscription = process.stderr.transform(utf8.decoder).listen(stderr.write);
+  final lines = StreamIterator(process.stdout.transform(utf8.decoder).transform(const LineSplitter()));
+  final sink = process.stdin;
+
+  void send(Map<String, dynamic> message) => sink.writeln(jsonEncode(message));
+  Future<Map<String, dynamic>> response(int id) async {
+    while (await lines.moveNext()) {
+      final value = jsonDecode(lines.current);
+      if (value is Map<String, dynamic> && value['id'] == id) return value;
+    }
+    throw StateError('Codex app-server exited before response $id: $stderr');
+  }
+
+  try {
+    send({
+      'id': 1,
+      'method': 'initialize',
+      'params': {
+        'clientInfo': {'name': 'dartclaw-workspace-skill-proof', 'version': '1'},
+      },
+    });
+    final initialize = await response(1).timeout(const Duration(seconds: 10));
+    if (initialize['error'] != null) throw StateError('Codex initialize failed: ${initialize['error']}');
+    send({'method': 'initialized', 'params': {}});
+    send({
+      'id': 2,
+      'method': 'skills/extraRoots/set',
+      'params': {
+        'extraRoots': ['/workspace/.agents/skills'],
+      },
+    });
+    final setRoots = await response(2).timeout(const Duration(seconds: 10));
+    if (setRoots['error'] != null) throw StateError('Codex skills/extraRoots/set failed: ${setRoots['error']}');
+    send({
+      'id': 3,
+      'method': 'skills/list',
+      'params': {
+        'cwds': [cwd],
+        'forceReload': true,
+      },
+    });
+    final listed = await response(3).timeout(const Duration(seconds: 10));
+    if (listed['error'] != null) throw StateError('Codex skills/list failed: ${listed['error']}');
+    return listed;
+  } finally {
+    await sink.close();
+    process.kill(ProcessSignal.sigterm);
+    await process.exitCode.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        process.kill(ProcessSignal.sigkill);
+        return -1;
+      },
+    );
+    await lines.cancel();
+    await stderrSubscription.cancel();
+  }
 }
 
 /// A gateway whose Codex adapter resolves through [store] under a forced

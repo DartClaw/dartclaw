@@ -43,6 +43,16 @@ void main() {
       );
     });
 
+    test('buildDynamicSettings keeps extra roots exclusive to workspace-write', () {
+      expect(CodexSettings.buildDynamicSettings(sandbox: 'workspace-write', writableRoots: const ['/agents/a']), {
+        'sandbox': 'workspaceWrite',
+        'writable_roots': ['/agents/a'],
+      });
+      expect(CodexSettings.buildDynamicSettings(sandbox: 'read-only', writableRoots: const ['/agents/a']), {
+        'sandbox': 'readOnly',
+      });
+    });
+
     test('buildDynamicSettings filters blank and unknown values', () {
       expect(
         CodexSettings.buildDynamicSettings(model: '  ', cwd: '\t', sandbox: 'unknown-value', approval: 'not-real'),

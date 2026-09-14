@@ -58,12 +58,16 @@ CodexHarness _buildHarness({
   Duration initializeTimeout = const Duration(seconds: 10),
   Duration turnTimeout = const Duration(seconds: 600),
   Future<String?> Function()? prepareSubscriptionHome,
+  String? skillWorkspaceDir,
+  List<String> declaredWritableRoots = const <String>[],
 }) {
   final fake = process ?? FakeCodexProcess(completeExitOnKill: true);
   return CodexHarness(
     cwd: '/tmp',
     executable: 'codex',
     prepareSubscriptionHome: prepareSubscriptionHome,
+    skillWorkspaceDir: skillWorkspaceDir,
+    declaredWritableRoots: declaredWritableRoots,
     processFactory:
         processFactory ?? (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => fake,
     commandProbe: commandProbe ?? defaultCommandProbe,
@@ -235,6 +239,31 @@ void main() {
         expect(fake.sentMessages[0]['method'], 'initialize');
         expect(fake.sentMessages[1]['method'], 'initialized');
         expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
+      });
+
+      test('configures the pinned workspace skill root before any thread opens', () async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(process: fake, skillWorkspaceDir: '/tmp/agents/a');
+        addTearDown(() async => harness.dispose());
+
+        final start = harness.start();
+        await waitForSentMessage(fake, 'initialize');
+        fake.emitInitializeResponse(id: latestRequestId(fake, 'initialize'));
+        await waitForSentMessage(fake, 'skills/extraRoots/set');
+        final request = fake.sentMessages.singleWhere((message) => message['method'] == 'skills/extraRoots/set');
+        expect(request['params'], {
+          'extraRoots': ['/tmp/agents/a/.agents/skills'],
+        });
+        expect(fake.sentMessages.map((message) => message['method']), [
+          'initialize',
+          'initialized',
+          'skills/extraRoots/set',
+        ]);
+        expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
+        fake.emitLine({'id': request['id'], 'result': {}});
+
+        await start;
+        expect(harness.state, WorkerState.idle);
       });
 
       test('initialize timeout reaps the child and releases the startup lock', () async {

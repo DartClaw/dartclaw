@@ -1888,12 +1888,15 @@ final class PausingUpdateTitleSessionService extends SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final created = await super.createSession(
       type: type,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
+      workspace: workspace,
     );
     _initialSession ??= created;
     return created;
@@ -1983,6 +1986,7 @@ final class OpenTrackingSessionService extends SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     if (_initialSession != null) replacementCreateStarted.complete();
     final created = await super.createSession(
@@ -1990,6 +1994,8 @@ final class OpenTrackingSessionService extends SessionService {
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
+      executionMode: executionMode,
+      workspace: workspace,
     );
     _initialSession ??= created;
     return created;

@@ -644,6 +644,7 @@ Future<String> dispatchChannelTurn({
           provider: binding.providerId,
           securityProfile: binding.policy.containerProfile,
           executionMode: binding.policy.mode,
+          workspace: binding.definition.workspace,
         );
   final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
   await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);

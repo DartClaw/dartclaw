@@ -1,8 +1,136 @@
+import 'dart:io';
+
 import 'package:collection/collection.dart';
+import 'package:path/path.dart' as p;
 
 import 'execution_policy.dart';
 import 'output_schema.dart';
 import 'task_legacy_compatibility.dart';
+
+/// An operator-configured execution home for one named agent.
+///
+/// The agent id is the sole source of [storagePrincipal]. The configured path
+/// supplies execution context only and can never redefine that identity.
+final class AgentWorkspace {
+  /// Creates a trusted canonical workspace binding.
+  const new({required this.agentId, required this.directory});
+
+  /// The stable configured agent id that owns this workspace.
+  final String agentId;
+
+  /// The canonical absolute workspace directory.
+  final String directory;
+
+  /// The storage identity consumed by workspace-scoped services.
+  String get storagePrincipal => 'agent:$agentId';
+
+  /// Reconstructs a trusted binding pinned in session metadata.
+  static AgentWorkspace pinned({required String agentId, required String directory}) {
+    if (agentId.trim().isEmpty) throw const FormatException('Pinned workspace agent id must not be blank');
+    if (!p.isAbsolute(directory)) throw FormatException('Pinned workspace path must be absolute: $directory');
+    return AgentWorkspace(agentId: agentId, directory: p.normalize(directory));
+  }
+
+  /// Resolves and validates one explicit operator-configured workspace path.
+  static AgentWorkspace configured({
+    required String agentId,
+    required String configuredPath,
+    required String dataDir,
+    required String ownerWorkspaceDir,
+  }) {
+    final trimmed = configuredPath.trim();
+    if (trimmed.isEmpty) {
+      throw FormatException('agent.agents.$agentId.workspace must not be blank');
+    }
+    final absolute = p.normalize(p.isAbsolute(trimmed) ? trimmed : p.join(dataDir, trimmed));
+    final lexicalType = FileSystemEntity.typeSync(absolute, followLinks: false);
+    if (lexicalType == FileSystemEntityType.notFound) {
+      throw FormatException('agent.agents.$agentId.workspace does not exist: $configuredPath');
+    }
+    if (lexicalType != FileSystemEntityType.directory && lexicalType != FileSystemEntityType.link) {
+      throw FormatException('agent.agents.$agentId.workspace is not a directory: $configuredPath');
+    }
+
+    final String canonical;
+    try {
+      canonical = p.normalize(Directory(absolute).resolveSymbolicLinksSync());
+      Directory(canonical).listSync(followLinks: false);
+    } on FileSystemException catch (error) {
+      throw FormatException('agent.agents.$agentId.workspace is unreadable: $configuredPath (${error.message})');
+    }
+    if (!p.equals(absolute, canonical)) {
+      throw FormatException(
+        'agent.agents.$agentId.workspace uses a symlink alias: $configuredPath resolves to $canonical',
+      );
+    }
+
+    final canonicalDataDir = _canonicalExistingDirectory(dataDir);
+    final canonicalOwner = _canonicalExistingDirectory(ownerWorkspaceDir);
+    if (!p.isAbsolute(trimmed) && !p.isWithin(canonicalDataDir, canonical)) {
+      throw FormatException(
+        'agent.agents.$agentId.workspace relative path must stay beneath the instance data directory: '
+        '$configuredPath resolves to $canonical',
+      );
+    }
+    if (p.equals(canonical, canonicalDataDir)) {
+      throw FormatException('agent.agents.$agentId.workspace must not equal the instance data directory: $canonical');
+    }
+    if (_pathsOverlap(canonical, canonicalOwner)) {
+      throw FormatException('agent.agents.$agentId.workspace overlaps the owner workspace: $canonical');
+    }
+    return AgentWorkspace(agentId: agentId, directory: canonical);
+  }
+
+  /// Rejects duplicate or nested agent workspaces after all entries parse.
+  static void validateDistinct(Iterable<AgentWorkspace> workspaces) {
+    final seen = <AgentWorkspace>[];
+    for (final workspace in workspaces) {
+      for (final other in seen) {
+        if (_pathsOverlap(workspace.directory, other.directory)) {
+          throw FormatException(
+            'agent.agents.${workspace.agentId}.workspace overlaps agent "${other.agentId}" workspace: '
+            '${workspace.directory} overlaps ${other.directory}',
+          );
+        }
+      }
+      seen.add(workspace);
+    }
+  }
+
+  /// Refuses a changed, removed, or newly-added binding for an existing session.
+  static void requireCurrent({
+    required String sessionId,
+    required String agentId,
+    required AgentWorkspace? pinned,
+    required AgentWorkspace? configured,
+  }) {
+    if (pinned == configured) return;
+    throw StateError(
+      'Session "$sessionId" no longer matches agent "$agentId" workspace configuration. '
+      'Create a new conversation to use the current workspace.',
+    );
+  }
+
+  static String _canonicalExistingDirectory(String path) {
+    final absolute = p.normalize(p.absolute(path));
+    try {
+      return p.normalize(Directory(absolute).resolveSymbolicLinksSync());
+    } on FileSystemException {
+      return absolute;
+    }
+  }
+
+  static bool _pathsOverlap(String left, String right) =>
+      p.equals(left, right) || p.isWithin(left, right) || p.isWithin(right, left);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AgentWorkspace && agentId == other.agentId && p.equals(directory, other.directory);
+
+  @override
+  int get hashCode => Object.hash(agentId, p.hash(directory));
+}
 
 /// Configuration for a logical agent (e.g. search agent).
 ///
@@ -59,6 +187,13 @@ class AgentDefinition {
   /// the turn rather than being repaired or truncated.
   final Map<String, dynamic>? outputSchema;
 
+  /// Explicit execution workspace, or null when this agent keeps its existing
+  /// no-workspace boundary.
+  final AgentWorkspace? workspace;
+
+  /// The preflight error that keeps an explicitly configured workspace unavailable.
+  final String? workspaceConfigurationError;
+
   /// Creates a logical-agent definition.
   const new({
     required this.id,
@@ -74,6 +209,8 @@ class AgentDefinition {
     this.model,
     this.effort,
     this.outputSchema,
+    this.workspace,
+    this.workspaceConfigurationError,
   });
 
   /// Default search agent with web_search + web_fetch only.
@@ -93,7 +230,13 @@ class AgentDefinition {
   }
 
   /// Builds a config entry for `AgentDefinition.fromYaml`.
-  factory fromYaml(String id, Map<String, dynamic> yaml, List<String> warns) {
+  factory fromYaml(
+    String id,
+    Map<String, dynamic> yaml,
+    List<String> warns, {
+    String? dataDir,
+    String? ownerWorkspaceDir,
+  }) {
     const removedKeys = {
       'max_spawn_depth': 'nested logical-agent execution is bounded by shared worker capacity',
       'max_children_per_agent': 'nested logical-agent execution is bounded by shared worker capacity',
@@ -162,6 +305,33 @@ class AgentDefinition {
       warns.add('Invalid agents.$id.provider: "$providerValue" – using agent.provider');
     }
 
+    AgentWorkspace? workspace;
+    String? workspaceConfigurationError;
+    if (yaml.containsKey('workspace')) {
+      final workspaceValue = yaml['workspace'];
+      if (id == 'main') {
+        workspaceConfigurationError =
+            'agent.agents.main.workspace cannot bind the reserved owner identity "main"; remove this workspace key';
+      } else if (workspaceValue is! String) {
+        workspaceConfigurationError = 'agent.agents.$id.workspace must be a string path: $workspaceValue';
+      } else {
+        if (dataDir == null || ownerWorkspaceDir == null) {
+          throw StateError('Workspace parsing requires the resolved instance data directory');
+        }
+        try {
+          workspace = AgentWorkspace.configured(
+            agentId: id,
+            configuredPath: workspaceValue,
+            dataDir: dataDir,
+            ownerWorkspaceDir: ownerWorkspaceDir,
+          );
+        } on FormatException catch (error) {
+          workspaceConfigurationError = error.message;
+        }
+      }
+      if (workspaceConfigurationError != null) warns.add(workspaceConfigurationError);
+    }
+
     return AgentDefinition(
       id: id,
       description: yaml['description'] as String? ?? 'Agent: $id',
@@ -176,13 +346,41 @@ class AgentDefinition {
       profileIsOperatorConfigured: profileIsOperatorConfigured,
       execution: execution,
       outputSchema: outputSchema,
+      workspace: workspace,
+      workspaceConfigurationError: workspaceConfigurationError,
     );
   }
 
-  /// System prompt actually sent to the worker, including the output contract.
+  /// Returns this definition with its explicit workspace kept unavailable.
+  AgentDefinition withWorkspaceConfigurationError(String error) => AgentDefinition(
+    id: id,
+    description: description,
+    prompt: prompt,
+    allowedTools: allowedTools,
+    deniedTools: deniedTools,
+    maxResponseBytes: maxResponseBytes,
+    provider: provider,
+    securityProfile: securityProfile,
+    profileIsOperatorConfigured: profileIsOperatorConfigured,
+    execution: execution,
+    model: model,
+    effort: effort,
+    outputSchema: outputSchema,
+    workspaceConfigurationError: error,
+  );
+
+  /// Refuses execution for an explicitly configured workspace that failed preflight.
+  void requireWorkspaceAvailable() {
+    final error = workspaceConfigurationError;
+    if (error != null) throw StateError('$error. Fix this binding before using agent "$id".');
+  }
+
+  /// The explicit configured prompt with its output contract appended.
   ///
   /// Equals [prompt] when no [outputSchema] is declared. With one, the rendered
-  /// contract is appended — or is the whole persona when [prompt] is blank.
+  /// contract is appended — or is the whole value when [prompt] is blank.
+  /// Runtime workspace composition consumes [prompt] and [outputSchema]
+  /// separately so a blank prompt can retain workspace `SOUL.md`.
   String get personaPrompt {
     final schema = outputSchema;
     if (schema == null) return prompt;
@@ -224,7 +422,9 @@ class AgentDefinition {
           maxResponseBytes == other.maxResponseBytes &&
           model == other.model &&
           effort == other.effort &&
-          const DeepCollectionEquality().equals(outputSchema, other.outputSchema);
+          const DeepCollectionEquality().equals(outputSchema, other.outputSchema) &&
+          workspace == other.workspace &&
+          workspaceConfigurationError == other.workspaceConfigurationError;
 
   @override
   int get hashCode => Object.hash(
@@ -241,6 +441,8 @@ class AgentDefinition {
     model,
     effort,
     const DeepCollectionEquality().hash(outputSchema),
+    workspace,
+    workspaceConfigurationError,
   );
 
   static const _defaultSearchPrompt =

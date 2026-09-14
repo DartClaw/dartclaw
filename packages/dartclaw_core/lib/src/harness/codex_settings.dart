@@ -26,6 +26,7 @@ class CodexSettings {
     String? cwd,
     String? sandbox,
     String? approval,
+    List<String> writableRoots = const <String>[],
   }) {
     final translatedSandbox = translateSandbox(sandbox);
     final translatedApproval = translateApproval(approval);
@@ -38,6 +39,7 @@ class CodexSettings {
       'effort': ?trimmedEffort,
       'cwd': ?trimmedCwd,
       'sandbox': ?translatedSandbox,
+      if (translatedSandbox == 'workspaceWrite' && writableRoots.isNotEmpty) 'writable_roots': writableRoots,
       'approval_policy': ?translatedApproval,
     };
   }

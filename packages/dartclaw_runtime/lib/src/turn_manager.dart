@@ -123,6 +123,7 @@ class TurnManager implements core.TurnManager {
   final TurnLimitsConfig _turnLimits;
   final SessionService? _sessions;
   final ExecutionPolicyResolver? _policyResolver;
+  final Map<String, AgentDefinition>? _agentDefinitions;
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
@@ -158,6 +159,7 @@ class TurnManager implements core.TurnManager {
     required TurnLimitsConfig turnLimits,
     Duration outcomeTtl = const Duration(seconds: 30),
     ExecutionPolicy executionPolicy = const ExecutionPolicy.host(),
+    Map<String, AgentDefinition>? agentDefinitions,
   }) : this.fromCoordinator(
          coordinator: _singleHarnessCoordinator(
            messages: messages,
@@ -181,6 +183,7 @@ class TurnManager implements core.TurnManager {
          ),
          sessions: sessions,
          turnLimits: turnLimits,
+         agentDefinitions: agentDefinitions,
        );
 
   new fromCoordinator({
@@ -188,10 +191,12 @@ class TurnManager implements core.TurnManager {
     required TurnLimitsConfig turnLimits,
     SessionService? sessions,
     ExecutionPolicyResolver? policyResolver,
+    Map<String, AgentDefinition>? agentDefinitions,
   }) : _executions = coordinator,
        _turnLimits = turnLimits,
        _sessions = sessions,
-       _policyResolver = policyResolver;
+       _policyResolver = policyResolver,
+       _agentDefinitions = agentDefinitions == null ? null : Map.unmodifiable(agentDefinitions);
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -263,7 +268,7 @@ class TurnManager implements core.TurnManager {
     bool readOnly = false,
     TurnOrigin? origin,
   }) async {
-    final lease = await _sessionReservations.run(
+    final reservation = await _sessionReservations.run(
       sessionId,
       () => _reserveExecutionForSession(
         sessionId,
@@ -274,12 +279,14 @@ class TurnManager implements core.TurnManager {
         allowedTools: allowedTools,
       ),
     );
+    final lease = reservation.lease;
     final runner = lease.runner;
+    final effectiveAgentName = reservation.agentName;
     try {
       final turnId = await runner.reserveAdmittedTurn(
         sessionId,
-        agentName: agentName,
-        directory: directory,
+        agentName: effectiveAgentName,
+        directory: directory ?? reservation.workspace?.directory,
         model: model,
         effort: effort,
         systemPromptOverride: systemPromptOverride,
@@ -527,7 +534,7 @@ class TurnManager implements core.TurnManager {
     _primary.setTaskReadOnly(readOnly);
   }
 
-  Future<ExecutionLease> _reserveExecutionForSession(
+  Future<({ExecutionLease lease, AgentWorkspace? workspace, String agentName})> _reserveExecutionForSession(
     String sessionId, {
     ExecutionPolicy? workerPolicy,
     String? taskId,
@@ -539,11 +546,29 @@ class TurnManager implements core.TurnManager {
     final provider = session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
     final isLogicalAgent = session?.type == SessionType.logicalAgent;
+    final definitions = _agentDefinitions;
+    final persistedAgent = definitions == null ? null : _persistedNamedAgent(session);
+    final effectiveAgent = persistedAgent ?? agentName ?? 'main';
+    if (persistedAgent != null) definitions?[persistedAgent]?.requireWorkspaceAvailable();
     // A channel session bound to a logical agent executes as that agent: the
     // channel surface would route it to the primary lane under the primary's
     // policy, discarding the pin, so it takes the logical-agent surface while
     // its admission stays the channel's waiting kind.
-    final boundChannel = session?.type == SessionType.channel && agentName != null && agentName != 'main';
+    final boundChannel = session?.type == SessionType.channel && effectiveAgent != 'main';
+    final workspaceAgent = isLogicalAgent || boundChannel ? effectiveAgent : null;
+    if (workspaceAgent != null && definitions != null) {
+      final definition = definitions[workspaceAgent];
+      if (definition == null) {
+        throw StateError('Session "$sessionId" belongs to unknown agent "$workspaceAgent". Create a new conversation.');
+      }
+      definition.requireWorkspaceAvailable();
+      AgentWorkspace.requireCurrent(
+        sessionId: sessionId,
+        agentId: workspaceAgent,
+        pinned: session?.workspace,
+        configured: definition.workspace,
+      );
+    }
     final surface = switch (session?.type) {
       SessionType.cron => ExecutionSurface.scheduler,
       SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
@@ -560,16 +585,40 @@ class TurnManager implements core.TurnManager {
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,
-        logicalAgentId: isLogicalAgent || boundChannel ? agentName : null,
+        logicalAgentId: isLogicalAgent || boundChannel ? effectiveAgent : null,
+        workspace: session?.workspace,
         allowedTools: allowedTools,
       ),
     );
-    if (lease != null) return lease;
+    if (lease != null) return (lease: lease, workspace: session?.workspace, agentName: effectiveAgent);
     throw BusyTurnException(
       'Provider "$provider" worker capacity unavailable for ${policy.describe()} execution; '
       'increase providers.$provider.pool_size',
       isSameSession: false,
     );
+  }
+
+  String? _persistedNamedAgent(Session? session) {
+    if (session == null || (session.type != SessionType.logicalAgent && session.type != SessionType.channel)) {
+      return null;
+    }
+    final sessionKey = session.channelKey;
+    if (sessionKey == null) {
+      throw StateError('Session "${session.id}" has no persisted ownership key. Create a new conversation.');
+    }
+    try {
+      final parsed = SessionKey.parse(sessionKey);
+      if (session.type == SessionType.logicalAgent && parsed.scope != 'logical') {
+        throw const FormatException('Logical-agent session key has the wrong scope');
+      }
+      final agentId = Uri.decodeComponent(parsed.agentId);
+      if (agentId.isEmpty) throw const FormatException('Session agent id is blank');
+      return agentId;
+    } on FormatException catch (error) {
+      throw StateError('Session "${session.id}" has invalid persisted ownership: $error. Create a new conversation.');
+    } on ArgumentError catch (error) {
+      throw StateError('Session "${session.id}" has invalid persisted ownership: $error. Create a new conversation.');
+    }
   }
 
   /// Resolves the execution policy pinned to [session].

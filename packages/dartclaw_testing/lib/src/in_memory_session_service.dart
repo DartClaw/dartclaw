@@ -36,6 +36,7 @@ class InMemorySessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final now = DateTime.now();
     final session = Session(
@@ -45,6 +46,7 @@ class InMemorySessionService implements SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
       createdAt: now,
       updatedAt: now,
     );
@@ -116,11 +118,19 @@ class InMemorySessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
+        final bindingAgentId = workspace?.agentId ?? session.workspace?.agentId ?? 'unconfigured';
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: bindingAgentId,
+          pinned: session.workspace,
+          configured: workspace,
+        );
         final resolvedMode = executionMode ?? session.executionMode;
         if (session.type != type ||
             session.channelKey != key ||
@@ -149,6 +159,7 @@ class InMemorySessionService implements SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
     );
     _sessionKeys[key] = session.id;
     return session;

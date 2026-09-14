@@ -513,13 +513,19 @@ const Map<String, FieldMeta> _agentFields = {
     description: 'Logical agents keyed by the id the session tools address them with. The built-in search agent is defined here too.',
     entry: ObjectEntry(
       fields: {
+        'workspace': EntryFieldMeta(
+          type: ConfigFieldType.string,
+          description:
+              'Existing execution-home directory for this agent. Relative paths resolve under data_dir; '
+              'omit the field to leave the agent without a workspace.',
+        ),
         'description': EntryFieldMeta(
           type: ConfigFieldType.string,
           description: 'One line shown in the spawn tool schema so a caller knows when to pick this agent.',
         ),
         'prompt': EntryFieldMeta(
           type: ConfigFieldType.string,
-          description: 'System prompt used for this agent turns. Empty leaves the agent unguided.',
+          description: 'Explicit SOUL prompt for this agent. Empty reads SOUL.md from a configured agent workspace or uses the built-in default.',
         ),
         'provider': EntryFieldMeta(
           type: ConfigFieldType.string,

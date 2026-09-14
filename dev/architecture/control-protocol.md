@@ -97,6 +97,7 @@ claude --print \
        [--permission-prompt-tool stdio] \
        [--setting-sources project] \
        [--settings <json>] \
+       [--add-dir <agent-workspace>] \
        --model opus[1m] \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
@@ -120,6 +121,7 @@ claude --print \
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL `can_use_tool` channel (not an interactive TTY). Emitted only when native permissions are *not* skipped – the `restricted` container profile, or a non-`bypassPermissions`/`dontAsk` `permissionMode`. **Not** emitted in the default config |
 | `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--settings <json>` | Inline settings JSON (sandbox / permissions allow-deny). Emitted only when the provider's `sandbox`/`permissions`/`settings` options are present |
+| `--add-dir <agent-workspace>` | Adds the configured agent's pinned workspace so Claude discovers its `.claude/skills` independently of the turn working directory; omitted for restricted and unconfigured agents |
 | `--max-turns <n>` | `agent.max_turns` or a per-turn override (a changed override restarts the process). Exceeding it ends the turn with `subtype: error_max_turns`, mapped to an error result |
 | `--disallowedTools <name>...` | `agent.disallowed_tools` plus the native `WebSearch`/`WebFetch` suppression when DartClaw serves the guarded MCP versions or the spawn is containerized. Entries are normalized through `ToolPolicyCascade.normalizeEntry` and mapped to Claude's spelling (`shell` → `Bash`, `file_edit` → `Edit` + `NotebookEdit`); unknown names pass through. The flag is variadic, so it is always the last argument |
 | `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
@@ -1075,6 +1077,12 @@ Startup uses a two-step handshake:
 1. DartClaw sends `initialize`.
 2. Codex responds, then DartClaw sends `initialized`.
 
+For a configured agent workspace, DartClaw next sends
+`skills/extraRoots/set {"extraRoots":["<workspace>/.agents/skills"]}` and waits for success. Thread creation remains
+blocked until that request completes, so an unsupported provider version or unmapped container path fails the worker
+instead of silently running without the agent's skills. This process-scoped root remains active when an authorized
+project becomes the turn cwd. Restricted and unconfigured agents send no additional root.
+
 Only after that does DartClaw create a thread with `thread/start`, or load an explicitly requested durable thread with
 `thread/resume {"threadId": "…"}`. The first ordinary turn for a session creates a thread; later turns reuse its cached ID.
 
@@ -1144,11 +1152,14 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 | `approval: on-request` | `approval_policy: "on-request"` | Recommended explicit posture – broadest available approval interception for DartClaw's guard chain |
 | `approval: unless-allow-listed` | `approval_policy: "granular"` | Partial – safe-listed commands emit no approval request |
 | `approval: never` | `approval_policy: "never"` | No approval requests – all tool calls execute immediately |
-| `sandbox: workspace-write` | `sandbox: "workspaceWrite"` | Codex sandbox allows writes to working directory only |
+| `sandbox: workspace-write` | `sandbox: "workspaceWrite"` | Codex sandbox allows writes to the working directory and the execution's declared workspace/artifact roots |
 | `sandbox: danger-full-access` | `sandbox: "dangerFullAccess"` | No Codex sandbox restrictions |
 
 When `approval` is absent or blank, DartClaw omits `approval_policy` and Codex inherits its own configuration. Because
 that inherited posture is not verifiable, serve warns whenever tool-restricted agents or jobs use such a provider.
+For `workspaceWrite`, declared writable roots are sent as `sandboxPolicy.writableRoots` on each `turn/start`; `readOnly`
+never receives them. The list is bound to the immutable worker construction identity and translated through the
+container mount map when applicable.
 
 #### Approval coverage
 

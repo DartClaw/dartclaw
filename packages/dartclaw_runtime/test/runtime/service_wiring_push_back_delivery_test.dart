@@ -84,7 +84,7 @@ void main() {
     );
     addTearDown(runtime.shutdownExtras);
 
-    const sessionKey = 'whatsapp:dm:push-back-origin';
+    const sessionKey = 'agent:main:per-peer:push-back-origin';
     final task = await runtime.taskService.create(
       id: 'pushback-1',
       title: 'Task under review',

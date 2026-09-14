@@ -44,6 +44,11 @@ class HarnessFactoryConfig {
   final List<String>? declaredCanonicalTools;
   final List<String> declaredWritableRoots;
 
+  /// Pinned configured-agent workspace used for provider-native skill discovery.
+  ///
+  /// This stays separate from [cwd], which may be an authorized project.
+  final String? skillWorkspaceDir;
+
   /// Environment variables visible to the provider subprocess.
   final Map<String, String> environment;
 
@@ -110,6 +115,7 @@ class HarnessFactoryConfig {
     this.providerOptions = const <String, dynamic>{},
     this.declaredCanonicalTools,
     this.declaredWritableRoots = const <String>[],
+    this.skillWorkspaceDir,
     this.environment = const <String, String>{},
     this.containerEnvironment = const <String, String>{},
     this.processFactory,
@@ -265,6 +271,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     platformCapabilities: config.platformCapabilities,
     declaredCanonicalTools: config.declaredCanonicalTools,
     declaredWritableRoots: config.declaredWritableRoots,
+    skillWorkspaceDir: config.skillWorkspaceDir,
   );
 }
 
@@ -283,5 +290,7 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     platformCapabilities: config.platformCapabilities,
     containerManager: config.containerManager,
     prepareSubscriptionHome: config.prepareSubscriptionHome,
+    skillWorkspaceDir: config.skillWorkspaceDir,
+    declaredWritableRoots: config.declaredWritableRoots,
   );
 }

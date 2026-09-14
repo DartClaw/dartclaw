@@ -1,4 +1,5 @@
 import 'execution_policy.dart';
+import 'agent_definition.dart' show AgentWorkspace;
 
 const _sessionFieldUnset = Object();
 
@@ -61,6 +62,12 @@ class Session {
   /// container availability, then persist the derived value forward.
   final ExecutionMode? executionMode;
 
+  /// Agent workspace ownership pinned when this session was created.
+  ///
+  /// Null keeps legacy and unconfigured sessions backward-readable without
+  /// assigning them a workspace identity.
+  final AgentWorkspace? workspace;
+
   /// When this session record was first created.
   final DateTime createdAt;
 
@@ -76,6 +83,7 @@ class Session {
     this.provider,
     this.securityProfile,
     this.executionMode,
+    this.workspace,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -89,6 +97,8 @@ class Session {
     if (provider != null) 'provider': provider,
     if (securityProfile != null) 'securityProfile': securityProfile,
     if (executionMode != null) 'executionMode': executionMode!.name,
+    if (workspace != null) 'workspaceAgentId': workspace!.agentId,
+    if (workspace != null) 'workspaceDir': workspace!.directory,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -97,17 +107,28 @@ class Session {
   ///
   /// A missing legacy `type` defaults to [SessionType.user]. Throws
   /// [FormatException] when a present type is not a supported string value.
-  factory fromJson(Map<String, dynamic> json) => Session(
-    id: json['id'] as String,
-    title: json['title'] as String?,
-    type: _parseSessionType(json['type']),
-    channelKey: json['channelKey'] as String?,
-    provider: json['provider'] as String?,
-    securityProfile: json['securityProfile'] as String?,
-    executionMode: _parseExecutionMode(json['executionMode']),
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    updatedAt: DateTime.parse(json['updatedAt'] as String),
-  );
+  factory fromJson(Map<String, dynamic> json) {
+    final workspaceAgentId = json['workspaceAgentId'];
+    final workspaceDir = json['workspaceDir'];
+    if ((workspaceAgentId == null) != (workspaceDir == null) ||
+        workspaceAgentId != null && (workspaceAgentId is! String || workspaceDir is! String)) {
+      throw const FormatException('Session workspace ownership must contain workspaceAgentId and workspaceDir');
+    }
+    return Session(
+      id: json['id'] as String,
+      title: json['title'] as String?,
+      type: _parseSessionType(json['type']),
+      channelKey: json['channelKey'] as String?,
+      provider: json['provider'] as String?,
+      securityProfile: json['securityProfile'] as String?,
+      executionMode: _parseExecutionMode(json['executionMode']),
+      workspace: workspaceAgentId == null
+          ? null
+          : AgentWorkspace.pinned(agentId: workspaceAgentId as String, directory: workspaceDir as String),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
 
   /// Returns a copy with selected fields replaced.
   Session copyWith({
@@ -118,6 +139,7 @@ class Session {
     Object? provider = _sessionFieldUnset,
     Object? securityProfile = _sessionFieldUnset,
     Object? executionMode = _sessionFieldUnset,
+    Object? workspace = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Session(
@@ -128,6 +150,7 @@ class Session {
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
     securityProfile: identical(securityProfile, _sessionFieldUnset) ? this.securityProfile : securityProfile as String?,
     executionMode: identical(executionMode, _sessionFieldUnset) ? this.executionMode : executionMode as ExecutionMode?,
+    workspace: identical(workspace, _sessionFieldUnset) ? this.workspace : workspace as AgentWorkspace?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );

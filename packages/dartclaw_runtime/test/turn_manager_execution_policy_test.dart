@@ -252,5 +252,52 @@ void main() {
       expect(request.admission, ExecutionAdmission.wait);
       expect(request.logicalAgentId, isNull);
     });
+
+    test('a persisted owner channel refuses a newly invalid main workspace binding at admission', () async {
+      final session = await sessions.createSession(type: SessionType.channel, channelKey: SessionKey.dmShared());
+      final (coordinator, requests) = recordingCoordinator();
+      final turns = TurnManager.fromCoordinator(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        coordinator: coordinator,
+        sessions: sessions,
+        policyResolver: resolverFor(containersEnabled: false),
+        agentDefinitions: const {
+          'main': AgentDefinition(
+            id: 'main',
+            description: 'Owner',
+            prompt: '',
+            workspaceConfigurationError: 'agent.agents.main.workspace cannot bind the reserved owner identity',
+          ),
+        },
+      );
+      addTearDown(turns.executions.dispose);
+
+      await expectLater(
+        turns.reserveTurn(session.id),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('reserved owner identity'))),
+      );
+      expect(requests, isEmpty);
+    });
+
+    test('a persisted owner channel keeps the owner lane when main has no workspace key', () async {
+      final session = await sessions.createSession(type: SessionType.channel, channelKey: SessionKey.dmShared());
+      final (coordinator, requests) = recordingCoordinator();
+      final turns = TurnManager.fromCoordinator(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        coordinator: coordinator,
+        sessions: sessions,
+        policyResolver: resolverFor(containersEnabled: false),
+        agentDefinitions: const {'main': AgentDefinition(id: 'main', description: 'Owner', prompt: '')},
+      );
+      addTearDown(turns.executions.dispose);
+
+      final turnId = await turns.reserveTurn(session.id);
+      final outcome = turns.waitForOutcome(session.id, turnId);
+      turns.releaseTurn(session.id, turnId);
+      await expectLater(outcome, throwsStateError);
+
+      expect(requests.single.surface, ExecutionSurface.channel);
+      expect(requests.single.logicalAgentId, isNull);
+    });
   });
 }

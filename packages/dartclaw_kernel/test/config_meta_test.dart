@@ -129,6 +129,10 @@ void main() {
       expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
       expect(ConfigMeta.fields, isNot(contains('guards.input_sanitizer.enabled')));
       expect(ConfigMeta.fields.keys.where((field) => field.startsWith('advisor.')), isEmpty);
+      final agentEntry = _entryFieldsOf(ConfigMeta.fields['agent.agents']!.entry);
+      expect(agentEntry['workspace']?.type, ConfigFieldType.string);
+      expect(agentEntry['workspace']?.nullable, isFalse);
+      expect(ConfigMeta.fields['agent.agents']!.mutability, ConfigMutability.restart);
     });
 
     // The reload-tier disposition of the heartbeat/git-sync fold, by name. A later

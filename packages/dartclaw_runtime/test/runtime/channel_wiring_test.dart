@@ -215,7 +215,12 @@ void main() {
     setUp(() {
       sessions = SessionService(baseDir: tempDir.path);
       messages = MessageService(baseDir: tempDir.path);
-      behavior = BehaviorFileService(workspaceDir: p.join(tempDir.path, 'workspace'));
+      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('OWNER SOUL MARKER');
+      File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('OWNER USER MARKER');
+      File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('OWNER TOOLS MARKER');
+      File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('OWNER MEMORY MARKER');
+      behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
       turns = _RecordingTurnManager();
       addTearDown(turns.executions.dispose);
     });
@@ -247,6 +252,28 @@ void main() {
       effort: effort,
       binding: binding,
     );
+
+    test('a reserved owner workspace binding is refused before channel dispatch', () {
+      final workspace = Directory(p.join(tempDir.path, 'agents', 'main'))..createSync(recursive: true);
+      final owner = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      final configured = AgentDefinition.fromYaml(
+        'main',
+        {
+          'workspace': workspace.path,
+          'tools': ['Read'],
+        },
+        <String>[],
+        dataDir: tempDir.path,
+        ownerWorkspaceDir: owner.path,
+      );
+
+      expect(
+        () => binderFor(configured).bind(const GroupEntry(id: '+1', agent: 'main')),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('reserved owner identity'))),
+      );
+      expect(turns.reserved, isEmpty);
+      expect(turns.executed, isEmpty);
+    });
 
     test(
       "the session is pinned to the agent's provider, profile and mode; the turn carries its name and persona",
@@ -292,7 +319,7 @@ void main() {
       },
     );
 
-    test('a restricted agent gets the restricted scope and no behaviour override', () async {
+    test('a restricted agent gets its scoped persona without owner workspace content', () async {
       const sandboxed = AgentDefinition(
         id: 'sandboxed',
         description: 'Sandboxed',
@@ -311,18 +338,29 @@ void main() {
       expect(session.securityProfile, 'restricted');
       final reservedTurn = turns.reserved.single;
       expect(reservedTurn.promptScope, PromptScope.restricted);
-      expect(reservedTurn.behaviorOverride, isNull);
+      final prompt = await reservedTurn.behaviorOverride!.composeSystemPrompt(scope: reservedTurn.promptScope!);
+      expect(prompt, contains('You are sandboxed.'));
+      expect(prompt, isNot(contains('OWNER SOUL MARKER')));
+      expect(prompt, isNot(contains('OWNER USER MARKER')));
+      expect(prompt, isNot(contains('OWNER TOOLS MARKER')));
+      expect(prompt, isNot(contains('OWNER MEMORY MARKER')));
       expect(reservedTurn.agentName, 'sandboxed');
     });
 
-    test('a blank prompt inherits the workspace SOUL: the override is the base service itself', () async {
+    test('an unconfigured blank-prompt agent gets the default prompt without owner workspace content', () async {
       const quiet = AgentDefinition(id: 'quiet', description: 'Quiet', prompt: '  ', execution: ExecutionMode.host);
       final binding = binderFor(quiet).bind(const GroupEntry(id: '+1', agent: 'quiet'));
 
       await dispatch(binding: binding);
 
-      expect(turns.reserved.single.behaviorOverride, same(behavior));
-      expect(turns.reserved.single.promptScope, PromptScope.task);
+      final reservedTurn = turns.reserved.single;
+      final prompt = await reservedTurn.behaviorOverride!.composeSystemPrompt(scope: reservedTurn.promptScope!);
+      expect(reservedTurn.promptScope, PromptScope.task);
+      expect(prompt, contains(BehaviorFileService.defaultPrompt));
+      expect(prompt, isNot(contains('OWNER SOUL MARKER')));
+      expect(prompt, isNot(contains('OWNER USER MARKER')));
+      expect(prompt, isNot(contains('OWNER TOOLS MARKER')));
+      expect(prompt, isNot(contains('OWNER MEMORY MARKER')));
     });
 
     test('an unbound row takes the pre-change call: an unpinned session and startTurn', () async {
@@ -520,7 +558,12 @@ agent:
       storage: storage,
     );
     await task.wirePreServer();
-    final behavior = BehaviorFileService(workspaceDir: p.join(tempDir.path, 'workspace'));
+    final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+    File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('PAUSE OWNER SOUL MARKER');
+    File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('PAUSE OWNER USER MARKER');
+    File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('PAUSE OWNER TOOLS MARKER');
+    File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('PAUSE OWNER MEMORY MARKER');
+    final behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
     final agent = config.agent.definitions.single;
     final binder = ChannelAgentBinder(
       agents: {agent.id: agent},
@@ -581,7 +624,14 @@ agent:
     expect(turns.reserved.single.model, 'row-model');
     expect(turns.reserved.single.effort, 'high');
     expect(turns.reserved.single.promptScope, PromptScope.restricted);
-    expect(turns.reserved.single.behaviorOverride, isNull);
+    final prompt = await turns.reserved.single.behaviorOverride!.composeSystemPrompt(
+      scope: turns.reserved.single.promptScope!,
+    );
+    expect(prompt, contains('You are Ana.'));
+    expect(prompt, isNot(contains('PAUSE OWNER SOUL MARKER')));
+    expect(prompt, isNot(contains('PAUSE OWNER USER MARKER')));
+    expect(prompt, isNot(contains('PAUSE OWNER TOOLS MARKER')));
+    expect(prompt, isNot(contains('PAUSE OWNER MEMORY MARKER')));
     expect(turns.executed.single.agentName, 'ana');
     expect(turns.executed.single.source, 'channel');
   });

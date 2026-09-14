@@ -57,4 +57,23 @@ void main() {
     expect(() => Session.fromJson({...json, 'type': 'future-system'}), throwsFormatException);
     expect(() => Session.fromJson({...json, 'type': 1}), throwsFormatException);
   });
+
+  test('workspace ownership round-trips as an exact pinned pair', () {
+    final timestamp = DateTime.utc(2026, 9, 14);
+    const workspace = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
+    final session = Session(id: 'session-1', workspace: workspace, createdAt: timestamp, updatedAt: timestamp);
+
+    expect(session.toJson(), containsPair('workspaceAgentId', 'researcher'));
+    expect(session.toJson(), containsPair('workspaceDir', '/srv/agents/researcher'));
+    expect(Session.fromJson(session.toJson()).workspace, workspace);
+    expect(Session.fromJson(session.toJson()).workspace?.storagePrincipal, 'agent:researcher');
+  });
+
+  test('legacy workspace absence stays absent and partial ownership is malformed', () {
+    final json = {'id': 'session-1', 'createdAt': '2026-09-14T00:00:00.000Z', 'updatedAt': '2026-09-14T00:00:00.000Z'};
+
+    expect(Session.fromJson(json).workspace, isNull);
+    expect(() => Session.fromJson({...json, 'workspaceAgentId': 'researcher'}), throwsFormatException);
+    expect(() => Session.fromJson({...json, 'workspaceDir': '/srv/agents/researcher'}), throwsFormatException);
+  });
 }

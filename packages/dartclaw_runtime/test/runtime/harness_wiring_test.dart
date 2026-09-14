@@ -647,11 +647,12 @@ void main() {
       required String? model,
       required String? effort,
     }) async {
+      final harnessCount = createdHarnesses.length;
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agent,
         'message': 'Handle this',
       });
-      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      await _pollFor(() => createdHarnesses.length, (length) => length == harnessCount + 1);
       final logicalAgentHarness = createdHarnesses.last;
       await logicalAgentHarness.turnInvoked;
       final internalSessionId = logicalAgentHarness.lastSessionId;
@@ -670,7 +671,7 @@ void main() {
         'message': 'Continue this',
       });
       await logicalAgentHarness.turnInvoked;
-      expect(createdHarnesses, hasLength(2));
+      expect(createdHarnesses, hasLength(harnessCount + 1));
       expect(createdHarnesses.last, same(logicalAgentHarness));
       expect(logicalAgentHarness.lastSessionId, internalSessionId);
       expect(logicalAgentHarness.lastMessages, [
@@ -845,11 +846,12 @@ void main() {
     await wireHarnessWithServer(fakeFactory(['claude', providerId]));
 
     Future<void> completeLogicalAgentSession(String agentId) async {
+      final harnessCount = createdHarnesses.length;
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agentId,
         'message': 'Handle this',
       });
-      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      await _pollFor(() => createdHarnesses.length, (length) => length == harnessCount + 1);
       final logicalAgentHarness = createdHarnesses.last;
       await logicalAgentHarness.turnInvoked;
       if (agentId == 'search') {

@@ -62,6 +62,8 @@ void main() {
         containerManager: containerManager,
         guardChain: guardChain,
         auditLogger: auditLogger,
+        skillWorkspaceDir: '/tmp/agent-a',
+        declaredWritableRoots: const ['/tmp/agent-a'],
         onMemoryApply: (payload) async => {'applied': payload},
         onMemorySearch: (payload) async => {'searched': payload},
         onMemoryRead: (payload) async => {'read': payload},
@@ -79,6 +81,8 @@ void main() {
       expect(claude.containerManager, same(containerManager));
       expect(claude.guardChain, same(guardChain));
       expect(claude.auditLogger, same(auditLogger));
+      expect(claude.skillWorkspaceDir, '/tmp/agent-a');
+      expect(claude.declaredWritableRoots, ['/tmp/agent-a']);
       expect(claude.providerOptions, isEmpty);
       expect(claude.onMemoryApply, isNotNull);
       expect(claude.onMemorySearch, isNotNull);
@@ -128,6 +132,8 @@ void main() {
         turnTimeout: const Duration(seconds: 42),
         guardChain: guardChain,
         platformCapabilities: platformCapabilities,
+        skillWorkspaceDir: '/tmp/agent-b',
+        declaredWritableRoots: const ['/tmp/agent-b'],
       );
 
       final harness = factory.create('codex', config);
@@ -139,6 +145,8 @@ void main() {
       expect(codex.turnTimeout, const Duration(seconds: 42));
       expect(codex.guardChain, same(guardChain));
       expect(codex.platformCapabilities, same(platformCapabilities));
+      expect(codex.skillWorkspaceDir, '/tmp/agent-b');
+      expect(codex.declaredWritableRoots, ['/tmp/agent-b']);
     });
 
     test('defaults codex to the codex binary when executable is not set explicitly', () {

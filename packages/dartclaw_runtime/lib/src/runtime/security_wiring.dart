@@ -162,6 +162,8 @@ class SecurityWiring implements Reconfigurable {
     GatewayPrincipal principal, {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
+    String? workspaceDir,
+    bool useOwnerWorkspace = true,
   }) async {
     final profileId = principal.containerProfile;
     final template = profileId == null ? null : _containerTemplates[profileId];
@@ -176,6 +178,8 @@ class SecurityWiring implements Reconfigurable {
       generatedStateDir: p.join(_dataDir, 'containers', containerName),
       hasMcpBridge: allowedMcpTools.isNotEmpty,
       artifactsDir: artifactsDir,
+      workspaceDir: workspaceDir,
+      useOwnerWorkspace: useOwnerWorkspace,
     );
     // Registration rejects a provider this deployment cannot mediate – an
     // unusable Claude auth mode included – before any container is created.
@@ -361,13 +365,22 @@ class SecurityWiring implements Reconfigurable {
       required String generatedStateDir,
       String? artifactsDir,
       bool hasMcpBridge = false,
+      String? workspaceDir,
+      bool useOwnerWorkspace = true,
     }) => ContainerManager(
       config: config.container,
       containerName: containerName,
       ownerLabel: ContainerManager.ownerLabel(_dataDir),
       profileId: profile.id,
       workspaceMounts: profile.id == 'workspace'
-          ? [...profile.workspaceMounts, ...localPathProjectMounts]
+          ? [
+              ...SecurityProfile.workspace(
+                workspaceDir: workspaceDir ?? (useOwnerWorkspace ? config.workspaceDir : null),
+                projectDir: Directory.current.path,
+                projectsClonesDir: config.projectsClonesDir,
+              ).workspaceMounts,
+              ...localPathProjectMounts,
+            ]
           : profile.workspaceMounts,
       generatedStateDir: generatedStateDir,
       artifactsDir: artifactsDir,
@@ -375,7 +388,11 @@ class SecurityWiring implements Reconfigurable {
       localPathAllowlist: config.projects.localPathAllowlist,
       bridgeBinaryPath: _bridgeBinaryPath,
       buildContextDir: Directory.current.path,
-      workingDir: profile.id == SecurityProfile.restricted.id ? '/tmp' : '/project',
+      workingDir: profile.id == SecurityProfile.restricted.id
+          ? '/tmp'
+          : workspaceDir != null && !useOwnerWorkspace
+          ? '/workspace'
+          : '/project',
     );
 
     final probe = buildManager(
@@ -414,12 +431,21 @@ class SecurityWiring implements Reconfigurable {
 
     for (final profile in profiles) {
       _containerTemplates[profile.id] =
-          (containerName, {required generatedStateDir, required hasMcpBridge, required artifactsDir}) => buildManager(
+          (
+            containerName, {
+            required generatedStateDir,
+            required hasMcpBridge,
+            required artifactsDir,
+            required workspaceDir,
+            required useOwnerWorkspace,
+          }) => buildManager(
             profile,
             containerName,
             generatedStateDir: generatedStateDir,
             artifactsDir: artifactsDir,
             hasMcpBridge: hasMcpBridge,
+            workspaceDir: workspaceDir,
+            useOwnerWorkspace: useOwnerWorkspace,
           );
     }
 
@@ -817,6 +843,8 @@ typedef _ContainerTemplate = ContainerManager Function(
   required String generatedStateDir,
   required String? artifactsDir,
   required bool hasMcpBridge,
+  required String? workspaceDir,
+  required bool useOwnerWorkspace,
 });
 
 /// Bridges [MessageRedactor] (in dartclaw_kernel, which cannot depend on

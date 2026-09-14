@@ -438,7 +438,13 @@ class DartclawConfig {
       configBaseDir: configBaseDir,
     );
     final logging = _parseLogging(yaml, cli, environment, const LoggingConfig.defaults(), warns);
-    final agent = _parseAgent(yaml, const AgentConfig.defaults(), warns);
+    final agent = _parseAgent(
+      yaml,
+      const AgentConfig.defaults(),
+      warns,
+      dataDir: server.dataDir,
+      ownerWorkspaceDir: p.join(server.dataDir, 'workspace'),
+    );
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
     final sessions = _parseSessions(yaml, const SessionConfig.defaults(), warns);

@@ -20,6 +20,7 @@ final class ExecutionRequest {
     this.isHumanInput = false,
     this.taskId,
     this.logicalAgentId,
+    this.workspace,
     this.allowedTools,
     this.artifactsDir,
     this.spawnEnvironment,
@@ -45,6 +46,10 @@ final class ExecutionRequest {
   /// derived from its definition, so the identity has to reach whatever grants
   /// them.
   final String? logicalAgentId;
+
+  /// Workspace identity pinned to the session, separate from any selected
+  /// project or per-turn working directory.
+  final AgentWorkspace? workspace;
 
   /// The tool policy already in force for this execution, when it carries one
   /// of its own rather than a logical agent's.
@@ -76,6 +81,7 @@ final class ExecutionRequest {
       isHumanInput: isHumanInput,
       taskId: taskId,
       logicalAgentId: logicalAgentId,
+      workspace: workspace,
       allowedTools: allowedTools,
       artifactsDir: artifactsDir,
       spawnEnvironment: spawnEnvironment,

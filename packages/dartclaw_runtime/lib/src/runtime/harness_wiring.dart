@@ -265,6 +265,10 @@ class HarnessWiring {
   late HarnessLaunchOptions _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
+  late String _ownerWorkerPrompt;
+  late Map<String, ({String task, String restricted})> _agentWorkerPrompts;
+  late BehaviorFileService _ownerWorkerBehavior;
+  late Map<String, ({BehaviorFileService task, BehaviorFileService restricted})> _agentWorkerBehaviors;
   late List<McpTool> _semanticMcpTools;
   late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
@@ -349,6 +353,9 @@ class HarnessWiring {
     final staticPrompt = await _behavior.composeStaticPrompt(
       scope: _primaryLaneEnabled ? PromptScope.primary : PromptScope.task,
     );
+    _ownerWorkerPrompt = _primaryLaneEnabled
+        ? await _behavior.composeStaticPrompt(scope: PromptScope.task)
+        : staticPrompt;
 
     final memoryCorpus = _storage.personalMemoryCorpus;
     if (memoryCorpus != null) {
@@ -473,6 +480,22 @@ class HarnessWiring {
       }
     }
     _agentMap = {for (final a in _agentDefs) a.id: a};
+    final agentBehaviors = {
+      for (final definition in _agentDefs)
+        definition.id: _behavior.forAgentDefinition(definition, workspace: definition.workspace),
+    };
+    _agentWorkerPrompts = {
+      for (final entry in agentBehaviors.entries)
+        entry.key: (
+          task: await entry.value.composeStaticPrompt(scope: PromptScope.task),
+          restricted: await entry.value.composeStaticPrompt(scope: PromptScope.restricted),
+        ),
+    };
+    _ownerWorkerBehavior = _snapshotBehavior(_ownerWorkerPrompt);
+    _agentWorkerBehaviors = {
+      for (final entry in _agentWorkerPrompts.entries)
+        entry.key: (task: _snapshotBehavior(entry.value.task), restricted: _snapshotBehavior(entry.value.restricted)),
+    };
     // Bridged MCP authorization resolves registered tool names through the
     // same canonical taxonomy the guard cascade uses.
     _security.mcpToolCanonicals = _ownMcpToolCanonicals;
@@ -705,8 +728,6 @@ class HarnessWiring {
     _logicalAgentSessions = LogicalAgentSessionService(
       dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
         final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
-        final personaPrompt = definition.personaPrompt;
-        final persona = personaPrompt.trim().isEmpty ? null : personaPrompt;
         final trimmedModel = definition.model?.trim();
         final trimmedEffort = definition.effort?.trim();
         final configuredProvider = definition.provider?.trim();
@@ -722,6 +743,7 @@ class HarnessWiring {
             provider: agentProviderId,
             securityProfile: policy.containerProfile,
             executionMode: policy.mode,
+            workspace: definition.workspace,
           );
         } else {
           session = await _storage.sessions.getByKey(sessionId);
@@ -740,18 +762,27 @@ class HarnessWiring {
           executionMode: session.executionMode,
           securityProfile: session.securityProfile,
         );
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: agentId,
+          pinned: session.workspace,
+          configured: definition.workspace,
+        );
 
         final turns = turnManagerGetter() ?? (throw StateError(_noServerSurface));
+        final agentScope = sessionPolicy.containerProfile == SecurityProfile.restricted.id
+            ? PromptScope.restricted
+            : PromptScope.task;
         final turnId = await turns.reserveTurn(
           session.id,
           agentName: agentId,
           model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
-          systemPromptOverride: persona,
+          behaviorOverride: agentWorkerBehavior(agentId, agentScope),
           workerPolicy: sessionPolicy,
           outputSchema: definition.outputSchema,
           outputSchemaWhenSupported: true,
-          promptScope: PromptScope.task,
+          promptScope: agentScope,
         );
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
@@ -824,10 +855,11 @@ class HarnessWiring {
       required TaskToolFilterGuard toolFilter,
       required String providerId,
       required ExecutionPolicy executionPolicy,
+      BehaviorFileService? behavior,
     }) => TurnRunner(
       harness: harness,
       messages: _storage.messages,
-      behavior: _behavior,
+      behavior: behavior ?? _behavior,
       memoryFile: _storage.personalMemoryFile,
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
@@ -852,11 +884,6 @@ class HarnessWiring {
       executionPolicy: executionPolicy,
       providerId: providerId,
     );
-
-    // Append-mode providers receive behavior content when their process starts.
-    // Snapshot the task prompt once so all workers in this coordinator share the
-    // same construction inputs and are safe to reuse.
-    final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
 
     // Build the primary lane and on-demand worker authority.
     final primaryHarnessForRunner = _harness;
@@ -909,6 +936,21 @@ class HarnessWiring {
         final nativeGrants =
             executionAllowedTools ??
             (request.surface == ExecutionSurface.workflow ? _undeclaredStepNativeGrants : null);
+        final exposesWorkspace = containerProfile != SecurityProfile.restricted.id;
+        final skillWorkspaceDir = exposesWorkspace ? request.workspace?.directory : null;
+        final workerDefinition = request.logicalAgentId == null ? null : _agentMap[request.logicalAgentId];
+        final promptSnapshot = workerDefinition == null ? null : _agentWorkerPrompts[workerDefinition.id]!;
+        final workerPrompt = promptSnapshot == null
+            ? _ownerWorkerPrompt
+            : request.policy.containerProfile == SecurityProfile.restricted.id
+            ? promptSnapshot.restricted
+            : promptSnapshot.task;
+        final behaviorSnapshot = workerDefinition == null ? null : _agentWorkerBehaviors[workerDefinition.id]!;
+        final workerBehavior = behaviorSnapshot == null
+            ? _ownerWorkerBehavior
+            : request.policy.containerProfile == SecurityProfile.restricted.id
+            ? behaviorSnapshot.restricted
+            : behaviorSnapshot.task;
         final bridgedMcpTools = _bridgedMcpToolsFor(
           agentId: request.logicalAgentId,
           allowedTools: request.allowedTools,
@@ -924,10 +966,13 @@ class HarnessWiring {
                 policy: request.policy,
                 sourceSessionId: request.sessionId,
                 logicalAgentId: request.logicalAgentId,
+                workspacePrincipal: request.workspace?.storagePrincipal,
                 taskId: request.taskId,
               ),
               allowedMcpTools: bridgedMcpTools,
               artifactsDir: request.artifactsDir,
+              workspaceDir: request.workspace?.directory,
+              useOwnerWorkspace: request.logicalAgentId == null,
             );
           } catch (error) {
             throw WorkerCreationException(
@@ -972,7 +1017,11 @@ class HarnessWiring {
               providerOptions: entry.options,
               // Native allow rules supplement the task's guard policy.
               declaredCanonicalTools: nativeGrants,
-              declaredWritableRoots: [?request.artifactsDir],
+              declaredWritableRoots: [
+                if (exposesWorkspace && request.workspace != null) request.workspace!.directory,
+                ?request.artifactsDir,
+              ],
+              skillWorkspaceDir: skillWorkspaceDir,
               containerManager: containerManager,
               guardChain: workerGuardChain,
               environment: {
@@ -1004,6 +1053,7 @@ class HarnessWiring {
             toolFilter: workerFilter,
             executionPolicy: request.policy,
             providerId: request.providerId,
+            behavior: workerBehavior,
           );
           if (lease != null) _workerContainers[runner] = lease;
           return runner;
@@ -1017,6 +1067,19 @@ class HarnessWiring {
       },
     );
   }
+
+  /// Immutable behavior composed for one configured agent when wiring completed.
+  BehaviorFileService agentWorkerBehavior(String agentId, PromptScope scope) {
+    final behavior = _agentWorkerBehaviors[agentId] ?? (throw StateError('Unknown agent: $agentId'));
+    return scope == PromptScope.restricted ? behavior.restricted : behavior.task;
+  }
+
+  BehaviorFileService _snapshotBehavior(String prompt) => BehaviorFileService(
+    workspaceDir: _behavior.workspaceDir,
+    personalMemoryEnabled: false,
+    soulOverride: prompt,
+    workspaceFilesEnabled: false,
+  );
 
   /// Creates the container backing the primary harness, or returns `null` when
   /// the primary agent's resolved policy places it on the host.
@@ -1228,6 +1291,7 @@ class HarnessWiring {
     required Map<String, String> environment,
     List<String>? declaredCanonicalTools,
     List<String> declaredWritableRoots = const <String>[],
+    String? skillWorkspaceDir,
     Map<String, String> containerEnvironment = const {},
     Future<String?> Function()? prepareSubscriptionHome,
   }) {
@@ -1235,6 +1299,7 @@ class HarnessWiring {
     return HarnessFactoryConfig(
       declaredCanonicalTools: declaredCanonicalTools,
       declaredWritableRoots: declaredWritableRoots,
+      skillWorkspaceDir: skillWorkspaceDir,
       cwd: Directory.current.path,
       executable: executable,
       turnTimeout: config.governance.turnLimits.turnTimeout > Duration.zero

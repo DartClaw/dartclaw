@@ -551,9 +551,16 @@ ADR-016 makes provider selection first-class, so sandbox settings need to reflec
 |-----------|--------------|---------------|----------|---------------|
 | Docker container | `app-server` | `danger-full-access` | On | Docker is the primary boundary; Codex permissions stay active for tool approvals. |
 | Bare metal | `app-server` | `workspace-write` | On | Codex sandbox provides defense-in-depth when Docker is absent. |
-| Task worktree | `app-server` | `workspace-write` + `--cd <worktree>` + `--add-dir <data-dir>` | On | Anchor Codex to the task worktree and let it manage approvals. |
+| Task worktree | `app-server` | `workspace-write` + writable roots | On | Anchor Codex to the task worktree while retaining the configured agent workspace grant. |
 
 The worktree rows are intentionally narrower than the Docker rows: they assume a trusted host-side task workspace and preserve Codex's own sandboxing instead of widening to `danger-full-access`. That keeps task execution deterministic while still respecting the per-provider boundary described in ADR-016.
+
+A named agent's configured workspace is a separate execution principal input. Workspace-profile containers mount that
+directory at `/workspace`; an authorized project remains `/project`, and absent-workspace agents receive no
+`/workspace` mount. The same pinned directory supplies Claude's additional-directory skill root and Codex's
+process-scoped `.agents/skills` root. Codex host `workspaceWrite` turns include the permitted workspace in
+`sandboxPolicy.writableRoots`; `readOnly` and restricted workers do not inherit it. Tool grants remain the authority for
+which file operations the provider may request.
 
 These provider-sandbox rows describe qualified POSIX hosts. Claude's native sandbox is unavailable on native Windows,
 and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL when this isolation boundary is required.

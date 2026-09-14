@@ -545,6 +545,7 @@ class _SerialSessionService extends SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     Session? session;
     Object? error;
@@ -552,7 +553,14 @@ class _SerialSessionService extends SessionService {
 
     _pending = _pending.then((_) async {
       try {
-        session = await super.getOrCreateByKey(key, type: type, provider: provider, securityProfile: securityProfile);
+        session = await super.getOrCreateByKey(
+          key,
+          type: type,
+          provider: provider,
+          securityProfile: securityProfile,
+          executionMode: executionMode,
+          workspace: workspace,
+        );
       } catch (e, st) {
         error = e;
         stackTrace = st;

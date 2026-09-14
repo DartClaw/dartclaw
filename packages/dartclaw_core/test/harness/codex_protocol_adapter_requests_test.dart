@@ -24,6 +24,28 @@ void main() {
       }
     });
 
+    test('adds declared roots only to workspaceWrite sandboxPolicy', () {
+      final adapter = CodexProtocolAdapter();
+
+      final writable = adapter.buildTurnRequest(
+        message: 'test',
+        settings: CodexSettings.buildDynamicSettings(
+          sandbox: 'workspace-write',
+          writableRoots: const ['/project', '/agents/a'],
+        ),
+      );
+      final readOnly = adapter.buildTurnRequest(
+        message: 'test',
+        settings: CodexSettings.buildDynamicSettings(sandbox: 'read-only', writableRoots: const ['/agents/a']),
+      );
+
+      expect(writable['params']?['sandboxPolicy'], {
+        'type': 'workspaceWrite',
+        'writableRoots': ['/project', '/agents/a'],
+      });
+      expect(readOnly['params']?['sandboxPolicy'], {'type': 'readOnly'});
+    });
+
     test('builds turn/start payload with user content', () {
       final adapter = CodexProtocolAdapter();
       expect(

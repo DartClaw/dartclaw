@@ -107,12 +107,16 @@ CodexHarness _harness(
   HarnessLaunchOptions harnessConfig = const HarnessLaunchOptions(),
   Map<String, String>? environment,
   Map<String, String> containerEnvironment = const {},
+  String? skillWorkspaceDir,
+  List<String> declaredWritableRoots = const [],
 }) => CodexHarness(
   cwd: container.hostRoot,
   containerManager: container,
   environment:
       environment ?? {'OPENAI_API_KEY': _hostApiKeySentinel, 'CODEX_HOME': '/home/tester/.codex', 'PATH': '/usr/bin'},
   containerEnvironment: containerEnvironment,
+  skillWorkspaceDir: skillWorkspaceDir,
+  declaredWritableRoots: declaredWritableRoots,
   harnessConfig: harnessConfig,
   // Points the seeding lifecycle's source at the temp root, so a host home
   // planted below is genuinely copyable and the assertion can fail.
@@ -190,6 +194,49 @@ void main() {
       expect(container.workingDirectories.last, _RecordingCodexContainer.containerWorkspace);
       // Never the host path the harness was constructed with.
       expect(container.workingDirectories.last, isNot(equals(container.hostRoot)));
+
+      await harness.stop();
+    });
+
+    test('translates the pinned skill and writable roots into the container', () async {
+      final workspaceRoot = Directory(p.join(root.path, 'agent-a'))..createSync(recursive: true);
+      final artifactsRoot = Directory(p.join(root.path, 'artifacts'))..createSync(recursive: true);
+      final harness = _harness(
+        container,
+        skillWorkspaceDir: workspaceRoot.path,
+        declaredWritableRoots: [workspaceRoot.path, artifactsRoot.path],
+      );
+
+      final startFuture = harness.start();
+      for (var attempt = 0; container.spawned == null && attempt < 200; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      final process = container.spawned!;
+      await waitForSentMessage(process, 'initialize');
+      process.emitInitializeResponse(id: latestRequestId(process, 'initialize'));
+      await waitForSentMessage(process, 'skills/extraRoots/set');
+      final rootsRequest = process.sentMessages.lastWhere((message) => message['method'] == 'skills/extraRoots/set');
+      expect(rootsRequest['params'], {
+        'extraRoots': ['/project/agent-a/.agents/skills'],
+      });
+      process.emitLine({'id': rootsRequest['id'], 'result': {}});
+      await startFuture;
+
+      final turn = harness.turn(
+        sessionId: 'container-roots',
+        messages: const [
+          {'role': 'user', 'content': 'test'},
+        ],
+        systemPrompt: '',
+      );
+      await respondToLatestThreadStart(process);
+      await waitForSentMessage(process, 'turn/start');
+      final params =
+          process.sentMessages.lastWhere((message) => message['method'] == 'turn/start')['params']
+              as Map<String, dynamic>;
+      expect(params['sandboxPolicy'], {'type': 'dangerFullAccess'});
+      process.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turn;
 
       await harness.stop();
     });
